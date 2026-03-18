@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-artifact-base-v1",
+  "title": "Backstop Base Artifact Schema v1",
+  "description": "Universal shape for all backstop markdown artifacts. Every artifact type extends this base.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["filename_pattern", "metadata", "required_sections"],
+  "properties": {
+    "filename_pattern": {
+      "type": "string",
+      "description": "Regex pattern for valid filenames. Each artifact type defines its own pattern extending the base convention: <TYPE>-<NNNN>-<slug>.<type>.<ext>"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Key-value metadata block extracted from bold lines after the H1 title and before the first ---",
+      "required": ["title", "number", "created", "status", "schema-version"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 5,
+          "description": "The H1 heading of the artifact"
+        },
+        "number": {
+          "type": "string",
+          "description": "Artifact identifier matching the filename (e.g., ADR-0001, SPEC-0001)"
+        },
+        "created": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Creation date in ISO 8601 date format"
+        },
+        "status": {
+          "type": "string",
+          "description": "Lifecycle status. Valid values are artifact-type-specific."
+        },
+        "schema-version": {
+          "type": "string",
+          "pattern": "^[a-z]+/v[0-9]+$",
+          "description": "Schema version this artifact conforms to (e.g., adr/v1). Per D-079, the validator resolves this to artifacts/<type>/v<N>/schema.json."
+        }
+      }
+    },
+    "required_sections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "List of ## heading names that must be present in the artifact body"
+    },
+    "optional_sections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of ## heading names that may be present but are not required"
+    }
+  }
+}

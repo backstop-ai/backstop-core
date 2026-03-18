@@ -5,6 +5,7 @@
 **Status:** Accepted
 **Deciders:** @bmanson
 **Decisions:** D-025–D-029, D-037, D-076
+**Schema-Version:** adr/v1
 
 ---
 
