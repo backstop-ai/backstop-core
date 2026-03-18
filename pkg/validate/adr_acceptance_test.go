@@ -39,8 +39,8 @@ func TestValidateADR_ExistingADRs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(entries) != 12 {
-		t.Fatalf("expected 12 ADR files, found %d", len(entries))
+	if len(entries) != 16 {
+		t.Fatalf("expected 16 ADR files, found %d", len(entries))
 	}
 
 	for _, path := range entries {
