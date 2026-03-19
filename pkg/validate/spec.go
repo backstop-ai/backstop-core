@@ -12,6 +12,7 @@ import (
 var specNumberRe = regexp.MustCompile(`^(SPEC-[0-9]{3})-`)
 var claimIDRe = regexp.MustCompile(`^CLM-[0-9]{3}$`)
 var reqIDRe = regexp.MustCompile(`^REQ-[0-9]{3}$`)
+var supportsRe = regexp.MustCompile(`^[a-z0-9-]+:REQ-[0-9]{3}$`)
 
 // Verification level → required coverage threshold. Nil means threshold must be absent.
 var thresholdRules = map[string]*int{
@@ -406,6 +407,26 @@ func validateRequirements(art *artifact.ParsedArtifact) reqResult {
 				Message:  fmt.Sprintf("requirements[%d] 'text' is empty", i),
 				Severity: "error",
 			})
+		}
+
+		// Optional supports field — traces back to bundle requirement
+		if supVal, ok := req["supports"]; ok {
+			sup, ok := supVal.(string)
+			if !ok || strings.TrimSpace(sup) == "" {
+				result.violations = append(result.violations, Violation{
+					Rule:     "spec/requirement-supports-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("requirements[%d] 'supports' is empty", i),
+					Severity: "error",
+				})
+			} else if !supportsRe.MatchString(sup) {
+				result.violations = append(result.violations, Violation{
+					Rule:     "spec/requirement-supports-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("requirements[%d] 'supports' value '%s' must match format bundle-name:REQ-NNN", i, sup),
+					Severity: "error",
+				})
+			}
 		}
 	}
 

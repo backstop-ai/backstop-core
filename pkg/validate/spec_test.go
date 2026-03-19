@@ -903,3 +903,60 @@ func TestValidateSpec_RequirementNotAMap(t *testing.T) {
 		t.Errorf("expected 'spec/requirement-format' violation, got: %v", result.Violations)
 	}
 }
+
+// --- Supports field tests ---
+
+func TestValidateSpec_RequirementValidSupports(t *testing.T) {
+	art := validSpecArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = "my-feature:REQ-001"
+	result := validate.ValidateSpec(art, specSchema())
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-supports-format" {
+			t.Errorf("unexpected supports format violation: %s", v.Message)
+		}
+	}
+}
+
+func TestValidateSpec_RequirementBadSupportsFormat(t *testing.T) {
+	art := validSpecArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = "bad format here"
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-supports-format" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-supports-format' violation")
+	}
+}
+
+func TestValidateSpec_RequirementEmptySupports(t *testing.T) {
+	art := validSpecArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = ""
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-supports-format" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-supports-format' violation for empty supports")
+	}
+}
+
+func TestValidateSpec_RequirementNoSupports_OK(t *testing.T) {
+	art := validSpecArtifact()
+	// No supports field — should be fine (it's optional)
+	result := validate.ValidateSpec(art, specSchema())
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-supports-format" {
+			t.Errorf("unexpected supports violation when field absent: %s", v.Message)
+		}
+	}
+}

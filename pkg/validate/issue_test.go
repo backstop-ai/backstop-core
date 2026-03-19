@@ -58,14 +58,33 @@ func validClosedIssueArtifact() *artifact.ParsedArtifact {
 				"created": "2026-03-15",
 				"closed":  "2026-03-19",
 			},
-			"claims": []interface{}{
+			"requirements": []interface{}{
 				map[string]interface{}{
-					"id":   "AC-001.1",
-					"text": "Parser returns error on nil input",
+					"id":   "REQ-001",
+					"text": "Parser must return error on nil input",
 				},
 				map[string]interface{}{
-					"id":   "AC-001.2",
-					"text": "Parser returns error on empty string",
+					"id":       "REQ-002",
+					"text":     "Parser must return error on empty string",
+					"supports": "my-feature:REQ-003",
+				},
+			},
+			"claims": []interface{}{
+				map[string]interface{}{
+					"id":          "CLM-001",
+					"requirement": "REQ-001",
+					"text":        "ParseFile returns ErrNilInput when given nil",
+					"tests": []interface{}{
+						map[string]interface{}{"test_name": "TestParseFile_NilInput"},
+					},
+				},
+				map[string]interface{}{
+					"id":          "CLM-002",
+					"requirement": "REQ-002",
+					"text":        "ParseFile returns ErrEmptyInput when given empty string",
+					"tests": []interface{}{
+						map[string]interface{}{"test_name": "TestParseFile_EmptyInput"},
+					},
 				},
 			},
 		},
@@ -305,7 +324,139 @@ func TestValidateIssue_NoComplexity_OK(t *testing.T) {
 	assertNoViolationRule(t, result, "issue/complexity-scope-enum")
 }
 
-// --- Claims tests ---
+// --- Requirements tests (on close) ---
+
+func TestValidateIssue_Open_NoRequirements_OK(t *testing.T) {
+	art := validIssueArtifact()
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirements-required-on-close")
+}
+
+func TestValidateIssue_Closed_NoRequirements(t *testing.T) {
+	art := validClosedIssueArtifact()
+	delete(art.Frontmatter, "requirements")
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirements-required-on-close")
+}
+
+func TestValidateIssue_Closed_EmptyRequirements(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirements-required-on-close")
+}
+
+func TestValidateIssue_Closed_RequirementsNotArray(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = "not-array"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirements-format")
+}
+
+func TestValidateIssue_Closed_RequirementNotMap(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{"not-a-map"}
+	// Claims still reference REQ-001/REQ-002 which won't exist
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-format")
+}
+
+func TestValidateIssue_Closed_RequirementMissingID(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"text": "some requirement"},
+	}
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"text": "claim", "tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-id-required")
+}
+
+func TestValidateIssue_Closed_RequirementBadIDFormat(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "BAD-001", "text": "requirement"},
+	}
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "BAD-001",
+			"text": "claim", "tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-id-format")
+}
+
+func TestValidateIssue_Closed_DuplicateRequirementID(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001", "text": "first"},
+		map[string]interface{}{"id": "REQ-001", "text": "duplicate"},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-id-duplicate")
+}
+
+func TestValidateIssue_Closed_RequirementMissingText(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001"},
+	}
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"text": "claim", "tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-text-required")
+}
+
+func TestValidateIssue_Closed_RequirementEmptyText(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001", "text": "  "},
+	}
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"text": "claim", "tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-text-required")
+}
+
+// --- Supports field tests ---
+
+func TestValidateIssue_Closed_ValidSupports(t *testing.T) {
+	art := validClosedIssueArtifact()
+	// REQ-002 already has supports: "my-feature:REQ-003" in the fixture
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirement-supports-format")
+}
+
+func TestValidateIssue_Closed_BadSupportsFormat(t *testing.T) {
+	art := validClosedIssueArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = "bad format"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-supports-format")
+}
+
+func TestValidateIssue_Closed_EmptySupports(t *testing.T) {
+	art := validClosedIssueArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = ""
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-supports-format")
+}
+
+// --- Claims tests (full spec parity on close) ---
 
 func TestValidateIssue_Open_NoClaims_OK(t *testing.T) {
 	art := validIssueArtifact()
@@ -344,7 +495,10 @@ func TestValidateIssue_Closed_ClaimNotMap(t *testing.T) {
 func TestValidateIssue_Closed_ClaimMissingID(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["claims"] = []interface{}{
-		map[string]interface{}{"text": "some claim"},
+		map[string]interface{}{
+			"requirement": "REQ-001", "text": "some claim",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
 	}
 	result := validate.ValidateIssue(art, issueSchema())
 	assertHasViolation(t, result, "issue/claim-id-required")
@@ -353,17 +507,27 @@ func TestValidateIssue_Closed_ClaimMissingID(t *testing.T) {
 func TestValidateIssue_Closed_ClaimBadIDPattern(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["claims"] = []interface{}{
-		map[string]interface{}{"id": "CLM-001", "text": "wrong pattern"},
+		map[string]interface{}{
+			"id": "AC-001.1", "requirement": "REQ-001",
+			"text": "wrong pattern",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
 	}
 	result := validate.ValidateIssue(art, issueSchema())
-	assertHasViolation(t, result, "issue/claim-id-pattern")
+	assertHasViolation(t, result, "issue/claim-id-format")
 }
 
 func TestValidateIssue_Closed_DuplicateClaimID(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["claims"] = []interface{}{
-		map[string]interface{}{"id": "AC-001.1", "text": "first"},
-		map[string]interface{}{"id": "AC-001.1", "text": "duplicate"},
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"text": "first", "tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-002",
+			"text": "duplicate", "tests": []interface{}{map[string]interface{}{"test_name": "TestY"}},
+		},
 	}
 	result := validate.ValidateIssue(art, issueSchema())
 	assertHasViolation(t, result, "issue/claim-id-duplicate")
@@ -372,30 +536,124 @@ func TestValidateIssue_Closed_DuplicateClaimID(t *testing.T) {
 func TestValidateIssue_Closed_ClaimMissingText(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["claims"] = []interface{}{
-		map[string]interface{}{"id": "AC-001.1"},
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
 	}
 	result := validate.ValidateIssue(art, issueSchema())
 	assertHasViolation(t, result, "issue/claim-text-required")
 }
 
-func TestValidateIssue_Open_ClaimsNotValidated(t *testing.T) {
+func TestValidateIssue_Closed_ClaimMissingRequirement(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "text": "claim without req",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/claim-requirement-required")
+}
+
+func TestValidateIssue_Closed_ClaimInvalidRequirement(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-999",
+			"text": "refs nonexistent req",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+		map[string]interface{}{
+			"id": "CLM-002", "requirement": "REQ-001",
+			"text": "valid", "tests": []interface{}{map[string]interface{}{"test_name": "TestY"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/claim-requirement-invalid")
+}
+
+func TestValidateIssue_Closed_ClaimMissingTests(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001", "text": "no tests",
+		},
+		map[string]interface{}{
+			"id": "CLM-002", "requirement": "REQ-002", "text": "valid",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/claim-tests-required")
+}
+
+func TestValidateIssue_Closed_ClaimEmptyTests(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001", "text": "empty tests",
+			"tests": []interface{}{},
+		},
+		map[string]interface{}{
+			"id": "CLM-002", "requirement": "REQ-002", "text": "valid",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/claim-tests-empty")
+}
+
+// --- Requirement coverage ---
+
+func TestValidateIssue_Closed_UncoveredRequirement(t *testing.T) {
+	art := validClosedIssueArtifact()
+	// Only CLM-001 covers REQ-001, nothing covers REQ-002
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id": "CLM-001", "requirement": "REQ-001",
+			"text": "covers REQ-001 only",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestX"}},
+		},
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolationContaining(t, result, "issue/requirement-uncovered", "REQ-002")
+}
+
+func TestValidateIssue_Closed_AllRequirementsCovered(t *testing.T) {
+	art := validClosedIssueArtifact()
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirement-uncovered")
+}
+
+// --- Open issues skip traceability validation ---
+
+func TestValidateIssue_Open_BadClaimsNotValidated(t *testing.T) {
 	art := validIssueArtifact()
-	// Claims present but with bad data — should NOT be validated since status is open
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{"id": "bad-id"},
 	}
 	result := validate.ValidateIssue(art, issueSchema())
-	assertNoViolationRule(t, result, "issue/claim-id-pattern")
+	assertNoViolationRule(t, result, "issue/claim-id-format")
 	assertNoViolationRule(t, result, "issue/claim-text-required")
+}
+
+func TestValidateIssue_InProgress_SkipsTraceability(t *testing.T) {
+	art := validIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "in-progress"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirements-required-on-close")
+	assertNoViolationRule(t, result, "issue/claims-required-on-close")
 }
 
 // --- Composition test ---
 
 func TestValidateIssue_ComposesBaseAndIssue(t *testing.T) {
 	art := validIssueArtifact()
-	art.Title = ""                    // base violation
-	art.Sections = []string{}         // base section violation
-	delete(art.Frontmatter["issue"].(map[string]interface{}), "id") // issue violation
+	art.Title = ""
+	art.Sections = []string{}
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "id")
 	result := validate.ValidateIssue(art, issueSchema())
 	assertHasViolation(t, result, "base/title-required")
 	assertHasViolation(t, result, "base/section-required")
@@ -411,33 +669,6 @@ func TestValidateIssue_AllTypesValid(t *testing.T) {
 		art.Frontmatter["issue"].(map[string]interface{})["type"] = typ
 		result := validate.ValidateIssue(art, issueSchema())
 		assertNoViolationRule(t, result, "issue/type-enum")
-	}
-}
-
-// --- All statuses valid ---
-
-func TestValidateIssue_AllStatusesValid(t *testing.T) {
-	statuses := map[string]func(*artifact.ParsedArtifact){
-		"open":        func(a *artifact.ParsedArtifact) {},
-		"in-progress": func(a *artifact.ParsedArtifact) {},
-		"blocked": func(a *artifact.ParsedArtifact) {
-			a.Frontmatter["context"] = map[string]interface{}{
-				"blocked_by": []interface{}{"ISSUE-001"},
-			}
-		},
-		"closed": func(a *artifact.ParsedArtifact) {
-			a.Frontmatter["issue"].(map[string]interface{})["closed"] = "2026-03-19"
-			a.Frontmatter["claims"] = []interface{}{
-				map[string]interface{}{"id": "AC-001.1", "text": "verified"},
-			}
-		},
-	}
-	for status, setup := range statuses {
-		art := validIssueArtifact()
-		art.Frontmatter["issue"].(map[string]interface{})["status"] = status
-		setup(art)
-		result := validate.ValidateIssue(art, issueSchema())
-		assertNoViolationRule(t, result, "issue/status-enum")
 	}
 }
 

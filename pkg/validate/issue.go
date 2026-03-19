@@ -12,7 +12,6 @@ import (
 var (
 	issueNumberRe = regexp.MustCompile(`^(ISSUE-[0-9]{3})-`)
 	issueIDRe     = regexp.MustCompile(`^ISSUE-[0-9]{3}$`)
-	acIDRe        = regexp.MustCompile(`^AC-[0-9]{3}\.[0-9]+$`)
 	issueTypes    = map[string]bool{
 		"bug": true, "technical-debt": true, "enhancement": true,
 		"question": true, "policy-violation": true,
@@ -26,8 +25,8 @@ var (
 )
 
 // ValidateIssue composes base validation with issue-specific checks.
-// Issues are lighter-weight than specs — claims are optional but
-// validated when the issue is closed.
+// Issues have full traceability parity with specs — requirements and
+// claims are optional when open but required and fully validated on close.
 func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 	base := ValidateBase(art, sch)
 	var violations []Violation
@@ -71,14 +70,14 @@ func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationR
 		violations = append(violations, validateIssueIDConsistency(art)...)
 	}
 
-	// 5. Status-gated rules
+	// 5. Status-gated rules (blocked → blocked_by, closed → date)
 	violations = append(violations, validateIssueStatusRules(art, status)...)
 
 	// 6. Complexity block (if present)
 	violations = append(violations, validateComplexity(art)...)
 
-	// 7. Claims validation (only enforced at close)
-	violations = append(violations, validateIssueClaims(art, status)...)
+	// 7. Requirements + Claims traceability (validated on close)
+	violations = append(violations, validateIssueTraceability(art, status)...)
 
 	combined := append(base.Violations, violations...)
 	return ValidationResult{Violations: combined}
@@ -322,21 +321,157 @@ func validateComplexity(art *artifact.ParsedArtifact) []Violation {
 	return violations
 }
 
-// validateIssueClaims checks acceptance criteria claims.
-// Claims are optional but validated when the issue is closed.
-func validateIssueClaims(art *artifact.ParsedArtifact, status string) []Violation {
+// validateIssueTraceability validates requirements → claims → tests kill chain.
+// At open/in-progress/blocked: requirements and claims are optional (no validation).
+// At closed: both are required with full cross-validation parity with specs.
+func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Violation {
+	var violations []Violation
+
+	if status != "closed" {
+		return violations
+	}
+
+	// Requirements (required on close)
+	validReqs := make(map[string]bool)
+	violations = append(violations, validateIssueRequirements(art, &validReqs)...)
+
+	// Claims with full spec parity (required on close)
+	violations = append(violations, validateIssueClaims(art, validReqs)...)
+
+	return violations
+}
+
+// validateIssueRequirements checks the requirements array — REQ-NNN pattern,
+// optional supports field for bundle traceability.
+func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[string]bool) []Violation {
+	var violations []Violation
+
+	reqsVal, ok := art.Frontmatter["requirements"]
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "issue/requirements-required-on-close",
+			File:     art.Filename,
+			Message:  "requirements array is required when issue is closed",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	reqs, ok := reqsVal.([]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "issue/requirements-format",
+			File:     art.Filename,
+			Message:  "requirements is not a valid array",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	if len(reqs) == 0 {
+		violations = append(violations, Violation{
+			Rule:     "issue/requirements-required-on-close",
+			File:     art.Filename,
+			Message:  "requirements array must not be empty when issue is closed",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	for i, item := range reqs {
+		req, ok := item.(map[string]interface{})
+		if !ok {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-format",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements[%d] is not a valid map", i),
+				Severity: "error",
+			})
+			continue
+		}
+
+		label := fmt.Sprintf("requirements[%d]", i)
+
+		// id
+		if idVal, ok := req["id"]; !ok {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-id-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'id'", label),
+				Severity: "error",
+			})
+		} else if id, ok := idVal.(string); !ok || !reqIDRe.MatchString(id) {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-id-format",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s id '%v' does not match REQ-NNN pattern", label, idVal),
+				Severity: "error",
+			})
+		} else if (*validReqs)[id] {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-id-duplicate",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("duplicate requirement id '%s'", id),
+				Severity: "error",
+			})
+		} else {
+			(*validReqs)[id] = true
+		}
+
+		// text
+		if textVal, ok := req["text"]; !ok {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'text'", label),
+				Severity: "error",
+			})
+		} else if text, ok := textVal.(string); ok && strings.TrimSpace(text) == "" {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s 'text' is empty", label),
+				Severity: "error",
+			})
+		}
+
+		// Optional supports — traces back to bundle requirement
+		if supVal, ok := req["supports"]; ok {
+			sup, ok := supVal.(string)
+			if !ok || strings.TrimSpace(sup) == "" {
+				violations = append(violations, Violation{
+					Rule:     "issue/requirement-supports-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("%s 'supports' is empty", label),
+					Severity: "error",
+				})
+			} else if !supportsRe.MatchString(sup) {
+				violations = append(violations, Violation{
+					Rule:     "issue/requirement-supports-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("%s 'supports' value '%s' must match format bundle-name:REQ-NNN", label, sup),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	return violations
+}
+
+// validateIssueClaims checks the claims array — full spec parity with CLM-NNN
+// pattern, requirement back-references, mandated test names, and coverage check.
+func validateIssueClaims(art *artifact.ParsedArtifact, validReqs map[string]bool) []Violation {
 	var violations []Violation
 
 	claimsVal, ok := art.Frontmatter["claims"]
 	if !ok {
-		if status == "closed" {
-			violations = append(violations, Violation{
-				Rule:     "issue/claims-required-on-close",
-				File:     art.Filename,
-				Message:  "claims array is required when issue is closed",
-				Severity: "error",
-			})
-		}
+		violations = append(violations, Violation{
+			Rule:     "issue/claims-required-on-close",
+			File:     art.Filename,
+			Message:  "claims array is required when issue is closed",
+			Severity: "error",
+		})
 		return violations
 	}
 
@@ -351,7 +486,7 @@ func validateIssueClaims(art *artifact.ParsedArtifact, status string) []Violatio
 		return violations
 	}
 
-	if status == "closed" && len(claims) == 0 {
+	if len(claims) == 0 {
 		violations = append(violations, Violation{
 			Rule:     "issue/claims-required-on-close",
 			File:     art.Filename,
@@ -361,12 +496,8 @@ func validateIssueClaims(art *artifact.ParsedArtifact, status string) []Violatio
 		return violations
 	}
 
-	// Only validate claim contents when closed
-	if status != "closed" {
-		return violations
-	}
-
 	seenIDs := make(map[string]bool)
+	coveredReqs := make(map[string]bool)
 	for i, item := range claims {
 		claim, ok := item.(map[string]interface{})
 		if !ok {
@@ -381,19 +512,19 @@ func validateIssueClaims(art *artifact.ParsedArtifact, status string) []Violatio
 
 		label := fmt.Sprintf("claims[%d]", i)
 
-		// claim.id
-		if id, ok := getStringField(claim, "id"); !ok {
+		// id (CLM-NNN)
+		if idVal, ok := claim["id"]; !ok {
 			violations = append(violations, Violation{
 				Rule:     "issue/claim-id-required",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("%s is missing 'id'", label),
 				Severity: "error",
 			})
-		} else if !acIDRe.MatchString(id) {
+		} else if id, ok := idVal.(string); !ok || !claimIDRe.MatchString(id) {
 			violations = append(violations, Violation{
-				Rule:     "issue/claim-id-pattern",
+				Rule:     "issue/claim-id-format",
 				File:     art.Filename,
-				Message:  fmt.Sprintf("%s id '%s' must match pattern AC-NNN.N", label, id),
+				Message:  fmt.Sprintf("%s id '%v' does not match CLM-NNN pattern", label, idVal),
 				Severity: "error",
 			})
 		} else if seenIDs[id] {
@@ -407,12 +538,74 @@ func validateIssueClaims(art *artifact.ParsedArtifact, status string) []Violatio
 			seenIDs[id] = true
 		}
 
-		// claim.text
-		if _, ok := getStringField(claim, "text"); !ok {
+		// text
+		if textVal, ok := claim["text"]; !ok {
 			violations = append(violations, Violation{
 				Rule:     "issue/claim-text-required",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("%s is missing 'text'", label),
+				Severity: "error",
+			})
+		} else if text, ok := textVal.(string); ok && strings.TrimSpace(text) == "" {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s 'text' is empty", label),
+				Severity: "error",
+			})
+		}
+
+		// requirement back-reference
+		if reqVal, ok := claim["requirement"]; !ok {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-requirement-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'requirement' field", label),
+				Severity: "error",
+			})
+		} else if reqID, ok := reqVal.(string); !ok || reqID == "" {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-requirement-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s 'requirement' is empty", label),
+				Severity: "error",
+			})
+		} else if len(validReqs) > 0 && !validReqs[reqID] {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-requirement-invalid",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s references unknown requirement '%s'", label, reqID),
+				Severity: "error",
+			})
+		} else if len(validReqs) > 0 {
+			coveredReqs[reqID] = true
+		}
+
+		// tests (mandated test names)
+		if testsVal, ok := claim["tests"]; !ok {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-tests-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'tests'", label),
+				Severity: "error",
+			})
+		} else if tests, ok := testsVal.([]interface{}); !ok || len(tests) == 0 {
+			violations = append(violations, Violation{
+				Rule:     "issue/claim-tests-empty",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s must have at least one test", label),
+				Severity: "error",
+			})
+		}
+	}
+
+	// Requirement coverage — every REQ must have at least one claim
+	for reqID := range validReqs {
+		if !coveredReqs[reqID] {
+			violations = append(violations, Violation{
+				Rule:     "issue/requirement-uncovered",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirement '%s' has no claims referencing it", reqID),
 				Severity: "error",
 			})
 		}

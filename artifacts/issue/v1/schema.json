@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "backstop-issue-v1",
   "title": "Backstop Issue Schema v1",
-  "description": "Schema for issues — lightweight sister artifact to specs. Supports bug fixes, enhancements, and technical debt tracking with optional claims validated on close. Extends backstop-artifact-base-v1.",
-  "version": "1.0.0",
+  "description": "Schema for issues — lightweight sister artifact to specs with full traceability parity. Supports bug fixes, enhancements, and technical debt tracking. Requirements and claims validated on close. Extends backstop-artifact-base-v1.",
+  "version": "1.1.0",
   "extends": "backstop-artifact-base-v1",
   "artifact_type": "issue",
   "filename_pattern": "^ISSUE-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.md$",
@@ -67,22 +67,23 @@
         }
       }
     },
+    "requirements": {
+      "type": "array",
+      "item_required_keys": ["id", "text"],
+      "item_optional_keys": ["supports"],
+      "description": "REQ-NNN requirements — full parity with specs. Optional 'supports' traces back to bundle requirement (format: bundle-name:REQ-NNN). Required when status is 'closed'."
+    },
     "claims": {
       "type": "array",
-      "description": "Acceptance criteria claims — optional but validated when status is 'closed'",
-      "item_required_keys": ["id", "text"],
-      "properties": {
-        "id": {
-          "pattern": "^AC-[0-9]{3}\\.[0-9]+$",
-          "description": "Acceptance criterion ID (e.g., AC-001.1)"
-        }
-      }
+      "item_required_keys": ["id", "requirement", "text", "tests"],
+      "description": "CLM-NNN claims — full parity with specs. Each claim traces to a REQ-NNN and mandates test names. Required when status is 'closed'."
     }
   },
   "enforcement": {
     "blocked-requires-blocked-by": "Issues with status 'blocked' must have non-empty context.blocked_by array",
     "closed-requires-date": "Issues with status 'closed' must have issue.closed date",
-    "claims-validated-on-close": "Claims array validated (id pattern, non-empty text) only when status is 'closed'",
-    "id-filename-consistency": "issue.id must match the ISSUE-NNN prefix in the filename"
+    "closed-requires-traceability": "Requirements and claims arrays required and fully validated when status is 'closed' — every REQ must have ≥1 CLM, every CLM must reference a valid REQ",
+    "id-filename-consistency": "issue.id must match the ISSUE-NNN prefix in the filename",
+    "supports-traceability": "Optional 'supports' field on requirements traces back to bundle-name:REQ-NNN"
   }
 }

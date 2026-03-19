@@ -53,7 +53,8 @@
     "requirements": {
       "type": "array",
       "item_required_keys": ["id", "text"],
-      "description": "REQ-NNN functional requirements — what must be true"
+      "item_optional_keys": ["supports"],
+      "description": "REQ-NNN functional requirements — what must be true. Optional 'supports' traces back to a bundle requirement (format: bundle-name:REQ-NNN)"
     },
     "claims": {
       "type": "array",
