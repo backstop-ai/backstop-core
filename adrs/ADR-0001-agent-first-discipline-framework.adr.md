@@ -1,13 +1,13 @@
-# ADR-0001: Backstop Is an Agent-First Discipline Framework
-
-**Number:** ADR-0001
-**Created:** 2026-03-17
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-052, D-024
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0001
+created: "2026-03-17"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-052, D-024"
+schema_version: adr/v2
+---
+
+# ADR-0001: Backstop Is an Agent-First Discipline Framework
 
 ## Thesis
 

@@ -35,7 +35,7 @@ func TestLoadSchema_BaseSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantKeys := []string{"title", "number", "created", "status", "schema-version"}
+	wantKeys := []string{"title", "number", "created", "status", "schema_version"}
 	for _, key := range wantKeys {
 		found := false
 		for _, k := range sch.RequiredMetadata {
@@ -57,7 +57,7 @@ func TestLoadSchema_BaseSchema(t *testing.T) {
 func TestLoadArtifactSchema_ADR(t *testing.T) {
 	root := repoRoot(t)
 	artifactsRoot := filepath.Join(root, "artifacts")
-	schemaPath := filepath.Join(artifactsRoot, "adr", "v1", "schema.json")
+	schemaPath := filepath.Join(artifactsRoot, "adr", "v2", "schema.json")
 
 	sch, err := schema.LoadArtifactSchema(schemaPath, artifactsRoot)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestLoadArtifactSchema_ADR(t *testing.T) {
 	}
 
 	// Base keys should be in RequiredMetadata
-	for _, key := range []string{"title", "number", "created", "status", "schema-version"} {
+	for _, key := range []string{"title", "number", "created", "status", "schema_version"} {
 		found := false
 		for _, k := range sch.RequiredMetadata {
 			if k == key {
@@ -147,7 +147,7 @@ func TestLoadArtifactSchema_ADR(t *testing.T) {
 func TestResolveSchemaPath_Valid(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Metadata: map[string]string{
-			"Schema-Version": "adr/v1",
+			"schema_version": "adr/v2",
 		},
 	}
 
@@ -155,7 +155,7 @@ func TestResolveSchemaPath_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("artifacts", "adr", "v1", "schema.json")
+	want := filepath.Join("artifacts", "adr", "v2", "schema.json")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}
@@ -168,20 +168,20 @@ func TestResolveSchemaPath_MissingVersion(t *testing.T) {
 
 	_, err := schema.ResolveSchemaPath(art)
 	if err == nil {
-		t.Error("expected error for missing Schema-Version, got nil")
+		t.Error("expected error for missing schema_version, got nil")
 	}
 }
 
 func TestResolveSchemaPath_InvalidFormat(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Metadata: map[string]string{
-			"Schema-Version": "not-valid-format",
+			"schema_version": "not-valid-format",
 		},
 	}
 
 	_, err := schema.ResolveSchemaPath(art)
 	if err == nil {
-		t.Error("expected error for invalid Schema-Version format, got nil")
+		t.Error("expected error for invalid schema_version format, got nil")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestLoadArtifactSchema_NoExtends(t *testing.T) {
 
 func TestLoadArtifactSchema_BadBasePath(t *testing.T) {
 	root := repoRoot(t)
-	schemaPath := filepath.Join(root, "artifacts", "adr", "v1", "schema.json")
+	schemaPath := filepath.Join(root, "artifacts", "adr", "v2", "schema.json")
 
 	// Point to nonexistent artifacts root so base schema can't be found
 	_, err := schema.LoadArtifactSchema(schemaPath, "/nonexistent/artifacts")

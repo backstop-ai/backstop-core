@@ -1,13 +1,13 @@
-# ADR-0007: Security Standards Pack — ASVS-Mapped Enforcement
-
-**Number:** ADR-0007
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-073
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0007
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: D-073
+schema_version: adr/v2
+---
+
+# ADR-0007: Security Standards Pack — ASVS-Mapped Enforcement
 
 ## Context
 

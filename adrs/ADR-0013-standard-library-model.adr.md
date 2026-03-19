@@ -1,13 +1,13 @@
-# ADR-0013: Standard Library Model — Recipes as Importable Code
-
-**Number:** ADR-0013
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-045, D-046, D-047, D-048, D-049, D-050, D-053, D-058
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0013
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-045, D-046, D-047, D-048, D-049, D-050, D-053, D-058"
+schema_version: adr/v2
+---
+
+# ADR-0013: Standard Library Model — Recipes as Importable Code
 
 ## Context
 

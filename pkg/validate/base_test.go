@@ -10,7 +10,7 @@ import (
 
 func baseSchema() *schema.Schema {
 	return &schema.Schema{
-		RequiredMetadata: []string{"title", "number", "status", "schema-version"},
+		RequiredMetadata: []string{"title", "number", "status", "schema_version"},
 		RequiredSections: []string{"Context", "Decision"},
 	}
 }
@@ -20,9 +20,9 @@ func TestValidateBase_MissingTitle(t *testing.T) {
 		Filename: "test.md",
 		Title:    "",
 		Metadata: map[string]string{
-			"Number":         "ADR-0001",
-			"Status":         "Accepted",
-			"Schema-Version": "adr/v1",
+			"number":         "ADR-0001",
+			"status":         "Accepted",
+			"schema_version": "adr/v2",
 		},
 		Sections: []string{"Context", "Decision"},
 	}
@@ -44,7 +44,7 @@ func TestValidateBase_MissingMetadata(t *testing.T) {
 		Filename: "test.md",
 		Title:    "Test Title",
 		Metadata: map[string]string{
-			"Number": "ADR-0001",
+			"number": "ADR-0001",
 		},
 		Sections: []string{"Context", "Decision"},
 	}
@@ -56,7 +56,7 @@ func TestValidateBase_MissingMetadata(t *testing.T) {
 			count++
 		}
 	}
-	// Missing: status, schema-version (title is the H1, not metadata)
+	// Missing: status, schema_version (title is the H1, not metadata)
 	if count < 2 {
 		t.Errorf("expected at least 2 metadata violations, got %d", count)
 	}
@@ -67,9 +67,9 @@ func TestValidateBase_MissingSections(t *testing.T) {
 		Filename: "test.md",
 		Title:    "Test Title",
 		Metadata: map[string]string{
-			"Number":         "ADR-0001",
-			"Status":         "Accepted",
-			"Schema-Version": "adr/v1",
+			"number":         "ADR-0001",
+			"status":         "Accepted",
+			"schema_version": "adr/v2",
 		},
 		Sections: []string{"Context"},
 	}
@@ -91,9 +91,9 @@ func TestValidateBase_AllPass(t *testing.T) {
 		Filename: "test.md",
 		Title:    "Test Title",
 		Metadata: map[string]string{
-			"Number":         "ADR-0001",
-			"Status":         "Accepted",
-			"Schema-Version": "adr/v1",
+			"number":         "ADR-0001",
+			"status":         "Accepted",
+			"schema_version": "adr/v2",
 		},
 		Sections: []string{"Context", "Decision"},
 	}

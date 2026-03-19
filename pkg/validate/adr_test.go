@@ -15,7 +15,7 @@ func adrSchema() *schema.Schema {
 		SlugPattern:       `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
 		SlugMinLength:     2,
 		SlugMaxLength:     64,
-		RequiredMetadata:  []string{"title", "number", "created", "status", "schema-version"},
+		RequiredMetadata:  []string{"title", "number", "created", "status", "schema_version"},
 		ExtensionMetadata: []string{"deciders", "decisions"},
 		RequiredSections:  []string{"Context", "Decision", "Consequences", "Alternatives Considered", "References"},
 		OptionalSections:  []string{"Thesis"},
@@ -28,12 +28,12 @@ func validADRArtifact() *artifact.ParsedArtifact {
 		Filename: "ADR-0001-test-slug.adr.md",
 		Title:    "ADR-0001: Test Title",
 		Metadata: map[string]string{
-			"Number":         "ADR-0001",
-			"Created":        "2026-03-17",
-			"Status":         "Accepted",
-			"Deciders":       "@bmanson",
-			"Decisions":      "D-001",
-			"Schema-Version": "adr/v1",
+			"number":         "ADR-0001",
+			"created":        "2026-03-17",
+			"status":         "Accepted",
+			"deciders":       "@bmanson",
+			"decisions":      "D-001",
+			"schema_version": "adr/v2",
 		},
 		Sections: []string{"Context", "Decision", "Consequences", "Alternatives Considered", "References"},
 	}
@@ -57,7 +57,7 @@ func TestValidateADR_InvalidFilename(t *testing.T) {
 
 func TestValidateADR_NumberMismatch(t *testing.T) {
 	art := validADRArtifact()
-	art.Metadata["Number"] = "ADR-0002"
+	art.Metadata["number"] = "ADR-0002"
 
 	result := validate.ValidateADR(art, adrSchema())
 	found := false
@@ -73,7 +73,7 @@ func TestValidateADR_NumberMismatch(t *testing.T) {
 
 func TestValidateADR_InvalidStatus(t *testing.T) {
 	art := validADRArtifact()
-	art.Metadata["Status"] = "Draft"
+	art.Metadata["status"] = "Draft"
 
 	result := validate.ValidateADR(art, adrSchema())
 	found := false
@@ -89,7 +89,7 @@ func TestValidateADR_InvalidStatus(t *testing.T) {
 
 func TestValidateADR_MissingDeciders(t *testing.T) {
 	art := validADRArtifact()
-	delete(art.Metadata, "Deciders")
+	delete(art.Metadata, "deciders")
 
 	result := validate.ValidateADR(art, adrSchema())
 	found := false
@@ -105,7 +105,7 @@ func TestValidateADR_MissingDeciders(t *testing.T) {
 
 func TestValidateADR_MissingDecisions(t *testing.T) {
 	art := validADRArtifact()
-	delete(art.Metadata, "Decisions")
+	delete(art.Metadata, "decisions")
 
 	result := validate.ValidateADR(art, adrSchema())
 	found := false
@@ -228,7 +228,7 @@ func TestValidateADR_TitleNumberMismatch(t *testing.T) {
 
 func TestValidateADR_SchemaVersionTypeMismatch(t *testing.T) {
 	art := validADRArtifact()
-	art.Metadata["Schema-Version"] = "spec/v1"
+	art.Metadata["schema_version"] = "spec/v1"
 
 	result := validate.ValidateADR(art, adrSchema())
 	found := false

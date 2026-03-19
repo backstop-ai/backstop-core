@@ -1,13 +1,13 @@
-# ADR-0010: Verification Kill Chain — Spec to Provably Correct Code
-
-**Number:** ADR-0010
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-009, D-010, D-055, D-056, D-057
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0010
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-009, D-010, D-055, D-056, D-057"
+schema_version: adr/v2
+---
+
+# ADR-0010: Verification Kill Chain — Spec to Provably Correct Code
 
 ## Context
 

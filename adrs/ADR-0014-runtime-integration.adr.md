@@ -1,13 +1,13 @@
-# ADR-0014: Runtime Integration — Hooks, Runtimes, Passive Enforcement
-
-**Number:** ADR-0014
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-006, D-035, D-038, D-039, D-040, D-041, D-042
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0014
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-006, D-035, D-038, D-039, D-040, D-041, D-042"
+schema_version: adr/v2
+---
+
+# ADR-0014: Runtime Integration — Hooks, Runtimes, Passive Enforcement
 
 ## Context
 

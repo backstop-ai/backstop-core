@@ -1,13 +1,13 @@
-# ADR-0015: Supply Chain Security — Dependency Audit, SBOM, License Compliance
-
-**Number:** ADR-0015
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-074
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0015
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: D-074
+schema_version: adr/v2
+---
+
+# ADR-0015: Supply Chain Security — Dependency Audit, SBOM, License Compliance
 
 ## Context
 

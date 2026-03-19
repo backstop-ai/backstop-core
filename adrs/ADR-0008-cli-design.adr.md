@@ -1,13 +1,13 @@
-# ADR-0008: CLI Design — init, new, validate, baseline, cd
-
-**Number:** ADR-0008
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-025–D-029, D-037, D-076
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0008
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-025–D-029, D-037, D-076"
+schema_version: adr/v2
+---
+
+# ADR-0008: CLI Design — init, new, validate, baseline, cd
 
 ## Context
 

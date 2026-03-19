@@ -62,7 +62,7 @@ func ValidateADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRes
 		m := adrNumberRe.FindStringSubmatch(art.Filename)
 		if m != nil {
 			fileNumber := m[1]
-			if metaNumber, ok := art.Metadata["Number"]; ok && metaNumber != fileNumber {
+			if metaNumber, ok := art.Metadata["number"]; ok && metaNumber != fileNumber {
 				adrViolations = append(adrViolations, Violation{
 					Rule:     "adr/number-mismatch",
 					File:     art.Filename,
@@ -91,7 +91,7 @@ func ValidateADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRes
 
 	// 5. Status enum
 	if len(sch.StatusEnum) > 0 {
-		status := art.Metadata["Status"]
+		status := art.Metadata["status"]
 		valid := false
 		for _, s := range sch.StatusEnum {
 			if s == status {
@@ -128,8 +128,8 @@ func ValidateADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRes
 		}
 	}
 
-	// 7. Schema-Version/artifact-type cross-check
-	if sv, ok := art.Metadata["Schema-Version"]; ok && sv != "" {
+	// 7. schema_version/artifact-type cross-check
+	if sv, ok := art.Metadata["schema_version"]; ok && sv != "" {
 		parts := strings.SplitN(sv, "/", 2)
 		if len(parts) == 2 && sch.ArtifactType != "" && parts[0] != sch.ArtifactType {
 			adrViolations = append(adrViolations, Violation{

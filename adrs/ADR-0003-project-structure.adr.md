@@ -1,13 +1,13 @@
-# ADR-0003: Backstop-Core Project Structure
-
-**Number:** ADR-0003
-**Created:** 2026-03-17
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-044 (revised), D-068, D-028
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0003
+created: "2026-03-17"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-044 (revised), D-068, D-028"
+schema_version: adr/v2
+---
+
+# ADR-0003: Backstop-Core Project Structure
 
 ## Context
 

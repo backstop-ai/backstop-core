@@ -1,13 +1,13 @@
-# ADR-0004: Validation Engine Architecture
-
-**Number:** ADR-0004
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-068, D-069, D-028, D-061
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0004
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-068, D-069, D-028, D-061"
+schema_version: adr/v2
+---
+
+# ADR-0004: Validation Engine Architecture
 
 ## Context
 

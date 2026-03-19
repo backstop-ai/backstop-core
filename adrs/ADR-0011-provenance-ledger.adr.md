@@ -1,13 +1,13 @@
-# ADR-0011: Provenance Ledger — Hash-Chained Audit Trail Per Directive
-
-**Number:** ADR-0011
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-051, D-054
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0011
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-051, D-054"
+schema_version: adr/v2
+---
+
+# ADR-0011: Provenance Ledger — Hash-Chained Audit Trail Per Directive
 
 ## Context
 

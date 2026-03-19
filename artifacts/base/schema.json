@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "backstop-artifact-base-v1",
   "title": "Backstop Base Artifact Schema v1",
-  "description": "Universal shape for all backstop markdown artifacts. Every artifact type extends this base.",
-  "version": "1.0.0",
+  "description": "Universal shape for all backstop markdown artifacts. Every artifact type extends this base. Metadata is YAML frontmatter between --- markers (D-082).",
+  "version": "1.1.0",
   "type": "object",
   "required": ["filename_pattern", "metadata", "required_sections"],
   "properties": {
@@ -13,8 +13,8 @@
     },
     "metadata": {
       "type": "object",
-      "description": "Key-value metadata block extracted from bold lines after the H1 title and before the first ---",
-      "required": ["title", "number", "created", "status", "schema-version"],
+      "description": "YAML frontmatter key-value metadata between --- markers, before the H1 title",
+      "required": ["title", "number", "created", "status", "schema_version"],
       "properties": {
         "title": {
           "type": "string",
@@ -34,10 +34,10 @@
           "type": "string",
           "description": "Lifecycle status. Valid values are artifact-type-specific."
         },
-        "schema-version": {
+        "schema_version": {
           "type": "string",
           "pattern": "^[a-z]+/v[0-9]+$",
-          "description": "Schema version this artifact conforms to (e.g., adr/v1). Per D-079, the validator resolves this to artifacts/<type>/v<N>/schema.json."
+          "description": "Schema version this artifact conforms to (e.g., adr/v2). Per D-079, the validator resolves this to artifacts/<type>/v<N>/schema.json."
         }
       }
     },

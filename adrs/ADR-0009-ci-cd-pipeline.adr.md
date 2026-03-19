@@ -1,13 +1,13 @@
-# ADR-0009: CI/CD Pipeline — Standardized Actions, Gate, Pluggable CD
-
-**Number:** ADR-0009
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-077, D-059, D-068
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0009
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-077, D-059, D-068"
+schema_version: adr/v2
+---
+
+# ADR-0009: CI/CD Pipeline — Standardized Actions, Gate, Pluggable CD
 
 ## Context
 

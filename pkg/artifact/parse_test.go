@@ -8,16 +8,16 @@ import (
 	"github.com/bmanson/backstop-core/pkg/artifact"
 )
 
-const validADR = `# ADR-0001: Backstop Is an Agent-First Discipline Framework
-
-**Number:** ADR-0001
-**Created:** 2026-03-17
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-052, D-024
-**Schema-Version:** adr/v1
-
+const validADR = `---
+number: ADR-0001
+created: "2026-03-17"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-052, D-024"
+schema_version: adr/v2
 ---
+
+# ADR-0001: Backstop Is an Agent-First Discipline Framework
 
 ## Context
 
@@ -59,13 +59,13 @@ func TestParseFile_ValidADR(t *testing.T) {
 		t.Errorf("Title = %q", art.Title)
 	}
 	if len(art.Metadata) != 6 {
-		t.Errorf("len(Metadata) = %d, want 6", len(art.Metadata))
+		t.Errorf("len(Metadata) = %d, want 6; got %v", len(art.Metadata), art.Metadata)
 	}
-	if art.Metadata["Number"] != "ADR-0001" {
-		t.Errorf("Metadata[Number] = %q", art.Metadata["Number"])
+	if art.Metadata["number"] != "ADR-0001" {
+		t.Errorf("Metadata[number] = %q", art.Metadata["number"])
 	}
-	if art.Metadata["Schema-Version"] != "adr/v1" {
-		t.Errorf("Metadata[Schema-Version] = %q", art.Metadata["Schema-Version"])
+	if art.Metadata["schema_version"] != "adr/v2" {
+		t.Errorf("Metadata[schema_version] = %q", art.Metadata["schema_version"])
 	}
 	if len(art.Sections) != 5 {
 		t.Errorf("len(Sections) = %d, want 5; got %v", len(art.Sections), art.Sections)
@@ -73,7 +73,7 @@ func TestParseFile_ValidADR(t *testing.T) {
 }
 
 func TestParse_ExtractsTitle(t *testing.T) {
-	art, err := artifact.Parse("# My Title\n---\n", "test.md")
+	art, err := artifact.Parse("---\nstatus: draft\n---\n# My Title\n## Context\n", "test.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,35 +83,37 @@ func TestParse_ExtractsTitle(t *testing.T) {
 }
 
 func TestParse_ExtractsMetadata(t *testing.T) {
-	input := `# Title
-
-**Number:** ADR-0001
-**Created:** 2026-03-17
-**Status:** Accepted
-**Schema-Version:** adr/v1
-
+	input := `---
+number: ADR-0001
+created: "2026-03-17"
+status: Accepted
+schema_version: adr/v2
 ---
+
+# Title
+
+## Context
 `
 	art, err := artifact.Parse(input, "test.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, key := range []string{"Number", "Created", "Status", "Schema-Version"} {
+	for _, key := range []string{"number", "created", "status", "schema_version"} {
 		if _, ok := art.Metadata[key]; !ok {
 			t.Errorf("Metadata missing key %q", key)
 		}
 	}
-	if art.Metadata["Number"] != "ADR-0001" {
-		t.Errorf("Metadata[Number] = %q, want %q", art.Metadata["Number"], "ADR-0001")
+	if art.Metadata["number"] != "ADR-0001" {
+		t.Errorf("Metadata[number] = %q, want %q", art.Metadata["number"], "ADR-0001")
 	}
-	if art.Metadata["Schema-Version"] != "adr/v1" {
-		t.Errorf("Metadata[Schema-Version] = %q, want %q", art.Metadata["Schema-Version"], "adr/v1")
+	if art.Metadata["schema_version"] != "adr/v2" {
+		t.Errorf("Metadata[schema_version] = %q, want %q", art.Metadata["schema_version"], "adr/v2")
 	}
 }
 
 func TestParse_ExtractsSections(t *testing.T) {
-	input := "# Title\n---\n## Context\nSome text.\n## Decision\nMore text.\n"
+	input := "---\nstatus: draft\n---\n# Title\n## Context\nSome text.\n## Decision\nMore text.\n"
 	art, err := artifact.Parse(input, "test.md")
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +131,7 @@ func TestParse_ExtractsSections(t *testing.T) {
 }
 
 func TestParse_NoMetadata(t *testing.T) {
-	art, err := artifact.Parse("# Title\n---\n## Context\n", "test.md")
+	art, err := artifact.Parse("---\n---\n# Title\n## Context\n", "test.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +150,7 @@ func TestParse_StripsDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(deep, "ADR-0001-test.adr.md")
-	if err := os.WriteFile(path, []byte("# Title\n---\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("---\nstatus: draft\n---\n# Title\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,7 +164,7 @@ func TestParse_StripsDirectory(t *testing.T) {
 }
 
 func TestParse_NoSections(t *testing.T) {
-	art, err := artifact.Parse("# Title\n**Key:** Val\n---\n", "test.md")
+	art, err := artifact.Parse("---\nkey: val\n---\n# Title\n", "test.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,16 +176,18 @@ func TestParse_NoSections(t *testing.T) {
 	}
 }
 
-func TestParse_BoldWithoutColon(t *testing.T) {
-	input := "# Title\n**Note**\n**Number:** ADR-0001\n---\n"
-	art, err := artifact.Parse(input, "test.md")
+func TestParse_NoFrontmatter(t *testing.T) {
+	art, err := artifact.Parse("# Title\n## Context\n", "test.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := art.Metadata["Note"]; ok {
-		t.Error("Metadata contains 'Note' — bold without colon should be ignored")
+	if art.Metadata == nil {
+		t.Error("Metadata is nil, want empty map")
 	}
-	if art.Metadata["Number"] != "ADR-0001" {
-		t.Errorf("Metadata[Number] = %q, want %q", art.Metadata["Number"], "ADR-0001")
+	if len(art.Metadata) != 0 {
+		t.Errorf("len(Metadata) = %d, want 0", len(art.Metadata))
+	}
+	if art.Title != "Title" {
+		t.Errorf("Title = %q, want %q", art.Title, "Title")
 	}
 }

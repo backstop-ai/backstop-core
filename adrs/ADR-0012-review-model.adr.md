@@ -1,13 +1,13 @@
-# ADR-0012: Review Model — Independent Reviewer, "If It's Green It Ships"
-
-**Number:** ADR-0012
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-059, D-067
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0012
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-059, D-067"
+schema_version: adr/v2
+---
+
+# ADR-0012: Review Model — Independent Reviewer, "If It's Green It Ships"
 
 ## Context
 

@@ -3,11 +3,8 @@ package artifact
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
-
-var metadataRe = regexp.MustCompile(`^\*\*(.+?):\*\*\s*(.+)$`)
 
 // ParseFile reads a markdown artifact from disk and parses it.
 func ParseFile(path string) (*ParsedArtifact, error) {
@@ -19,6 +16,7 @@ func ParseFile(path string) (*ParsedArtifact, error) {
 }
 
 // Parse extracts structure from backstop markdown content.
+// Format: YAML frontmatter between --- markers, then H1 title, then H2 sections.
 func Parse(content string, filename string) (*ParsedArtifact, error) {
 	art := &ParsedArtifact{
 		Filename: filepath.Base(filename),
@@ -27,37 +25,45 @@ func Parse(content string, filename string) (*ParsedArtifact, error) {
 	}
 
 	lines := strings.Split(content, "\n")
-	pastSeparator := false
-	titleFound := false
+	i := 0
 
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
+	// Skip leading whitespace
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
+	}
 
-		// Extract H1 title
-		if !titleFound && strings.HasPrefix(trimmed, "# ") {
-			art.Title = strings.TrimPrefix(trimmed, "# ")
-			titleFound = true
-			continue
-		}
-
-		// Before separator: extract metadata
-		if !pastSeparator {
-			if trimmed == "---" {
-				pastSeparator = true
-				continue
-			}
-			if titleFound {
-				if m := metadataRe.FindStringSubmatch(trimmed); m != nil {
-					art.Metadata[strings.TrimSpace(m[1])] = strings.TrimSpace(m[2])
+	// Extract YAML frontmatter if present
+	if i < len(lines) && strings.TrimSpace(lines[i]) == "---" {
+		i++ // skip opening ---
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "---" {
+			line := strings.TrimSpace(lines[i])
+			if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+				key := strings.TrimSpace(line[:colonIdx])
+				val := strings.TrimSpace(line[colonIdx+1:])
+				// Strip surrounding quotes
+				val = strings.Trim(val, `"'`)
+				if key != "" && val != "" {
+					art.Metadata[key] = val
 				}
 			}
-			continue
+			i++
 		}
+		if i < len(lines) {
+			i++ // skip closing ---
+		}
+	}
 
-		// After separator: extract H2 sections
-		if strings.HasPrefix(trimmed, "## ") {
+	// Extract H1 title and H2 sections from body
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+
+		if art.Title == "" && strings.HasPrefix(trimmed, "# ") {
+			art.Title = strings.TrimPrefix(trimmed, "# ")
+		} else if strings.HasPrefix(trimmed, "## ") {
 			art.Sections = append(art.Sections, strings.TrimPrefix(trimmed, "## "))
 		}
+
+		i++
 	}
 
 	return art, nil

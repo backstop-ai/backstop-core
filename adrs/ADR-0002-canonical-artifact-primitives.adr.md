@@ -1,13 +1,13 @@
-# ADR-0002: Six Canonical Artifact Primitives With Machine-Enforceable Schemas
-
-**Number:** ADR-0002
-**Created:** 2026-03-17
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-001–D-008, D-036, D-072
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0002
+created: "2026-03-17"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-001–D-008, D-036, D-072"
+schema_version: adr/v2
+---
+
+# ADR-0002: Six Canonical Artifact Primitives With Machine-Enforceable Schemas
 
 ## Context
 

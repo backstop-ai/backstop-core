@@ -1,13 +1,13 @@
-# ADR-0006: Standards Packs — Polyglot Native Checkers as Library Code
-
-**Number:** ADR-0006
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-016–D-023, D-030–D-034, D-031v2, D-032v2, D-046, D-075, D-076
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0006
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-016–D-023, D-030–D-034, D-031v2, D-032v2, D-046, D-075, D-076"
+schema_version: adr/v2
+---
+
+# ADR-0006: Standards Packs — Polyglot Native Checkers as Library Code
 
 ## Context
 

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-adr-v2",
+  "title": "Backstop ADR Schema v2",
+  "description": "Schema for Architecture Decision Records with YAML frontmatter metadata (D-082). Extends backstop-artifact-base-v1.",
+  "version": "2.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "adr",
+  "filename_pattern": "^ADR-[0-9]{4}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.adr\\.md$",
+  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+  "slug_min_length": 2,
+  "slug_max_length": 64,
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version", "deciders", "decisions"],
+    "properties": {
+      "number": {
+        "pattern": "^ADR-[0-9]{4}$"
+      },
+      "status": {
+        "enum": ["Proposed", "Accepted", "Deprecated", "Superseded"]
+      },
+      "schema_version": {
+        "const": "adr/v2"
+      },
+      "deciders": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Who made this decision (GitHub handles or names)"
+      },
+      "decisions": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Design decision IDs this ADR captures (e.g., D-052, D-024)"
+      }
+    }
+  },
+  "required_sections": [
+    "Context",
+    "Decision",
+    "Consequences",
+    "Alternatives Considered",
+    "References"
+  ],
+  "optional_sections": [
+    "Thesis"
+  ]
+}

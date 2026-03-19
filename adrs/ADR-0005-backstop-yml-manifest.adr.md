@@ -1,13 +1,13 @@
-# ADR-0005: Backstop.yml — Namespaced Manifest With Incremental Ceremony
-
-**Number:** ADR-0005
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-043, D-064, D-063, D-048, D-060, D-070
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0005
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-043, D-064, D-063, D-048, D-060, D-070"
+schema_version: adr/v2
+---
+
+# ADR-0005: Backstop.yml — Namespaced Manifest With Incremental Ceremony
 
 ## Context
 

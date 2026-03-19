@@ -140,19 +140,19 @@ func LoadArtifactSchema(schemaPath string, artifactsRoot string) (*Schema, error
 	return ext, nil
 }
 
-// ResolveSchemaPath extracts Schema-Version metadata from a parsed artifact
+// ResolveSchemaPath extracts schema_version metadata from a parsed artifact
 // and returns the filesystem path to the schema file.
 func ResolveSchemaPath(art *artifact.ParsedArtifact) (string, error) {
 	version := ""
 	for k, v := range art.Metadata {
-		if strings.EqualFold(k, "schema-version") {
+		if strings.EqualFold(k, "schema_version") || strings.EqualFold(k, "schema-version") {
 			version = v
 			break
 		}
 	}
 
 	if version == "" {
-		return "", fmt.Errorf("missing Schema-Version metadata")
+		return "", fmt.Errorf("missing schema_version metadata")
 	}
 
 	if !schemaVersionRe.MatchString(version) {

@@ -1,13 +1,13 @@
-# ADR-0016: Operational Resilience — Concurrency, Recovery, Evolution
-
-**Number:** ADR-0016
-**Created:** 2026-03-18
-**Status:** Accepted
-**Deciders:** @bmanson
-**Decisions:** D-062, D-065, D-066
-**Schema-Version:** adr/v1
-
 ---
+number: ADR-0016
+created: "2026-03-18"
+status: Accepted
+deciders: "@bmanson"
+decisions: "D-062, D-065, D-066"
+schema_version: adr/v2
+---
+
+# ADR-0016: Operational Resilience — Concurrency, Recovery, Evolution
 
 ## Context
 
