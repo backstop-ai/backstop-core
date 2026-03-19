@@ -11,6 +11,7 @@ import (
 
 var specNumberRe = regexp.MustCompile(`^(SPEC-[0-9]{3})-`)
 var claimIDRe = regexp.MustCompile(`^CLM-[0-9]{3}$`)
+var reqIDRe = regexp.MustCompile(`^REQ-[0-9]{3}$`)
 
 // Verification level → required coverage threshold. Nil means threshold must be absent.
 var thresholdRules = map[string]*int{
@@ -164,8 +165,12 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	// 9. Implementation block — summary and package
 	specViolations = append(specViolations, validateImplementation(art)...)
 
-	// 10. Claims array — well-formed CLM-NNN entries
-	specViolations = append(specViolations, validateClaims(art)...)
+	// 10. Requirements array — well-formed REQ-NNN entries
+	reqIDs := validateRequirements(art)
+	specViolations = append(specViolations, reqIDs.violations...)
+
+	// 11. Claims array — well-formed CLM-NNN entries with valid REQ references
+	specViolations = append(specViolations, validateClaims(art, reqIDs.ids)...)
 
 	combined := append(base.Violations, specViolations...)
 	return ValidationResult{Violations: combined}
@@ -303,8 +308,113 @@ func validateImplementation(art *artifact.ParsedArtifact) []Violation {
 	return violations
 }
 
-// validateClaims checks the claims array for well-formed CLM-NNN entries.
-func validateClaims(art *artifact.ParsedArtifact) []Violation {
+// reqResult holds both violations and the set of valid REQ IDs for cross-referencing.
+type reqResult struct {
+	violations []Violation
+	ids        map[string]bool
+}
+
+// validateRequirements checks the requirements array for well-formed REQ-NNN entries.
+func validateRequirements(art *artifact.ParsedArtifact) reqResult {
+	result := reqResult{ids: make(map[string]bool)}
+
+	reqsVal, ok := art.Frontmatter["requirements"]
+	if !ok {
+		result.violations = append(result.violations, Violation{
+			Rule:     "spec/requirements-required",
+			File:     art.Filename,
+			Message:  "requirements array is missing from frontmatter",
+			Severity: "error",
+		})
+		return result
+	}
+
+	reqs, ok := reqsVal.([]interface{})
+	if !ok {
+		result.violations = append(result.violations, Violation{
+			Rule:     "spec/requirements-required",
+			File:     art.Filename,
+			Message:  "requirements is not a valid array",
+			Severity: "error",
+		})
+		return result
+	}
+
+	if len(reqs) == 0 {
+		result.violations = append(result.violations, Violation{
+			Rule:     "spec/requirements-empty",
+			File:     art.Filename,
+			Message:  "requirements array must contain at least one requirement",
+			Severity: "error",
+		})
+		return result
+	}
+
+	for i, item := range reqs {
+		req, ok := item.(map[string]interface{})
+		if !ok {
+			result.violations = append(result.violations, Violation{
+				Rule:     "spec/requirement-format",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements[%d] is not a valid map", i),
+				Severity: "error",
+			})
+			continue
+		}
+
+		idVal, hasID := req["id"]
+		if !hasID {
+			result.violations = append(result.violations, Violation{
+				Rule:     "spec/requirement-id-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements[%d] is missing 'id'", i),
+				Severity: "error",
+			})
+		} else {
+			id, ok := idVal.(string)
+			if !ok || !reqIDRe.MatchString(id) {
+				result.violations = append(result.violations, Violation{
+					Rule:     "spec/requirement-id-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("requirements[%d] id '%v' does not match REQ-NNN pattern", i, idVal),
+					Severity: "error",
+				})
+			} else if result.ids[id] {
+				result.violations = append(result.violations, Violation{
+					Rule:     "spec/requirement-id-duplicate",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("duplicate requirement id '%s'", id),
+					Severity: "error",
+				})
+			} else {
+				result.ids[id] = true
+			}
+		}
+
+		textVal, hasText := req["text"]
+		if !hasText {
+			result.violations = append(result.violations, Violation{
+				Rule:     "spec/requirement-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements[%d] is missing 'text'", i),
+				Severity: "error",
+			})
+		} else if text, ok := textVal.(string); ok && strings.TrimSpace(text) == "" {
+			result.violations = append(result.violations, Violation{
+				Rule:     "spec/requirement-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements[%d] 'text' is empty", i),
+				Severity: "error",
+			})
+		}
+	}
+
+	return result
+}
+
+// validateClaims checks the claims array for well-formed CLM-NNN entries
+// and validates that each claim references a valid requirement.
+func validateClaims(art *artifact.ParsedArtifact, validReqs map[string]bool) []Violation {
 	var violations []Violation
 
 	claimsVal, ok := art.Frontmatter["claims"]
@@ -340,6 +450,7 @@ func validateClaims(art *artifact.ParsedArtifact) []Violation {
 	}
 
 	seenIDs := make(map[string]bool)
+	coveredReqs := make(map[string]bool)
 	for i, item := range claims {
 		claim, ok := item.(map[string]interface{})
 		if !ok {
@@ -400,6 +511,34 @@ func validateClaims(art *artifact.ParsedArtifact) []Violation {
 			})
 		}
 
+		// Claim requirement reference
+		reqVal, hasReq := claim["requirement"]
+		if !hasReq {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-requirement-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] is missing 'requirement' field", i),
+				Severity: "error",
+			})
+		} else if reqID, ok := reqVal.(string); !ok || reqID == "" {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-requirement-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] 'requirement' is empty", i),
+				Severity: "error",
+			})
+		} else if validReqs != nil && !validReqs[reqID] {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-requirement-invalid",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] references unknown requirement '%s'", i, reqID),
+				Severity: "error",
+			})
+		} else if validReqs != nil {
+			// Track which requirements are covered by claims
+			coveredReqs[reqID] = true
+		}
+
 		// Claim tests
 		testsVal, hasTests := claim["tests"]
 		if !hasTests {
@@ -416,6 +555,20 @@ func validateClaims(art *artifact.ParsedArtifact) []Violation {
 					Rule:     "spec/claim-tests-empty",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("claims[%d] must have at least one test", i),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	// Requirement coverage — every REQ must have at least one claim
+	if validReqs != nil {
+		for reqID := range validReqs {
+			if !coveredReqs[reqID] {
+				violations = append(violations, Violation{
+					Rule:     "spec/requirement-uncovered",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("requirement '%s' has no claims referencing it", reqID),
 					Severity: "error",
 				})
 			}

@@ -50,10 +50,15 @@
       "required_keys": ["level", "test_command"],
       "description": "Verification strategy and thresholds"
     },
+    "requirements": {
+      "type": "array",
+      "item_required_keys": ["id", "text"],
+      "description": "REQ-NNN functional requirements — what must be true"
+    },
     "claims": {
       "type": "array",
-      "item_required_keys": ["id", "text", "tests"],
-      "description": "CLM-NNN claims — atomic verification units mapping to test functions"
+      "item_required_keys": ["id", "requirement", "text", "tests"],
+      "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ"
     }
   },
   "verification_levels": {

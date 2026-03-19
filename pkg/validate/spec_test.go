@@ -48,17 +48,29 @@ func validSpecArtifact() *artifact.ParsedArtifact {
 				"coverage_threshold": 90,
 				"test_command":       "go test ./...",
 			},
+			"requirements": []interface{}{
+				map[string]interface{}{
+					"id":   "REQ-001",
+					"text": "Artifact parser must extract YAML frontmatter metadata",
+				},
+				map[string]interface{}{
+					"id":   "REQ-002",
+					"text": "Schema loader must resolve versioned schemas",
+				},
+			},
 			"claims": []interface{}{
 				map[string]interface{}{
-					"id":   "CLM-001",
-					"text": "ParseFile extracts H1 title",
+					"id":          "CLM-001",
+					"requirement": "REQ-001",
+					"text":        "ParseFile extracts H1 title",
 					"tests": []interface{}{
 						map[string]interface{}{"test_name": "TestParseFile_ValidADR"},
 					},
 				},
 				map[string]interface{}{
-					"id":   "CLM-002",
-					"text": "Parse extracts metadata from YAML frontmatter",
+					"id":          "CLM-002",
+					"requirement": "REQ-002",
+					"text":        "Parse extracts metadata from YAML frontmatter",
 					"tests": []interface{}{
 						map[string]interface{}{"test_name": "TestParse_ExtractsMetadata"},
 					},
@@ -375,8 +387,9 @@ func TestValidateSpec_ClaimMissingID(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
-			"text":  "some claim",
-			"tests": []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+			"requirement": "REQ-001",
+			"text":        "some claim",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
 		},
 	}
 
@@ -396,9 +409,10 @@ func TestValidateSpec_ClaimBadIDFormat(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
-			"id":    "REQ-001",
-			"text":  "some claim",
-			"tests": []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+			"id":          "REQ-001",
+			"requirement": "REQ-001",
+			"text":        "some claim",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
 		},
 	}
 
@@ -418,14 +432,16 @@ func TestValidateSpec_ClaimDuplicateID(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
-			"id":    "CLM-001",
-			"text":  "first",
-			"tests": []interface{}{map[string]interface{}{"test_name": "TestA"}},
+			"id":          "CLM-001",
+			"requirement": "REQ-001",
+			"text":        "first",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestA"}},
 		},
 		map[string]interface{}{
-			"id":    "CLM-001",
-			"text":  "duplicate",
-			"tests": []interface{}{map[string]interface{}{"test_name": "TestB"}},
+			"id":          "CLM-001",
+			"requirement": "REQ-001",
+			"text":        "duplicate",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestB"}},
 		},
 	}
 
@@ -445,8 +461,9 @@ func TestValidateSpec_ClaimMissingText(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
-			"id":    "CLM-001",
-			"tests": []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+			"id":          "CLM-001",
+			"requirement": "REQ-001",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
 		},
 	}
 
@@ -466,9 +483,10 @@ func TestValidateSpec_ClaimEmptyTests(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
-			"id":    "CLM-001",
-			"text":  "some claim",
-			"tests": []interface{}{},
+			"id":          "CLM-001",
+			"requirement": "REQ-001",
+			"text":        "some claim",
+			"tests":       []interface{}{},
 		},
 	}
 
@@ -692,5 +710,196 @@ func TestValidateSpec_BuildLevelNoThreshold(t *testing.T) {
 		if v.Rule == "spec/threshold-required" || v.Rule == "spec/threshold-not-allowed" {
 			t.Errorf("unexpected threshold violation for build level: %v", v)
 		}
+	}
+}
+
+func TestValidateSpec_MissingRequirements(t *testing.T) {
+	art := validSpecArtifact()
+	delete(art.Frontmatter, "requirements")
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirements-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirements-required' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_EmptyRequirements(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = []interface{}{}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirements-empty" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirements-empty' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_RequirementBadIDFormat(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{
+			"id":   "BAD-1",
+			"text": "some requirement",
+		},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-id-format" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-id-format' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_RequirementDuplicateID(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001", "text": "first"},
+		map[string]interface{}{"id": "REQ-001", "text": "duplicate"},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-id-duplicate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-id-duplicate' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_RequirementMissingText(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001"},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-text-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-text-required' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_ClaimMissingRequirement(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id":    "CLM-001",
+			"text":  "some claim",
+			"tests": []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+		},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/claim-requirement-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/claim-requirement-required' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_ClaimReferencesInvalidREQ(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CLM-001",
+			"requirement": "REQ-999",
+			"text":        "some claim",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+		},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/claim-requirement-invalid" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/claim-requirement-invalid' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_UncoveredRequirement(t *testing.T) {
+	art := validSpecArtifact()
+	// REQ-002 exists but no claim references it
+	art.Frontmatter["claims"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CLM-001",
+			"requirement": "REQ-001",
+			"text":        "only covers REQ-001",
+			"tests":       []interface{}{map[string]interface{}{"test_name": "TestFoo"}},
+		},
+	}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-uncovered" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-uncovered' violation for REQ-002, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_RequirementsNotAnArray(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = "not an array"
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirements-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirements-required' violation, got: %v", result.Violations)
+	}
+}
+
+func TestValidateSpec_RequirementNotAMap(t *testing.T) {
+	art := validSpecArtifact()
+	art.Frontmatter["requirements"] = []interface{}{"not a map"}
+
+	result := validate.ValidateSpec(art, specSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "spec/requirement-format" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'spec/requirement-format' violation, got: %v", result.Violations)
 	}
 }
