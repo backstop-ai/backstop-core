@@ -17,7 +17,11 @@ var (
 		"question": true, "policy-violation": true,
 	}
 	issueStatuses = map[string]bool{
-		"open": true, "in-progress": true, "blocked": true, "closed": true,
+		"open": true, "ready": true, "in-progress": true, "blocked": true, "closed": true,
+	}
+	// Statuses that require full traceability (REQ → CLM → tests)
+	traceabilityRequired = map[string]bool{
+		"ready": true, "in-progress": true, "blocked": true, "closed": true,
 	}
 	scopeEnum       = map[string]bool{"isolated": true, "contained": true, "cross-cutting": true}
 	uncertaintyEnum = map[string]bool{"known": true, "exploratory": true, "novel": true}
@@ -165,7 +169,7 @@ func validateIssueBlock(art *artifact.ParsedArtifact, filenameOK bool, statusOut
 		violations = append(violations, Violation{
 			Rule:     "issue/status-enum",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, in-progress, blocked, closed)", s),
+			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, ready, in-progress, blocked, closed)", s),
 			Severity: "error",
 		})
 	} else {
@@ -321,21 +325,21 @@ func validateComplexity(art *artifact.ParsedArtifact) []Violation {
 	return violations
 }
 
-// validateIssueTraceability validates requirements → claims → tests kill chain.
-// At open/in-progress/blocked: requirements and claims are optional (no validation).
-// At closed: both are required with full cross-validation parity with specs.
+// validateIssueTraceability validates requirements → claims → tests verification chain.
+// At open: requirements and claims are optional (no validation).
+// At ready/in-progress/blocked/closed: both are required with full cross-validation.
 func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Violation {
 	var violations []Violation
 
-	if status != "closed" {
+	if !traceabilityRequired[status] {
 		return violations
 	}
 
-	// Requirements (required on close)
+	// Requirements (required from ready onward)
 	validReqs := make(map[string]bool)
 	violations = append(violations, validateIssueRequirements(art, &validReqs)...)
 
-	// Claims with full spec parity (required on close)
+	// Claims with full spec parity (required from ready onward)
 	violations = append(violations, validateIssueClaims(art, validReqs)...)
 
 	return violations
@@ -349,9 +353,9 @@ func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[stri
 	reqsVal, ok := art.Frontmatter["requirements"]
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "issue/requirements-required-on-close",
+			Rule:     "issue/requirements-required",
 			File:     art.Filename,
-			Message:  "requirements array is required when issue is closed",
+			Message:  "requirements array is required from 'ready' status onward",
 			Severity: "error",
 		})
 		return violations
@@ -370,9 +374,9 @@ func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[stri
 
 	if len(reqs) == 0 {
 		violations = append(violations, Violation{
-			Rule:     "issue/requirements-required-on-close",
+			Rule:     "issue/requirements-required",
 			File:     art.Filename,
-			Message:  "requirements array must not be empty when issue is closed",
+			Message:  "requirements array must not be empty from 'ready' status onward",
 			Severity: "error",
 		})
 		return violations
@@ -467,9 +471,9 @@ func validateIssueClaims(art *artifact.ParsedArtifact, validReqs map[string]bool
 	claimsVal, ok := art.Frontmatter["claims"]
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "issue/claims-required-on-close",
+			Rule:     "issue/claims-required",
 			File:     art.Filename,
-			Message:  "claims array is required when issue is closed",
+			Message:  "claims array is required from 'ready' status onward",
 			Severity: "error",
 		})
 		return violations
@@ -488,9 +492,9 @@ func validateIssueClaims(art *artifact.ParsedArtifact, validReqs map[string]bool
 
 	if len(claims) == 0 {
 		violations = append(violations, Violation{
-			Rule:     "issue/claims-required-on-close",
+			Rule:     "issue/claims-required",
 			File:     art.Filename,
-			Message:  "claims array must not be empty when issue is closed",
+			Message:  "claims array must not be empty from 'ready' status onward",
 			Severity: "error",
 		})
 		return violations

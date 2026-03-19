@@ -41,7 +41,7 @@
           "enum": ["bug", "technical-debt", "enhancement", "question", "policy-violation"]
         },
         "status": {
-          "enum": ["open", "in-progress", "blocked", "closed"]
+          "enum": ["open", "ready", "in-progress", "blocked", "closed"]
         },
         "created": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -82,7 +82,7 @@
   "enforcement": {
     "blocked-requires-blocked-by": "Issues with status 'blocked' must have non-empty context.blocked_by array",
     "closed-requires-date": "Issues with status 'closed' must have issue.closed date",
-    "closed-requires-traceability": "Requirements and claims arrays required and fully validated when status is 'closed' — every REQ must have ≥1 CLM, every CLM must reference a valid REQ",
+    "closed-requires-traceability": "Requirements and claims arrays required and fully validated from 'ready' onward — every REQ must have ≥1 CLM, every CLM must reference a valid REQ",
     "id-filename-consistency": "issue.id must match the ISSUE-NNN prefix in the filename",
     "supports-traceability": "Optional 'supports' field on requirements traces back to bundle-name:REQ-NNN"
   }

@@ -329,21 +329,21 @@ func TestValidateIssue_NoComplexity_OK(t *testing.T) {
 func TestValidateIssue_Open_NoRequirements_OK(t *testing.T) {
 	art := validIssueArtifact()
 	result := validate.ValidateIssue(art, issueSchema())
-	assertNoViolationRule(t, result, "issue/requirements-required-on-close")
+	assertNoViolationRule(t, result, "issue/requirements-required")
 }
 
 func TestValidateIssue_Closed_NoRequirements(t *testing.T) {
 	art := validClosedIssueArtifact()
 	delete(art.Frontmatter, "requirements")
 	result := validate.ValidateIssue(art, issueSchema())
-	assertHasViolation(t, result, "issue/requirements-required-on-close")
+	assertHasViolation(t, result, "issue/requirements-required")
 }
 
 func TestValidateIssue_Closed_EmptyRequirements(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["requirements"] = []interface{}{}
 	result := validate.ValidateIssue(art, issueSchema())
-	assertHasViolation(t, result, "issue/requirements-required-on-close")
+	assertHasViolation(t, result, "issue/requirements-required")
 }
 
 func TestValidateIssue_Closed_RequirementsNotArray(t *testing.T) {
@@ -461,21 +461,21 @@ func TestValidateIssue_Closed_EmptySupports(t *testing.T) {
 func TestValidateIssue_Open_NoClaims_OK(t *testing.T) {
 	art := validIssueArtifact()
 	result := validate.ValidateIssue(art, issueSchema())
-	assertNoViolationRule(t, result, "issue/claims-required-on-close")
+	assertNoViolationRule(t, result, "issue/claims-required")
 }
 
 func TestValidateIssue_Closed_NoClaims(t *testing.T) {
 	art := validClosedIssueArtifact()
 	delete(art.Frontmatter, "claims")
 	result := validate.ValidateIssue(art, issueSchema())
-	assertHasViolation(t, result, "issue/claims-required-on-close")
+	assertHasViolation(t, result, "issue/claims-required")
 }
 
 func TestValidateIssue_Closed_EmptyClaims(t *testing.T) {
 	art := validClosedIssueArtifact()
 	art.Frontmatter["claims"] = []interface{}{}
 	result := validate.ValidateIssue(art, issueSchema())
-	assertHasViolation(t, result, "issue/claims-required-on-close")
+	assertHasViolation(t, result, "issue/claims-required")
 }
 
 func TestValidateIssue_Closed_ClaimsNotArray(t *testing.T) {
@@ -639,12 +639,30 @@ func TestValidateIssue_Open_BadClaimsNotValidated(t *testing.T) {
 	assertNoViolationRule(t, result, "issue/claim-text-required")
 }
 
-func TestValidateIssue_InProgress_SkipsTraceability(t *testing.T) {
+func TestValidateIssue_InProgress_EnforcesTraceability(t *testing.T) {
 	art := validIssueArtifact()
 	art.Frontmatter["issue"].(map[string]interface{})["status"] = "in-progress"
 	result := validate.ValidateIssue(art, issueSchema())
-	assertNoViolationRule(t, result, "issue/requirements-required-on-close")
-	assertNoViolationRule(t, result, "issue/claims-required-on-close")
+	assertHasViolation(t, result, "issue/requirements-required")
+	assertHasViolation(t, result, "issue/claims-required")
+}
+
+func TestValidateIssue_Ready_EnforcesTraceability(t *testing.T) {
+	art := validIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirements-required")
+	assertHasViolation(t, result, "issue/claims-required")
+}
+
+func TestValidateIssue_Ready_WithFullTraceability_Passes(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirements-required")
+	assertNoViolationRule(t, result, "issue/claims-required")
+	assertNoViolationRule(t, result, "issue/requirement-uncovered")
 }
 
 // --- Composition test ---
