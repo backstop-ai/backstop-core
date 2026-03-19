@@ -68,6 +68,11 @@
       "provides_required_keys": ["name", "kind", "signature"],
       "consumes_required_keys": ["source", "name", "kind"],
       "kind_enum": ["function", "type", "interface", "method", "constant", "variable"]
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Optional UC-NNN references linking this spec to user capabilities. If present, must be non-empty with valid unique IDs.",
+      "item_pattern": "^UC-[0-9]{3,}$"
     }
   },
   "verification_levels": {

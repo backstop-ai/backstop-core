@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -297,4 +298,74 @@ func validateConsumesItem(item interface{}, filename string, rulePrefix string, 
 	}
 
 	return violations
+}
+
+var capabilityIDRe = regexp.MustCompile(`^UC-[0-9]{3,}$`)
+
+// validateCapabilities checks the optional capabilities array for well-formed UC-NNN entries.
+// If present, must be non-empty with valid, unique capability IDs.
+func validateCapabilities(fm map[string]interface{}, filename string, rulePrefix string) []Violation {
+var violations []Violation
+
+capsVal, ok := fm["capabilities"]
+if !ok {
+return violations // optional
+}
+
+caps, ok := capsVal.([]interface{})
+if !ok {
+violations = append(violations, Violation{
+Rule:     rulePrefix + "/capabilities-format",
+File:     filename,
+Message:  "capabilities is not a valid array",
+Severity: "error",
+})
+return violations
+}
+
+if len(caps) == 0 {
+violations = append(violations, Violation{
+Rule:     rulePrefix + "/capabilities-empty",
+File:     filename,
+Message:  "capabilities array is present but empty — omit if not applicable",
+Severity: "error",
+})
+return violations
+}
+
+seen := make(map[string]bool)
+for i, item := range caps {
+label := fmt.Sprintf("capabilities[%d]", i)
+s, ok := item.(string)
+if !ok || strings.TrimSpace(s) == "" {
+violations = append(violations, Violation{
+Rule:     rulePrefix + "/capability-format",
+File:     filename,
+Message:  fmt.Sprintf("%s is not a valid string", label),
+Severity: "error",
+})
+continue
+}
+
+if !capabilityIDRe.MatchString(s) {
+violations = append(violations, Violation{
+Rule:     rulePrefix + "/capability-id-pattern",
+File:     filename,
+Message:  fmt.Sprintf("%s '%s' must match pattern UC-NNN (e.g., UC-001)", label, s),
+Severity: "error",
+})
+}
+
+if seen[s] {
+violations = append(violations, Violation{
+Rule:     rulePrefix + "/capability-duplicate",
+File:     filename,
+Message:  fmt.Sprintf("duplicate capability '%s'", s),
+Severity: "error",
+})
+}
+seen[s] = true
+}
+
+return violations
 }

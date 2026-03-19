@@ -176,6 +176,9 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	// 12. Contracts — provides/consumes API surface
 	specViolations = append(specViolations, validateContracts(art.Frontmatter, art.Filename, "spec")...)
 
+	// 13. Capabilities — optional UC-NNN references
+	specViolations = append(specViolations, validateCapabilities(art.Frontmatter, art.Filename, "spec")...)
+
 	combined := append(base.Violations, specViolations...)
 	return ValidationResult{Violations: combined}
 }

@@ -80,7 +80,10 @@ func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationR
 	// 6. Complexity block (if present)
 	violations = append(violations, validateComplexity(art)...)
 
-	// 7. Requirements + Claims traceability (validated on close)
+	// 7. Capabilities — optional UC-NNN references (validated at all statuses)
+	violations = append(violations, validateCapabilities(art.Frontmatter, art.Filename, "issue")...)
+
+	// 8. Requirements + Claims traceability (validated from ready onward)
 	violations = append(violations, validateIssueTraceability(art, status)...)
 
 	combined := append(base.Violations, violations...)

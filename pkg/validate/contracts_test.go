@@ -356,3 +356,84 @@ func TestContracts_IssueClosed_Valid(t *testing.T) {
 	result := validate.ValidateIssue(art, issueSchema())
 	assertNoViolationRule(t, result, "issue/contracts-required")
 }
+
+// --- Capabilities validation ---
+
+func specWithCapabilities(caps interface{}) *artifact.ParsedArtifact {
+	art := validSpecArtifact()
+	if caps != nil {
+		art.Frontmatter["capabilities"] = caps
+	}
+	return art
+}
+
+func TestCapabilities_Absent_Valid(t *testing.T) {
+	art := validSpecArtifact()
+	delete(art.Frontmatter, "capabilities")
+	result := validate.ValidateSpec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/capabilities-format")
+	assertNoViolationRule(t, result, "spec/capabilities-empty")
+}
+
+func TestCapabilities_ValidSingle(t *testing.T) {
+	art := specWithCapabilities([]interface{}{"UC-001"})
+	result := validate.ValidateSpec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/capability-id-pattern")
+}
+
+func TestCapabilities_ValidMultiple(t *testing.T) {
+	art := specWithCapabilities([]interface{}{"UC-001", "UC-003"})
+	result := validate.ValidateSpec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/capability-id-pattern")
+	assertNoViolationRule(t, result, "spec/capability-duplicate")
+}
+
+func TestCapabilities_NotArray(t *testing.T) {
+	art := specWithCapabilities("UC-001")
+	result := validate.ValidateSpec(art, specSchema())
+	assertHasViolation(t, result, "spec/capabilities-format")
+}
+
+func TestCapabilities_EmptyArray(t *testing.T) {
+	art := specWithCapabilities([]interface{}{})
+	result := validate.ValidateSpec(art, specSchema())
+	assertHasViolation(t, result, "spec/capabilities-empty")
+}
+
+func TestCapabilities_BadPattern(t *testing.T) {
+	art := specWithCapabilities([]interface{}{"CAP-001"})
+	result := validate.ValidateSpec(art, specSchema())
+	assertHasViolation(t, result, "spec/capability-id-pattern")
+}
+
+func TestCapabilities_NotString(t *testing.T) {
+	art := specWithCapabilities([]interface{}{42})
+	result := validate.ValidateSpec(art, specSchema())
+	assertHasViolation(t, result, "spec/capability-format")
+}
+
+func TestCapabilities_Duplicate(t *testing.T) {
+	art := specWithCapabilities([]interface{}{"UC-001", "UC-001"})
+	result := validate.ValidateSpec(art, specSchema())
+	assertHasViolation(t, result, "spec/capability-duplicate")
+}
+
+func TestCapabilities_IssueOpen_ValidIfPresent(t *testing.T) {
+	art := validIssueArtifact()
+	art.Frontmatter["capabilities"] = []interface{}{"UC-005"}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/capability-id-pattern")
+}
+
+func TestCapabilities_IssueBadPattern(t *testing.T) {
+	art := validIssueArtifact()
+	art.Frontmatter["capabilities"] = []interface{}{"FEAT-001"}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/capability-id-pattern")
+}
+
+func TestCapabilities_ThreeDigitPlus(t *testing.T) {
+	art := specWithCapabilities([]interface{}{"UC-0001"})
+	result := validate.ValidateSpec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/capability-id-pattern")
+}
