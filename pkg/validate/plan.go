@@ -10,6 +10,7 @@ import (
 )
 
 var planNumberRe = regexp.MustCompile(`^(PLAN-[A-Z]+-[0-9]+)-`)
+var implementsRe = regexp.MustCompile(`^(SPEC|ISSUE)-[0-9]{3}$`)
 
 // ValidatePlan composes base validation with plan-specific checks
 // including D-080 (agent-bounded tasks) and D-081 (file exclusivity).
@@ -83,11 +84,52 @@ func ValidatePlan(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 		}
 	}
 
-	// 5. Phases validation (D-080 + D-081)
+	// 5. Implements — required reference to SPEC-NNN or ISSUE-NNN
+	planViolations = append(planViolations, validatePlanImplements(art)...)
+
+	// 6. Phases validation (D-080 + D-081)
 	planViolations = append(planViolations, validatePhases(art)...)
 
 	combined := append(base.Violations, planViolations...)
 	return ValidationResult{Violations: combined}
+}
+
+// validatePlanImplements checks that the plan declares what artifact it implements.
+func validatePlanImplements(art *artifact.ParsedArtifact) []Violation {
+	var violations []Violation
+
+	implVal, ok := art.Frontmatter["implements"]
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "plan/implements-required",
+			File:     art.Filename,
+			Message:  "implements field is required (SPEC-NNN or ISSUE-NNN)",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	impl, ok := implVal.(string)
+	if !ok || strings.TrimSpace(impl) == "" {
+		violations = append(violations, Violation{
+			Rule:     "plan/implements-required",
+			File:     art.Filename,
+			Message:  "implements must be a non-empty string",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	if !implementsRe.MatchString(impl) {
+		violations = append(violations, Violation{
+			Rule:     "plan/implements-pattern",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("implements '%s' must match SPEC-NNN or ISSUE-NNN", impl),
+			Severity: "error",
+		})
+	}
+
+	return violations
 }
 
 // planTask is an internal representation of a task extracted from frontmatter.

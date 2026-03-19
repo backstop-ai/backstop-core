@@ -33,6 +33,11 @@
     "References"
   ],
   "nested_blocks": {
+    "implements": {
+      "type": "string",
+      "pattern": "^(SPEC|ISSUE)-[0-9]{3}$",
+      "description": "Required reference to the spec or issue this plan implements"
+    },
     "phases": {
       "type": "array",
       "description": "Ordered execution phases containing agent-bounded tasks",

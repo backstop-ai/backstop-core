@@ -33,6 +33,7 @@ func validPlanArtifact() *artifact.ParsedArtifact {
 			"created":        "2026-03-18",
 			"status":         "ready",
 			"schema_version": "plan/v1",
+			"implements":     "SPEC-023",
 			"spec_reference": "SPEC-023",
 			"phases": []interface{}{
 				map[string]interface{}{
@@ -633,4 +634,73 @@ func TestValidatePlan_SchemaVersionMismatch(t *testing.T) {
 	if !found {
 		t.Errorf("expected 'plan/schema-version-mismatch' violation, got: %v", result.Violations)
 	}
+}
+
+// --- Implements field tests ---
+
+func TestValidatePlan_MissingImplements(t *testing.T) {
+art := validPlanArtifact()
+delete(art.Frontmatter, "implements")
+result := validate.ValidatePlan(art, planSchema())
+found := false
+for _, v := range result.Violations {
+if v.Rule == "plan/implements-required" {
+found = true
+}
+}
+if !found {
+t.Errorf("expected 'plan/implements-required' violation")
+}
+}
+
+func TestValidatePlan_ImplementsEmpty(t *testing.T) {
+art := validPlanArtifact()
+art.Frontmatter["implements"] = ""
+result := validate.ValidatePlan(art, planSchema())
+found := false
+for _, v := range result.Violations {
+if v.Rule == "plan/implements-required" {
+found = true
+}
+}
+if !found {
+t.Errorf("expected 'plan/implements-required' violation")
+}
+}
+
+func TestValidatePlan_ImplementsBadPattern(t *testing.T) {
+art := validPlanArtifact()
+art.Frontmatter["implements"] = "PLAN-001"
+result := validate.ValidatePlan(art, planSchema())
+found := false
+for _, v := range result.Violations {
+if v.Rule == "plan/implements-pattern" {
+found = true
+}
+}
+if !found {
+t.Errorf("expected 'plan/implements-pattern' violation")
+}
+}
+
+func TestValidatePlan_ImplementsSpec(t *testing.T) {
+art := validPlanArtifact()
+art.Frontmatter["implements"] = "SPEC-023"
+result := validate.ValidatePlan(art, planSchema())
+for _, v := range result.Violations {
+if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
+t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
+}
+}
+}
+
+func TestValidatePlan_ImplementsIssue(t *testing.T) {
+art := validPlanArtifact()
+art.Frontmatter["implements"] = "ISSUE-042"
+result := validate.ValidatePlan(art, planSchema())
+for _, v := range result.Violations {
+if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
+t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
+}
+}
 }
