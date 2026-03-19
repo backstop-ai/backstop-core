@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-spec-v1",
+  "title": "Backstop Implementation Spec Schema v1",
+  "description": "Schema for implementation specifications with claims-based verification traceability. Extends backstop-artifact-base-v1.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "spec",
+  "filename_pattern": "^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.impl\\.spec\\.md$",
+  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+  "slug_min_length": 2,
+  "slug_max_length": 64,
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version", "spec_version"],
+    "properties": {
+      "number": {
+        "pattern": "^SPEC-[0-9]{3}$"
+      },
+      "status": {
+        "enum": ["draft", "ready-for-implementation", "implemented"]
+      },
+      "schema_version": {
+        "const": "spec/v1"
+      },
+      "spec_version": {
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+        "description": "Semantic version of the spec itself"
+      }
+    }
+  },
+  "required_sections": [
+    "Overview",
+    "Requirements",
+    "Implementation",
+    "Verification"
+  ],
+  "optional_sections": [
+    "Technical Design",
+    "Dependencies",
+    "References",
+    "Sharp Edges",
+    "Integration Contract"
+  ],
+  "nested_blocks": {
+    "implementation": {
+      "required_keys": ["summary", "package"],
+      "description": "Implementation target details"
+    },
+    "verification": {
+      "required_keys": ["level", "test_command"],
+      "description": "Verification strategy and thresholds"
+    },
+    "claims": {
+      "type": "array",
+      "item_required_keys": ["id", "text", "tests"],
+      "description": "CLM-NNN claims — atomic verification units mapping to test functions"
+    }
+  },
+  "verification_levels": {
+    "enum": ["static", "build", "unit", "integration", "performance", "security"],
+    "threshold_rules": {
+      "unit": 90,
+      "security": 90,
+      "integration": 80,
+      "performance": 80,
+      "static": null,
+      "build": null
+    }
+  }
+}

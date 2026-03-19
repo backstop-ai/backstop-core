@@ -191,3 +191,94 @@ func TestParse_NoFrontmatter(t *testing.T) {
 		t.Errorf("Title = %q, want %q", art.Title, "Title")
 	}
 }
+
+func TestParse_NestedFrontmatter(t *testing.T) {
+	input := `---
+number: SPEC-023
+status: implemented
+implementation:
+  summary: "Bootstrap validator"
+  package: "pkg/validate"
+verification:
+  level: unit
+  coverage_threshold: 90
+claims:
+  - id: CLM-001
+    text: "ParseFile works"
+    tests:
+      - test_name: TestParseFile
+---
+
+# SPEC-023: Bootstrap Validator
+
+## Overview
+`
+	art, err := artifact.Parse(input, "SPEC-023-test.impl.spec.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Flat metadata should have scalar values
+	if art.Metadata["number"] != "SPEC-023" {
+		t.Errorf("Metadata[number] = %q", art.Metadata["number"])
+	}
+	if art.Metadata["status"] != "implemented" {
+		t.Errorf("Metadata[status] = %q", art.Metadata["status"])
+	}
+	// Nested blocks should NOT appear in flat Metadata
+	if _, ok := art.Metadata["implementation"]; ok {
+		t.Error("Metadata should not contain nested 'implementation' key")
+	}
+
+	// Frontmatter should have everything including nested blocks
+	if _, ok := art.Frontmatter["implementation"]; !ok {
+		t.Error("Frontmatter missing 'implementation' block")
+	}
+	if _, ok := art.Frontmatter["verification"]; !ok {
+		t.Error("Frontmatter missing 'verification' block")
+	}
+	if _, ok := art.Frontmatter["claims"]; !ok {
+		t.Error("Frontmatter missing 'claims' array")
+	}
+
+	// Verify nested access
+	ver := art.Frontmatter["verification"].(map[string]interface{})
+	if ver["level"] != "unit" {
+		t.Errorf("verification.level = %v", ver["level"])
+	}
+	if ver["coverage_threshold"] != 90 {
+		t.Errorf("verification.coverage_threshold = %v", ver["coverage_threshold"])
+	}
+}
+
+func TestParse_InvalidYAML(t *testing.T) {
+	input := "---\n: invalid: yaml: [broken\n---\n# Title\n"
+	_, err := artifact.Parse(input, "test.md")
+	if err == nil {
+		t.Error("expected error for invalid YAML, got nil")
+	}
+}
+
+func TestParse_BoolAndIntMetadata(t *testing.T) {
+	input := "---\ncount: 42\nenabled: true\nratio: 3.14\n---\n# Title\n"
+	art, err := artifact.Parse(input, "test.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.Metadata["count"] != "42" {
+		t.Errorf("Metadata[count] = %q, want %q", art.Metadata["count"], "42")
+	}
+	if art.Metadata["enabled"] != "true" {
+		t.Errorf("Metadata[enabled] = %q, want %q", art.Metadata["enabled"], "true")
+	}
+	if art.Metadata["ratio"] != "3.14" {
+		t.Errorf("Metadata[ratio] = %q, want %q", art.Metadata["ratio"], "3.14")
+	}
+}
+
+func TestParseFile_NotFound(t *testing.T) {
+	_, err := artifact.ParseFile("/nonexistent/file.md")
+	if err == nil {
+		t.Error("expected error for nonexistent file, got nil")
+	}
+}

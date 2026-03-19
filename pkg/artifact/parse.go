@@ -1,9 +1,12 @@
 package artifact
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ParseFile reads a markdown artifact from disk and parses it.
@@ -19,9 +22,10 @@ func ParseFile(path string) (*ParsedArtifact, error) {
 // Format: YAML frontmatter between --- markers, then H1 title, then H2 sections.
 func Parse(content string, filename string) (*ParsedArtifact, error) {
 	art := &ParsedArtifact{
-		Filename: filepath.Base(filename),
-		Metadata: make(map[string]string),
-		Sections: []string{},
+		Filename:    filepath.Base(filename),
+		Metadata:    make(map[string]string),
+		Frontmatter: make(map[string]interface{}),
+		Sections:    []string{},
 	}
 
 	lines := strings.Split(content, "\n")
@@ -35,21 +39,33 @@ func Parse(content string, filename string) (*ParsedArtifact, error) {
 	// Extract YAML frontmatter if present
 	if i < len(lines) && strings.TrimSpace(lines[i]) == "---" {
 		i++ // skip opening ---
+		var yamlLines []string
 		for i < len(lines) && strings.TrimSpace(lines[i]) != "---" {
-			line := strings.TrimSpace(lines[i])
-			if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
-				key := strings.TrimSpace(line[:colonIdx])
-				val := strings.TrimSpace(line[colonIdx+1:])
-				// Strip surrounding quotes
-				val = strings.Trim(val, `"'`)
-				if key != "" && val != "" {
-					art.Metadata[key] = val
-				}
-			}
+			yamlLines = append(yamlLines, lines[i])
 			i++
 		}
 		if i < len(lines) {
 			i++ // skip closing ---
+		}
+
+		yamlContent := strings.Join(yamlLines, "\n")
+		if yamlContent != "" {
+			if err := yaml.Unmarshal([]byte(yamlContent), &art.Frontmatter); err != nil {
+				return nil, fmt.Errorf("invalid YAML frontmatter in %s: %w", filename, err)
+			}
+			// Populate flat Metadata from top-level scalar values
+			for key, val := range art.Frontmatter {
+				switch v := val.(type) {
+				case string:
+					art.Metadata[key] = v
+				case int:
+					art.Metadata[key] = fmt.Sprintf("%d", v)
+				case float64:
+					art.Metadata[key] = fmt.Sprintf("%g", v)
+				case bool:
+					art.Metadata[key] = fmt.Sprintf("%t", v)
+				}
+			}
 		}
 	}
 

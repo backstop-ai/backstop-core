@@ -1,0 +1,451 @@
+package validate
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/bmanson/backstop-core/pkg/schema"
+)
+
+var specNumberRe = regexp.MustCompile(`^(SPEC-[0-9]{3})-`)
+var claimIDRe = regexp.MustCompile(`^CLM-[0-9]{3}$`)
+
+// Verification level → required coverage threshold. Nil means threshold must be absent.
+var thresholdRules = map[string]*int{
+	"unit":        intPtr(90),
+	"security":    intPtr(90),
+	"integration": intPtr(80),
+	"performance": intPtr(80),
+	"static":      nil,
+	"build":       nil,
+}
+
+var verificationLevels = map[string]bool{
+	"static": true, "build": true, "unit": true,
+	"integration": true, "performance": true, "security": true,
+}
+
+func intPtr(n int) *int { return &n }
+
+// ValidateSpec composes base validation with spec-specific checks.
+func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := ValidateBase(art, sch)
+	var specViolations []Violation
+
+	// 1. Filename pattern
+	filenameOK := false
+	if sch.FilenamePattern != "" {
+		re, err := regexp.Compile(sch.FilenamePattern)
+		if err == nil {
+			filenameOK = re.MatchString(art.Filename)
+		}
+		if !filenameOK {
+			specViolations = append(specViolations, Violation{
+				Rule:     "spec/filename-pattern",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("filename does not match pattern %s", sch.FilenamePattern),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 2. Slug validation
+	if filenameOK && sch.SlugPattern != "" {
+		slug := extractSpecSlug(art.Filename)
+		if slug != "" {
+			slugRe, err := regexp.Compile(sch.SlugPattern)
+			valid := err == nil && slugRe.MatchString(slug)
+			if valid && (sch.SlugMinLength > 0 && len(slug) < sch.SlugMinLength) {
+				valid = false
+			}
+			if valid && (sch.SlugMaxLength > 0 && len(slug) > sch.SlugMaxLength) {
+				valid = false
+			}
+			if !valid {
+				specViolations = append(specViolations, Violation{
+					Rule:     "spec/invalid-slug",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("slug '%s' does not conform to D-078 spec", slug),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	// 3. Number/filename consistency
+	if filenameOK {
+		m := specNumberRe.FindStringSubmatch(art.Filename)
+		if m != nil {
+			fileNumber := m[1]
+			if metaNumber, ok := art.Metadata["number"]; ok && metaNumber != fileNumber {
+				specViolations = append(specViolations, Violation{
+					Rule:     "spec/number-mismatch",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("metadata number '%s' does not match filename '%s'", metaNumber, fileNumber),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	// 4. Title/number consistency
+	if filenameOK {
+		m := specNumberRe.FindStringSubmatch(art.Filename)
+		if m != nil && art.Title != "" {
+			expectedPrefix := m[1] + ":"
+			if !strings.HasPrefix(art.Title, expectedPrefix) {
+				specViolations = append(specViolations, Violation{
+					Rule:     "spec/title-number-mismatch",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("title does not start with '%s'", expectedPrefix),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	// 5. Status enum
+	if len(sch.StatusEnum) > 0 {
+		status := art.Metadata["status"]
+		valid := false
+		for _, s := range sch.StatusEnum {
+			if s == status {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			specViolations = append(specViolations, Violation{
+				Rule:     "spec/invalid-status",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("status '%s' is not valid (allowed: %v)", status, sch.StatusEnum),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 6. Extension-specific required metadata (spec_version)
+	for _, key := range sch.ExtensionMetadata {
+		found := false
+		for k, v := range art.Metadata {
+			if strings.EqualFold(k, key) && strings.TrimSpace(v) != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			specViolations = append(specViolations, Violation{
+				Rule:     "spec/metadata-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("required metadata key '%s' is missing or empty", key),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 7. schema_version/artifact-type cross-check
+	if sv, ok := art.Metadata["schema_version"]; ok && sv != "" {
+		parts := strings.SplitN(sv, "/", 2)
+		if len(parts) == 2 && sch.ArtifactType != "" && parts[0] != sch.ArtifactType {
+			specViolations = append(specViolations, Violation{
+				Rule:     "spec/schema-version-mismatch",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("schema_version type '%s' does not match artifact type '%s'", parts[0], sch.ArtifactType),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 8. Verification block — level and threshold
+	specViolations = append(specViolations, validateVerification(art)...)
+
+	// 9. Implementation block — summary and package
+	specViolations = append(specViolations, validateImplementation(art)...)
+
+	// 10. Claims array — well-formed CLM-NNN entries
+	specViolations = append(specViolations, validateClaims(art)...)
+
+	combined := append(base.Violations, specViolations...)
+	return ValidationResult{Violations: combined}
+}
+
+// validateVerification checks the verification nested block.
+func validateVerification(art *artifact.ParsedArtifact) []Violation {
+	var violations []Violation
+
+	verBlock, ok := art.Frontmatter["verification"]
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/verification-required",
+			File:     art.Filename,
+			Message:  "verification block is missing from frontmatter",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	ver, ok := verBlock.(map[string]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/verification-required",
+			File:     art.Filename,
+			Message:  "verification block is not a valid map",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	// Level is required and must be a valid enum
+	levelVal, hasLevel := ver["level"]
+	if !hasLevel {
+		violations = append(violations, Violation{
+			Rule:     "spec/verification-level-required",
+			File:     art.Filename,
+			Message:  "verification.level is missing",
+			Severity: "error",
+		})
+	} else {
+		level, ok := levelVal.(string)
+		if !ok || !verificationLevels[level] {
+			violations = append(violations, Violation{
+				Rule:     "spec/verification-level-invalid",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("verification.level '%v' is not valid (allowed: static, build, unit, integration, performance, security)", levelVal),
+				Severity: "error",
+			})
+		} else {
+			// Threshold rules
+			rule := thresholdRules[level]
+			threshVal, hasThresh := ver["coverage_threshold"]
+
+			if rule == nil && hasThresh {
+				violations = append(violations, Violation{
+					Rule:     "spec/threshold-not-allowed",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("coverage_threshold must not be set for verification level '%s'", level),
+					Severity: "error",
+				})
+			} else if rule != nil {
+				if !hasThresh {
+					violations = append(violations, Violation{
+						Rule:     "spec/threshold-required",
+						File:     art.Filename,
+						Message:  fmt.Sprintf("coverage_threshold is required for verification level '%s' (must be %d)", level, *rule),
+						Severity: "error",
+					})
+				} else {
+					thresh := toInt(threshVal)
+					if thresh != *rule {
+						violations = append(violations, Violation{
+							Rule:     "spec/threshold-value",
+							File:     art.Filename,
+							Message:  fmt.Sprintf("coverage_threshold must be %d for level '%s', got %d", *rule, level, thresh),
+							Severity: "error",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// test_command is required
+	if _, ok := ver["test_command"]; !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/test-command-required",
+			File:     art.Filename,
+			Message:  "verification.test_command is missing",
+			Severity: "error",
+		})
+	}
+
+	return violations
+}
+
+// validateImplementation checks the implementation nested block.
+func validateImplementation(art *artifact.ParsedArtifact) []Violation {
+	var violations []Violation
+
+	implBlock, ok := art.Frontmatter["implementation"]
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/implementation-required",
+			File:     art.Filename,
+			Message:  "implementation block is missing from frontmatter",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	impl, ok := implBlock.(map[string]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/implementation-required",
+			File:     art.Filename,
+			Message:  "implementation block is not a valid map",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	for _, key := range []string{"summary", "package"} {
+		if v, ok := impl[key]; !ok || fmt.Sprintf("%v", v) == "" {
+			violations = append(violations, Violation{
+				Rule:     "spec/implementation-" + key + "-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("implementation.%s is missing or empty", key),
+				Severity: "error",
+			})
+		}
+	}
+
+	return violations
+}
+
+// validateClaims checks the claims array for well-formed CLM-NNN entries.
+func validateClaims(art *artifact.ParsedArtifact) []Violation {
+	var violations []Violation
+
+	claimsVal, ok := art.Frontmatter["claims"]
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/claims-required",
+			File:     art.Filename,
+			Message:  "claims array is missing from frontmatter",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	claims, ok := claimsVal.([]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "spec/claims-required",
+			File:     art.Filename,
+			Message:  "claims is not a valid array",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	if len(claims) == 0 {
+		violations = append(violations, Violation{
+			Rule:     "spec/claims-empty",
+			File:     art.Filename,
+			Message:  "claims array must contain at least one claim",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	seenIDs := make(map[string]bool)
+	for i, item := range claims {
+		claim, ok := item.(map[string]interface{})
+		if !ok {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-format",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] is not a valid map", i),
+				Severity: "error",
+			})
+			continue
+		}
+
+		// Claim ID
+		idVal, hasID := claim["id"]
+		if !hasID {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-id-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] is missing 'id'", i),
+				Severity: "error",
+			})
+		} else {
+			id, ok := idVal.(string)
+			if !ok || !claimIDRe.MatchString(id) {
+				violations = append(violations, Violation{
+					Rule:     "spec/claim-id-format",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("claims[%d] id '%v' does not match CLM-NNN pattern", i, idVal),
+					Severity: "error",
+				})
+			} else if seenIDs[id] {
+				violations = append(violations, Violation{
+					Rule:     "spec/claim-id-duplicate",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("duplicate claim id '%s'", id),
+					Severity: "error",
+				})
+			} else {
+				seenIDs[id] = true
+			}
+		}
+
+		// Claim text
+		textVal, hasText := claim["text"]
+		if !hasText {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] is missing 'text'", i),
+				Severity: "error",
+			})
+		} else if text, ok := textVal.(string); ok && strings.TrimSpace(text) == "" {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] 'text' is empty", i),
+				Severity: "error",
+			})
+		}
+
+		// Claim tests
+		testsVal, hasTests := claim["tests"]
+		if !hasTests {
+			violations = append(violations, Violation{
+				Rule:     "spec/claim-tests-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("claims[%d] is missing 'tests'", i),
+				Severity: "error",
+			})
+		} else {
+			tests, ok := testsVal.([]interface{})
+			if !ok || len(tests) == 0 {
+				violations = append(violations, Violation{
+					Rule:     "spec/claim-tests-empty",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("claims[%d] must have at least one test", i),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	return violations
+}
+
+// extractSpecSlug pulls the slug portion from a spec filename.
+// SPEC-023-my-slug.impl.spec.md → my-slug
+func extractSpecSlug(filename string) string {
+	if len(filename) < 10 {
+		return ""
+	}
+	rest := filename[9:] // after "SPEC-NNN-"
+	suffix := ".impl.spec.md"
+	if strings.HasSuffix(rest, suffix) {
+		return rest[:len(rest)-len(suffix)]
+	}
+	return ""
+}
+
+// toInt converts a YAML-parsed number to int.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	}
+	return 0
+}
