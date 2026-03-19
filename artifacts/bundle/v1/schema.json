@@ -74,6 +74,16 @@
           "min_items": 1
         }
       }
+    },
+    "requirements": {
+      "type": "array",
+      "description": "Formal requirements — machine-readable REQ-NNN entries. Required from 'defined' maturity onward. Spec/issue 'supports' fields trace back to these.",
+      "item_required_keys": ["id", "text"],
+      "properties": {
+        "id": {
+          "pattern": "^REQ-[0-9]{3}$"
+        }
+      }
     }
   },
   "maturity_gates": {

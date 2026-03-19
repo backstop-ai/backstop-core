@@ -69,6 +69,16 @@ func validReadyBundleArtifact() *artifact.ParsedArtifact {
 				"approach":    "Build it this way",
 				"assumptions": []interface{}{"assumption-1"},
 			},
+			"requirements": []interface{}{
+				map[string]interface{}{
+					"id":   "REQ-001",
+					"text": "System must support feature X",
+				},
+				map[string]interface{}{
+					"id":   "REQ-002",
+					"text": "Feature X must handle edge case Y",
+				},
+			},
 		},
 		Sections: []string{
 			"Current Thinking", "Draft Requirements",
@@ -586,4 +596,104 @@ func searchString(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// --- Bundle requirements tests ---
+
+func TestValidateBundle_Defined_RequirementsRequired(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["status"].(map[string]interface{})["maturity"] = "defined"
+delete(art.Frontmatter, "requirements")
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirements-required")
+}
+
+func TestValidateBundle_Ready_RequirementsRequired(t *testing.T) {
+art := validReadyBundleArtifact()
+delete(art.Frontmatter, "requirements")
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirements-required")
+}
+
+func TestValidateBundle_Idea_RequirementsOptional(t *testing.T) {
+art := validBundleArtifact()
+delete(art.Frontmatter, "requirements")
+result := validate.ValidateBundle(art, bundleSchema())
+assertNoViolationRule(t, result, "bundle/requirements-required")
+}
+
+func TestValidateBundle_Ready_EmptyRequirements(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirements-required")
+}
+
+func TestValidateBundle_RequirementsNotArray(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = "not-array"
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirements-format")
+}
+
+func TestValidateBundle_RequirementNotMap(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{"not-a-map"}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirement-format")
+}
+
+func TestValidateBundle_RequirementMissingID(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{
+map[string]interface{}{"text": "Some requirement"},
+}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirement-id-required")
+}
+
+func TestValidateBundle_RequirementBadIDPattern(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{
+map[string]interface{}{"id": "R-001", "text": "Some requirement"},
+}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirement-id-pattern")
+}
+
+func TestValidateBundle_RequirementDuplicateID(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{
+map[string]interface{}{"id": "REQ-001", "text": "First"},
+map[string]interface{}{"id": "REQ-001", "text": "Second"},
+}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirement-id-duplicate")
+}
+
+func TestValidateBundle_RequirementMissingText(t *testing.T) {
+art := validReadyBundleArtifact()
+art.Frontmatter["requirements"] = []interface{}{
+map[string]interface{}{"id": "REQ-001"},
+}
+result := validate.ValidateBundle(art, bundleSchema())
+assertHasViolation(t, result, "bundle/requirement-text-required")
+}
+
+func TestValidateBundle_Exploring_RequirementsOptional(t *testing.T) {
+art := validBundleArtifact()
+art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
+delete(art.Frontmatter, "requirements")
+result := validate.ValidateBundle(art, bundleSchema())
+assertNoViolationRule(t, result, "bundle/requirements-required")
+}
+
+func TestValidateBundle_Exploring_ValidIfPresent(t *testing.T) {
+art := validBundleArtifact()
+art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
+art.Frontmatter["requirements"] = []interface{}{
+map[string]interface{}{"id": "REQ-001", "text": "Early requirement"},
+}
+result := validate.ValidateBundle(art, bundleSchema())
+assertNoViolationRule(t, result, "bundle/requirement-id-pattern")
 }

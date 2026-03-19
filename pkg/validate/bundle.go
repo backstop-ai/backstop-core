@@ -90,6 +90,9 @@ func ValidateBundle(art *artifact.ParsedArtifact, sch *schema.Schema) Validation
 	// 9. Placeholder ban in problem.summary at defined/ready
 	violations = append(violations, validatePlaceholderBan(art, maturity)...)
 
+	// 10. Formal requirements array (required from defined onward)
+	violations = append(violations, validateBundleRequirements(art, maturity)...)
+
 	combined := append(base.Violations, violations...)
 	return ValidationResult{Violations: combined}
 }
@@ -487,6 +490,105 @@ func validatePlaceholderBan(art *artifact.ParsedArtifact, maturity string) []Vio
 			Message:  "problem.summary contains placeholder text (TBD/TODO/FIXME/XXX/???)",
 			Severity: "error",
 		})
+	}
+
+	return violations
+}
+
+// Bundle requirement ID pattern: REQ-NNN
+var bundleReqIDRe = regexp.MustCompile(`^REQ-[0-9]{3}$`)
+
+// validateBundleRequirements checks the formal requirements array.
+// Required from defined maturity onward. Each requirement needs id (REQ-NNN) and text.
+func validateBundleRequirements(art *artifact.ParsedArtifact, maturity string) []Violation {
+	var violations []Violation
+
+	requiresDefined := maturity == "defined" || maturity == "ready"
+
+	reqsVal, ok := art.Frontmatter["requirements"]
+	if !ok {
+		if requiresDefined {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirements-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirements array is required at '%s' maturity", maturity),
+				Severity: "error",
+			})
+		}
+		return violations
+	}
+
+	reqs, ok := reqsVal.([]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirements-format",
+			File:     art.Filename,
+			Message:  "requirements is not a valid array",
+			Severity: "error",
+		})
+		return violations
+	}
+
+	if len(reqs) == 0 && requiresDefined {
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirements-required",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("requirements array must not be empty at '%s' maturity", maturity),
+			Severity: "error",
+		})
+		return violations
+	}
+
+	seen := make(map[string]bool)
+	for i, item := range reqs {
+		label := fmt.Sprintf("requirements[%d]", i)
+		req, ok := item.(map[string]interface{})
+		if !ok {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-format",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is not a valid map", label),
+				Severity: "error",
+			})
+			continue
+		}
+
+		// id
+		if id, ok := getStringField(req, "id"); !ok {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-id-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'id'", label),
+				Severity: "error",
+			})
+		} else if !bundleReqIDRe.MatchString(id) {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-id-pattern",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s id '%s' must match pattern REQ-NNN", label, id),
+				Severity: "error",
+			})
+		} else {
+			if seen[id] {
+				violations = append(violations, Violation{
+					Rule:     "bundle/requirement-id-duplicate",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("duplicate requirement id '%s'", id),
+					Severity: "error",
+				})
+			}
+			seen[id] = true
+		}
+
+		// text
+		if _, ok := getStringField(req, "text"); !ok {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-text-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("%s is missing 'text'", label),
+				Severity: "error",
+			})
+		}
 	}
 
 	return violations
