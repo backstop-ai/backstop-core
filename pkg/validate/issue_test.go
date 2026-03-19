@@ -58,6 +58,15 @@ func validClosedIssueArtifact() *artifact.ParsedArtifact {
 				"created": "2026-03-15",
 				"closed":  "2026-03-19",
 			},
+			"verification": map[string]interface{}{
+				"level":              "unit",
+				"coverage_threshold": 90,
+				"test_command":       "go test ./...",
+			},
+			"implementation": map[string]interface{}{
+				"summary": "Fix nil/empty input handling in parser",
+				"package": "pkg/artifact",
+			},
 			"requirements": []interface{}{
 				map[string]interface{}{
 					"id":   "REQ-001",
@@ -719,4 +728,139 @@ func TestValidateIssue_EmptyFrontmatter(t *testing.T) {
 	}
 	result := validate.ValidateIssue(art, issueSchema())
 	assertHasViolation(t, result, "issue/block-required")
+}
+
+// --- Verification block on issues ---
+
+func TestValidateIssue_Ready_MissingVerification(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	delete(art.Frontmatter, "verification")
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/verification-required")
+}
+
+func TestValidateIssue_Ready_VerificationNotMap(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = "not-a-map"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/verification-required")
+}
+
+func TestValidateIssue_Ready_VerificationMissingLevel(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = map[string]interface{}{
+		"test_command": "go test ./...",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/verification-level-required")
+}
+
+func TestValidateIssue_Ready_VerificationBadLevel(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = map[string]interface{}{
+		"level":        "e2e",
+		"test_command": "go test ./...",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/verification-level-invalid")
+}
+
+func TestValidateIssue_Ready_ThresholdMismatch(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = map[string]interface{}{
+		"level":              "unit",
+		"coverage_threshold": 80,
+		"test_command":       "go test ./...",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/threshold-value")
+}
+
+func TestValidateIssue_Ready_ThresholdNotAllowed(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = map[string]interface{}{
+		"level":              "static",
+		"coverage_threshold": 90,
+		"test_command":       "go test ./...",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/threshold-not-allowed")
+}
+
+func TestValidateIssue_Ready_MissingTestCommand(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["verification"] = map[string]interface{}{
+		"level":              "unit",
+		"coverage_threshold": 90,
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/test-command-required")
+}
+
+func TestValidateIssue_Open_VerificationNotRequired(t *testing.T) {
+	art := validIssueArtifact()
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/verification-required")
+}
+
+// --- Implementation block on issues ---
+
+func TestValidateIssue_Ready_MissingImplementation(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	delete(art.Frontmatter, "implementation")
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/implementation-required")
+}
+
+func TestValidateIssue_Ready_ImplementationNotMap(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["implementation"] = "not-a-map"
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/implementation-required")
+}
+
+func TestValidateIssue_Ready_MissingSummary(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["implementation"] = map[string]interface{}{
+		"package": "pkg/artifact",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/implementation-summary-required")
+}
+
+func TestValidateIssue_Ready_MissingPackage(t *testing.T) {
+	art := validClosedIssueArtifact()
+	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
+	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
+	art.Frontmatter["implementation"] = map[string]interface{}{
+		"summary": "Fix the thing",
+	}
+	result := validate.ValidateIssue(art, issueSchema())
+	assertHasViolation(t, result, "issue/implementation-package-required")
+}
+
+func TestValidateIssue_Open_ImplementationNotRequired(t *testing.T) {
+	art := validIssueArtifact()
+	result := validate.ValidateIssue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/implementation-required")
 }

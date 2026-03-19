@@ -335,6 +335,12 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 		return violations
 	}
 
+	// Verification block — level, threshold, test_command (required from ready onward)
+	violations = append(violations, validateVerification(art, "issue")...)
+
+	// Implementation block — summary, package (required from ready onward)
+	violations = append(violations, validateImplementation(art, "issue")...)
+
 	// Requirements (required from ready onward)
 	validReqs := make(map[string]bool)
 	violations = append(violations, validateIssueRequirements(art, &validReqs)...)

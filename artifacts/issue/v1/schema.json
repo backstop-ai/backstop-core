@@ -67,6 +67,29 @@
         }
       }
     },
+    "verification": {
+      "type": "object",
+      "description": "Test verification strategy — required from 'ready' onward. Same rules as spec: unit/security threshold 90, integration/performance threshold 80, static/build no threshold.",
+      "required_keys": ["level", "test_command"],
+      "properties": {
+        "level": {
+          "enum": ["static", "build", "unit", "integration", "performance", "security"]
+        },
+        "coverage_threshold": {
+          "type": "integer",
+          "description": "Required for unit/security (90) and integration/performance (80). Must not be set for static/build."
+        },
+        "test_command": {
+          "type": "string",
+          "description": "Command to run tests (e.g., 'go test ./...', 'npx vitest run')"
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "description": "Implementation scope — required from 'ready' onward. Identifies what packages are touched and summarizes the change.",
+      "required_keys": ["summary", "package"]
+    },
     "requirements": {
       "type": "array",
       "item_required_keys": ["id", "text"],

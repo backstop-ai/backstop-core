@@ -161,10 +161,10 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	}
 
 	// 8. Verification block — level and threshold
-	specViolations = append(specViolations, validateVerification(art)...)
+	specViolations = append(specViolations, validateVerification(art, "spec")...)
 
 	// 9. Implementation block — summary and package
-	specViolations = append(specViolations, validateImplementation(art)...)
+	specViolations = append(specViolations, validateImplementation(art, "spec")...)
 
 	// 10. Requirements array — well-formed REQ-NNN entries
 	reqIDs := validateRequirements(art)
@@ -181,13 +181,13 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 }
 
 // validateVerification checks the verification nested block.
-func validateVerification(art *artifact.ParsedArtifact) []Violation {
+func validateVerification(art *artifact.ParsedArtifact, rulePrefix string) []Violation {
 	var violations []Violation
 
 	verBlock, ok := art.Frontmatter["verification"]
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "spec/verification-required",
+			Rule:     rulePrefix + "/verification-required",
 			File:     art.Filename,
 			Message:  "verification block is missing from frontmatter",
 			Severity: "error",
@@ -198,7 +198,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 	ver, ok := verBlock.(map[string]interface{})
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "spec/verification-required",
+			Rule:     rulePrefix + "/verification-required",
 			File:     art.Filename,
 			Message:  "verification block is not a valid map",
 			Severity: "error",
@@ -210,7 +210,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 	levelVal, hasLevel := ver["level"]
 	if !hasLevel {
 		violations = append(violations, Violation{
-			Rule:     "spec/verification-level-required",
+			Rule:     rulePrefix + "/verification-level-required",
 			File:     art.Filename,
 			Message:  "verification.level is missing",
 			Severity: "error",
@@ -219,7 +219,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 		level, ok := levelVal.(string)
 		if !ok || !verificationLevels[level] {
 			violations = append(violations, Violation{
-				Rule:     "spec/verification-level-invalid",
+				Rule:     rulePrefix + "/verification-level-invalid",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("verification.level '%v' is not valid (allowed: static, build, unit, integration, performance, security)", levelVal),
 				Severity: "error",
@@ -231,7 +231,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 
 			if rule == nil && hasThresh {
 				violations = append(violations, Violation{
-					Rule:     "spec/threshold-not-allowed",
+					Rule:     rulePrefix + "/threshold-not-allowed",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("coverage_threshold must not be set for verification level '%s'", level),
 					Severity: "error",
@@ -239,7 +239,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 			} else if rule != nil {
 				if !hasThresh {
 					violations = append(violations, Violation{
-						Rule:     "spec/threshold-required",
+						Rule:     rulePrefix + "/threshold-required",
 						File:     art.Filename,
 						Message:  fmt.Sprintf("coverage_threshold is required for verification level '%s' (must be %d)", level, *rule),
 						Severity: "error",
@@ -248,7 +248,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 					thresh := toInt(threshVal)
 					if thresh != *rule {
 						violations = append(violations, Violation{
-							Rule:     "spec/threshold-value",
+							Rule:     rulePrefix + "/threshold-value",
 							File:     art.Filename,
 							Message:  fmt.Sprintf("coverage_threshold must be %d for level '%s', got %d", *rule, level, thresh),
 							Severity: "error",
@@ -262,7 +262,7 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 	// test_command is required
 	if _, ok := ver["test_command"]; !ok {
 		violations = append(violations, Violation{
-			Rule:     "spec/test-command-required",
+			Rule:     rulePrefix + "/test-command-required",
 			File:     art.Filename,
 			Message:  "verification.test_command is missing",
 			Severity: "error",
@@ -273,13 +273,13 @@ func validateVerification(art *artifact.ParsedArtifact) []Violation {
 }
 
 // validateImplementation checks the implementation nested block.
-func validateImplementation(art *artifact.ParsedArtifact) []Violation {
+func validateImplementation(art *artifact.ParsedArtifact, rulePrefix string) []Violation {
 	var violations []Violation
 
 	implBlock, ok := art.Frontmatter["implementation"]
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "spec/implementation-required",
+			Rule:     rulePrefix + "/implementation-required",
 			File:     art.Filename,
 			Message:  "implementation block is missing from frontmatter",
 			Severity: "error",
@@ -290,7 +290,7 @@ func validateImplementation(art *artifact.ParsedArtifact) []Violation {
 	impl, ok := implBlock.(map[string]interface{})
 	if !ok {
 		violations = append(violations, Violation{
-			Rule:     "spec/implementation-required",
+			Rule:     rulePrefix + "/implementation-required",
 			File:     art.Filename,
 			Message:  "implementation block is not a valid map",
 			Severity: "error",
@@ -301,7 +301,7 @@ func validateImplementation(art *artifact.ParsedArtifact) []Violation {
 	for _, key := range []string{"summary", "package"} {
 		if v, ok := impl[key]; !ok || fmt.Sprintf("%v", v) == "" {
 			violations = append(violations, Violation{
-				Rule:     "spec/implementation-" + key + "-required",
+				Rule:     rulePrefix + "/implementation-" + key + "-required",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("implementation.%s is missing or empty", key),
 				Severity: "error",
