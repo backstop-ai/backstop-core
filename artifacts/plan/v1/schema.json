@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-plan-v1",
+  "title": "Backstop Plan Schema v1",
+  "description": "Schema for implementation plans with agent-bounded tasks (D-080) and file exclusivity enforcement (D-081). Extends backstop-artifact-base-v1.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "plan",
+  "filename_pattern": "^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.plan\\.md$",
+  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+  "slug_min_length": 2,
+  "slug_max_length": 64,
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version"],
+    "properties": {
+      "number": {
+        "pattern": "^PLAN-[A-Z]+-[0-9]+$",
+        "description": "Plan identifier, typically PLAN-SPEC-NNN or PLAN-ISSUE-NNN"
+      },
+      "status": {
+        "enum": ["draft", "ready", "implementing", "completed"]
+      },
+      "schema_version": {
+        "const": "plan/v1"
+      }
+    }
+  },
+  "required_sections": [
+    "Overview"
+  ],
+  "optional_sections": [
+    "Notes",
+    "References"
+  ],
+  "nested_blocks": {
+    "phases": {
+      "type": "array",
+      "description": "Ordered execution phases containing agent-bounded tasks",
+      "item_required_keys": ["id", "name", "tasks"],
+      "task_required_keys": ["id", "title", "description", "files", "claims", "depends_on"]
+    }
+  },
+  "enforcement": {
+    "D-080": "Every task must be agent-bounded: non-empty files, description, claims, and explicit depends_on",
+    "D-081": "Parallel-eligible tasks (no transitive dependency) must have disjoint file sets"
+  }
+}
