@@ -342,6 +342,9 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 	// Claims with full spec parity (required from ready onward)
 	violations = append(violations, validateIssueClaims(art, validReqs)...)
 
+	// Contracts — provides/consumes API surface (required from ready onward)
+	violations = append(violations, validateContracts(art.Frontmatter, art.Filename, "issue")...)
+
 	return violations
 }
 

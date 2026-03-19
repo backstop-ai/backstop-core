@@ -173,6 +173,9 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	// 11. Claims array — well-formed CLM-NNN entries with valid REQ references
 	specViolations = append(specViolations, validateClaims(art, reqIDs.ids)...)
 
+	// 12. Contracts — provides/consumes API surface
+	specViolations = append(specViolations, validateContracts(art.Frontmatter, art.Filename, "spec")...)
+
 	combined := append(base.Violations, specViolations...)
 	return ValidationResult{Violations: combined}
 }

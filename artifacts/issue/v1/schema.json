@@ -77,6 +77,14 @@
       "type": "array",
       "item_required_keys": ["id", "requirement", "text", "tests"],
       "description": "CLM-NNN claims — full parity with specs. Each claim traces to a REQ-NNN and mandates test names. Required when status is 'closed'."
+    },
+    "contracts": {
+      "type": "array",
+      "description": "API surface contracts — provides/consumes declarations. Required from 'ready' onward.",
+      "item_required_keys": ["file"],
+      "provides_required_keys": ["name", "kind", "signature"],
+      "consumes_required_keys": ["source", "name", "kind"],
+      "kind_enum": ["function", "type", "interface", "method", "constant", "variable"]
     }
   },
   "enforcement": {

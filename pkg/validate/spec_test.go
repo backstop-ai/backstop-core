@@ -76,6 +76,25 @@ func validSpecArtifact() *artifact.ParsedArtifact {
 					},
 				},
 			},
+			"contracts": []interface{}{
+				map[string]interface{}{
+					"file": "pkg/artifact/parse.go",
+					"provides": []interface{}{
+						map[string]interface{}{
+							"name":      "ParseFile",
+							"kind":      "function",
+							"signature": "func ParseFile(path string) (*ParsedArtifact, error)",
+						},
+					},
+					"consumes": []interface{}{
+						map[string]interface{}{
+							"source": "pkg/artifact/artifact.go",
+							"name":   "ParsedArtifact",
+							"kind":   "type",
+						},
+					},
+				},
+			},
 		},
 		Sections: []string{"Overview", "Requirements", "Implementation", "Verification"},
 	}

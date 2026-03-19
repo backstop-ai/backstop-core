@@ -60,6 +60,14 @@
       "type": "array",
       "item_required_keys": ["id", "requirement", "text", "tests"],
       "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ"
+    },
+    "contracts": {
+      "type": "array",
+      "description": "API surface contracts — each entry declares a file's provides (exported symbols) and consumes (dependencies)",
+      "item_required_keys": ["file"],
+      "provides_required_keys": ["name", "kind", "signature"],
+      "consumes_required_keys": ["source", "name", "kind"],
+      "kind_enum": ["function", "type", "interface", "method", "constant", "variable"]
     }
   },
   "verification_levels": {
