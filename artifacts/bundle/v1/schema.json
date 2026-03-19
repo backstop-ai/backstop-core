@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-bundle-v1",
+  "title": "Backstop Context Bundle Schema v1",
+  "description": "Schema for context bundles with maturity-gated progressive requirements. Extends backstop-artifact-base-v1.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "bundle",
+  "filename_pattern": "^[a-z0-9-]+(\\.epic)?\\.bundle\\.md$",
+  "metadata": {
+    "required": ["title", "schema_version"],
+    "properties": {
+      "schema_version": {
+        "const": "bundle/v1"
+      }
+    }
+  },
+  "required_sections": [],
+  "optional_sections": [
+    "Current Thinking",
+    "Draft Requirements",
+    "Draft Design Decisions",
+    "Spec Seeds",
+    "Version History",
+    "Draft Constraints (Optional)",
+    "Open Questions",
+    "Target Repo Shape (Optional)",
+    "Notes / Ideas",
+    "References"
+  ],
+  "nested_blocks": {
+    "bundle": {
+      "type": "object",
+      "description": "Core bundle identity",
+      "required_keys": ["name", "version", "created", "category"],
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Kebab-case bundle name, must match filename stem"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semver version"
+        },
+        "created": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Creation date (YYYY-MM-DD)"
+        },
+        "category": {
+          "enum": ["feature", "service", "integration", "recipe", "infrastructure", "tool", "epic"]
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "description": "Bundle lifecycle status",
+      "required_keys": ["maturity"],
+      "properties": {
+        "maturity": {
+          "enum": ["idea", "exploring", "defined", "ready"]
+        }
+      }
+    },
+    "epic": {
+      "type": "object",
+      "description": "Required when bundle.category is 'epic'",
+      "required_keys": ["id", "goal", "success_metric", "children"],
+      "properties": {
+        "id": {
+          "pattern": "^EPIC-[A-Z0-9-]+$"
+        },
+        "children": {
+          "type": "array",
+          "min_items": 1
+        }
+      }
+    }
+  },
+  "maturity_gates": {
+    "defined": {
+      "required_frontmatter": ["bundle.updated", "problem.summary", "problem.user_story", "solution.approach"],
+      "required_sections": ["Current Thinking", "Draft Requirements", "Draft Design Decisions", "Spec Seeds", "Version History"],
+      "description": "At 'defined' maturity, approach is clear and bundle must have structured content"
+    },
+    "ready": {
+      "required_frontmatter": ["bundle.updated", "problem.summary", "problem.user_story", "problem.success_criteria", "solution.approach", "solution.assumptions"],
+      "required_sections": ["Current Thinking", "Draft Requirements", "Draft Design Decisions", "Spec Seeds", "Version History"],
+      "description": "At 'ready' maturity, bundle is complete and ready for spec generation"
+    }
+  },
+  "enforcement": {
+    "maturity-gated": "Bundle requirements increase progressively with maturity level",
+    "name-filename-consistency": "bundle.name must match the filename stem (before .bundle.md or .epic.bundle.md)",
+    "version-gated-updated": "bundle.updated required when bundle.version > 0.1.0",
+    "epic-validation": "Bundles with category 'epic' must have epic.id, epic.goal, epic.success_metric, and non-empty epic.children",
+    "placeholder-ban": "TBD/TODO/FIXME/XXX/??? banned in problem.summary at defined/ready maturity"
+  }
+}
