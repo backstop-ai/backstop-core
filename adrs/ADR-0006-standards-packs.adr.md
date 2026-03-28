@@ -3,86 +3,123 @@ number: ADR-0006
 created: "2026-03-18"
 status: Accepted
 deciders: "@bmanson"
-decisions: "D-016–D-023, D-030–D-034, D-031v2, D-032v2, D-046, D-075, D-076"
+decisions: "D-016–D-023, D-030–D-034, D-031v2, D-032v2, D-046, D-075, D-076, D-085, D-086"
 schema_version: adr/v2
 ---
 
-# ADR-0006: Standards Packs — Polyglot Native Checkers as Library Code
+# ADR-0006: Standards Packs — Semgrep-Powered Declarative Enforcement
 
 ## Context
 
-Backstop enforces code standards through "packs" — collections of rules, checkers, and test fixtures that define what good code looks like for a given language and concern. The pack model must answer three questions:
+Backstop enforces code standards through "packs" — collections of rules and test fixtures that define what good code looks like for a given language and concern. The pack model must answer three questions:
 
 1. **What categories of standards exist?** (structure, security, performance, etc.)
-2. **How are checkers implemented?** (same language as the code they check, not a universal DSL)
+2. **How are checks implemented?** (what engine runs the rules?)
 3. **How do teams adopt packs on existing codebases?** (without blocking all work on day one)
+
+An earlier version of this ADR designed language-native AST checker tools (`backstop-go-ast`, `backstop-ts-ast`, etc.) — one compiled binary per language per concern. In practice, these checkers devolved into regex and string matchers. Effective enough to catch violations, but brittle, hard to maintain, and impossible for third parties to author.
+
+Semgrep OSS resolves all three problems. It provides AST-aware pattern matching across 30+ languages with a single declarative YAML rule syntax. Running semgrep against 71k lines of production Go returned ~500 built-in checks with near-zero false positives on production code. Custom rules for style opinions (DI patterns, `init()` bans, naming conventions) required ~200 lines of YAML total. The decision was obvious: semgrep is the checker engine, backstop curates and distributes the rules.
 
 ## Decision
 
-### Ten sub-component types per language pack
+### Semgrep OSS as the universal checker engine (D-085)
 
-Each language pack (backstop-go, backstop-typescript, etc.) contains up to ten sub-components. Each is independently versioned and toggleable:
+All code-level enforcement runs through Semgrep OSS. There are no language-native checker binaries. There is no custom AST parsing. Backstop does not compete with semgrep — it layers opinionated rule packs on top of semgrep's engine.
 
-| Sub-component | What it enforces |
-|---------------|-----------------|
-| **core** | Language idioms, structure, naming conventions |
-| **test** | Test quality — no vacuous assertions, naming, table tests, coverage patterns |
-| **security** | ASVS-mapped code-level checks — injection, auth, crypto, data protection |
-| **performance** | N+1 queries, unbounded fetches, pagination, connection pooling, O(n²) patterns |
-| **observability** | Structured logging, trace propagation, metrics, health endpoints |
-| **integration** | Standards for connecting TO external systems — SQL, HTTP clients, messaging |
-| **contracts** | Standards for what you expose OUTWARD — REST shape, auth middleware, API versioning |
-| **concurrency** | Goroutine/async/thread patterns (language-dependent, omitted where N/A) |
-| **accessibility** | WCAG compliance — semantic HTML, ARIA, keyboard nav (frontend packs only) |
-| **resilience** | Retry patterns, circuit breakers, graceful degradation, timeout handling |
+What semgrep provides:
+- **AST-aware pattern matching** — structural code analysis, not regex
+- **30+ supported languages** — Go, TypeScript, Python, Java, C#, Rust, and more
+- **~300-600 built-in rules per major language** — security, correctness, best practices
+- **Intraprocedural taint analysis** — data flow tracking within a function
+- **One rule syntax (YAML)** — the same pattern language for every target language
+- **Constant propagation** — detects hardcoded secrets and magic numbers
 
-Sub-components are referenced with explicit qualification: `go:security@2.0.0:SEC-0012`. No implicit prefix resolution — unambiguous regardless of ecosystem growth.
+What semgrep does NOT provide (and backstop handles separately):
+- **Cross-file analysis** — semgrep OSS is single-file. Cross-file traceability lives in backstop's artifact validators and the implementation verifier
+- **Interprocedural dataflow** — taint tracking stops at function boundaries in OSS
+- **Test substantiveness** — D-057 verification (does the test call production code, make meaningful assertions, cover sharp edges) requires backstop's own verifier
+- **Runtime verification** — tests passing, coverage thresholds, contract signatures
+- **Architectural enforcement** — dependency direction, package boundaries, module structure
 
-### Polyglot native checkers
+### Ten rule categories per language pack (D-016, revised)
 
-Checkers are written in the language they police. Go checkers for Go code. TypeScript checkers for TypeScript code.
+The ten sub-component types survive as **rule categories** within a pack, not as separate checker tools. Each category is a directory of semgrep YAML rules:
 
-- **Same-language invocation:** checker runs in-process via library import (no subprocess overhead)
-- **Cross-language invocation:** CLI shells out to a thin runner in the target language with standard JSON I/O protocol
-- **New language support:** publish a new library + register with the CLI. Never rewrite the CLI.
+| Category | What it enforces | Semgrep coverage |
+|----------|-----------------|------------------|
+| **core** | Language idioms, structure, naming, DI patterns, `init()` bans | Strong — custom rules |
+| **test** | No vacuous assertions, naming, table tests, coverage patterns | Partial — substantiveness needs verifier |
+| **security** | ASVS-mapped checks — injection, auth, crypto, data protection | Strong — semgrep's home turf |
+| **performance** | N+1 queries, unbounded fetches, pagination, connection pooling | Partial — algorithmic complexity needs verifier |
+| **observability** | Structured logging, trace propagation, metrics, health endpoints | Strong — pattern matching |
+| **integration** | SQL parameterization, HTTP client patterns, messaging standards | Strong — pattern matching |
+| **contracts** | REST shape, auth middleware, API versioning patterns | Partial — full contract verification needs verifier |
+| **concurrency** | Goroutine/async patterns, mutex misuse, channel patterns | Strong — pattern matching |
+| **accessibility** | WCAG compliance, semantic HTML, ARIA, keyboard nav (frontend only) | Strong — pattern matching |
+| **resilience** | Retry patterns, circuit breakers, graceful degradation, timeouts | Partial — correctness needs verifier |
 
-This replaced the original D-032 decision (Go-only checkers compiled to binaries for all languages). Checkers must speak the language they police — a Go binary cannot understand TypeScript AST idioms.
+Categories are referenced with explicit qualification: `go:security@2.0.0:SEC-0012`. No implicit prefix resolution — unambiguous regardless of ecosystem growth.
 
-### Pack structure
+### Pack structure (D-030, revised)
 
-Each pack is self-contained:
+Each pack is self-contained. The `src/` directory of compiled checkers is replaced by `rules/` containing semgrep YAML:
 
 ```
 standards/go/
-  policies/
-    core/            ← rule definitions (YAML)
-    test/
-    security/
-    performance/
-    ...
+  rules/
+    core/              ← semgrep YAML rules for Go idioms, structure, naming
+    test/              ← test quality rules
+    security/          ← ASVS-mapped security rules
+    performance/       ← performance anti-pattern rules
+    observability/
+    integration/
+    contracts/
+    concurrency/
+    resilience/
   testdata/
-    valid/           ← code that passes all rules
-    invalid/         ← code that violates specific rules
-  src/               ← checker source code (Go for Go packs)
+    valid/             ← code that passes all rules
+    invalid/           ← code that violates specific rules (one file per rule)
+  semgrep.yml          ← pack-level config (includes, severity overrides)
   README.md
 ```
 
-The `testdata/` fixtures are the behavioral contract. `valid/` contains code that must pass. `invalid/` contains code that must fail with specific violations. No fixture, no merge for pack PRs. Fixtures are the pack's test suite and its documentation — look at `invalid/sec-0012-hardcoded-credential.go` to understand exactly what SEC-0012 catches.
+The `testdata/` fixtures remain the behavioral contract. `valid/` contains code that must pass. `invalid/` contains code that must fail with specific violations. Fixtures are the pack's test suite and its documentation — look at `invalid/sec-0012-hardcoded-credential.go` to understand exactly what SEC-0012 catches.
 
-### Checker tools per concern
+### Custom rule anatomy
 
-Purpose-built checker tools, one per concern:
+A backstop custom rule is a standard semgrep rule with backstop metadata:
 
-| Tool | Scope |
-|------|-------|
-| `backstop-go-ast` | Go production code AST — structure, idioms, error handling, DI |
-| `backstop-go-test-ast` | Go test AST — vacuous assertions, table tests, naming, reachability |
-| `backstop-ts-ast` | TypeScript production AST — any usage, return types, module exports |
-| `backstop-ts-test-ast` | TypeScript test AST — testing-library patterns, async assertions |
-| `backstop-bash-ast` | Bash script analysis — set -euo pipefail, quoting, injection |
-| `backstop-opa` | OPA policy evaluation — cross-cutting security rules |
+```yaml
+rules:
+  - id: go.core.no-init-functions
+    patterns:
+      - pattern: |
+          func init() { ... }
+    message: >
+      Do not use init() — use explicit initialization via constructors or
+      setup functions. init() creates hidden execution order dependencies.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      backstop:
+        category: core
+        rule_id: CORE-0001
+        rationale: "Explicit initialization over implicit. DI-friendly."
+```
 
-A single standard can have multiple checkers (`enforcedBy` is always an array). Belt and suspenders.
+Custom rules average ~10 lines of YAML each. The entire custom rule set for a language pack is typically under 500 lines — orders of magnitude less code than language-native checker implementations.
+
+### Two enforcement engines (D-086)
+
+Backstop uses exactly two enforcement mechanisms:
+
+| Engine | What it checks | How it runs |
+|--------|---------------|-------------|
+| **Semgrep OSS** | Code patterns, style, security, correctness — everything expressible as AST pattern matching | `semgrep --config .backstop/rules/ --json` |
+| **Backstop verifier** | Test substantiveness (D-057), contract signature verification, coverage thresholds, cross-file traceability | `backstop verify` (built into CLI) |
+
+A single standard can be enforced by both engines (`enforcedBy` is always an array). Belt and suspenders. Example: a security rule might have a semgrep check for SQL concatenation AND a verifier check that parameterized query wrappers are imported from the standard library.
 
 ### Waivers
 
@@ -109,32 +146,37 @@ For existing codebases adopting backstop, `backstop baseline` records all pre-ex
 ## Consequences
 
 ### What this enables
-- **Language-native enforcement.** Checkers understand the idioms and AST of the language they check. No false positives from cross-language impedance mismatch.
-- **Granular adoption.** Enable `go:security` without `go:performance`. Pin versions per sub-component.
+- **Instant multi-language support.** Adding a new language is authoring rules, not building a compiler. Semgrep already parses the AST.
+- **Community-authored rule packs.** Publishing a checker plugin is publishing a directory of YAML files, not shipping a compiled binary.
+- **~500 checks for free per language.** Semgrep's built-in rules cover security, correctness, and best practices before a single custom rule is written.
+- **Granular adoption.** Enable `go:security` without `go:performance`. Pin versions per category.
 - **Day-one adoption on legacy codebases.** Baseline scan + waivers mean enforcement starts immediately without blocking existing work.
 - **Provable pack behavior.** testdata fixtures define exactly what passes and fails. No ambiguity.
 
 ### What this requires
-- **Checker implementation per language.** Each supported language needs its own checker tools. This is the cost of polyglot native enforcement.
+- **Semgrep OSS as a runtime dependency.** Must be installed alongside backstop CLI. Version pinning for reproducibility.
 - **Fixture maintenance.** Every rule needs valid/ and invalid/ fixtures. This is the pack's test suite — skipping it means the rule is untested.
+- **Verifier for what semgrep can't do.** Test substantiveness, contract verification, coverage gates, and cross-file analysis remain backstop's responsibility.
 
 ## Alternatives Considered
 
 | Approach | Why Rejected |
 |----------|-------------|
-| Go-only checkers compiled to binaries | Cannot understand target language AST. A Go binary checking TypeScript is guessing, not verifying. |
-| Universal DSL for rules (like Rego for everything) | Loses language-native understanding. OPA is good for policy but not for "is this Go idiomatic?" |
+| Language-native AST checkers (original D-032v2) | In practice these devolved into regex and string matchers. Semgrep gives real AST analysis with less code, across all languages, with a single rule syntax. |
+| Universal DSL for rules (like Rego for everything) | OPA/Rego is good for policy but not for code pattern matching. Semgrep's pattern syntax is closer to source code — rule authors write patterns that look like the code they're matching. |
+| Semgrep Pro instead of OSS | Pro adds cross-file analysis and interprocedural taint, but introduces a commercial dependency. OSS covers the code-pattern layer; backstop's verifier handles the cross-file layer. |
 | No sub-components — one monolithic pack per language | Versioning becomes impossible. A test quality fix forces re-validation of all production code standards. |
 | Floating rule versions | Non-deterministic. The same code could pass Monday and fail Tuesday. Explicit version pinning is mandatory. |
 
 ## References
 
-- D-016: Ten canonical sub-component types (revised from original six)
+- D-016: Ten canonical rule categories (revised from sub-component types)
 - D-017–D-023: Pack versioning, enforcement, qualification, checker ecosystem
-- D-030–D-034: Pack structure, testdata contract, third-party authoring (post-MVP)
-- D-031v2, D-032v2: Polyglot native checkers (revised from Go-only)
-- D-046: Pack checkers as library code
+- D-030–D-034: Pack structure, testdata contract, third-party authoring
+- D-085: Semgrep OSS as universal checker engine
+- D-086: Two enforcement engines (semgrep + backstop verifier)
 - D-075: Waiver files with required justification and expiry
 - D-076: Baseline scan for bulk adoption amnesty
 - ADR-0005: backstop.yml manifest (pack configuration lives here)
-- ADR-0007: Security standards pack (forthcoming — ASVS-specific pack details)
+- ADR-0007: Security standards pack (ASVS-specific pack details)
+- ADR-0010: Verification kill chain (verifier architecture)

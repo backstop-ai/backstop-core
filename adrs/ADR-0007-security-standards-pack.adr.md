@@ -97,8 +97,8 @@ The agent reaches for the library, gets L2 for free, and would have to actively 
 - **The 2am CRM pitch.** "My agent made me a CRM last night and it's more robust than 80% of enterprise codebases."
 
 ### What this requires
-- **Rule authoring per ASVS requirement.** Each checkable requirement needs a pack rule, fixtures, and a checker.
-- **Per-language implementation.** SQL injection checks in Go look different from Python. Each language pack needs its own security sub-component.
+- **Rule authoring per ASVS requirement.** Each checkable requirement needs a semgrep rule in the security category, with valid/invalid fixtures.
+- **Per-language rule variants.** SQL injection patterns in Go look different from Python. Each language pack's security category needs its own rules, but they're YAML — not compiled checkers.
 - **Honest scope claim.** The pack covers code-level requirements. Runtime and infrastructure coverage requires additional tooling.
 
 ## Alternatives Considered
