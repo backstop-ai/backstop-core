@@ -154,63 +154,50 @@ The new user workflow answers "what do I actually do?"
 **Day one — bootstrap:**
 
 ```bash
-backstop init                    # creates backstop.yml, .backstop/ directory
-                                 # embedded baseline rules available immediately (D-099)
+backstop init
 ```
 
-**Starting work — create a directive:**
+That's it. One command. `backstop init` drops the user into an interactive agent session that:
 
-The user has an idea. They express it as a bundle (research/context for larger features), an issue (bug fix or small feature), or reference an existing ADR. Then:
+1. Scaffolds `backstop.yml` and `.backstop/` directory
+2. Applies embedded baseline rules (D-099)
+3. Immediately asks: "What's the first thing you want to build?"
+4. Guides the user through creating their first bundle — exploring the problem space, structuring requirements, capturing domain knowledge
+5. When the bundle is ready, asks: "Ready to commit to building this?"
+6. Creates the directive and begins the state machine
+
+The user never needs to know that bundles, directives, or specs exist as separate commands. The agent session is the interface. The artifacts are produced as a side effect of the conversation.
+
+**The ongoing loop:**
+
+Once initialized, starting new work is the same experience:
 
 ```bash
-backstop new directive           # interactive: what's the source? what's the scope?
+backstop new
 ```
 
-The directive is the commitment. Everything downstream is authorized by it.
+The agent asks what they want to do — new feature, bug fix, architectural change — and routes to the right intake (bundle, issue, or ADR). The state machine takes over from there.
 
-**The agent takes over:**
+**For power users:**
 
-From this point, the workflow is agent-driven. The user's role shifts from producer to approver:
-
-1. Agent produces spec(s) from the directive → user reviews or automated review runs
-2. Agent produces plan(s) from approved spec(s) → review
-3. Agent implements from approved plan(s) → review
-4. Gate runs automatically → green means ship
-
-The user can intervene at any review gate — override a fail, add context, adjust scope. But the default path is: agent produces, review gates verify, green means done.
-
-**The minimal loop:**
-
-For the simplest case (a bug fix), the full workflow is:
+Direct artifact creation is available for users who know the primitives:
 
 ```bash
-backstop new issue               # describe the bug
-backstop new directive --source ISSUE-0042
-# agent takes over: spec → plan → implement → gate → ship
-```
-
-Two commands and a brain dump. The framework handles the rest.
-
-**Scaling up:**
-
-For larger features, the user invests more in the intake:
-
-```bash
-backstop new bundle              # research, context, domain knowledge
-# user works with agent to explore the problem space
+backstop new bundle              # skip the routing, go straight to bundle
+backstop new issue               # skip the routing, go straight to issue
 backstop new directive --source BUNDLE-0042
-# agent takes over from here, but the specs will be richer
-# because the bundle gave the agent more to work with
 ```
 
-The quality of the output is proportional to the quality of the intake. Backstop doesn't eliminate thinking — it eliminates everything after thinking.
+But the default path assumes the user knows nothing except `backstop init`. The framework teaches itself through the conversation.
+
+Backstop doesn't eliminate thinking — it eliminates everything after thinking.
 
 ## Consequences
 
 ### What this enables
 - **Deterministic workflow.** Agents don't improvise. The state machine tells them what phase they're in, what to produce, and what the review gate expects.
 - **Pluggable runtime.** The state machine is the contract. The execution layer (Copilot SDK agents, Claude Code, custom runtime) is the implementation. Any runtime that can drive the state machine is a valid backstop executor.
-- **Onboarding in two commands.** `backstop init` + `backstop new directive`. The framework guides from there.
+- **Onboarding in one command.** `backstop init` drops into an interactive session that guides the user from zero to first directive. No manual required.
 - **Bounded iteration.** Review/fix loops have configurable attempt limits. Agents don't spin forever.
 - **Full auditability.** Phase transitions are ledger entries. The entire journey from intake to ship is recorded and hash-chained.
 
