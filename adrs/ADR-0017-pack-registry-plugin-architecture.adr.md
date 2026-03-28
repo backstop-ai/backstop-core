@@ -3,7 +3,7 @@ number: ADR-0017
 created: "2026-03-28"
 status: Accepted
 deciders: "@bmanson"
-decisions: "D-089, D-090, D-091, D-092, D-093, D-094"
+decisions: "D-089, D-090, D-091, D-092, D-093, D-094, D-095, D-096, D-097, D-098, D-099"
 schema_version: adr/v2
 ---
 
@@ -145,6 +145,83 @@ A lib pack published to the registry contains the full provable unit:
   backstop.yml           ← gates config (tier, coverage threshold)
 ```
 
+### Severity overrides are project-only (D-095)
+
+Packs declare rules with default severities. Only the consuming project's `backstop.yml` can override severity. Packs cannot override other packs' severities.
+
+This eliminates cascading severity conflicts entirely. Consider: Pack A declares `SEC-0012` as ERROR. Pack B depends on A and wants it to be WARNING. Pack C depends on B and wants it back at ERROR. Pack F independently overrides B. Without this rule, the consumer inherits a tangled chain of severity overrides with no clear winner.
+
+Instead: all packs see the severity declared at the source. The project author overrides in one place:
+
+```yaml
+packs:
+  rules:
+    - "@backstop/go-security@2.1.0"
+    - "@acme/go-relaxed@1.0.0"
+  overrides:
+    "go:security:SEC-0012":
+      severity: warning
+```
+
+Pack authors who want to *recommend* different severities for their audience can document it or ship a backstop.yml snippet. But they cannot force severity through the dependency graph.
+
+### Registry-as-publisher for lib packs (D-096)
+
+Lib packs are submitted to the backstop registry, which runs verification gates and publishes to native package managers on the author's behalf. The registry is the sole publisher and the authoritative source for content hashes.
+
+The developer's workflow:
+
+1. `backstop pack publish` — submit to backstop registry
+2. Registry runs gates (tests, coverage, contracts, dependency audit)
+3. Registry approves and publishes to npm/PyPI/Go modules
+4. Lockfile receives the content hash
+
+This closes the supply chain gap between "what was verified" and "what was distributed." If the registry published it, the checksum is authoritative. If the checksum doesn't match, the artifact isn't legitimate.
+
+### Backstop-controlled native registry scopes (D-097)
+
+Lib packs publish under backstop-controlled scopes in native registries, preserving author identity:
+
+| Native registry | Naming pattern |
+|----------------|----------------|
+| **npm** | `@backstop-registry/acme-auth-lib` |
+| **PyPI** | `backstop-registry-acme-auth-lib` |
+| **Go modules** | `github.com/backstop-registry/acme-auth-lib` |
+
+The scope (`@backstop-registry`) signals provenance — this came through backstop's verified pipeline. The package name preserves the author's identity. Backstop holds the sole publish token with no risk of revocation.
+
+The native registry name is an implementation detail. Consumers interact with `@acme/auth-lib` in backstop.yml and the CLI resolves it to the native registry name.
+
+Authors with very long namespaces may encounter registry name length limits (npm caps at 214 chars). A soft guardrail warns at registration, but the backstop name is what consumers use day-to-day.
+
+### Independent pack and implementation versioning (D-098)
+
+Pack version and language implementation versions are independent:
+
+| Entity | Version | What changed |
+|--------|---------|-------------|
+| Recipe pack: `@backstop-recipes/http` | `2.7.1` | TS implementation updated |
+| Go impl: `@backstop-registry/backstop-go-http` | `1.1.10` | Unchanged since recipe 2.6.3 |
+| TS impl: `@backstop-registry/backstop-ts-auth` | `1.3.1` | Updated in recipe 2.7.1 |
+| Py impl: `@backstop-registry/backstop-py-http` | `1.2.0` | Unchanged since recipe 2.5.0 |
+
+The **pack catalog version** revs on any subcomponent change. Each **language implementation** revs only when its actual bits change — code, tests, or documentation. The registry maintains a compatibility matrix mapping implementation versions to pack versions.
+
+This avoids false signals: if Go didn't change, Go doesn't rev. Consumers can see at a glance which language triggered the pack version bump. The recipe version defines the behavioral contract; the recipe-derived test suite is the proof of compliance.
+
+**Versioning rule:** if the bits in the published artifact changed, it revs. Code changes, test coverage improvements, documentation updates — all warrant a patch bump. Unchanged implementations stay at their current version.
+
+### Offline bootstrapping with embedded core pack (D-099)
+
+The CLI binary embeds a baseline rule pack via Go's `embed` directive. `backstop init` works fully offline with bundled rules — baseline enforcement (CWE Top 25, OWASP Top 10) is available immediately without network access.
+
+- `backstop init` → works offline with embedded baseline rules
+- `backstop pack sync` → pulls latest versions and additional packs when network is available
+- Embedded version is a floor — registry always wins when available
+- CLI updates bring updated embedded rules, so permanently offline environments improve over time
+
+No registry dependency for the basic "don't let me ship something stupid" workflow. Packs, customization, and higher compliance tiers require network.
+
 ### Rule pack dependencies (D-094)
 
 Rule packs can depend on other rule packs. A downstream pack declares its dependencies with minimum version and required rules:
@@ -220,14 +297,16 @@ backstop pack vendor                          # pull all packs into local direct
 - **Registry infrastructure.** The public registry needs to be built and operated — storage, CDN, verification compute, signing infrastructure.
 - **Pack authoring tooling.** `backstop pack init`, scaffolding templates, local testing before publish.
 - **Namespace governance.** Rules for claiming scopes, handling disputes, preventing squatting.
-- **Offline story.** `backstop pack vendor` for air-gapped environments. CLI ships with bundled core packs.
+- **Offline story.** `backstop pack vendor` for air-gapped environments. CLI ships with embedded baseline rules (D-099).
 
-## Open Questions
+## Open Questions (Resolved)
 
-- **Rule pack ordering.** When two packs define conflicting severities for the same pattern, what's the precedence model?
-- **Lib pack trust chain.** Lib packs are executable code, not declarative YAML. Need a verified publisher tier or sandboxed gate verification.
-- **Recipe/lib version sync.** Recipe artifact version and lib code version need to stay in lockstep. Package is the unit of versioning.
-- **Offline bootstrapping.** `backstop init` without network access — CLI needs bundled snapshot of core official packs.
+All open questions from the initial draft have been resolved:
+
+- **Rule pack ordering** → D-095: Severity overrides are project-only. Packs cannot override other packs' severities. Project `backstop.yml` is the sole authority.
+- **Lib pack trust chain** → D-096 + D-097: Registry-as-publisher model. Backstop runs gates, publishes to native registries under backstop-controlled scopes, and is the authoritative source for content hashes.
+- **Recipe/lib version sync** → D-098: Pack catalog version and implementation versions are independent. Pack revs on any subcomponent change. Implementations rev only on actual changes. Registry maintains compatibility matrix.
+- **Offline bootstrapping** → D-099: CLI embeds baseline rule pack via Go embed. `backstop init` works offline. Registry sync upgrades when network is available.
 
 ## Alternatives Considered
 
@@ -247,6 +326,11 @@ backstop pack vendor                          # pull all packs into local direct
 - D-092: Registry tiers — public, team (SaaS), enterprise (self-hosted)
 - D-093: Registry as verification service — gates run before publish
 - D-094: Rule pack dependencies with immutable IDs and deprecate-and-supersede
+- D-095: Severity overrides are project-only — packs cannot override other packs' severities
+- D-096: Registry-as-publisher — backstop publishes lib packs to native registries on author's behalf
+- D-097: Backstop-controlled native registry scopes (@backstop-registry/<author>-<pack>)
+- D-098: Independent pack and implementation versioning with compatibility matrix
+- D-099: Offline bootstrapping — CLI embeds baseline rule pack via Go embed
 - ADR-0006: Standards packs (semgrep-powered enforcement engine)
 - ADR-0007: Security standards (tiered compliance enforcement)
 - ADR-0013: Standard library model (recipe-to-library pipeline)
