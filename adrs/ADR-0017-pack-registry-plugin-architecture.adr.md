@@ -11,7 +11,7 @@ schema_version: adr/v2
 
 ## Context
 
-Backstop's enforcement engine runs on packs — rule packs (semgrep YAML) and lib packs (recipe-generated code). Without a distribution model, packs are embedded in the CLI binary or copied around as files. This limits adoption to what the core team authors and makes private/proprietary packs impossible.
+Backstop's enforcement engine runs on packs — rule packs (semgrep YAML) and code packs (recipe-generated code). Without a distribution model, packs are embedded in the CLI binary or copied around as files. This limits adoption to what the core team authors and makes private/proprietary packs impossible.
 
 The ecosystem needs three things: a way to discover packs, a way to install them, and a way to publish them. This is a solved problem — npm, Go modules, Cargo, and PyPI all demonstrate the model. Backstop applies it to enforcement rules and standard libraries.
 
@@ -22,7 +22,7 @@ The ecosystem needs three things: a way to discover packs, a way to install them
 | Type | What it contains | Authored as | Compiled to | Distributed via |
 |------|-----------------|-------------|-------------|-----------------|
 | **Rule pack** | Semgrep YAML rules + testdata fixtures | Markdown + YAML frontmatter | Semgrep rule files | Backstop registry (hosted) |
-| **Lib pack** | Importable code/SDK implementing a recipe | Markdown + YAML frontmatter (recipe artifact) | Language-native packages | Native package manager (npm, Go modules, PyPI), cataloged in backstop registry |
+| **Code pack** | Importable code/SDK implementing a recipe | Markdown + YAML frontmatter (recipe artifact) | Language-native packages | Native package manager (npm, Go modules, PyPI), cataloged in backstop registry |
 
 Both types follow the same authoring primitive: a backstop artifact (markdown + YAML frontmatter) that defines requirements, claims, contracts, and tests. The artifact is the spec; the pack contents are the implementation.
 
@@ -36,12 +36,12 @@ packs:
     - "@backstop/go-security@2.1.0"
     - "@backstop/go-core@1.0.0"
     - "@acme/go-fintech@1.3.0"
-  libs:
+  code:
     - "@backstop/go-http@2.0.0"
     - "@backstop/ts-auth@1.1.0"
 ```
 
-The type is determined by where it's declared, not by the name. An agent reading this manifest immediately understands: rules enforce, libs provide.
+The type is determined by where it's declared, not by the name. An agent reading this manifest immediately understands: rules enforce, code enables.
 
 ### Namespaced identifiers (D-091)
 
@@ -81,14 +81,14 @@ The registry is not just a file server. When a pack is published, the registry r
 1. **Validate the artifact** — schema, requirements, claims, contracts all pass
 2. **Verify the implementation** — test functions exist per claims, contract signatures match
 3. **Run the tests** — coverage threshold met
-4. **Run rule packs against the code** — lib packs must pass the same rules they help others comply with
+4. **Run rule packs against the code** — code packs must pass the same rules they help others comply with
 5. **Sign and publish** — the registry stamps it as verified
 
 This is backstop eating its own dog food. The verification gates are compute — free for public packs, paid for private tenants.
 
-### Lib pack distribution model
+### Code pack distribution model
 
-Lib packs are cataloged in the backstop registry but distributed through native package managers:
+Code packs are cataloged in the backstop registry but distributed through native package managers:
 
 ```
 @backstop/go-http     → listed in backstop registry, code lives on Go modules
@@ -104,9 +104,9 @@ backstop pack add @backstop/go-security  # pulls YAML rules into .backstop/rules
 
 One command, two distribution channels. The CLI does the right thing based on pack type.
 
-### Polyglot lib packs
+### Polyglot code packs
 
-Lib packs can contain implementations for multiple languages from a single recipe artifact:
+Code packs can contain implementations for multiple languages from a single recipe artifact:
 
 ```
 @backstop/http/
@@ -131,9 +131,9 @@ Or authors can distribute language-specific packs independently:
 
 Both models coexist. Polyglot packs share one recipe artifact with multiple implementations verified against the same requirements. Language-specific packs version independently with lower maintenance overhead. Author's choice.
 
-### Lib pack contents
+### Code pack contents
 
-A lib pack published to the registry contains the full provable unit:
+A code pack published to the registry contains the full provable unit:
 
 ```
 @backstop/go-http/
@@ -165,9 +165,9 @@ packs:
 
 Pack authors who want to *recommend* different severities for their audience can document it or ship a backstop.yml snippet. But they cannot force severity through the dependency graph.
 
-### Registry-as-publisher for lib packs (D-096)
+### Registry-as-publisher for code packs (D-096)
 
-Lib packs are submitted to the backstop registry, which runs verification gates and publishes to native package managers on the author's behalf. The registry is the sole publisher and the authoritative source for content hashes.
+Code packs are submitted to the backstop registry, which runs verification gates and publishes to native package managers on the author's behalf. The registry is the sole publisher and the authoritative source for content hashes.
 
 The developer's workflow:
 
@@ -180,7 +180,7 @@ This closes the supply chain gap between "what was verified" and "what was distr
 
 ### Backstop-controlled native registry scopes (D-097)
 
-Lib packs publish under backstop-controlled scopes in native registries, preserving author identity:
+Code packs publish under backstop-controlled scopes in native registries, preserving author identity:
 
 | Native registry | Naming pattern |
 |----------------|----------------|
@@ -262,7 +262,7 @@ rules:
     integrity: sha256-def456...
     depends_on:
       "@backstop/go-security": ">=2.0.0"
-libs:
+code:
   "@backstop/go-http":
     version: "2.0.0"
     integrity: sha256-ghi789...
@@ -286,7 +286,7 @@ backstop pack vendor                          # pull all packs into local direct
 ## Consequences
 
 ### What this enables
-- **Ecosystem growth.** Anyone can author and publish rule packs and lib packs. Enforcement is no longer limited to what the core team writes.
+- **Ecosystem growth.** Anyone can author and publish rule packs and code packs. Enforcement is no longer limited to what the core team writes.
 - **Private enforcement.** Enterprise teams distribute proprietary rules through private registry tenants without exposing them publicly.
 - **Verified distribution.** Every pack in the registry is mechanically verified — backstop's own gates run before publish.
 - **SaaS revenue.** Public registry is free (ecosystem). Private tenants are paid (SaaS). Self-hosted is enterprise licensed. Verification gates are compute.
@@ -304,8 +304,8 @@ backstop pack vendor                          # pull all packs into local direct
 All open questions from the initial draft have been resolved:
 
 - **Rule pack ordering** → D-095: Severity overrides are project-only. Packs cannot override other packs' severities. Project `backstop.yml` is the sole authority.
-- **Lib pack trust chain** → D-096 + D-097: Registry-as-publisher model. Backstop runs gates, publishes to native registries under backstop-controlled scopes, and is the authoritative source for content hashes.
-- **Recipe/lib version sync** → D-098: Pack catalog version and implementation versions are independent. Pack revs on any subcomponent change. Implementations rev only on actual changes. Registry maintains compatibility matrix.
+- **Code pack trust chain** → D-096 + D-097: Registry-as-publisher model. Backstop runs gates, publishes to native registries under backstop-controlled scopes, and is the authoritative source for content hashes.
+- **Recipe/code pack version sync** → D-098: Pack catalog version and implementation versions are independent. Pack revs on any subcomponent change. Implementations rev only on actual changes. Registry maintains compatibility matrix.
 - **Offline bootstrapping** → D-099: CLI embeds baseline rule pack via Go embed. `backstop init` works offline. Registry sync upgrades when network is available.
 
 ## Alternatives Considered
@@ -314,20 +314,20 @@ All open questions from the initial draft have been resolved:
 |----------|-------------|
 | Packs embedded in CLI binary only | No ecosystem growth. Limits enforcement to core team output. Makes private packs impossible. |
 | Packs distributed via native package managers only | No central discovery. No unified search. Rule packs (YAML) don't belong in npm. |
-| Single pack type (rules and code mixed) | Conflates enforcement with enablement. Different distribution needs — rules are YAML served from our registry, libs are code served from native package managers. |
+| Single pack type (rules and code mixed) | Conflates enforcement with enablement. Different distribution needs — rules are YAML served from our registry, code packs are code served from native package managers. |
 | No dependencies between rule packs | Prevents composition and extension. Community can't build on official packs. |
 | Floating/range versions | Non-deterministic. Same code could pass Monday, fail Tuesday. Lockfile with exact pins is mandatory. |
 
 ## References
 
-- D-089: Two pack types — rules (semgrep YAML) and libs (recipe-generated code)
-- D-090: Manifest structure with explicit rules/libs sections
+- D-089: Two pack types — rules (semgrep YAML) and code packs (recipe-generated code)
+- D-090: Manifest structure with explicit rules/code sections
 - D-091: Namespaced pack identifiers (@scope/pack-name)
 - D-092: Registry tiers — public, team (SaaS), enterprise (self-hosted)
 - D-093: Registry as verification service — gates run before publish
 - D-094: Rule pack dependencies with immutable IDs and deprecate-and-supersede
 - D-095: Severity overrides are project-only — packs cannot override other packs' severities
-- D-096: Registry-as-publisher — backstop publishes lib packs to native registries on author's behalf
+- D-096: Registry-as-publisher — backstop publishes code packs to native registries on author's behalf
 - D-097: Backstop-controlled native registry scopes (@backstop-registry/<author>-<pack>)
 - D-098: Independent pack and implementation versioning with compatibility matrix
 - D-099: Offline bootstrapping — CLI embeds baseline rule pack via Go embed
