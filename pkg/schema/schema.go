@@ -7,7 +7,7 @@ type Schema struct {
 	SlugPattern       string
 	SlugMinLength     int
 	SlugMaxLength     int
-	RequiredMetadata  []string // Base keys checked by ValidateBase
+	RequiredMetadata  []string // Base keys checked by validate.Base
 	ExtensionMetadata []string // Type-specific keys checked by type validator
 	MetadataRules     map[string]MetadataRule
 	RequiredSections  []string

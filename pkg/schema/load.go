@@ -11,20 +11,20 @@ import (
 	"github.com/bmanson/backstop-core/pkg/artifact"
 )
 
-var schemaVersionRe = regexp.MustCompile(`^[a-z]+/v[0-9]+$`)
+var schemaVersionRe = regexp.MustCompile(`^[a-z]+/v\d+$`)
 
 // rawSchema mirrors the JSON structure of schema files.
 type rawSchema struct {
-	ID               string            `json:"$id"`
-	ArtifactType     string            `json:"artifact_type"`
-	FilenamePattern  string            `json:"filename_pattern"`
-	SlugPattern      string            `json:"slug_pattern"`
-	SlugMinLength    int               `json:"slug_min_length"`
-	SlugMaxLength    int               `json:"slug_max_length"`
-	Extends          string            `json:"extends"`
-	RequiredSections []string          `json:"required_sections"`
-	OptionalSections []string          `json:"optional_sections"`
-	Version          string            `json:"version"`
+	ID               string   `json:"$id"`
+	ArtifactType     string   `json:"artifact_type"`
+	FilenamePattern  string   `json:"filename_pattern"`
+	SlugPattern      string   `json:"slug_pattern"`
+	SlugMinLength    int      `json:"slug_min_length"`
+	SlugMaxLength    int      `json:"slug_max_length"`
+	Extends          string   `json:"extends"`
+	RequiredSections []string `json:"required_sections"`
+	OptionalSections []string `json:"optional_sections"`
+	Version          string   `json:"version"`
 
 	// Top-level metadata (extension schemas use this directly)
 	Metadata rawMetadata `json:"metadata"`
@@ -36,8 +36,8 @@ type rawSchema struct {
 }
 
 type rawMetadata struct {
-	Required   []string                  `json:"required"`
-	Properties map[string]rawMetaProp    `json:"properties"`
+	Required   []string               `json:"required"`
+	Properties map[string]rawMetaProp `json:"properties"`
 }
 
 type rawMetaProp struct {
@@ -96,7 +96,7 @@ func LoadSchema(path string) (*Schema, error) {
 // LoadArtifactSchema reads an extension schema, resolves its base via extends,
 // and returns a merged Schema. Extension-specific metadata keys are separated
 // into ExtensionMetadata to prevent duplicate violations.
-func LoadArtifactSchema(schemaPath string, artifactsRoot string) (*Schema, error) {
+func LoadArtifactSchema(schemaPath, artifactsRoot string) (*Schema, error) {
 	ext, err := LoadSchema(schemaPath)
 	if err != nil {
 		return nil, err

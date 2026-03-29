@@ -9,13 +9,15 @@ import (
 	"github.com/bmanson/backstop-core/pkg/schema"
 )
 
-var planNumberRe = regexp.MustCompile(`^(PLAN-[A-Z]+-[0-9]+)-`)
-var implementsRe = regexp.MustCompile(`^(SPEC|ISSUE)-[0-9]{3}$`)
+var (
+	planNumberRe = regexp.MustCompile(`^(PLAN-[A-Z]+-\d+)-`)
+	implementsRe = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)
+)
 
-// ValidatePlan composes base validation with plan-specific checks
+// Plan composes base validation with plan-specific checks
 // including D-080 (agent-bounded tasks) and D-081 (file exclusivity).
-func ValidatePlan(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := ValidateBase(art, sch)
+func Plan(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := Base(art, sch)
 	var planViolations []Violation
 
 	// 1. Filename pattern
@@ -90,7 +92,9 @@ func ValidatePlan(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	// 6. Phases validation (D-080 + D-081)
 	planViolations = append(planViolations, validatePhases(art)...)
 
-	combined := append(base.Violations, planViolations...)
+	combined := make([]Violation, 0, len(base.Violations)+len(planViolations))
+	combined = append(combined, base.Violations...)
+	combined = append(combined, planViolations...)
 	return ValidationResult{Violations: combined}
 }
 
@@ -196,23 +200,26 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 		// Phase ID
 		phaseID := ""
 		if idVal, ok := phase["id"]; ok {
-			phaseID, _ = idVal.(string)
+			if s, ok := idVal.(string); ok {
+				phaseID = s
+			}
 		}
-		if phaseID == "" {
+		switch {
+		case phaseID == "":
 			violations = append(violations, Violation{
 				Rule:     "plan/phase-id-required",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("phases[%d] is missing 'id'", i),
 				Severity: "error",
 			})
-		} else if seenPhaseIDs[phaseID] {
+		case seenPhaseIDs[phaseID]:
 			violations = append(violations, Violation{
 				Rule:     "plan/phase-id-duplicate",
 				File:     art.Filename,
 				Message:  fmt.Sprintf("duplicate phase id '%s'", phaseID),
 				Severity: "error",
 			})
-		} else {
+		default:
 			seenPhaseIDs[phaseID] = true
 		}
 
@@ -273,23 +280,26 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 
 			// Task ID
 			if idVal, ok := task["id"]; ok {
-				pt.id, _ = idVal.(string)
+				if s, ok := idVal.(string); ok {
+					pt.id = s
+				}
 			}
-			if pt.id == "" {
+			switch {
+			case pt.id == "":
 				violations = append(violations, Violation{
 					Rule:     "plan/task-id-required",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("%s is missing 'id'", taskLabel),
 					Severity: "error",
 				})
-			} else if seenTaskIDs[pt.id] {
+			case seenTaskIDs[pt.id]:
 				violations = append(violations, Violation{
 					Rule:     "plan/task-id-duplicate",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("duplicate task id '%s'", pt.id),
 					Severity: "error",
 				})
-			} else {
+			default:
 				seenTaskIDs[pt.id] = true
 			}
 

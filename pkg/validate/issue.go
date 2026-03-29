@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	issueNumberRe = regexp.MustCompile(`^(ISSUE-[0-9]{3})-`)
-	issueIDRe     = regexp.MustCompile(`^ISSUE-[0-9]{3}$`)
+	issueNumberRe = regexp.MustCompile(`^(ISSUE-\d{3})-`)
+	issueIDRe     = regexp.MustCompile(`^ISSUE-\d{3}$`)
 	issueTypes    = map[string]bool{
 		"bug": true, "technical-debt": true, "enhancement": true,
 		"question": true, "policy-violation": true,
@@ -28,11 +28,11 @@ var (
 	riskEnum        = map[string]bool{"safe": true, "moderate": true, "critical": true}
 )
 
-// ValidateIssue composes base validation with issue-specific checks.
+// Issue composes base validation with issue-specific checks.
 // Issues have full traceability parity with specs — requirements and
 // claims are optional when open but required and fully validated on close.
-func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := ValidateBase(art, sch)
+func Issue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := Base(art, sch)
 	var violations []Violation
 
 	// 1. Filename pattern
@@ -67,7 +67,7 @@ func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationR
 
 	// 3. Issue block validation
 	status := ""
-	violations = append(violations, validateIssueBlock(art, filenameOK, &status)...)
+	violations = append(violations, validateIssueBlock(art, &status)...)
 
 	// 4. ID/filename consistency
 	if filenameOK {
@@ -86,12 +86,14 @@ func ValidateIssue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationR
 	// 8. Requirements + Claims traceability (validated from ready onward)
 	violations = append(violations, validateIssueTraceability(art, status)...)
 
-	combined := append(base.Violations, violations...)
+	combined := make([]Violation, 0, len(base.Violations)+len(violations))
+	combined = append(combined, base.Violations...)
+	combined = append(combined, violations...)
 	return ValidationResult{Violations: combined}
 }
 
 // validateIssueBlock checks the required issue.* frontmatter fields.
-func validateIssueBlock(art *artifact.ParsedArtifact, filenameOK bool, statusOut *string) []Violation {
+func validateIssueBlock(art *artifact.ParsedArtifact, statusOut *string) []Violation {
 	var violations []Violation
 
 	issueVal, ok := art.Frontmatter["issue"]
@@ -217,7 +219,7 @@ func validateIssueIDConsistency(art *artifact.ParsedArtifact) []Violation {
 	}
 
 	m := issueNumberRe.FindStringSubmatch(art.Filename)
-	if m != nil && m[1] != id {
+	if len(m) > 1 && m[1] != id {
 		violations = append(violations, Violation{
 			Rule:     "issue/id-filename-mismatch",
 			File:     art.Filename,
@@ -346,7 +348,7 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 
 	// Requirements (required from ready onward)
 	validReqs := make(map[string]bool)
-	violations = append(violations, validateIssueRequirements(art, &validReqs)...)
+	violations = append(violations, validateIssueRequirements(art, validReqs)...)
 
 	// Claims with full spec parity (required from ready onward)
 	violations = append(violations, validateIssueClaims(art, validReqs)...)
@@ -359,7 +361,7 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 
 // validateIssueRequirements checks the requirements array — REQ-NNN pattern,
 // optional supports field for bundle traceability.
-func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[string]bool) []Violation {
+func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs map[string]bool) []Violation {
 	var violations []Violation
 
 	reqsVal, ok := art.Frontmatter["requirements"]
@@ -423,7 +425,7 @@ func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[stri
 				Message:  fmt.Sprintf("%s id '%v' does not match REQ-NNN pattern", label, idVal),
 				Severity: "error",
 			})
-		} else if (*validReqs)[id] {
+		} else if validReqs[id] {
 			violations = append(violations, Violation{
 				Rule:     "issue/requirement-id-duplicate",
 				File:     art.Filename,
@@ -431,7 +433,7 @@ func validateIssueRequirements(art *artifact.ParsedArtifact, validReqs *map[stri
 				Severity: "error",
 			})
 		} else {
-			(*validReqs)[id] = true
+			validReqs[id] = true
 		}
 
 		// text

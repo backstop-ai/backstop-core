@@ -20,7 +20,7 @@ func ParseFile(path string) (*ParsedArtifact, error) {
 
 // Parse extracts structure from backstop markdown content.
 // Format: YAML frontmatter between --- markers, then H1 title, then H2 sections.
-func Parse(content string, filename string) (*ParsedArtifact, error) {
+func Parse(content, filename string) (*ParsedArtifact, error) {
 	art := &ParsedArtifact{
 		Filename:    filepath.Base(filename),
 		Metadata:    make(map[string]string),

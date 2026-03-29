@@ -11,24 +11,10 @@ var contractKinds = map[string]bool{
 	"method": true, "constant": true, "variable": true,
 }
 
-// contractEntry represents a single file's provides/consumes contract.
-type contractEntry struct {
-	file     string
-	provides []contractItem
-	consumes []contractItem
-}
-
-type contractItem struct {
-	name      string
-	kind      string
-	signature string // provides only
-	source    string // consumes only
-}
-
 // validateContracts checks the contracts array for well-formed entries.
 // Each contract must specify a file and at least one provides or consumes entry.
 // rulePrefix should be "spec" or "issue" for violation rule naming.
-func validateContracts(fm map[string]interface{}, filename string, rulePrefix string) []Violation {
+func validateContracts(fm map[string]interface{}, filename, rulePrefix string) []Violation {
 	var violations []Violation
 
 	contractsVal, ok := fm["contracts"]
@@ -80,7 +66,6 @@ func validateContracts(fm map[string]interface{}, filename string, rulePrefix st
 
 		// file (required)
 		fileVal, hasFile := contract["file"]
-		contractFile := ""
 		if !hasFile {
 			violations = append(violations, Violation{
 				Rule:     rulePrefix + "/contract-file-required",
@@ -96,7 +81,6 @@ func validateContracts(fm map[string]interface{}, filename string, rulePrefix st
 				Severity: "error",
 			})
 		} else {
-			contractFile = f
 			if seenFiles[f] {
 				violations = append(violations, Violation{
 					Rule:     rulePrefix + "/contract-file-duplicate",
@@ -126,7 +110,7 @@ func validateContracts(fm map[string]interface{}, filename string, rulePrefix st
 				hasProvides = len(provides) > 0
 				for j, p := range provides {
 					violations = append(violations,
-						validateProvidesItem(p, filename, rulePrefix, fmt.Sprintf("%s.provides[%d]", label, j), contractFile)...)
+						validateProvidesItem(p, filename, rulePrefix, fmt.Sprintf("%s.provides[%d]", label, j))...)
 				}
 			}
 		}
@@ -163,7 +147,7 @@ func validateContracts(fm map[string]interface{}, filename string, rulePrefix st
 }
 
 // validateProvidesItem checks a single provides entry: name, kind, signature.
-func validateProvidesItem(item interface{}, filename string, rulePrefix string, label string, contractFile string) []Violation {
+func validateProvidesItem(item interface{}, filename, rulePrefix, label string) []Violation {
 	var violations []Violation
 
 	p, ok := item.(map[string]interface{})
@@ -232,7 +216,7 @@ func validateProvidesItem(item interface{}, filename string, rulePrefix string, 
 }
 
 // validateConsumesItem checks a single consumes entry: source, name, kind.
-func validateConsumesItem(item interface{}, filename string, rulePrefix string, label string) []Violation {
+func validateConsumesItem(item interface{}, filename, rulePrefix, label string) []Violation {
 	var violations []Violation
 
 	c, ok := item.(map[string]interface{})
@@ -300,72 +284,72 @@ func validateConsumesItem(item interface{}, filename string, rulePrefix string, 
 	return violations
 }
 
-var capabilityIDRe = regexp.MustCompile(`^UC-[0-9]{3,}$`)
+var capabilityIDRe = regexp.MustCompile(`^UC-\d{3,}$`)
 
 // validateCapabilities checks the optional capabilities array for well-formed UC-NNN entries.
 // If present, must be non-empty with valid, unique capability IDs.
-func validateCapabilities(fm map[string]interface{}, filename string, rulePrefix string) []Violation {
-var violations []Violation
+func validateCapabilities(fm map[string]interface{}, filename, rulePrefix string) []Violation {
+	var violations []Violation
 
-capsVal, ok := fm["capabilities"]
-if !ok {
-return violations // optional
-}
+	capsVal, ok := fm["capabilities"]
+	if !ok {
+		return violations // optional
+	}
 
-caps, ok := capsVal.([]interface{})
-if !ok {
-violations = append(violations, Violation{
-Rule:     rulePrefix + "/capabilities-format",
-File:     filename,
-Message:  "capabilities is not a valid array",
-Severity: "error",
-})
-return violations
-}
+	caps, ok := capsVal.([]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     rulePrefix + "/capabilities-format",
+			File:     filename,
+			Message:  "capabilities is not a valid array",
+			Severity: "error",
+		})
+		return violations
+	}
 
-if len(caps) == 0 {
-violations = append(violations, Violation{
-Rule:     rulePrefix + "/capabilities-empty",
-File:     filename,
-Message:  "capabilities array is present but empty — omit if not applicable",
-Severity: "error",
-})
-return violations
-}
+	if len(caps) == 0 {
+		violations = append(violations, Violation{
+			Rule:     rulePrefix + "/capabilities-empty",
+			File:     filename,
+			Message:  "capabilities array is present but empty — omit if not applicable",
+			Severity: "error",
+		})
+		return violations
+	}
 
-seen := make(map[string]bool)
-for i, item := range caps {
-label := fmt.Sprintf("capabilities[%d]", i)
-s, ok := item.(string)
-if !ok || strings.TrimSpace(s) == "" {
-violations = append(violations, Violation{
-Rule:     rulePrefix + "/capability-format",
-File:     filename,
-Message:  fmt.Sprintf("%s is not a valid string", label),
-Severity: "error",
-})
-continue
-}
+	seen := make(map[string]bool)
+	for i, item := range caps {
+		label := fmt.Sprintf("capabilities[%d]", i)
+		s, ok := item.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			violations = append(violations, Violation{
+				Rule:     rulePrefix + "/capability-format",
+				File:     filename,
+				Message:  fmt.Sprintf("%s is not a valid string", label),
+				Severity: "error",
+			})
+			continue
+		}
 
-if !capabilityIDRe.MatchString(s) {
-violations = append(violations, Violation{
-Rule:     rulePrefix + "/capability-id-pattern",
-File:     filename,
-Message:  fmt.Sprintf("%s '%s' must match pattern UC-NNN (e.g., UC-001)", label, s),
-Severity: "error",
-})
-}
+		if !capabilityIDRe.MatchString(s) {
+			violations = append(violations, Violation{
+				Rule:     rulePrefix + "/capability-id-pattern",
+				File:     filename,
+				Message:  fmt.Sprintf("%s '%s' must match pattern UC-NNN (e.g., UC-001)", label, s),
+				Severity: "error",
+			})
+		}
 
-if seen[s] {
-violations = append(violations, Violation{
-Rule:     rulePrefix + "/capability-duplicate",
-File:     filename,
-Message:  fmt.Sprintf("duplicate capability '%s'", s),
-Severity: "error",
-})
-}
-seen[s] = true
-}
+		if seen[s] {
+			violations = append(violations, Violation{
+				Rule:     rulePrefix + "/capability-duplicate",
+				File:     filename,
+				Message:  fmt.Sprintf("duplicate capability '%s'", s),
+				Severity: "error",
+			})
+		}
+		seen[s] = true
+	}
 
-return violations
+	return violations
 }

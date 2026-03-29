@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	bundleNameRe    = regexp.MustCompile(`^[a-z0-9-]+$`)
-	semverRe        = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	dateRe          = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	epicIDRe        = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)
-	placeholderRe   = regexp.MustCompile(`(?i)\b(TBD|TODO|FIXME|XXX)\b|\?\?\?`)
+	bundleNameRe     = regexp.MustCompile(`^[a-z0-9-]+$`)
+	semverRe         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	dateRe           = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	epicIDRe         = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)
+	placeholderRe    = regexp.MustCompile(`(?i)\b(TBD|TODO|FIXME|XXX)\b|\?{3}`)
 	bundleCategories = map[string]bool{
 		"feature": true, "service": true, "integration": true,
 		"recipe": true, "infrastructure": true, "tool": true, "epic": true,
@@ -29,11 +29,11 @@ var (
 	}
 )
 
-// ValidateBundle composes base validation with bundle-specific checks
+// Bundle composes base validation with bundle-specific checks
 // including maturity-gated progressive requirements, epic validation,
 // and placeholder bans.
-func ValidateBundle(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := ValidateBase(art, sch)
+func Bundle(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := Base(art, sch)
 	var violations []Violation
 
 	// 1. Filename pattern
@@ -71,7 +71,7 @@ func ValidateBundle(art *artifact.ParsedArtifact, sch *schema.Schema) Validation
 
 	// 4. Status block
 	maturity := extractMaturity(art)
-	violations = append(violations, validateStatusBlock(art, maturity)...)
+	violations = append(violations, validateStatusBlock(art)...)
 
 	// 5. Name/filename consistency
 	if filenameOK {
@@ -93,7 +93,9 @@ func ValidateBundle(art *artifact.ParsedArtifact, sch *schema.Schema) Validation
 	// 10. Formal requirements array (required from defined onward)
 	violations = append(violations, validateBundleRequirements(art, maturity)...)
 
-	combined := append(base.Violations, violations...)
+	combined := make([]Violation, 0, len(base.Violations)+len(violations))
+	combined = append(combined, base.Violations...)
+	combined = append(combined, violations...)
 	return ValidationResult{Violations: combined}
 }
 
@@ -195,7 +197,7 @@ func validateBundleBlock(art *artifact.ParsedArtifact) []Violation {
 }
 
 // validateStatusBlock checks the required status.* frontmatter fields.
-func validateStatusBlock(art *artifact.ParsedArtifact, maturity string) []Violation {
+func validateStatusBlock(art *artifact.ParsedArtifact) []Violation {
 	var violations []Violation
 
 	statusVal, ok := art.Frontmatter["status"]
@@ -496,7 +498,7 @@ func validatePlaceholderBan(art *artifact.ParsedArtifact, maturity string) []Vio
 }
 
 // Bundle requirement ID pattern: REQ-NNN
-var bundleReqIDRe = regexp.MustCompile(`^REQ-[0-9]{3}$`)
+var bundleReqIDRe = regexp.MustCompile(`^REQ-\d{3}$`)
 
 // validateBundleRequirements checks the formal requirements array.
 // Required from defined maturity onward. Each requirement needs id (REQ-NNN) and text.

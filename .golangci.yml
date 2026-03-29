@@ -1,0 +1,96 @@
+# golangci-lint configuration for backstop-core
+# Tuned strict — this is the framework that enforces discipline on others.
+# It should be the cleanest codebase in the ecosystem.
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    # Bugs and correctness
+    - errcheck        # unchecked errors
+    - govet           # go vet on steroids
+    - staticcheck     # the big one — deep static analysis
+    - ineffassign     # useless assignments
+    - typecheck       # type-checking errors
+
+    # Code quality
+    - unused          # dead code
+    - gosimple        # simplifications
+    - gocritic        # opinionated but useful diagnostics
+    - revive          # extensible linter, replaces golint
+    - unconvert       # unnecessary type conversions
+    - unparam         # unused function parameters
+    - misspell        # spelling in comments and strings
+
+    # Security
+    - gosec           # security-oriented checks
+
+    # Style and consistency
+    - gofumpt         # stricter gofmt
+    - goimports       # import ordering
+    - whitespace      # unnecessary blank lines
+
+    # Error handling
+    - nilerr          # returning nil after checking err != nil
+    - errname         # error type naming conventions
+
+  disable:
+    - depguard        # we don't need import allow/deny lists yet
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: increment-decrement
+      - name: var-naming
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unreachable-code
+
+  gosec:
+    excludes:
+      - G104 # duplicates errcheck
+
+  gofumpt:
+    extra-rules: true
+
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files get slightly more latitude
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+        - gosec

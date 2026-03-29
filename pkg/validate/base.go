@@ -8,9 +8,9 @@ import (
 	"github.com/bmanson/backstop-core/pkg/schema"
 )
 
-// ValidateBase checks universal artifact requirements: non-empty title,
+// Base checks universal artifact requirements: non-empty title,
 // required metadata keys present, and required sections present.
-func ValidateBase(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+func Base(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 	var violations []Violation
 
 	if art.Title == "" {

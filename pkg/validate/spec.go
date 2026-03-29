@@ -9,10 +9,12 @@ import (
 	"github.com/bmanson/backstop-core/pkg/schema"
 )
 
-var specNumberRe = regexp.MustCompile(`^(SPEC-[0-9]{3})-`)
-var claimIDRe = regexp.MustCompile(`^CLM-[0-9]{3}$`)
-var reqIDRe = regexp.MustCompile(`^REQ-[0-9]{3}$`)
-var supportsRe = regexp.MustCompile(`^[a-z0-9-]+:REQ-[0-9]{3}$`)
+var (
+	specNumberRe = regexp.MustCompile(`^(SPEC-\d{3})-`)
+	claimIDRe    = regexp.MustCompile(`^CLM-\d{3}$`)
+	reqIDRe      = regexp.MustCompile(`^REQ-\d{3}$`)
+	supportsRe   = regexp.MustCompile(`^[a-z0-9-]+:REQ-\d{3}$`)
+)
 
 // Verification level → required coverage threshold. Nil means threshold must be absent.
 var thresholdRules = map[string]*int{
@@ -31,9 +33,9 @@ var verificationLevels = map[string]bool{
 
 func intPtr(n int) *int { return &n }
 
-// ValidateSpec composes base validation with spec-specific checks.
-func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := ValidateBase(art, sch)
+// Spec composes base validation with spec-specific checks.
+func Spec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := Base(art, sch)
 	var specViolations []Violation
 
 	// 1. Filename pattern
@@ -179,7 +181,9 @@ func ValidateSpec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRe
 	// 13. Capabilities — optional UC-NNN references
 	specViolations = append(specViolations, validateCapabilities(art.Frontmatter, art.Filename, "spec")...)
 
-	combined := append(base.Violations, specViolations...)
+	combined := make([]Violation, 0, len(base.Violations)+len(specViolations))
+	combined = append(combined, base.Violations...)
+	combined = append(combined, specViolations...)
 	return ValidationResult{Violations: combined}
 }
 
@@ -379,21 +383,22 @@ func validateRequirements(art *artifact.ParsedArtifact) reqResult {
 			})
 		} else {
 			id, ok := idVal.(string)
-			if !ok || !reqIDRe.MatchString(id) {
+			switch {
+			case !ok || !reqIDRe.MatchString(id):
 				result.violations = append(result.violations, Violation{
 					Rule:     "spec/requirement-id-format",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("requirements[%d] id '%v' does not match REQ-NNN pattern", i, idVal),
 					Severity: "error",
 				})
-			} else if result.ids[id] {
+			case result.ids[id]:
 				result.violations = append(result.violations, Violation{
 					Rule:     "spec/requirement-id-duplicate",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("duplicate requirement id '%s'", id),
 					Severity: "error",
 				})
-			} else {
+			default:
 				result.ids[id] = true
 			}
 		}
@@ -501,21 +506,22 @@ func validateClaims(art *artifact.ParsedArtifact, validReqs map[string]bool) []V
 			})
 		} else {
 			id, ok := idVal.(string)
-			if !ok || !claimIDRe.MatchString(id) {
+			switch {
+			case !ok || !claimIDRe.MatchString(id):
 				violations = append(violations, Violation{
 					Rule:     "spec/claim-id-format",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("claims[%d] id '%v' does not match CLM-NNN pattern", i, idVal),
 					Severity: "error",
 				})
-			} else if seenIDs[id] {
+			case seenIDs[id]:
 				violations = append(violations, Violation{
 					Rule:     "spec/claim-id-duplicate",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("duplicate claim id '%s'", id),
 					Severity: "error",
 				})
-			} else {
+			default:
 				seenIDs[id] = true
 			}
 		}
@@ -589,16 +595,14 @@ func validateClaims(art *artifact.ParsedArtifact, validReqs map[string]bool) []V
 	}
 
 	// Requirement coverage — every REQ must have at least one claim
-	if validReqs != nil {
-		for reqID := range validReqs {
-			if !coveredReqs[reqID] {
-				violations = append(violations, Violation{
-					Rule:     "spec/requirement-uncovered",
-					File:     art.Filename,
-					Message:  fmt.Sprintf("requirement '%s' has no claims referencing it", reqID),
-					Severity: "error",
-				})
-			}
+	for reqID := range validReqs {
+		if !coveredReqs[reqID] {
+			violations = append(violations, Violation{
+				Rule:     "spec/requirement-uncovered",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("requirement '%s' has no claims referencing it", reqID),
+				Severity: "error",
+			})
 		}
 	}
 

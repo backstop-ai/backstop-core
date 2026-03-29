@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Lint + Test + Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint
+        run: go tool golangci-lint run ./...
+
+      - name: Test with coverage
+        run: go test -race -coverprofile=cover.out -covermode=atomic ./...
+
+      - name: Enforce coverage threshold
+        run: |
+          THRESHOLD=90
+          COVERAGE=$(go tool cover -func=cover.out | grep '^total:' | awk '{print int($3)}')
+          echo "Coverage: ${COVERAGE}%  (threshold: ${THRESHOLD}%)"
+          if [ "$COVERAGE" -lt "$THRESHOLD" ]; then
+            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi

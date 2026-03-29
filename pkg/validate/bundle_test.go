@@ -118,8 +118,8 @@ func validEpicBundleArtifact() *artifact.ParsedArtifact {
 
 // --- Core validation tests ---
 
-func TestValidateBundle_Valid_Idea(t *testing.T) {
-	result := validate.ValidateBundle(validBundleArtifact(), bundleSchema())
+func TestBundle_Valid_Idea(t *testing.T) {
+	result := validate.Bundle(validBundleArtifact(), bundleSchema())
 	if !result.Pass() {
 		t.Errorf("expected valid idea bundle to pass, got %d violations:", len(result.Violations))
 		for _, v := range result.Violations {
@@ -128,8 +128,8 @@ func TestValidateBundle_Valid_Idea(t *testing.T) {
 	}
 }
 
-func TestValidateBundle_Valid_Ready(t *testing.T) {
-	result := validate.ValidateBundle(validReadyBundleArtifact(), bundleSchema())
+func TestBundle_Valid_Ready(t *testing.T) {
+	result := validate.Bundle(validReadyBundleArtifact(), bundleSchema())
 	if !result.Pass() {
 		t.Errorf("expected valid ready bundle to pass, got %d violations:", len(result.Violations))
 		for _, v := range result.Violations {
@@ -138,8 +138,8 @@ func TestValidateBundle_Valid_Ready(t *testing.T) {
 	}
 }
 
-func TestValidateBundle_Valid_Epic(t *testing.T) {
-	result := validate.ValidateBundle(validEpicBundleArtifact(), bundleSchema())
+func TestBundle_Valid_Epic(t *testing.T) {
+	result := validate.Bundle(validEpicBundleArtifact(), bundleSchema())
 	if !result.Pass() {
 		t.Errorf("expected valid epic bundle to pass, got %d violations:", len(result.Violations))
 		for _, v := range result.Violations {
@@ -150,14 +150,14 @@ func TestValidateBundle_Valid_Epic(t *testing.T) {
 
 // --- Filename tests ---
 
-func TestValidateBundle_BadFilename(t *testing.T) {
+func TestBundle_BadFilename(t *testing.T) {
 	art := validBundleArtifact()
 	art.Filename = "My Feature.bundle.md"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/filename-pattern")
 }
 
-func TestValidateBundle_EpicFilename(t *testing.T) {
+func TestBundle_EpicFilename(t *testing.T) {
 	art := validBundleArtifact()
 	art.Filename = "my-feature.epic.bundle.md"
 	fm := art.Frontmatter["bundle"].(map[string]interface{})
@@ -168,362 +168,362 @@ func TestValidateBundle_EpicFilename(t *testing.T) {
 		"success_metric": "Metric",
 		"children":       []interface{}{"child-a"},
 	}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/filename-pattern")
 }
 
 // --- Schema version mismatch ---
 
-func TestValidateBundle_SchemaVersionMismatch(t *testing.T) {
+func TestBundle_SchemaVersionMismatch(t *testing.T) {
 	art := validBundleArtifact()
 	art.Metadata["schema_version"] = "spec/v1"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/schema-version-mismatch")
 }
 
 // --- Bundle block tests ---
 
-func TestValidateBundle_MissingBundleBlock(t *testing.T) {
+func TestBundle_MissingBundleBlock(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter, "bundle")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/block-required")
 }
 
-func TestValidateBundle_BundleBlockNotMap(t *testing.T) {
+func TestBundle_BundleBlockNotMap(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"] = "not-a-map"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/block-required")
 }
 
-func TestValidateBundle_MissingName(t *testing.T) {
+func TestBundle_MissingName(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter["bundle"].(map[string]interface{}), "name")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/name-required")
 }
 
-func TestValidateBundle_BadNamePattern(t *testing.T) {
+func TestBundle_BadNamePattern(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["name"] = "My Feature"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/name-pattern")
 }
 
-func TestValidateBundle_MissingVersion(t *testing.T) {
+func TestBundle_MissingVersion(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter["bundle"].(map[string]interface{}), "version")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/version-required")
 }
 
-func TestValidateBundle_BadVersionPattern(t *testing.T) {
+func TestBundle_BadVersionPattern(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["version"] = "v1.0"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/version-pattern")
 }
 
-func TestValidateBundle_MissingCreated(t *testing.T) {
+func TestBundle_MissingCreated(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter["bundle"].(map[string]interface{}), "created")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/created-required")
 }
 
-func TestValidateBundle_BadCreatedPattern(t *testing.T) {
+func TestBundle_BadCreatedPattern(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["created"] = "March 19"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/created-pattern")
 }
 
-func TestValidateBundle_MissingCategory(t *testing.T) {
+func TestBundle_MissingCategory(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter["bundle"].(map[string]interface{}), "category")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/category-required")
 }
 
-func TestValidateBundle_BadCategory(t *testing.T) {
+func TestBundle_BadCategory(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["category"] = "widget"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/category-enum")
 }
 
 // --- Status block tests ---
 
-func TestValidateBundle_MissingStatusBlock(t *testing.T) {
+func TestBundle_MissingStatusBlock(t *testing.T) {
 	art := validBundleArtifact()
 	delete(art.Frontmatter, "status")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/status-required")
 }
 
-func TestValidateBundle_StatusBlockNotMap(t *testing.T) {
+func TestBundle_StatusBlockNotMap(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["status"] = "ready"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/status-required")
 }
 
-func TestValidateBundle_MissingMaturity(t *testing.T) {
+func TestBundle_MissingMaturity(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/maturity-required")
 }
 
-func TestValidateBundle_BadMaturity(t *testing.T) {
+func TestBundle_BadMaturity(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "done"}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/maturity-enum")
 }
 
 // --- Name/filename consistency ---
 
-func TestValidateBundle_NameFilenameMismatch(t *testing.T) {
+func TestBundle_NameFilenameMismatch(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["name"] = "other-name"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/name-filename-mismatch")
 }
 
-func TestValidateBundle_EpicNameFilenameConsistency(t *testing.T) {
+func TestBundle_EpicNameFilenameConsistency(t *testing.T) {
 	art := validEpicBundleArtifact()
 	// Filename is ci-enforcement.epic.bundle.md, name is ci-enforcement — should match
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/name-filename-mismatch")
 }
 
 // --- Version-gated updated ---
 
-func TestValidateBundle_UpdatedNotRequired_AtInitial(t *testing.T) {
+func TestBundle_UpdatedNotRequired_AtInitial(t *testing.T) {
 	art := validBundleArtifact()
 	// version 0.1.0 — updated not required
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/updated-required")
 }
 
-func TestValidateBundle_UpdatedRequired_BeyondInitial(t *testing.T) {
+func TestBundle_UpdatedRequired_BeyondInitial(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["version"] = "0.2.0"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/updated-required")
 }
 
-func TestValidateBundle_UpdatedPresent_BeyondInitial(t *testing.T) {
+func TestBundle_UpdatedPresent_BeyondInitial(t *testing.T) {
 	art := validBundleArtifact()
 	fm := art.Frontmatter["bundle"].(map[string]interface{})
 	fm["version"] = "0.2.0"
 	fm["updated"] = "2026-03-19"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/updated-required")
 }
 
 // --- Maturity-gated tests ---
 
-func TestValidateBundle_Defined_MissingProblemSummary(t *testing.T) {
+func TestBundle_Defined_MissingProblemSummary(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "defined"}
 	delete(art.Frontmatter["problem"].(map[string]interface{}), "summary")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "problem.summary")
 }
 
-func TestValidateBundle_Defined_MissingSolutionApproach(t *testing.T) {
+func TestBundle_Defined_MissingSolutionApproach(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "defined"}
 	delete(art.Frontmatter["solution"].(map[string]interface{}), "approach")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "solution.approach")
 }
 
-func TestValidateBundle_Ready_MissingSuccessCriteria(t *testing.T) {
+func TestBundle_Ready_MissingSuccessCriteria(t *testing.T) {
 	art := validReadyBundleArtifact()
 	delete(art.Frontmatter["problem"].(map[string]interface{}), "success_criteria")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "problem.success_criteria")
 }
 
-func TestValidateBundle_Ready_MissingAssumptions(t *testing.T) {
+func TestBundle_Ready_MissingAssumptions(t *testing.T) {
 	art := validReadyBundleArtifact()
 	delete(art.Frontmatter["solution"].(map[string]interface{}), "assumptions")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "solution.assumptions")
 }
 
-func TestValidateBundle_Ready_MissingSections(t *testing.T) {
+func TestBundle_Ready_MissingSections(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Sections = []string{"Current Thinking"}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-section", "Draft Requirements")
 }
 
-func TestValidateBundle_Idea_NoMaturityGates(t *testing.T) {
+func TestBundle_Idea_NoMaturityGates(t *testing.T) {
 	art := validBundleArtifact()
 	// idea maturity — no gated requirements
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/maturity-gate")
 	assertNoViolationRule(t, result, "bundle/maturity-section")
 }
 
-func TestValidateBundle_Exploring_NoMaturityGates(t *testing.T) {
+func TestBundle_Exploring_NoMaturityGates(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "exploring"}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/maturity-gate")
 	assertNoViolationRule(t, result, "bundle/maturity-section")
 }
 
 // --- Epic validation tests ---
 
-func TestValidateBundle_EpicCategory_MissingEpicBlock(t *testing.T) {
+func TestBundle_EpicCategory_MissingEpicBlock(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["category"] = "epic"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-required")
 }
 
-func TestValidateBundle_EpicBlockNotMap(t *testing.T) {
+func TestBundle_EpicBlockNotMap(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["bundle"].(map[string]interface{})["category"] = "epic"
 	art.Frontmatter["epic"] = "not-a-map"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-required")
 }
 
-func TestValidateBundle_EpicMissingID(t *testing.T) {
+func TestBundle_EpicMissingID(t *testing.T) {
 	art := validEpicBundleArtifact()
 	delete(art.Frontmatter["epic"].(map[string]interface{}), "id")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-id-required")
 }
 
-func TestValidateBundle_EpicBadIDPattern(t *testing.T) {
+func TestBundle_EpicBadIDPattern(t *testing.T) {
 	art := validEpicBundleArtifact()
 	art.Frontmatter["epic"].(map[string]interface{})["id"] = "epic-lowercase"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-id-pattern")
 }
 
-func TestValidateBundle_EpicMissingGoal(t *testing.T) {
+func TestBundle_EpicMissingGoal(t *testing.T) {
 	art := validEpicBundleArtifact()
 	delete(art.Frontmatter["epic"].(map[string]interface{}), "goal")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-goal-required")
 }
 
-func TestValidateBundle_EpicMissingSuccessMetric(t *testing.T) {
+func TestBundle_EpicMissingSuccessMetric(t *testing.T) {
 	art := validEpicBundleArtifact()
 	delete(art.Frontmatter["epic"].(map[string]interface{}), "success_metric")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-success-metric-required")
 }
 
-func TestValidateBundle_EpicMissingChildren(t *testing.T) {
+func TestBundle_EpicMissingChildren(t *testing.T) {
 	art := validEpicBundleArtifact()
 	delete(art.Frontmatter["epic"].(map[string]interface{}), "children")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-children-required")
 }
 
-func TestValidateBundle_EpicEmptyChildren(t *testing.T) {
+func TestBundle_EpicEmptyChildren(t *testing.T) {
 	art := validEpicBundleArtifact()
 	art.Frontmatter["epic"].(map[string]interface{})["children"] = []interface{}{}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/epic-children-empty")
 }
 
-func TestValidateBundle_NonEpicCategory_NoEpicValidation(t *testing.T) {
+func TestBundle_NonEpicCategory_NoEpicValidation(t *testing.T) {
 	art := validBundleArtifact()
 	// category is "feature" — no epic validation
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/epic-required")
 }
 
 // --- Placeholder ban tests ---
 
-func TestValidateBundle_PlaceholderInSummary_Ready(t *testing.T) {
+func TestBundle_PlaceholderInSummary_Ready(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["problem"].(map[string]interface{})["summary"] = "TBD — need to define this"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/placeholder-ban")
 }
 
-func TestValidateBundle_PlaceholderTODO(t *testing.T) {
+func TestBundle_PlaceholderTODO(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["problem"].(map[string]interface{})["summary"] = "TODO figure this out"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/placeholder-ban")
 }
 
-func TestValidateBundle_PlaceholderQuestionMarks(t *testing.T) {
+func TestBundle_PlaceholderQuestionMarks(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["problem"].(map[string]interface{})["summary"] = "What is the problem???"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/placeholder-ban")
 }
 
-func TestValidateBundle_PlaceholderNotChecked_AtIdea(t *testing.T) {
+func TestBundle_PlaceholderNotChecked_AtIdea(t *testing.T) {
 	art := validBundleArtifact()
 	art.Frontmatter["problem"] = map[string]interface{}{
 		"summary": "TBD placeholder is fine at idea stage",
 	}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/placeholder-ban")
 }
 
-func TestValidateBundle_PlaceholderFIXME(t *testing.T) {
+func TestBundle_PlaceholderFIXME(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["problem"].(map[string]interface{})["summary"] = "FIXME this later"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/placeholder-ban")
 }
 
-func TestValidateBundle_PlaceholderXXX(t *testing.T) {
+func TestBundle_PlaceholderXXX(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["problem"].(map[string]interface{})["summary"] = "XXX needs work"
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/placeholder-ban")
 }
 
 // --- Composition test ---
 
-func TestValidateBundle_ComposesBaseAndBundle(t *testing.T) {
+func TestBundle_ComposesBaseAndBundle(t *testing.T) {
 	art := validBundleArtifact()
-	art.Title = "" // base violation
+	art.Title = ""                                                     // base violation
 	delete(art.Frontmatter["bundle"].(map[string]interface{}), "name") // bundle violation
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "base/title-required")
 	assertHasViolation(t, result, "bundle/name-required")
 }
 
 // --- Maturity-gated: problem block missing entirely ---
 
-func TestValidateBundle_Defined_MissingProblemBlock(t *testing.T) {
+func TestBundle_Defined_MissingProblemBlock(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "defined"}
 	delete(art.Frontmatter, "problem")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "problem.summary")
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "problem.user_story")
 }
 
-func TestValidateBundle_Defined_MissingSolutionBlock(t *testing.T) {
+func TestBundle_Defined_MissingSolutionBlock(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "defined"}
 	delete(art.Frontmatter, "solution")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolationContaining(t, result, "bundle/maturity-gate", "solution.approach")
 }
 
 // --- Edge cases ---
 
-func TestValidateBundle_EmptyFrontmatter(t *testing.T) {
+func TestBundle_EmptyFrontmatter(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename:    "empty.bundle.md",
 		Title:       "Empty",
@@ -531,18 +531,18 @@ func TestValidateBundle_EmptyFrontmatter(t *testing.T) {
 		Frontmatter: map[string]interface{}{"schema_version": "bundle/v1"},
 		Sections:    []string{},
 	}
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertHasViolation(t, result, "bundle/block-required")
 	assertHasViolation(t, result, "bundle/status-required")
 }
 
-func TestValidateBundle_DefinedWithAllSections(t *testing.T) {
+func TestBundle_DefinedWithAllSections(t *testing.T) {
 	art := validReadyBundleArtifact()
 	art.Frontmatter["status"] = map[string]interface{}{"maturity": "defined"}
 	// Remove ready-only requirements
 	delete(art.Frontmatter["problem"].(map[string]interface{}), "success_criteria")
 	delete(art.Frontmatter["solution"].(map[string]interface{}), "assumptions")
-	result := validate.ValidateBundle(art, bundleSchema())
+	result := validate.Bundle(art, bundleSchema())
 	assertNoViolationRule(t, result, "bundle/maturity-gate")
 	assertNoViolationRule(t, result, "bundle/maturity-section")
 }
@@ -572,7 +572,7 @@ func assertNoViolationRule(t *testing.T, result validate.ValidationResult, rule 
 	}
 }
 
-func assertHasViolationContaining(t *testing.T, result validate.ValidationResult, rule string, substring string) {
+func assertHasViolationContaining(t *testing.T, result validate.ValidationResult, rule, substring string) {
 	t.Helper()
 	for _, v := range result.Violations {
 		if v.Rule == rule && contains(v.Message, substring) {
@@ -600,100 +600,100 @@ func searchString(s, sub string) bool {
 
 // --- Bundle requirements tests ---
 
-func TestValidateBundle_Defined_RequirementsRequired(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["status"].(map[string]interface{})["maturity"] = "defined"
-delete(art.Frontmatter, "requirements")
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirements-required")
+func TestBundle_Defined_RequirementsRequired(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["status"].(map[string]interface{})["maturity"] = "defined"
+	delete(art.Frontmatter, "requirements")
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirements-required")
 }
 
-func TestValidateBundle_Ready_RequirementsRequired(t *testing.T) {
-art := validReadyBundleArtifact()
-delete(art.Frontmatter, "requirements")
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirements-required")
+func TestBundle_Ready_RequirementsRequired(t *testing.T) {
+	art := validReadyBundleArtifact()
+	delete(art.Frontmatter, "requirements")
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirements-required")
 }
 
-func TestValidateBundle_Idea_RequirementsOptional(t *testing.T) {
-art := validBundleArtifact()
-delete(art.Frontmatter, "requirements")
-result := validate.ValidateBundle(art, bundleSchema())
-assertNoViolationRule(t, result, "bundle/requirements-required")
+func TestBundle_Idea_RequirementsOptional(t *testing.T) {
+	art := validBundleArtifact()
+	delete(art.Frontmatter, "requirements")
+	result := validate.Bundle(art, bundleSchema())
+	assertNoViolationRule(t, result, "bundle/requirements-required")
 }
 
-func TestValidateBundle_Ready_EmptyRequirements(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirements-required")
+func TestBundle_Ready_EmptyRequirements(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirements-required")
 }
 
-func TestValidateBundle_RequirementsNotArray(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = "not-array"
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirements-format")
+func TestBundle_RequirementsNotArray(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = "not-array"
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirements-format")
 }
 
-func TestValidateBundle_RequirementNotMap(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{"not-a-map"}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirement-format")
+func TestBundle_RequirementNotMap(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{"not-a-map"}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirement-format")
 }
 
-func TestValidateBundle_RequirementMissingID(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{
-map[string]interface{}{"text": "Some requirement"},
-}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirement-id-required")
-}
-
-func TestValidateBundle_RequirementBadIDPattern(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{
-map[string]interface{}{"id": "R-001", "text": "Some requirement"},
-}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirement-id-pattern")
+func TestBundle_RequirementMissingID(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"text": "Some requirement"},
+	}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirement-id-required")
 }
 
-func TestValidateBundle_RequirementDuplicateID(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{
-map[string]interface{}{"id": "REQ-001", "text": "First"},
-map[string]interface{}{"id": "REQ-001", "text": "Second"},
-}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirement-id-duplicate")
-}
-
-func TestValidateBundle_RequirementMissingText(t *testing.T) {
-art := validReadyBundleArtifact()
-art.Frontmatter["requirements"] = []interface{}{
-map[string]interface{}{"id": "REQ-001"},
-}
-result := validate.ValidateBundle(art, bundleSchema())
-assertHasViolation(t, result, "bundle/requirement-text-required")
+func TestBundle_RequirementBadIDPattern(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "R-001", "text": "Some requirement"},
+	}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirement-id-pattern")
 }
 
-func TestValidateBundle_Exploring_RequirementsOptional(t *testing.T) {
-art := validBundleArtifact()
-art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
-delete(art.Frontmatter, "requirements")
-result := validate.ValidateBundle(art, bundleSchema())
-assertNoViolationRule(t, result, "bundle/requirements-required")
+func TestBundle_RequirementDuplicateID(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001", "text": "First"},
+		map[string]interface{}{"id": "REQ-001", "text": "Second"},
+	}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirement-id-duplicate")
 }
 
-func TestValidateBundle_Exploring_ValidIfPresent(t *testing.T) {
-art := validBundleArtifact()
-art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
-art.Frontmatter["requirements"] = []interface{}{
-map[string]interface{}{"id": "REQ-001", "text": "Early requirement"},
+func TestBundle_RequirementMissingText(t *testing.T) {
+	art := validReadyBundleArtifact()
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001"},
+	}
+	result := validate.Bundle(art, bundleSchema())
+	assertHasViolation(t, result, "bundle/requirement-text-required")
 }
-result := validate.ValidateBundle(art, bundleSchema())
-assertNoViolationRule(t, result, "bundle/requirement-id-pattern")
+
+func TestBundle_Exploring_RequirementsOptional(t *testing.T) {
+	art := validBundleArtifact()
+	art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
+	delete(art.Frontmatter, "requirements")
+	result := validate.Bundle(art, bundleSchema())
+	assertNoViolationRule(t, result, "bundle/requirements-required")
+}
+
+func TestBundle_Exploring_ValidIfPresent(t *testing.T) {
+	art := validBundleArtifact()
+	art.Frontmatter["status"].(map[string]interface{})["maturity"] = "exploring"
+	art.Frontmatter["requirements"] = []interface{}{
+		map[string]interface{}{"id": "REQ-001", "text": "Early requirement"},
+	}
+	result := validate.Bundle(art, bundleSchema())
+	assertNoViolationRule(t, result, "bundle/requirement-id-pattern")
 }

@@ -43,7 +43,7 @@ None.
 func TestParseFile_ValidADR(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ADR-0001-agent-first.adr.md")
-	if err := os.WriteFile(path, []byte(validADR), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(validADR), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,11 +146,11 @@ func TestParse_NoMetadata(t *testing.T) {
 func TestParse_StripsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	deep := filepath.Join(dir, "some", "deep", "path")
-	if err := os.MkdirAll(deep, 0755); err != nil {
+	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(deep, "ADR-0001-test.adr.md")
-	if err := os.WriteFile(path, []byte("---\nstatus: draft\n---\n# Title\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("---\nstatus: draft\n---\n# Title\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -21,19 +21,19 @@ func specWithContracts(contracts interface{}) *artifact.ParsedArtifact {
 func TestContracts_MissingFromSpec(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "contracts")
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contracts-required")
 }
 
 func TestContracts_NotAnArray(t *testing.T) {
 	art := specWithContracts("not-array")
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contracts-required")
 }
 
 func TestContracts_EmptyArray(t *testing.T) {
 	art := specWithContracts([]interface{}{})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contracts-empty")
 }
 
@@ -41,7 +41,7 @@ func TestContracts_EmptyArray(t *testing.T) {
 
 func TestContracts_EntryNotMap(t *testing.T) {
 	art := specWithContracts([]interface{}{"not-a-map"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-format")
 }
 
@@ -53,7 +53,7 @@ func TestContracts_MissingFile(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-file-required")
 }
 
@@ -66,7 +66,7 @@ func TestContracts_EmptyFile(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-file-required")
 }
 
@@ -85,7 +85,7 @@ func TestContracts_DuplicateFile(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-file-duplicate")
 }
 
@@ -93,7 +93,7 @@ func TestContracts_NoProvidesOrConsumes(t *testing.T) {
 	art := specWithContracts([]interface{}{
 		map[string]interface{}{"file": "pkg/foo.go"},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-empty")
 }
 
@@ -106,7 +106,7 @@ func TestContracts_ProvidesNotArray(t *testing.T) {
 			"provides": "not-array",
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-provides-format")
 }
 
@@ -117,7 +117,7 @@ func TestContracts_ProvidesEntryNotMap(t *testing.T) {
 			"provides": []interface{}{"not-a-map"},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-format")
 }
 
@@ -130,7 +130,7 @@ func TestContracts_ProvidesMissingName(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-name-required")
 }
 
@@ -143,7 +143,7 @@ func TestContracts_ProvidesMissingKind(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-kind-required")
 }
 
@@ -156,7 +156,7 @@ func TestContracts_ProvidesBadKind(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-kind-enum")
 }
 
@@ -169,7 +169,7 @@ func TestContracts_ProvidesMissingSignature(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-signature-required")
 }
 
@@ -184,7 +184,7 @@ func TestContracts_ProvidesAllKindsValid(t *testing.T) {
 				},
 			},
 		})
-		result := validate.ValidateSpec(art, specSchema())
+		result := validate.Spec(art, specSchema())
 		assertNoViolationRule(t, result, "spec/provides-kind-enum")
 	}
 }
@@ -198,7 +198,7 @@ func TestContracts_ConsumesNotArray(t *testing.T) {
 			"consumes": "not-array",
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/contract-consumes-format")
 }
 
@@ -209,7 +209,7 @@ func TestContracts_ConsumesEntryNotMap(t *testing.T) {
 			"consumes": []interface{}{"not-a-map"},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-format")
 }
 
@@ -222,7 +222,7 @@ func TestContracts_ConsumesMissingSource(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-source-required")
 }
 
@@ -235,7 +235,7 @@ func TestContracts_ConsumesMissingName(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-name-required")
 }
 
@@ -248,7 +248,7 @@ func TestContracts_ConsumesMissingKind(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-kind-required")
 }
 
@@ -261,7 +261,7 @@ func TestContracts_ConsumesBadKind(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-kind-enum")
 }
 
@@ -276,7 +276,7 @@ func TestContracts_ProvidesEmptyName(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-name-required")
 }
 
@@ -289,7 +289,7 @@ func TestContracts_ProvidesEmptySignature(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/provides-signature-required")
 }
 
@@ -302,7 +302,7 @@ func TestContracts_ConsumesEmptySource(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-source-required")
 }
 
@@ -315,7 +315,7 @@ func TestContracts_ConsumesEmptyName(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/consumes-name-required")
 }
 
@@ -330,7 +330,7 @@ func TestContracts_ConsumesOnlyValid(t *testing.T) {
 			},
 		},
 	})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertNoViolationRule(t, result, "spec/contract-empty")
 }
 
@@ -338,7 +338,7 @@ func TestContracts_ConsumesOnlyValid(t *testing.T) {
 
 func TestContracts_IssueOpen_NotRequired(t *testing.T) {
 	art := validIssueArtifact()
-	result := validate.ValidateIssue(art, issueSchema())
+	result := validate.Issue(art, issueSchema())
 	assertNoViolationRule(t, result, "issue/contracts-required")
 }
 
@@ -347,13 +347,13 @@ func TestContracts_IssueReady_Required(t *testing.T) {
 	art.Frontmatter["issue"].(map[string]interface{})["status"] = "ready"
 	delete(art.Frontmatter["issue"].(map[string]interface{}), "closed")
 	delete(art.Frontmatter, "contracts")
-	result := validate.ValidateIssue(art, issueSchema())
+	result := validate.Issue(art, issueSchema())
 	assertHasViolation(t, result, "issue/contracts-required")
 }
 
 func TestContracts_IssueClosed_Valid(t *testing.T) {
 	art := validClosedIssueArtifact()
-	result := validate.ValidateIssue(art, issueSchema())
+	result := validate.Issue(art, issueSchema())
 	assertNoViolationRule(t, result, "issue/contracts-required")
 }
 
@@ -370,70 +370,70 @@ func specWithCapabilities(caps interface{}) *artifact.ParsedArtifact {
 func TestCapabilities_Absent_Valid(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "capabilities")
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertNoViolationRule(t, result, "spec/capabilities-format")
 	assertNoViolationRule(t, result, "spec/capabilities-empty")
 }
 
 func TestCapabilities_ValidSingle(t *testing.T) {
 	art := specWithCapabilities([]interface{}{"UC-001"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertNoViolationRule(t, result, "spec/capability-id-pattern")
 }
 
 func TestCapabilities_ValidMultiple(t *testing.T) {
 	art := specWithCapabilities([]interface{}{"UC-001", "UC-003"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertNoViolationRule(t, result, "spec/capability-id-pattern")
 	assertNoViolationRule(t, result, "spec/capability-duplicate")
 }
 
 func TestCapabilities_NotArray(t *testing.T) {
 	art := specWithCapabilities("UC-001")
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/capabilities-format")
 }
 
 func TestCapabilities_EmptyArray(t *testing.T) {
 	art := specWithCapabilities([]interface{}{})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/capabilities-empty")
 }
 
 func TestCapabilities_BadPattern(t *testing.T) {
 	art := specWithCapabilities([]interface{}{"CAP-001"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/capability-id-pattern")
 }
 
 func TestCapabilities_NotString(t *testing.T) {
 	art := specWithCapabilities([]interface{}{42})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/capability-format")
 }
 
 func TestCapabilities_Duplicate(t *testing.T) {
 	art := specWithCapabilities([]interface{}{"UC-001", "UC-001"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertHasViolation(t, result, "spec/capability-duplicate")
 }
 
 func TestCapabilities_IssueOpen_ValidIfPresent(t *testing.T) {
 	art := validIssueArtifact()
 	art.Frontmatter["capabilities"] = []interface{}{"UC-005"}
-	result := validate.ValidateIssue(art, issueSchema())
+	result := validate.Issue(art, issueSchema())
 	assertNoViolationRule(t, result, "issue/capability-id-pattern")
 }
 
 func TestCapabilities_IssueBadPattern(t *testing.T) {
 	art := validIssueArtifact()
 	art.Frontmatter["capabilities"] = []interface{}{"FEAT-001"}
-	result := validate.ValidateIssue(art, issueSchema())
+	result := validate.Issue(art, issueSchema())
 	assertHasViolation(t, result, "issue/capability-id-pattern")
 }
 
 func TestCapabilities_ThreeDigitPlus(t *testing.T) {
 	art := specWithCapabilities([]interface{}{"UC-0001"})
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	assertNoViolationRule(t, result, "spec/capability-id-pattern")
 }

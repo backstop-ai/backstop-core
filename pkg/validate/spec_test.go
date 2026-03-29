@@ -100,8 +100,8 @@ func validSpecArtifact() *artifact.ParsedArtifact {
 	}
 }
 
-func TestValidateSpec_FullyValid(t *testing.T) {
-	result := validate.ValidateSpec(validSpecArtifact(), specSchema())
+func TestSpec_FullyValid(t *testing.T) {
+	result := validate.Spec(validSpecArtifact(), specSchema())
 	if !result.Pass() {
 		for _, v := range result.Violations {
 			t.Errorf("[%s] %s: %s", v.Severity, v.Rule, v.Message)
@@ -109,11 +109,11 @@ func TestValidateSpec_FullyValid(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_InvalidFilename(t *testing.T) {
+func TestSpec_InvalidFilename(t *testing.T) {
 	art := validSpecArtifact()
 	art.Filename = "bad-spec.md"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/filename-pattern" {
@@ -125,11 +125,11 @@ func TestValidateSpec_InvalidFilename(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_NumberMismatch(t *testing.T) {
+func TestSpec_NumberMismatch(t *testing.T) {
 	art := validSpecArtifact()
 	art.Metadata["number"] = "SPEC-999"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/number-mismatch" {
@@ -141,11 +141,11 @@ func TestValidateSpec_NumberMismatch(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_TitleNumberMismatch(t *testing.T) {
+func TestSpec_TitleNumberMismatch(t *testing.T) {
 	art := validSpecArtifact()
 	art.Title = "SPEC-999: Wrong Number"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/title-number-mismatch" {
@@ -157,11 +157,11 @@ func TestValidateSpec_TitleNumberMismatch(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_InvalidStatus(t *testing.T) {
+func TestSpec_InvalidStatus(t *testing.T) {
 	art := validSpecArtifact()
 	art.Metadata["status"] = "abandoned"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/invalid-status" {
@@ -173,11 +173,11 @@ func TestValidateSpec_InvalidStatus(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingSpecVersion(t *testing.T) {
+func TestSpec_MissingSpecVersion(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Metadata, "spec_version")
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/metadata-required" {
@@ -189,11 +189,11 @@ func TestValidateSpec_MissingSpecVersion(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_SchemaVersionMismatch(t *testing.T) {
+func TestSpec_SchemaVersionMismatch(t *testing.T) {
 	art := validSpecArtifact()
 	art.Metadata["schema_version"] = "adr/v2"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/schema-version-mismatch" {
@@ -205,11 +205,11 @@ func TestValidateSpec_SchemaVersionMismatch(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingVerification(t *testing.T) {
+func TestSpec_MissingVerification(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "verification")
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/verification-required" {
@@ -221,14 +221,14 @@ func TestValidateSpec_MissingVerification(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_InvalidVerificationLevel(t *testing.T) {
+func TestSpec_InvalidVerificationLevel(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":        "manual",
 		"test_command": "go test ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/verification-level-invalid" {
@@ -240,7 +240,7 @@ func TestValidateSpec_InvalidVerificationLevel(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ThresholdWrongForUnit(t *testing.T) {
+func TestSpec_ThresholdWrongForUnit(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":              "unit",
@@ -248,7 +248,7 @@ func TestValidateSpec_ThresholdWrongForUnit(t *testing.T) {
 		"test_command":       "go test ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/threshold-value" {
@@ -260,14 +260,14 @@ func TestValidateSpec_ThresholdWrongForUnit(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ThresholdMissingForUnit(t *testing.T) {
+func TestSpec_ThresholdMissingForUnit(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":        "unit",
 		"test_command": "go test ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/threshold-required" {
@@ -279,7 +279,7 @@ func TestValidateSpec_ThresholdMissingForUnit(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ThresholdNotAllowedForStatic(t *testing.T) {
+func TestSpec_ThresholdNotAllowedForStatic(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":              "static",
@@ -287,7 +287,7 @@ func TestValidateSpec_ThresholdNotAllowedForStatic(t *testing.T) {
 		"test_command":       "backstop lint ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/threshold-not-allowed" {
@@ -299,14 +299,14 @@ func TestValidateSpec_ThresholdNotAllowedForStatic(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingTestCommand(t *testing.T) {
+func TestSpec_MissingTestCommand(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":              "unit",
 		"coverage_threshold": 90,
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/test-command-required" {
@@ -318,11 +318,11 @@ func TestValidateSpec_MissingTestCommand(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingImplementation(t *testing.T) {
+func TestSpec_MissingImplementation(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "implementation")
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/implementation-required" {
@@ -334,13 +334,13 @@ func TestValidateSpec_MissingImplementation(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingImplementationSummary(t *testing.T) {
+func TestSpec_MissingImplementationSummary(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["implementation"] = map[string]interface{}{
 		"package": "pkg/validate",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/implementation-summary-required" {
@@ -352,13 +352,13 @@ func TestValidateSpec_MissingImplementationSummary(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingImplementationPackage(t *testing.T) {
+func TestSpec_MissingImplementationPackage(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["implementation"] = map[string]interface{}{
 		"summary": "some summary",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/implementation-package-required" {
@@ -370,11 +370,11 @@ func TestValidateSpec_MissingImplementationPackage(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingClaims(t *testing.T) {
+func TestSpec_MissingClaims(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "claims")
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claims-required" {
@@ -386,11 +386,11 @@ func TestValidateSpec_MissingClaims(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_EmptyClaims(t *testing.T) {
+func TestSpec_EmptyClaims(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claims-empty" {
@@ -402,7 +402,7 @@ func TestValidateSpec_EmptyClaims(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimMissingID(t *testing.T) {
+func TestSpec_ClaimMissingID(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -412,7 +412,7 @@ func TestValidateSpec_ClaimMissingID(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-id-required" {
@@ -424,7 +424,7 @@ func TestValidateSpec_ClaimMissingID(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimBadIDFormat(t *testing.T) {
+func TestSpec_ClaimBadIDFormat(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -435,7 +435,7 @@ func TestValidateSpec_ClaimBadIDFormat(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-id-format" {
@@ -447,7 +447,7 @@ func TestValidateSpec_ClaimBadIDFormat(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimDuplicateID(t *testing.T) {
+func TestSpec_ClaimDuplicateID(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -464,7 +464,7 @@ func TestValidateSpec_ClaimDuplicateID(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-id-duplicate" {
@@ -476,7 +476,7 @@ func TestValidateSpec_ClaimDuplicateID(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimMissingText(t *testing.T) {
+func TestSpec_ClaimMissingText(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -486,7 +486,7 @@ func TestValidateSpec_ClaimMissingText(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-text-required" {
@@ -498,7 +498,7 @@ func TestValidateSpec_ClaimMissingText(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimEmptyTests(t *testing.T) {
+func TestSpec_ClaimEmptyTests(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -509,7 +509,7 @@ func TestValidateSpec_ClaimEmptyTests(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-tests-empty" {
@@ -521,11 +521,11 @@ func TestValidateSpec_ClaimEmptyTests(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingSection(t *testing.T) {
+func TestSpec_MissingSection(t *testing.T) {
 	art := validSpecArtifact()
 	art.Sections = []string{"Overview", "Requirements", "Implementation"}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "base/section-required" {
@@ -537,7 +537,7 @@ func TestValidateSpec_MissingSection(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ComposesBaseAndSpec(t *testing.T) {
+func TestSpec_ComposesBaseAndSpec(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename:    "bad-name.md",
 		Title:       "",
@@ -546,7 +546,7 @@ func TestValidateSpec_ComposesBaseAndSpec(t *testing.T) {
 		Sections:    []string{},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	hasBase := false
 	hasSpec := false
 	for _, v := range result.Violations {
@@ -565,7 +565,7 @@ func TestValidateSpec_ComposesBaseAndSpec(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_VerificationIntegrationThreshold(t *testing.T) {
+func TestSpec_VerificationIntegrationThreshold(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":              "integration",
@@ -573,17 +573,17 @@ func TestValidateSpec_VerificationIntegrationThreshold(t *testing.T) {
 		"test_command":       "go test -tags integration ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	if !result.Pass() {
 		t.Errorf("expected pass for integration level with threshold 80, got: %v", result.Violations)
 	}
 }
 
-func TestValidateSpec_InvalidSlug(t *testing.T) {
+func TestSpec_InvalidSlug(t *testing.T) {
 	art := validSpecArtifact()
 	art.Filename = "SPEC-023-A.impl.spec.md"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/invalid-slug" || v.Rule == "spec/filename-pattern" {
@@ -595,11 +595,11 @@ func TestValidateSpec_InvalidSlug(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_VerificationNotAMap(t *testing.T) {
+func TestSpec_VerificationNotAMap(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = "not a map"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/verification-required" {
@@ -611,11 +611,11 @@ func TestValidateSpec_VerificationNotAMap(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ImplementationNotAMap(t *testing.T) {
+func TestSpec_ImplementationNotAMap(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["implementation"] = "not a map"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/implementation-required" {
@@ -627,11 +627,11 @@ func TestValidateSpec_ImplementationNotAMap(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimsNotAnArray(t *testing.T) {
+func TestSpec_ClaimsNotAnArray(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = "not an array"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claims-required" {
@@ -643,11 +643,11 @@ func TestValidateSpec_ClaimsNotAnArray(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimNotAMap(t *testing.T) {
+func TestSpec_ClaimNotAMap(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{"not a map"}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-format" {
@@ -659,7 +659,7 @@ func TestValidateSpec_ClaimNotAMap(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimEmptyText(t *testing.T) {
+func TestSpec_ClaimEmptyText(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -669,7 +669,7 @@ func TestValidateSpec_ClaimEmptyText(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-text-required" {
@@ -681,14 +681,14 @@ func TestValidateSpec_ClaimEmptyText(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_VerificationMissingLevel(t *testing.T) {
+func TestSpec_VerificationMissingLevel(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"coverage_threshold": 90,
 		"test_command":       "go test ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/verification-level-required" {
@@ -700,7 +700,7 @@ func TestValidateSpec_VerificationMissingLevel(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_SecurityThreshold(t *testing.T) {
+func TestSpec_SecurityThreshold(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":              "security",
@@ -708,7 +708,7 @@ func TestValidateSpec_SecurityThreshold(t *testing.T) {
 		"test_command":       "go test -tags security ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	// Filter out only spec violations (not base violations from threshold change)
 	for _, v := range result.Violations {
 		if v.Rule == "spec/threshold-value" || v.Rule == "spec/threshold-required" {
@@ -717,14 +717,14 @@ func TestValidateSpec_SecurityThreshold(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_BuildLevelNoThreshold(t *testing.T) {
+func TestSpec_BuildLevelNoThreshold(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["verification"] = map[string]interface{}{
 		"level":        "build",
 		"test_command": "go build ./...",
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "spec/threshold-required" || v.Rule == "spec/threshold-not-allowed" {
 			t.Errorf("unexpected threshold violation for build level: %v", v)
@@ -732,11 +732,11 @@ func TestValidateSpec_BuildLevelNoThreshold(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_MissingRequirements(t *testing.T) {
+func TestSpec_MissingRequirements(t *testing.T) {
 	art := validSpecArtifact()
 	delete(art.Frontmatter, "requirements")
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirements-required" {
@@ -748,11 +748,11 @@ func TestValidateSpec_MissingRequirements(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_EmptyRequirements(t *testing.T) {
+func TestSpec_EmptyRequirements(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = []interface{}{}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirements-empty" {
@@ -764,7 +764,7 @@ func TestValidateSpec_EmptyRequirements(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementBadIDFormat(t *testing.T) {
+func TestSpec_RequirementBadIDFormat(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = []interface{}{
 		map[string]interface{}{
@@ -773,7 +773,7 @@ func TestValidateSpec_RequirementBadIDFormat(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-id-format" {
@@ -785,14 +785,14 @@ func TestValidateSpec_RequirementBadIDFormat(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementDuplicateID(t *testing.T) {
+func TestSpec_RequirementDuplicateID(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = []interface{}{
 		map[string]interface{}{"id": "REQ-001", "text": "first"},
 		map[string]interface{}{"id": "REQ-001", "text": "duplicate"},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-id-duplicate" {
@@ -804,13 +804,13 @@ func TestValidateSpec_RequirementDuplicateID(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementMissingText(t *testing.T) {
+func TestSpec_RequirementMissingText(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = []interface{}{
 		map[string]interface{}{"id": "REQ-001"},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-text-required" {
@@ -822,7 +822,7 @@ func TestValidateSpec_RequirementMissingText(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimMissingRequirement(t *testing.T) {
+func TestSpec_ClaimMissingRequirement(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -832,7 +832,7 @@ func TestValidateSpec_ClaimMissingRequirement(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-requirement-required" {
@@ -844,7 +844,7 @@ func TestValidateSpec_ClaimMissingRequirement(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_ClaimReferencesInvalidREQ(t *testing.T) {
+func TestSpec_ClaimReferencesInvalidREQ(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["claims"] = []interface{}{
 		map[string]interface{}{
@@ -855,7 +855,7 @@ func TestValidateSpec_ClaimReferencesInvalidREQ(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/claim-requirement-invalid" {
@@ -867,7 +867,7 @@ func TestValidateSpec_ClaimReferencesInvalidREQ(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_UncoveredRequirement(t *testing.T) {
+func TestSpec_UncoveredRequirement(t *testing.T) {
 	art := validSpecArtifact()
 	// REQ-002 exists but no claim references it
 	art.Frontmatter["claims"] = []interface{}{
@@ -879,7 +879,7 @@ func TestValidateSpec_UncoveredRequirement(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-uncovered" {
@@ -891,11 +891,11 @@ func TestValidateSpec_UncoveredRequirement(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementsNotAnArray(t *testing.T) {
+func TestSpec_RequirementsNotAnArray(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = "not an array"
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirements-required" {
@@ -907,11 +907,11 @@ func TestValidateSpec_RequirementsNotAnArray(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementNotAMap(t *testing.T) {
+func TestSpec_RequirementNotAMap(t *testing.T) {
 	art := validSpecArtifact()
 	art.Frontmatter["requirements"] = []interface{}{"not a map"}
 
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-format" {
@@ -925,11 +925,11 @@ func TestValidateSpec_RequirementNotAMap(t *testing.T) {
 
 // --- Supports field tests ---
 
-func TestValidateSpec_RequirementValidSupports(t *testing.T) {
+func TestSpec_RequirementValidSupports(t *testing.T) {
 	art := validSpecArtifact()
 	reqs := art.Frontmatter["requirements"].([]interface{})
 	reqs[0].(map[string]interface{})["supports"] = "my-feature:REQ-001"
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-supports-format" {
 			t.Errorf("unexpected supports format violation: %s", v.Message)
@@ -937,11 +937,11 @@ func TestValidateSpec_RequirementValidSupports(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementBadSupportsFormat(t *testing.T) {
+func TestSpec_RequirementBadSupportsFormat(t *testing.T) {
 	art := validSpecArtifact()
 	reqs := art.Frontmatter["requirements"].([]interface{})
 	reqs[0].(map[string]interface{})["supports"] = "bad format here"
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-supports-format" {
@@ -953,11 +953,11 @@ func TestValidateSpec_RequirementBadSupportsFormat(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementEmptySupports(t *testing.T) {
+func TestSpec_RequirementEmptySupports(t *testing.T) {
 	art := validSpecArtifact()
 	reqs := art.Frontmatter["requirements"].([]interface{})
 	reqs[0].(map[string]interface{})["supports"] = ""
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-supports-format" {
@@ -969,10 +969,10 @@ func TestValidateSpec_RequirementEmptySupports(t *testing.T) {
 	}
 }
 
-func TestValidateSpec_RequirementNoSupports_OK(t *testing.T) {
+func TestSpec_RequirementNoSupports_OK(t *testing.T) {
 	art := validSpecArtifact()
 	// No supports field — should be fine (it's optional)
-	result := validate.ValidateSpec(art, specSchema())
+	result := validate.Spec(art, specSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-supports-format" {
 			t.Errorf("unexpected supports violation when field absent: %s", v.Message)

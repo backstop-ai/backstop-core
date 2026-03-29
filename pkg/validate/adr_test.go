@@ -39,11 +39,11 @@ func validADRArtifact() *artifact.ParsedArtifact {
 	}
 }
 
-func TestValidateADR_InvalidFilename(t *testing.T) {
+func TestADR_InvalidFilename(t *testing.T) {
 	art := validADRArtifact()
 	art.Filename = "bad-name.md"
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/filename-pattern" {
@@ -55,11 +55,11 @@ func TestValidateADR_InvalidFilename(t *testing.T) {
 	}
 }
 
-func TestValidateADR_NumberMismatch(t *testing.T) {
+func TestADR_NumberMismatch(t *testing.T) {
 	art := validADRArtifact()
 	art.Metadata["number"] = "ADR-0002"
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/number-mismatch" {
@@ -71,11 +71,11 @@ func TestValidateADR_NumberMismatch(t *testing.T) {
 	}
 }
 
-func TestValidateADR_InvalidStatus(t *testing.T) {
+func TestADR_InvalidStatus(t *testing.T) {
 	art := validADRArtifact()
 	art.Metadata["status"] = "Draft"
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/invalid-status" {
@@ -87,11 +87,11 @@ func TestValidateADR_InvalidStatus(t *testing.T) {
 	}
 }
 
-func TestValidateADR_MissingDeciders(t *testing.T) {
+func TestADR_MissingDeciders(t *testing.T) {
 	art := validADRArtifact()
 	delete(art.Metadata, "deciders")
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/metadata-required" {
@@ -103,11 +103,11 @@ func TestValidateADR_MissingDeciders(t *testing.T) {
 	}
 }
 
-func TestValidateADR_MissingDecisions(t *testing.T) {
+func TestADR_MissingDecisions(t *testing.T) {
 	art := validADRArtifact()
 	delete(art.Metadata, "decisions")
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/metadata-required" {
@@ -119,11 +119,11 @@ func TestValidateADR_MissingDecisions(t *testing.T) {
 	}
 }
 
-func TestValidateADR_MissingRequiredSection(t *testing.T) {
+func TestADR_MissingRequiredSection(t *testing.T) {
 	art := validADRArtifact()
 	art.Sections = []string{"Context", "Decision", "Consequences", "References"}
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "base/section-required" {
@@ -135,14 +135,14 @@ func TestValidateADR_MissingRequiredSection(t *testing.T) {
 	}
 }
 
-func TestValidateADR_FullyValid(t *testing.T) {
-	result := validate.ValidateADR(validADRArtifact(), adrSchema())
+func TestADR_FullyValid(t *testing.T) {
+	result := validate.ADR(validADRArtifact(), adrSchema())
 	if !result.Pass() {
 		t.Errorf("expected Pass, got violations: %v", result.Violations)
 	}
 }
 
-func TestValidateADR_ComposesBaseAndADR(t *testing.T) {
+func TestADR_ComposesBaseAndADR(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename: "bad-name.md",
 		Title:    "",
@@ -150,7 +150,7 @@ func TestValidateADR_ComposesBaseAndADR(t *testing.T) {
 		Sections: []string{},
 	}
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	hasBase := false
 	hasADR := false
 	for _, v := range result.Violations {
@@ -169,17 +169,17 @@ func TestValidateADR_ComposesBaseAndADR(t *testing.T) {
 	}
 }
 
-func TestValidateADR_ExtraSectionsAllowed(t *testing.T) {
+func TestADR_ExtraSectionsAllowed(t *testing.T) {
 	art := validADRArtifact()
 	art.Sections = append([]string{"Thesis"}, art.Sections...)
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	if !result.Pass() {
 		t.Errorf("expected Pass with extra Thesis section, got violations: %v", result.Violations)
 	}
 }
 
-func TestValidateADR_InvalidSlug(t *testing.T) {
+func TestADR_InvalidSlug(t *testing.T) {
 	cases := []struct {
 		name     string
 		filename string
@@ -196,7 +196,7 @@ func TestValidateADR_InvalidSlug(t *testing.T) {
 			art := validADRArtifact()
 			art.Filename = tc.filename
 
-			result := validate.ValidateADR(art, adrSchema())
+			result := validate.ADR(art, adrSchema())
 			found := false
 			for _, v := range result.Violations {
 				if v.Rule == "adr/invalid-slug" || v.Rule == "adr/filename-pattern" {
@@ -210,11 +210,11 @@ func TestValidateADR_InvalidSlug(t *testing.T) {
 	}
 }
 
-func TestValidateADR_TitleNumberMismatch(t *testing.T) {
+func TestADR_TitleNumberMismatch(t *testing.T) {
 	art := validADRArtifact()
 	art.Title = "ADR-0002: Wrong Number"
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/title-number-mismatch" {
@@ -226,11 +226,11 @@ func TestValidateADR_TitleNumberMismatch(t *testing.T) {
 	}
 }
 
-func TestValidateADR_SchemaVersionTypeMismatch(t *testing.T) {
+func TestADR_SchemaVersionTypeMismatch(t *testing.T) {
 	art := validADRArtifact()
 	art.Metadata["schema_version"] = "spec/v1"
 
-	result := validate.ValidateADR(art, adrSchema())
+	result := validate.ADR(art, adrSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "adr/schema-version-mismatch" {

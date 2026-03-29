@@ -10,11 +10,11 @@ import (
 )
 
 // adrNumberRe extracts ADR-NNNN from a filename.
-var adrNumberRe = regexp.MustCompile(`^(ADR-[0-9]{4})-`)
+var adrNumberRe = regexp.MustCompile(`^(ADR-\d{4})-`)
 
-// ValidateADR composes base validation with ADR-specific checks.
-func ValidateADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := ValidateBase(art, sch)
+// ADR composes base validation with ADR-specific checks.
+func ADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
+	base := Base(art, sch)
 	var adrViolations []Violation
 
 	// 1. Filename pattern
@@ -141,7 +141,9 @@ func ValidateADR(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationRes
 		}
 	}
 
-	combined := append(base.Violations, adrViolations...)
+	combined := make([]Violation, 0, len(base.Violations)+len(adrViolations))
+	combined = append(combined, base.Violations...)
+	combined = append(combined, adrViolations...)
 	return ValidationResult{Violations: combined}
 }
 

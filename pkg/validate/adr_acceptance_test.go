@@ -29,7 +29,7 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-func TestValidateADR_ExistingADRs(t *testing.T) {
+func TestADR_ExistingADRs(t *testing.T) {
 	root := repoRoot(t)
 	adrsDir := filepath.Join(root, "adrs")
 	artifactsRoot := filepath.Join(root, "artifacts")
@@ -66,7 +66,7 @@ func TestValidateADR_ExistingADRs(t *testing.T) {
 			}
 
 			// Validate
-			result := validate.ValidateADR(art, sch)
+			result := validate.ADR(art, sch)
 			if !result.Pass() {
 				for _, v := range result.Violations {
 					t.Errorf("  [%s] %s: %s", v.Severity, v.Rule, v.Message)

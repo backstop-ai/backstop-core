@@ -15,7 +15,7 @@ func baseSchema() *schema.Schema {
 	}
 }
 
-func TestValidateBase_MissingTitle(t *testing.T) {
+func TestBase_MissingTitle(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename: "test.md",
 		Title:    "",
@@ -27,7 +27,7 @@ func TestValidateBase_MissingTitle(t *testing.T) {
 		Sections: []string{"Context", "Decision"},
 	}
 
-	result := validate.ValidateBase(art, baseSchema())
+	result := validate.Base(art, baseSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "base/title-required" {
@@ -39,7 +39,7 @@ func TestValidateBase_MissingTitle(t *testing.T) {
 	}
 }
 
-func TestValidateBase_MissingMetadata(t *testing.T) {
+func TestBase_MissingMetadata(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename: "test.md",
 		Title:    "Test Title",
@@ -49,7 +49,7 @@ func TestValidateBase_MissingMetadata(t *testing.T) {
 		Sections: []string{"Context", "Decision"},
 	}
 
-	result := validate.ValidateBase(art, baseSchema())
+	result := validate.Base(art, baseSchema())
 	count := 0
 	for _, v := range result.Violations {
 		if v.Rule == "base/metadata-required" {
@@ -62,7 +62,7 @@ func TestValidateBase_MissingMetadata(t *testing.T) {
 	}
 }
 
-func TestValidateBase_MissingSections(t *testing.T) {
+func TestBase_MissingSections(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename: "test.md",
 		Title:    "Test Title",
@@ -74,7 +74,7 @@ func TestValidateBase_MissingSections(t *testing.T) {
 		Sections: []string{"Context"},
 	}
 
-	result := validate.ValidateBase(art, baseSchema())
+	result := validate.Base(art, baseSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "base/section-required" {
@@ -86,7 +86,7 @@ func TestValidateBase_MissingSections(t *testing.T) {
 	}
 }
 
-func TestValidateBase_AllPass(t *testing.T) {
+func TestBase_AllPass(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename: "test.md",
 		Title:    "Test Title",
@@ -98,7 +98,7 @@ func TestValidateBase_AllPass(t *testing.T) {
 		Sections: []string{"Context", "Decision"},
 	}
 
-	result := validate.ValidateBase(art, baseSchema())
+	result := validate.Base(art, baseSchema())
 	if !result.Pass() {
 		t.Errorf("expected Pass, got violations: %v", result.Violations)
 	}

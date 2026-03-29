@@ -78,8 +78,8 @@ func validPlanArtifact() *artifact.ParsedArtifact {
 	}
 }
 
-func TestValidatePlan_FullyValid(t *testing.T) {
-	result := validate.ValidatePlan(validPlanArtifact(), planSchema())
+func TestPlan_FullyValid(t *testing.T) {
+	result := validate.Plan(validPlanArtifact(), planSchema())
 	if !result.Pass() {
 		for _, v := range result.Violations {
 			t.Errorf("[%s] %s: %s", v.Severity, v.Rule, v.Message)
@@ -87,11 +87,11 @@ func TestValidatePlan_FullyValid(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_InvalidFilename(t *testing.T) {
+func TestPlan_InvalidFilename(t *testing.T) {
 	art := validPlanArtifact()
 	art.Filename = "bad-plan.md"
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/filename-pattern" {
@@ -103,11 +103,11 @@ func TestValidatePlan_InvalidFilename(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_NumberMismatch(t *testing.T) {
+func TestPlan_NumberMismatch(t *testing.T) {
 	art := validPlanArtifact()
 	art.Metadata["number"] = "PLAN-SPEC-999"
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/number-mismatch" {
@@ -119,11 +119,11 @@ func TestValidatePlan_NumberMismatch(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_InvalidStatus(t *testing.T) {
+func TestPlan_InvalidStatus(t *testing.T) {
 	art := validPlanArtifact()
 	art.Metadata["status"] = "abandoned"
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/invalid-status" {
@@ -135,11 +135,11 @@ func TestValidatePlan_InvalidStatus(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_MissingPhases(t *testing.T) {
+func TestPlan_MissingPhases(t *testing.T) {
 	art := validPlanArtifact()
 	delete(art.Frontmatter, "phases")
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phases-required" {
@@ -151,11 +151,11 @@ func TestValidatePlan_MissingPhases(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_EmptyPhases(t *testing.T) {
+func TestPlan_EmptyPhases(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phases-empty" {
@@ -167,7 +167,7 @@ func TestValidatePlan_EmptyPhases(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_PhaseMissingID(t *testing.T) {
+func TestPlan_PhaseMissingID(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -182,7 +182,7 @@ func TestValidatePlan_PhaseMissingID(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phase-id-required" {
@@ -194,7 +194,7 @@ func TestValidatePlan_PhaseMissingID(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_DuplicatePhaseID(t *testing.T) {
+func TestPlan_DuplicatePhaseID(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -219,7 +219,7 @@ func TestValidatePlan_DuplicatePhaseID(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phase-id-duplicate" {
@@ -233,7 +233,7 @@ func TestValidatePlan_DuplicatePhaseID(t *testing.T) {
 
 // D-080: Agent-bounded task checks
 
-func TestValidatePlan_TaskMissingDescription(t *testing.T) {
+func TestPlan_TaskMissingDescription(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -248,7 +248,7 @@ func TestValidatePlan_TaskMissingDescription(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-description-required" {
@@ -260,7 +260,7 @@ func TestValidatePlan_TaskMissingDescription(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_TaskMissingFiles(t *testing.T) {
+func TestPlan_TaskMissingFiles(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -274,7 +274,7 @@ func TestValidatePlan_TaskMissingFiles(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-files-required" {
@@ -286,7 +286,7 @@ func TestValidatePlan_TaskMissingFiles(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_TaskEmptyFiles(t *testing.T) {
+func TestPlan_TaskEmptyFiles(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -301,7 +301,7 @@ func TestValidatePlan_TaskEmptyFiles(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-files-empty" {
@@ -313,7 +313,7 @@ func TestValidatePlan_TaskEmptyFiles(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_TaskMissingClaims(t *testing.T) {
+func TestPlan_TaskMissingClaims(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -327,7 +327,7 @@ func TestValidatePlan_TaskMissingClaims(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-claims-required" {
@@ -339,7 +339,7 @@ func TestValidatePlan_TaskMissingClaims(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_TaskMissingDependsOn(t *testing.T) {
+func TestPlan_TaskMissingDependsOn(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -353,7 +353,7 @@ func TestValidatePlan_TaskMissingDependsOn(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-depends-on-required" {
@@ -367,7 +367,7 @@ func TestValidatePlan_TaskMissingDependsOn(t *testing.T) {
 
 // D-081: File exclusivity tests
 
-func TestValidatePlan_FileExclusivity_ParallelConflict(t *testing.T) {
+func TestPlan_FileExclusivity_ParallelConflict(t *testing.T) {
 	// Two tasks with no dependency relationship touch the same file
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
@@ -388,7 +388,7 @@ func TestValidatePlan_FileExclusivity_ParallelConflict(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/file-exclusivity" {
@@ -400,7 +400,7 @@ func TestValidatePlan_FileExclusivity_ParallelConflict(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_FileExclusivity_SequentialOK(t *testing.T) {
+func TestPlan_FileExclusivity_SequentialOK(t *testing.T) {
 	// Task B depends on Task A — they CAN share files (TDD pattern)
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
@@ -421,7 +421,7 @@ func TestValidatePlan_FileExclusivity_SequentialOK(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "plan/file-exclusivity" {
 			t.Errorf("unexpected file-exclusivity violation for sequential tasks: %v", v)
@@ -429,7 +429,7 @@ func TestValidatePlan_FileExclusivity_SequentialOK(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_FileExclusivity_TransitiveDep(t *testing.T) {
+func TestPlan_FileExclusivity_TransitiveDep(t *testing.T) {
 	// A → B → C: A and C share a file, but C transitively depends on A — OK
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
@@ -455,7 +455,7 @@ func TestValidatePlan_FileExclusivity_TransitiveDep(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "plan/file-exclusivity" {
 			t.Errorf("unexpected file-exclusivity violation for transitively dependent tasks: %v", v)
@@ -463,7 +463,7 @@ func TestValidatePlan_FileExclusivity_TransitiveDep(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_FileExclusivity_DiamondDAG(t *testing.T) {
+func TestPlan_FileExclusivity_DiamondDAG(t *testing.T) {
 	// Diamond: A → B, A → C, B → D, C → D
 	// B and C are parallel-eligible — must not share files
 	art := validPlanArtifact()
@@ -495,7 +495,7 @@ func TestValidatePlan_FileExclusivity_DiamondDAG(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/file-exclusivity" {
@@ -507,7 +507,7 @@ func TestValidatePlan_FileExclusivity_DiamondDAG(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_ComposesBaseAndPlan(t *testing.T) {
+func TestPlan_ComposesBaseAndPlan(t *testing.T) {
 	art := &artifact.ParsedArtifact{
 		Filename:    "bad-name.md",
 		Title:       "",
@@ -516,7 +516,7 @@ func TestValidatePlan_ComposesBaseAndPlan(t *testing.T) {
 		Sections:    []string{},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	hasBase := false
 	hasPlan := false
 	for _, v := range result.Violations {
@@ -535,11 +535,11 @@ func TestValidatePlan_ComposesBaseAndPlan(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_PhasesNotAnArray(t *testing.T) {
+func TestPlan_PhasesNotAnArray(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = "not an array"
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phases-required" {
@@ -551,11 +551,11 @@ func TestValidatePlan_PhasesNotAnArray(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_PhaseNotAMap(t *testing.T) {
+func TestPlan_PhaseNotAMap(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{"not a map"}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/phase-format" {
@@ -567,7 +567,7 @@ func TestValidatePlan_PhaseNotAMap(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_TaskNotAMap(t *testing.T) {
+func TestPlan_TaskNotAMap(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -576,7 +576,7 @@ func TestValidatePlan_TaskNotAMap(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-format" {
@@ -588,7 +588,7 @@ func TestValidatePlan_TaskNotAMap(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_DuplicateTaskID(t *testing.T) {
+func TestPlan_DuplicateTaskID(t *testing.T) {
 	art := validPlanArtifact()
 	art.Frontmatter["phases"] = []interface{}{
 		map[string]interface{}{
@@ -608,7 +608,7 @@ func TestValidatePlan_DuplicateTaskID(t *testing.T) {
 		},
 	}
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/task-id-duplicate" {
@@ -620,11 +620,11 @@ func TestValidatePlan_DuplicateTaskID(t *testing.T) {
 	}
 }
 
-func TestValidatePlan_SchemaVersionMismatch(t *testing.T) {
+func TestPlan_SchemaVersionMismatch(t *testing.T) {
 	art := validPlanArtifact()
 	art.Metadata["schema_version"] = "adr/v2"
 
-	result := validate.ValidatePlan(art, planSchema())
+	result := validate.Plan(art, planSchema())
 	found := false
 	for _, v := range result.Violations {
 		if v.Rule == "plan/schema-version-mismatch" {
@@ -638,69 +638,69 @@ func TestValidatePlan_SchemaVersionMismatch(t *testing.T) {
 
 // --- Implements field tests ---
 
-func TestValidatePlan_MissingImplements(t *testing.T) {
-art := validPlanArtifact()
-delete(art.Frontmatter, "implements")
-result := validate.ValidatePlan(art, planSchema())
-found := false
-for _, v := range result.Violations {
-if v.Rule == "plan/implements-required" {
-found = true
-}
-}
-if !found {
-t.Errorf("expected 'plan/implements-required' violation")
-}
-}
-
-func TestValidatePlan_ImplementsEmpty(t *testing.T) {
-art := validPlanArtifact()
-art.Frontmatter["implements"] = ""
-result := validate.ValidatePlan(art, planSchema())
-found := false
-for _, v := range result.Violations {
-if v.Rule == "plan/implements-required" {
-found = true
-}
-}
-if !found {
-t.Errorf("expected 'plan/implements-required' violation")
-}
+func TestPlan_MissingImplements(t *testing.T) {
+	art := validPlanArtifact()
+	delete(art.Frontmatter, "implements")
+	result := validate.Plan(art, planSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "plan/implements-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'plan/implements-required' violation")
+	}
 }
 
-func TestValidatePlan_ImplementsBadPattern(t *testing.T) {
-art := validPlanArtifact()
-art.Frontmatter["implements"] = "PLAN-001"
-result := validate.ValidatePlan(art, planSchema())
-found := false
-for _, v := range result.Violations {
-if v.Rule == "plan/implements-pattern" {
-found = true
-}
-}
-if !found {
-t.Errorf("expected 'plan/implements-pattern' violation")
-}
-}
-
-func TestValidatePlan_ImplementsSpec(t *testing.T) {
-art := validPlanArtifact()
-art.Frontmatter["implements"] = "SPEC-023"
-result := validate.ValidatePlan(art, planSchema())
-for _, v := range result.Violations {
-if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
-t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
-}
-}
+func TestPlan_ImplementsEmpty(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["implements"] = ""
+	result := validate.Plan(art, planSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "plan/implements-required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'plan/implements-required' violation")
+	}
 }
 
-func TestValidatePlan_ImplementsIssue(t *testing.T) {
-art := validPlanArtifact()
-art.Frontmatter["implements"] = "ISSUE-042"
-result := validate.ValidatePlan(art, planSchema())
-for _, v := range result.Violations {
-if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
-t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
+func TestPlan_ImplementsBadPattern(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["implements"] = "PLAN-001"
+	result := validate.Plan(art, planSchema())
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "plan/implements-pattern" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'plan/implements-pattern' violation")
+	}
 }
+
+func TestPlan_ImplementsSpec(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["implements"] = "SPEC-023"
+	result := validate.Plan(art, planSchema())
+	for _, v := range result.Violations {
+		if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
+			t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
+		}
+	}
 }
+
+func TestPlan_ImplementsIssue(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["implements"] = "ISSUE-042"
+	result := validate.Plan(art, planSchema())
+	for _, v := range result.Violations {
+		if v.Rule == "plan/implements-pattern" || v.Rule == "plan/implements-required" {
+			t.Errorf("unexpected violation: [%s] %s", v.Rule, v.Message)
+		}
+	}
 }
