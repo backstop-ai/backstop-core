@@ -145,10 +145,9 @@ rules:
     description: Exported names should not repeat the package name
     compliance_tier: standard
     detection:
-      strategy: pattern
-      semgrep: |
-        func $PACKAGE$NAME(...) { ... }
-      note: "Detected by revive linter — this rule documents the standard"
+      strategy: delegated
+      enforced_by: golangci-lint
+      rule: revive/exported
     fix: "Use validate.Spec not validate.ValidateSpec"
     sources:
       - title: "Go Code Review Comments — Package Names"
@@ -222,9 +221,9 @@ rules:
     description: Imports must be grouped in order — stdlib, external, internal — separated by blank lines
     compliance_tier: standard
     detection:
-      strategy: metric
-      metric: import_ordering
-      note: "Enforced by goimports — this rule documents the standard"
+      strategy: delegated
+      enforced_by: golangci-lint
+      rule: goimports
 
   # ── Concurrency ────────────────────────────────────────────────────────
 
@@ -248,9 +247,9 @@ rules:
     description: Tests must run with -race flag enabled
     compliance_tier: baseline
     detection:
-      strategy: metric
-      metric: test_race_flag
-      note: "Enforced by Makefile and CI — go test -race"
+      strategy: delegated
+      enforced_by: makefile
+      rule: test-race-flag
 ---
 
 # Go Code Standards

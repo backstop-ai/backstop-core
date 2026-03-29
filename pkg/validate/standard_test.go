@@ -758,6 +758,62 @@ func TestStandard_DetectionRegexPatternNotString(t *testing.T) {
 	stdAssertHasViolation(t, result, "standard/rules[0]-detection-regex-pattern")
 }
 
+// --- Delegated strategy ---
+
+func TestStandard_DetectionDelegatedValid(t *testing.T) {
+	art := validStandardArtifact()
+	rule := art.Frontmatter["rules"].([]interface{})[0].(map[string]interface{})
+	rule["detection"] = map[string]interface{}{
+		"strategy":    "delegated",
+		"enforced_by": "golangci-lint",
+		"rule":        "revive/exported",
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	if !result.Pass() {
+		t.Errorf("expected pass, got %d violations", len(result.Violations))
+		for _, v := range result.Violations {
+			t.Errorf("  %s: %s", v.Rule, v.Message)
+		}
+	}
+}
+
+func TestStandard_DetectionDelegatedMissingEnforcedBy(t *testing.T) {
+	art := validStandardArtifact()
+	rule := art.Frontmatter["rules"].([]interface{})[0].(map[string]interface{})
+	rule["detection"] = map[string]interface{}{
+		"strategy": "delegated",
+		"rule":     "revive/exported",
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-delegated-enforced-by")
+}
+
+func TestStandard_DetectionDelegatedMissingRule(t *testing.T) {
+	art := validStandardArtifact()
+	rule := art.Frontmatter["rules"].([]interface{})[0].(map[string]interface{})
+	rule["detection"] = map[string]interface{}{
+		"strategy":    "delegated",
+		"enforced_by": "golangci-lint",
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-delegated-rule")
+}
+
+func TestStandard_DetectionDelegatedBothMissing(t *testing.T) {
+	art := validStandardArtifact()
+	rule := art.Frontmatter["rules"].([]interface{})[0].(map[string]interface{})
+	rule["detection"] = map[string]interface{}{
+		"strategy": "delegated",
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-delegated-enforced-by")
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-delegated-rule")
+}
+
 // --- 10. Sources block (optional) ---
 
 func TestStandard_SourcesNotArray(t *testing.T) {

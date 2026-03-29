@@ -57,10 +57,10 @@
     },
     "rules": {
       "type": "array",
-      "description": "Machine-readable rule definitions that compile to semgrep YAML",
+      "description": "Machine-readable rule definitions that compile to an enforcement manifest",
       "item_required_keys": ["id", "name", "category", "severity", "description", "detection"],
       "item_optional_keys": ["fix", "sources", "compliance_tier"],
-      "detection_strategies": ["pattern", "metric", "regex"],
+      "detection_strategies": ["pattern", "metric", "regex", "delegated"],
       "severity_enum": ["error", "warning", "info"],
       "category_enum": ["structure", "error-handling", "naming", "testing", "security", "concurrency", "performance", "imports", "documentation"],
       "compliance_tier_enum": ["baseline", "standard", "strict"]

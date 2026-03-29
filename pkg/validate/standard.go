@@ -26,7 +26,7 @@ var (
 		"error": true, "warning": true, "info": true,
 	}
 	validDetectionStrategies = map[string]bool{
-		"pattern": true, "metric": true, "regex": true,
+		"pattern": true, "metric": true, "regex": true, "delegated": true,
 	}
 	validComplianceTiers = map[string]bool{
 		"baseline": true, "standard": true, "strict": true,
@@ -302,7 +302,7 @@ func validateDetectionBlock(rule map[string]interface{}, filename, label string)
 		violations = append(violations, Violation{
 			Rule:    fmt.Sprintf("standard/%s-detection-invalid-strategy", label),
 			File:    filename,
-			Message: fmt.Sprintf("%s.detection.strategy %q is not valid (pattern, metric, regex)", label, strategy),
+			Message: fmt.Sprintf("%s.detection.strategy %q is not valid (pattern, metric, regex, delegated)", label, strategy),
 		})
 		return violations
 	}
@@ -332,6 +332,21 @@ func validateDetectionBlock(rule map[string]interface{}, filename, label string)
 				Rule:    fmt.Sprintf("standard/%s-detection-regex-pattern", label),
 				File:    filename,
 				Message: fmt.Sprintf("%s.detection with strategy 'regex' requires 'pattern' field", label),
+			})
+		}
+	case "delegated":
+		if _, hasEnforcedBy := det["enforced_by"].(string); !hasEnforcedBy {
+			violations = append(violations, Violation{
+				Rule:    fmt.Sprintf("standard/%s-detection-delegated-enforced-by", label),
+				File:    filename,
+				Message: fmt.Sprintf("%s.detection with strategy 'delegated' requires 'enforced_by' field", label),
+			})
+		}
+		if _, hasRule := det["rule"].(string); !hasRule {
+			violations = append(violations, Violation{
+				Rule:    fmt.Sprintf("standard/%s-detection-delegated-rule", label),
+				File:    filename,
+				Message: fmt.Sprintf("%s.detection with strategy 'delegated' requires 'rule' field", label),
 			})
 		}
 	}
