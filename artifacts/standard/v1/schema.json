@@ -11,11 +11,11 @@
   "slug_min_length": 2,
   "slug_max_length": 64,
   "metadata": {
-    "required": ["title", "number", "created", "status", "schema_version", "language", "pack"],
+    "required": ["title", "number", "created", "status", "schema_version", "pack", "scope"],
     "properties": {
       "number": {
         "pattern": "^STD-[A-Z]+-\\d{3}$",
-        "description": "Standard identifier: STD-<LANG>-<NNN> (e.g., STD-GO-001)"
+        "description": "Standard identifier: STD-<PACK>-<NNN> (e.g., STD-GO-001, STD-CORE-001)"
       },
       "status": {
         "enum": ["draft", "active", "deprecated"]
@@ -24,12 +24,16 @@
         "const": "standard/v1"
       },
       "language": {
-        "description": "Target language for this standard (e.g., go, typescript, python, all)",
+        "description": "Target language for this standard. Optional — omit for language-agnostic standards (e.g., core pack).",
         "type": "string"
       },
       "pack": {
         "description": "Which standards pack this belongs to (e.g., core, go, typescript)",
         "type": "string"
+      },
+      "scope": {
+        "description": "How broadly this standard applies: universal (all projects), language (language-specific), framework (framework-specific)",
+        "enum": ["universal", "language", "framework"]
       }
     }
   },

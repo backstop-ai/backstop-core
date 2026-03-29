@@ -32,6 +32,7 @@ func validStandardArtifact() *artifact.ParsedArtifact {
 			"schema_version": "standard/v1",
 			"language":       "go",
 			"pack":           "go",
+			"scope":          "language",
 			"rules": []interface{}{
 				map[string]interface{}{
 					"id":          "GO-001",
@@ -56,7 +57,7 @@ func validStandardSchema() *schema.Schema {
 		ArtifactType:      "standard",
 		FilenamePattern:   `^STD-[A-Z]+-\d{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\.standard\.md$`,
 		RequiredMetadata:  []string{"title", "number", "created", "status", "schema_version"},
-		ExtensionMetadata: []string{"language", "pack"},
+		ExtensionMetadata: []string{"pack", "scope"},
 		RequiredSections:  []string{"Overview", "Rules", "Examples"},
 		StatusEnum:        []string{"draft", "active", "deprecated"},
 	}
@@ -274,14 +275,15 @@ func TestStandard_EmptyStatus_NoEnumViolation(t *testing.T) {
 	stdAssertNoViolation(t, result, "standard/invalid-status")
 }
 
-// --- 6. Language ---
+// --- 6. Language (optional) ---
 
-func TestStandard_MissingLanguage(t *testing.T) {
+func TestStandard_LanguageOptional(t *testing.T) {
 	art := validStandardArtifact()
 	delete(art.Frontmatter, "language")
+	art.Frontmatter["scope"] = "universal"
 
 	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/language-required")
+	stdAssertNoViolation(t, result, "standard/invalid-language")
 }
 
 func TestStandard_InvalidLanguage(t *testing.T) {
@@ -293,31 +295,65 @@ func TestStandard_InvalidLanguage(t *testing.T) {
 }
 
 func TestStandard_ValidLanguages(t *testing.T) {
-	for _, lang := range []string{"go", "typescript", "python", "bash", "all"} {
+	for _, lang := range []string{"go", "typescript", "python", "bash"} {
 		t.Run(lang, func(t *testing.T) {
 			art := validStandardArtifact()
 			art.Frontmatter["language"] = lang
 			result := validate.Standard(art, validStandardSchema())
-			stdAssertNoViolation(t, result, "standard/language-required")
 			stdAssertNoViolation(t, result, "standard/invalid-language")
 		})
 	}
 }
 
-func TestStandard_LanguageEmptyString(t *testing.T) {
+// --- 6b. Scope (required) ---
+
+func TestStandard_MissingScope(t *testing.T) {
 	art := validStandardArtifact()
-	art.Frontmatter["language"] = ""
+	delete(art.Frontmatter, "scope")
 
 	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/language-required")
+	stdAssertHasViolation(t, result, "standard/scope-required")
 }
 
-func TestStandard_LanguageNotString(t *testing.T) {
+func TestStandard_InvalidScope(t *testing.T) {
 	art := validStandardArtifact()
-	art.Frontmatter["language"] = 42
+	art.Frontmatter["scope"] = "global"
 
 	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/language-required")
+	stdAssertHasViolation(t, result, "standard/invalid-scope")
+}
+
+func TestStandard_ValidScopes(t *testing.T) {
+	for _, scope := range []string{"universal", "language", "framework"} {
+		t.Run(scope, func(t *testing.T) {
+			art := validStandardArtifact()
+			art.Frontmatter["scope"] = scope
+			if scope != "language" {
+				delete(art.Frontmatter, "language")
+			}
+			result := validate.Standard(art, validStandardSchema())
+			stdAssertNoViolation(t, result, "standard/scope-required")
+			stdAssertNoViolation(t, result, "standard/invalid-scope")
+		})
+	}
+}
+
+func TestStandard_ScopeLanguageRequiresLanguageField(t *testing.T) {
+	art := validStandardArtifact()
+	art.Frontmatter["scope"] = "language"
+	delete(art.Frontmatter, "language")
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/scope-language-missing")
+}
+
+func TestStandard_ScopeUniversalNoLanguageOK(t *testing.T) {
+	art := validStandardArtifact()
+	art.Frontmatter["scope"] = "universal"
+	delete(art.Frontmatter, "language")
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertNoViolation(t, result, "standard/scope-language-missing")
 }
 
 // --- 7. Pack ---
@@ -964,17 +1000,17 @@ func TestStandard_BaseViolationsCompose(t *testing.T) {
 	// Should have base section violation
 	stdAssertHasViolation(t, result, "base/section-required")
 	// Should still pass standard-specific checks too
-	stdAssertNoViolation(t, result, "standard/language-required")
+	stdAssertNoViolation(t, result, "standard/scope-required")
 }
 
 func TestStandard_BaseAndStandardViolationsBothPresent(t *testing.T) {
 	art := validStandardArtifact()
 	art.Sections = []string{"Overview"} // missing required sections (base violation)
-	delete(art.Frontmatter, "language") // standard-specific violation
+	delete(art.Frontmatter, "scope")    // standard-specific violation
 
 	result := validate.Standard(art, validStandardSchema())
 	stdAssertHasViolation(t, result, "base/section-required")
-	stdAssertHasViolation(t, result, "standard/language-required")
+	stdAssertHasViolation(t, result, "standard/scope-required")
 }
 
 // --- 13. Multiple rules with different indices ---

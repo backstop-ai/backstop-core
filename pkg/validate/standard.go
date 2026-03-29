@@ -15,7 +15,10 @@ var (
 	ruleIDRe         = regexp.MustCompile(`^[A-Z]+-\d{3}$`)
 	validLanguages   = map[string]bool{
 		"go": true, "typescript": true, "python": true,
-		"bash": true, "all": true,
+		"bash": true,
+	}
+	validScopes = map[string]bool{
+		"universal": true, "language": true, "framework": true,
 	}
 	validCategories = map[string]bool{
 		"structure": true, "error-handling": true, "naming": true,
@@ -86,23 +89,42 @@ func Standard(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult
 		})
 	}
 
-	// 5. Language
+	// 5. Language (optional — omit for language-agnostic standards)
 	lang := getFrontmatterString(art, "language")
-	if lang == "" {
-		violations = append(violations, Violation{
-			Rule:    "standard/language-required",
-			File:    art.Filename,
-			Message: "language is required in frontmatter",
-		})
-	} else if !validLanguages[lang] {
+	if lang != "" && !validLanguages[lang] {
 		violations = append(violations, Violation{
 			Rule:    "standard/invalid-language",
 			File:    art.Filename,
-			Message: fmt.Sprintf("language %q is not recognized (go, typescript, python, bash, all)", lang),
+			Message: fmt.Sprintf("language %q is not recognized (go, typescript, python, bash)", lang),
 		})
 	}
 
-	// 6. Pack
+	// 6. Scope (required)
+	scope := getFrontmatterString(art, "scope")
+	if scope == "" {
+		violations = append(violations, Violation{
+			Rule:    "standard/scope-required",
+			File:    art.Filename,
+			Message: "scope is required in frontmatter (universal, language, framework)",
+		})
+	} else if !validScopes[scope] {
+		violations = append(violations, Violation{
+			Rule:    "standard/invalid-scope",
+			File:    art.Filename,
+			Message: fmt.Sprintf("scope %q is not valid (universal, language, framework)", scope),
+		})
+	}
+
+	// 7. Scope-language consistency: language scope requires language field
+	if scope == "language" && lang == "" {
+		violations = append(violations, Violation{
+			Rule:    "standard/scope-language-missing",
+			File:    art.Filename,
+			Message: "scope 'language' requires a language field",
+		})
+	}
+
+	// 8. Pack
 	pack := getFrontmatterString(art, "pack")
 	if pack == "" {
 		violations = append(violations, Violation{
@@ -112,7 +134,7 @@ func Standard(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult
 		})
 	}
 
-	// 7. Rules block
+	// 9. Rules block
 	violations = append(violations, validateRulesBlock(art, art.Filename)...)
 
 	// 8. Sources block (optional but validated if present)

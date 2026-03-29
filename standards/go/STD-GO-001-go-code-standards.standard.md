@@ -6,6 +6,7 @@ status: active
 schema_version: standard/v1
 language: go
 pack: go
+scope: language
 
 sources:
   - title: "Effective Go"
