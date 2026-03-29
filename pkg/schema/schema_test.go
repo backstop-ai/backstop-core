@@ -229,3 +229,48 @@ func TestLoadArtifactSchema_BadBasePath(t *testing.T) {
 		t.Error("expected error when base schema not found, got nil")
 	}
 }
+
+func TestLoadArtifactSchema_BundleSubsetMetadata(t *testing.T) {
+	root := repoRoot(t)
+	artifactsRoot := filepath.Join(root, "artifacts")
+	schemaPath := filepath.Join(artifactsRoot, "bundle", "v1", "schema.json")
+
+	sch, err := schema.LoadArtifactSchema(schemaPath, artifactsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bundle only requires [title, schema_version] — NOT number, created, status
+	wantRequired := map[string]bool{"title": true, "schema_version": true}
+	notWanted := map[string]bool{"number": true, "created": true, "status": true}
+
+	for _, k := range sch.RequiredMetadata {
+		if !wantRequired[k] {
+			t.Errorf("RequiredMetadata contains unexpected key %q", k)
+		}
+	}
+	for _, k := range sch.RequiredMetadata {
+		if notWanted[k] {
+			t.Errorf("RequiredMetadata should NOT contain %q for bundle (handled via nested blocks)", k)
+		}
+	}
+	if len(sch.RequiredMetadata) != 2 {
+		t.Errorf("RequiredMetadata length = %d, want 2; got %v", len(sch.RequiredMetadata), sch.RequiredMetadata)
+	}
+}
+
+func TestLoadArtifactSchema_IssueSubsetMetadata(t *testing.T) {
+	root := repoRoot(t)
+	artifactsRoot := filepath.Join(root, "artifacts")
+	schemaPath := filepath.Join(artifactsRoot, "issue", "v1", "schema.json")
+
+	sch, err := schema.LoadArtifactSchema(schemaPath, artifactsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Issue only requires [title, schema_version]
+	if len(sch.RequiredMetadata) != 2 {
+		t.Errorf("RequiredMetadata length = %d, want 2; got %v", len(sch.RequiredMetadata), sch.RequiredMetadata)
+	}
+}

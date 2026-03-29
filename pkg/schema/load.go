@@ -113,21 +113,26 @@ func LoadArtifactSchema(schemaPath, artifactsRoot string) (*Schema, error) {
 		return nil, fmt.Errorf("loading base schema: %w", err)
 	}
 
-	// Separate extension-only keys from base keys
+	// Separate extension keys into base-overlap and extension-only.
+	// The extension schema is the authority on what flat metadata is required.
+	// Base keys not listed in the extension's required set are NOT forced.
 	baseKeySet := make(map[string]bool)
 	for _, k := range base.RequiredMetadata {
 		baseKeySet[k] = true
 	}
 
+	var baseKeys []string
 	var extensionKeys []string
 	for _, k := range ext.RequiredMetadata {
-		if !baseKeySet[k] {
+		if baseKeySet[k] {
+			baseKeys = append(baseKeys, k)
+		} else {
 			extensionKeys = append(extensionKeys, k)
 		}
 	}
 
-	// Merge: base RequiredMetadata stays as-is, extension keys go to ExtensionMetadata
-	ext.RequiredMetadata = base.RequiredMetadata
+	// RequiredMetadata = only the base keys the extension actually declares
+	ext.RequiredMetadata = baseKeys
 	ext.ExtensionMetadata = extensionKeys
 
 	// Merge metadata rules (extension overrides base)
