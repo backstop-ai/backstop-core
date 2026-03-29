@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-standard-v1",
+  "title": "Backstop Code Standard Schema v1",
+  "description": "Schema for code standard artifacts — machine-readable rule definitions that compile to semgrep YAML for enforcement. Extends backstop-artifact-base-v1.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "standard",
+  "filename_pattern": "^STD-[A-Z]+-\\d{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.standard\\.md$",
+  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+  "slug_min_length": 2,
+  "slug_max_length": 64,
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version", "language", "pack"],
+    "properties": {
+      "number": {
+        "pattern": "^STD-[A-Z]+-\\d{3}$",
+        "description": "Standard identifier: STD-<LANG>-<NNN> (e.g., STD-GO-001)"
+      },
+      "status": {
+        "enum": ["draft", "active", "deprecated"]
+      },
+      "schema_version": {
+        "const": "standard/v1"
+      },
+      "language": {
+        "description": "Target language for this standard (e.g., go, typescript, python, all)",
+        "type": "string"
+      },
+      "pack": {
+        "description": "Which standards pack this belongs to (e.g., core, go, typescript)",
+        "type": "string"
+      }
+    }
+  },
+  "required_sections": [
+    "Overview",
+    "Rules",
+    "Examples"
+  ],
+  "optional_sections": [
+    "Rationale",
+    "References",
+    "Exceptions"
+  ],
+  "nested_blocks": {
+    "sources": {
+      "type": "array",
+      "description": "Primary sources and authoritative references for this standard",
+      "item_required_keys": ["title"],
+      "item_optional_keys": ["url", "authority"]
+    },
+    "includes": {
+      "type": "array",
+      "description": "Optional split files to include when a single standard grows too large. Each entry is a relative path to another standard file.",
+      "item_type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "description": "Machine-readable rule definitions that compile to semgrep YAML",
+      "item_required_keys": ["id", "name", "category", "severity", "description", "detection"],
+      "item_optional_keys": ["fix", "sources", "compliance_tier"],
+      "detection_strategies": ["pattern", "metric", "regex"],
+      "severity_enum": ["error", "warning", "info"],
+      "category_enum": ["structure", "error-handling", "naming", "testing", "security", "concurrency", "performance", "imports", "documentation"],
+      "compliance_tier_enum": ["baseline", "standard", "strict"]
+    }
+  }
+}
