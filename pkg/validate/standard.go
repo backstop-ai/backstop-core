@@ -3,7 +3,6 @@ package validate
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/artifact"
 	"github.com/bmanson/backstop-core/pkg/schema"
@@ -139,9 +138,6 @@ func Standard(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult
 
 	// 8. Sources block (optional but validated if present)
 	violations = append(violations, validateSourcesBlock(art, art.Filename)...)
-
-	// 9. Includes block (optional but validated if present)
-	violations = append(violations, validateIncludesBlock(art, art.Filename)...)
 
 	combined := make([]Violation, 0, len(base.Violations)+len(violations))
 	combined = append(combined, base.Violations...)
@@ -411,47 +407,6 @@ func validateSourcesBlock(art *artifact.ParsedArtifact, filename string) []Viola
 				Rule:    "standard/source-title-required",
 				File:    filename,
 				Message: fmt.Sprintf("sources[%d].title is required", i),
-			})
-		}
-	}
-
-	return violations
-}
-
-func validateIncludesBlock(art *artifact.ParsedArtifact, filename string) []Violation {
-	var violations []Violation
-
-	includesRaw, ok := art.Frontmatter["includes"]
-	if !ok {
-		return violations
-	}
-
-	includesArr, ok := includesRaw.([]interface{})
-	if !ok {
-		violations = append(violations, Violation{
-			Rule:    "standard/includes-format",
-			File:    filename,
-			Message: "includes must be an array",
-		})
-		return violations
-	}
-
-	for i, item := range includesArr {
-		path, ok := item.(string)
-		if !ok || path == "" {
-			violations = append(violations, Violation{
-				Rule:    "standard/include-format",
-				File:    filename,
-				Message: fmt.Sprintf("includes[%d] must be a non-empty string path", i),
-			})
-			continue
-		}
-
-		if !strings.HasSuffix(path, ".standard.md") {
-			violations = append(violations, Violation{
-				Rule:    "standard/include-extension",
-				File:    filename,
-				Message: fmt.Sprintf("includes[%d] %q must end with .standard.md", i, path),
 			})
 		}
 	}

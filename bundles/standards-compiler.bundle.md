@@ -168,10 +168,6 @@ anything — it shows up in CI logs, terminal output, and adoption reports.
 - Manifest rules must include compliance tier tags
 - Deprecated standards must compile with visible deprecation warning
 
-We also need to remove the `includes` field from the standard schema and validator,
-and update SPEC-001 to reflect all resolved questions. These are tracked as
-downstream tasks.
-
 ## Spec Seeds
 
 - **SPEC-001 (update):** Standards Compiler — update to reflect all resolved questions,

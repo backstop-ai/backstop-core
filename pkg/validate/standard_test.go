@@ -156,10 +156,6 @@ func TestStandard_ValidWithOptionalFields(t *testing.T) {
 			"url":   "https://go.dev/doc/effective_go",
 		},
 	}
-	art.Frontmatter["includes"] = []interface{}{
-		"STD-GO-002-extra.standard.md",
-	}
-
 	result := validate.Standard(art, validStandardSchema())
 	if !result.Pass() {
 		t.Errorf("expected valid standard with optional fields to pass, got %d violations:", len(result.Violations))
@@ -930,67 +926,7 @@ func TestStandard_MultipleSources_MixedValidity(t *testing.T) {
 	stdAssertHasViolation(t, result, "standard/source-title-required")
 }
 
-// --- 11. Includes block (optional) ---
-
-func TestStandard_IncludesNotArray(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = "not-an-array"
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/includes-format")
-}
-
-func TestStandard_IncludeNotString(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = []interface{}{42}
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/include-format")
-}
-
-func TestStandard_IncludeEmptyString(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = []interface{}{""}
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/include-format")
-}
-
-func TestStandard_IncludeWrongExtension(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = []interface{}{"STD-GO-002-extra.spec.md"}
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/include-extension")
-}
-
-func TestStandard_IncludeValidExtension(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = []interface{}{"STD-GO-002-extra.standard.md"}
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertNoViolation(t, result, "standard/include-extension")
-	stdAssertNoViolation(t, result, "standard/include-format")
-}
-
-func TestStandard_NoIncludes_OK(t *testing.T) {
-	art := validStandardArtifact()
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertNoViolation(t, result, "standard/includes-format")
-}
-
-func TestStandard_MultipleIncludes_MixedValidity(t *testing.T) {
-	art := validStandardArtifact()
-	art.Frontmatter["includes"] = []interface{}{
-		"STD-GO-002-extra.standard.md",
-		"bad-file.txt",
-	}
-
-	result := validate.Standard(art, validStandardSchema())
-	stdAssertHasViolation(t, result, "standard/include-extension")
-}
-
-// --- 12. Composition — base violations compose with standard violations ---
+// --- 11. Composition — base violations compose with standard violations ---
 
 func TestStandard_BaseViolationsCompose(t *testing.T) {
 	art := validStandardArtifact()

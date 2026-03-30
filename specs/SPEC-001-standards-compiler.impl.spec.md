@@ -60,10 +60,6 @@ requirements:
       lists every rule from the standard, its enforcement method (semgrep,
       native, or delegated), and the metadata the CLI needs to orchestrate
       execution. Output filenames must derive from the standard number.
-  - id: REQ-009
-    text: >
-      The compiler must handle the includes field — if a standard references
-      split files, it must resolve and compile rules from all included files.
   - id: REQ-010
     text: >
       The compiler must be idempotent — running it twice on the same input

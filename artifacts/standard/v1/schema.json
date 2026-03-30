@@ -54,11 +54,6 @@
       "item_required_keys": ["title"],
       "item_optional_keys": ["url", "authority"]
     },
-    "includes": {
-      "type": "array",
-      "description": "Optional split files to include when a single standard grows too large. Each entry is a relative path to another standard file.",
-      "item_type": "string"
-    },
     "rules": {
       "type": "array",
       "description": "Machine-readable rule definitions that compile to an enforcement manifest",
