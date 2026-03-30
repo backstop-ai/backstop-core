@@ -10,130 +10,112 @@ import (
 )
 
 var (
-	planNumberRe = regexp.MustCompile(`^(PLAN-[A-Z]+-\d+)-`)
-	implementsRe = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)
+	planIDRe     = regexp.MustCompile(`^PLAN-(SPEC|ISSUE)-\d{3}$`)
+	planFileRe   = regexp.MustCompile(`^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\.plan\.yml$`)
+	specIDRe     = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)
+	planStatuses = map[string]bool{
+		"draft": true, "ready": true, "implementing": true, "completed": true,
+	}
 )
 
-// Plan composes base validation with plan-specific checks
-// including D-080 (agent-bounded tasks) and D-081 (file exclusivity).
-func Plan(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
-	base := Base(art, sch)
-	var planViolations []Violation
-
-	// 1. Filename pattern
-	filenameOK := false
-	if sch.FilenamePattern != "" {
-		re, err := regexp.Compile(sch.FilenamePattern)
-		if err == nil {
-			filenameOK = re.MatchString(art.Filename)
-		}
-		if !filenameOK {
-			planViolations = append(planViolations, Violation{
-				Rule:     "plan/filename-pattern",
-				File:     art.Filename,
-				Message:  fmt.Sprintf("filename does not match pattern %s", sch.FilenamePattern),
-				Severity: "error",
-			})
-		}
-	}
-
-	// 2. Number/filename consistency
-	if filenameOK {
-		m := planNumberRe.FindStringSubmatch(art.Filename)
-		if m != nil {
-			fileNumber := m[1]
-			if metaNumber, ok := art.Metadata["number"]; ok && metaNumber != fileNumber {
-				planViolations = append(planViolations, Violation{
-					Rule:     "plan/number-mismatch",
-					File:     art.Filename,
-					Message:  fmt.Sprintf("metadata number '%s' does not match filename '%s'", metaNumber, fileNumber),
-					Severity: "error",
-				})
-			}
-		}
-	}
-
-	// 3. Status enum
-	if len(sch.StatusEnum) > 0 {
-		status := art.Metadata["status"]
-		valid := false
-		for _, s := range sch.StatusEnum {
-			if s == status {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			planViolations = append(planViolations, Violation{
-				Rule:     "plan/invalid-status",
-				File:     art.Filename,
-				Message:  fmt.Sprintf("status '%s' is not valid (allowed: %v)", status, sch.StatusEnum),
-				Severity: "error",
-			})
-		}
-	}
-
-	// 4. schema_version/artifact-type cross-check
-	if sv, ok := art.Metadata["schema_version"]; ok && sv != "" {
-		parts := strings.SplitN(sv, "/", 2)
-		if len(parts) == 2 && sch.ArtifactType != "" && parts[0] != sch.ArtifactType {
-			planViolations = append(planViolations, Violation{
-				Rule:     "plan/schema-version-mismatch",
-				File:     art.Filename,
-				Message:  fmt.Sprintf("schema_version type '%s' does not match artifact type '%s'", parts[0], sch.ArtifactType),
-				Severity: "error",
-			})
-		}
-	}
-
-	// 5. Implements — required reference to SPEC-NNN or ISSUE-NNN
-	planViolations = append(planViolations, validatePlanImplements(art)...)
-
-	// 6. Phases validation (D-080 + D-081)
-	planViolations = append(planViolations, validatePhases(art)...)
-
-	combined := make([]Violation, 0, len(base.Violations)+len(planViolations))
-	combined = append(combined, base.Violations...)
-	combined = append(combined, planViolations...)
-	return ValidationResult{Violations: combined}
-}
-
-// validatePlanImplements checks that the plan declares what artifact it implements.
-func validatePlanImplements(art *artifact.ParsedArtifact) []Violation {
+// Plan validates a pure YAML plan artifact. Plans do NOT extend the base
+// artifact schema — they have their own top-level fields (plan_id, spec_id,
+// status, created) and are machine-consumed, not human-readable markdown.
+// Enforces D-080 (agent-bounded tasks) and D-081 (file exclusivity).
+func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 	var violations []Violation
 
-	implVal, ok := art.Frontmatter["implements"]
-	if !ok {
+	// 1. Filename pattern
+	if !planFileRe.MatchString(art.Filename) {
 		violations = append(violations, Violation{
-			Rule:     "plan/implements-required",
+			Rule:     "plan/filename-pattern",
 			File:     art.Filename,
-			Message:  "implements field is required (SPEC-NNN or ISSUE-NNN)",
-			Severity: "error",
-		})
-		return violations
-	}
-
-	impl, ok := implVal.(string)
-	if !ok || strings.TrimSpace(impl) == "" {
-		violations = append(violations, Violation{
-			Rule:     "plan/implements-required",
-			File:     art.Filename,
-			Message:  "implements must be a non-empty string",
-			Severity: "error",
-		})
-		return violations
-	}
-
-	if !implementsRe.MatchString(impl) {
-		violations = append(violations, Violation{
-			Rule:     "plan/implements-pattern",
-			File:     art.Filename,
-			Message:  fmt.Sprintf("implements '%s' must match SPEC-NNN or ISSUE-NNN", impl),
+			Message:  fmt.Sprintf("filename must match PLAN-*-NNN-slug.plan.yml pattern"),
 			Severity: "error",
 		})
 	}
 
-	return violations
+	// 2. plan_id — required, must match pattern
+	planID := getFrontmatterString(art, "plan_id")
+	if planID == "" {
+		violations = append(violations, Violation{
+			Rule:     "plan/plan-id-required",
+			File:     art.Filename,
+			Message:  "plan_id is required",
+			Severity: "error",
+		})
+	} else if !planIDRe.MatchString(planID) {
+		violations = append(violations, Violation{
+			Rule:     "plan/plan-id-pattern",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("plan_id '%s' must match PLAN-SPEC-NNN or PLAN-ISSUE-NNN", planID),
+			Severity: "error",
+		})
+	}
+
+	// 3. plan_id / filename consistency
+	if planID != "" && planFileRe.MatchString(art.Filename) {
+		if !strings.HasPrefix(art.Filename, planID+"-") {
+			violations = append(violations, Violation{
+				Rule:     "plan/id-filename-mismatch",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("filename must start with plan_id '%s-'", planID),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 4. spec_id — required, must match SPEC-NNN or ISSUE-NNN
+	specID := getFrontmatterString(art, "spec_id")
+	if specID == "" {
+		violations = append(violations, Violation{
+			Rule:     "plan/spec-id-required",
+			File:     art.Filename,
+			Message:  "spec_id is required (SPEC-NNN or ISSUE-NNN)",
+			Severity: "error",
+		})
+	} else if !specIDRe.MatchString(specID) {
+		violations = append(violations, Violation{
+			Rule:     "plan/spec-id-pattern",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("spec_id '%s' must match SPEC-NNN or ISSUE-NNN", specID),
+			Severity: "error",
+		})
+	}
+
+	// 5. status — required, must be in enum
+	status := getFrontmatterString(art, "status")
+	if status == "" {
+		violations = append(violations, Violation{
+			Rule:     "plan/status-required",
+			File:     art.Filename,
+			Message:  "status is required (draft, ready, implementing, completed)",
+			Severity: "error",
+		})
+	} else if !planStatuses[status] {
+		violations = append(violations, Violation{
+			Rule:     "plan/invalid-status",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("status '%s' is not valid (draft, ready, implementing, completed)", status),
+			Severity: "error",
+		})
+	}
+
+	// 6. created — required
+	created := getFrontmatterString(art, "created")
+	if created == "" {
+		violations = append(violations, Violation{
+			Rule:     "plan/created-required",
+			File:     art.Filename,
+			Message:  "created date is required (YYYY-MM-DD)",
+			Severity: "error",
+		})
+	}
+
+	// 7. Phases validation (D-080 + D-081)
+	violations = append(violations, validatePhases(art)...)
+
+	return ValidationResult{Violations: violations}
 }
 
 // planTask is an internal representation of a task extracted from frontmatter.

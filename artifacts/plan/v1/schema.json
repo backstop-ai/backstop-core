@@ -2,48 +2,40 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "backstop-plan-v1",
   "title": "Backstop Plan Schema v1",
-  "description": "Schema for implementation plans with agent-bounded tasks (D-080) and file exclusivity enforcement (D-081). Extends backstop-artifact-base-v1.",
+  "description": "Schema for pure YAML implementation plans with agent-bounded tasks (D-080) and file exclusivity enforcement (D-081). Plans are machine-consumed — no markdown, no prose sections.",
   "version": "1.0.0",
-  "extends": "backstop-artifact-base-v1",
   "artifact_type": "plan",
-  "filename_pattern": "^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.plan\\.md$",
-  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
-  "slug_min_length": 2,
-  "slug_max_length": 64,
+  "filename_pattern": "^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.plan\\.yml$",
   "metadata": {
-    "required": ["title", "number", "created", "status", "schema_version"],
+    "required": ["plan_id", "spec_id", "created", "status"],
+    "optional": ["spec_version", "target_repo", "target_module", "test_command", "coverage_threshold", "notes"],
     "properties": {
-      "number": {
-        "pattern": "^PLAN-[A-Z]+-[0-9]+$",
-        "description": "Plan identifier, typically PLAN-SPEC-NNN or PLAN-ISSUE-NNN"
+      "plan_id": {
+        "pattern": "^PLAN-(SPEC|ISSUE)-[0-9]{3}$",
+        "description": "Plan identifier derived from the spec or issue it implements"
+      },
+      "spec_id": {
+        "pattern": "^(SPEC|ISSUE)-[0-9]{3}$",
+        "description": "The spec or issue this plan implements"
       },
       "status": {
         "enum": ["draft", "ready", "implementing", "completed"]
       },
-      "schema_version": {
-        "const": "plan/v1"
+      "created": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "coverage_threshold": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100
       }
     }
   },
-  "required_sections": [
-    "Overview"
-  ],
-  "optional_sections": [
-    "Notes",
-    "References"
-  ],
-  "nested_blocks": {
-    "implements": {
-      "type": "string",
-      "pattern": "^(SPEC|ISSUE)-[0-9]{3}$",
-      "description": "Required reference to the spec or issue this plan implements"
-    },
-    "phases": {
-      "type": "array",
-      "description": "Ordered execution phases containing agent-bounded tasks",
-      "item_required_keys": ["id", "name", "tasks"],
-      "task_required_keys": ["id", "title", "description", "files", "claims", "depends_on"]
-    }
+  "phases": {
+    "type": "array",
+    "description": "Ordered execution phases containing agent-bounded tasks",
+    "item_required_keys": ["id", "name", "tasks"],
+    "task_required_keys": ["id", "title", "description", "files", "claims", "depends_on"]
   },
   "enforcement": {
     "D-080": "Every task must be agent-bounded: non-empty files, description, claims, and explicit depends_on",
