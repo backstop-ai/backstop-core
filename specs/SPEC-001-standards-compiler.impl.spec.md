@@ -8,14 +8,17 @@ spec_version: 1.0.0
 
 implementation:
   summary: >
-    Compile backstop standard artifacts (.standard.md) into a unified enforcement
-    manifest that the CLI uses to orchestrate all rule enforcement. The compiler
+    Compile backstop standard artifacts (.standard.md) into per-standard
+    enforcement manifests that the CLI lazy-merges at runtime. The compiler
     reads the rules block from standard frontmatter, routes each rule by its
     detection strategy, and produces three outputs: (1) an enforcement manifest
-    listing every rule and how to run it, (2) a semgrep YAML config for pattern
-    and regex rules, and (3) a backstop-native checks file for metric rules.
-    Delegated rules are recorded in the manifest so the CLI can verify the
-    external tool ran and the specific rule was enabled.
+    listing every rule with its enforcement method and compliance tier, (2) a
+    semgrep YAML config for pattern and regex rules, and (3) a thin backstop-native
+    checks file for structural metric rules (e.g., test_file_exists). Most metric
+    enforcement is delegated to ecosystem tools. Delegated rules are recorded in
+    the manifest so the CLI can verify the external tool ran and the specific
+    rule was enabled. Schema resolution uses Go embed for CLI consumers and an
+    explicit path override for library consumers.
   package: pkg/compile
 
 verification:
@@ -41,7 +44,10 @@ requirements:
     text: >
       For each rule with detection.strategy "metric", the compiler must emit
       a backstop-native check definition containing the metric name, operator,
-      threshold, and any exclude patterns.
+      threshold, and any exclude patterns. The native metric layer is thin —
+      reserved for structural checks (e.g., test_file_exists) that no ecosystem
+      tool covers. Most metric enforcement is delegated to ecosystem tools via
+      the "delegated" strategy.
   - id: REQ-005
     text: >
       For each rule with detection.strategy "regex", the compiler must emit
@@ -75,6 +81,28 @@ requirements:
       Pattern rules that have a note field but no semgrep field are
       advisory documentation and must be excluded from both the semgrep
       config and the enforcement manifest.
+  - id: REQ-013
+    text: >
+      Every rule in the enforcement manifest must include its compliance_tier
+      value (baseline, standard, or strict). The CLI uses this to filter rules
+      at runtime based on the project's configured tier.
+  - id: REQ-014
+    text: >
+      If the standard artifact has status "deprecated", the compiler must still
+      produce valid output but emit a visible deprecation warning. The warning
+      must include the standard number and any superseded_by reference.
+  - id: REQ-015
+    text: >
+      For universal-scope standards, pattern and regex rules must specify a
+      languages field in their detection block. The compiler must use the
+      per-rule languages field instead of a standard-level language field
+      when routing to semgrep.
+  - id: REQ-016
+    text: >
+      Schema resolution must support two modes: embedded schemas (via Go embed
+      for CLI consumers) and explicit filesystem path (for library consumers).
+      CompileOptions must accept an optional SchemaSource that defaults to
+      embedded schemas when not provided.
 
 claims:
   - id: CLM-001
@@ -120,11 +148,6 @@ claims:
       - TestCompile_ManifestContainsAllRules
       - TestCompile_ManifestEnforcementMethods
       - TestCompile_OutputFilenameFromStandardNumber
-  - id: CLM-009
-    requirement: REQ-009
-    text: Included split files are resolved and compiled
-    tests:
-      - TestCompile_IncludesResolved
   - id: CLM-010
     requirement: REQ-010
     text: Compilation is idempotent
@@ -141,6 +164,30 @@ claims:
     text: Advisory pattern rules are excluded from all output
     tests:
       - TestCompile_AdvisoryRulesExcluded
+  - id: CLM-013
+    requirement: REQ-013
+    text: Manifest rules include compliance tier tags
+    tests:
+      - TestCompile_ManifestIncludesComplianceTier
+      - TestCompile_ManifestTierDefaultsToBaseline
+  - id: CLM-014
+    requirement: REQ-014
+    text: Deprecated standards compile with warning
+    tests:
+      - TestCompile_DeprecatedStandardEmitsWarning
+      - TestCompile_DeprecatedStandardStillProducesOutput
+  - id: CLM-015
+    requirement: REQ-015
+    text: Universal-scope pattern rules use per-rule languages
+    tests:
+      - TestCompile_UniversalPatternRuleUsesPerRuleLanguages
+      - TestCompile_UniversalMetricRuleNoLanguageRequired
+  - id: CLM-016
+    requirement: REQ-016
+    text: Schema resolution supports embedded and filesystem modes
+    tests:
+      - TestCompile_EmbeddedSchemaDefault
+      - TestCompile_FilesystemSchemaOverride
 
 contracts:
   - file: pkg/compile/compile.go
@@ -160,6 +207,9 @@ contracts:
       - name: ManifestRule
         kind: type
         signature: "type ManifestRule struct"
+      - name: SchemaSource
+        kind: interface
+        signature: "type SchemaSource interface"
     consumes:
       - source: pkg/artifact
         name: ParseFile
@@ -211,7 +261,7 @@ The CLI is the single orchestrator. Whether a rule is enforced by semgrep, by th
 
 ## Requirements
 
-Requirements are defined in frontmatter (REQ-001 through REQ-012).
+Requirements are defined in frontmatter (REQ-001 through REQ-016).
 
 Key design decisions:
 
@@ -220,7 +270,10 @@ Key design decisions:
 - **Validate before compile**: The compiler calls `validate.Standard()` before processing. A standard with validation errors produces no output.
 - **Delegated rules**: Rules enforced by external tools (golangci-lint, goimports, etc.) are recorded in the manifest with the tool name and specific rule ID. The CLI can verify the tool ran and the rule was enabled — closing the trust loop.
 - **Advisory rules**: Pattern rules with a `note` but no `semgrep` field are advisory documentation. They are excluded from all output — not the manifest, not semgrep, nothing. They exist only in the standard file for human readers.
-- **Includes resolution**: Split standard files are resolved relative to the parent standard's directory.
+- **Compliance tier tagging**: Every rule in the manifest carries its compliance tier (baseline/standard/strict). The CLI filters at runtime based on the project's configured tier.
+- **Deprecated standard handling**: Deprecated standards compile with a visible warning but still produce valid output, creating persistent pressure to migrate without breaking enforcement.
+- **Universal-scope pattern rules**: Universal standards can include pattern/regex rules if they specify `languages` per-rule in their detection block. The compiler uses these per-rule languages instead of a standard-level language field.
+- **Schema resolution**: Embedded via Go embed for CLI consumers (each CLI version is a schema cohort). Library consumers override with an explicit filesystem path via `CompileOptions.SchemaSource`.
 
 ## Implementation
 
@@ -266,18 +319,21 @@ The manifest is the single file the CLI reads to know what needs to run:
       "id": "GO-001",
       "name": "max-file-length",
       "severity": "error",
+      "compliance_tier": "baseline",
       "enforcement": "native"
     },
     {
       "id": "GO-010",
       "name": "no-ignored-errors",
       "severity": "error",
+      "compliance_tier": "baseline",
       "enforcement": "semgrep"
     },
     {
       "id": "GO-020",
       "name": "no-stuttering-exports",
       "severity": "warning",
+      "compliance_tier": "standard",
       "enforcement": "delegated",
       "delegated_to": {
         "tool": "golangci-lint",
@@ -334,7 +390,7 @@ Verification is defined in frontmatter. Unit-level verification with 90% coverag
 
 Test command: `go test ./pkg/compile/ -race -coverprofile=cover.out`
 
-Claims CLM-001 through CLM-012 map each requirement to specific test functions.
+Claims CLM-001 through CLM-016 map each requirement to specific test functions.
 
 ## Sharp Edges
 
