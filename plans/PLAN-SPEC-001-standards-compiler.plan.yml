@@ -1,0 +1,425 @@
+---
+plan_id: PLAN-SPEC-001
+spec_id: SPEC-001
+spec_version: 1.0.0
+created: "2026-03-30"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "cd /Users/bmanson/src/projects/backstop-core && go test ./pkg/compile/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements the standards compiler — the bridge between human-readable standard
+  artifacts (.standard.md) and machine-executable enforcement manifests. The module
+  already has pkg/artifact (parser), pkg/schema (loader), and pkg/validate (standard
+  validator). This plan adds pkg/compile/ with three files: types.go, semgrep.go,
+  native.go, compile.go.
+
+  Dependency order: types → semgrep emitter + native emitter (parallel) → orchestrator → integration.
+  Every phase writes tests FIRST (TDD). The compiler consumes existing validation
+  and parsing infrastructure — it does not reinvent them.
+
+  Ambiguities resolved during planning:
+    - Output filenames: <STD-NUMBER>.manifest.json, .semgrep.yml, .checks.json
+    - Severity casing: lowercase in manifest/native, uppercase in semgrep
+    - Universal-scope manifest language: empty string when no standard-level language
+    - Empty outputs: file not written, manifest path field set to empty string
+    - Native checks JSON: wrapped in { "checks": [...] }
+    - Warning delivery: CompileResult.Warnings []string
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Core Types and Interfaces
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Core Types and Interfaces"
+    description: |
+      Define all shared types used across the compiler package. These must exist
+      before any emitter or orchestrator code. This phase establishes the typed
+      boundary between untyped YAML frontmatter and the compiler's internals.
+    tasks:
+      - id: types-test
+        title: "Write type and interface tests"
+        description: |
+          Create pkg/compile/types_test.go with package compile_test.
+
+          Test functions:
+            - TestRule_DetectionStrategy: construct Rule structs for each of the
+              four strategies (pattern, metric, regex, delegated) and verify
+              Strategy() returns the correct value.
+            - TestRule_IsAdvisory: construct a pattern rule with note but no
+              semgrep field, verify IsAdvisory() returns true. Construct a
+              pattern rule with semgrep field, verify IsAdvisory() returns false.
+              Construct a metric rule with note but no metric field, verify
+              IsAdvisory() returns true.
+            - TestManifestRule_DefaultTier: construct ManifestRule with empty
+              ComplianceTier, verify it defaults to "baseline" via
+              EffectiveTier() method.
+            - TestManifestRule_ExplicitTier: construct ManifestRule with
+              ComplianceTier "strict", verify EffectiveTier() returns "strict".
+            - TestSemgrepRule_SeverityUppercase: verify severity mapping
+              error→ERROR, warning→WARNING, info→INFO via MapSeverity().
+            - TestCompileOptions_DefaultOutputDir: verify CompileOptions with
+              empty OutputDir defaults to ".backstop/rules/".
+            - TestSchemaSource_Interface: verify that a mock SchemaSource
+              satisfies the interface contract.
+        files:
+          - pkg/compile/types_test.go
+        claims: [CLM-003, CLM-013]
+        depends_on: []
+
+      - id: types-impl
+        title: "Implement core types and interfaces"
+        description: |
+          Create pkg/compile/types.go with package compile.
+
+          Types:
+            - Rule struct: ID, Name, Category, Severity, Description string;
+              Detection map[string]interface{} (raw from YAML); ComplianceTier
+              string; Languages []string (per-rule, for universal scope); Fix
+              string (optional).
+            - Methods on Rule:
+              - Strategy() string — returns Detection["strategy"]
+              - IsAdvisory() bool — true when Detection has "note" but no
+                enforceable fields (no "semgrep", no "metric", no "pattern"
+                for regex, no "enforced_by" for delegated)
+            - CompileOptions struct: OutputDir string (default ".backstop/rules/"),
+              SchemaSource SchemaSource (nil = embedded default).
+            - Methods on CompileOptions:
+              - EffectiveOutputDir() string — returns OutputDir or default
+            - CompileResult struct: Manifest *EnforcementManifest,
+              SemgrepRules []SemgrepRule, NativeChecks []NativeCheck,
+              Warnings []string, OutputPaths []string.
+            - EnforcementManifest struct: Standard, Language, CompiledFrom,
+              SemgrepConfig, NativeChecks string; Rules []ManifestRule.
+            - ManifestRule struct: ID, Name, Severity, ComplianceTier,
+              Enforcement string; DelegatedTo *DelegatedTarget (nil unless
+              enforcement is "delegated").
+            - Methods on ManifestRule:
+              - EffectiveTier() string — returns ComplianceTier or "baseline"
+            - DelegatedTarget struct: Tool, Rule string.
+            - SemgrepRule struct: ID, Message, Severity string; Languages
+              []string; Pattern, PatternRegex string (mutually exclusive).
+            - NativeCheck struct: ID, Message, Severity, Language, Metric,
+              Operator string; Threshold interface{}; Exclude []string.
+            - SchemaSource interface:
+              - LoadSchema(artifactType, version string) (*schema.Schema, error)
+            - MapSeverity(severity string) string — standalone function,
+              maps lowercase → uppercase for semgrep.
+
+          Run tests: go test ./pkg/compile/ — all tests must pass.
+        files:
+          - pkg/compile/types.go
+        claims: [CLM-003, CLM-013]
+        depends_on: [types-test]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Semgrep Emitter
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Semgrep Emitter"
+    description: |
+      Emit semgrep YAML rules from pattern and regex detection strategies.
+      This phase can execute in parallel with Phase 3 (native emitter).
+    tasks:
+      - id: semgrep-test
+        title: "Write semgrep emitter tests"
+        description: |
+          Create pkg/compile/semgrep_test.go with package compile_test.
+
+          Test functions:
+            - TestEmitSemgrepRule_Pattern: provide a pattern rule with semgrep
+              field and languages ["go"]. Verify output SemgrepRule has correct
+              ID, Message, Severity (uppercase), Languages, and Pattern field.
+            - TestEmitSemgrepRule_Regex: provide a regex rule with pattern field
+              and languages ["go"]. Verify output has PatternRegex field set
+              and Pattern field empty.
+            - TestEmitSemgrepRule_SeverityMapping: test all three mappings
+              (error→ERROR, warning→WARNING, info→INFO) via table-driven test.
+            - TestEmitSemgrepRule_MultipleLanguages: provide languages
+              ["go", "typescript"]. Verify both appear in output.
+            - TestWriteSemgrepFile_ValidYAML: write rules to a temp file, read
+              back and verify valid YAML with top-level "rules" key.
+            - TestWriteSemgrepFile_EmptyRules: writing zero rules should not
+              create a file (return nil, no file on disk).
+            - TestWriteSemgrepFile_YAMLSpecialChars: write a rule with pattern
+              containing colons and brackets, verify output is parseable YAML.
+        files:
+          - pkg/compile/semgrep_test.go
+        claims: [CLM-002, CLM-003, CLM-005]
+        depends_on: [types-impl]
+
+      - id: semgrep-impl
+        title: "Implement semgrep emitter"
+        description: |
+          Create pkg/compile/semgrep.go with package compile.
+
+          Functions:
+            - EmitSemgrepRule(rule Rule, languages []string) SemgrepRule:
+              Maps rule fields to SemgrepRule. Uses MapSeverity for severity.
+              For strategy "pattern": sets Pattern from Detection["semgrep"].
+              For strategy "regex": sets PatternRegex from Detection["pattern"].
+              Languages come from the function parameter (caller resolves
+              standard-level vs per-rule).
+            - WriteSemgrepFile(rules []SemgrepRule, path string) error:
+              Serializes to YAML with "rules:" top-level key. Each rule has
+              id, message, severity, languages, and either pattern or
+              pattern-regex. Uses block scalar style for multi-line patterns.
+              Returns nil without writing if rules slice is empty.
+
+          Run tests: go test ./pkg/compile/ — all semgrep tests must pass.
+        files:
+          - pkg/compile/semgrep.go
+        claims: [CLM-002, CLM-003, CLM-005]
+        depends_on: [semgrep-test]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Native Check Emitter
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Native Check Emitter"
+    description: |
+      Emit backstop-native check definitions from metric detection strategies.
+      The native metric layer is thin — v1 supports structural checks only
+      (e.g., test_file_exists). This phase can execute in parallel with Phase 2.
+    tasks:
+      - id: native-test
+        title: "Write native check emitter tests"
+        description: |
+          Create pkg/compile/native_test.go with package compile_test.
+
+          Test functions:
+            - TestEmitNativeCheck_MetricRule: provide a metric rule with metric
+              name, operator, threshold, exclude. Verify all fields map correctly.
+            - TestEmitNativeCheck_NoExclude: provide a metric rule without
+              exclude field. Verify Exclude is nil or empty slice.
+            - TestWriteNativeChecksFile_ValidJSON: write checks to temp file,
+              read back and verify valid JSON with { "checks": [...] } wrapper.
+            - TestWriteNativeChecksFile_EmptyChecks: writing zero checks should
+              not create a file (return nil, no file on disk).
+        files:
+          - pkg/compile/native_test.go
+        claims: [CLM-004]
+        depends_on: [types-impl]
+
+      - id: native-impl
+        title: "Implement native check emitter"
+        description: |
+          Create pkg/compile/native.go with package compile.
+
+          Functions:
+            - EmitNativeCheck(rule Rule) NativeCheck:
+              Maps rule fields to NativeCheck. Extracts metric, operator,
+              threshold, exclude from Detection map. Severity stays lowercase.
+              Language comes from the rule's standard-level language (passed
+              through Rule struct or empty for universal).
+            - WriteNativeChecksFile(checks []NativeCheck, path string) error:
+              Serializes to JSON with { "checks": [...] } top-level wrapper.
+              Pretty-printed with 2-space indent. Returns nil without writing
+              if checks slice is empty.
+
+          Run tests: go test ./pkg/compile/ — all native tests must pass.
+        files:
+          - pkg/compile/native.go
+        claims: [CLM-004]
+        depends_on: [native-test]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Compiler Orchestrator
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Compiler Orchestrator"
+    description: |
+      The main Compile function that ties everything together: parse, validate,
+      route rules by strategy, emit outputs, build manifest, write files.
+    tasks:
+      - id: compile-test
+        title: "Write compiler orchestrator tests"
+        description: |
+          Create pkg/compile/compile_test.go with package compile_test.
+
+          Test functions (mapped to spec claims):
+            - TestCompile_ParsesRulesFromStandard (CLM-001): compile a valid
+              standard, verify rules are extracted and present in result.
+            - TestCompile_InvalidStandardReturnsViolations (CLM-006): compile
+              a standard with validation errors, verify error returned and no
+              output files written.
+            - TestCompile_OutputDirectoryConfigurable (CLM-007): set custom
+              OutputDir, verify files written to that directory.
+            - TestCompile_OutputDirectoryDefault (CLM-007): omit OutputDir,
+              verify files written to ".backstop/rules/".
+            - TestCompile_ManifestContainsAllRules (CLM-008): compile a
+              standard with all four strategies, verify manifest has entries
+              for pattern, regex, metric, delegated (not advisory).
+            - TestCompile_ManifestEnforcementMethods (CLM-008): verify each
+              rule's enforcement field matches its strategy routing.
+            - TestCompile_OutputFilenameFromStandardNumber (CLM-008): verify
+              output files named STD-GO-001.manifest.json, etc.
+            - TestCompile_Idempotent (CLM-010): compile twice, verify byte-
+              identical output for all three files.
+            - TestCompile_DelegatedRulesInManifest (CLM-011): verify delegated
+              rules appear in manifest with DelegatedTo populated.
+            - TestCompile_DelegatedRulesNotInSemgrep (CLM-011): verify
+              delegated rules do not appear in semgrep output.
+            - TestCompile_AdvisoryRulesExcluded (CLM-012): verify advisory
+              rules absent from semgrep config.
+            - TestCompile_AdvisoryRulesExcludedFromManifest (CLM-012): verify
+              advisory rules absent from manifest.
+            - TestCompile_ManifestIncludesComplianceTier (CLM-013): verify
+              all manifest rules have compliance_tier set.
+            - TestCompile_ManifestTierDefaultsToBaseline (CLM-013): verify
+              rules without explicit tier default to "baseline".
+            - TestCompile_DeprecatedStandardEmitsWarning (CLM-014): compile
+              a deprecated standard, verify Warnings is non-empty.
+            - TestCompile_DeprecatedWarningContainsStandardNumber (CLM-014):
+              verify warning text includes the standard number.
+            - TestCompile_DeprecatedStandardStillProducesOutput (CLM-014):
+              verify manifest and other outputs are still generated.
+            - TestCompile_UniversalPatternRuleUsesPerRuleLanguages (CLM-015):
+              compile a universal-scope standard with a pattern rule that has
+              per-rule languages, verify semgrep output uses those languages.
+            - TestCompile_UniversalRegexRuleUsesPerRuleLanguages (CLM-015):
+              same for regex strategy.
+            - TestCompile_UniversalMetricRuleNoLanguageRequired (CLM-015):
+              compile a universal metric rule without languages, verify success.
+            - TestCompile_EmbeddedSchemaDefault (CLM-016): compile with nil
+              SchemaSource, verify it uses default schema resolution.
+            - TestCompile_FilesystemSchemaOverride (CLM-016): compile with
+              explicit SchemaSource pointing to artifacts/ dir, verify success.
+            - TestCompile_AllDelegatedStandard: compile a standard with only
+              delegated rules, verify no semgrep file written, no native file
+              written, manifest semgrep_config and native_checks are empty.
+            - TestCompile_MixedStrategiesStandard: compile a standard with
+              all four strategies plus one advisory, verify correct routing
+              for each and advisory exclusion.
+        files:
+          - pkg/compile/compile_test.go
+        claims:
+          - CLM-001
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on: [semgrep-impl, native-impl]
+
+      - id: compile-impl
+        title: "Implement compiler orchestrator"
+        description: |
+          Create pkg/compile/compile.go with package compile.
+
+          Functions:
+            - Compile(standardPath string, opts CompileOptions) (*CompileResult, error):
+              1. Resolve schema: if opts.SchemaSource is nil, use existing
+                 pkg/schema functions with filesystem path to artifacts/ dir.
+                 If SchemaSource provided, use it. (Embedded schemas deferred
+                 until CLI build — filesystem path works for now.)
+              2. Parse: artifact.ParseFile(standardPath)
+              3. Validate: validate.Standard(art, sch) — if fails, return
+                 error wrapping violations. No output files written.
+              4. Extract metadata: standard number, language (empty for
+                 universal), scope, status, superseded_by.
+              5. Parse rules from frontmatter into []Rule structs.
+              6. Route each rule:
+                 - IsAdvisory() → skip
+                 - strategy "pattern" → resolve languages (standard-level or
+                   per-rule for universal scope), call EmitSemgrepRule
+                 - strategy "regex" → same language resolution, call
+                   EmitSemgrepRule
+                 - strategy "metric" → call EmitNativeCheck
+                 - strategy "delegated" → manifest entry only
+              7. Build ManifestRule for each non-advisory rule. Set
+                 EffectiveTier() for compliance_tier. Set enforcement field
+                 to "semgrep", "native", or "delegated".
+              8. Build EnforcementManifest with all metadata and rules.
+              9. If status == "deprecated": append warning to Warnings.
+                 Include standard number. Include superseded_by if present.
+              10. Determine output directory via opts.EffectiveOutputDir().
+              11. Write manifest JSON (always).
+              12. Write semgrep YAML (if any semgrep rules — WriteSemgrepFile
+                  handles empty case by not writing).
+              13. Write native checks JSON (if any native checks — same).
+              14. Set manifest SemgrepConfig and NativeChecks to filenames if
+                  files were written, empty string if not.
+              15. Return CompileResult with all outputs and paths.
+
+            - parseRules(art *artifact.ParsedArtifact) ([]Rule, error):
+              Internal helper. Extracts rules array from frontmatter, converts
+              each map[string]interface{} to a typed Rule struct. Handles
+              missing optional fields (compliance_tier defaults to "",
+              languages defaults to nil).
+
+          Run tests: go test ./pkg/compile/ — all tests must pass.
+          Run lint: go tool golangci-lint run ./pkg/compile/
+          Check coverage: must be ≥ 90%.
+        files:
+          - pkg/compile/compile.go
+        claims:
+          - CLM-001
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on: [compile-test]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Integration Tests
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Integration Tests"
+    description: |
+      Full round-trip tests using the real STD-GO-001 standard file in the repo.
+      Verifies the entire pipeline end-to-end against a non-synthetic fixture.
+    tasks:
+      - id: integration-test
+        title: "Write and run integration tests"
+        description: |
+          Create pkg/compile/integration_test.go with package compile_test.
+
+          Test functions:
+            - TestIntegration_CompileRealGoStandard: compile
+              standards/go/STD-GO-001-go-code-standards.standard.md using
+              filesystem schema source. Verify:
+              - Manifest has standard "STD-GO-001", language "go"
+              - All 16 rules present in manifest
+              - Rules with semgrep patterns appear in semgrep YAML
+              - Rules with metric strategy appear in native checks JSON
+              - Delegated rules have DelegatedTo populated
+              - Compliance tier set on all manifest rules
+              - Semgrep YAML is parseable as valid YAML
+              - Native checks JSON is parseable as valid JSON
+            - TestIntegration_Idempotency: compile the real standard twice to
+              temp dirs, compare all output files byte-for-byte.
+            - TestIntegration_UniversalStandard: create a minimal universal-
+              scope standard in a temp file with a pattern rule that has
+              per-rule languages ["go"]. Compile and verify semgrep output
+              has languages: [go].
+            - TestIntegration_DeprecatedStandard: create a temp standard with
+              status "deprecated" and superseded_by "STD-GO-002". Compile and
+              verify CompileResult.Warnings contains "STD-GO-001" and
+              "STD-GO-002".
+            - TestIntegration_AllDelegatedStandard: create a temp standard
+              with only delegated rules. Compile and verify no semgrep file
+              and no native checks file written.
+
+          Skip tests if real standard file is not found (t.Skip for CI
+          portability).
+
+          Run full gate: go tool golangci-lint run ./... && go test -race
+          -coverprofile=cover.out ./... — must pass with ≥ 90% coverage.
+        files:
+          - pkg/compile/integration_test.go
+        claims: [CLM-001, CLM-008, CLM-010, CLM-011]
+        depends_on: [compile-impl]
