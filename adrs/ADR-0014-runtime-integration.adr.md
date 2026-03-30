@@ -3,7 +3,7 @@ number: ADR-0014
 created: "2026-03-18"
 status: Accepted
 deciders: "@bmanson"
-decisions: "D-006, D-035, D-038, D-039, D-040, D-041, D-042"
+decisions: "D-006, D-035, D-038, D-039, D-040, D-041, D-042, D-100, D-101, D-102"
 schema_version: adr/v2
 ---
 
@@ -83,16 +83,87 @@ With runtime-level enforcement, violations are caught during generation — befo
 
 Per-file enforcement (code style, security patterns, required sections) is handled by runtime hooks. Pre-commit is the second line of defense, not the first.
 
+### Post-write enforcement via `backstop check --file` (D-100)
+
+The pre-write dispatcher (D-040) handles capability restriction — blocking writes to forbidden paths. But standards enforcement requires inspecting the actual content written to disk. Semgrep needs files, linters need files, metric evaluators need files. The pre-write hook cannot do this because the file hasn't been written yet.
+
+The post-write model complements pre-write:
+
+1. **PreToolUse (D-040):** Can this agent write to this path? Yes/no. Fast, path-only.
+2. **PostToolUse (D-100):** The file was written. Does it comply with standards? Here are violations.
+
+The universal hook payload is a single CLI command:
+
+```
+backstop check --file <path> --format json
+```
+
+This command:
+- Resolves which standards apply to the file (via pack globs and language detection)
+- Runs the applicable checks (semgrep for pattern/regex rules, native for metric rules, delegated tool verification)
+- Returns structured violations as JSON to stdout
+- Exits 0 if clean, non-zero if violations found
+- Must complete in under 2 seconds for a single file to avoid disrupting agent flow
+
+The output is injected into the agent's context by the runtime hook mechanism. The agent sees violations immediately after writing and can fix them before moving to the next file. This creates a tight correction loop: write → check → fix → check → clean → proceed.
+
+### Concrete runtime hook implementations (D-101)
+
+Each runtime compiles `backstop check --file` into its native hook format:
+
+**Claude Code** — `postToolUse` hook in `.claude/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "write|edit|create",
+        "command": "backstop check --file $FILE_PATH --format json"
+      }
+    ]
+  }
+}
+```
+
+The hook fires after every file write/edit tool invocation. Claude Code injects the output into the agent's context. If violations are found, the agent sees them as its next input and addresses them before proceeding.
+
+**Copilot CLI** — extension in `.github/extensions/backstop/`:
+
+```yaml
+name: backstop-check
+triggers:
+  - after: file_write
+command: backstop check --file ${file} --format json
+```
+
+The extension fires after file writes. Violations are returned as tool output that the agent processes in its next turn.
+
+**Generic / other runtimes** — any runtime that supports post-edit hooks or file watchers can invoke `backstop check --file`. The CLI is the universal contract. If a runtime has no hook support, `backstop check` can still be invoked manually or via a file watcher daemon.
+
+### MCP remains rejected for enforcement (D-102)
+
+MCP (Model Context Protocol) defines tool surfaces that agents can call voluntarily. This is architecturally unsuitable for enforcement:
+
+- **MCP is opt-in.** The agent chooses whether to call a tool. An agent under pressure to complete a task quickly may skip the compliance check. This is the same failure mode as asking humans to run linters — they don't, consistently.
+- **Hooks are mechanical.** A postToolUse hook fires on every file write regardless of agent intent, task pressure, or context window constraints. The agent cannot opt out.
+- **The reliability gap is the entire point of backstop.** If enforcement depends on the agent remembering to call the right tool at the right time, it is no better than a code review checklist. The mechsuit runs the checklist automatically.
+
+MCP may serve a purpose for optional, advisory features — e.g., an agent asking "which standards apply to this file?" as a planning aid. But enforcement must be hook-based, not tool-based. The agent does not get to choose whether to be compliant.
+
 ## Consequences
 
 ### What this enables
 - **Enforcement during generation, not after.** Agents are constrained in real-time. A non-compliant file write is rejected before it hits disk, not caught minutes later by a linter.
+- **Immediate correction loops.** Post-write hooks give the agent structured violation feedback after every file write. The agent fixes issues in its next action, not in a batch at the end. The cost of a violation drops from "re-run entire CI pipeline" to "one more edit."
 - **Runtime-agnostic standards.** Teams can switch runtimes (Copilot CLI → Claude Code) without rewriting enforcement rules. Packs are portable; only the compile target changes.
 - **Zero-configuration for users.** `backstop init` handles all runtime integration. Users declare runtimes in backstop.yml and never touch generated config files.
 - **Sub-agent enforcement.** The two-tier architecture with session-wide hooks prevents agents from evading enforcement through delegation.
+- **The agent cannot opt out.** Unlike MCP tools or manual checks, hook-based enforcement fires mechanically. Compliance is a property of the environment, not the agent's behavior.
 
 ### What this requires
 - **Compiler backends for each runtime.** Each supported runtime needs a backend that translates pack rules into runtime-native enforcement. This is ongoing work as new runtimes emerge.
+- **`backstop check --file` must be fast.** Under 2 seconds for a single file. This constrains the enforcement pipeline: no network calls, no full-project scans, no cold starts. The CLI must be a compiled binary with embedded schemas.
 - **Generated files must not be hand-edited.** Teams must treat runtime config files as compile artifacts. Hand-editing a generated hook file will be overwritten on the next `backstop init`.
 - **Runtime hook APIs must be stable.** Backstop's compiler targets specific hook APIs. If a runtime changes its hook system, the corresponding backend must be updated.
 
@@ -111,9 +182,12 @@ Per-file enforcement (code style, security patterns, required sections) is handl
 - D-035: Pre-commit hooks superseded by runtime enforcement
 - D-038: Two-tier agent architecture (orchestrator + sub-agents)
 - D-039: Agent-blind enforcement (file patterns, not agent identity)
-- D-040: Thin dispatcher hook pattern
+- D-040: Thin dispatcher hook pattern (pre-write, path-based)
 - D-041: Dispatch as a compile-target concern
 - D-042: Runtime integration is an internal implementation detail
+- D-100: Post-write enforcement via `backstop check --file`
+- D-101: Concrete runtime hook implementations (Claude Code, Copilot CLI)
+- D-102: MCP rejected for enforcement — hooks are mechanical, tools are voluntary
 - ADR-0004: Validation engine — the rules that hooks enforce
 - ADR-0006: Standards packs — the portable rule definitions
 - ADR-0008: CLI design — backstop init as the entry point
