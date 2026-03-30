@@ -147,14 +147,14 @@ type SemgrepRule struct {
 
 // NativeCheck defines a generated native checker rule.
 type NativeCheck struct {
-	ID        string
-	Message   string
-	Severity  string
-	Language  string
-	Metric    string
-	Operator  string
-	Threshold interface{}
-	Exclude   []string
+	ID        string      `json:"id"`
+	Message   string      `json:"message"`
+	Severity  string      `json:"severity"`
+	Language  string      `json:"language"`
+	Metric    string      `json:"metric"`
+	Operator  string      `json:"operator"`
+	Threshold interface{} `json:"threshold"`
+	Exclude   []string    `json:"exclude,omitempty"`
 }
 
 // SchemaSource loads schemas used by the compiler.

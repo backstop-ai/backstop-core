@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/compile"
@@ -126,6 +127,48 @@ func TestWriteNativeChecksFile_EmptyChecks(t *testing.T) {
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected no file to be created, stat err = %v", err)
+	}
+}
+
+func TestWriteNativeChecksFile_SnakeCaseKeys(t *testing.T) {
+	checks := []compile.NativeCheck{
+		{ID: "R-001", Message: "msg", Severity: "error", Language: "go", Metric: "m", Operator: "<=", Threshold: 1},
+	}
+	path := filepath.Join(t.TempDir(), "native.json")
+	if err := compile.WriteNativeChecksFile(checks, path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(data)
+	for _, key := range []string{`"id"`, `"message"`, `"severity"`, `"language"`, `"metric"`, `"operator"`, `"threshold"`} {
+		if !strings.Contains(raw, key) {
+			t.Fatalf("expected snake_case key %s in output, got:\n%s", key, raw)
+		}
+	}
+	for _, bad := range []string{`"ID"`, `"Message"`, `"Severity"`, `"Language"`, `"Metric"`, `"Operator"`, `"Threshold"`} {
+		if strings.Contains(raw, bad) {
+			t.Fatalf("unexpected PascalCase key %s in output", bad)
+		}
+	}
+}
+
+func TestWriteNativeChecksFile_OmitsNullExclude(t *testing.T) {
+	checks := []compile.NativeCheck{
+		{ID: "R-001", Message: "msg", Severity: "error", Metric: "m", Operator: "<=", Threshold: 1},
+	}
+	path := filepath.Join(t.TempDir(), "native.json")
+	if err := compile.WriteNativeChecksFile(checks, path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "exclude") {
+		t.Fatalf("expected exclude to be omitted when nil, got:\n%s", string(data))
 	}
 }
 
