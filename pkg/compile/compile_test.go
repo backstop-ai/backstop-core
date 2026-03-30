@@ -780,3 +780,176 @@ Test.
 		t.Fatal("expected error for missing rules")
 	}
 }
+
+type failingSchemaSource struct{}
+
+func (f failingSchemaSource) LoadSchema(_, _ string) (*schema.Schema, error) {
+	return nil, fmt.Errorf("schema not found")
+}
+
+func TestCompile_FailingSchemaSource(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(dir, "out"),
+		SchemaSource: failingSchemaSource{},
+	})
+	if err == nil {
+		t.Fatal("expected error from failing schema source")
+	}
+	if !strings.Contains(err.Error(), "schema not found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompile_UnsupportedStrategy(t *testing.T) {
+	// The validator rejects unknown strategies before the compiler routes them.
+	// This test verifies the validator catches it (the compile.go default branch
+	// is a defensive guard that can't be reached through normal flow).
+	dir := t.TempDir()
+	rules := `  - id: T-001
+    name: test
+    category: testing
+    severity: error
+    description: test desc
+    detection:
+      strategy: unknown_strategy
+    fix: fix it`
+	content := testStandard("STD-TEST-001", "go", "language", "active", rules)
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(dir, "out"),
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported strategy")
+	}
+}
+
+func TestCompile_UnwritableOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+
+	unwritable := filepath.Join(dir, "readonly")
+	if err := os.MkdirAll(unwritable, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(unwritable, "nested", "deep"),
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error for unwritable output directory")
+	}
+}
+
+func TestCompile_DeprecatedWithSupersededBy(t *testing.T) {
+	dir := t.TempDir()
+	rules := ruleMetric("T-001", "test", "error", "file_lines", ">", 500, "baseline")
+	content := fmt.Sprintf(`---
+title: Test Standard
+number: STD-TEST-001
+created: "2026-01-01"
+status: deprecated
+schema_version: standard/v1
+language: go
+pack: test
+scope: language
+superseded_by: STD-TEST-002
+rules:
+%s
+---
+
+# Test Standard
+
+## Overview
+
+Test overview.
+
+## Rules
+
+Rules content.
+
+## Examples
+
+Examples content.
+`, rules)
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+	result, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(dir, "out"),
+		SchemaSource: testSchemaSource(t),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected warnings for deprecated standard")
+	}
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "STD-TEST-002") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected warning to contain superseded_by, got: %v", result.Warnings)
+	}
+}
+
+func TestCompile_RuleItemNotObject(t *testing.T) {
+	dir := t.TempDir()
+	content := `---
+title: Bad Rule Item
+number: STD-TEST-001
+created: "2026-01-01"
+status: active
+schema_version: standard/v1
+language: go
+pack: test
+scope: language
+rules:
+  - "just a string, not an object"
+---
+
+# Bad Rule Item
+
+## Overview
+
+Test overview.
+
+## Rules
+
+Rules content.
+
+## Examples
+
+Examples content.
+`
+	path := writeTestStandard(t, dir, "STD-TEST-001-badrule.standard.md", content)
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(dir, "out"),
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error for non-object rule item")
+	}
+}
+
+func TestCompile_NonUniversalEmptyLanguage(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    filepath.Join(dir, "out"),
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error when language scope has no language")
+	}
+}
