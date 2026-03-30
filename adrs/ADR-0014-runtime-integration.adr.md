@@ -128,16 +128,9 @@ Each runtime compiles `backstop check --file` into its native hook format:
 
 The hook fires after every file write/edit tool invocation. Claude Code injects the output into the agent's context. If violations are found, the agent sees them as its next input and addresses them before proceeding.
 
-**Copilot CLI** — extension in `.github/extensions/backstop/`:
+**Copilot CLI** — `postToolUse` hook via Copilot SDK:
 
-```yaml
-name: backstop-check
-triggers:
-  - after: file_write
-command: backstop check --file ${file} --format json
-```
-
-The extension fires after file writes. Violations are returned as tool output that the agent processes in its next turn.
+Copilot CLI supports the same `preToolUse` / `postToolUse` hook model via its SDK. The backstop hook registers as a `postToolUse` handler that intercepts file write operations and runs `backstop check --file` against the written path. The SDK provides the tool name and arguments, making the integration structurally identical to Claude Code's hook system.
 
 **Generic / other runtimes** — any runtime that supports post-edit hooks or file watchers can invoke `backstop check --file`. The CLI is the universal contract. If a runtime has no hook support, `backstop check` can still be invoked manually or via a file watcher daemon.
 
