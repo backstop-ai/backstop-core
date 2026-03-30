@@ -6,7 +6,7 @@ created: "2026-03-30"
 status: draft
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
-test_command: "cd /Users/bmanson/src/projects/backstop-core && go test ./pkg/compile/ -race -coverprofile=cover.out"
+test_command: "go test ./pkg/compile/ -race -coverprofile=cover.out"
 coverage_threshold: 90
 
 notes: |
@@ -27,6 +27,14 @@ notes: |
     - Empty outputs: file not written, manifest path field set to empty string
     - Native checks JSON: wrapped in { "checks": [...] }
     - Warning delivery: CompileResult.Warnings []string
+
+  Ambiguities resolved during hostile review:
+    - IsAdvisory(): true when note present AND none of semgrep/metric/pattern/enforced_by
+    - Universal pattern/regex without languages: compilation error, not broken output
+    - Duplicate rule IDs: parseRules returns error (defensive, per DD-5)
+    - MetricEvaluator interface: deferred to SPEC-002, compiler emits static defs
+    - Schema resolution default: filesystem in v1, embedded deferred to CLI build
+    - Types file split: types.go owns all types, compile.go owns Compile function
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -242,6 +250,15 @@ phases:
           Test functions (mapped to spec claims):
             - TestCompile_ParsesRulesFromStandard (CLM-001): compile a valid
               standard, verify rules are extracted and present in result.
+            - TestCompile_PatternRuleEmitsSemgrep (CLM-002): compile a standard
+              with a pattern rule, verify the semgrep output contains the rule
+              with correct pattern, severity, and languages.
+            - TestCompile_RegexRuleEmitsSemgrepRegex (CLM-005): compile a
+              standard with a regex rule, verify semgrep output uses
+              pattern-regex key.
+            - TestCompile_MetricRuleEmitsNativeCheck (CLM-004): compile a
+              standard with a metric rule, verify native checks output has
+              correct metric, operator, threshold.
             - TestCompile_InvalidStandardReturnsViolations (CLM-006): compile
               a standard with validation errors, verify error returned and no
               output files written.
@@ -263,9 +280,13 @@ phases:
             - TestCompile_DelegatedRulesNotInSemgrep (CLM-011): verify
               delegated rules do not appear in semgrep output.
             - TestCompile_AdvisoryRulesExcluded (CLM-012): verify advisory
-              rules absent from semgrep config.
+              rules absent from semgrep config. Advisory = note present and
+              NO enforceable fields (semgrep, metric, pattern, enforced_by).
             - TestCompile_AdvisoryRulesExcludedFromManifest (CLM-012): verify
               advisory rules absent from manifest.
+            - TestCompile_AdvisoryDelegatedWithoutEnforcedBy (CLM-012): verify
+              a delegated rule with note but no enforced_by is treated as
+              advisory and excluded from all output.
             - TestCompile_ManifestIncludesComplianceTier (CLM-013): verify
               all manifest rules have compliance_tier set.
             - TestCompile_ManifestTierDefaultsToBaseline (CLM-013): verify
@@ -283,10 +304,15 @@ phases:
               same for regex strategy.
             - TestCompile_UniversalMetricRuleNoLanguageRequired (CLM-015):
               compile a universal metric rule without languages, verify success.
-            - TestCompile_EmbeddedSchemaDefault (CLM-016): compile with nil
-              SchemaSource, verify it uses default schema resolution.
+            - TestCompile_UniversalPatternWithoutLanguagesFails (CLM-015):
+              compile a universal-scope pattern rule with no per-rule languages
+              field, verify compilation returns an error (not broken output).
+            - TestCompile_DefaultSchemaResolution (CLM-016): compile with nil
+              SchemaSource, verify it uses filesystem schema resolution.
             - TestCompile_FilesystemSchemaOverride (CLM-016): compile with
               explicit SchemaSource pointing to artifacts/ dir, verify success.
+            - TestCompile_DuplicateRuleIDs: compile a standard with two rules
+              sharing the same ID, verify compilation returns an error.
             - TestCompile_AllDelegatedStandard: compile a standard with only
               delegated rules, verify no semgrep file written, no native file
               written, manifest semgrep_config and native_checks are empty.
@@ -297,6 +323,10 @@ phases:
           - pkg/compile/compile_test.go
         claims:
           - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
           - CLM-006
           - CLM-007
           - CLM-008
@@ -325,13 +355,18 @@ phases:
                  error wrapping violations. No output files written.
               4. Extract metadata: standard number, language (empty for
                  universal), scope, status, superseded_by.
-              5. Parse rules from frontmatter into []Rule structs.
+              5. Parse rules from frontmatter into []Rule structs via
+                 parseRules(). Abort with error if duplicate rule IDs found.
               6. Route each rule:
-                 - IsAdvisory() → skip
+                 - IsAdvisory() → skip. Advisory = detection has note but NONE
+                   of: semgrep, metric, pattern, enforced_by. Applies to ANY
+                   strategy including delegated-without-enforced_by.
                  - strategy "pattern" → resolve languages (standard-level or
-                   per-rule for universal scope), call EmitSemgrepRule
-                 - strategy "regex" → same language resolution, call
-                   EmitSemgrepRule
+                   per-rule for universal scope). If universal scope and no
+                   per-rule languages, return error (not broken semgrep).
+                   Call EmitSemgrepRule.
+                 - strategy "regex" → same language resolution and universal
+                   scope validation. Call EmitSemgrepRule.
                  - strategy "metric" → call EmitNativeCheck
                  - strategy "delegated" → manifest entry only
               7. Build ManifestRule for each non-advisory rule. Set
@@ -353,7 +388,11 @@ phases:
               Internal helper. Extracts rules array from frontmatter, converts
               each map[string]interface{} to a typed Rule struct. Handles
               missing optional fields (compliance_tier defaults to "",
-              languages defaults to nil).
+              languages defaults to nil). Returns error if duplicate rule IDs
+              are detected (defensive check per DD-5).
+
+          Note: MetricEvaluator interface (DD-3) is deferred to SPEC-002.
+          This compiler emits static NativeCheck definitions only.
 
           Run tests: go test ./pkg/compile/ — all tests must pass.
           Run lint: go tool golangci-lint run ./pkg/compile/
@@ -362,6 +401,10 @@ phases:
           - pkg/compile/compile.go
         claims:
           - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
           - CLM-006
           - CLM-007
           - CLM-008

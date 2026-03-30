@@ -101,7 +101,7 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		})
 	}
 
-	// 6. created — required
+	// 6. created — required, must match YYYY-MM-DD
 	created := getFrontmatterString(art, "created")
 	if created == "" {
 		violations = append(violations, Violation{
@@ -110,9 +110,49 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 			Message:  "created date is required (YYYY-MM-DD)",
 			Severity: "error",
 		})
+	} else if !dateRe.MatchString(created) {
+		violations = append(violations, Violation{
+			Rule:     "plan/created-format",
+			File:     art.Filename,
+			Message:  fmt.Sprintf("created '%s' must match YYYY-MM-DD format", created),
+			Severity: "error",
+		})
 	}
 
-	// 7. Phases validation (D-080 + D-081)
+	// 7. coverage_threshold — optional, integer 0-100 when present (F5)
+	if ctVal, ok := art.Frontmatter["coverage_threshold"]; ok {
+		valid := false
+		switch ct := ctVal.(type) {
+		case int:
+			valid = ct >= 0 && ct <= 100
+		case float64:
+			valid = ct >= 0 && ct <= 100
+		}
+		if !valid {
+			violations = append(violations, Violation{
+				Rule:     "plan/coverage-threshold-range",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("coverage_threshold must be an integer 0-100, got %v", ctVal),
+				Severity: "error",
+			})
+		}
+	}
+
+	// 8. Optional string field type checks (F14)
+	for _, field := range []string{"spec_version", "target_repo", "target_module", "test_command", "notes"} {
+		if val, ok := art.Frontmatter[field]; ok {
+			if _, ok := val.(string); !ok {
+				violations = append(violations, Violation{
+					Rule:     "plan/field-type",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("'%s' must be a string, got %T", field, val),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
+	// 9. Phases validation (D-080 + D-081)
 	violations = append(violations, validatePhases(art)...)
 
 	return ValidationResult{Violations: violations}
@@ -388,6 +428,20 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 		}
 	}
 
+	// Validate depends_on references exist (F7)
+	for _, t := range allTasks {
+		for _, dep := range t.dependsOn {
+			if !seenTaskIDs[dep] {
+				violations = append(violations, Violation{
+					Rule:     "plan/unknown-dependency",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("task '%s' depends on unknown task '%s'", t.id, dep),
+					Severity: "error",
+				})
+			}
+		}
+	}
+
 	// D-081: File exclusivity for parallel-eligible tasks
 	violations = append(violations, checkFileExclusivity(art.Filename, allTasks)...)
 
@@ -433,6 +487,18 @@ func checkFileExclusivity(filename string, tasks []planTask) []Violation {
 					depends[i][j] = true
 				}
 			}
+		}
+	}
+
+	// Cycle detection (F15): if task depends on itself, it's in a cycle
+	for i := 0; i < n; i++ {
+		if depends[i][i] {
+			violations = append(violations, Violation{
+				Rule:     "plan/dependency-cycle",
+				File:     filename,
+				Message:  fmt.Sprintf("task '%s' is part of a dependency cycle", tasks[i].id),
+				Severity: "error",
+			})
 		}
 	}
 

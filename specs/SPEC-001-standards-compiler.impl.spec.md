@@ -80,10 +80,12 @@ requirements:
       this information to verify delegated tools ran successfully.
   - id: REQ-012
     text: >
-      Rules with a note field but no enforceable detection fields (no semgrep,
-      no metric, no pattern, no enforced_by) are advisory documentation and
-      must be excluded from both the semgrep config and the enforcement manifest.
-      This applies to any detection strategy.
+      Rules with a note field but no enforceable detection fields are advisory
+      documentation and must be excluded from both the semgrep config and the
+      enforcement manifest. Enforceable fields are: semgrep, metric, pattern
+      (for regex), and enforced_by (for delegated). A rule is advisory when
+      NONE of these fields are present in its detection block, regardless of
+      the stated detection strategy. This applies to any detection strategy.
   - id: REQ-013
     text: >
       Every rule in the enforcement manifest must include its compliance_tier
@@ -102,10 +104,12 @@ requirements:
       when routing to semgrep.
   - id: REQ-016
     text: >
-      Schema resolution must support two modes: embedded schemas (via Go embed
-      for CLI consumers) and explicit filesystem path (for library consumers).
-      CompileOptions must accept an optional SchemaSource that defaults to
-      embedded schemas when not provided.
+      Schema resolution must support two modes: filesystem path (default in v1
+      for both library and CLI) and embedded schemas (via Go embed, deferred to
+      CLI build phase). CompileOptions must accept an optional SchemaSource
+      interface. When nil, the compiler defaults to filesystem resolution using
+      the standard artifacts/ directory. Embedded schemas will be implemented
+      when the CLI is built — each CLI version becomes a schema cohort.
 
 claims:
   - id: CLM-001
@@ -117,21 +121,25 @@ claims:
     requirement: REQ-002
     text: Pattern rules emit valid semgrep YAML with correct fields
     tests:
+      - TestEmitSemgrepRule_Pattern
       - TestCompile_PatternRuleEmitsSemgrep
   - id: CLM-003
     requirement: REQ-003
     text: Severity levels map correctly to semgrep severity values
     tests:
-      - TestCompile_SeverityMapping
+      - TestSemgrepRule_SeverityUppercase
+      - TestEmitSemgrepRule_SeverityMapping
   - id: CLM-004
     requirement: REQ-004
     text: Metric rules emit backstop-native check definitions
     tests:
+      - TestEmitNativeCheck_MetricRule
       - TestCompile_MetricRuleEmitsNativeCheck
   - id: CLM-005
     requirement: REQ-005
     text: Regex rules emit semgrep pattern-regex rules
     tests:
+      - TestEmitSemgrepRule_Regex
       - TestCompile_RegexRuleEmitsSemgrepRegex
   - id: CLM-006
     requirement: REQ-006
@@ -151,6 +159,10 @@ claims:
       - TestCompile_ManifestContainsAllRules
       - TestCompile_ManifestEnforcementMethods
       - TestCompile_OutputFilenameFromStandardNumber
+  - id: CLM-009
+    requirement: REQ-009
+    text: "Removed — includes feature dropped per bundle DD-4"
+    tests: []
   - id: CLM-010
     requirement: REQ-010
     text: Compilation is idempotent
@@ -164,7 +176,10 @@ claims:
       - TestCompile_DelegatedRulesNotInSemgrep
   - id: CLM-012
     requirement: REQ-012
-    text: Advisory rules are excluded from all output
+    text: >
+      Advisory rules are excluded from all output. A rule is advisory when its
+      detection block contains a note field and NONE of the enforceable fields
+      (semgrep, metric, pattern, enforced_by) regardless of detection strategy.
     tests:
       - TestCompile_AdvisoryRulesExcluded
       - TestCompile_AdvisoryRulesExcludedFromManifest
@@ -183,24 +198,32 @@ claims:
       - TestCompile_DeprecatedStandardStillProducesOutput
   - id: CLM-015
     requirement: REQ-015
-    text: Universal-scope pattern and regex rules use per-rule languages
+    text: >
+      Universal-scope pattern and regex rules use per-rule languages.
+      A universal-scope pattern or regex rule without per-rule languages
+      must produce a compilation error, not broken semgrep output.
     tests:
       - TestCompile_UniversalPatternRuleUsesPerRuleLanguages
       - TestCompile_UniversalRegexRuleUsesPerRuleLanguages
       - TestCompile_UniversalMetricRuleNoLanguageRequired
+      - TestCompile_UniversalPatternWithoutLanguagesFails
   - id: CLM-016
     requirement: REQ-016
-    text: Schema resolution supports embedded and filesystem modes
+    text: >
+      Schema resolution supports filesystem path (default in v1) and
+      embedded schemas (via Go embed, deferred to CLI build). Library
+      consumers override via CompileOptions.SchemaSource.
     tests:
-      - TestCompile_EmbeddedSchemaDefault
+      - TestCompile_DefaultSchemaResolution
       - TestCompile_FilesystemSchemaOverride
 
 contracts:
-  - file: pkg/compile/compile.go
+  - file: pkg/compile/types.go
     provides:
-      - name: Compile
-        kind: function
-        signature: "func Compile(standardPath string, opts CompileOptions) (*CompileResult, error)"
+      - name: Rule
+        kind: type
+        signature: "type Rule struct"
+        notes: "Contains ID, Name, Severity, Detection map, ComplianceTier, Languages. Methods: Strategy(), IsAdvisory()"
       - name: CompileOptions
         kind: type
         signature: "type CompileOptions struct"
@@ -214,9 +237,32 @@ contracts:
       - name: ManifestRule
         kind: type
         signature: "type ManifestRule struct"
+        notes: "Methods: EffectiveTier() defaults to baseline"
+      - name: DelegatedTarget
+        kind: type
+        signature: "type DelegatedTarget struct"
+      - name: SemgrepRule
+        kind: type
+        signature: "type SemgrepRule struct"
+      - name: NativeCheck
+        kind: type
+        signature: "type NativeCheck struct"
       - name: SchemaSource
         kind: interface
         signature: "type SchemaSource interface"
+      - name: MapSeverity
+        kind: function
+        signature: "func MapSeverity(severity string) string"
+    consumes:
+      - source: pkg/schema
+        name: Schema
+        kind: type
+
+  - file: pkg/compile/compile.go
+    provides:
+      - name: Compile
+        kind: function
+        signature: "func Compile(standardPath string, opts CompileOptions) (*CompileResult, error)"
     consumes:
       - source: pkg/artifact
         name: ParseFile
@@ -406,3 +452,6 @@ Claims CLM-001 through CLM-016 map each requirement to specific test functions.
 - **Metric execution**: The compiler emits metric check definitions but does not execute them. The CLI runtime is responsible for running metric checks — this spec covers compilation only.
 - **YAML escaping**: Semgrep patterns containing YAML-sensitive characters (colons, brackets) must be block-scalar quoted in the standard file. The compiler inherits whatever the YAML parser produces.
 - **Delegated verification depth**: The manifest records which external tool should enforce a rule, but verifying that the tool actually ran with that rule enabled is the CLI's responsibility, not the compiler's.
+- **Universal pattern without languages**: A universal-scope standard with a pattern or regex rule that lacks per-rule `languages` must produce a compilation error. Emitting a semgrep rule with empty languages would cause semgrep to reject it silently.
+- **MetricEvaluator interface**: DD-3 calls for an interface-based native metric layer. The `MetricEvaluator` interface is deferred to SPEC-002 (Metric Evaluator). This spec emits static check definitions only.
+- **Duplicate rule IDs**: The standard validator enforces per-file uniqueness (DD-5). The compiler should defensively error on duplicate rule IDs rather than silently producing a manifest with duplicates.

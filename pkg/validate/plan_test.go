@@ -466,4 +466,167 @@ func TestPlan_RealPlanFile(t *testing.T) {
 	}
 }
 
-// Helpers assertHasViolation and assertNoViolation are in bundle_test.go
+// Helpers assertHasViolation and assertNoViolationRule are in bundle_test.go
+
+// --- F4: created date format ---
+
+func TestPlan_CreatedBadFormat(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["created"] = "not-a-date"
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/created-format")
+}
+
+func TestPlan_CreatedValidFormat(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["created"] = "2026-03-30"
+	result := validate.Plan(art, nil)
+	assertNoViolationRule(t, result, "plan/created-format")
+}
+
+// --- F5: coverage_threshold range ---
+
+func TestPlan_CoverageThresholdOutOfRange(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["coverage_threshold"] = 999
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/coverage-threshold-range")
+}
+
+func TestPlan_CoverageThresholdNegative(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["coverage_threshold"] = -1
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/coverage-threshold-range")
+}
+
+func TestPlan_CoverageThresholdValid(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["coverage_threshold"] = 90
+	result := validate.Plan(art, nil)
+	assertNoViolationRule(t, result, "plan/coverage-threshold-range")
+}
+
+func TestPlan_CoverageThresholdWrongType(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["coverage_threshold"] = "ninety"
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/coverage-threshold-range")
+}
+
+// --- F7: dangling depends_on ---
+
+func TestPlan_DanglingDependency(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["phases"] = []interface{}{
+		map[string]interface{}{
+			"id": "p1", "name": "Phase",
+			"tasks": []interface{}{
+				map[string]interface{}{
+					"id": "t1", "title": "task", "description": "desc",
+					"files": []interface{}{"a.go"}, "claims": []interface{}{"CLM-001"},
+					"depends_on": []interface{}{"nonexistent-task"},
+				},
+			},
+		},
+	}
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/unknown-dependency")
+}
+
+// --- F14: optional field type checks ---
+
+func TestPlan_OptionalFieldWrongType(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["notes"] = 42
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/field-type")
+}
+
+func TestPlan_OptionalFieldStringOK(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["notes"] = "some notes"
+	result := validate.Plan(art, nil)
+	assertNoViolationRule(t, result, "plan/field-type")
+}
+
+// --- F15: cycle detection ---
+
+func TestPlan_DependencyCycle(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["phases"] = []interface{}{
+		map[string]interface{}{
+			"id": "p1", "name": "Phase",
+			"tasks": []interface{}{
+				map[string]interface{}{
+					"id": "a", "title": "A", "description": "d",
+					"files": []interface{}{"a.go"}, "claims": []interface{}{"CLM-001"},
+					"depends_on": []interface{}{"b"},
+				},
+				map[string]interface{}{
+					"id": "b", "title": "B", "description": "d",
+					"files": []interface{}{"b.go"}, "claims": []interface{}{"CLM-002"},
+					"depends_on": []interface{}{"a"},
+				},
+			},
+		},
+	}
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/dependency-cycle")
+}
+
+func TestPlan_SelfDependency(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["phases"] = []interface{}{
+		map[string]interface{}{
+			"id": "p1", "name": "Phase",
+			"tasks": []interface{}{
+				map[string]interface{}{
+					"id": "a", "title": "A", "description": "d",
+					"files": []interface{}{"a.go"}, "claims": []interface{}{"CLM-001"},
+					"depends_on": []interface{}{"a"},
+				},
+			},
+		},
+	}
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/dependency-cycle")
+}
+
+// --- F16: empty claims and empty title ---
+
+func TestPlan_TaskEmptyClaims(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["phases"] = []interface{}{
+		map[string]interface{}{
+			"id": "p1", "name": "Phase",
+			"tasks": []interface{}{
+				map[string]interface{}{
+					"id": "t1", "title": "task", "description": "desc",
+					"files": []interface{}{"f.go"}, "claims": []interface{}{},
+					"depends_on": []interface{}{},
+				},
+			},
+		},
+	}
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/task-claims-empty")
+}
+
+func TestPlan_TaskEmptyTitle(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["phases"] = []interface{}{
+		map[string]interface{}{
+			"id": "p1", "name": "Phase",
+			"tasks": []interface{}{
+				map[string]interface{}{
+					"id": "t1", "title": "", "description": "desc",
+					"files": []interface{}{"f.go"}, "claims": []interface{}{"CLM-001"},
+					"depends_on": []interface{}{},
+				},
+			},
+		},
+	}
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/task-title-required")
+}
