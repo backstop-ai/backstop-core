@@ -134,9 +134,9 @@ func Standard(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult
 	}
 
 	// 9. Rules block
-	violations = append(violations, validateRulesBlock(art, art.Filename)...)
+	violations = append(violations, validateRulesBlock(art, art.Filename, scope)...)
 
-	// 8. Sources block (optional but validated if present)
+	// 10. Sources block (optional but validated if present)
 	violations = append(violations, validateSourcesBlock(art, art.Filename)...)
 
 	combined := make([]Violation, 0, len(base.Violations)+len(violations))
@@ -145,7 +145,7 @@ func Standard(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult
 	return ValidationResult{Violations: combined}
 }
 
-func validateRulesBlock(art *artifact.ParsedArtifact, filename string) []Violation {
+func validateRulesBlock(art *artifact.ParsedArtifact, filename, scope string) []Violation {
 	var violations []Violation
 
 	rulesRaw, ok := art.Frontmatter["rules"]
@@ -192,13 +192,13 @@ func validateRulesBlock(art *artifact.ParsedArtifact, filename string) []Violati
 		}
 
 		label := fmt.Sprintf("rules[%d]", i)
-		violations = append(violations, validateSingleRule(rule, filename, label, seenIDs, seenNames)...)
+		violations = append(violations, validateSingleRule(rule, filename, label, seenIDs, seenNames, scope)...)
 	}
 
 	return violations
 }
 
-func validateSingleRule(rule map[string]interface{}, filename, label string, seenIDs, seenNames map[string]bool) []Violation {
+func validateSingleRule(rule map[string]interface{}, filename, label string, seenIDs, seenNames map[string]bool, scope string) []Violation {
 	var violations []Violation
 
 	// Required fields
@@ -283,12 +283,12 @@ func validateSingleRule(rule map[string]interface{}, filename, label string, see
 	}
 
 	// Detection block
-	violations = append(violations, validateDetectionBlock(rule, filename, label)...)
+	violations = append(violations, validateDetectionBlock(rule, filename, label, scope)...)
 
 	return violations
 }
 
-func validateDetectionBlock(rule map[string]interface{}, filename, label string) []Violation {
+func validateDetectionBlock(rule map[string]interface{}, filename, label, scope string) []Violation {
 	var violations []Violation
 
 	detRaw, ok := rule["detection"]
@@ -365,6 +365,17 @@ func validateDetectionBlock(rule map[string]interface{}, filename, label string)
 				Rule:    fmt.Sprintf("standard/%s-detection-delegated-rule", label),
 				File:    filename,
 				Message: fmt.Sprintf("%s.detection with strategy 'delegated' requires 'rule' field", label),
+			})
+		}
+	}
+
+	// Universal-scope pattern/regex rules must specify per-rule languages
+	if scope == "universal" && (strategy == "pattern" || strategy == "regex") {
+		if _, hasLanguages := det["languages"]; !hasLanguages {
+			violations = append(violations, Violation{
+				Rule:    fmt.Sprintf("standard/%s-detection-universal-languages", label),
+				File:    filename,
+				Message: fmt.Sprintf("%s.detection: universal-scope %s rules must specify 'languages' field", label, strategy),
 			})
 		}
 	}

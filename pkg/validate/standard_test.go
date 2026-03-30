@@ -1057,6 +1057,141 @@ func TestStandard_RealGoStandard(t *testing.T) {
 	}
 }
 
+// --- 16. Universal-scope per-rule languages validation ---
+
+func validUniversalStandardArtifact() *artifact.ParsedArtifact {
+	return &artifact.ParsedArtifact{
+		Filename: "STD-CORE-001-universal-standards.standard.md",
+		Title:    "Universal Standards",
+		Metadata: map[string]string{
+			"title":          "Universal Standards",
+			"number":         "STD-CORE-001",
+			"created":        "2026-03-30",
+			"status":         "active",
+			"schema_version": "standard/v1",
+		},
+		Sections: []string{"Overview", "Rules", "Examples"},
+		Frontmatter: map[string]interface{}{
+			"title":          "Universal Standards",
+			"number":         "STD-CORE-001",
+			"created":        "2026-03-30",
+			"status":         "active",
+			"schema_version": "standard/v1",
+			"pack":           "core",
+			"scope":          "universal",
+			"rules": []interface{}{
+				map[string]interface{}{
+					"id":          "CORE-001",
+					"name":        "test-file-exists",
+					"category":    "testing",
+					"severity":    "error",
+					"description": "Every source file must have a test file",
+					"detection": map[string]interface{}{
+						"strategy": "metric",
+						"metric":   "test_file_exists",
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestStandard_UniversalPatternRuleWithoutLanguages(t *testing.T) {
+	art := validUniversalStandardArtifact()
+	art.Frontmatter["rules"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CORE-001",
+			"name":        "no-todo-comments",
+			"category":    "documentation",
+			"severity":    "warning",
+			"description": "No TODO comments in production code",
+			"detection": map[string]interface{}{
+				"strategy": "pattern",
+				"semgrep":  "// TODO ...",
+			},
+		},
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
+func TestStandard_UniversalPatternRuleWithLanguages(t *testing.T) {
+	art := validUniversalStandardArtifact()
+	art.Frontmatter["rules"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CORE-001",
+			"name":        "no-todo-comments",
+			"category":    "documentation",
+			"severity":    "warning",
+			"description": "No TODO comments in production code",
+			"detection": map[string]interface{}{
+				"strategy":  "pattern",
+				"semgrep":   "// TODO ...",
+				"languages": []interface{}{"go", "typescript"},
+			},
+		},
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertNoViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
+func TestStandard_UniversalRegexRuleWithoutLanguages(t *testing.T) {
+	art := validUniversalStandardArtifact()
+	art.Frontmatter["rules"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CORE-001",
+			"name":        "no-hardcoded-secrets",
+			"category":    "security",
+			"severity":    "error",
+			"description": "No hardcoded secrets",
+			"detection": map[string]interface{}{
+				"strategy": "regex",
+				"pattern":  "(?i)(password|secret|api_key)\\s*=\\s*[\"']",
+			},
+		},
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertHasViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
+func TestStandard_UniversalMetricRuleNoLanguagesRequired(t *testing.T) {
+	art := validUniversalStandardArtifact()
+	// Default artifact already has a metric rule with no languages — should pass
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertNoViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
+func TestStandard_UniversalDelegatedRuleNoLanguagesRequired(t *testing.T) {
+	art := validUniversalStandardArtifact()
+	art.Frontmatter["rules"] = []interface{}{
+		map[string]interface{}{
+			"id":          "CORE-001",
+			"name":        "license-check",
+			"category":    "documentation",
+			"severity":    "warning",
+			"description": "License header required",
+			"detection": map[string]interface{}{
+				"strategy":    "delegated",
+				"enforced_by": "license-checker",
+				"rule":        "has-header",
+			},
+		},
+	}
+
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertNoViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
+func TestStandard_LanguageScopePatternRuleNoLanguagesRequired(t *testing.T) {
+	// Language-scope standards have the language at the standard level, not per-rule
+	art := validStandardArtifact()
+	result := validate.Standard(art, validStandardSchema())
+	stdAssertNoViolation(t, result, "standard/rules[0]-detection-universal-languages")
+}
+
 // standardRepoRoot walks up from the current working directory to find go.mod.
 func standardRepoRoot(t *testing.T) string {
 	t.Helper()

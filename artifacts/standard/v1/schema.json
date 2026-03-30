@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "backstop-standard-v1",
   "title": "Backstop Code Standard Schema v1",
-  "description": "Schema for code standard artifacts — machine-readable rule definitions that compile to semgrep YAML for enforcement. Extends backstop-artifact-base-v1.",
+  "description": "Schema for code standard artifacts — machine-readable rule definitions that compile to an enforcement manifest for the backstop CLI. Extends backstop-artifact-base-v1.",
   "version": "1.0.0",
   "extends": "backstop-artifact-base-v1",
   "artifact_type": "standard",
@@ -19,6 +19,10 @@
       },
       "status": {
         "enum": ["draft", "active", "deprecated"]
+      },
+      "superseded_by": {
+        "description": "Standard number that replaces this one when status is deprecated (e.g., STD-GO-002)",
+        "type": "string"
       },
       "schema_version": {
         "const": "standard/v1"
@@ -58,7 +62,7 @@
       "type": "array",
       "description": "Machine-readable rule definitions that compile to an enforcement manifest",
       "item_required_keys": ["id", "name", "category", "severity", "description", "detection"],
-      "item_optional_keys": ["fix", "sources", "compliance_tier"],
+      "item_optional_keys": ["fix", "sources", "compliance_tier", "languages"],
       "detection_strategies": ["pattern", "metric", "regex", "delegated"],
       "severity_enum": ["error", "warning", "info"],
       "category_enum": ["structure", "error-handling", "naming", "testing", "security", "concurrency", "performance", "imports", "documentation"],
