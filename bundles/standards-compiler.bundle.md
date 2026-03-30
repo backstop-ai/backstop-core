@@ -141,8 +141,9 @@ anything — it shows up in CI logs, terminal output, and adoption reports.
   depth, etc. via `delegated` strategy. Interface-based internally for future extension.
 - **DD-4:** No `includes` in v1. One file per standard. CLI merge handles composition.
 - **DD-5:** Rule ID uniqueness enforced per-file by the validator. No cross-file tracking.
-- **DD-6:** All schemas and validators embedded in CLI via Go embed. Each CLI version
-  is a schema cohort with backward compatibility. Library override via explicit path.
+- **DD-6:** All schemas and validators embedded in CLI via Go embed (deferred to CLI
+  build phase; filesystem path is the v1 default). Each CLI version is a schema cohort
+  with backward compatibility. Library override via explicit path.
 - **DD-7:** Delegated tool config: proactive remediation at pack adoption (interactive
   fix prompts), hard-fail at runtime for unfixed gaps.
 - **DD-8:** Manifest contains all rules tagged with compliance tier. CLI filters at

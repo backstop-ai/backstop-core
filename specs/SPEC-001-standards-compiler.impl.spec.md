@@ -282,9 +282,6 @@ contracts:
       - name: EmitSemgrepRule
         kind: function
         signature: "func EmitSemgrepRule(rule Rule, languages []string) SemgrepRule"
-      - name: SemgrepRule
-        kind: type
-        signature: "type SemgrepRule struct"
       - name: WriteSemgrepFile
         kind: function
         signature: "func WriteSemgrepFile(rules []SemgrepRule, path string) error"
@@ -295,9 +292,6 @@ contracts:
       - name: EmitNativeCheck
         kind: function
         signature: "func EmitNativeCheck(rule Rule) NativeCheck"
-      - name: NativeCheck
-        kind: type
-        signature: "type NativeCheck struct"
       - name: WriteNativeChecksFile
         kind: function
         signature: "func WriteNativeChecksFile(checks []NativeCheck, path string) error"

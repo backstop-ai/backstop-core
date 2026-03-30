@@ -93,7 +93,7 @@ phases:
                 enforceable fields (no "semgrep", no "metric", no "pattern"
                 for regex, no "enforced_by" for delegated)
             - CompileOptions struct: OutputDir string (default ".backstop/rules/"),
-              SchemaSource SchemaSource (nil = embedded default).
+              SchemaSource SchemaSource (nil = filesystem default).
             - Methods on CompileOptions:
               - EffectiveOutputDir() string — returns OutputDir or default
             - CompileResult struct: Manifest *EnforcementManifest,

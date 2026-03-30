@@ -126,7 +126,7 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		case int:
 			valid = ct >= 0 && ct <= 100
 		case float64:
-			valid = ct >= 0 && ct <= 100
+			valid = ct >= 0 && ct <= 100 && ct == float64(int(ct))
 		}
 		if !valid {
 			violations = append(violations, Violation{

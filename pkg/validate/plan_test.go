@@ -514,6 +514,13 @@ func TestPlan_CoverageThresholdWrongType(t *testing.T) {
 	assertHasViolation(t, result, "plan/coverage-threshold-range")
 }
 
+func TestPlan_CoverageThresholdFloat(t *testing.T) {
+	art := validPlanArtifact()
+	art.Frontmatter["coverage_threshold"] = 90.5
+	result := validate.Plan(art, nil)
+	assertHasViolation(t, result, "plan/coverage-threshold-range")
+}
+
 // --- F7: dangling depends_on ---
 
 func TestPlan_DanglingDependency(t *testing.T) {
