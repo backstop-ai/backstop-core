@@ -953,3 +953,93 @@ func TestCompile_NonUniversalEmptyLanguage(t *testing.T) {
 		t.Fatal("expected error when language scope has no language")
 	}
 }
+
+func TestCompile_UnwritableManifestFile(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+
+	outDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-create the manifest as a directory so WriteFile fails
+	if err := os.MkdirAll(filepath.Join(outDir, "STD-TEST-001.manifest.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    outDir,
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error writing manifest to directory path")
+	}
+}
+
+func TestCompile_UnwritableSemgrepFile(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+
+	outDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-create semgrep file as a directory so WriteSemgrepFile fails
+	if err := os.MkdirAll(filepath.Join(outDir, "STD-TEST-001.semgrep.yml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    outDir,
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error writing semgrep to directory path")
+	}
+}
+
+func TestCompile_UnwritableNativeFile(t *testing.T) {
+	dir := t.TempDir()
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		ruleMetric("T-001", "test", "error", "file_lines", ">", 500, "baseline"))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+
+	outDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-create native file as a directory so WriteNativeChecksFile fails
+	if err := os.MkdirAll(filepath.Join(outDir, "STD-TEST-001.native.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir:    outDir,
+		SchemaSource: testSchemaSource(t),
+	})
+	if err == nil {
+		t.Fatal("expected error writing native checks to directory path")
+	}
+}
+
+func TestCompile_DefaultSchemaResolutionBadPath(t *testing.T) {
+	dir := t.TempDir()
+	// Standard with schema_version that won't resolve on filesystem
+	content := testStandard("STD-TEST-001", "go", "language", "active",
+		rulePattern("T-001", "test", "error", "foo", "baseline", nil))
+	path := writeTestStandard(t, dir, "STD-TEST-001-test.standard.md", content)
+
+	// Use nil SchemaSource so it falls back to filesystem resolution,
+	// but we're in a temp dir with no artifacts/ directory
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	_, err := compile.Compile(path, compile.CompileOptions{
+		OutputDir: filepath.Join(dir, "out"),
+	})
+	if err == nil {
+		t.Fatal("expected error from filesystem schema resolution in wrong directory")
+	}
+}
