@@ -83,6 +83,9 @@ func Compile(standardPath string, opts CompileOptions) (*CompileResult, error) {
 			semgrepRules = append(semgrepRules, EmitSemgrepRule(rule, langs))
 			manifestRule.Enforcement = "semgrep"
 		case "metric":
+			if len(rule.Languages) == 0 && language != "" {
+				rule.Languages = []string{language}
+			}
 			nativeChecks = append(nativeChecks, EmitNativeCheck(rule))
 			manifestRule.Enforcement = "native"
 		case "delegated":

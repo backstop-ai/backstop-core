@@ -1,0 +1,73 @@
+rules:
+    - id: GO-003
+      languages:
+        - go
+      message: Package-level mutable variables are forbidden except sync primitives
+      pattern: |
+        var $NAME = ...
+      severity: ERROR
+    - id: GO-010
+      languages:
+        - go
+      message: Error return values must not be silently discarded
+      pattern: |
+        $VAL, _ := $FUNC(...)
+      severity: ERROR
+    - id: GO-011
+      languages:
+        - go
+      message: Errors returned from called functions should be wrapped with context using %w
+      pattern: |
+        if $ERR != nil {
+          return ..., $ERR
+        }
+      severity: WARNING
+    - id: GO-012
+      languages:
+        - go
+      message: Naked returns are forbidden in functions longer than 5 lines
+      pattern: |
+        func $NAME(...) (...) {
+          ...
+          return
+        }
+      severity: WARNING
+    - id: GO-013
+      languages:
+        - go
+      message: panic() must not be used in library code — return errors instead
+      pattern: |
+        panic(...)
+      severity: ERROR
+    - id: GO-021
+      languages:
+        - go
+      message: Custom error types must have an Error suffix
+      pattern-regex: type\s+\w+(?<!Error)\s+struct.*\n.*Error\(\)
+      severity: WARNING
+    - id: GO-031
+      languages:
+        - go
+      message: Tests with multiple cases should use table-driven patterns with t.Run()
+      pattern: |
+        func Test$NAME(t *testing.T) {
+          ...
+          for _, $TC := range $CASES {
+            t.Run(...)
+          }
+        }
+      severity: WARNING
+    - id: GO-032
+      languages:
+        - go
+      message: time.Sleep must not be used in tests — use channels, tickers, or test helpers
+      pattern: |
+        time.Sleep(...)
+      severity: ERROR
+    - id: GO-050
+      languages:
+        - go
+      message: Goroutines must have a clear termination path — context cancellation or channel close
+      pattern: |
+        go func() { ... }()
+      severity: ERROR

@@ -262,6 +262,9 @@ func TestCompile_MetricRuleEmitsNativeCheck(t *testing.T) {
 	if got.Metric != "file_lines" || got.Operator != ">" || fmt.Sprintf("%v", got.Threshold) != "500" {
 		t.Fatalf("native check mismatch: %+v", got)
 	}
+	if got.Language != "go" {
+		t.Fatalf("native check Language = %q, want %q (should inherit from standard)", got.Language, "go")
+	}
 }
 
 func TestCompile_InvalidStandardReturnsViolations(t *testing.T) {
