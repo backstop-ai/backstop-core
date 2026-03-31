@@ -13,7 +13,7 @@ import (
 func ParseFile(path string) (*ParsedArtifact, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read artifact %s: %w", path, err)
 	}
 	return Parse(string(data), path)
 }

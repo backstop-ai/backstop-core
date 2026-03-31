@@ -22,7 +22,7 @@ func Compile(standardPath string, opts CompileOptions) (*CompileResult, error) {
 
 	sch, err := loadSchemaForCompile(art, opts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load schema: %w", err)
 	}
 
 	validation := validate.Standard(art, sch)
@@ -48,7 +48,7 @@ func Compile(standardPath string, opts CompileOptions) (*CompileResult, error) {
 
 	rules, err := parseRules(art)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse rules: %w", err)
 	}
 
 	manifest := &EnforcementManifest{

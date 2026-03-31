@@ -26,6 +26,14 @@ func EmitSemgrepRule(rule Rule, languages []string) SemgrepRule {
 		}
 	}
 
+	if exceptions, ok := rule.Detection["exceptions"].([]interface{}); ok {
+		for _, e := range exceptions {
+			if s, ok := e.(string); ok {
+				sr.PatternNotRegex = append(sr.PatternNotRegex, s)
+			}
+		}
+	}
+
 	return sr
 }
 
@@ -44,7 +52,19 @@ func WriteSemgrepFile(rules []SemgrepRule, path string) error {
 			"languages": rule.Languages,
 		}
 
-		if rule.Pattern != "" {
+		if len(rule.PatternNotRegex) > 0 {
+			// Use composite patterns with exclusions
+			patterns := []map[string]interface{}{}
+			if rule.Pattern != "" {
+				patterns = append(patterns, map[string]interface{}{"pattern": rule.Pattern})
+			} else if rule.PatternRegex != "" {
+				patterns = append(patterns, map[string]interface{}{"pattern-regex": rule.PatternRegex})
+			}
+			for _, exc := range rule.PatternNotRegex {
+				patterns = append(patterns, map[string]interface{}{"pattern-not-regex": exc})
+			}
+			ruleMap["patterns"] = patterns
+		} else if rule.Pattern != "" {
 			ruleMap["pattern"] = rule.Pattern
 		} else if rule.PatternRegex != "" {
 			ruleMap["pattern-regex"] = rule.PatternRegex

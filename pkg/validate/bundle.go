@@ -374,8 +374,8 @@ func validateEpicBlock(art *artifact.ParsedArtifact) []Violation {
 		return violations
 	}
 
-	cat, _ := getStringField(bundle, "category")
-	if cat != "epic" {
+	cat, ok := getStringField(bundle, "category")
+	if !ok || cat != "epic" {
 		return violations
 	}
 
@@ -606,7 +606,10 @@ func extractMaturity(art *artifact.ParsedArtifact) string {
 	if !ok {
 		return ""
 	}
-	m, _ := getStringField(status, "maturity")
+	m, ok := getStringField(status, "maturity")
+	if !ok {
+		return ""
+	}
 	return m
 }
 

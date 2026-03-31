@@ -175,3 +175,66 @@ func TestWriteSemgrepFile_YAMLSpecialChars(t *testing.T) {
 		t.Fatalf("rules length = %d, want %d", len(doc["rules"]), 1)
 	}
 }
+
+func TestEmitSemgrepRule_Exceptions(t *testing.T) {
+	rule := compile.Rule{
+		ID:          "RULE-003",
+		Severity:    "error",
+		Description: "no globals",
+		Detection: map[string]interface{}{
+			"strategy": "pattern",
+			"semgrep":  "var $NAME = ...",
+			"exceptions": []interface{}{
+				"sync.Once",
+				"regexp.MustCompile",
+			},
+		},
+	}
+	sr := compile.EmitSemgrepRule(rule, []string{"go"})
+	if len(sr.PatternNotRegex) != 2 {
+		t.Fatalf("PatternNotRegex len = %d, want 2", len(sr.PatternNotRegex))
+	}
+	if sr.PatternNotRegex[0] != "sync.Once" {
+		t.Fatalf("PatternNotRegex[0] = %q, want %q", sr.PatternNotRegex[0], "sync.Once")
+	}
+}
+
+func TestWriteSemgrepFile_PatternWithExceptions(t *testing.T) {
+	rules := []compile.SemgrepRule{
+		{
+			ID:              "RULE-003",
+			Message:         "no globals",
+			Severity:        "ERROR",
+			Languages:       []string{"go"},
+			Pattern:         "var $NAME = ...",
+			PatternNotRegex: []string{"sync.Once", "regexp.MustCompile"},
+		},
+	}
+	path := filepath.Join(t.TempDir(), "test.yml")
+	if err := compile.WriteSemgrepFile(rules, path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var doc map[string][]map[string]interface{}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("invalid YAML: %v", err)
+	}
+
+	rule := doc["rules"][0]
+	// Should have "patterns" key, not "pattern"
+	if _, ok := rule["pattern"]; ok {
+		t.Fatal("expected 'patterns' composite, got bare 'pattern'")
+	}
+	patterns, ok := rule["patterns"].([]interface{})
+	if !ok {
+		t.Fatalf("expected patterns to be a list, got %T", rule["patterns"])
+	}
+	// Should have 3 entries: 1 pattern + 2 pattern-not-regex
+	if len(patterns) != 3 {
+		t.Fatalf("patterns len = %d, want 3", len(patterns))
+	}
+}

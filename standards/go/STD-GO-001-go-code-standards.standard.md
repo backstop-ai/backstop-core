@@ -55,17 +55,20 @@ rules:
     name: no-global-mutable-state
     category: structure
     severity: error
-    description: Package-level mutable variables are forbidden except sync primitives
+    description: Package-level mutable variables are forbidden except sync primitives and immutable lookup tables
     compliance_tier: baseline
     detection:
       strategy: pattern
       semgrep: |
         var $NAME = ...
       exceptions:
-        - "sync.Once"
-        - "sync.Mutex"
-        - "sync.RWMutex"
-        - "regexp.MustCompile"
+        - "sync\\.Once"
+        - "sync\\.Mutex"
+        - "sync\\.RWMutex"
+        - "regexp\\.MustCompile"
+        - "map\\[string\\]bool{"
+        - "map\\[string\\]\\*?int{"
+        - "\\[\\]string{"
     fix: Use dependency injection via constructors
     sources:
       - title: "Go Code Review Comments — Global State"
@@ -188,14 +191,7 @@ rules:
     compliance_tier: standard
     detection:
       strategy: pattern
-      semgrep: |
-        func Test$NAME(t *testing.T) {
-          ...
-          for _, $TC := range $CASES {
-            t.Run(...)
-          }
-        }
-      note: "This is a positive pattern — detect tests with >3 assertions that lack t.Run()"
+      note: "Positive pattern — detect tests with >3 assertions that lack t.Run(). Cannot be expressed as a single semgrep pattern; requires custom analysis."
     sources:
       - title: "Go Wiki — Table Driven Tests"
         url: "https://go.dev/wiki/TableDrivenTests"

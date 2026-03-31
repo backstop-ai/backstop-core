@@ -80,13 +80,6 @@
       "enforcement": "native"
     },
     {
-      "id": "GO-031",
-      "name": "table-driven-tests",
-      "severity": "warning",
-      "compliance_tier": "standard",
-      "enforcement": "semgrep"
-    },
-    {
       "id": "GO-032",
       "name": "no-time-sleep-in-tests",
       "severity": "error",

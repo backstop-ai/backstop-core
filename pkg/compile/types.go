@@ -137,12 +137,13 @@ type DelegatedTarget struct {
 
 // SemgrepRule defines a generated Semgrep rule.
 type SemgrepRule struct {
-	ID           string
-	Message      string
-	Severity     string
-	Languages    []string
-	Pattern      string
-	PatternRegex string
+	ID              string
+	Message         string
+	Severity        string
+	Languages       []string
+	Pattern         string
+	PatternRegex    string
+	PatternNotRegex []string
 }
 
 // NativeCheck defines a generated native checker rule.

@@ -51,7 +51,7 @@ type rawMetaProp struct {
 func LoadSchema(path string) (*Schema, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read schema %s: %w", path, err)
 	}
 
 	var raw rawSchema
@@ -99,7 +99,7 @@ func LoadSchema(path string) (*Schema, error) {
 func LoadArtifactSchema(schemaPath, artifactsRoot string) (*Schema, error) {
 	ext, err := LoadSchema(schemaPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load schema: %w", err)
 	}
 
 	if ext.Extends == "" {
