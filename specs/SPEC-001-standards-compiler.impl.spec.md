@@ -2,7 +2,7 @@
 title: "SPEC-001: Standards Compiler"
 number: SPEC-001
 created: "2026-03-29"
-status: draft
+status: active
 schema_version: spec/v1
 spec_version: 1.0.0
 
