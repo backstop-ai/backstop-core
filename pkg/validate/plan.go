@@ -16,6 +16,10 @@ var (
 	planStatuses = map[string]bool{
 		"draft": true, "ready": true, "implementing": true, "completed": true,
 	}
+	validTaskTypes = map[string]bool{
+		"setup": true, "test": true, "implementation": true,
+		"verification": true, "refactor": true, "documentation": true,
+	}
 )
 
 // Plan validates a pure YAML plan artifact. Plans do NOT extend the base
@@ -164,6 +168,7 @@ type planTask struct {
 	files     []string
 	dependsOn []string
 	phaseID   string
+	taskType  string
 }
 
 // validatePhases checks the phases array, enforces D-080 (agent-bounded tasks)
@@ -306,6 +311,12 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 					pt.id = s
 				}
 			}
+			// Task type (SPEC-002: REQ-001)
+			if typeVal, ok := task["type"]; ok {
+				if s, ok := typeVal.(string); ok {
+					pt.taskType = s
+				}
+			}
 			switch {
 			case pt.id == "":
 				violations = append(violations, Violation{
@@ -442,6 +453,53 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 		}
 	}
 
+	// SPEC-002: Task type validation (REQ-001)
+	typeMap := make(map[string]string)
+	for _, t := range allTasks {
+		if t.id != "" {
+			typeMap[t.id] = t.taskType
+		}
+	}
+	for _, t := range allTasks {
+		switch {
+		case t.taskType == "":
+			violations = append(violations, Violation{
+				Rule:     "plan/task-type-required",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("task '%s' is missing required 'type' field", t.id),
+				Severity: "error",
+			})
+		case !validTaskTypes[t.taskType]:
+			violations = append(violations, Violation{
+				Rule:     "plan/task-type-invalid",
+				File:     art.Filename,
+				Message:  fmt.Sprintf("task '%s' has invalid type '%s' (valid: setup, test, implementation, verification, refactor, documentation)", t.id, t.taskType),
+				Severity: "error",
+			})
+		}
+	}
+
+	// SPEC-002: TDD enforcement (REQ-002)
+	violations = append(violations, validateTDD(art.Filename, allTasks, typeMap)...)
+
+	// SPEC-002: Gate cadence (REQ-003)
+	violations = append(violations, validateGateCadence(art.Filename, phases, typeMap)...)
+
+	// SPEC-002: Verification dependency validation (REQ-006)
+	violations = append(violations, validateVerificationDeps(art.Filename, allTasks, typeMap)...)
+
+	// SPEC-002: Refactor dependency validation (REQ-005)
+	violations = append(violations, validateRefactorDeps(art.Filename, allTasks, typeMap)...)
+
+	// SPEC-002: Test task dependency validation (REQ-010)
+	violations = append(violations, validateTestTaskDeps(art.Filename, allTasks, typeMap)...)
+
+	// SPEC-002: Final phase verification (REQ-004)
+	violations = append(violations, validateFinalPhase(art.Filename, phases, allTasks, typeMap)...)
+
+	// SPEC-002: Phase-level parallel file exclusivity (REQ-011)
+	violations = append(violations, checkPhaseFileExclusivity(art.Filename, phases, allTasks)...)
+
 	// D-081: File exclusivity for parallel-eligible tasks
 	violations = append(violations, checkFileExclusivity(art.Filename, allTasks)...)
 
@@ -528,5 +586,419 @@ func checkFileExclusivity(filename string, tasks []planTask) []Violation {
 		}
 	}
 
+	return violations
+}
+
+// validateFinalPhase enforces REQ-004: the final phase must contain verification
+// tasks covering every category of work the plan performs.
+func validateFinalPhase(filename string, phases []interface{}, allTasks []planTask, typeMap map[string]string) []Violation {
+	var violations []Violation
+	if len(phases) == 0 {
+		return violations
+	}
+
+	// Get last phase
+	lastPhase, ok := phases[len(phases)-1].(map[string]interface{})
+	if !ok {
+		return violations
+	}
+
+	// Check final phase has at least one verification task
+	tasksVal, ok := lastPhase["tasks"]
+	if !ok {
+		return violations
+	}
+	tasks, ok := tasksVal.([]interface{})
+	if !ok {
+		return violations
+	}
+
+	lastPhaseID := ""
+	if id, ok := lastPhase["id"]; ok {
+		if s, ok := id.(string); ok {
+			lastPhaseID = s
+		}
+	}
+
+	// Collect verification task files in final phase
+	var verifyFiles []string
+	hasVerification := false
+	for _, taskItem := range tasks {
+		task, ok := taskItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		taskID := ""
+		if id, ok := task["id"]; ok {
+			if s, ok := id.(string); ok {
+				taskID = s
+			}
+		}
+		if typeMap[taskID] == "verification" {
+			hasVerification = true
+			if filesVal, ok := task["files"]; ok {
+				if files, ok := filesVal.([]interface{}); ok {
+					for _, f := range files {
+						if s, ok := f.(string); ok {
+							verifyFiles = append(verifyFiles, s)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !hasVerification {
+		violations = append(violations, Violation{
+			Rule:     "plan/final-phase-no-verification",
+			File:     filename,
+			Message:  fmt.Sprintf("final phase '%s' must contain at least one verification task", lastPhaseID),
+			Severity: "error",
+		})
+		return violations
+	}
+
+	// Collect all categories from all tasks across entire plan
+	requiredCategories := make(map[string]bool)
+	for _, t := range allTasks {
+		for _, f := range t.files {
+			cat := fileCategory(f)
+			if cat != "" {
+				requiredCategories[cat] = true
+			}
+		}
+	}
+
+	// Collect categories covered by final phase verification tasks
+	coveredCategories := make(map[string]bool)
+	for _, f := range verifyFiles {
+		cat := fileCategory(f)
+		if cat != "" {
+			coveredCategories[cat] = true
+		}
+	}
+
+	// Check each required category is covered
+	for cat := range requiredCategories {
+		if !coveredCategories[cat] {
+			violations = append(violations, Violation{
+				Rule:     "plan/final-phase-missing-category",
+				File:     filename,
+				Message:  fmt.Sprintf("final phase '%s' verification tasks do not cover '%s' category", lastPhaseID, cat),
+				Severity: "error",
+			})
+		}
+	}
+
+	return violations
+}
+
+// fileCategory maps a file path to a work category based on extension.
+func fileCategory(path string) string {
+	artifactExts := []string{".spec.md", ".plan.yml", ".adr.md", ".bundle.md", ".issue.md", ".standard.md"}
+	for _, ext := range artifactExts {
+		if strings.HasSuffix(path, ext) {
+			return "artifact"
+		}
+	}
+	if strings.HasSuffix(path, ".go") {
+		return "code"
+	}
+	// Other extensions (e.g. .md for docs) don't map to a required category
+	return ""
+}
+
+// checkPhaseFileExclusivity enforces REQ-011: parallel-eligible phases must
+// have disjoint file sets. Two phases are parallel-eligible if no task in
+// one phase transitively depends on any task in the other phase.
+func checkPhaseFileExclusivity(filename string, phases []interface{}, allTasks []planTask) []Violation {
+	var violations []Violation
+	if len(phases) < 2 {
+		return violations
+	}
+
+	// Build phase info: ID and set of all files
+	type phaseInfo struct {
+		id      string
+		files   map[string]bool
+		taskIDs map[string]bool
+	}
+
+	var phaseInfos []phaseInfo
+	for _, item := range phases {
+		phase, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		pi := phaseInfo{
+			files:   make(map[string]bool),
+			taskIDs: make(map[string]bool),
+		}
+		if id, ok := phase["id"]; ok {
+			if s, ok := id.(string); ok {
+				pi.id = s
+			}
+		}
+		if tasksVal, ok := phase["tasks"]; ok {
+			if tasks, ok := tasksVal.([]interface{}); ok {
+				for _, taskItem := range tasks {
+					task, ok := taskItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					if id, ok := task["id"]; ok {
+						if s, ok := id.(string); ok {
+							pi.taskIDs[s] = true
+						}
+					}
+					if filesVal, ok := task["files"]; ok {
+						if files, ok := filesVal.([]interface{}); ok {
+							for _, f := range files {
+								if s, ok := f.(string); ok {
+									pi.files[s] = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		phaseInfos = append(phaseInfos, pi)
+	}
+
+	// Build task-to-phase index
+	taskToPhase := make(map[string]int)
+	for i, pi := range phaseInfos {
+		for tid := range pi.taskIDs {
+			taskToPhase[tid] = i
+		}
+	}
+
+	// Build phase dependency graph using task dependencies
+	// Phase A depends on Phase B if any task in A depends on any task in B
+	numPhases := len(phaseInfos)
+	phaseDeps := make([]map[int]bool, numPhases)
+	for i := range phaseDeps {
+		phaseDeps[i] = make(map[int]bool)
+	}
+	for _, t := range allTasks {
+		tPhase, ok := taskToPhase[t.id]
+		if !ok {
+			continue
+		}
+		for _, dep := range t.dependsOn {
+			dPhase, ok := taskToPhase[dep]
+			if !ok {
+				continue
+			}
+			if tPhase != dPhase {
+				phaseDeps[tPhase][dPhase] = true
+			}
+		}
+	}
+
+	// Transitive closure
+	for k := 0; k < numPhases; k++ {
+		for i := 0; i < numPhases; i++ {
+			if phaseDeps[i][k] {
+				for j := range phaseDeps[k] {
+					phaseDeps[i][j] = true
+				}
+			}
+		}
+	}
+
+	// Check parallel-eligible phase pairs
+	for i := 0; i < numPhases; i++ {
+		for j := i + 1; j < numPhases; j++ {
+			if phaseDeps[i][j] || phaseDeps[j][i] {
+				continue // sequential — skip
+			}
+			// Parallel-eligible — check file disjointness
+			for f := range phaseInfos[i].files {
+				if phaseInfos[j].files[f] {
+					violations = append(violations, Violation{
+						Rule:     "plan/phase-file-exclusivity",
+						File:     filename,
+						Message:  fmt.Sprintf("parallel-eligible phases '%s' and '%s' both touch file '%s'", phaseInfos[i].id, phaseInfos[j].id, f),
+						Severity: "error",
+					})
+				}
+			}
+		}
+	}
+
+	return violations
+}
+
+// validateTDD enforces REQ-002: every implementation task must directly depend
+// on at least one test task.
+func validateTDD(filename string, tasks []planTask, typeMap map[string]string) []Violation {
+	var violations []Violation
+	for _, t := range tasks {
+		if t.taskType != "implementation" {
+			continue
+		}
+		hasTestDep := false
+		for _, dep := range t.dependsOn {
+			if typeMap[dep] == "test" {
+				hasTestDep = true
+				break
+			}
+		}
+		if !hasTestDep {
+			violations = append(violations, Violation{
+				Rule:     "plan/tdd-impl-requires-test",
+				File:     filename,
+				Message:  fmt.Sprintf("implementation task '%s' must directly depend on at least one test task (TDD enforcement)", t.id),
+				Severity: "error",
+			})
+		}
+	}
+	return violations
+}
+
+// validateGateCadence enforces REQ-003: every phase with implementation or
+// refactor tasks must also contain at least one verification task.
+func validateGateCadence(filename string, phases []interface{}, typeMap map[string]string) []Violation {
+	var violations []Violation
+	for _, item := range phases {
+		phase, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tasksVal, ok := phase["tasks"]
+		if !ok {
+			continue
+		}
+		tasks, ok := tasksVal.([]interface{})
+		if !ok {
+			continue
+		}
+
+		hasCodeWork := false
+		hasVerification := false
+		phaseID := ""
+		if id, ok := phase["id"]; ok {
+			if s, ok := id.(string); ok {
+				phaseID = s
+			}
+		}
+
+		for _, taskItem := range tasks {
+			task, ok := taskItem.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			taskID := ""
+			if id, ok := task["id"]; ok {
+				if s, ok := id.(string); ok {
+					taskID = s
+				}
+			}
+			tt := typeMap[taskID]
+			if tt == "implementation" || tt == "refactor" {
+				hasCodeWork = true
+			}
+			if tt == "verification" {
+				hasVerification = true
+			}
+		}
+
+		if hasCodeWork && !hasVerification {
+			violations = append(violations, Violation{
+				Rule:     "plan/gate-cadence-missing",
+				File:     filename,
+				Message:  fmt.Sprintf("phase '%s' has implementation/refactor tasks but no verification task (gate cadence enforcement)", phaseID),
+				Severity: "error",
+			})
+		}
+	}
+	return violations
+}
+
+// validateVerificationDeps enforces REQ-006: every verification task must
+// depend on at least one implementation or refactor task.
+func validateVerificationDeps(filename string, tasks []planTask, typeMap map[string]string) []Violation {
+	var violations []Violation
+	for _, t := range tasks {
+		if t.taskType != "verification" {
+			continue
+		}
+		hasImplOrRefactor := false
+		for _, dep := range t.dependsOn {
+			dt := typeMap[dep]
+			if dt == "implementation" || dt == "refactor" {
+				hasImplOrRefactor = true
+				break
+			}
+		}
+		if !hasImplOrRefactor {
+			violations = append(violations, Violation{
+				Rule:     "plan/verification-requires-impl",
+				File:     filename,
+				Message:  fmt.Sprintf("verification task '%s' must depend on at least one implementation or refactor task", t.id),
+				Severity: "error",
+			})
+		}
+	}
+	return violations
+}
+
+// validateRefactorDeps enforces REQ-005: refactor tasks may only depend on
+// implementation, refactor, or test tasks. Dependencies on setup, documentation,
+// or verification are rejected.
+func validateRefactorDeps(filename string, tasks []planTask, typeMap map[string]string) []Violation {
+	var violations []Violation
+	validRefactorDeps := map[string]bool{
+		"implementation": true,
+		"refactor":       true,
+		"test":           true,
+	}
+	for _, t := range tasks {
+		if t.taskType != "refactor" {
+			continue
+		}
+		for _, dep := range t.dependsOn {
+			dt := typeMap[dep]
+			if dt != "" && !validRefactorDeps[dt] {
+				violations = append(violations, Violation{
+					Rule:     "plan/refactor-invalid-dependency",
+					File:     filename,
+					Message:  fmt.Sprintf("refactor task '%s' depends on %s task '%s' (allowed: implementation, refactor, test)", t.id, dt, dep),
+					Severity: "error",
+				})
+			}
+		}
+	}
+	return violations
+}
+
+// validateTestTaskDeps enforces REQ-010: test tasks may only depend on
+// setup, test, or verification tasks. Dependencies on implementation,
+// refactor, or documentation are rejected.
+func validateTestTaskDeps(filename string, tasks []planTask, typeMap map[string]string) []Violation {
+	var violations []Violation
+	validTestDeps := map[string]bool{
+		"setup":        true,
+		"test":         true,
+		"verification": true,
+	}
+	for _, t := range tasks {
+		if t.taskType != "test" {
+			continue
+		}
+		for _, dep := range t.dependsOn {
+			dt := typeMap[dep]
+			if dt != "" && !validTestDeps[dt] {
+				violations = append(violations, Violation{
+					Rule:     "plan/test-invalid-dependency",
+					File:     filename,
+					Message:  fmt.Sprintf("test task '%s' depends on %s task '%s' (allowed: setup, test, verification)", t.id, dt, dep),
+					Severity: "error",
+				})
+			}
+		}
+	}
 	return violations
 }

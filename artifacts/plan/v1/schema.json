@@ -35,10 +35,19 @@
     "type": "array",
     "description": "Ordered execution phases containing agent-bounded tasks",
     "item_required_keys": ["id", "name", "tasks"],
-    "task_required_keys": ["id", "title", "description", "files", "claims", "depends_on"]
+    "task_required_keys": ["id", "type", "title", "description", "files", "claims", "depends_on"],
+    "task_type_enum": ["setup", "test", "implementation", "verification", "refactor", "documentation"]
   },
   "enforcement": {
     "D-080": "Every task must be agent-bounded: non-empty files, description, claims, and explicit depends_on",
-    "D-081": "Parallel-eligible tasks (no transitive dependency) must have disjoint file sets"
+    "D-081": "Parallel-eligible tasks (no transitive dependency) must have disjoint file sets",
+    "REQ-001": "Every task must include a type field with a valid task_type_enum value",
+    "REQ-002": "TDD enforcement: implementation tasks must directly depend on at least one test task",
+    "REQ-003": "Gate cadence: phases with implementation or refactor tasks must include verification tasks",
+    "REQ-004": "Final phase must contain verification tasks covering all work categories (code and artifact)",
+    "REQ-005": "Refactor tasks may only depend on implementation, refactor, or test tasks",
+    "REQ-006": "Verification tasks must depend on at least one implementation or refactor task",
+    "REQ-010": "Test tasks may only depend on setup, test, or verification tasks",
+    "REQ-011": "Parallel-eligible phases must have disjoint file sets"
   }
 }

@@ -48,6 +48,7 @@ phases:
       boundary between untyped YAML frontmatter and the compiler's internals.
     tasks:
       - id: types-test
+        type: test
         title: "Write type and interface tests"
         description: |
           Create pkg/compile/types_test.go with package compile_test.
@@ -78,6 +79,7 @@ phases:
         depends_on: []
 
       - id: types-impl
+        type: implementation
         title: "Implement core types and interfaces"
         description: |
           Create pkg/compile/types.go with package compile.
@@ -122,6 +124,15 @@ phases:
         claims: [CLM-003, CLM-013]
         depends_on: [types-test]
 
+      - id: verify-phase-1
+        type: verification
+        title: "Verify core types output"
+        description: "Run tests and lint checks to verify phase 1 implementation"
+        files:
+          - pkg/compile/types_test.go
+        claims: [CLM-003]
+        depends_on: [types-impl]
+
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 2: Semgrep Emitter
   # ═══════════════════════════════════════════════════════════════════════
@@ -132,6 +143,7 @@ phases:
       This phase can execute in parallel with Phase 3 (native emitter).
     tasks:
       - id: semgrep-test
+        type: test
         title: "Write semgrep emitter tests"
         description: |
           Create pkg/compile/semgrep_test.go with package compile_test.
@@ -156,9 +168,10 @@ phases:
         files:
           - pkg/compile/semgrep_test.go
         claims: [CLM-002, CLM-003, CLM-005]
-        depends_on: [types-impl]
+        depends_on: [verify-phase-1]
 
       - id: semgrep-impl
+        type: implementation
         title: "Implement semgrep emitter"
         description: |
           Create pkg/compile/semgrep.go with package compile.
@@ -182,6 +195,15 @@ phases:
         claims: [CLM-002, CLM-003, CLM-005]
         depends_on: [semgrep-test]
 
+      - id: verify-phase-2
+        type: verification
+        title: "Verify semgrep emitter output"
+        description: "Run tests and lint checks to verify phase 2 implementation"
+        files:
+          - pkg/compile/semgrep_test.go
+        claims: [CLM-005]
+        depends_on: [semgrep-impl]
+
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 3: Native Check Emitter
   # ═══════════════════════════════════════════════════════════════════════
@@ -193,6 +215,7 @@ phases:
       (e.g., test_file_exists). This phase can execute in parallel with Phase 2.
     tasks:
       - id: native-test
+        type: test
         title: "Write native check emitter tests"
         description: |
           Create pkg/compile/native_test.go with package compile_test.
@@ -209,9 +232,10 @@ phases:
         files:
           - pkg/compile/native_test.go
         claims: [CLM-004]
-        depends_on: [types-impl]
+        depends_on: [verify-phase-1]
 
       - id: native-impl
+        type: implementation
         title: "Implement native check emitter"
         description: |
           Create pkg/compile/native.go with package compile.
@@ -233,6 +257,15 @@ phases:
         claims: [CLM-004]
         depends_on: [native-test]
 
+      - id: verify-phase-3
+        type: verification
+        title: "Verify native check emitter output"
+        description: "Run tests and lint checks to verify phase 3 implementation"
+        files:
+          - pkg/compile/native_test.go
+        claims: [CLM-007]
+        depends_on: [native-impl]
+
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 4: Compiler Orchestrator
   # ═══════════════════════════════════════════════════════════════════════
@@ -243,6 +276,7 @@ phases:
       route rules by strategy, emit outputs, build manifest, write files.
     tasks:
       - id: compile-test
+        type: test
         title: "Write compiler orchestrator tests"
         description: |
           Create pkg/compile/compile_test.go with package compile_test.
@@ -337,9 +371,10 @@ phases:
           - CLM-014
           - CLM-015
           - CLM-016
-        depends_on: [semgrep-impl, native-impl]
+        depends_on: [verify-phase-2, verify-phase-3]
 
       - id: compile-impl
+        type: implementation
         title: "Implement compiler orchestrator"
         description: |
           Create pkg/compile/compile.go with package compile.
@@ -417,6 +452,15 @@ phases:
           - CLM-016
         depends_on: [compile-test]
 
+      - id: verify-phase-4
+        type: verification
+        title: "Verify compiler orchestrator output"
+        description: "Run tests and lint checks to verify phase 4 implementation"
+        files:
+          - pkg/compile/compile_test.go
+        claims: [CLM-009]
+        depends_on: [compile-impl]
+
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 5: Integration Tests
   # ═══════════════════════════════════════════════════════════════════════
@@ -427,6 +471,7 @@ phases:
       Verifies the entire pipeline end-to-end against a non-synthetic fixture.
     tasks:
       - id: integration-test
+        type: verification
         title: "Write and run integration tests"
         description: |
           Create pkg/compile/integration_test.go with package compile_test.

@@ -28,6 +28,7 @@ func validPlanArtifact() *artifact.ParsedArtifact {
 					"tasks": []interface{}{
 						map[string]interface{}{
 							"id":          "types-test",
+							"type":        "test",
 							"title":       "Write type tests",
 							"description": "Create tests for Rule, ManifestRule, etc.",
 							"files":       []interface{}{"pkg/compile/types_test.go"},
@@ -36,11 +37,21 @@ func validPlanArtifact() *artifact.ParsedArtifact {
 						},
 						map[string]interface{}{
 							"id":          "types-impl",
+							"type":        "implementation",
 							"title":       "Implement core types",
 							"description": "Create Rule, ManifestRule, CompileOptions, etc.",
 							"files":       []interface{}{"pkg/compile/types.go"},
 							"claims":      []interface{}{"CLM-003"},
 							"depends_on":  []interface{}{"types-test"},
+						},
+						map[string]interface{}{
+							"id":          "types-verify",
+							"type":        "verification",
+							"title":       "Verify core types behavior",
+							"description": "Run verification checks for core type behavior.",
+							"files":       []interface{}{"pkg/compile/types_test.go"},
+							"claims":      []interface{}{"CLM-003"},
+							"depends_on":  []interface{}{"types-impl"},
 						},
 					},
 				},
