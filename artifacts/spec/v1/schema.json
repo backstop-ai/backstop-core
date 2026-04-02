@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "extends": "backstop-artifact-base-v1",
   "artifact_type": "spec",
-  "filename_pattern": "^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.impl\\.spec\\.md$",
+  "filename_pattern": "^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.spec\\.md$",
   "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
   "slug_min_length": 2,
   "slug_max_length": 64,

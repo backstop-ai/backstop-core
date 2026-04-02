@@ -213,7 +213,7 @@ claims:
 
 ## Overview
 `
-	art, err := artifact.Parse(input, "SPEC-023-test.impl.spec.md")
+	art, err := artifact.Parse(input, "SPEC-023-test.spec.md")
 	if err != nil {
 		t.Fatal(err)
 	}

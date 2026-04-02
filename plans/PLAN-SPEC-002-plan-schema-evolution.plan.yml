@@ -1,0 +1,636 @@
+---
+plan_id: PLAN-SPEC-002
+spec_id: SPEC-002
+spec_version: 1.0.0
+created: "2026-03-31"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/ -run TestPlan -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Extends the plan validator with task type classification, TDD ordering enforcement,
+  gate cadence verification, and phase-level file exclusivity. Six new validation
+  passes are added to the existing Plan() function in pkg/validate/plan.go.
+
+  The planTask struct gains a taskType field. A taskTypeMap lookup is built once per
+  plan and shared across all new validation passes. All existing validation rules
+  (D-080, D-081, plan_id pattern, cycle detection, etc.) are preserved.
+
+  The plan schema (artifacts/plan/v1/schema.json) is updated to document the task
+  type field, its enum values, and enforcement rules.
+
+  Existing PLAN-SPEC-001 must be updated with task types to pass the new validator.
+
+  Dependency chain: all phases are strictly sequential (each phase's test task
+  depends on the prior phase's verification task) because every implementation and
+  test task touches pkg/validate/plan.go or its test files. Parallelism within
+  this plan is limited — the work is inherently sequential modifications to a
+  single validator file.
+
+  Structure:
+    Phase 1: Setup — test helpers
+    Phase 2: Task type validation + TDD enforcement (tests, impl, verification)
+    Phase 3: Gate cadence + verification deps + refactor deps (tests, impl, verification)
+    Phase 4: Test task deps + setup/docs constraints (tests, impl, verification)
+    Phase 5: Final phase verification + phase-level parallelism (tests, impl, verification)
+    Phase 6: Schema update + existing plan migration (tests, impl, verification)
+    Phase 7: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Test Fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Test Helpers"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create test helpers for typed plan artifacts"
+        description: |
+          Create pkg/validate/plan_type_helpers_test.go with helper functions
+          shared across all new test files.
+
+          Helper functions:
+            - makeTask(id, taskType string, files, claims, deps []string) —
+              builds a task map[string]interface{} with all required D-080 fields
+              plus the new type field. Uses sensible defaults for title and
+              description.
+            - makePhase(id, name string, tasks ...map[string]interface{}) —
+              wraps tasks in a phase map with id and name.
+            - validTypedPlanArtifact() — returns a ParsedArtifact with properly
+              typed tasks following the full TDD cycle:
+              Phase 1: setup task -> test task -> implementation task ->
+              verification task. This becomes the baseline valid artifact for
+              all new tests.
+
+          These helpers reduce boilerplate across 35+ new test functions.
+        files:
+          - pkg/validate/plan_type_helpers_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Task Type Validation + TDD Enforcement
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Task Type Validation and TDD Enforcement"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for task type validation and TDD enforcement"
+        description: |
+          Write failing tests in pkg/validate/plan_type_test.go for REQ-001
+          (task type classification) and REQ-002 (TDD ordering).
+
+          Task type tests (REQ-001):
+            - TestPlan_TaskTypeValid: plan with all six valid types passes
+            - TestPlan_TaskTypeMissing: task without type field fails with
+              plan/task-type-required error
+            - TestPlan_TaskTypeInvalid: task with type "unknown" fails with
+              plan/task-type-invalid error
+
+          TDD enforcement tests (REQ-002):
+            - TestPlan_TDD_ImplDependsOnTest: implementation task with test
+              dependency passes
+            - TestPlan_TDD_ImplWithoutTestDependency: implementation depending
+              only on another implementation fails
+            - TestPlan_TDD_TwoImplInRow: implementation depending on impl
+              (which depends on impl) fails — two impl in a row
+            - TestPlan_TDD_ImplDependsOnSetupOnly: implementation depending
+              only on setup fails
+
+          All tests should fail initially (red phase) since the validation
+          logic does not yet exist.
+        files:
+          - pkg/validate/plan_type_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement task type validation and TDD enforcement"
+        description: |
+          Add task type validation and TDD enforcement to pkg/validate/plan.go.
+
+          Changes to planTask struct:
+            - Add taskType string field
+
+          New package-level var:
+            - validTaskTypes map[string]bool with six valid values
+
+          New validation in validatePhases():
+            - Extract "type" field from each task map, store in planTask.taskType
+            - If type is missing: emit plan/task-type-required violation
+            - If type is not in validTaskTypes: emit plan/task-type-invalid violation
+            - Build taskTypeMap (map[string]string) from task ID to task type
+
+          New function validateTDD(filename string, tasks []planTask, typeMap map[string]string):
+            - For each task with taskType "implementation":
+              - Check that at least one entry in dependsOn references a task
+                whose type in typeMap is "test"
+              - If none: emit plan/tdd-impl-requires-test violation
+
+          Wire both checks into validatePhases after existing D-080/D-081 checks.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify task type and TDD enforcement passes"
+        description: |
+          Run the test suite and lint checks to verify Phase 2 implementation.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestPlan_TaskType|TestPlan_TDD" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+        files:
+          - pkg/validate/plan_type_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Gate Cadence + Verification Deps + Refactor Deps
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Gate Cadence, Verification Dependencies, and Refactor Dependencies"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for gate cadence, verification deps, and refactor deps"
+        description: |
+          Write failing tests in pkg/validate/plan_gate_test.go for REQ-003
+          (gate cadence), REQ-005 (refactor deps), and REQ-006 (verification deps).
+
+          Gate cadence tests (REQ-003):
+            - TestPlan_GateCadence_PhaseWithVerification: phase with impl +
+              verification passes
+            - TestPlan_GateCadence_PhaseWithoutVerification: phase with impl
+              but no verification fails with plan/gate-cadence-missing error
+            - TestPlan_GateCadence_RefactorPhaseWithoutVerification: phase with
+              refactor but no verification fails
+
+          Refactor dependency tests (REQ-005):
+            - TestPlan_Refactor_DependsOnImpl: refactor depending on impl passes
+            - TestPlan_Refactor_DependsOnRefactor: refactor depending on
+              another refactor passes
+            - TestPlan_Refactor_DependsOnTest: refactor depending on test passes
+            - TestPlan_Refactor_DependsOnSetupFails: refactor depending on
+              setup fails
+            - TestPlan_Refactor_DependsOnDocsFails: refactor depending on
+              documentation fails
+            - TestPlan_Refactor_DependsOnVerificationFails: refactor depending
+              on verification fails
+
+          Verification dependency tests (REQ-006):
+            - TestPlan_Verification_DependsOnImpl: verification depending on
+              impl passes
+            - TestPlan_Verification_DependsOnRefactor: verification depending
+              on refactor passes
+            - TestPlan_Verification_NoDependency: verification with no impl or
+              refactor dependency fails
+        files:
+          - pkg/validate/plan_gate_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-030
+          - CLM-012
+          - CLM-013
+          - CLM-031
+          - CLM-025
+          - CLM-028
+          - CLM-029
+          - CLM-014
+          - CLM-032
+          - CLM-015
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement gate cadence, verification deps, and refactor deps"
+        description: |
+          Add three new validation passes to pkg/validate/plan.go.
+
+          New function validateGateCadence(filename string, phases []interface{}, typeMap map[string]string):
+            - For each phase, collect task types present via phaseID lookup
+            - If phase contains "implementation" or "refactor" tasks but no
+              "verification" task: emit plan/gate-cadence-missing violation
+
+          New function validateVerificationDeps(filename string, tasks []planTask, typeMap map[string]string):
+            - For each task with taskType "verification":
+              - Check that at least one entry in dependsOn references a task
+                whose type is "implementation" or "refactor"
+              - If none: emit plan/verification-requires-impl violation
+
+          New function validateRefactorDeps(filename string, tasks []planTask, typeMap map[string]string):
+            - For each task with taskType "refactor":
+              - Check every entry in dependsOn
+              - If any dependency has type "setup", "documentation", or
+                "verification": emit plan/refactor-invalid-dependency violation
+              - Valid dependency types for refactor: implementation, refactor, test
+
+          Wire all three into validatePhases after the task type and TDD checks.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-030
+          - CLM-012
+          - CLM-013
+          - CLM-031
+          - CLM-025
+          - CLM-028
+          - CLM-029
+          - CLM-014
+          - CLM-032
+          - CLM-015
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify gate cadence and dependency validation passes"
+        description: |
+          Run tests and lint for Phase 3 implementation.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestPlan_GateCadence|TestPlan_Refactor|TestPlan_Verification" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+        files:
+          - pkg/validate/plan_gate_test.go
+        claims:
+          - CLM-008
+          - CLM-014
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Test Task Deps + Setup/Docs Constraints
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Test Task Dependencies and Setup/Documentation Constraints"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for test task deps and setup/docs constraints"
+        description: |
+          Write failing tests in pkg/validate/plan_testtask_test.go for REQ-010
+          (test task dependencies) and REQ-007 (setup/docs constraints).
+
+          Test task dependency tests (REQ-010):
+            - TestPlan_TestTask_DependsOnSetup: test depending on setup passes
+            - TestPlan_TestTask_DependsOnTest: test depending on another test passes
+            - TestPlan_TestTask_DependsOnImplFails: test depending on impl fails
+            - TestPlan_TestTask_DependsOnRefactorFails: test depending on
+              refactor fails
+            - TestPlan_TestTask_DependsOnVerification: test depending on
+              verification passes
+            - TestPlan_TestTask_DependsOnDocsFails: test depending on
+              documentation fails
+
+          Setup/docs constraint tests (REQ-007):
+            - TestPlan_Setup_NoDependencyConstraint: setup with empty depends_on
+              passes
+            - TestPlan_Documentation_NoDependencyConstraint: documentation
+              depending on any type passes
+        files:
+          - pkg/validate/plan_testtask_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement test task dependency validation"
+        description: |
+          Add test task dependency validation to pkg/validate/plan.go.
+
+          New function validateTestTaskDeps(filename string, tasks []planTask, typeMap map[string]string):
+            - For each task with taskType "test":
+              - Check every entry in dependsOn
+              - If any dependency has type other than "setup", "test", or "verification":
+                emit plan/test-invalid-dependency violation
+              - Valid dependency types for test: setup, test, verification
+
+          Setup and documentation tasks have no type-based dependency constraints
+          (REQ-007), so no validation is needed for them — they pass by default.
+
+          Wire into validatePhases after existing type-constraint checks.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify test task dependency and setup/docs constraint passes"
+        description: |
+          Run tests and lint for Phase 4 implementation.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestPlan_TestTask|TestPlan_Setup|TestPlan_Documentation" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+        files:
+          - pkg/validate/plan_testtask_test.go
+        claims:
+          - CLM-020
+          - CLM-016
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final Phase Verification + Phase-Level Parallelism
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Final Phase Verification and Phase-Level File Exclusivity"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for final phase verification and phase-level parallelism"
+        description: |
+          Write failing tests in pkg/validate/plan_final_test.go for REQ-004
+          (final phase verification) and REQ-011 (phase-level parallelism).
+
+          Final phase verification tests (REQ-004):
+            - TestPlan_FinalPhase_HasVerification: plan with verification in
+              final phase passes
+            - TestPlan_FinalPhase_NoVerification: plan with no verification in
+              final phase fails
+            - TestPlan_FinalPhase_ComprehensiveVerification: plan with .go files
+              and .plan.yml files — final phase has verification tasks covering
+              both code and artifact categories — passes
+            - TestPlan_FinalPhase_IncompleteVerification: plan with .go files
+              and .plan.yml files — final phase only covers code category —
+              fails with plan/final-phase-missing-category
+
+          Phase-level parallelism tests (REQ-011):
+            - TestPlan_PhaseParallel_DisjointFiles: two phases with no dependency
+              chain and disjoint file sets pass
+            - TestPlan_PhaseParallel_OverlappingFiles: two phases with no
+              dependency chain and overlapping file sets fail with
+              plan/phase-file-exclusivity
+        files:
+          - pkg/validate/plan_final_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-026
+          - CLM-027
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement final phase verification and phase-level file exclusivity"
+        description: |
+          Add final phase verification and phase-level file exclusivity to
+          pkg/validate/plan.go.
+
+          New function validateFinalPhase(filename string, phases []interface{}, allTasks []planTask, typeMap map[string]string):
+            - Identify final phase (last entry in phases array)
+            - Verify final phase contains at least one verification task;
+              if not: emit plan/final-phase-no-verification
+            - Collect all file extensions across all tasks in the entire plan
+            - Map extensions to categories:
+              - Code: .go
+              - Artifact: .spec.md, .plan.yml, .adr.md, .bundle.md, .issue.md,
+                .standard.md
+            - For each required category, check that the final phase has at
+              least one verification task whose files include a file in that
+              category
+            - If a category is missing: emit plan/final-phase-missing-category
+
+          New function checkPhaseFileExclusivity(filename string, phases []interface{}, allTasks []planTask):
+            - Build phase dependency graph: phase A depends on phase B if any
+              task in A depends (directly) on any task in B
+            - Compute transitive closure of phase dependencies
+            - For each pair of parallel-eligible phases (no transitive dep):
+              - Compute union of all file sets per phase
+              - Check disjointness
+              - If overlap: emit plan/phase-file-exclusivity violation
+
+          Wire both into validatePhases.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-026
+          - CLM-027
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify final phase and phase-level parallelism passes"
+        description: |
+          Run tests and lint for Phase 5 implementation.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestPlan_FinalPhase|TestPlan_PhaseParallel" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+        files:
+          - pkg/validate/plan_final_test.go
+        claims:
+          - CLM-010
+          - CLM-023
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Schema Update + Existing Plan Migration + Existing Rules
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Schema Update, Existing Plan Migration, and Backward Compatibility"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write tests for schema update and existing rule preservation"
+        description: |
+          Write tests in pkg/validate/plan_compat_test.go for REQ-008 (existing
+          rules preserved) and REQ-009 (schema update).
+
+          Schema test (REQ-009):
+            - TestPlan_SchemaIncludesTaskType: read artifacts/plan/v1/schema.json,
+              parse as JSON, verify it contains task_type_enum with all six values
+              and task_required_keys includes "type"
+
+          Existing rules tests (REQ-008):
+            - TestPlan_ExistingRules_PlanIDPattern: verify plan_id pattern
+              enforcement still works (invalid plan_id still rejected)
+            - TestPlan_ExistingRules_FileExclusivity: verify D-081 task-level
+              file exclusivity still works (parallel tasks sharing files rejected)
+            - TestPlan_ExistingRules_CycleDetection: verify dependency cycle
+              detection still works (cyclic depends_on rejected)
+        files:
+          - pkg/validate/plan_compat_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Update plan schema and migrate existing plan"
+        description: |
+          Update artifacts/plan/v1/schema.json to add:
+            - "type" to task_required_keys array
+            - task_type_enum field: ["setup", "test", "implementation",
+              "verification", "refactor", "documentation"]
+            - Update enforcement section to document TDD enforcement, gate
+              cadence, test task dependency constraints, refactor dependency
+              constraints, verification dependency constraints, final phase
+              comprehensive verification, and phase-level file exclusivity
+
+          Update plans/PLAN-SPEC-001-standards-compiler.plan.yml:
+            - Add type field to every task:
+              - types-test, semgrep-test, native-test, compile-test,
+                integration-test → type: test
+              - types-impl, semgrep-impl, native-impl, compile-impl → type: implementation
+            - Add verification tasks to each phase for gate cadence compliance
+            - Ensure the final phase has comprehensive verification covering
+              code (.go files)
+        files:
+          - artifacts/plan/v1/schema.json
+          - plans/PLAN-SPEC-001-standards-compiler.plan.yml
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify schema update and existing plan migration"
+        description: |
+          Run tests and verify the schema and migrated plan.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestPlan_SchemaIncludesTaskType|TestPlan_ExistingRules|TestPlan_RealPlanFile" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+
+          Verify that the migrated PLAN-SPEC-001 passes the new validator
+          including task type, TDD, and gate cadence checks.
+        files:
+          - pkg/validate/plan_compat_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification"
+    tasks:
+      - id: TASK-017
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete plan validation test suite with race detection and
+          coverage profiling. Verify all 35 claim tests pass and coverage
+          meets the 90% threshold.
+
+          Commands:
+            - go test ./pkg/validate/ -run TestPlan -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep pkg/validate/plan.go
+            - Verify coverage >= 90%
+            - go tool golangci-lint run ./pkg/validate/
+            - go build ./...
+
+          This covers code verification (.go files touched throughout the plan).
+        files:
+          - pkg/validate/plan.go
+          - pkg/validate/plan_type_helpers_test.go
+          - pkg/validate/plan_type_test.go
+          - pkg/validate/plan_gate_test.go
+          - pkg/validate/plan_testtask_test.go
+          - pkg/validate/plan_final_test.go
+          - pkg/validate/plan_compat_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-008
+          - CLM-010
+          - CLM-014
+          - CLM-018
+          - CLM-020
+          - CLM-023
+        depends_on:
+          - TASK-015
+          - TASK-016
+
+      - id: TASK-018
+        type: verification
+        title: "Verify artifact files are valid"
+        description: |
+          Verify the updated artifact files pass their own validation.
+
+          Commands:
+            - Validate artifacts/plan/v1/schema.json is valid JSON
+            - Validate plans/PLAN-SPEC-001-standards-compiler.plan.yml passes
+              the new plan validator (with task types)
+            - Validate plans/PLAN-SPEC-002-plan-schema-evolution.plan.yml passes
+              the new plan validator
+
+          This covers artifact verification (.plan.yml and .json files touched).
+        files:
+          - artifacts/plan/v1/schema.json
+          - plans/PLAN-SPEC-001-standards-compiler.plan.yml
+          - plans/PLAN-SPEC-002-plan-schema-evolution.plan.yml
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-015
+          - TASK-016

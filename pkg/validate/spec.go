@@ -610,13 +610,13 @@ func validateClaims(art *artifact.ParsedArtifact, validReqs map[string]bool) []V
 }
 
 // extractSpecSlug pulls the slug portion from a spec filename.
-// SPEC-023-my-slug.impl.spec.md → my-slug
+// SPEC-023-my-slug.spec.md → my-slug
 func extractSpecSlug(filename string) string {
 	if len(filename) < 10 {
 		return ""
 	}
 	rest := filename[9:] // after "SPEC-NNN-"
-	suffix := ".impl.spec.md"
+	suffix := ".spec.md"
 	if strings.HasSuffix(rest, suffix) {
 		return rest[:len(rest)-len(suffix)]
 	}

@@ -11,7 +11,7 @@ import (
 func specSchema() *schema.Schema {
 	return &schema.Schema{
 		ArtifactType:      "spec",
-		FilenamePattern:   `^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\.impl\.spec\.md$`,
+		FilenamePattern:   `^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\.spec\.md$`,
 		SlugPattern:       `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
 		SlugMinLength:     2,
 		SlugMaxLength:     64,
@@ -24,7 +24,7 @@ func specSchema() *schema.Schema {
 
 func validSpecArtifact() *artifact.ParsedArtifact {
 	return &artifact.ParsedArtifact{
-		Filename: "SPEC-023-backstop-base-validator.impl.spec.md",
+		Filename: "SPEC-023-backstop-base-validator.spec.md",
 		Title:    "SPEC-023: Backstop Base Validator",
 		Metadata: map[string]string{
 			"number":         "SPEC-023",
@@ -581,7 +581,7 @@ func TestSpec_VerificationIntegrationThreshold(t *testing.T) {
 
 func TestSpec_InvalidSlug(t *testing.T) {
 	art := validSpecArtifact()
-	art.Filename = "SPEC-023-A.impl.spec.md"
+	art.Filename = "SPEC-023-A.spec.md"
 
 	result := validate.Spec(art, specSchema())
 	found := false
