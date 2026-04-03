@@ -420,23 +420,37 @@ func validateRequirements(art *artifact.ParsedArtifact) reqResult {
 			})
 		}
 
-		// Optional supports field — traces back to bundle requirement
+		// Optional supports field — traces back to bundle requirement(s)
+		// Accepts a single string or an array of strings.
 		if supVal, ok := req["supports"]; ok {
-			sup, ok := supVal.(string)
-			if !ok || strings.TrimSpace(sup) == "" {
+			var supItems []string
+			switch v := supVal.(type) {
+			case string:
+				supItems = []string{v}
+			case []interface{}:
+				for _, item := range v {
+					if s, ok := item.(string); ok {
+						supItems = append(supItems, s)
+					}
+				}
+			}
+			if len(supItems) == 0 {
 				result.violations = append(result.violations, Violation{
 					Rule:     "spec/requirement-supports-format",
 					File:     art.Filename,
 					Message:  fmt.Sprintf("requirements[%d] 'supports' is empty", i),
 					Severity: "error",
 				})
-			} else if !supportsRe.MatchString(sup) {
-				result.violations = append(result.violations, Violation{
-					Rule:     "spec/requirement-supports-format",
-					File:     art.Filename,
-					Message:  fmt.Sprintf("requirements[%d] 'supports' value '%s' must match format bundle-name:REQ-NNN", i, sup),
-					Severity: "error",
-				})
+			}
+			for _, sup := range supItems {
+				if strings.TrimSpace(sup) == "" || !supportsRe.MatchString(sup) {
+					result.violations = append(result.violations, Violation{
+						Rule:     "spec/requirement-supports-format",
+						File:     art.Filename,
+						Message:  fmt.Sprintf("requirements[%d] 'supports' value '%s' must match format bundle-name:REQ-NNN", i, sup),
+						Severity: "error",
+					})
+				}
 			}
 		}
 	}
