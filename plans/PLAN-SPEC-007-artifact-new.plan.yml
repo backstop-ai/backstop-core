@@ -1,0 +1,893 @@
+---
+plan_id: PLAN-SPEC-007
+spec_id: SPEC-007
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/scaffold/... -run TestArtifactNew -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements the backstop artifact new <type> command for all seven artifact types
+  (spec, plan, issue, adr, directive, bundle, capability) with git annotated tag
+  ID reservation, offline fallback, type-specific template rendering, and the
+  --source flag for plan scaffolding.
+
+  The implementation spans two packages: pkg/scaffold/ (type registry, slug
+  validation, source validation, ID resolution, template rendering, filename/dir
+  logic) and cmd/backstop/ (thin Cobra command adapter). The pkg/scaffold/ work
+  is split across four files with disjoint concerns, enabling parallel phases.
+
+  Dependency: SPEC-005 (CLI foundation). The cmd/backstop/ adapter consumes
+  the output formatter and exit code conventions from SPEC-005. If SPEC-005
+  is not yet implemented, the adapter can define a minimal interface.
+
+  Structure:
+    Phase 1: Setup — scaffold package and type registry
+    Phase 2: Parallel TDD — slug validation, source validation (disjoint files)
+    Phase 3: TDD — ID resolution (git tags + local fallback)
+    Phase 4: TDD — template rendering, filename, and directory logic
+    Phase 5: TDD — Cobra command adapter (thin adapter wiring)
+    Phase 6: TDD — output modes and exit codes
+    Phase 7: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Package Scaffolding and Type Registry
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Package Scaffolding and Type Registry"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pkg/scaffold package with ArtifactTypeConfig and ValidArtifactTypes"
+        description: |
+          Create the pkg/scaffold/ package directory and the initial scaffold.go file
+          containing the type registry infrastructure.
+
+          Define:
+            - ArtifactTypeConfig struct with fields: Directory, FilenameTemplate,
+              IDPrefix, DigitCount, DefaultStatus, RequiredFrontmatter, BodySections
+            - ValidArtifactTypes map[string]ArtifactTypeConfig with all 7 types registered:
+              spec, plan, issue, adr, directive, bundle, capability
+            - Each entry maps to its correct directory (specs/, plans/, issues/, adrs/,
+              directives/, bundles/, capabilities/), digit count (3 for most, 4 for adr),
+              and default status (draft, open, or idea)
+
+          Also create stub files for idresolver.go and slug.go with package declarations
+          so the package compiles.
+        files:
+          - pkg/scaffold/scaffold.go
+          - pkg/scaffold/idresolver.go
+          - pkg/scaffold/slug.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Parallel TDD — Slug Validation + Source Validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Slug Validation and Source Validation (Parallel)"
+    tasks:
+      # --- Slug validation: test ---
+      - id: TASK-002
+        type: test
+        title: "Write tests for slug validation"
+        description: |
+          Write failing tests in pkg/scaffold/slug_test.go for REQ-002 slug validation.
+
+          Test functions (mandated names from spec):
+            - TestArtifactNew_ValidSlug_Accepted: valid slug "my-artifact" passes
+            - TestArtifactNew_SlugStartsWithDigit_Exit2: slug "1bad" rejected
+            - TestArtifactNew_SlugUppercase_Exit2: slug "BadSlug" rejected
+            - TestArtifactNew_SlugTooShort_Exit2: slug "a" (1 char) rejected
+            - TestArtifactNew_SlugTooLong_Exit2: slug with 65 chars rejected
+            - TestArtifactNew_MissingSlug_Exit2: empty string slug rejected
+
+          All tests call ValidateSlug() and assert error vs nil.
+          Tests should fail initially (red phase).
+        files:
+          - pkg/scaffold/slug_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-001
+
+      # --- Slug validation: implementation ---
+      - id: TASK-003
+        type: implementation
+        title: "Implement ValidateSlug function"
+        description: |
+          Implement ValidateSlug in pkg/scaffold/slug.go.
+
+          ValidateSlug(slug string) error:
+            - If slug is empty: return error (missing slug)
+            - If len(slug) < 2: return error (too short)
+            - If len(slug) > 64: return error (too long)
+            - If slug does not match ^[a-z][a-z0-9]*(-[a-z0-9]+)*$: return error
+            - Otherwise: return nil
+
+          Use regexp.MustCompile for the pattern (compile once at package level).
+        files:
+          - pkg/scaffold/slug.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-002
+
+      # --- Source validation: test ---
+      - id: TASK-004
+        type: test
+        title: "Write tests for --source flag validation and parsing"
+        description: |
+          Write failing tests in pkg/scaffold/source_test.go for REQ-013 source
+          validation and parsing.
+
+          Test functions (mandated names from spec):
+            - TestArtifactNew_Source_SpecBacked: ValidateSource("SPEC-002") passes,
+              ParseSourceKind returns "spec"
+            - TestArtifactNew_Source_IssueBacked: ValidateSource("ISSUE-005") passes,
+              ParseSourceKind returns "issue"
+            - TestArtifactNew_Source_MissingForPlan_Exit2: empty source when type is plan
+            - TestArtifactNew_Source_InvalidFormat_Exit2: ValidateSource("BADFORMAT")
+              returns error
+            - TestArtifactNew_Source_IgnoredForSpec: source flag ignored for non-plan types
+            - TestArtifactNew_Source_IgnoredForIssue: source flag ignored for issue type
+            - TestArtifactNew_Source_IgnoredForADR: source flag ignored for adr type
+            - TestArtifactNew_Source_IgnoredForDirective: source flag ignored for directive
+            - TestArtifactNew_Source_IgnoredForBundle: source flag ignored for bundle
+            - TestArtifactNew_Source_IgnoredForCapability: source flag ignored for capability
+
+          Tests call ValidateSource() and ParseSourceKind().
+        files:
+          - pkg/scaffold/source_test.go
+        claims:
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-001
+
+      # --- Source validation: implementation ---
+      - id: TASK-005
+        type: implementation
+        title: "Implement ValidateSource and ParseSourceKind functions"
+        description: |
+          Implement source validation functions in pkg/scaffold/slug.go.
+
+          ValidateSource(sourceID string) error:
+            - If sourceID is empty: return error (missing source)
+            - If sourceID does not match ^(SPEC|ISSUE)-\d{3}$: return error
+            - Otherwise: return nil
+
+          ParseSourceKind(sourceID string) (string, error):
+            - Call ValidateSource first
+            - If starts with "SPEC-": return "spec", nil
+            - If starts with "ISSUE-": return "issue", nil
+            - Otherwise: return error (should not reach here after validation)
+
+          These functions are consumed by the Cobra command adapter to validate
+          the --source flag and determine plan filename prefix.
+        files:
+          - pkg/scaffold/slug.go
+        claims:
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      # --- Phase 2 verification ---
+      - id: TASK-006
+        type: verification
+        title: "Verify slug validation and source validation"
+        description: |
+          Run tests and lint for Phase 2 implementation.
+
+          Commands:
+            - go test ./pkg/scaffold/ -run "TestArtifactNew_ValidSlug|TestArtifactNew_Slug|TestArtifactNew_MissingSlug|TestArtifactNew_Source" -race -v
+            - go tool golangci-lint run ./pkg/scaffold/
+        files:
+          - pkg/scaffold/slug_test.go
+          - pkg/scaffold/source_test.go
+        claims:
+          - CLM-010
+          - CLM-080
+        depends_on:
+          - TASK-003
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD — ID Resolution (Git Tags + Local Fallback)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: ID Resolution — Git Tag Reservation and Local Fallback"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write tests for git tag ID reservation"
+        description: |
+          Write failing tests in pkg/scaffold/idresolver_test.go for REQ-003
+          (git tag reservation) and REQ-011 (git tag details).
+
+          Git tag reservation tests (mandated names):
+            - TestArtifactNew_GitTagReservation_NextSequential: with existing tags
+              backstop/spec/001 and backstop/spec/002, next ID is 003
+            - TestArtifactNew_GitTagReservation_CreatesAnnotatedTag: verify tag
+              creation uses -a flag (annotated)
+            - TestArtifactNew_GitTagReservation_RetryOnConflict: simulate push
+              conflict on first attempt, verify retry with incremented number
+            - TestArtifactNew_GitTagReservation_GapsPreserved: with tags 001, 003
+              (gap at 002), next ID is 004 (not 002)
+
+          Git tag detail tests (mandated names):
+            - TestArtifactNew_GitTag_IsAnnotated: verify annotated tag creation
+            - TestArtifactNew_GitTag_Format: tag name is backstop/<type>/<number>
+            - TestArtifactNew_GitTag_MessageContents: tag message includes timestamp
+              and slug
+            - TestArtifactNew_GitTag_PushSpecificTag: push targets only the specific
+              tag, not --tags
+            - TestArtifactNew_GitTag_MaxRetries: after 3 retries, returns error
+
+          Tests must use a mock/fake git executor interface to avoid real git
+          operations. Define a GitExecutor interface in idresolver.go that the
+          resolver accepts, and provide a mock in the test file.
+        files:
+          - pkg/scaffold/idresolver_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: test
+        title: "Write tests for offline fallback ID resolution"
+        description: |
+          Write failing tests in pkg/scaffold/idresolver_fallback_test.go for
+          REQ-004 (offline fallback).
+
+          Fallback tests (mandated names):
+            - TestArtifactNew_OfflineFallback_NotGitRepo: when git executor reports
+              not-a-repo, falls back to local scan
+            - TestArtifactNew_OfflineFallback_NoGitBinary: when git executor reports
+              no-binary, falls back to local scan
+            - TestArtifactNew_OfflineFallback_ScansExistingArtifacts: local scan
+              with files SPEC-001-foo.spec.md and SPEC-003-bar.spec.md returns 004
+            - TestArtifactNew_OfflineFallback_FetchNetworkFailure: fetch fails with
+              network error, triggers fallback
+            - TestArtifactNew_OfflineFallback_PushUnreachableRemote: push fails with
+              unreachable remote, triggers fallback
+            - TestArtifactNew_OfflineFallback_PushPermissionError: push fails with
+              permission error, triggers fallback
+
+          Tests use temp directories populated with fixture artifact files and
+          the mock git executor.
+        files:
+          - pkg/scaffold/idresolver_fallback_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-073
+          - CLM-074
+          - CLM-075
+        depends_on:
+          - TASK-006
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement GitTagResolver and ResolveID"
+        description: |
+          Implement git tag ID resolution in pkg/scaffold/idresolver.go.
+
+          Define GitExecutor interface:
+            - ListTags(pattern string) ([]string, error)
+            - CreateAnnotatedTag(name, message string) error
+            - PushTag(name string) error
+            - FetchTags() error
+            - IsGitRepo() bool
+            - IsGitAvailable() bool
+
+          Implement GitTagResolver struct:
+            - Fields: executor GitExecutor, maxRetries int (default 3)
+            - Resolve(artifactType, slug string) (string, error):
+              1. Check IsGitAvailable and IsGitRepo — if not, return sentinel error
+              2. FetchTags — on non-conflict error, return sentinel for fallback
+              3. ListTags("backstop/<type>/*") to get existing tags
+              4. Parse numeric suffixes, find max, compute next
+              5. Create annotated tag with timestamp and slug in message
+              6. Push tag — on conflict, retry with incremented number (up to maxRetries)
+              7. On non-conflict push failure, return sentinel for fallback
+              8. Return formatted ID string (e.g., "003")
+
+          Implement LocalScanResolver struct:
+            - Resolve(artifactType, targetDir string) (string, error):
+              1. Read directory listing
+              2. Match filenames against type's filename pattern
+              3. Extract numeric IDs
+              4. Return next sequential number
+
+          Implement ResolveID(artifactType string, opts IDOptions) (string, error):
+            - Try GitTagResolver first
+            - On fallback sentinel error, use LocalScanResolver
+            - On tag conflict exhaustion, return error (exit 2)
+
+          Implement real GitExecutor (RealGitExecutor) that shells out to git.
+        files:
+          - pkg/scaffold/idresolver.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-064
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-073
+          - CLM-074
+          - CLM-075
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify ID resolution implementation"
+        description: |
+          Run tests and lint for Phase 3 ID resolution.
+
+          Commands:
+            - go test ./pkg/scaffold/ -run "TestArtifactNew_GitTag|TestArtifactNew_OfflineFallback" -race -v
+            - go tool golangci-lint run ./pkg/scaffold/
+        files:
+          - pkg/scaffold/idresolver_test.go
+          - pkg/scaffold/idresolver_fallback_test.go
+        claims:
+          - CLM-016
+          - CLM-020
+          - CLM-066
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: TDD — Template Rendering, Filename, and Directory Logic
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Template Rendering, Filename Generation, and Directory Logic"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for filename generation and target directory"
+        description: |
+          Write failing tests in pkg/scaffold/filename_test.go for REQ-005
+          (target directory) and REQ-006 (filename patterns).
+
+          Directory tests (mandated names):
+            - TestArtifactNew_Directory_Spec: TargetDir("spec", root) returns root/specs/
+            - TestArtifactNew_Directory_Plan: TargetDir("plan", root) returns root/plans/
+            - TestArtifactNew_Directory_Issue: TargetDir("issue", root) returns root/issues/
+            - TestArtifactNew_Directory_ADR: TargetDir("adr", root) returns root/adrs/
+            - TestArtifactNew_Directory_Directive: TargetDir("directive", root) returns root/directives/
+            - TestArtifactNew_Directory_Bundle: TargetDir("bundle", root) returns root/bundles/
+            - TestArtifactNew_Directory_Capability: TargetDir("capability", root) returns root/capabilities/
+            - TestArtifactNew_Directory_CreatedIfMissing: verified in integration (Phase 5)
+
+          Filename tests (mandated names):
+            - TestArtifactNew_Filename_Spec: Filename("spec", "001", "my-spec", "") returns "SPEC-001-my-spec.spec.md"
+            - TestArtifactNew_Filename_PlanSpec: Filename("plan", "002", "my-plan", "SPEC-002") returns "PLAN-SPEC-002-my-plan.plan.yml"
+            - TestArtifactNew_Filename_PlanIssue: Filename("plan", "005", "my-plan", "ISSUE-005") returns "PLAN-ISSUE-005-my-plan.plan.yml"
+            - TestArtifactNew_Filename_Issue: Filename("issue", "003", "my-issue", "") returns "ISSUE-003-my-issue.md"
+            - TestArtifactNew_Filename_ADR: Filename("adr", "0001", "my-adr", "") returns "ADR-0001-my-adr.adr.md"
+            - TestArtifactNew_Filename_Directive: Filename("directive", "010", "my-dir", "") returns "D-010-my-dir.directive.md"
+            - TestArtifactNew_Filename_Bundle: Filename("bundle", "001", "my-bundle", "") returns "BUNDLE-001-my-bundle.bundle.md"
+            - TestArtifactNew_Filename_Capability: Filename("capability", "001", "my-cap", "") returns "CAP-001-my-cap.capability.md"
+        files:
+          - pkg/scaffold/filename_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-032
+          - CLM-033
+          - CLM-076
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: test
+        title: "Write tests for template rendering (frontmatter and body sections)"
+        description: |
+          Write failing tests in pkg/scaffold/scaffold_test.go for REQ-007
+          (frontmatter) and REQ-008 (body sections).
+
+          Frontmatter tests (mandated names):
+            - TestArtifactNew_Frontmatter_Spec: Scaffold("spec", "001", "my-spec", "2026-04-04", "")
+              produces frontmatter with title, number, created, status, schema_version, spec_version
+            - TestArtifactNew_Frontmatter_PlanSpec: Scaffold("plan", "002", "my-plan", "2026-04-04", "SPEC-002")
+              produces plan_id as PLAN-SPEC-002, spec_id as SPEC-002, created, status
+            - TestArtifactNew_Frontmatter_PlanIssue: Scaffold("plan", "005", "my-plan", "2026-04-04", "ISSUE-005")
+              produces plan_id as PLAN-ISSUE-005, issue_id as ISSUE-005 (not spec_id)
+            - TestArtifactNew_Frontmatter_Issue: produces title, schema_version, issue block
+            - TestArtifactNew_Frontmatter_ADR: produces title, number, created, status,
+              schema_version, deciders, decisions
+            - TestArtifactNew_Frontmatter_Directive: produces title, number, created, status, schema_version
+            - TestArtifactNew_Frontmatter_Bundle: produces title, number, created, schema_version,
+              bundle block with name, version, created, category
+            - TestArtifactNew_Frontmatter_Capability: produces title, number, created, status, schema_version
+            - TestArtifactNew_Frontmatter_DefaultDate: date fields default to provided date
+            - TestArtifactNew_Frontmatter_DefaultStatusDraft: spec/plan/adr default to draft
+            - TestArtifactNew_Frontmatter_DefaultStatusOpen: issue defaults to open
+            - TestArtifactNew_Frontmatter_DefaultMaturityIdea: bundle maturity defaults to idea
+
+          Body section tests (mandated names):
+            - TestArtifactNew_Sections_Spec: output contains ## Overview, ## Requirements,
+              ## Implementation, ## Verification
+            - TestArtifactNew_Sections_Plan: output contains "phases: []" YAML
+            - TestArtifactNew_Sections_Issue: output contains ## Problem
+            - TestArtifactNew_Sections_ADR: output contains ## Context, ## Decision,
+              ## Consequences
+            - TestArtifactNew_Sections_Directive: output contains required directive sections
+            - TestArtifactNew_Sections_Bundle: output contains bundle-appropriate sections
+            - TestArtifactNew_Sections_Capability: output contains capability sections
+        files:
+          - pkg/scaffold/scaffold_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-077
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+        depends_on:
+          - TASK-010
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement Filename and TargetDir functions"
+        description: |
+          Implement filename generation and directory logic in pkg/scaffold/scaffold.go.
+
+          TargetDir(artifactType string, projectRoot string) string:
+            - Look up ValidArtifactTypes[artifactType]
+            - Return filepath.Join(projectRoot, config.Directory)
+
+          Filename(artifactType string, id string, slug string, sourceID string) string:
+            - For plan type: parse sourceID to determine prefix
+              - If sourceID starts with "SPEC-": prefix is "PLAN-SPEC-"
+              - If sourceID starts with "ISSUE-": prefix is "PLAN-ISSUE-"
+              - Use source's numeric ID portion for the plan filename
+              - Return e.g., "PLAN-SPEC-002-my-plan.plan.yml"
+            - For other types: use the type's filename template with id and slug
+            - Handle ADR 4-digit padding vs 3-digit for others
+        files:
+          - pkg/scaffold/scaffold.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-032
+          - CLM-033
+          - CLM-076
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-011
+
+      - id: TASK-014
+        type: implementation
+        title: "Implement Scaffold function for template rendering"
+        description: |
+          Implement Scaffold() in pkg/scaffold/scaffold.go.
+
+          Scaffold(artifactType string, id string, slug string, date string, sourceID string) ([]byte, error):
+            1. Look up ArtifactTypeConfig for the type
+            2. Build frontmatter map based on type:
+               - spec: title (from slug), number (SPEC-NNN), created (date),
+                 status (draft), schema_version, spec_version
+               - plan (spec-backed): plan_id (PLAN-SPEC-NNN), spec_id (SPEC-NNN),
+                 created, status (draft)
+               - plan (issue-backed): plan_id (PLAN-ISSUE-NNN), issue_id (ISSUE-NNN),
+                 created, status (draft)
+               - issue: title, schema_version, issue block {id, title, type, status: open, created}
+               - adr: title, number (ADR-NNNN), created, status (draft), schema_version,
+                 deciders (empty list), decisions (empty list)
+               - directive: title, number, created, status (draft), schema_version
+               - bundle: title, number, created, schema_version, bundle block
+                 {name, version, created, category} with maturity idea
+               - capability: title, number, created, status (draft), schema_version
+            3. Serialize frontmatter as YAML between --- delimiters
+            4. Append body sections:
+               - For plan: "phases: []" YAML after frontmatter
+               - For markdown types: ## headings per type config
+            5. Return complete file content as []byte
+        files:
+          - pkg/scaffold/scaffold.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-077
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+        depends_on:
+          - TASK-012
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Verify template rendering, filename, and directory logic"
+        description: |
+          Run tests and lint for Phase 4 implementation.
+
+          Commands:
+            - go test ./pkg/scaffold/ -run "TestArtifactNew_Filename|TestArtifactNew_Directory|TestArtifactNew_Frontmatter|TestArtifactNew_Sections" -race -v
+            - go tool golangci-lint run ./pkg/scaffold/
+        files:
+          - pkg/scaffold/filename_test.go
+          - pkg/scaffold/scaffold_test.go
+        claims:
+          - CLM-023
+          - CLM-032
+          - CLM-039
+          - CLM-050
+        depends_on:
+          - TASK-013
+          - TASK-014
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: TDD — Cobra Command Adapter
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Cobra Command Adapter — Type Validation, Wiring, File Write"
+    tasks:
+      - id: TASK-016
+        type: test
+        title: "Write tests for Cobra command adapter"
+        description: |
+          Write failing tests in cmd/backstop/artifact_new_test.go for REQ-001
+          (type validation), REQ-005 (directory creation and file conflict),
+          REQ-010 (exit codes), and REQ-012 (thin adapter).
+
+          Type validation tests (mandated names):
+            - TestArtifactNew_ValidType_Spec: command with "spec" succeeds
+            - TestArtifactNew_ValidType_Plan: command with "plan" + --source succeeds
+            - TestArtifactNew_ValidType_Issue: command with "issue" succeeds
+            - TestArtifactNew_ValidType_ADR: command with "adr" succeeds
+            - TestArtifactNew_ValidType_Directive: command with "directive" succeeds
+            - TestArtifactNew_ValidType_Bundle: command with "bundle" succeeds
+            - TestArtifactNew_ValidType_Capability: command with "capability" succeeds
+            - TestArtifactNew_InvalidType_Exit2: command with "bogus" returns exit 2
+            - TestArtifactNew_MissingType_Exit2: command with no args returns exit 2
+
+          File operations tests (mandated names):
+            - TestArtifactNew_Directory_CreatedIfMissing: target dir created automatically
+            - TestArtifactNew_Directory_ExistingFileRefused: existing file exits code 1
+
+          Exit code tests (mandated names):
+            - TestArtifactNew_ExitCode_0_Success: successful scaffold returns 0
+            - TestArtifactNew_ExitCode_1_FileExists: existing file returns 1
+            - TestArtifactNew_ExitCode_2_InvalidType: invalid type returns 2
+            - TestArtifactNew_ExitCode_2_InvalidSlug: invalid slug returns 2
+            - TestArtifactNew_ExitCode_2_RetriesExhausted: tag conflict exhaustion returns 2
+            - TestArtifactNew_ExitCode_NonConflictPushFallsBack: non-conflict push fails
+              but command succeeds via fallback (exit 0)
+            - TestArtifactNew_ExitCode_2_MissingSourceForPlan: plan without --source returns 2
+            - TestArtifactNew_ExitCode_2_PrecedesOne: exit 2 takes precedence over exit 1
+
+          Thin adapter tests (mandated names):
+            - TestArtifactNew_ThinAdapter_DelegatesRendering: command calls pkg/scaffold.Scaffold
+            - TestArtifactNew_ThinAdapter_DelegatesIDResolution: command calls pkg/scaffold.ResolveID
+
+          Tests use a test harness that executes the Cobra command with
+          injected dependencies (mock git executor, temp directories).
+        files:
+          - cmd/backstop/artifact_new_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-030
+          - CLM-031
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-078
+          - CLM-079
+          - CLM-065
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: implementation
+        title: "Implement NewArtifactNewCommand Cobra adapter"
+        description: |
+          Implement the thin Cobra command adapter in cmd/backstop/artifact_new.go.
+
+          NewArtifactNewCommand() *cobra.Command:
+            1. Define Cobra command: Use "new" as command name, "artifact new <type>"
+               usage pattern
+            2. Define flags: --slug (required string), --source (optional string),
+               --json (bool for JSON output)
+            3. RunE function:
+               a. Validate exactly one positional arg exists (exit 2 if missing)
+               b. Validate type is in ValidArtifactTypes (exit 2 if invalid)
+               c. Validate slug via ValidateSlug (exit 2 if invalid)
+               d. If type is "plan":
+                  - Validate --source is present (exit 2 if missing)
+                  - Validate --source via ValidateSource (exit 2 if invalid)
+               e. Call ResolveID(artifactType, opts) to get next ID
+                  - On tag conflict exhaustion error: exit 2
+                  - Other errors propagate
+               f. Call Scaffold(artifactType, id, slug, today, sourceID) to render
+               g. Compute target dir via TargetDir, create if needed (os.MkdirAll)
+               h. Compute filename via Filename
+               i. Check if file exists: if yes, exit 1 (conflict)
+               j. Write file to disk
+               k. Format output (JSON or human mode)
+               l. Return exit 0
+
+          The command must be a thin adapter: no template logic, no ID logic,
+          only flag parsing + wiring + file I/O + output formatting.
+        files:
+          - cmd/backstop/artifact_new.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-030
+          - CLM-031
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-078
+          - CLM-079
+          - CLM-065
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-016
+
+      - id: TASK-018
+        type: verification
+        title: "Verify Cobra command adapter"
+        description: |
+          Run tests and lint for Phase 5 implementation.
+
+          Commands:
+            - go test ./cmd/backstop/... -run "TestArtifactNew_ValidType|TestArtifactNew_InvalidType|TestArtifactNew_MissingType|TestArtifactNew_Directory|TestArtifactNew_ExitCode|TestArtifactNew_ThinAdapter" -race -v
+            - go tool golangci-lint run ./cmd/backstop/...
+        files:
+          - cmd/backstop/artifact_new_test.go
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-060
+          - CLM-071
+        depends_on:
+          - TASK-017
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: TDD — Output Modes (JSON and Human)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Output Modes — JSON and Human Display"
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Write tests for JSON and human output modes"
+        description: |
+          Write failing tests in cmd/backstop/artifact_new_output_test.go for
+          REQ-009 (output modes).
+
+          Output tests (mandated names):
+            - TestArtifactNew_Output_JSON_Fields: JSON output includes artifact_type,
+              id, file_path, and schema_version fields
+            - TestArtifactNew_Output_Human_Display: human output displays file path
+              and assigned ID
+            - TestArtifactNew_Output_DataParity: JSON and human output contain
+              identical underlying data (same type, id, path)
+
+          Tests execute the Cobra command with --json flag and without, capturing
+          stdout and parsing the output.
+        files:
+          - cmd/backstop/artifact_new_output_test.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-018
+
+      - id: TASK-020
+        type: implementation
+        title: "Implement JSON and human output formatting"
+        description: |
+          Add output formatting to the artifact new command in cmd/backstop/artifact_new.go.
+
+          In the RunE function, after successful file write:
+            - Build result struct with fields: ArtifactType, ID, FilePath, SchemaVersion
+            - If --json flag: serialize result as JSON to stdout
+            - If human mode: print "Created <filepath> (ID: <id>)" to stdout
+
+          The output must follow SPEC-005 output layer conventions. Both modes
+          must produce identical underlying data — the JSON struct and the human
+          display must derive from the same result struct.
+        files:
+          - cmd/backstop/artifact_new.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-019
+
+      - id: TASK-021
+        type: verification
+        title: "Verify output mode implementation"
+        description: |
+          Run tests and lint for Phase 6 output modes.
+
+          Commands:
+            - go test ./cmd/backstop/... -run "TestArtifactNew_Output" -race -v
+            - go tool golangci-lint run ./cmd/backstop/...
+        files:
+          - cmd/backstop/artifact_new_output_test.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-020
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification"
+    tasks:
+      - id: TASK-022
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete test suite for both packages with race detection
+          and coverage profiling. Verify all 89 claim tests pass and coverage
+          meets the 90% threshold.
+
+          Commands:
+            - go test ./pkg/scaffold/... ./cmd/backstop/... -run TestArtifactNew -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep -E "pkg/scaffold|cmd/backstop"
+            - Verify coverage >= 90% for pkg/scaffold/ and cmd/backstop/
+            - go tool golangci-lint run ./pkg/scaffold/... ./cmd/backstop/...
+            - go build ./...
+
+          This covers code verification for all .go files touched in the plan.
+        files:
+          - pkg/scaffold/scaffold.go
+          - pkg/scaffold/idresolver.go
+          - pkg/scaffold/slug.go
+          - cmd/backstop/artifact_new.go
+        claims:
+          - CLM-001
+          - CLM-010
+          - CLM-016
+          - CLM-020
+          - CLM-023
+          - CLM-032
+          - CLM-039
+          - CLM-050
+          - CLM-057
+          - CLM-060
+          - CLM-066
+          - CLM-071
+          - CLM-080
+        depends_on:
+          - TASK-020
+          - TASK-021

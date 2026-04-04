@@ -1,0 +1,899 @@
+---
+plan_id: PLAN-SPEC-012
+spec_id: SPEC-012
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/compile/ -run TestGoStandard -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Populates the Go standards pack with enforceable rule content across three
+  bootstrap categories: core, test, and security. This is a content spec —
+  writing semgrep YAML rules, testdata Go fixtures, and updating STD-GO-001.
+  No new Go library code in pkg/ is required; tests in pkg/compile/ verify
+  the content round-trips through the compiler correctly.
+
+  The work splits into five parallel streams that converge for integration:
+    1. STD-GO-001 updates (new rule definitions)
+    2. Core semgrep rules + testdata
+    3. Test semgrep rules + testdata
+    4. Security semgrep rules + testdata
+    5. Deferred category scaffolding (accessibility/)
+
+  Streams 2-4 depend on stream 1 (STD-GO-001 must have the rules before
+  semgrep YAML can reference them). Streams 2, 3, and 4 have disjoint file
+  sets and can execute in parallel after stream 1 completes. Stream 5 is
+  independent of everything.
+
+  Structure:
+    Phase 1: Setup — accessibility directory, test helpers
+    Phase 2: STD-GO-001 updates (new rules GO-004..GO-006, GO-060..GO-063)
+    Phase 3: Core semgrep rules + core testdata (parallel-eligible)
+    Phase 4: Test semgrep rules + test testdata (parallel with Phase 3)
+    Phase 5: Security semgrep rules + security testdata (parallel with Phase 3, 4)
+    Phase 6: Rule format validation + semgrep OSS compatibility tests
+    Phase 7: Compiler integration + detection strategy mapping tests
+    Phase 8: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Scaffolding and Test Helpers
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Scaffolding and Test Helpers"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create accessibility directory and test helper scaffolding"
+        description: |
+          Create the missing accessibility/ directory under standards/go/rules/
+          to complete the ten-category directory structure per ADR-0006.
+
+          Create pkg/compile/go_standards_helpers_test.go with shared test
+          helpers for the GoStandard test suite:
+            - loadSemgrepRulesFile(t, path) — reads and parses a semgrep YAML
+              rules file, returns the parsed rules array
+            - loadStandardArtifact(t) — reads and parses STD-GO-001, returns
+              the parsed frontmatter including rules array
+            - findRuleByID(rules, id) — finds a rule entry by its semgrep id
+              field
+            - findSTDRuleByID(rules, id) — finds a rule in STD-GO-001 by its
+              rule id field (GO-NNN)
+            - allSemgrepRuleFiles(t) — globs standards/go/rules/**/*.yml and
+              returns all rule file paths
+
+          Add a .gitkeep file to standards/go/rules/accessibility/ to ensure
+          the empty directory is tracked by git.
+        files:
+          - standards/go/rules/accessibility/.gitkeep
+          - pkg/compile/go_standards_helpers_test.go
+        claims:
+          - CLM-043
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: STD-GO-001 Updates — New Rule Definitions
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: STD-GO-001 Updates — New Rule Definitions"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for STD-GO-001 new rule definitions"
+        description: |
+          Write failing tests in pkg/compile/go_standards_std_test.go that
+          verify STD-GO-001 contains the new rules with correct schema fields.
+
+          Tests for new core rules (REQ-008):
+            - TestGoStandard_STD_GO001_HasRule_GO004: GO-004 no-init-functions
+              exists with category structure, severity error, tier baseline,
+              strategy pattern
+            - TestGoStandard_STD_GO001_HasRule_GO005: GO-005
+              constructor-injection-required exists with category structure,
+              severity warning, tier standard, strategy pattern
+            - TestGoStandard_STD_GO001_HasRule_GO006: GO-006
+              structured-logging-required exists with category structure,
+              severity warning, tier standard, strategy pattern
+
+          Tests for new security rules (REQ-008):
+            - TestGoStandard_STD_GO001_HasSecurityRules: GO-060 through GO-063
+              exist with category security, correct severities, correct tiers,
+              and all required schema fields
+
+          Tests for existing rules referenced by REQ-002 and REQ-003:
+            - TestGoStandard_STD_GO001_HasRule_GO010: GO-010 exists as
+              pattern-strategy rule
+            - TestGoStandard_STD_GO001_HasRule_GO012: GO-012 exists as
+              pattern-strategy rule with function-length constraint
+            - TestGoStandard_STD_GO001_HasRule_GO020: GO-020 exists as
+              delegated-strategy rule
+            - TestGoStandard_STD_GO001_HasRule_GO021: GO-021 exists as
+              regex-strategy rule
+            - TestGoStandard_STD_GO001_HasRule_GO030: GO-030 exists as
+              metric-strategy rule
+            - TestGoStandard_STD_GO001_HasRule_GO031: GO-031 exists as
+              pattern-strategy rule with note
+            - TestGoStandard_STD_GO001_HasRule_GO040: GO-040 exists as
+              delegated-strategy rule
+
+          Schema validation test:
+            - TestGoStandard_STD_GO001_ValidatesAgainstSchema: updated
+              STD-GO-001 validates against standard/v1 schema
+
+          All tests fail initially because GO-004..GO-006 and GO-060..GO-063
+          do not yet exist in STD-GO-001.
+        files:
+          - pkg/compile/go_standards_std_test.go
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-047
+          - CLM-048
+          - CLM-054
+          - CLM-056
+          - CLM-057
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Update STD-GO-001 with new rules GO-004..GO-006 and GO-060..GO-063"
+        description: |
+          Add seven new rules to the STD-GO-001 frontmatter rules array in
+          standards/go/STD-GO-001-go-code-standards.standard.md.
+
+          Core additions (insert after GO-003 in the structure section):
+            - GO-004: no-init-functions
+              category: structure, severity: error, tier: baseline
+              detection: strategy: pattern, semgrep: "func init() { ... }"
+            - GO-005: constructor-injection-required
+              category: structure, severity: warning, tier: standard
+              detection: strategy: pattern, note about aspirational pattern
+            - GO-006: structured-logging-required
+              category: structure, severity: warning, tier: standard
+              detection: strategy: pattern, semgrep: "log.Print(...)" etc.
+
+          Security additions (new section after Concurrency):
+            - GO-060: no-hardcoded-credentials
+              category: security, severity: error, tier: baseline
+              detection: strategy: pattern
+            - GO-061: no-weak-password-hashing
+              category: security, severity: error, tier: baseline
+              detection: strategy: pattern
+            - GO-062: no-sql-concatenation
+              category: security, severity: error, tier: baseline
+              detection: strategy: pattern
+            - GO-063: no-sensitive-data-in-logs
+              category: security, severity: warning, tier: standard
+              detection: strategy: pattern
+
+          Update the prose body sections to document the new rules.
+        files:
+          - standards/go/STD-GO-001-go-code-standards.standard.md
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify STD-GO-001 updates pass schema validation"
+        description: |
+          Run tests to verify the updated STD-GO-001 contains all new rules
+          and validates against the standard/v1 schema.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_STD_GO001" -race -v
+        files:
+          - pkg/compile/go_standards_std_test.go
+        claims:
+          - CLM-029
+          - CLM-033
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Core Semgrep Rules and Testdata
+  # Parallel-eligible with Phase 4 and Phase 5 (disjoint files)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Core Semgrep Rules and Testdata"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for core semgrep rules and testdata fixtures"
+        description: |
+          Write failing tests in pkg/compile/go_standards_core_test.go for
+          core category rules.
+
+          Rule existence tests (REQ-001, REQ-002):
+            - TestGoStandard_CoreRuleExists_GO003: go-core.yml contains rule
+              with id go.core.no-global-mutable-state
+            - TestGoStandard_CoreRuleExists_GO004: go-core.yml contains rule
+              with id go.core.no-init-functions
+            - TestGoStandard_CoreRuleExists_GO005: go-core.yml contains rule
+              with id go.core.constructor-injection
+            - TestGoStandard_CoreRuleExists_GO006: go-core.yml contains rule
+              with id go.core.structured-logging
+            - TestGoStandard_CoreRuleExists_GO010: go-core.yml contains rule
+              with id go.core.no-ignored-errors
+            - TestGoStandard_CoreRuleExists_GO011: go-core.yml contains rule
+              with id go.core.error-wrapping-required
+            - TestGoStandard_CoreRuleExists_GO012: go-core.yml contains rule
+              with id go.core.no-naked-returns
+            - TestGoStandard_CoreRuleExists_GO013: go-core.yml contains rule
+              with id go.core.no-panic-in-library-code
+            - TestGoStandard_CoreRuleExists_GO021: go-core.yml contains rule
+              with id go.core.error-type-suffix using pattern-regex
+
+          Metadata and note tests:
+            - TestGoStandard_CoreRuleMetadata: each core rule has backstop
+              metadata with category, rule_id, compliance_tier
+            - TestGoStandard_CoreRule_GO012_HasNote: GO-012 rule includes note
+              about function-length limitation
+
+          Delegation exclusion tests:
+            - TestGoStandard_STD_GO001_GO020_HasDelegationNote: GO-020 has
+              delegation info in STD-GO-001 (not in semgrep YAML)
+            - TestGoStandard_GO040_NotInSemgrepYAML: GO-040 does NOT appear
+              in any semgrep YAML rule file
+
+          All tests fail initially because go-core.yml does not exist yet.
+        files:
+          - pkg/compile/go_standards_core_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-052
+          - CLM-053
+          - CLM-055
+          - CLM-058
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Create core semgrep rules YAML and core testdata fixtures"
+        description: |
+          Create standards/go/rules/core/go-core.yml with semgrep rules for
+          the core category. Each rule follows the semgrep YAML format with:
+            - id: go.core.<kebab-name>
+            - pattern or patterns field
+            - message explaining the violation
+            - severity matching STD-GO-001
+            - languages: [go]
+            - metadata.backstop block with category, rule_id, compliance_tier,
+              rationale
+
+          Rules to include:
+            - go.core.no-global-mutable-state (GO-003) — pattern strategy
+            - go.core.no-init-functions (GO-004) — pattern strategy
+            - go.core.constructor-injection (GO-005) — pattern strategy
+            - go.core.structured-logging (GO-006) — pattern strategy
+            - go.core.no-ignored-errors (GO-010) — pattern strategy
+            - go.core.error-wrapping-required (GO-011) — pattern strategy
+            - go.core.no-naked-returns (GO-012) — pattern strategy + note
+            - go.core.no-panic-in-library-code (GO-013) — pattern strategy
+            - go.core.error-type-suffix (GO-021) — regex strategy (pattern-regex)
+
+          GO-020 and GO-040 are NOT included (delegated strategy).
+
+          Create testdata/invalid/ fixtures (one per rule):
+            - go-003-global-mutable-state.go
+            - go-004-init-function.go
+            - go-005-direct-struct-creation.go
+            - go-006-stdlib-log.go
+            - go-010-ignored-error.go
+            - go-011-unwrapped-error.go
+            - go-012-naked-return.go
+            - go-013-panic-in-library.go
+            - go-021-error-type-no-suffix.go
+
+          Create testdata/valid/ fixtures (one per rule):
+            - go-003-dependency-injection.go
+            - go-004-no-init.go
+            - go-005-constructor-injection.go
+            - go-006-structured-logging.go
+            - go-010-error-handled.go
+            - go-011-error-wrapped.go
+            - go-012-explicit-return.go
+            - go-013-error-return.go
+            - go-021-error-type-suffix.go
+        files:
+          - standards/go/rules/core/go-core.yml
+          - standards/go/testdata/invalid/go-003-global-mutable-state.go
+          - standards/go/testdata/invalid/go-004-init-function.go
+          - standards/go/testdata/invalid/go-005-direct-struct-creation.go
+          - standards/go/testdata/invalid/go-006-stdlib-log.go
+          - standards/go/testdata/invalid/go-010-ignored-error.go
+          - standards/go/testdata/invalid/go-011-unwrapped-error.go
+          - standards/go/testdata/invalid/go-012-naked-return.go
+          - standards/go/testdata/invalid/go-013-panic-in-library.go
+          - standards/go/testdata/invalid/go-021-error-type-no-suffix.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-052
+          - CLM-053
+          - CLM-055
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "Create core testdata valid fixtures"
+        description: |
+          Create testdata/valid/ fixtures for core rules. Each file
+          demonstrates the correct pattern and must pass all rules
+          without violations.
+
+          Files:
+            - go-003-dependency-injection.go
+            - go-004-no-init.go
+            - go-005-constructor-injection.go
+            - go-006-structured-logging.go
+            - go-010-error-handled.go
+            - go-011-error-wrapped.go
+            - go-012-explicit-return.go
+            - go-013-error-return.go
+            - go-021-error-type-suffix.go
+
+          Each fixture is syntactically valid Go that compiles and follows
+          the correct pattern for the corresponding rule.
+        files:
+          - standards/go/testdata/valid/go-003-dependency-injection.go
+          - standards/go/testdata/valid/go-004-no-init.go
+          - standards/go/testdata/valid/go-005-constructor-injection.go
+          - standards/go/testdata/valid/go-006-structured-logging.go
+          - standards/go/testdata/valid/go-010-error-handled.go
+          - standards/go/testdata/valid/go-011-error-wrapped.go
+          - standards/go/testdata/valid/go-012-explicit-return.go
+          - standards/go/testdata/valid/go-013-error-return.go
+          - standards/go/testdata/valid/go-021-error-type-suffix.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-052
+          - CLM-053
+          - CLM-055
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: verification
+        title: "Verify core semgrep rules and testdata"
+        description: |
+          Run tests to verify core rules parse correctly, have correct
+          metadata, and testdata fixtures exist.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_CoreRule" -race -v
+            - semgrep --config standards/go/rules/core/ --test standards/go/testdata/ (if semgrep available)
+        files:
+          - pkg/compile/go_standards_core_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Test Semgrep Rules and Testdata
+  # Parallel-eligible with Phase 3 and Phase 5 (disjoint files)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Test Category Semgrep Rules and Testdata"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write tests for test category semgrep rules"
+        description: |
+          Write failing tests in pkg/compile/go_standards_test_rules_test.go
+          for test category rules.
+
+          Rule existence and scoping tests (REQ-003):
+            - TestGoStandard_TestRuleExists_GO032: go-test.yml contains rule
+              with id go.test.no-time-sleep-in-tests
+            - TestGoStandard_TestRule_GO032_ScopedToTestFiles: GO-032 rule
+              uses paths include/exclude to scope to _test.go files only
+            - TestGoStandard_TestRule_GO030_HasNote: GO-030 has a note in
+              STD-GO-001 explaining metric-based detection limitation
+            - TestGoStandard_TestRule_GO031_HasNote: GO-031 has a note in
+              STD-GO-001 explaining custom analysis requirement
+
+          All tests fail initially because go-test.yml does not exist yet.
+        files:
+          - pkg/compile/go_standards_test_rules_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-004
+
+      - id: TASK-010
+        type: implementation
+        title: "Create test category semgrep rules and testdata fixtures"
+        description: |
+          Create standards/go/rules/test/go-test.yml with the semgrep rule
+          for GO-032 no-time-sleep-in-tests. The rule must:
+            - id: go.test.no-time-sleep-in-tests
+            - pattern: time.Sleep(...)
+            - severity: ERROR
+            - languages: [go]
+            - paths.include: ["*_test.go"] to scope to test files only
+            - metadata.backstop with category: testing, rule_id: GO-032,
+              compliance_tier: baseline
+
+          GO-030 and GO-031 do NOT produce semgrep YAML rules (metric and
+          note-based strategies respectively).
+
+          Create testdata fixtures:
+            - testdata/invalid/go-032-time-sleep-in-test.go — a _test.go-named
+              fixture containing time.Sleep that triggers GO-032
+            - testdata/valid/go-032-no-sleep-in-test.go — a _test.go-named
+              fixture using channels/tickers instead of time.Sleep
+        files:
+          - standards/go/rules/test/go-test.yml
+          - standards/go/testdata/invalid/go-032-time-sleep-in-test.go
+          - standards/go/testdata/valid/go-032-no-sleep-in-test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify test category semgrep rules"
+        description: |
+          Run tests to verify test category rules parse correctly and
+          testdata fixtures exist.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_TestRule" -race -v
+        files:
+          - pkg/compile/go_standards_test_rules_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Security Semgrep Rules and Testdata
+  # Parallel-eligible with Phase 3 and Phase 4 (disjoint files)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Security Category Semgrep Rules and Testdata"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write tests for security category semgrep rules"
+        description: |
+          Write failing tests in pkg/compile/go_standards_security_test.go
+          for security category rules.
+
+          Rule existence tests (REQ-004):
+            - TestGoStandard_SecurityRuleExists_GO060: go-security.yml
+              contains rule with id go.security.no-hardcoded-credentials
+            - TestGoStandard_SecurityRuleExists_GO061: go-security.yml
+              contains rule with id go.security.no-weak-password-hashing
+            - TestGoStandard_SecurityRuleExists_GO062: go-security.yml
+              contains rule with id go.security.no-sql-concatenation
+            - TestGoStandard_SecurityRuleExists_GO063: go-security.yml
+              contains rule with id go.security.no-sensitive-data-in-logs
+
+          Metadata test:
+            - TestGoStandard_SecurityRuleMetadata_ComplianceRefs: each
+              security rule has CWE or OWASP identifier in backstop metadata
+
+          All tests fail initially because go-security.yml does not exist.
+        files:
+          - pkg/compile/go_standards_security_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-004
+
+      - id: TASK-013
+        type: implementation
+        title: "Create security category semgrep rules and testdata fixtures"
+        description: |
+          Create standards/go/rules/security/go-security.yml with semgrep
+          rules for the security category. Each rule includes CWE/OWASP
+          references in metadata.backstop.
+
+          Rules:
+            - go.security.no-hardcoded-credentials (GO-060)
+              pattern: detect string assignments to password/secret/key/token vars
+              metadata: CWE-798, OWASP A07, tier: baseline
+            - go.security.no-weak-password-hashing (GO-061)
+              pattern: detect crypto/md5 and crypto/sha1 usage
+              metadata: CWE-327, OWASP A02, tier: baseline
+            - go.security.no-sql-concatenation (GO-062)
+              pattern: detect string concatenation in SQL query contexts
+              metadata: CWE-89, OWASP A03, tier: baseline
+            - go.security.no-sensitive-data-in-logs (GO-063)
+              pattern: detect logging of password/token/secret variables
+              metadata: CWE-532, OWASP A09, tier: standard
+
+          Create testdata fixtures:
+            - testdata/invalid/go-060-hardcoded-password.go
+            - testdata/invalid/go-061-md5-password-hash.go
+            - testdata/invalid/go-062-sql-concatenation.go
+            - testdata/invalid/go-063-log-sensitive-data.go
+            - testdata/valid/go-060-env-credentials.go
+            - testdata/valid/go-061-bcrypt-hash.go
+            - testdata/valid/go-062-parameterized-query.go
+            - testdata/valid/go-063-sanitized-log.go
+        files:
+          - standards/go/rules/security/go-security.yml
+          - standards/go/testdata/invalid/go-060-hardcoded-password.go
+          - standards/go/testdata/invalid/go-061-md5-password-hash.go
+          - standards/go/testdata/invalid/go-062-sql-concatenation.go
+          - standards/go/testdata/invalid/go-063-log-sensitive-data.go
+          - standards/go/testdata/valid/go-060-env-credentials.go
+          - standards/go/testdata/valid/go-061-bcrypt-hash.go
+          - standards/go/testdata/valid/go-062-parameterized-query.go
+          - standards/go/testdata/valid/go-063-sanitized-log.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify security category semgrep rules"
+        description: |
+          Run tests to verify security rules parse correctly, have CWE/OWASP
+          metadata, and testdata fixtures exist.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_SecurityRule" -race -v
+        files:
+          - pkg/compile/go_standards_security_test.go
+        claims:
+          - CLM-014
+          - CLM-018
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Rule Format Validation and Semgrep OSS Compatibility
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Rule Format Validation, Testdata Verification, and OSS Compatibility"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write tests for rule format, testdata coverage, and semgrep OSS compatibility"
+        description: |
+          Write failing tests in pkg/compile/go_standards_format_test.go
+          covering REQ-005 (rule format), REQ-006 (invalid fixtures),
+          REQ-007 (valid fixtures), REQ-011 (deferred categories), and
+          REQ-012 (OSS compatibility).
+
+          Rule format tests (REQ-005):
+            - TestGoStandard_AllRulesValidYAML: all rule files parse as valid
+              YAML with top-level rules array
+            - TestGoStandard_AllRulesHaveRequiredFields: every rule entry has
+              id, pattern/patterns, message, severity, languages, metadata
+            - TestGoStandard_AllRuleIDsFollowFormat: every rule ID matches
+              go.<category>.<kebab-name> format
+            - TestGoStandard_AllRulesTargetGo: every rule has languages [go]
+            - TestGoStandard_AllRulesHaveBackstopRuleID: every rule has
+              metadata.backstop.rule_id mapping to STD-GO-001
+
+          Testdata fixture tests (REQ-006, REQ-007):
+            - TestGoStandard_InvalidFixtureExistsPerRule: each semgrep rule
+              has a corresponding invalid fixture
+            - TestGoStandard_InvalidFixtureNamingConvention: invalid fixture
+              filenames follow <rule-id>-<description>.go pattern
+            - TestGoStandard_InvalidFixtureTriggersRule: running semgrep
+              against invalid fixtures produces violations
+            - TestGoStandard_ValidFixtureExistsPerRule: each semgrep rule has
+              a corresponding valid fixture
+            - TestGoStandard_ValidFixtureNamingConvention: valid fixture
+              filenames follow <rule-id>-<description>.go pattern
+            - TestGoStandard_ValidFixturePassesAllRules: running semgrep
+              against valid fixtures produces zero violations
+
+          Deferred category tests (REQ-011):
+            - TestGoStandard_DeferredCategoriesEmpty: all seven deferred
+              category directories exist and contain no rule files
+            - TestGoStandard_ConcurrencyRulesCompile: existing concurrency
+              rules GO-050/GO-051 compile correctly
+
+          OSS compatibility tests (REQ-012):
+            - TestGoStandard_AllRulesRunWithSemgrepOSS: all rules run with
+              semgrep OSS without errors
+            - TestGoStandard_NoProFeaturesUsed: no rule uses cross-file
+              analysis, taint mode, or join mode
+        files:
+          - pkg/compile/go_standards_format_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-051
+        depends_on:
+          - TASK-008
+          - TASK-011
+          - TASK-014
+
+      - id: TASK-016
+        type: refactor
+        title: "Fix any rule format or fixture issues discovered by format tests"
+        description: |
+          After running the format tests, fix any issues found in the
+          semgrep rule files or testdata fixtures. This may include:
+            - Correcting rule ID formats
+            - Adding missing metadata fields
+            - Fixing fixture filenames to match naming conventions
+            - Ensuring fixtures compile and trigger/pass as expected
+            - Removing any accidental Pro features from rules
+
+          This task exists because the format tests (TASK-015) cross-cut
+          all three rule files and may reveal issues not caught by the
+          category-specific tests. Fixes go into the rule and fixture files
+          created in Phases 3-5.
+
+          The exact changes depend on test failures from TASK-015. If all
+          format tests pass on first run, this task is a no-op.
+        files:
+          - standards/go/rules/core/go-core.yml
+          - standards/go/rules/test/go-test.yml
+          - standards/go/rules/security/go-security.yml
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-045
+          - CLM-046
+          - CLM-051
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Verify all rule format, fixture, and OSS compatibility tests pass"
+        description: |
+          Run the full format test suite to confirm all rules meet format
+          requirements, all fixtures exist and trigger correctly, and no
+          Pro features are used.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_AllRules|TestGoStandard_InvalidFixture|TestGoStandard_ValidFixture|TestGoStandard_DeferredCategories|TestGoStandard_ConcurrencyRules|TestGoStandard_NoProFeatures" -race -v
+        files:
+          - pkg/compile/go_standards_format_test.go
+        claims:
+          - CLM-019
+          - CLM-023
+          - CLM-043
+          - CLM-045
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Compiler Integration and Detection Strategy Mapping
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Compiler Integration and Detection Strategy Mapping"
+    tasks:
+      - id: TASK-018
+        type: test
+        title: "Write tests for pack compile integration and strategy mapping"
+        description: |
+          Write failing tests in pkg/compile/go_standards_integration_test.go
+          covering REQ-009 (pack compile) and REQ-010 (strategy mapping).
+
+          Pack compile tests (REQ-009):
+            - TestGoStandard_PackCompile_ProducesManifest: backstop pack
+              compile produces an enforcement manifest for STD-GO-001
+            - TestGoStandard_PackCompile_SemgrepIncludesPatternRules: compiled
+              semgrep config contains all pattern-strategy rules from core,
+              test, and security
+            - TestGoStandard_PackCompile_NativeIncludesMetricRules: compiled
+              native checks JSON contains all metric-strategy rules
+            - TestGoStandard_PackCompile_DelegatedNotInSemgrep: delegated
+              rules appear in manifest but not in semgrep YAML
+
+          Strategy mapping tests (REQ-010):
+            - TestGoStandard_StrategyMapping_PatternToSemgrep: pattern rules
+              produce semgrep YAML with pattern field
+            - TestGoStandard_StrategyMapping_MetricToNative: metric rules
+              produce native check JSON with metric and threshold
+            - TestGoStandard_StrategyMapping_RegexToSemgrep: regex rules
+              produce semgrep YAML with pattern-regex field
+            - TestGoStandard_StrategyMapping_DelegatedToManifest: delegated
+              rules produce manifest entries with delegated_to
+            - TestGoStandard_StrategyMapping_AdvisoryToManifest: advisory
+              rules produce manifest entries with enforcement: advisory
+              (uses a synthetic advisory fixture since no current rule is
+              advisory)
+        files:
+          - pkg/compile/go_standards_integration_test.go
+        claims:
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: implementation
+        title: "Create advisory test fixture for strategy mapping verification"
+        description: |
+          The advisory strategy mapping test (CLM-042) requires a synthetic
+          advisory fixture rule since no current STD-GO-001 rule uses the
+          advisory strategy. Create a test fixture in the test file that
+          synthesizes a temporary standard with an advisory rule, compiles
+          it, and verifies the manifest output has enforcement: advisory.
+
+          This task may also require minor adjustments to the integration
+          test setup if the compiler needs specific directory structure or
+          fixtures to exercise all strategy paths.
+
+          If the existing compiler already handles all strategies correctly
+          with the real STD-GO-001 content, this task creates only the
+          synthetic advisory test fixture inline in the test file.
+        files:
+          - pkg/compile/go_standards_integration_test.go
+        claims:
+          - CLM-042
+        depends_on:
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Verify compiler integration and strategy mapping tests pass"
+        description: |
+          Run integration tests to verify the compiler correctly processes
+          the updated STD-GO-001 and all detection strategies map to the
+          correct output types.
+
+          Commands:
+            - go test ./pkg/compile/ -run "TestGoStandard_PackCompile|TestGoStandard_StrategyMapping" -race -v
+        files:
+          - pkg/compile/go_standards_integration_test.go
+        claims:
+          - CLM-034
+          - CLM-038
+          - CLM-042
+        depends_on:
+          - TASK-019
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Comprehensive Verification"
+    tasks:
+      - id: TASK-021
+        type: verification
+        title: "Run full GoStandard test suite with coverage gate"
+        description: |
+          Run the complete GoStandard test suite with race detection and
+          coverage profiling. Verify all claim tests pass and coverage
+          meets the 80% threshold.
+
+          Commands:
+            - go test ./pkg/compile/ -run TestGoStandard -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep pkg/compile/
+            - Verify coverage >= 80%
+            - go build ./...
+
+          This covers code verification for all .go test files and ensures
+          the compiler handles the updated standard content.
+        files:
+          - pkg/compile/go_standards_helpers_test.go
+          - pkg/compile/go_standards_std_test.go
+          - pkg/compile/go_standards_core_test.go
+          - pkg/compile/go_standards_test_rules_test.go
+          - pkg/compile/go_standards_security_test.go
+          - pkg/compile/go_standards_format_test.go
+          - pkg/compile/go_standards_integration_test.go
+        claims:
+          - CLM-001
+          - CLM-010
+          - CLM-014
+          - CLM-019
+          - CLM-029
+          - CLM-034
+          - CLM-038
+          - CLM-043
+          - CLM-045
+        depends_on:
+          - TASK-019
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify artifact files — standard, rules, and testdata"
+        description: |
+          Verify the artifact files are valid and consistent:
+            - STD-GO-001 validates against standard/v1 schema
+            - All semgrep YAML rule files parse correctly
+            - All testdata fixtures are syntactically valid Go
+            - Deferred category directories are empty
+            - accessibility/ directory exists
+
+          Commands:
+            - Validate STD-GO-001 parses as valid frontmatter YAML
+            - Validate all rule files under standards/go/rules/ parse as
+              valid semgrep YAML
+            - go vet standards/go/testdata/... (verify fixtures compile)
+            - ls standards/go/rules/accessibility/ (verify directory exists)
+        files:
+          - standards/go/STD-GO-001-go-code-standards.standard.md
+          - standards/go/rules/core/go-core.yml
+          - standards/go/rules/test/go-test.yml
+          - standards/go/rules/security/go-security.yml
+          - standards/go/rules/accessibility/.gitkeep
+        claims:
+          - CLM-033
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-019
+          - TASK-020

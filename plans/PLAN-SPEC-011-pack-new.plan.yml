@@ -1,0 +1,657 @@
+---
+plan_id: PLAN-SPEC-011
+spec_id: SPEC-011
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/pack/... -run TestPackNew -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements backstop pack new command for scaffolding rule packs (--type rule)
+  and code packs (--type code). Logic lives in pkg/pack/ (new package), with a
+  thin Cobra adapter in cmd/backstop/pack_new.go.
+
+  pkg/pack/ does not exist yet. cmd/backstop/ has only a .gitkeep placeholder.
+  pkg/scaffold/ does not exist (slug validation lives in pkg/pack/).
+
+  Dependency: SPEC-005 (CLI foundation) provides Cobra skeleton, output layer,
+  and exit code conventions. The command integrates with that foundation.
+
+  Structure maximizes parallelism via disjoint file sets:
+    - Phase 2 has two parallel task pairs: language validation (number.go) and
+      type+slug validation (scaffold.go)
+    - Phase 3 has two parallel task pairs: number resolution (number.go) and
+      rule pack scaffolding (scaffold.go)
+    - Phase 4 is sequential: code pack + conflict + output (scaffold.go)
+    - Phase 5 is sequential: Cobra command adapter (pack_new.go)
+    - Phase 6: comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Package Scaffolding and Test Helpers"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create pkg/pack/ package and shared test helpers"
+        description: |
+          Create the pkg/pack/ package directory with:
+            - pkg/pack/doc.go: package doc comment for pack
+            - pkg/pack/helpers_test.go: shared test helpers
+
+          Test helpers:
+            - tempProjectDir(t *testing.T) string — creates a temporary directory
+              simulating a project root with standards/ and recipes/ subdirectories.
+              Returns the path. Registers t.Cleanup for removal.
+            - seedStandard(t *testing.T, root, language string, number int, slug string) —
+              creates a minimal STD-<LANG>-<NNN>-<slug>.standard.md file in
+              standards/<language>/ within the temp project dir. Used by number
+              resolution and conflict tests.
+            - seedRecipeDir(t *testing.T, root, language, slug string) — creates
+              recipes/<language>/<slug>/ directory within the temp project dir.
+              Used by code pack conflict tests.
+
+          These helpers reduce boilerplate across 42 claim tests.
+        files:
+          - pkg/pack/doc.go
+          - pkg/pack/helpers_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Input Validation (two parallel task pairs)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Input Validation — Type, Language, and Slug"
+    tasks:
+      # --- Parallel pair A: Language validation (number.go) ---
+      - id: TASK-002
+        type: test
+        title: "Write tests for language validation"
+        description: |
+          Write failing tests in pkg/pack/number_test.go for ValidateLanguage.
+
+          Tests (REQ-002):
+            - TestPackNew_ValidLanguage_Accepted: "go", "typescript" accepted
+            - TestPackNew_MissingLanguage_Exit2: empty string returns error
+            - TestPackNew_EmptyLanguage_Exit2: "" returns error
+            - TestPackNew_LanguageUppercase_Exit2: "Go", "TypeScript" rejected
+            - TestPackNew_LanguageInvalidChars_Exit2: "c-sharp", "go2" rejected
+
+          All tests call ValidateLanguage() directly and assert error/no-error.
+        files:
+          - pkg/pack/number_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement language validation"
+        description: |
+          Implement ValidateLanguage in pkg/pack/number.go.
+
+          ValidateLanguage(language string) error:
+            - If language is empty: return error "language is required"
+            - If language does not match ^[a-z]+$: return error with detail
+            - Otherwise: return nil
+
+          Uses regexp.MustCompile at package level for the pattern.
+        files:
+          - pkg/pack/number.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+
+      # --- Parallel pair B: Type + slug validation (scaffold.go) ---
+      - id: TASK-004
+        type: test
+        title: "Write tests for pack type and slug validation"
+        description: |
+          Write failing tests in pkg/pack/scaffold_test.go for type and slug
+          validation.
+
+          Type validation tests (REQ-001):
+            - TestPackNew_ValidType_Rule: "rule" accepted by ValidPackTypes
+            - TestPackNew_ValidType_Code: "code" accepted by ValidPackTypes
+            - TestPackNew_InvalidType_Exit2: "bundle" rejected
+            - TestPackNew_MissingType_Exit2: "" rejected
+
+          Slug validation tests (REQ-003):
+            - TestPackNew_ValidSlug_Accepted: "error-handling", "go" accepted
+            - TestPackNew_SlugStartsWithDigit_Exit2: "1bad" rejected
+            - TestPackNew_SlugTooShort_Exit2: "a" rejected (< 2 chars)
+            - TestPackNew_SlugTooLong_Exit2: 65-char slug rejected
+            - TestPackNew_MissingSlug_Exit2: "" rejected
+
+          Type tests check ValidPackTypes map. Slug tests call ValidateSlug()
+          and assert error/no-error.
+        files:
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement pack type registry and slug validation"
+        description: |
+          Implement in pkg/pack/scaffold.go:
+
+          ValidPackTypes map[string]bool:
+            - "rule": true
+            - "code": true
+
+          ValidateSlug(slug string) error:
+            - If slug is empty: return error "slug is required"
+            - If slug does not match ^[a-z][a-z0-9]*(-[a-z0-9]+)*$: return error
+            - If len(slug) < 2: return error "slug must be at least 2 characters"
+            - If len(slug) > 64: return error "slug must be at most 64 characters"
+            - Otherwise: return nil
+
+          ScaffoldOptions struct (placeholder — fields populated in later phases):
+            - Type string
+            - Language string
+            - Slug string
+            - Number int
+            - ProjectRoot string
+
+          ScaffoldResult struct (placeholder):
+            - Paths []string
+            - PackID string
+            - Type string
+            - Language string
+            - Slug string
+        files:
+          - pkg/pack/scaffold.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify input validation passes"
+        description: |
+          Run tests and lint for Phase 2 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestPackNew_Valid|TestPackNew_Missing|TestPackNew_Empty|TestPackNew_Language|TestPackNew_Invalid|TestPackNew_Slug" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/number_test.go
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-010
+        depends_on:
+          - TASK-003
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Number Resolution + Rule Pack Scaffolding (parallel pairs)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Number Resolution and Rule Pack Scaffolding"
+    tasks:
+      # --- Parallel pair A: Number resolution (number.go) ---
+      - id: TASK-007
+        type: test
+        title: "Write tests for pack number resolution"
+        description: |
+          Write failing tests in pkg/pack/number_test.go for ResolvePackNumber.
+
+          Tests (REQ-006):
+            - TestPackNew_NumberAssign_StartsAt001: empty standards dir returns 1
+            - TestPackNew_NumberAssign_ScansExisting: dir with STD-GO-001, STD-GO-003
+              returns 4 (max+1)
+            - TestPackNew_NumberAssign_GapsPreserved: dir with 001, 003 returns 4,
+              not 2
+            - TestPackNew_NumberAssign_ZeroPadded: returned number used in filename
+              produces "003" format (tested via integration with scaffold)
+
+          All tests use tempProjectDir + seedStandard helpers, then call
+          ResolvePackNumber(language, projectRoot).
+        files:
+          - pkg/pack/number_test.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Implement pack number resolution"
+        description: |
+          Implement ResolvePackNumber in pkg/pack/number.go.
+
+          ResolvePackNumber(language string, projectRoot string) (int, error):
+            1. Compute dir path: filepath.Join(projectRoot, "standards", language)
+            2. If dir does not exist: return 1, nil
+            3. List files matching STD-<LANG>-<NNN>-*.standard.md pattern
+               where <LANG> is strings.ToUpper(language)
+            4. Extract 3-digit numbers from matching filenames via regex
+            5. Find max number among all matches
+            6. Return max + 1, nil
+            7. If no matches found: return 1, nil
+
+          Edge cases:
+            - Directory exists but empty: returns 1
+            - Files with non-matching names are ignored
+            - Only counts files for the requested language prefix
+        files:
+          - pkg/pack/number.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-007
+
+      # --- Parallel pair B: Rule pack scaffolding (scaffold.go) ---
+      - id: TASK-009
+        type: test
+        title: "Write tests for rule pack scaffolding"
+        description: |
+          Write failing tests in pkg/pack/scaffold_test.go for ScaffoldPack
+          with type=rule.
+
+          Tests (REQ-004):
+            - TestPackNew_RulePack_CreatesStandardFile: ScaffoldPack with type=rule
+              creates file at standards/<lang>/STD-<LANG>-<NNN>-<slug>.standard.md
+            - TestPackNew_RulePack_UppercasedLangPrefix: file path uses "GO" not "go"
+            - TestPackNew_RulePack_FrontmatterFields: file contains all required
+              frontmatter fields (title, number, created, status, schema_version,
+              language, pack, scope)
+            - TestPackNew_RulePack_FrontmatterDefaults: created is today's date,
+              status is "active"
+            - TestPackNew_RulePack_TemplateRuleBody: frontmatter contains rules
+              array with template rule entry (id, name, category, severity,
+              description, compliance_tier, detection block placeholder)
+            - TestPackNew_RulePack_CreatesDirectoryIfMissing: standards/<lang>/
+              created when absent
+
+          All tests use tempProjectDir, call ScaffoldPack, then verify filesystem
+          state and file contents.
+        files:
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-006
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement rule pack scaffolding"
+        description: |
+          Implement rule pack scaffolding within ScaffoldPack in pkg/pack/scaffold.go.
+
+          ScaffoldPack(opts ScaffoldOptions) (*ScaffoldResult, error):
+            For type == "rule":
+            1. Compute lang prefix: strings.ToUpper(opts.Language)
+            2. Compute filename: fmt.Sprintf("STD-%s-%03d-%s.standard.md",
+               langPrefix, opts.Number, opts.Slug)
+            3. Compute dir: filepath.Join(opts.ProjectRoot, "standards", opts.Language)
+            4. Create dir with os.MkdirAll
+            5. Compute full path: filepath.Join(dir, filename)
+            6. If path exists: return error identifying conflicting path
+            7. Render frontmatter YAML:
+               - title: derived from slug (capitalize, replace hyphens with spaces)
+               - number: STD-<LANG>-<NNN>
+               - created: today's date (time.Now().Format("2006-01-02"))
+               - status: active
+               - schema_version: standard/v1
+               - language: opts.Language
+               - pack: opts.Language
+               - scope: language
+               - rules: array with one template rule entry containing id, name,
+                 category, severity, description, compliance_tier, and detection
+                 block placeholder fields
+            8. Write file
+            9. Return ScaffoldResult with path, pack ID, type, language, slug
+
+          Uses text/template or fmt for rendering. Does NOT call
+          ResolvePackNumber — the caller (command adapter) resolves the number
+          and passes it in opts.Number.
+        files:
+          - pkg/pack/scaffold.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify number resolution and rule pack scaffolding"
+        description: |
+          Run tests and lint for Phase 3 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestPackNew_NumberAssign|TestPackNew_RulePack" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/number_test.go
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-015
+          - CLM-025
+        depends_on:
+          - TASK-008
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Code Pack Scaffolding + Conflict Detection + Output
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Code Pack Scaffolding, Conflict Detection, and Output Modes"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write tests for code pack scaffolding, conflict detection, and output"
+        description: |
+          Write failing tests in pkg/pack/scaffold_test.go for ScaffoldPack
+          with type=code, conflict detection for both types, and output modes.
+
+          Code pack tests (REQ-005):
+            - TestPackNew_CodePack_CreatesRecipeDirectory: creates
+              recipes/<lang>/<slug>/
+            - TestPackNew_CodePack_ReadmeContents: README.md contains pack name
+              and description placeholder
+            - TestPackNew_CodePack_TemplateRecipeFile: <slug>.recipe.md exists
+              with placeholder content
+            - TestPackNew_CodePack_CreatesDirectoriesIfMissing: parent dirs created
+
+          Conflict tests (REQ-009):
+            - TestPackNew_Conflict_RulePackFileExists: seedStandard then scaffold
+              same params — error with exit code 2
+            - TestPackNew_Conflict_CodePackDirExists: seedRecipeDir then scaffold
+              same params — error with exit code 2
+            - TestPackNew_Conflict_ErrorIdentifiesPath: error message contains
+              the conflicting file/dir path
+
+          Output tests (REQ-007):
+            - TestPackNew_Output_JSON_Fields: ScaffoldResult contains type,
+              language, slug, paths, schema_version
+            - TestPackNew_Output_Human_Display: human-formatted output includes
+              paths and pack identifier
+            - TestPackNew_Output_DataParity: JSON and human output derive from
+              same ScaffoldResult
+        files:
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement code pack scaffolding, conflict detection, and output"
+        description: |
+          Extend ScaffoldPack in pkg/pack/scaffold.go for code packs, conflict
+          detection, and output support.
+
+          Code pack scaffolding (type == "code"):
+            1. Compute dir: filepath.Join(opts.ProjectRoot, "recipes",
+               opts.Language, opts.Slug)
+            2. If dir exists: return error identifying conflicting path
+            3. Create dir with os.MkdirAll
+            4. Write README.md: "# <Slug>\n\nDescription placeholder."
+            5. Write <slug>.recipe.md: template recipe placeholder content
+            6. Return ScaffoldResult with created paths
+
+          Conflict detection enhancement:
+            - Rule pack: check if exact file path exists before writing
+            - Code pack: check if recipe directory exists before creating
+            - Error messages include the conflicting path string
+
+          ScaffoldResult enhancements for output:
+            - Add SchemaVersion string field ("pack-new/v1")
+            - Ensure all fields needed for JSON output are populated:
+              Type, Language, Slug, Paths, PackID, SchemaVersion
+            - Add HumanString() method that formats paths and pack identifier
+              for human display
+        files:
+          - pkg/pack/scaffold.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify code pack scaffolding, conflict detection, and output"
+        description: |
+          Run tests and lint for Phase 4 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestPackNew_CodePack|TestPackNew_Conflict|TestPackNew_Output" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-021
+          - CLM-038
+          - CLM-029
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Cobra Command Adapter + Exit Codes
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Cobra Command Adapter and Exit Codes"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write tests for Cobra command adapter and exit codes"
+        description: |
+          Write failing tests in cmd/backstop/pack_new_test.go for
+          NewPackNewCommand and exit code behavior.
+
+          Thin adapter tests (REQ-010):
+            - TestPackNew_ThinAdapter_DelegatesScaffolding: command calls
+              ScaffoldPack (verify via temp dir filesystem side effects)
+            - TestPackNew_ThinAdapter_DelegatesNumberResolution: command calls
+              ResolvePackNumber for rule packs (verify correct number in output)
+
+          Exit code tests (REQ-008):
+            - TestPackNew_ExitCode_0_RulePackSuccess: successful rule pack returns 0
+            - TestPackNew_ExitCode_0_CodePackSuccess: successful code pack returns 0
+            - TestPackNew_ExitCode_2_InvalidType: --type bogus returns exit 2
+            - TestPackNew_ExitCode_2_InvalidLanguage: --language Go returns exit 2
+            - TestPackNew_ExitCode_2_InvalidSlug: --slug 1bad returns exit 2
+            - TestPackNew_ExitCode_2_MissingFlags: no flags returns exit 2
+
+          Tests execute the Cobra command programmatically (cmd.Execute with
+          args) and check exit code via SilenceErrors + RunE pattern, plus
+          stdout/stderr capture for output verification.
+        files:
+          - cmd/backstop/pack_new_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement Cobra command adapter"
+        description: |
+          Implement NewPackNewCommand in cmd/backstop/pack_new.go.
+
+          NewPackNewCommand() *cobra.Command:
+            1. Create cobra.Command with Use: "new", Short description
+            2. Register flags: --type (string, required), --language (string,
+               required), --slug (string, required), --json (bool)
+            3. RunE function:
+               a. Read --type flag; if empty return usage error (exit 2)
+               b. Validate type against pack.ValidPackTypes; if invalid return
+                  validation error (exit 2)
+               c. Read --language flag; if empty return usage error (exit 2)
+               d. Validate language via pack.ValidateLanguage; if invalid return
+                  error (exit 2)
+               e. Read --slug flag; if empty return usage error (exit 2)
+               f. Validate slug via pack.ValidateSlug; if invalid return error
+                  (exit 2)
+               g. For rule packs: resolve number via pack.ResolvePackNumber
+               h. Build pack.ScaffoldOptions with all fields
+               i. Call pack.ScaffoldPack(opts)
+               j. If error (including conflict): return error (exit 2)
+               k. Format output: if --json, marshal ScaffoldResult as JSON;
+                  otherwise print human-readable output
+               l. Return nil (exit 0)
+
+          The command function is a thin adapter: no scaffolding logic, no
+          template rendering, no directory creation. All logic delegated to
+          pkg/pack/.
+
+          Exit code mapping uses cobra SilenceErrors + a wrapper that maps
+          errors to exit code 2 (consistent with SPEC-005 conventions).
+        files:
+          - cmd/backstop/pack_new.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Verify Cobra command adapter and exit codes"
+        description: |
+          Run tests and lint for Phase 5 implementation.
+
+          Commands:
+            - go test ./cmd/backstop/ -run "TestPackNew_ThinAdapter|TestPackNew_ExitCode" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/pack_new_test.go
+        claims:
+          - CLM-032
+          - CLM-041
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Comprehensive Verification"
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete test suite across both packages with race detection
+          and coverage profiling. Verify all 42 claim tests pass and coverage
+          meets the 90% threshold.
+
+          Commands:
+            - go test ./cmd/backstop/... ./pkg/pack/... -run TestPackNew -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep -E "pkg/pack/|cmd/backstop/"
+            - Verify coverage >= 90% for pkg/pack/ files
+            - go tool golangci-lint run ./cmd/backstop/ ./pkg/pack/
+            - go build ./...
+
+          This covers code verification for all .go files touched in the plan.
+        files:
+          - pkg/pack/doc.go
+          - pkg/pack/helpers_test.go
+          - pkg/pack/number.go
+          - pkg/pack/number_test.go
+          - pkg/pack/scaffold.go
+          - pkg/pack/scaffold_test.go
+          - cmd/backstop/pack_new.go
+          - cmd/backstop/pack_new_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-010
+          - CLM-015
+          - CLM-021
+          - CLM-025
+          - CLM-029
+          - CLM-032
+          - CLM-038
+          - CLM-041
+        depends_on:
+          - TASK-016
+          - TASK-017

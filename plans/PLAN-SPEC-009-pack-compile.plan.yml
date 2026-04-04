@@ -1,0 +1,604 @@
+---
+plan_id: PLAN-SPEC-009
+spec_id: SPEC-009
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... -run TestPackCompile -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Thin CLI adapter wrapping pkg/compile as `backstop pack compile`. The compiler
+  already exists in pkg/compile — this spec covers discovery, iteration,
+  aggregation, output formatting, exit codes, and config dependency.
+
+  Three implementation files:
+    - cmd/backstop/pack_compile.go — command definition, handler, result types
+    - cmd/backstop/discover.go — recursive .standard.md discovery
+    - cmd/backstop/pack_compile_test.go — all tests
+
+  Because pack_compile.go and pack_compile_test.go are shared across most tasks,
+  parallelism is limited. Discovery (discover.go + discover_test.go) is the one
+  independent track that can run in parallel with setup.
+
+  Structure:
+    Phase 1: Setup — test fixtures (sample standards, backstop.yml)
+    Phase 2: Discovery — discover.go + tests (parallel track A)
+    Phase 3: Config loading + exit codes (test → impl → verify)
+    Phase 4: Compilation delegation + output dir mgmt (test → impl → verify)
+    Phase 5: Output modes + deprecation + partial failure + idempotency (test → impl → verify)
+    Phase 6: Comprehensive verification
+
+  Phase 2 is parallel-eligible with Phase 1 (disjoint files). Phases 3-5 are
+  sequential because they share pack_compile.go and pack_compile_test.go.
+
+phases:
+  # =====================================================================
+  # Phase 1: Setup — Test Fixtures
+  # =====================================================================
+  - id: phase-1
+    name: "Phase 1: Setup — Test Fixtures and Scaffolding"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create test fixtures for pack compile tests"
+        description: |
+          Create test fixture directory cmd/backstop/testdata/pack-compile/ with
+          sample .standard.md files and backstop.yml configs for testing.
+
+          Fixtures needed:
+            - testdata/pack-compile/backstop.yml — minimal valid config with
+              default standards_dirs (standards/)
+            - testdata/pack-compile/backstop-custom-dirs.yml — config with
+              custom standards_dirs pointing to multiple directories
+            - testdata/pack-compile/backstop-invalid.yml — malformed YAML
+            - testdata/pack-compile/standards/valid.standard.md — valid standard
+              with pattern rules (produces manifest + semgrep output)
+            - testdata/pack-compile/standards/metric.standard.md — valid standard
+              with metric rules (produces manifest + native checks)
+            - testdata/pack-compile/standards/deprecated.standard.md — standard
+              with status: deprecated and superseded_by field
+            - testdata/pack-compile/standards/invalid.standard.md — standard that
+              will fail compilation (e.g., unsupported strategy)
+            - testdata/pack-compile/standards/subdir/nested.standard.md — nested
+              standard to test recursive discovery
+            - testdata/pack-compile/standards/readme.md — non-standard file to
+              verify filtering
+            - testdata/pack-compile/alt-standards/alt.standard.md — standard in
+              alternative directory for custom standards_dirs testing
+
+          These fixtures are used by all subsequent test phases.
+        files:
+          - cmd/backstop/testdata/pack-compile/backstop.yml
+          - cmd/backstop/testdata/pack-compile/backstop-custom-dirs.yml
+          - cmd/backstop/testdata/pack-compile/backstop-invalid.yml
+          - cmd/backstop/testdata/pack-compile/standards/valid.standard.md
+          - cmd/backstop/testdata/pack-compile/standards/metric.standard.md
+          - cmd/backstop/testdata/pack-compile/standards/deprecated.standard.md
+          - cmd/backstop/testdata/pack-compile/standards/invalid.standard.md
+          - cmd/backstop/testdata/pack-compile/standards/subdir/nested.standard.md
+          - cmd/backstop/testdata/pack-compile/standards/readme.md
+          - cmd/backstop/testdata/pack-compile/alt-standards/alt.standard.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-015
+          - CLM-017
+        depends_on: []
+
+  # =====================================================================
+  # Phase 2: Standard Discovery (parallel track A)
+  # =====================================================================
+  - id: phase-2
+    name: "Phase 2: Standard Discovery"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for standard file discovery"
+        description: |
+          Write failing tests in cmd/backstop/discover_test.go for the
+          discoverStandards function.
+
+          Tests (using mandated test names from spec):
+            - TestPackCompile_DiscoversStandardFiles (CLM-001): call
+              discoverStandards with a directory containing .standard.md files
+              at multiple levels, verify all are returned
+            - TestPackCompile_IgnoresNonStandardFiles (CLM-002): directory
+              contains readme.md, config.yml, and .standard.md — only
+              .standard.md files returned
+            - TestPackCompile_DefaultStandardsDir (CLM-003): verify that when
+              no standards_dirs configured, the default "standards/" is used
+            - TestPackCompile_DeterministicOrder (CLM-026): call discoverStandards
+              multiple times, verify results are always sorted by file path
+
+          Tests use temp directories with fixture files. Each test creates its
+          own directory structure to avoid coupling between tests.
+        files:
+          - cmd/backstop/discover_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-026
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement discoverStandards function"
+        description: |
+          Create cmd/backstop/discover.go with:
+
+          Function discoverStandards(dirs []string) ([]string, error):
+            - Walk each directory recursively using filepath.WalkDir
+            - Match files against *.standard.md glob pattern
+            - Collect matching file paths as absolute paths
+            - Sort results using sort.Strings for deterministic ordering
+            - Return sorted slice
+
+          If a directory does not exist, return an error for that directory
+          (caller handles partial directory existence per REQ-005).
+
+          The function is intentionally simple — no config loading, no
+          compilation. It is a pure discovery function.
+        files:
+          - cmd/backstop/discover.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-026
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify discovery tests pass"
+        description: |
+          Run discovery tests and lint:
+            - go test ./cmd/backstop/ -run "TestPackCompile_DiscoversStandard|TestPackCompile_IgnoresNon|TestPackCompile_DefaultStandards|TestPackCompile_DeterministicOrder" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/discover_test.go
+          - cmd/backstop/discover.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-026
+        depends_on:
+          - TASK-003
+
+  # =====================================================================
+  # Phase 3: Config Loading + Exit Codes
+  # =====================================================================
+  - id: phase-3
+    name: "Phase 3: Config Loading and Exit Code Handling"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for config loading and exit code behavior"
+        description: |
+          Write failing tests in cmd/backstop/pack_compile_test.go for config
+          loading (REQ-012) and exit code handling (REQ-005).
+
+          Config loading tests:
+            - TestPackCompile_ExitCode2OnMissingConfig (CLM-027): invoke command
+              with no backstop.yml, verify exit code 2
+            - TestPackCompile_ExitCode2OnInvalidConfig (CLM-028): invoke command
+              with invalid backstop.yml, verify exit code 2
+            - TestPackCompile_ConfigLoadedBeforeDiscovery (CLM-029): invoke
+              command with missing config, verify config error occurs before
+              any standard discovery or compilation attempt
+
+          Exit code tests:
+            - TestPackCompile_ExitCode0OnSuccess (CLM-011): invoke command with
+              valid config and valid standards, verify exit code 0
+            - TestPackCompile_ExitCode1OnCompilationError (CLM-012): invoke
+              command with valid config but a standard that fails compilation,
+              verify exit code 1
+            - TestPackCompile_ExitCode2OnConfigError (CLM-013): invoke command
+              with config error, verify exit code 2
+            - TestPackCompile_ExitCode2OnAllStandardsDirsMissing (CLM-014):
+              invoke command where all configured standards_dirs are missing,
+              verify exit code 2
+            - TestPackCompile_PartialDirsMissingCompilesAndWarns (CLM-030):
+              invoke command with some valid and some missing standards_dirs,
+              verify compilation proceeds with warning (not exit 2)
+
+          Tests use the test fixture backstop.yml files and temp directories.
+          Tests invoke runPackCompile or the Cobra command's Execute method
+          and check the returned error and exit code.
+        files:
+          - cmd/backstop/pack_compile_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement pack compile command skeleton with config loading and exit codes"
+        description: |
+          Create cmd/backstop/pack_compile.go with:
+
+          Package-level var:
+            - packCompileCmd *cobra.Command — Cobra command for
+              "backstop pack compile", registered under the pack namespace
+
+          Type PackCompileResult struct:
+            - Standards []CompileStandardResult
+            - Warnings  []string
+            - Errors    []string
+            - Summary   CompileSummary
+
+          Type CompileStandardResult struct:
+            - Standard   string
+            - SourceFile string
+            - OutputPaths []string
+            - Warnings   []string
+            - Error      string
+
+          Type CompileSummary struct:
+            - Total    int
+            - Compiled int
+            - Failed   int
+
+          Function runPackCompile(cmd *cobra.Command, args []string) error:
+            - Step 1: Load backstop.yml via config loader (SPEC-005 foundation).
+              If config loading fails, return exit code 2.
+            - Step 2: Resolve standards directories from config (default to
+              "standards/"). Check each directory exists. If some exist and
+              others don't, emit warning for missing ones and proceed. If none
+              exist, return exit code 2.
+            - Steps 3-6 are stubbed for now (implemented in Phase 4).
+            - Exit code logic: 0 on success, 1 on compilation errors,
+              2 on config errors (2 takes precedence).
+
+          Register packCompileCmd under the pack namespace in init().
+
+          This phase establishes the command structure, config dependency, and
+          exit code framework. Compilation logic is added in Phase 4.
+        files:
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify config loading and exit code tests pass"
+        description: |
+          Run config and exit code tests:
+            - go test ./cmd/backstop/ -run "TestPackCompile_ExitCode|TestPackCompile_ConfigLoaded|TestPackCompile_PartialDirs" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/pack_compile_test.go
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-011
+          - CLM-027
+          - CLM-030
+        depends_on:
+          - TASK-006
+
+  # =====================================================================
+  # Phase 4: Compilation Delegation + Output Directory Management
+  # =====================================================================
+  - id: phase-4
+    name: "Phase 4: Compilation Delegation and Output Directory Management"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for compilation delegation and output directory"
+        description: |
+          Add tests to cmd/backstop/pack_compile_test.go for compilation
+          delegation (REQ-002, REQ-003), output directory management (REQ-008),
+          and no-standards behavior (REQ-009).
+
+          Compilation delegation tests:
+            - TestPackCompile_CallsCompileForEachStandard (CLM-004): set up
+              temp dir with multiple .standard.md files, run command, verify
+              compile.Compile is called for each
+            - TestPackCompile_OutputDirIsBackstopRules (CLM-005): verify
+              CompileOptions.OutputDir is set to .backstop/rules/
+            - TestPackCompile_DelegatesCompilationToPkgCompile (CLM-006): verify
+              the command does not reimplement compilation — output files match
+              what pkg/compile produces directly
+            - TestPackCompile_ProducesAllOutputTypes (CLM-007): compile a
+              standard with pattern + metric rules, verify manifest JSON,
+              semgrep YAML, and native checks JSON are all produced
+
+          Output directory tests:
+            - TestPackCompile_CreatesOutputDir (CLM-019): run command in temp
+              dir without .backstop/rules/, verify it is created
+            - TestPackCompile_OverwritesExistingFiles (CLM-020): pre-populate
+              .backstop/rules/ with old output, run command, verify files are
+              overwritten with new content
+
+          No standards tests:
+            - TestPackCompile_NoStandardsExitCode0 (CLM-021): run command with
+              empty standards directory, verify exit code 0
+            - TestPackCompile_NoStandardsReportsZero (CLM-022): run command with
+              empty standards directory, verify summary reports 0 compiled
+        files:
+          - cmd/backstop/pack_compile_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement compilation loop and output directory management"
+        description: |
+          Extend runPackCompile in cmd/backstop/pack_compile.go with:
+
+          Step 3 (Standard discovery):
+            - Call discoverStandards with resolved directories
+            - If no standards found, return PackCompileResult with zero counts
+              and exit code 0
+
+          Step 4 (Compilation):
+            - Create .backstop/rules/ directory via os.MkdirAll
+            - For each discovered standard (in sorted order):
+              - Call compile.Compile(standardPath, CompileOptions{
+                  OutputDir: ".backstop/rules/"
+                })
+              - On success: collect result, output paths, warnings
+              - On error: record error, continue to next standard
+            - Do not stop on first error (partial compilation per REQ-010)
+
+          Step 5 (Aggregation):
+            - Build PackCompileResult from all per-standard results
+            - Merge warnings across all standards
+            - Count total, compiled, failed
+
+          The output formatting (Step 6) is deferred to Phase 5.
+        files:
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify compilation delegation and output directory tests pass"
+        description: |
+          Run compilation and output directory tests:
+            - go test ./cmd/backstop/ -run "TestPackCompile_CallsCompile|TestPackCompile_OutputDir|TestPackCompile_Delegates|TestPackCompile_ProducesAll|TestPackCompile_Creates|TestPackCompile_Overwrites|TestPackCompile_NoStandards" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/pack_compile_test.go
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-009
+
+  # =====================================================================
+  # Phase 5: Output Modes + Deprecation + Partial Failure + Idempotency
+  # =====================================================================
+  - id: phase-5
+    name: "Phase 5: Output Formatting, Deprecation, Partial Failure, and Idempotency"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for output modes, deprecation, partial failure, and idempotency"
+        description: |
+          Add tests to cmd/backstop/pack_compile_test.go for output formatting
+          (REQ-004), deprecation warnings (REQ-006), partial failure (REQ-010),
+          and idempotency (REQ-007).
+
+          Output mode tests:
+            - TestPackCompile_JSONOutputStructure (CLM-008): run command with
+              --json, verify JSON output contains compiled standards list,
+              warnings array, errors array, and summary count
+            - TestPackCompile_HumanOutputFormat (CLM-009): run command without
+              --json, verify human-readable output with standard names, output
+              files, and summary line
+            - TestPackCompile_OutputModesIdenticalData (CLM-010): run command
+              twice (JSON and human), verify the underlying data (standard
+              count, warnings, errors) is identical
+
+          Deprecation tests:
+            - TestPackCompile_DeprecatedWarningInOutput (CLM-015): compile a
+              deprecated standard, verify warning appears in output
+            - TestPackCompile_DeprecatedStandardStillCompiles (CLM-016): compile
+              a deprecated standard, verify it produces output files (not skipped)
+            - TestPackCompile_DeprecatedWarningContainsDetails (CLM-017): verify
+              deprecation warning includes standard number and superseded_by ref
+
+          Partial failure tests:
+            - TestPackCompile_PartialCompilationOnMixedResults (CLM-023): mix of
+              valid and invalid standards, verify valid ones compiled successfully
+            - TestPackCompile_ReportsAllFailures (CLM-024): multiple failing
+              standards, verify all failures reported (not just first)
+            - TestPackCompile_ExitCode1OnPartialFailure (CLM-025): mix of valid
+              and invalid, verify exit code 1
+
+          Idempotency test:
+            - TestPackCompile_IdempotentOutput (CLM-018): run command twice on
+              same input, compare output files byte-for-byte
+        files:
+          - cmd/backstop/pack_compile_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement output formatting, deprecation handling, and partial failure reporting"
+        description: |
+          Complete runPackCompile in cmd/backstop/pack_compile.go with:
+
+          Step 6 (Output formatting):
+            - Check --json flag from Cobra command
+            - JSON mode: marshal PackCompileResult to indented JSON, write to
+              stdout. The PackCompileResult does not include schema_version —
+              that is added by the SPEC-005 output formatter wrapper.
+            - Human mode: print formatted summary:
+              - "Compiled N standards (M failed):" header
+              - Per-standard: "  OK  standards/foo.standard.md -> .backstop/rules/..."
+              - Per-failure: "  FAIL standards/bar.standard.md: <error>"
+              - Warnings section if any warnings present
+              - Summary line
+
+          Deprecation handling (already partially in compile loop):
+            - When CompileResult.Warnings contains deprecation warnings,
+              propagate them to PackCompileResult.Warnings
+            - Ensure deprecation warning format includes standard number and
+              superseded_by (inherited from pkg/compile)
+
+          Partial failure:
+            - Already implemented in Phase 4 loop (continue on error)
+            - Ensure all errors are collected in PackCompileResult.Errors
+            - Exit code 1 when Failed > 0
+
+          Idempotency:
+            - Standards are already processed in sorted order (from discover)
+            - No timestamps or random data introduced
+            - JSON output uses deterministic marshaling (MarshalIndent)
+        files:
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify output formatting, deprecation, partial failure, and idempotency tests pass"
+        description: |
+          Run all remaining tests:
+            - go test ./cmd/backstop/ -run "TestPackCompile_JSON|TestPackCompile_Human|TestPackCompile_OutputModes|TestPackCompile_Deprecated|TestPackCompile_Partial|TestPackCompile_ReportsAll|TestPackCompile_Idempotent" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/pack_compile_test.go
+          - cmd/backstop/pack_compile.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-015
+          - CLM-018
+          - CLM-023
+        depends_on:
+          - TASK-012
+
+  # =====================================================================
+  # Phase 6: Comprehensive Verification
+  # =====================================================================
+  - id: phase-6
+    name: "Phase 6: Comprehensive Verification"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete pack compile test suite with race detection and
+          coverage profiling. Verify all 30 claim tests pass and coverage
+          meets the 90% threshold.
+
+          Commands:
+            - go test ./cmd/backstop/... -run TestPackCompile -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep -E "pack_compile|discover"
+            - Verify coverage >= 90% for pack_compile.go and discover.go
+            - go tool golangci-lint run ./cmd/backstop/
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/...
+
+          This covers code verification for all .go files touched in the plan.
+        files:
+          - cmd/backstop/pack_compile.go
+          - cmd/backstop/pack_compile_test.go
+          - cmd/backstop/discover.go
+          - cmd/backstop/discover_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-008
+          - CLM-011
+          - CLM-015
+          - CLM-018
+          - CLM-021
+          - CLM-023
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-012
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Validate plan artifact structure"
+        description: |
+          Validate the plan YAML artifact itself passes structural checks.
+
+          Commands:
+            - go run /tmp/validate_plan.go plans/PLAN-SPEC-009-pack-compile.plan.yml
+
+          This covers artifact verification for the plan file produced by
+          this planning effort.
+        files:
+          - plans/PLAN-SPEC-009-pack-compile.plan.yml
+        claims:
+          - CLM-001
+          - CLM-011
+        depends_on:
+          - TASK-012
+          - TASK-013

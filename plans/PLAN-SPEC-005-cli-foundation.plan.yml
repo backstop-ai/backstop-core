@@ -1,0 +1,845 @@
+---
+plan_id: PLAN-SPEC-005
+spec_id: SPEC-005
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/config/... -run \"TestCLI|TestIntegration|TestConfig\" -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Builds the foundational CLI infrastructure: Cobra command skeleton with three
+  namespaces (artifact, code, pack) plus gate, go:embed schema cohort, backstop.yml
+  loader with walk-up discovery, JSON/human output formatting, exit code handling,
+  version command, commands --json discovery, and help generation.
+
+  The plan has six feature areas that map to distinct file scopes:
+    1. Embed cohort (cmd/backstop/embed.go)
+    2. Config loader (pkg/config/config.go) + backstop.yml schema
+    3. Output formatter (cmd/backstop/output.go)
+    4. Exit code handler (cmd/backstop/exitcode.go)
+    5. Command skeleton (cmd/backstop/root.go, main.go) — version, commands, help
+    6. Integration tests (cmd/backstop/integration_test.go)
+
+  Feature areas 1-4 are independent and can be developed in parallel (disjoint
+  file sets). Area 5 (command skeleton) depends on all four because root.go wires
+  them together. Area 6 (integration tests) depends on the assembled binary.
+
+  Structure:
+    Phase 1: Setup — Cobra dependency, directory scaffolding, test fixtures
+    Phase 2: Embed cohort (test → impl → verify) — parallel track A
+    Phase 3: Config loader + backstop.yml schema (test → impl → verify) — parallel track B
+    Phase 4: Output formatter (test → impl → verify) — parallel track C
+    Phase 5: Exit code handler (test → impl → verify) — parallel track D
+    Phase 6: Command skeleton — root, version, commands, help (test → impl → verify)
+    Phase 7: Integration tests (test → impl → verify)
+    Phase 8: Comprehensive verification
+
+  Phases 2-5 are parallel-eligible (disjoint file sets, no dependency chains).
+  Phases 6-7 are sequential (depend on prior phases).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Dependencies and Scaffolding
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Dependencies and Scaffolding"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add Cobra dependency and scaffold directory structure"
+        description: |
+          Add github.com/spf13/cobra as a dependency via go get.
+          Create directory structure:
+            - cmd/backstop/ (exists but empty)
+            - pkg/config/
+            - artifacts/backstop-yml/v1/
+
+          Create cmd/backstop/testdata/ directory with test fixtures:
+            - testdata/valid-backstop.yml — minimal valid config (project + language)
+            - testdata/full-backstop.yml — config with all optional fields
+            - testdata/invalid-backstop.yml — config with invalid enforcement tier
+            - testdata/unknown-keys-backstop.yml — config with unknown top-level key
+
+          These fixtures support config loader and integration tests.
+        files:
+          - cmd/backstop/testdata/valid-backstop.yml
+          - cmd/backstop/testdata/full-backstop.yml
+          - cmd/backstop/testdata/invalid-backstop.yml
+          - cmd/backstop/testdata/unknown-keys-backstop.yml
+        claims:
+          - CLM-032
+          - CLM-035
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Embed Cohort (parallel track A)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Embed Cohort — go:embed Schema Filesystem"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for embed cohort schema filesystem"
+        description: |
+          Write failing tests in cmd/backstop/embed_test.go for the embed cohort.
+
+          Tests (all mandated by spec):
+            - TestCLI_EmbedCohort_AllSchemasPresent (CLM-006): verify all
+              artifact schemas from artifacts/*/v*/schema.json are accessible
+              from the embedded FS
+            - TestCLI_EmbedCohort_SchemasParseAsJSON (CLM-007): read each
+              embedded schema and verify it parses as valid JSON
+            - TestCLI_EmbedCohort_BaseSchemaPresent (CLM-008): verify
+              artifacts/base/schema.json is present in embedded FS
+            - TestCLI_Embed_UsesEmbedFS (CLM-041): verify SchemaFS is of
+              type embed.FS (compile-time check via type assertion)
+            - TestCLI_Embed_ListSchemaPaths (CLM-042): verify ListSchemas()
+              returns all expected schema file paths
+            - TestCLI_Embed_MatchesDiskSchemas (CLM-043): compare embedded
+              schema paths against actual disk files to ensure parity
+        files:
+          - cmd/backstop/embed_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-041
+          - CLM-042
+          - CLM-043
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement go:embed schema cohort filesystem"
+        description: |
+          Create cmd/backstop/embed.go with:
+
+          Package-level embed directive:
+            //go:embed all:../../artifacts
+            var SchemaFS embed.FS
+
+          Note on embed path: cmd/backstop/ is two levels below the module root,
+          so ../../artifacts resolves to the artifacts/ directory. The embed
+          directive must include all: prefix to capture nested directories.
+
+          Function ListSchemas() ([]string, error):
+            - Walk SchemaFS using fs.WalkDir
+            - Collect paths matching */v*/schema.json and base/schema.json
+            - Return sorted list of schema file paths
+
+          Sharp edge: the go:embed path must be correct relative to cmd/backstop/.
+          If the path is wrong, compilation fails — verify with go build.
+        files:
+          - cmd/backstop/embed.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-041
+          - CLM-042
+          - CLM-043
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify embed cohort tests pass"
+        description: |
+          Run embed cohort tests and lint:
+            - go test ./cmd/backstop/ -run "TestCLI_EmbedCohort|TestCLI_Embed" -race -v
+            - go build ./cmd/backstop/
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/embed_test.go
+          - cmd/backstop/embed.go
+        claims:
+          - CLM-006
+          - CLM-041
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Config Loader + backstop.yml Schema (parallel track B)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Config Loader — backstop.yml Discovery, Loading, and Schema"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for config struct, loader, and backstop.yml schema"
+        description: |
+          Write failing tests in pkg/config/config_test.go.
+
+          Config struct tests:
+            - TestConfig_Struct_AllFields (CLM-032): load full-backstop.yml,
+              verify all struct fields populated (project, language, runtimes,
+              enforcement, packs, registries)
+            - TestConfig_Struct_RejectsUnknownKeys (CLM-033): load YAML with
+              unknown top-level key, expect error
+            - TestConfig_LoaderValidatesAgainstSchema (CLM-034): load invalid
+              YAML, expect schema validation error
+
+          Schema field tests:
+            - TestConfig_RequiredFields_ProjectAndLanguage (CLM-035): YAML
+              missing project or language field fails
+            - TestConfig_Enforcement_ValidTier (CLM-036): enforcement block
+              with tier "baseline", "standard", "compliance" accepted
+            - TestConfig_Enforcement_InvalidTier (CLM-037): enforcement block
+              with tier "unknown" rejected
+            - TestConfig_Packs_ValidVersions (CLM-038): packs block with
+              version strings accepted
+            - TestConfig_Registries_ScopeResolution (CLM-039): registries
+              block with scope-to-URL mapping accepted
+            - TestConfig_WaiverWarningDays_Default (CLM-040): omitted
+              waiver_warning_days defaults to 30
+
+          Walk-up discovery tests:
+            - TestCLI_ConfigLoader_WalkUpDiscovery (CLM-009): create temp dir
+              tree, place backstop.yml in parent, run discovery from child
+            - TestCLI_ConfigLoader_NotFound_Exit2 (CLM-010): empty temp dir,
+              discovery returns error
+            - TestCLI_ConfigLoader_InvalidSchema_Exit2 (CLM-011): place invalid
+              backstop.yml, loader returns validation error
+
+          BACKSTOP_CONFIG env var tests:
+            - TestConfig_BackstopConfig_OverridesWalkUp (CLM-044): set env var
+              to valid file, discovery uses that path instead of walk-up
+            - TestConfig_BackstopConfig_NonexistentFile_Exit2 (CLM-045): set
+              env var to nonexistent path, expect error
+            - TestConfig_BackstopConfig_EmptyString_FallsBackToWalkUp (CLM-046):
+              set env var to "", discovery falls back to walk-up
+        files:
+          - pkg/config/config_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-044
+          - CLM-045
+          - CLM-046
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement backstop.yml JSON schema"
+        description: |
+          Create artifacts/backstop-yml/v1/schema.json defining the backstop.yml
+          format as a JSON Schema (draft-07).
+
+          Required properties:
+            - project (string): project name
+            - language (string): primary language
+
+          Optional properties:
+            - runtimes (array of strings): supported runtimes
+            - enforcement (object):
+              - security (object):
+                - tier (enum: baseline, standard, compliance)
+              - waiver_warning_days (integer, default: 30)
+            - packs (object):
+              - rules (object): pack name → version string mapping
+              - code (object): pack name → version string mapping
+            - registries (object): scope string → URL string mapping
+
+          additionalProperties: false (rejects unknown top-level keys)
+
+          This schema is used by the config loader for validation and will be
+          embedded in the binary via the embed cohort.
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement config types and loader with walk-up discovery"
+        description: |
+          Create pkg/config/config.go with:
+
+          Type Config struct:
+            - Project string
+            - Language string
+            - Runtimes []string
+            - Enforcement struct:
+              - Security struct:
+                - Tier string (baseline/standard/compliance)
+              - WaiverWarningDays int (default 30)
+            - Packs struct:
+              - Rules map[string]string
+              - Code map[string]string
+            - Registries map[string]string
+
+          Function DiscoverConfigPath() (string, error):
+            - Check BACKSTOP_CONFIG env var first
+            - If set and non-empty, validate path exists and is a file (not dir)
+            - If empty or unset, walk up from cwd checking each directory
+            - Return path or error if not found
+
+          Function LoadConfig() (*Config, error):
+            - Call DiscoverConfigPath()
+            - Read and parse YAML
+            - Validate against embedded backstop.yml JSON schema
+            - Use strict YAML decoding to reject unknown keys
+            - Apply defaults (waiver_warning_days = 30)
+            - Return typed Config struct
+
+          Sharp edges handled:
+            - BACKSTOP_CONFIG pointing to directory → error
+            - BACKSTOP_CONFIG relative paths resolved from cwd
+            - Empty BACKSTOP_CONFIG treated as unset
+            - Walk-up stops at filesystem root with actionable error
+        files:
+          - pkg/config/config.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-044
+          - CLM-045
+          - CLM-046
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify config loader and schema tests pass"
+        description: |
+          Run config tests and lint:
+            - go test ./pkg/config/... -run "TestConfig|TestCLI_ConfigLoader" -race -v
+            - go tool golangci-lint run ./pkg/config/
+        files:
+          - pkg/config/config_test.go
+          - pkg/config/config.go
+        claims:
+          - CLM-009
+          - CLM-032
+          - CLM-035
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Output Formatter (parallel track C)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Output Formatter — JSON and Human Modes"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write tests for JSON and human output formatters"
+        description: |
+          Write failing tests in cmd/backstop/output_test.go.
+
+          JSON output tests:
+            - TestCLI_Output_JSONFlag_ProducesJSON (CLM-013): format a result
+              with JSONFormatter, verify output is valid JSON
+            - TestCLI_Output_JSON_HasSchemaVersion (CLM-016): verify JSON output
+              includes schema_version field
+            - TestCLI_Output_JSONAndHuman_IdenticalData (CLM-015): format same
+              result with both formatters, verify underlying violation data matches
+
+          Human output tests:
+            - TestCLI_Output_Default_ProducesHumanText (CLM-014): format a result
+              with HumanFormatter, verify output is human-readable text (not JSON)
+
+          NO_COLOR tests:
+            - TestCLI_NoColor_OmitsANSI (CLM-030): set NO_COLOR, format with
+              HumanFormatter, verify no ANSI escape sequences in output
+            - TestCLI_NoColor_AllowsANSIWhenUnset (CLM-031): unset NO_COLOR,
+              format with HumanFormatter, verify ANSI codes may be present
+
+          Sharp edge: NO_COLOR only affects HumanFormatter. JSON output never
+          contains ANSI codes regardless of NO_COLOR.
+        files:
+          - cmd/backstop/output_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-001
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement JSON and human output formatters"
+        description: |
+          Create cmd/backstop/output.go with:
+
+          Interface Formatter:
+            - FormatResult(result interface{}) (string, error)
+
+          Type JSONFormatter struct:
+            - Implements Formatter
+            - Serializes result to indented JSON
+            - Injects schema_version field (e.g. "cli/v1") in every response
+            - Never includes ANSI codes
+
+          Type HumanFormatter struct:
+            - Implements Formatter
+            - Formats result as human-readable text
+            - Checks NO_COLOR env var: if set (any value), no ANSI codes
+            - If NO_COLOR unset, uses ANSI for status/severity coloring
+
+          Both formatters operate on the same underlying data structure — the
+          formatter is presentation only with zero enforcement logic.
+
+          Sharp edge: first schema_version value sets the baseline contract.
+          Choose "cli/v1" as initial value.
+        files:
+          - cmd/backstop/output.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify output formatter tests pass"
+        description: |
+          Run output formatter tests and lint:
+            - go test ./cmd/backstop/ -run "TestCLI_Output|TestCLI_NoColor" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/output_test.go
+          - cmd/backstop/output.go
+        claims:
+          - CLM-013
+          - CLM-030
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Exit Code Handler (parallel track D)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Exit Code Handler"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write tests for exit code handling"
+        description: |
+          Write failing tests in cmd/backstop/exitcode_test.go.
+
+          Tests (all mandated by spec):
+            - TestCLI_ExitCode_0_OnPass (CLM-017): ExitWithResult with passing
+              result and no config error returns 0
+            - TestCLI_ExitCode_1_OnViolations (CLM-018): ExitWithResult with
+              violations and no config error returns 1
+            - TestCLI_ExitCode_2_OnConfigError (CLM-019): ExitWithResult with
+              config error returns 2
+            - TestCLI_ExitCode_2_PrecedesViolations (CLM-020): ExitWithResult
+              with both violations and config error returns 2 (precedence)
+            - TestCLI_ExitCode_OnlyValidCodes (CLM-021): verify ExitWithResult
+              only ever returns 0, 1, or 2 across a range of inputs
+        files:
+          - cmd/backstop/exitcode_test.go
+        claims:
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-001
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement exit code constants and ExitWithResult"
+        description: |
+          Create cmd/backstop/exitcode.go with:
+
+          Constants:
+            - ExitPass = 0
+            - ExitViolations = 1
+            - ExitConfigError = 2
+
+          Function ExitWithResult(result ValidationResult, configErr error) int:
+            - If configErr != nil: return ExitConfigError (2 takes precedence)
+            - If result has violations: return ExitViolations
+            - Otherwise: return ExitPass
+
+          Sharp edge: Cobra's default os.Exit(1) behavior must be overridden.
+          The root command will use SilenceErrors and SilenceUsage with manual
+          exit code handling via ExitWithResult.
+        files:
+          - cmd/backstop/exitcode.go
+        claims:
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify exit code handler tests pass"
+        description: |
+          Run exit code tests and lint:
+            - go test ./cmd/backstop/ -run "TestCLI_ExitCode" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/exitcode_test.go
+          - cmd/backstop/exitcode.go
+        claims:
+          - CLM-017
+          - CLM-020
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Command Skeleton — Root, Version, Commands, Help
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Command Skeleton — Root, Version, Commands, Help"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write tests for command skeleton, version, commands, and help"
+        description: |
+          Write failing tests in cmd/backstop/root_test.go.
+
+          Root command / namespace tests:
+            - TestCLI_RootCommand_ShowsHelp (CLM-001): invoke root command
+              without subcommands, verify help is displayed
+            - TestCLI_ArtifactNamespace_Exists (CLM-002): verify artifact
+              subcommand exists in command tree
+            - TestCLI_CodeNamespace_Exists (CLM-003): verify code subcommand
+              exists in command tree
+            - TestCLI_PackNamespace_Exists (CLM-004): verify pack subcommand
+              exists in command tree
+            - TestCLI_GateCommand_Exists (CLM-005): verify gate command exists
+              as top-level (not under a namespace)
+
+          Config loading before enforcement test:
+            - TestCLI_ConfigLoader_LoadedBeforeEnforcement (CLM-012): invoke
+              an enforcement command (e.g. gate) without backstop.yml, verify
+              config error before any enforcement logic runs
+
+          Version command tests:
+            - TestCLI_Version_HumanOutput (CLM-022): invoke version command,
+              verify output includes version, schema cohort, Go version
+            - TestCLI_Version_JSONOutput (CLM-023): invoke version --json,
+              verify JSON with version, schema_cohort, go_version fields
+
+          Commands discovery tests:
+            - TestCLI_Commands_JSON_ReturnsArray (CLM-024): invoke commands
+              --json, verify result is JSON array
+            - TestCLI_Commands_JSON_DescriptorFields (CLM-025): verify each
+              descriptor has name, path, description, flags
+            - TestCLI_Commands_JSON_IncludesAllNamespaces (CLM-026): verify
+              artifact, code, pack namespaces appear in command tree
+
+          Help generation tests:
+            - TestCLI_Help_RootListsNamespaces (CLM-027): root help output
+              lists artifact, code, pack groups and gate, version, commands
+            - TestCLI_Help_NamespaceListsSubcommands (CLM-028): artifact help
+              lists its subcommands
+            - TestCLI_Help_AllCommandsHaveDescriptions (CLM-029): walk command
+              tree, verify every command has Short and Long set
+        files:
+          - cmd/backstop/root_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-004
+          - TASK-008
+          - TASK-011
+          - TASK-014
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement command skeleton, version, commands, and main"
+        description: |
+          Create cmd/backstop/root.go with:
+
+          Function NewRootCommand() *cobra.Command:
+            - Root command "backstop" with Short/Long descriptions
+            - SilenceErrors: true, SilenceUsage: true (override Cobra defaults)
+            - Persistent --json flag on root command
+            - Namespace commands: artifact, code, pack (each as Cobra command
+              groups with Short/Long descriptions)
+            - Top-level commands: gate, version, commands
+            - Config loading as PersistentPreRunE on enforcement commands only
+              (artifact, code, pack, gate) — NOT on version, commands, help
+            - Wire embed cohort, config loader, output formatter, exit codes
+
+          Version command RunE:
+            - Compute schema cohort from ListSchemas()
+            - Get Go version from runtime.Version()
+            - Format with JSON or human formatter based on --json flag
+
+          Commands command RunE:
+            - Walk Cobra command tree
+            - Build []CommandDescriptor with name, path, description, flags
+            - Always outputs JSON (--json is implied)
+
+          Create cmd/backstop/main.go with:
+            - func main() creating root command and calling Execute()
+            - Manual exit code handling via os.Exit(ExitWithResult(...))
+
+          Sharp edges handled:
+            - Non-enforcement commands (version, commands, help) work without
+              backstop.yml
+            - Cobra's os.Exit override via SilenceErrors + manual handling
+        files:
+          - cmd/backstop/root.go
+          - cmd/backstop/main.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Verify command skeleton, version, commands, and help tests pass"
+        description: |
+          Run command skeleton tests, build, and lint:
+            - go test ./cmd/backstop/ -run "TestCLI_RootCommand|TestCLI_.*Namespace|TestCLI_GateCommand|TestCLI_ConfigLoader_Loaded|TestCLI_Version|TestCLI_Commands|TestCLI_Help" -race -v
+            - go build ./cmd/backstop/
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/root_test.go
+          - cmd/backstop/root.go
+          - cmd/backstop/main.go
+        claims:
+          - CLM-001
+          - CLM-022
+          - CLM-024
+          - CLM-027
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Integration Tests
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Integration Tests — Built Binary End-to-End"
+    tasks:
+      - id: TASK-018
+        type: test
+        title: "Write integration tests for built binary"
+        description: |
+          Write integration tests in cmd/backstop/integration_test.go.
+
+          These tests build the binary via go build and invoke it as a
+          subprocess, verifying end-to-end behavior.
+
+          TestMain or test helper:
+            - Build binary to a temp directory once via go build
+            - All tests use the built binary path
+
+          Tests (all mandated by spec):
+            - TestIntegration_ArtifactValidate_RealSpec (CLM-047): run
+              backstop artifact validate against a real spec file, verify
+              structured JSON output with violations
+            - TestIntegration_CodeCheck_RealGoFile (CLM-048): run backstop
+              code check --file against a Go file, verify structured JSON
+              with semgrep results
+            - TestIntegration_PackCompile_RealStandard (CLM-049): run
+              backstop pack compile against a real standard, verify
+              enforcement manifests produced
+            - TestIntegration_Gate_EndToEnd (CLM-050): run backstop gate,
+              verify structured pass/fail result combining artifact and
+              code validation
+            - TestIntegration_ArtifactNew_ScaffoldsSpec (CLM-051): run
+              backstop artifact new spec, verify scaffolded spec file with
+              auto-assigned ID
+
+          Each test sets up a temp directory with backstop.yml and any needed
+          input files, runs the binary, and verifies exit code + output.
+        files:
+          - cmd/backstop/integration_test.go
+        claims:
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: implementation
+        title: "Implement stub command RunE functions for integration test targets"
+        description: |
+          Add stub implementations for commands referenced by integration tests.
+          These stubs wire the config loader, call existing pkg/ functions where
+          available, and produce structured output via the formatter.
+
+          In cmd/backstop/root.go, add RunE functions for:
+            - artifact validate: load config, call pkg/validate for the target
+              file, format result, return exit code
+            - artifact new: scaffold artifact with auto-assigned ID
+            - code check: load config, invoke semgrep via pkg/ interface, format
+            - pack compile: load config, invoke compiler via pkg/, format
+            - gate: load config, run artifact + code validation, combine results
+
+          Each command is a thin adapter: parse flags → call pkg/ → format → exit.
+          Commands that depend on not-yet-implemented pkg/ functions should use
+          interface boundaries so they can be wired later without changing cmd/.
+
+          Note: full enforcement logic is NOT implemented here — just the CLI
+          wiring that makes integration tests runnable. The pkg/ implementations
+          are out of scope for this spec.
+        files:
+          - cmd/backstop/root.go
+        claims:
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+        depends_on:
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Verify integration tests pass"
+        description: |
+          Build the binary and run integration tests:
+            - go build -o /tmp/backstop-test ./cmd/backstop/
+            - go test ./cmd/backstop/ -run "TestIntegration" -race -v -timeout 60s
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/integration_test.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-047
+          - CLM-050
+        depends_on:
+          - TASK-019
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Comprehensive Verification"
+    tasks:
+      - id: TASK-021
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete CLI test suite with race detection and coverage
+          profiling. Verify all 51 claim tests pass and coverage meets the
+          80% threshold.
+
+          Commands:
+            - go test ./cmd/backstop/... ./pkg/config/... -run "TestCLI|TestIntegration|TestConfig" -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out
+            - Verify coverage >= 80% for cmd/backstop/ and pkg/config/
+            - go tool golangci-lint run ./cmd/backstop/ ./pkg/config/
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/... ./pkg/config/...
+
+          This covers code verification for all .go files touched in the plan.
+        files:
+          - cmd/backstop/embed.go
+          - cmd/backstop/embed_test.go
+          - cmd/backstop/output.go
+          - cmd/backstop/output_test.go
+          - cmd/backstop/exitcode.go
+          - cmd/backstop/exitcode_test.go
+          - cmd/backstop/root.go
+          - cmd/backstop/root_test.go
+          - cmd/backstop/main.go
+        claims:
+          - CLM-001
+          - CLM-006
+          - CLM-013
+          - CLM-017
+          - CLM-022
+          - CLM-024
+          - CLM-027
+          - CLM-030
+          - CLM-041
+          - CLM-047
+        depends_on:
+          - TASK-019
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify config and artifact files"
+        description: |
+          Verify the config package and artifact schema files are valid:
+            - go test ./pkg/config/... -race -coverprofile=cover-config.out -v
+            - go tool cover -func=cover-config.out
+            - Verify coverage >= 80% for pkg/config/
+            - Validate artifacts/backstop-yml/v1/schema.json is valid JSON Schema
+            - go tool golangci-lint run ./pkg/config/
+
+          This covers both code verification (pkg/config/) and artifact
+          verification (backstop-yml schema).
+        files:
+          - pkg/config/config.go
+          - pkg/config/config_test.go
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-009
+          - CLM-032
+          - CLM-035
+          - CLM-044
+        depends_on:
+          - TASK-019
+          - TASK-020

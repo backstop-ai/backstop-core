@@ -1,0 +1,819 @@
+---
+plan_id: PLAN-SPEC-006
+spec_id: SPEC-006
+spec_version: 1.1.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... -run TestArtifactValidate -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements the backstop artifact validate command as a thin CLI adapter over
+  pkg/validate. The command handles artifact discovery, type routing via
+  schema_version prefix, result aggregation, and JSON/human output formatting.
+  All validation logic stays in pkg/validate — cmd/ only orchestrates.
+
+  Depends on SPEC-005 (CLI foundation) for Cobra skeleton, go:embed SchemaFS,
+  config loader, output formatter, and exit code infrastructure.
+
+  The implementation lives in a single primary file (cmd/backstop/artifact_validate.go)
+  with tests in cmd/backstop/artifact_validate_test.go. Test fixtures provide
+  minimal valid/invalid artifacts for each of the six types.
+
+  Feature areas map to the spec's implementation passes:
+    1. Test fixtures (setup)
+    2. Artifact discovery (test → impl → verify)
+    3. Type routing (test → impl → verify)
+    4. Validation pipeline + scoping flags (test → impl → verify)
+    5. Output formatting + exit codes + aggregation (test → impl → verify)
+    6. Comprehensive verification
+
+  Areas 2 and 3 are parallel-eligible (disjoint files: discovery logic in
+  artifact_discover.go vs routing logic in artifact_validate.go). Areas 4 and 5
+  are sequential (pipeline depends on both discovery and routing).
+
+  Structure:
+    Phase 1: Setup — test fixtures for all six artifact types
+    Phase 2: Artifact discovery (test → impl → verify) — parallel track A
+    Phase 3: Type routing (test → impl → verify) — parallel track B
+    Phase 4: Validation pipeline + scoping flags + backstop.yml prereq (test → impl → verify)
+    Phase 5: Output formatting + exit codes + aggregation (test → impl → verify)
+    Phase 6: Edge cases — zero artifacts, ID scoping, precedence (test → impl → verify)
+    Phase 7: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Test Fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Test Fixtures for All Artifact Types"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create test fixtures for artifact validation"
+        description: |
+          Create testdata fixtures under cmd/backstop/testdata/artifacts/ for
+          integration-level testing of the artifact validate command. Each
+          fixture is a minimal valid or intentionally invalid artifact file.
+
+          Fixtures needed:
+            - testdata/artifacts/backstop.yml — minimal valid config for discovery
+            - testdata/artifacts/specs/SPEC-001-valid.spec.md — valid spec
+            - testdata/artifacts/specs/SPEC-002-invalid.spec.md — spec with violations
+            - testdata/artifacts/plans/PLAN-SPEC-001-valid.plan.yml — valid plan
+            - testdata/artifacts/adrs/ADR-0001-valid.adr.md — valid ADR
+            - testdata/artifacts/bundles/cli.bundle.md — valid bundle
+            - testdata/artifacts/issues/ISSUE-001-valid.issue.md — valid issue
+            - testdata/artifacts/standards/SEC-001-valid.standard.md — valid standard
+            - testdata/artifacts/unknown-type.md — file with unrecognized schema_version
+            - testdata/artifacts/missing-schema-version.md — file with no schema_version
+            - testdata/artifacts/unparseable.spec.md — file matching pattern but malformed
+            - testdata/artifacts/not-an-artifact.txt — non-artifact file to ignore
+            - testdata/artifacts/invalid-backstop.yml — malformed backstop config
+
+          Also create a test helper file with shared utilities:
+            - cmd/backstop/artifact_validate_helpers_test.go — helper to set up
+              temp project dirs with backstop.yml and artifact files, and to run
+              the validate command capturing stdout, stderr, and exit code.
+        files:
+          - cmd/backstop/testdata/artifacts/backstop.yml
+          - cmd/backstop/testdata/artifacts/specs/SPEC-001-valid.spec.md
+          - cmd/backstop/testdata/artifacts/specs/SPEC-002-invalid.spec.md
+          - cmd/backstop/testdata/artifacts/plans/PLAN-SPEC-001-valid.plan.yml
+          - cmd/backstop/testdata/artifacts/adrs/ADR-0001-valid.adr.md
+          - cmd/backstop/testdata/artifacts/bundles/cli.bundle.md
+          - cmd/backstop/testdata/artifacts/issues/ISSUE-001-valid.issue.md
+          - cmd/backstop/testdata/artifacts/standards/SEC-001-valid.standard.md
+          - cmd/backstop/artifact_validate_helpers_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Create edge case test fixtures"
+        description: |
+          Create additional test fixtures for edge cases and error scenarios.
+
+          Fixtures:
+            - testdata/artifacts/unknown-type.md — frontmatter with
+              schema_version: "unknown/v1" to trigger unrecognized type error
+            - testdata/artifacts/missing-schema-version.md — frontmatter with
+              no schema_version field
+            - testdata/artifacts/unparseable.spec.md — file matching *.spec.md
+              pattern but containing invalid YAML frontmatter
+            - testdata/artifacts/not-an-artifact.txt — plain text file that
+              should be ignored during discovery
+            - testdata/artifacts/invalid-backstop.yml — backstop.yml with
+              invalid content for testing config error path
+
+          These support edge case claims: CLM-007, CLM-008, CLM-028, CLM-038,
+          CLM-039, CLM-047, CLM-048.
+        files:
+          - cmd/backstop/testdata/artifacts/unknown-type.md
+          - cmd/backstop/testdata/artifacts/missing-schema-version.md
+          - cmd/backstop/testdata/artifacts/unparseable.spec.md
+          - cmd/backstop/testdata/artifacts/not-an-artifact.txt
+          - cmd/backstop/testdata/artifacts/invalid-backstop.yml
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-028
+          - CLM-038
+          - CLM-039
+          - CLM-047
+          - CLM-048
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Artifact Discovery (parallel track A)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Artifact Discovery — File Pattern Scanning"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Write tests for artifact discovery across all six types"
+        description: |
+          Write failing tests in cmd/backstop/artifact_discover_test.go for
+          artifact discovery (REQ-007) and zero-artifact scenario (REQ-012).
+
+          Discovery tests (REQ-007):
+            - TestArtifactValidate_Discover_Spec (CLM-032): verify *.spec.md
+              files discovered as spec artifacts
+            - TestArtifactValidate_Discover_Plan (CLM-033): verify *.plan.yml
+              files discovered as plan artifacts
+            - TestArtifactValidate_Discover_ADR (CLM-034): verify ADR-*.adr.md
+              files discovered as ADR artifacts
+            - TestArtifactValidate_Discover_Bundle (CLM-035): verify *.bundle.md
+              files discovered as bundle artifacts
+            - TestArtifactValidate_Discover_Issue (CLM-036): verify *.issue.md
+              files discovered as issue artifacts
+            - TestArtifactValidate_Discover_Standard (CLM-037): verify
+              *.standard.md files discovered as standard artifacts
+            - TestArtifactValidate_Discover_IgnoresNonArtifacts (CLM-038):
+              verify non-matching files are ignored
+            - TestArtifactValidate_Discover_ParseFailure_ConfigError (CLM-039):
+              verify files matching pattern but failing to parse produce config error
+
+          Each test sets up a temp directory with the appropriate fixture files,
+          runs the discovery function, and verifies the returned file list.
+        files:
+          - cmd/backstop/artifact_discover_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: implementation
+        title: "Implement artifact discovery with filename pattern scanning"
+        description: |
+          Create cmd/backstop/artifact_discover.go with the discovery function.
+
+          Type DiscoveredArtifact struct:
+            - Path string — file path
+            - Type string — artifact type name (spec, plan, adr, bundle, issue, standard)
+
+          Function DiscoverArtifacts(root string, typeFilters []string) ([]DiscoveredArtifact, error):
+            - Walk the directory tree rooted at root
+            - For each file, check against the six filename patterns:
+              - *.spec.md → "spec"
+              - *.plan.yml → "plan"
+              - ADR-*.adr.md → "adr"
+              - *.bundle.md → "bundle"
+              - *.issue.md → "issue"
+              - *.standard.md → "standard"
+            - If typeFilters is non-empty, only include matching types
+            - Files not matching any pattern are silently ignored
+            - Return list of DiscoveredArtifact, or error on walk failure
+
+          The discovery function does NOT parse artifacts — it only matches
+          filenames. Parsing happens in the validation pipeline (Phase 4).
+        files:
+          - cmd/backstop/artifact_discover.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify artifact discovery tests pass"
+        description: |
+          Run discovery tests and lint:
+            - go test ./cmd/backstop/ -run "TestArtifactValidate_Discover" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/artifact_discover_test.go
+          - cmd/backstop/artifact_discover.go
+        claims:
+          - CLM-032
+          - CLM-038
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Type Routing (parallel track B)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Type Routing — schema_version Dispatch"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write tests for type routing based on schema_version prefix"
+        description: |
+          Write failing tests in cmd/backstop/artifact_route_test.go for
+          type routing (REQ-001).
+
+          Routing tests:
+            - TestArtifactValidate_Route_Spec (CLM-001): artifact with
+              schema_version "spec/v1" routes to validate.Spec
+            - TestArtifactValidate_Route_Plan (CLM-002): artifact with
+              schema_version "plan/v1" routes to validate.Plan
+            - TestArtifactValidate_Route_ADR (CLM-003): artifact with
+              schema_version "adr/v1" routes to validate.ADR
+            - TestArtifactValidate_Route_Bundle (CLM-004): artifact with
+              schema_version "bundle/v1" routes to validate.Bundle
+            - TestArtifactValidate_Route_Issue (CLM-005): artifact with
+              schema_version "issue/v1" routes to validate.Issue
+            - TestArtifactValidate_Route_Standard (CLM-006): artifact with
+              schema_version "standard/v1" routes to validate.Standard
+            - TestArtifactValidate_Route_UnknownType_Exit2 (CLM-007):
+              artifact with schema_version "unknown/v1" produces config error
+            - TestArtifactValidate_Route_MissingSchemaVersion_Exit2 (CLM-008):
+              artifact with no schema_version produces config error
+
+          Tests should construct minimal ParsedArtifact values with the
+          appropriate schema_version metadata and verify the router returns
+          the correct validator function (or error for unknown/missing).
+        files:
+          - cmd/backstop/artifact_route_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-001
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement type routing from schema_version to validator functions"
+        description: |
+          Create cmd/backstop/artifact_route.go with the routing function.
+
+          Type alias for validator function signature:
+            type ValidatorFunc func(*artifact.ParsedArtifact, *schema.Schema) validate.ValidationResult
+
+          Package-level routing table:
+            var validatorRouter = map[string]ValidatorFunc{
+              "spec":     validate.Spec,
+              "plan":     validate.Plan,
+              "adr":      validate.ADR,
+              "bundle":   validate.Bundle,
+              "issue":    validate.Issue,
+              "standard": validate.Standard,
+            }
+
+          Function RouteValidator(art *artifact.ParsedArtifact) (ValidatorFunc, error):
+            - Extract schema_version from art.Metadata
+            - If missing: return error "missing schema_version field"
+            - Split on "/" to get prefix
+            - Look up prefix in validatorRouter
+            - If not found: return error "unrecognized schema_version prefix: <prefix>"
+            - Return the validator function
+
+          This is a pure routing function — no validation logic.
+        files:
+          - cmd/backstop/artifact_route.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify type routing tests pass"
+        description: |
+          Run routing tests and lint:
+            - go test ./cmd/backstop/ -run "TestArtifactValidate_Route" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/artifact_route_test.go
+          - cmd/backstop/artifact_route.go
+        claims:
+          - CLM-001
+          - CLM-007
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Validation Pipeline + Scoping Flags + backstop.yml
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Validation Pipeline — Command Wiring, Scoping, and backstop.yml"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write tests for validation pipeline, scoping flags, and backstop.yml prerequisite"
+        description: |
+          Write failing tests in cmd/backstop/artifact_validate_test.go for the
+          core validation pipeline (REQ-002, REQ-003, REQ-008, REQ-010, REQ-011).
+
+          Scoping flag tests (REQ-002):
+            - TestArtifactValidate_Scope_SpecAll (CLM-009): --spec flag without
+              ID validates all spec artifacts
+            - TestArtifactValidate_Scope_SpecByID (CLM-010): --spec SPEC-002
+              validates only the matching spec
+            - TestArtifactValidate_Scope_PlanAll (CLM-011): --plan validates all plans
+            - TestArtifactValidate_Scope_ADRAll (CLM-012): --adr validates all ADRs
+            - TestArtifactValidate_Scope_BundleAll (CLM-013): --bundle validates
+              all bundles
+            - TestArtifactValidate_Scope_IssueAll (CLM-014): --issue validates
+              all issues
+            - TestArtifactValidate_Scope_StandardAll (CLM-015): --standard validates
+              all standards
+            - TestArtifactValidate_Scope_MultipleFlags (CLM-016): --spec --plan
+              combined validates both types
+            - TestArtifactValidate_Scope_DefaultAll (CLM-017): no flags defaults
+              to all artifacts
+
+          --all flag tests (REQ-003):
+            - TestArtifactValidate_AllFlag_ValidatesEverything (CLM-018): --all
+              validates across all six types
+            - TestArtifactValidate_AllFlag_PrecedesTypeFlags (CLM-019): --all
+              with --spec still validates everything
+
+          ID scoping tests (REQ-008):
+            - TestArtifactValidate_IDScope_SpecMatchesByNumber (CLM-040):
+              --spec SPEC-002 matches by number metadata field
+            - TestArtifactValidate_IDScope_PlanMatchesByPlanID (CLM-051):
+              --plan PLAN-SPEC-002 matches by plan_id metadata field
+            - TestArtifactValidate_IDScope_NotFound_Exit2 (CLM-041): scoping by
+              nonexistent ID produces exit code 2
+
+          Thin adapter test (REQ-010):
+            - TestArtifactValidate_ThinAdapter_CallsPkgValidate (CLM-045):
+              verify command calls pkg/validate functions, not inline logic
+
+          backstop.yml prerequisite tests (REQ-011):
+            - TestArtifactValidate_BackstopYml_LoadedAsPrerequisite (CLM-046):
+              config loaded before validation begins
+            - TestArtifactValidate_BackstopYml_Missing_Exit2 (CLM-047):
+              missing backstop.yml produces exit code 2
+            - TestArtifactValidate_BackstopYml_Invalid_Exit2 (CLM-048):
+              invalid backstop.yml produces exit code 2
+
+          Tests use the helper from TASK-001 to set up temp dirs with fixtures
+          and run ValidateArtifacts or the Cobra command.
+        files:
+          - cmd/backstop/artifact_validate_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-040
+          - CLM-041
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-051
+        depends_on:
+          - TASK-005
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement validation pipeline with scoping, routing, and Cobra command"
+        description: |
+          Create cmd/backstop/artifact_validate.go with the full validation
+          pipeline and Cobra command registration.
+
+          Type ValidateConfig struct:
+            - ProjectRoot string — from backstop.yml
+            - TypeFilters map[string]string — type name → optional artifact ID
+            - All bool — --all flag
+            - JSONOutput bool — --json flag
+            - SchemaFS fs.FS — embedded schema filesystem
+
+          Type ValidateResult struct:
+            - Pass bool
+            - ViolationsCount int
+            - Violations []validate.Violation
+
+          Function NewArtifactValidateCommand() *cobra.Command:
+            - Six type-scoping flags: --spec, --plan, --adr, --bundle, --issue,
+              --standard (each string, optional ID argument)
+            - --all boolean flag
+            - Short: "Validate artifacts against schemas"
+            - Long: detailed description
+            - RunE: orchestrate the validation pipeline
+
+          Function ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error):
+            1. Determine type filters from cfg (--all or specific types or default all)
+            2. Call DiscoverArtifacts(cfg.ProjectRoot, typeFilters)
+            3. If zero discovered: return empty result (caller handles warning)
+            4. For each discovered artifact:
+               a. Parse via artifact.ParseFile
+               b. If ID filter set for this type: match by per-type field
+                  (plan_id for plans, number for all others); skip non-matches
+               c. Route via RouteValidator to get the validator function
+               d. Resolve schema path via schema.ResolveSchemaPath
+               e. Load schema from cfg.SchemaFS via schema.LoadArtifactSchema
+               f. Call validator function
+               g. Collect violations
+            5. If any step fails (parse, route, schema load): return config error
+            6. Aggregate all violations into ValidateResult
+            7. Return result
+
+          Register under the artifact namespace command from SPEC-005.
+
+          ID matching per type (REQ-008 sharp edge):
+            - Plans: match art.Metadata["plan_id"]
+            - All others: match art.Metadata["number"]
+        files:
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-040
+          - CLM-041
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-051
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify validation pipeline and scoping tests pass"
+        description: |
+          Run pipeline tests and lint:
+            - go test ./cmd/backstop/ -run "TestArtifactValidate_Scope|TestArtifactValidate_AllFlag|TestArtifactValidate_IDScope|TestArtifactValidate_ThinAdapter|TestArtifactValidate_BackstopYml" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/artifact_validate_test.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-009
+          - CLM-018
+          - CLM-040
+          - CLM-046
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Output Formatting + Exit Codes + Aggregation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Output Formatting, Exit Codes, and Result Aggregation"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write tests for output formatting, exit codes, and result aggregation"
+        description: |
+          Write failing tests in cmd/backstop/artifact_validate_output_test.go
+          for JSON/human output (REQ-004), exit codes (REQ-005), result
+          aggregation (REQ-009), and embedded schema loading (REQ-006).
+
+          JSON output tests (REQ-004):
+            - TestArtifactValidate_JSON_OutputStructure (CLM-020): --json produces
+              valid JSON with schema_version, pass, violations_count, violations
+            - TestArtifactValidate_JSON_ViolationFields (CLM-021): each violation
+              has rule, file, message, severity fields
+            - TestArtifactValidate_Human_OutputFormat (CLM-022): default output
+              is human-readable text
+            - TestArtifactValidate_OutputParity (CLM-023): JSON and human output
+              contain identical violation data
+
+          Exit code tests (REQ-005):
+            - TestArtifactValidate_Exit0_AllPass (CLM-024): exit 0 when all pass
+            - TestArtifactValidate_Exit1_Violations (CLM-025): exit 1 when
+              violations exist
+            - TestArtifactValidate_Exit2_UnknownSchemaVersion (CLM-026): exit 2
+              on unrecognized schema_version
+            - TestArtifactValidate_Exit2_SchemaLoadFailure (CLM-027): exit 2
+              on schema load failure
+            - TestArtifactValidate_Exit2_ParseFailure (CLM-028): exit 2 on
+              artifact parse failure
+            - TestArtifactValidate_Exit2_PrecedesExit1 (CLM-029): exit 2 takes
+              precedence over exit 1
+
+          Embedded schema tests (REQ-006):
+            - TestArtifactValidate_Schema_LoadedFromEmbed (CLM-030): schemas
+              loaded from go:embed FS
+            - TestArtifactValidate_Schema_MissingFromEmbed_Exit2 (CLM-031):
+              missing schema from embed produces exit 2
+
+          Aggregation tests (REQ-009):
+            - TestArtifactValidate_Aggregate_JSON (CLM-042): violations from
+              multiple artifacts aggregated into single JSON
+            - TestArtifactValidate_Aggregate_HumanGroupedByFile (CLM-043):
+              human output groups violations by file
+            - TestArtifactValidate_Aggregate_AnyFailMeansOverallFail (CLM-044):
+              one failure means overall fail
+        files:
+          - cmd/backstop/artifact_validate_output_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-042
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement output formatting, exit code logic, and result aggregation"
+        description: |
+          Add output formatting and exit code handling to the artifact validate
+          command in cmd/backstop/artifact_validate.go.
+
+          Add to ValidateResult:
+            - SchemaVersion string — "cli/v1" for JSON output contract
+
+          Update the RunE function in NewArtifactValidateCommand to:
+            1. Load backstop.yml via config loader (exit 2 on failure)
+            2. Build ValidateConfig from flags
+            3. Call ValidateArtifacts
+            4. If error returned: format config error, exit 2
+            5. Format result using Formatter (JSON or human) from SPEC-005
+            6. In human mode: group violations by file
+            7. Determine exit code via ExitWithResult from SPEC-005
+            8. Write output to stdout, write warnings to stderr
+
+          JSON output structure:
+            {
+              "schema_version": "cli/v1",
+              "pass": true/false,
+              "violations_count": N,
+              "violations": [{ "rule": "", "file": "", "message": "", "severity": "" }]
+            }
+
+          Human output structure:
+            Group violations by file path with headers.
+            Show pass/fail summary at the end.
+
+          Exit code 2 precedence: if ValidateArtifacts returns an error,
+          always exit 2 regardless of any partial violations collected.
+
+          Schema loading: pass cfg.SchemaFS (the go:embed FS from SPEC-005)
+          to schema.LoadArtifactSchema. Never access the real filesystem for
+          schemas.
+        files:
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-042
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify output formatting, exit codes, and aggregation tests pass"
+        description: |
+          Run output/exit/aggregation tests and lint:
+            - go test ./cmd/backstop/ -run "TestArtifactValidate_JSON|TestArtifactValidate_Human|TestArtifactValidate_OutputParity|TestArtifactValidate_Exit|TestArtifactValidate_Schema|TestArtifactValidate_Aggregate" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/artifact_validate_output_test.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-020
+          - CLM-024
+          - CLM-030
+          - CLM-042
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Edge Cases — Zero Artifacts, Discovery Parse Failures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Edge Cases — Zero Artifacts, Parse Failures, and Warning Messages"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write tests for zero-artifact scenario and discovery parse failures"
+        description: |
+          Write failing tests in cmd/backstop/artifact_validate_edge_test.go
+          for REQ-012 (zero artifacts) and REQ-007 parse failure edge case.
+
+          Zero artifact tests (REQ-012):
+            - TestArtifactValidate_ZeroArtifacts_Exit0_EmptyViolations (CLM-049):
+              zero discovered artifacts returns exit 0 with empty violations
+            - TestArtifactValidate_ZeroArtifacts_WarningMessage (CLM-050):
+              zero discovered artifacts emits warning to stderr
+
+          Parse failure edge case (already covered in CLM-039 test name):
+            - TestArtifactValidate_Discover_ParseFailure_ConfigError (CLM-039):
+              verify that a file matching an artifact pattern but failing to
+              parse produces a config error (exit 2), not a validation error
+
+          These tests use temp directories: the zero-artifact tests create a
+          project dir with backstop.yml but no artifact files. The parse failure
+          test creates a *.spec.md file with invalid content.
+        files:
+          - cmd/backstop/artifact_validate_edge_test.go
+        claims:
+          - CLM-039
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement zero-artifact handling and discovery parse failure detection"
+        description: |
+          Update cmd/backstop/artifact_validate.go to handle edge cases:
+
+          Zero-artifact handling in RunE:
+            - After ValidateArtifacts returns: if result has zero violations
+              and zero artifacts were discovered, emit warning to stderr:
+              "warning: no artifacts found to validate"
+            - Return exit 0 with empty violations list
+            - In JSON mode, output valid JSON with pass: true, violations: []
+
+          Discovery parse failure in ValidateArtifacts:
+            - When artifact.ParseFile fails for a discovered file, return
+              an error (config error) rather than adding it to violations
+            - Error message: "failed to parse artifact <path>: <parse error>"
+            - This triggers exit code 2 in the caller
+
+          Also handle the case where type filter by ID finds zero matches:
+            - After filtering by ID, if no artifact matches, return error
+              "no <type> artifact found with ID <id>"
+            - This is a config error (exit 2), not a validation pass
+        files:
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-039
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Verify edge case tests pass"
+        description: |
+          Run edge case tests and lint:
+            - go test ./cmd/backstop/ -run "TestArtifactValidate_ZeroArtifacts|TestArtifactValidate_Discover_ParseFailure" -race -v
+            - go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/artifact_validate_edge_test.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-039
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification"
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run full artifact validate test suite with coverage gate"
+        description: |
+          Run the complete artifact validate test suite with race detection
+          and coverage profiling. Verify all 51 claim tests pass and coverage
+          meets the 80% threshold.
+
+          Commands:
+            - go test ./cmd/backstop/... -run TestArtifactValidate -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out
+            - Verify coverage >= 80% for cmd/backstop/
+            - go tool golangci-lint run ./cmd/backstop/
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/...
+
+          This covers code verification for all .go files touched in the plan.
+        files:
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/artifact_route.go
+          - cmd/backstop/artifact_validate_test.go
+          - cmd/backstop/artifact_discover_test.go
+          - cmd/backstop/artifact_route_test.go
+          - cmd/backstop/artifact_validate_output_test.go
+          - cmd/backstop/artifact_validate_edge_test.go
+          - cmd/backstop/artifact_validate_helpers_test.go
+        claims:
+          - CLM-001
+          - CLM-007
+          - CLM-009
+          - CLM-017
+          - CLM-020
+          - CLM-024
+          - CLM-030
+          - CLM-032
+          - CLM-040
+          - CLM-042
+          - CLM-045
+          - CLM-049
+        depends_on:
+          - TASK-016
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Validate plan artifact against plan schema"
+        description: |
+          Run the plan validator against this plan file itself to ensure
+          the .plan.yml artifact passes structural validation.
+
+          Commands:
+            - go run /tmp/validate_plan.go plans/PLAN-SPEC-006-artifact-validate.plan.yml
+
+          This covers artifact verification for the plan file produced by
+          this planning process.
+        files:
+          - plans/PLAN-SPEC-006-artifact-validate.plan.yml
+        claims:
+          - CLM-045
+        depends_on:
+          - TASK-016
+          - TASK-018
