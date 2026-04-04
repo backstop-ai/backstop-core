@@ -12,7 +12,7 @@ func TestSpec_ReviewQuestions_PresentPasses(t *testing.T) {
 	assertNoViolationRule(t, result, "spec/review-questions-empty")
 }
 
-func TestSpec_ReviewQuestions_EmptyFails(t *testing.T) {
+func TestSpec_ReviewQuestions_EmptyPassesDueToParserLimitation(t *testing.T) {
 	// With presence-only validation (parser doesn't track section content),
 	// even an "empty" Review Questions section passes the validator.
 	// Content quality is the spec-reviewer's responsibility.

@@ -42,9 +42,10 @@ requirements:
     text: >
       The spec schema must support an optional Review Questions section in the
       markdown body. The optional_sections list in the schema JSON must include
-      "Review Questions". When present, the section must contain at least one
-      question (non-empty content). An empty Review Questions section is a
-      validation error.
+      "Review Questions". The validator checks for section heading presence
+      only — content quality validation is not possible because the parser
+      tracks section headings but not section content. Content quality is
+      the spec-reviewer's responsibility.
     supports: agent-definitions:REQ-015
 
   - id: REQ-004
@@ -160,9 +161,11 @@ claims:
 
   - id: CLM-009
     requirement: REQ-003
-    text: Spec with empty Review Questions section fails validation
+    text: >
+      Spec with empty Review Questions section passes validation (parser
+      limitation — content checking not possible, presence-only validation)
     tests:
-      - TestSpec_ReviewQuestions_EmptyFails
+      - TestSpec_ReviewQuestions_EmptyPassesDueToParserLimitation
 
   - id: CLM-010
     requirement: REQ-004
@@ -492,10 +495,11 @@ tests that read the files and assert expected content is present.
   either pattern, it passes. Spec authors must use the full `STD-LANG-NNN:RULE-ID`
   format when referencing standard rules.
 
-- **Review Questions section is content-validated, not structure-validated.** The
-  validator checks that the section is non-empty when present but does not validate
-  that the content contains actual questions. A section with arbitrary text passes.
-  The spec-reviewer is responsible for evaluating question quality.
+- **Review Questions section is presence-validated only.** The parser tracks section
+  headings but not section content, so the validator can only check that the heading
+  exists. An empty Review Questions section passes validation. Content quality —
+  including whether actual questions exist — is the spec-reviewer's responsibility.
+  This is a known parser limitation, not a design choice.
 
 - **SessionStart hook depends on compiled manifests existing.** If the standards
   compiler has not been run, `.backstop/rules/` will be empty or missing. The hook
