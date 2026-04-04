@@ -1,0 +1,18 @@
+project: my-service
+language: go
+runtimes:
+  - go1.25
+  - node22
+enforcement:
+  security:
+    tier: standard
+  waiver_warning_days: 14
+packs:
+  rules:
+    owasp-go: "1.0.0"
+    secret-scan: "2.1.0"
+  code:
+    go-standards: "1.0.0"
+registries:
+  "@company": "https://registry.company.com/backstop"
+  "@oss": "https://registry.backstop.dev"

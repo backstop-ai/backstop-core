@@ -1,0 +1,3 @@
+project: my-service
+language: go
+unknown_field: should-cause-error

@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-yml-v1",
+  "title": "Backstop Project Manifest Schema v1",
+  "description": "Schema for backstop.yml project configuration. Defines required and optional fields for project manifests.",
+  "type": "object",
+  "required": ["project", "language"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Project name",
+      "minLength": 1
+    },
+    "language": {
+      "type": "string",
+      "description": "Primary language",
+      "minLength": 1
+    },
+    "runtimes": {
+      "type": "array",
+      "description": "Supported runtimes",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enforcement": {
+      "type": "object",
+      "description": "Enforcement configuration",
+      "additionalProperties": false,
+      "properties": {
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tier": {
+              "type": "string",
+              "enum": ["baseline", "standard", "compliance"],
+              "description": "Security enforcement tier"
+            }
+          }
+        },
+        "waiver_warning_days": {
+          "type": "integer",
+          "default": 30,
+          "description": "Number of days before waiver expiry to warn"
+        }
+      }
+    },
+    "packs": {
+      "type": "object",
+      "description": "Pack declarations",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "type": "object",
+          "description": "Rule pack name to version mapping",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "code": {
+          "type": "object",
+          "description": "Code pack name to version mapping",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "registries": {
+      "type": "object",
+      "description": "Scope-based registry resolution",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}
