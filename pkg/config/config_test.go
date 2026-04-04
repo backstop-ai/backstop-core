@@ -219,9 +219,10 @@ func TestCLI_ConfigLoader_WalkUpDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath from child: %v", err)
 	}
-	expected := filepath.Join(parent, "backstop.yml")
-	if path != expected {
-		t.Errorf("discovered path = %q, want %q", path, expected)
+	actual, _ := filepath.EvalSymlinks(path)
+	expected, _ := filepath.EvalSymlinks(filepath.Join(parent, "backstop.yml"))
+	if actual != expected {
+		t.Errorf("discovered path = %q (resolved %q), want %q", path, actual, expected)
 	}
 }
 
@@ -299,9 +300,10 @@ func TestConfig_BackstopConfig_EmptyString_FallsBackToWalkUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath with empty BACKSTOP_CONFIG: %v", err)
 	}
-	expected := filepath.Join(parent, "backstop.yml")
-	if path != expected {
-		t.Errorf("discovered path = %q, want %q", path, expected)
+	actual, _ := filepath.EvalSymlinks(path)
+	expected, _ := filepath.EvalSymlinks(filepath.Join(parent, "backstop.yml"))
+	if actual != expected {
+		t.Errorf("discovered path = %q (resolved %q), want %q", path, actual, expected)
 	}
 }
 

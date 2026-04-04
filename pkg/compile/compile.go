@@ -64,6 +64,13 @@ func Compile(standardPath string, opts CompileOptions) (*CompileResult, error) {
 
 	for _, rule := range rules {
 		if rule.IsAdvisory() {
+			manifest.Rules = append(manifest.Rules, ManifestRule{
+				ID:             rule.ID,
+				Name:           rule.Name,
+				Severity:       rule.Severity,
+				ComplianceTier: rule.ComplianceTier,
+				Enforcement:    "advisory",
+			})
 			continue
 		}
 

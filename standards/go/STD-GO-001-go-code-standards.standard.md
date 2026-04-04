@@ -74,6 +74,48 @@ rules:
       - title: "Go Code Review Comments — Global State"
         url: "https://go.dev/wiki/CodeReviewComments#global-state"
 
+  - id: GO-004
+    name: no-init-functions
+    category: structure
+    severity: error
+    description: init() functions are forbidden outside very narrow bootstrap use
+    compliance_tier: baseline
+    detection:
+      strategy: pattern
+      semgrep: |
+        func init() {
+          ...
+        }
+    fix: Replace init side effects with explicit constructor wiring
+
+  - id: GO-005
+    name: constructor-injection-required
+    category: structure
+    severity: warning
+    description: Prefer constructor-based dependency injection over direct struct literal wiring in callers
+    compliance_tier: standard
+    detection:
+      strategy: pattern
+      semgrep: |
+        $TYPE{
+          $FIELD: $VALUE,
+          ...
+        }
+      note: "Aspirational architectural pattern; semgrep can only flag likely dependency-wiring literals and may require review for intent."
+    fix: Provide New<Type>(deps...) constructors and inject dependencies explicitly
+
+  - id: GO-006
+    name: structured-logging-required
+    category: structure
+    severity: warning
+    description: Use structured logging APIs instead of stdlib log.Print/Fatal style calls
+    compliance_tier: standard
+    detection:
+      strategy: pattern
+      semgrep: |
+        log.$METHOD(...)
+    fix: Use structured logger fields (for example zap/slog) instead of unstructured log calls
+
   # ── Error Handling ─────────────────────────────────────────────────────
 
   - id: GO-010
@@ -152,6 +194,7 @@ rules:
       strategy: delegated
       enforced_by: golangci-lint
       rule: revive/exported
+      note: "Delegated to golangci-lint revive/exported; appears in manifest, not semgrep YAML."
     fix: "Use validate.Spec not validate.ValidateSpec"
     sources:
       - title: "Go Code Review Comments — Package Names"
@@ -182,6 +225,7 @@ rules:
       strategy: metric
       metric: test_file_exists
       exclude: "main.go"
+      note: "Requires file-level correlation between source and test files; enforced by native metric analysis, not semgrep."
 
   - id: GO-031
     name: table-driven-tests
@@ -221,6 +265,7 @@ rules:
       strategy: delegated
       enforced_by: golangci-lint
       rule: goimports
+      note: "Delegated enforcement via golangci-lint/goimports; this rule does not produce semgrep YAML."
 
   # ── Concurrency ────────────────────────────────────────────────────────
 
@@ -247,6 +292,58 @@ rules:
       strategy: delegated
       enforced_by: makefile
       rule: test-race-flag
+
+  # ── Security ─────────────────────────────────────────────────────────────
+
+  - id: GO-060
+    name: no-hardcoded-credentials
+    category: security
+    severity: error
+    description: Credentials and secrets must not be hardcoded in source
+    compliance_tier: baseline
+    detection:
+      strategy: pattern
+      semgrep: |
+        $NAME := "$VALUE"
+      note: "Detects obvious hardcoded secret assignments (password/token/secret/key variable names)."
+    fix: Load secrets from secure configuration or environment at runtime
+
+  - id: GO-061
+    name: no-weak-password-hashing
+    category: security
+    severity: error
+    description: Weak hash functions like MD5 and SHA1 must not be used for password hashing
+    compliance_tier: baseline
+    detection:
+      strategy: pattern
+      semgrep: |
+        md5.$FUNC(...)
+    fix: Use adaptive password hashing algorithms such as bcrypt/argon2
+
+  - id: GO-062
+    name: no-sql-concatenation
+    category: security
+    severity: error
+    description: SQL query strings must not be built with string concatenation
+    compliance_tier: baseline
+    detection:
+      strategy: pattern
+      semgrep: |
+        $QUERY := "SELECT " + ...
+      note: "Targets obvious SQL string concatenation patterns; false positives may require review."
+    fix: Use parameterized queries with placeholders and bound arguments
+
+  - id: GO-063
+    name: no-sensitive-data-in-logs
+    category: security
+    severity: warning
+    description: Sensitive values such as passwords, tokens, and secrets must not be logged
+    compliance_tier: standard
+    detection:
+      strategy: pattern
+      semgrep: |
+        $LOG.$METHOD(..., $SENSITIVE, ...)
+    fix: Redact or omit sensitive fields before logging
 ---
 
 # Go Code Standards
@@ -259,11 +356,13 @@ Rules are organized by category and assigned a compliance tier (baseline, standa
 
 ## Rules
 
-### Structure (GO-001 – GO-003)
+### Structure (GO-001 – GO-006)
 
 Structural rules prevent the accumulation of complexity that makes codebases unmaintainable. The 500-line file limit and 100-line function limit are hard gates — the exact kind of constraint that would have caught the 4,000-line router before it became a problem.
 
 Global mutable state is banned because it creates invisible coupling between packages. The only exceptions are synchronization primitives (sync.Once, sync.Mutex) and compiled regexes (regexp.MustCompile), which are effectively immutable after initialization.
+
+The pack also forbids init() functions for regular application wiring and encourages constructor-driven dependency injection. Structured logging is required over free-form log.Print/Fatal calls so observability pipelines can parse fields consistently.
 
 ### Error Handling (GO-010 – GO-013)
 
@@ -286,6 +385,10 @@ Import ordering (stdlib → external → internal) is enforced by goimports and 
 ### Concurrency (GO-050 – GO-051)
 
 Goroutines without termination paths are memory leaks. The race detector catches data races but only if it's enabled — which is why `-race` is a baseline requirement, not optional.
+
+### Security (GO-060 – GO-063)
+
+Security baseline rules catch high-signal mistakes early: hardcoded credentials, weak password hashing primitives, SQL string concatenation, and logging of sensitive values. These rules are intentionally conservative and flag obvious violations for remediation and review.
 
 ## Examples
 

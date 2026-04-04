@@ -467,8 +467,11 @@ func TestCompile_AdvisoryRulesExcludedFromManifest(t *testing.T) {
 	path := writeTestStandard(t, dir, "STD-GO-015-advisory-manifest.standard.md", testStandard("STD-GO-015", "go", "language", "active", rules))
 
 	res := compileStandard(t, path, compile.CompileOptions{OutputDir: filepath.Join(dir, "out"), SchemaSource: testSchemaSource(t)})
-	if len(res.Manifest.Rules) != 0 {
-		t.Fatalf("expected advisory rule excluded from manifest")
+	if len(res.Manifest.Rules) != 1 {
+		t.Fatalf("expected advisory rule in manifest, got %d rules", len(res.Manifest.Rules))
+	}
+	if res.Manifest.Rules[0].Enforcement != "advisory" {
+		t.Fatalf("expected enforcement=advisory, got %q", res.Manifest.Rules[0].Enforcement)
 	}
 }
 
@@ -488,8 +491,14 @@ func TestCompile_AdvisoryDelegatedWithoutEnforcedBy(t *testing.T) {
 	path := writeTestStandard(t, dir, "STD-GO-016-advisory-delegated.standard.md", testStandard("STD-GO-016", "go", "language", "active", rules))
 
 	res := compileStandard(t, path, compile.CompileOptions{OutputDir: filepath.Join(dir, "out"), SchemaSource: testSchemaSource(t)})
-	if len(res.Manifest.Rules) != 0 || len(res.SemgrepRules) != 0 || len(res.NativeChecks) != 0 {
-		t.Fatalf("expected delegated advisory excluded from all outputs")
+	if len(res.SemgrepRules) != 0 || len(res.NativeChecks) != 0 {
+		t.Fatalf("expected advisory excluded from semgrep/native, got %d/%d", len(res.SemgrepRules), len(res.NativeChecks))
+	}
+	if len(res.Manifest.Rules) != 1 {
+		t.Fatalf("expected advisory rule in manifest, got %d rules", len(res.Manifest.Rules))
+	}
+	if res.Manifest.Rules[0].Enforcement != "advisory" {
+		t.Fatalf("expected enforcement=advisory, got %q", res.Manifest.Rules[0].Enforcement)
 	}
 }
 
@@ -668,8 +677,8 @@ func TestCompile_MixedStrategiesStandard(t *testing.T) {
 	if len(res.NativeChecks) != 1 {
 		t.Fatalf("native checks len = %d, want 1", len(res.NativeChecks))
 	}
-	if len(res.Manifest.Rules) != 4 {
-		t.Fatalf("manifest rules len = %d, want 4", len(res.Manifest.Rules))
+	if len(res.Manifest.Rules) != 5 {
+		t.Fatalf("manifest rules len = %d, want 5 (pattern+regex+metric+delegated+advisory)", len(res.Manifest.Rules))
 	}
 
 	manifestPath := filepath.Join(dir, "out", "STD-GO-034.manifest.json")
