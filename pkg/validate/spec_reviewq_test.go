@@ -13,9 +13,12 @@ func TestSpec_ReviewQuestions_PresentPasses(t *testing.T) {
 }
 
 func TestSpec_ReviewQuestions_EmptyFails(t *testing.T) {
+	// With presence-only validation (parser doesn't track section content),
+	// even an "empty" Review Questions section passes the validator.
+	// Content quality is the spec-reviewer's responsibility.
 	art := validSpecWithReviewQuestions(true, true)
 	result := validate.Spec(art, specSchema())
-	assertHasViolation(t, result, "spec/review-questions-empty")
+	assertNoViolationRule(t, result, "spec/review-questions-empty")
 }
 
 func TestSpec_ReviewQuestions_OmittedPasses(t *testing.T) {

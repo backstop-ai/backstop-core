@@ -2,14 +2,24 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": ".claude/hooks/backstop-standards-context.sh"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-standards-context.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [
       {
-        "type": "command",
-        "command": ".claude/hooks/backstop-standards-context.sh"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-standards-context.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [

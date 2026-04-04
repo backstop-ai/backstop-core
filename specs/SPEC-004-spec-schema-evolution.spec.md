@@ -84,9 +84,11 @@ requirements:
   - id: REQ-008
     text: >
       The standards context hook must be registered in .claude/settings.json
-      under both hooks.SessionStart and hooks.SubagentStart so it fires
-      for main sessions and subagent sessions (including reviewer and
-      author agents that need standards context).
+      under both hooks.SessionStart and hooks.SubagentStart using the
+      required Claude Code hook format: each entry must be an object with
+      a "matcher" string (empty string to match all) and a "hooks" array
+      containing the command objects. Bare command objects without the
+      matcher+hooks wrapper are rejected by Claude Code at startup.
     supports: agent-definitions:REQ-018
 
   - id: REQ-009
@@ -216,10 +218,13 @@ claims:
     requirement: REQ-008
     text: >
       The settings.json file registers the standards context hook under
-      both hooks.SessionStart and hooks.SubagentStart
+      both hooks.SessionStart and hooks.SubagentStart using the correct
+      matcher+hooks array format
     tests:
       - TestSettingsJson_SessionStartHookRegistered
       - TestSettingsJson_SubagentStartHookRegistered
+      - TestSettingsJson_SessionStartHookFormat
+      - TestSettingsJson_SubagentStartHookFormat
 
   - id: CLM-017
     requirement: REQ-009
@@ -507,6 +512,14 @@ tests that read the files and assert expected content is present.
   if rule GO-999 does not exist in the compiled manifest. Cross-validation against
   actual manifests is a future enhancement — it requires the validator to have
   access to the compiled rules directory, which is not currently part of its API.
+
+- **Claude Code settings.json hook format is strict.** Every hook event entry
+  requires the `{"matcher": "...", "hooks": [...]}` wrapper structure. Bare
+  command objects placed directly in the event array cause Claude Code to reject
+  the entire settings file at startup with no fallback. This was a real failure
+  during SPEC-004 implementation — the SessionStart and SubagentStart hooks were
+  written as bare objects and Claude Code refused to load the file. Tests must
+  validate the structural format, not just the presence of the command string.
 
 - **Agent instruction changes are not mechanically enforced.** REQ-005 and REQ-006
   require specific instructions in agent definition files. The claims verify the

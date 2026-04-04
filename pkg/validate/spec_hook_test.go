@@ -127,12 +127,83 @@ func hasHookCommand(hooks []interface{}, expected string) bool {
 		if !ok {
 			continue
 		}
-		command, _ := entry["command"].(string)
-		if command == expected {
-			return true
+		// Check matcher+hooks wrapper format
+		innerHooks, ok := entry["hooks"].([]interface{})
+		if ok {
+			for _, ih := range innerHooks {
+				inner, ok := ih.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cmd, _ := inner["command"].(string); cmd == expected {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+// hasCorrectHookFormat verifies the Claude Code hook format:
+// each entry must have a "matcher" string and a "hooks" array.
+func hasCorrectHookFormat(hooks []interface{}) bool {
+	for _, h := range hooks {
+		entry, ok := h.(map[string]interface{})
+		if !ok {
+			return false
+		}
+		if _, hasMatcher := entry["matcher"]; !hasMatcher {
+			return false
+		}
+		if _, hasHooks := entry["hooks"].([]interface{}); !hasHooks {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSettingsJson_SessionStartHookFormat(t *testing.T) {
+	data, err := os.ReadFile("../../.claude/settings.json")
+	if err != nil {
+		t.Fatalf("cannot read settings.json: %v", err)
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("cannot parse settings.json: %v", err)
+	}
+	hooks, ok := settings["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatal("settings hooks missing")
+	}
+	sessionStart, ok := hooks["SessionStart"].([]interface{})
+	if !ok {
+		t.Fatal("hooks.SessionStart missing or not array")
+	}
+	if !hasCorrectHookFormat(sessionStart) {
+		t.Fatal("SessionStart hook entries must use matcher+hooks format")
+	}
+}
+
+func TestSettingsJson_SubagentStartHookFormat(t *testing.T) {
+	data, err := os.ReadFile("../../.claude/settings.json")
+	if err != nil {
+		t.Fatalf("cannot read settings.json: %v", err)
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("cannot parse settings.json: %v", err)
+	}
+	hooks, ok := settings["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatal("settings hooks missing")
+	}
+	subagentStart, ok := hooks["SubagentStart"].([]interface{})
+	if !ok {
+		t.Fatal("hooks.SubagentStart missing or not array")
+	}
+	if !hasCorrectHookFormat(subagentStart) {
+		t.Fatal("SubagentStart hook entries must use matcher+hooks format")
+	}
 }
 
 func standardsHookPath(t *testing.T) string {
