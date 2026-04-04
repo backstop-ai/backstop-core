@@ -534,6 +534,9 @@ phases:
         files:
           - cmd/backstop/pack_new_test.go
         claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
           - CLM-032
           - CLM-033
           - CLM-034
@@ -582,6 +585,9 @@ phases:
         files:
           - cmd/backstop/pack_new.go
         claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
           - CLM-032
           - CLM-033
           - CLM-034

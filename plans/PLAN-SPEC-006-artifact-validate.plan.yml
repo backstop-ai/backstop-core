@@ -160,8 +160,9 @@ phases:
               *.standard.md files discovered as standard artifacts
             - TestArtifactValidate_Discover_IgnoresNonArtifacts (CLM-038):
               verify non-matching files are ignored
-            - TestArtifactValidate_Discover_ParseFailure_ConfigError (CLM-039):
-              verify files matching pattern but failing to parse produce config error
+
+          Note: CLM-039 (parse failure config error) is tested in Phase 6
+          (TASK-015) where its implementation lands, not here.
 
           Each test sets up a temp directory with the appropriate fixture files,
           runs the discovery function, and verifies the returned file list.
@@ -175,7 +176,6 @@ phases:
           - CLM-036
           - CLM-037
           - CLM-038
-          - CLM-039
         depends_on:
           - TASK-001
           - TASK-002

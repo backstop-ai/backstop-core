@@ -635,6 +635,7 @@ phases:
             - schema_version field is always present in JSON
         files:
           - pkg/check/output.go
+          - pkg/check/check.go
         claims:
           - CLM-022
           - CLM-023
