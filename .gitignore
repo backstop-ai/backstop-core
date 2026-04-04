@@ -28,3 +28,4 @@ dist/
 # Node (for TypeScript packs)
 node_modules/
 cover.out
+backstop
