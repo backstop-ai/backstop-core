@@ -11,20 +11,23 @@ implementation:
     Implement the backstop gate command that runs the full verification kill
     chain (ADR-0010). Gate is the superset command — it orchestrates artifact
     validation (delegating to backstop artifact validate), code check
-    (delegating to backstop code check --all), test verification, test
-    substantiveness, coverage threshold verification, contract signature
-    verification, baseline comparison, waiver resolution, and ledger integrity
-    verification. Gate produces a unified result in JSON or human output mode.
+    (delegating to backstop code check --all), test verification (mandated
+    test names exist as functions), test substantiveness (tests are not hollow
+    — contain assertions and call target package), coverage threshold
+    verification (coverage meets spec-declared threshold), contract signature
+    verification (declared symbols exist with matching signatures), baseline
+    comparison, waiver resolution, and ledger integrity verification. Steps
+    3-6 use grep and Go AST parsing for mechanical verification — no full
+    semantic analysis. Baseline, waivers, and ledger are deferred (reported
+    as skipped). Gate produces a unified result in JSON or human output mode.
     The JSON output is the contract consumed by the GitHub Actions gate action
     (ADR-0009). Exit codes follow the CLI contract: 0 (all green), 1
-    (failures found), 2 (config error). Steps that depend on the verifier
-    (which does not yet exist) are reported as gaps in the output rather
-    than silently skipped.
+    (failures found), 2 (config error).
   package: cmd/backstop
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/... -run TestGate -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/... ./pkg/gate/... -run "TestGate" -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
@@ -58,14 +61,43 @@ requirements:
 
   - id: REQ-004
     text: >
-      Steps 3 through 6 (test verification, test substantiveness, coverage
-      threshold, contract signature) depend on the verifier subsystem which
-      does not yet exist. When a step's implementation is not available, gate
-      must report that step as status "skipped" with reason "verifier not
-      implemented" in the output. A skipped step must not cause exit code 1
-      — it is an informational gap, not a failure. Gate must not silently
-      omit these steps from the output; every step must appear in the result
-      regardless of availability.
+      Step 3 (test verification) must verify that every mandated test name
+      from every spec claim exists as an actual test function in the codebase.
+      For each spec in the project, extract all claims and their mandated test
+      names. For each test name, grep the test files for a function with that
+      exact name. A missing test function is a failure. This is a mechanical
+      check — function name exists or it doesn't.
+    supports: cli:REQ-006
+
+  - id: REQ-015
+    text: >
+      Step 4 (test substantiveness) must verify that each mandated test
+      function is not hollow. For each test function found in step 3, perform
+      basic checks: (a) the function body calls at least one function from the
+      package under test (not just test helpers), (b) the function body contains
+      at least one assertion (t.Fatal, t.Error, t.Errorf, or a comparison that
+      would fail). A test function that exists but contains no assertions or
+      doesn't call the target package is a failure. This uses Go AST parsing
+      or grep-level heuristics — not full semantic analysis.
+    supports: cli:REQ-006
+
+  - id: REQ-016
+    text: >
+      Step 5 (coverage threshold) must run the test suite with coverage
+      profiling and compare the result against the threshold declared in the
+      spec's verification.coverage_threshold field. Coverage below threshold
+      is a failure. The test command from the spec's verification.test_command
+      field is used with -coverprofile appended if not already present.
+    supports: cli:REQ-006
+
+  - id: REQ-017
+    text: >
+      Step 6 (contract signature verification) must verify that every function,
+      type, and interface declared in spec contracts actually exists in the
+      codebase with the declared signature. For each contract entry, grep or
+      AST-parse the declared file for the declared symbol with the declared
+      signature. A missing symbol or mismatched signature is a failure. This
+      is a mechanical check — the declaration exists or it doesn't.
     supports: cli:REQ-006
 
   - id: REQ-005
@@ -217,34 +249,92 @@ claims:
     tests:
       - TestGate_CodeCheck_PassWhenClean
 
-  # REQ-004: Verifier-dependent steps report skipped
+  # REQ-004: Test verification — mandated test names exist
   - id: CLM-007
     requirement: REQ-004
-    text: Test verification step reports status skipped with reason when verifier is not implemented
+    text: Gate finds a mandated test function that exists and reports pass
     tests:
-      - TestGate_TestVerification_SkippedWhenNotImplemented
+      - TestGate_TestVerification_MandatedTestExists
 
   - id: CLM-008
     requirement: REQ-004
-    text: Test substantiveness step reports status skipped with reason when verifier is not implemented
+    text: Gate detects a missing mandated test function and reports failure
     tests:
-      - TestGate_TestSubstantiveness_SkippedWhenNotImplemented
+      - TestGate_TestVerification_MandatedTestMissing
 
   - id: CLM-009
     requirement: REQ-004
-    text: Coverage threshold step reports status skipped with reason when verifier is not implemented
+    text: Gate checks all specs in the project and collects all mandated test names
     tests:
-      - TestGate_CoverageThreshold_SkippedWhenNotImplemented
+      - TestGate_TestVerification_CollectsAllSpecClaims
 
+  # REQ-015: Test substantiveness — not hollow
   - id: CLM-010
-    requirement: REQ-004
-    text: Contract signature step reports status skipped with reason when verifier is not implemented
+    requirement: REQ-015
+    text: Gate detects a test function that contains assertions and calls the target package
     tests:
-      - TestGate_ContractSignature_SkippedWhenNotImplemented
+      - TestGate_TestSubstantiveness_SubstantiveTestPasses
 
   - id: CLM-011
+    requirement: REQ-015
+    text: Gate detects a hollow test function with no assertions
+    tests:
+      - TestGate_TestSubstantiveness_HollowTestFails
+
+  - id: CLM-047
+    requirement: REQ-015
+    text: Gate detects a test function that never calls the package under test
+    tests:
+      - TestGate_TestSubstantiveness_NoTargetCallFails
+
+  # REQ-016: Coverage threshold
+  - id: CLM-048
+    requirement: REQ-016
+    text: Gate passes when coverage meets the spec threshold
+    tests:
+      - TestGate_CoverageThreshold_MeetsThreshold
+
+  - id: CLM-049
+    requirement: REQ-016
+    text: Gate fails when coverage is below the spec threshold
+    tests:
+      - TestGate_CoverageThreshold_BelowThreshold
+
+  - id: CLM-050
+    requirement: REQ-016
+    text: Gate uses the test_command from the spec verification block
+    tests:
+      - TestGate_CoverageThreshold_UsesSpecTestCommand
+
+  # REQ-017: Contract signature verification
+  - id: CLM-051
+    requirement: REQ-017
+    text: Gate passes when a declared contract function exists with matching signature
+    tests:
+      - TestGate_ContractSignature_MatchingSignaturePasses
+
+  - id: CLM-052
+    requirement: REQ-017
+    text: Gate fails when a declared contract function is missing from the file
+    tests:
+      - TestGate_ContractSignature_MissingFunctionFails
+
+  - id: CLM-053
+    requirement: REQ-017
+    text: Gate fails when a declared contract function exists but signature differs
+    tests:
+      - TestGate_ContractSignature_WrongSignatureFails
+
+  - id: CLM-054
+    requirement: REQ-017
+    text: Gate verifies contract types and interfaces, not just functions
+    tests:
+      - TestGate_ContractSignature_TypeAndInterfaceVerified
+
+  # All steps present in output
+  - id: CLM-055
     requirement: REQ-004
-    text: Skipped steps do not appear in the output with status omitted — every step is always present
+    text: All nine steps appear in gate output regardless of pass/fail/skip status
     tests:
       - TestGate_AllNineStepsAppearInOutput
 
@@ -548,10 +638,10 @@ of whether it executed, failed, or was skipped.
 |---|-----------|--------|----------------|
 | 1 | `artifact_validation` | Delegates to artifact validate --all logic | Implemented |
 | 2 | `code_check` | Delegates to code check --all logic (includes semgrep) | Implemented |
-| 3 | `test_verification` | Verifier: mandated test names exist and pass | Skipped (verifier not implemented) |
-| 4 | `test_substantiveness` | Verifier: AST analysis of test bodies | Skipped (verifier not implemented) |
-| 5 | `coverage_threshold` | Verifier: coverage meets spec thresholds | Skipped (verifier not implemented) |
-| 6 | `contract_signature` | Verifier: spec contracts match code | Skipped (verifier not implemented) |
+| 3 | `test_verification` | Mandated test names from spec claims exist as functions | grep test files for exact function names |
+| 4 | `test_substantiveness` | Test functions are not hollow — contain assertions and call target package | Go AST parsing or grep heuristics |
+| 5 | `coverage_threshold` | Test coverage meets spec-declared threshold | Run test_command with -coverprofile, parse output |
+| 6 | `contract_signature` | Spec contract declarations match actual code | grep/AST for declared symbols in declared files |
 | 7 | `baseline_comparison` | Compares violations against recorded baseline | Skipped (baseline not implemented) |
 | 8 | `waiver_resolution` | Suppresses violations matched by active waivers | Skipped (waivers not implemented) |
 | 9 | `ledger_integrity` | Verifies provenance ledger hash chain | Skipped (ledger not implemented) |
