@@ -13,9 +13,9 @@ implementation:
     validation (delegating to backstop artifact validate), code check
     (delegating to backstop code check --all), test verification, test
     substantiveness, coverage threshold verification, contract signature
-    verification, baseline comparison, and ledger integrity verification.
-    Gate produces a unified result in JSON or human output mode. The JSON
-    output is the contract consumed by the GitHub Actions gate action
+    verification, baseline comparison, waiver resolution, and ledger integrity
+    verification. Gate produces a unified result in JSON or human output mode.
+    The JSON output is the contract consumed by the GitHub Actions gate action
     (ADR-0009). Exit codes follow the CLI contract: 0 (all green), 1
     (failures found), 2 (config error). Steps that depend on the verifier
     (which does not yet exist) are reported as gaps in the output rather
@@ -30,14 +30,14 @@ verification:
 requirements:
   - id: REQ-001
     text: >
-      The backstop gate command must run eight verification steps in the
+      The backstop gate command must run nine verification steps in the
       following fixed order: (1) artifact validation, (2) code check,
       (3) test verification, (4) test substantiveness, (5) coverage threshold
       verification, (6) contract signature verification, (7) baseline
-      comparison, (8) ledger integrity verification. All eight steps must
-      execute regardless of earlier step failures — gate collects all results
-      before producing its final output. No step is short-circuited by a
-      preceding failure.
+      comparison, (8) waiver resolution, (9) ledger integrity verification.
+      All nine steps must execute regardless of earlier step failures — gate
+      collects all results before producing its final output. No step is
+      short-circuited by a preceding failure.
     supports: cli:REQ-006
 
   - id: REQ-002
@@ -83,7 +83,18 @@ requirements:
 
   - id: REQ-006
     text: >
-      Step 8 (ledger integrity) must verify the provenance ledger hash chain.
+      Step 8 (waiver resolution) must check active waivers and suppress
+      matching violations from preceding steps. An active waiver is one
+      whose scope (rule+file or rule+package) matches a reported violation
+      and whose expiry date has not passed. Suppressed violations must be
+      removed from the step's violation list and recorded as waived in the
+      output. When the waiver subsystem is not yet implemented, this step
+      must report status "skipped" with reason "waivers not implemented."
+    supports: cli:REQ-006
+
+  - id: REQ-007
+    text: >
+      Step 9 (ledger integrity) must verify the provenance ledger hash chain.
       If the ledger does not exist, the step must report status "skipped"
       with reason "no ledger found." If the ledger exists, the step must
       verify that every entry's hash is correct and the chain is unbroken.
@@ -92,7 +103,7 @@ requirements:
       with reason "ledger not implemented."
     supports: cli:REQ-006
 
-  - id: REQ-007
+  - id: REQ-008
     text: >
       The gate command must produce structured JSON output when the --json
       flag is set. The JSON output must include: a schema_version field
@@ -107,7 +118,7 @@ requirements:
       command must produce human-readable formatted text to stdout.
     supports: cli:REQ-007
 
-  - id: REQ-008
+  - id: REQ-009
     text: >
       Exit codes must follow the CLI contract: 0 when all executed steps
       pass (skipped steps do not prevent exit code 0), 1 when any step
@@ -115,10 +126,13 @@ requirements:
       missing or invalid, schema loading failure, embedded schema cohort
       error). Exit code 2 must take precedence over exit code 1 — if a
       config error is detected, the command must not report partial gate
-      results. Skipped steps alone must not produce exit code 1.
+      results. Skipped steps alone must not produce exit code 1. Config
+      errors from delegated steps (artifact validate or code check returning
+      exit 2) must propagate as gate exit code 2. Gate must halt remaining
+      steps when a delegated step returns a config error.
     supports: cli:REQ-006
 
-  - id: REQ-009
+  - id: REQ-010
     text: >
       The gate JSON output must include a schema_version field for
       independent contract evolution. The initial schema version is
@@ -127,17 +141,17 @@ requirements:
       fields emit warnings, breaking removals only on major version bumps.
     supports: cli:REQ-007
 
-  - id: REQ-010
+  - id: REQ-011
     text: >
-      The eight gate steps must be identified by the following canonical
+      The nine gate steps must be identified by the following canonical
       step names in the output: "artifact_validation", "code_check",
       "test_verification", "test_substantiveness", "coverage_threshold",
-      "contract_signature", "baseline_comparison", "ledger_integrity".
-      These names are part of the JSON output contract and must not change
-      without a schema version bump.
+      "contract_signature", "baseline_comparison", "waiver_resolution",
+      "ledger_integrity". These names are part of the JSON output contract
+      and must not change without a schema version bump.
     supports: cli:REQ-006
 
-  - id: REQ-011
+  - id: REQ-012
     text: >
       The gate command must accept no scope flags — it always runs against
       the full project. Unlike backstop artifact validate (which supports
@@ -146,7 +160,7 @@ requirements:
       steps against all artifacts and the full codebase.
     supports: cli:REQ-006
 
-  - id: REQ-012
+  - id: REQ-013
     text: >
       The human-readable output mode must display a summary table showing
       each step name, its status (pass/fail/skipped), and the count of
@@ -155,7 +169,7 @@ requirements:
       The human output must respect the NO_COLOR environment variable.
     supports: cli:REQ-007
 
-  - id: REQ-013
+  - id: REQ-014
     text: >
       Gate must load backstop.yml before executing any steps. If
       backstop.yml is not found or fails validation, gate must exit with
@@ -167,9 +181,9 @@ claims:
   # REQ-001: Fixed order, all steps execute
   - id: CLM-001
     requirement: REQ-001
-    text: Gate runs all eight steps in the specified order
+    text: Gate runs all nine steps in the specified order
     tests:
-      - TestGate_AllStepsExecuteInOrder
+      - TestGate_AllNineStepsExecuteInOrder
 
   - id: CLM-002
     requirement: REQ-001
@@ -232,7 +246,7 @@ claims:
     requirement: REQ-004
     text: Skipped steps do not appear in the output with status omitted — every step is always present
     tests:
-      - TestGate_AllEightStepsAppearInOutput
+      - TestGate_AllNineStepsAppearInOutput
 
   # REQ-005: Baseline comparison
   - id: CLM-012
@@ -247,166 +261,209 @@ claims:
     tests:
       - TestGate_Baseline_SkippedWhenNotImplemented
 
-  # REQ-006: Ledger integrity
   - id: CLM-014
+    requirement: REQ-005
+    text: Baseline comparison reports fail when a new violation exceeds the baseline count
+    tests:
+      - TestGate_Baseline_FailOnNewViolation
+
+  - id: CLM-015
+    requirement: REQ-005
+    text: Baseline comparison reports pass when all violations are at or below baseline counts
+    tests:
+      - TestGate_Baseline_PassWhenClean
+
+  # REQ-006: Waiver resolution
+  - id: CLM-016
     requirement: REQ-006
+    text: Waiver resolution reports skipped when waiver subsystem is not implemented
+    tests:
+      - TestGate_Waiver_SkippedWhenNotImplemented
+
+  # REQ-007: Ledger integrity
+  - id: CLM-017
+    requirement: REQ-007
     text: Ledger integrity reports skipped when no ledger exists
     tests:
       - TestGate_Ledger_SkippedWhenNoLedger
 
-  - id: CLM-015
-    requirement: REQ-006
+  - id: CLM-018
+    requirement: REQ-007
     text: Ledger integrity reports skipped when ledger subsystem is not implemented
     tests:
       - TestGate_Ledger_SkippedWhenNotImplemented
 
-  # REQ-007: JSON output structure
-  - id: CLM-016
+  - id: CLM-019
     requirement: REQ-007
+    text: Ledger integrity reports fail when hash chain is broken
+    tests:
+      - TestGate_Ledger_FailOnBrokenChain
+
+  - id: CLM-020
+    requirement: REQ-007
+    text: Ledger integrity reports pass when hash chain is intact
+    tests:
+      - TestGate_Ledger_PassWhenIntact
+
+  # REQ-008: JSON output structure
+  - id: CLM-021
+    requirement: REQ-008
     text: JSON output includes schema_version, pass boolean, and steps array
     tests:
       - TestGate_JSONOutput_StructureComplete
 
-  - id: CLM-017
-    requirement: REQ-007
+  - id: CLM-022
+    requirement: REQ-008
     text: JSON output pass is true only when all executed steps pass
     tests:
       - TestGate_JSONOutput_PassTrueWhenAllGreen
 
-  - id: CLM-018
-    requirement: REQ-007
+  - id: CLM-023
+    requirement: REQ-008
     text: JSON output pass is false when any step has status fail
     tests:
       - TestGate_JSONOutput_PassFalseWhenAnyFail
 
-  - id: CLM-019
-    requirement: REQ-007
+  - id: CLM-024
+    requirement: REQ-008
     text: JSON output pass is true when some steps pass and remaining steps are skipped
     tests:
       - TestGate_JSONOutput_PassTrueWithSkippedSteps
 
-  - id: CLM-020
-    requirement: REQ-007
+  - id: CLM-025
+    requirement: REQ-008
     text: JSON output includes summary counts (total_violations, steps_passed, steps_failed, steps_skipped)
     tests:
       - TestGate_JSONOutput_SummaryCounts
 
-  - id: CLM-021
-    requirement: REQ-007
+  - id: CLM-026
+    requirement: REQ-008
     text: Each step in the JSON steps array includes step_name, status, and violations fields
     tests:
       - TestGate_JSONOutput_StepFieldsPresent
 
-  - id: CLM-022
-    requirement: REQ-007
+  - id: CLM-027
+    requirement: REQ-008
     text: Skipped steps include reason field in JSON output
     tests:
       - TestGate_JSONOutput_SkippedStepHasReason
 
-  - id: CLM-023
-    requirement: REQ-007
+  - id: CLM-028
+    requirement: REQ-008
     text: Human-readable output is produced when --json flag is not set
     tests:
       - TestGate_HumanOutput_ProducedByDefault
 
-  # REQ-008: Exit codes
-  - id: CLM-024
-    requirement: REQ-008
+  # REQ-009: Exit codes
+  - id: CLM-029
+    requirement: REQ-009
     text: Exit code 0 when all executed steps pass
     tests:
       - TestGate_ExitCode0_AllPass
 
-  - id: CLM-025
-    requirement: REQ-008
+  - id: CLM-030
+    requirement: REQ-009
     text: Exit code 0 when all steps either pass or are skipped
     tests:
       - TestGate_ExitCode0_PassAndSkipped
 
-  - id: CLM-026
-    requirement: REQ-008
+  - id: CLM-031
+    requirement: REQ-009
     text: Exit code 1 when any step fails
     tests:
       - TestGate_ExitCode1_StepFailed
 
-  - id: CLM-027
-    requirement: REQ-008
+  - id: CLM-032
+    requirement: REQ-009
     text: Exit code 2 when config error occurs
     tests:
       - TestGate_ExitCode2_ConfigError
 
-  - id: CLM-028
-    requirement: REQ-008
+  - id: CLM-033
+    requirement: REQ-009
     text: Exit code 2 takes precedence over exit code 1 when both config error and step failure occur
     tests:
       - TestGate_ExitCode2_PrecedenceOverExitCode1
 
-  # REQ-009: Schema version in output
-  - id: CLM-029
+  - id: CLM-034
     requirement: REQ-009
+    text: Config error from delegated artifact validate step (exit 2) propagates as gate exit code 2 and halts remaining steps
+    tests:
+      - TestGate_ExitCode2_DelegatedArtifactValidateConfigError
+
+  - id: CLM-035
+    requirement: REQ-009
+    text: Config error from delegated code check step (exit 2) propagates as gate exit code 2 and halts remaining steps
+    tests:
+      - TestGate_ExitCode2_DelegatedCodeCheckConfigError
+
+  # REQ-010: Schema version in output
+  - id: CLM-036
+    requirement: REQ-010
     text: JSON output schema_version is "gate/v1"
     tests:
       - TestGate_JSONOutput_SchemaVersionGateV1
 
-  # REQ-010: Canonical step names
-  - id: CLM-030
-    requirement: REQ-010
-    text: All eight canonical step names appear in the output steps array
+  # REQ-011: Canonical step names
+  - id: CLM-037
+    requirement: REQ-011
+    text: All nine canonical step names appear in the output steps array
     tests:
       - TestGate_CanonicalStepNames_AllPresent
 
-  - id: CLM-031
-    requirement: REQ-010
+  - id: CLM-038
+    requirement: REQ-011
     text: Step names in output exactly match the canonical names
     tests:
       - TestGate_CanonicalStepNames_ExactMatch
 
-  # REQ-011: No scope flags
-  - id: CLM-032
-    requirement: REQ-011
+  # REQ-012: No scope flags
+  - id: CLM-039
+    requirement: REQ-012
     text: Gate command accepts no scope flags and runs against full project
     tests:
       - TestGate_NoScopeFlags_FullProject
 
-  - id: CLM-033
-    requirement: REQ-011
+  - id: CLM-040
+    requirement: REQ-012
     text: Gate does not accept --diff, --file, --spec, --plan, or other scoping flags
     tests:
       - TestGate_RejectsScopeFlags
 
-  # REQ-012: Human-readable output
-  - id: CLM-034
-    requirement: REQ-012
+  # REQ-013: Human-readable output
+  - id: CLM-041
+    requirement: REQ-013
     text: Human output displays summary table with step name, status, and violation count
     tests:
       - TestGate_HumanOutput_SummaryTable
 
-  - id: CLM-035
-    requirement: REQ-012
+  - id: CLM-042
+    requirement: REQ-013
     text: Human output shows reason for skipped steps
     tests:
       - TestGate_HumanOutput_SkippedStepReason
 
-  - id: CLM-036
-    requirement: REQ-012
+  - id: CLM-043
+    requirement: REQ-013
     text: Human output ends with overall pass/fail verdict
     tests:
       - TestGate_HumanOutput_OverallVerdict
 
-  - id: CLM-037
-    requirement: REQ-012
+  - id: CLM-044
+    requirement: REQ-013
     text: Human output respects NO_COLOR environment variable
     tests:
       - TestGate_HumanOutput_NoColorEnvVar
 
-  # REQ-013: Config loading
-  - id: CLM-038
-    requirement: REQ-013
+  # REQ-014: Config loading
+  - id: CLM-045
+    requirement: REQ-014
     text: Gate exits with code 2 when backstop.yml is not found
     tests:
       - TestGate_ConfigMissing_ExitCode2
 
-  - id: CLM-039
-    requirement: REQ-013
+  - id: CLM-046
+    requirement: REQ-014
     text: Gate exits with code 2 when backstop.yml fails validation
     tests:
       - TestGate_ConfigInvalid_ExitCode2
@@ -429,7 +486,7 @@ contracts:
       - name: runGate
         kind: function
         signature: "func runGate(cmd *cobra.Command, args []string) error"
-        notes: "Cobra RunE handler that orchestrates all eight steps"
+        notes: "Cobra RunE handler that orchestrates all nine steps"
     consumes:
       - source: cmd/backstop
         name: artifactValidateAll
@@ -461,35 +518,43 @@ Gate is the superset of `backstop artifact validate` and `backstop code check`.
 Where those commands handle artifact schema conformance and implementation
 validation respectively, gate orchestrates both plus the verifier steps:
 test verification, test substantiveness, coverage thresholds, contract
-signatures, baseline comparison, and ledger integrity.
+signatures, baseline comparison, waiver resolution, and ledger integrity.
+
+**Note on pack rule enforcement:** The bundle's kill chain includes "pack rule
+enforcement (semgrep against full scope)" as a distinct concern. In this spec,
+pack rule enforcement is deliberately subsumed by the code_check step (step 2),
+which runs lint, build, test, AND semgrep against the full codebase. This is a
+deliberate merge — semgrep is one of the tools code_check orchestrates — not an
+omission.
 
 The verifier subsystem (steps 3-6) does not yet exist. Gate initially runs
 everything available (artifact validation + code check) and reports verifier-
 dependent steps as "skipped" with an explicit reason. This ensures the gate
-output contract is stable from day one — consumers always see all eight steps,
+output contract is stable from day one — consumers always see all nine steps,
 and the transition from "skipped" to "implemented" is additive, not structural.
 
 ## Requirements
 
-Requirements are defined in frontmatter. The gate command has 13 requirements
+Requirements are defined in frontmatter. The gate command has 14 requirements
 covering step orchestration, delegation, deferred steps, output format, exit
 codes, and configuration loading.
 
 ### Kill Chain Steps
 
-Gate runs eight steps in fixed order. Every step appears in the output regardless
+Gate runs nine steps in fixed order. Every step appears in the output regardless
 of whether it executed, failed, or was skipped.
 
 | # | Step Name | Source | Initial Status |
 |---|-----------|--------|----------------|
 | 1 | `artifact_validation` | Delegates to artifact validate --all logic | Implemented |
-| 2 | `code_check` | Delegates to code check --all logic | Implemented |
+| 2 | `code_check` | Delegates to code check --all logic (includes semgrep) | Implemented |
 | 3 | `test_verification` | Verifier: mandated test names exist and pass | Skipped (verifier not implemented) |
 | 4 | `test_substantiveness` | Verifier: AST analysis of test bodies | Skipped (verifier not implemented) |
 | 5 | `coverage_threshold` | Verifier: coverage meets spec thresholds | Skipped (verifier not implemented) |
 | 6 | `contract_signature` | Verifier: spec contracts match code | Skipped (verifier not implemented) |
 | 7 | `baseline_comparison` | Compares violations against recorded baseline | Skipped (baseline not implemented) |
-| 8 | `ledger_integrity` | Verifies provenance ledger hash chain | Skipped (ledger not implemented) |
+| 8 | `waiver_resolution` | Suppresses violations matched by active waivers | Skipped (waivers not implemented) |
+| 9 | `ledger_integrity` | Verifies provenance ledger hash chain | Skipped (ledger not implemented) |
 
 ### Exit Code Semantics
 
@@ -499,7 +564,9 @@ of whether it executed, failed, or was skipped.
 | 1 | Failures found | Any step has status "fail" |
 | 2 | Config error | backstop.yml missing/invalid, schema load failure |
 
-Exit code 2 takes precedence over 1. Skipped steps alone never produce exit code 1.
+Exit code 2 takes precedence over 1. Config errors from delegated steps
+(artifact validate or code check returning exit 2) propagate as gate exit
+code 2 and halt remaining steps. Skipped steps alone never produce exit code 1.
 
 ### JSON Output Contract
 
@@ -523,16 +590,17 @@ output formatting infrastructure.
 
 ### Step Orchestration
 
-The `runGate` function orchestrates all eight steps sequentially:
+The `runGate` function orchestrates all nine steps sequentially:
 
 1. **Config loading** — Load and validate backstop.yml. Exit code 2 on failure.
-2. **Step execution loop** — For each of the eight steps:
+2. **Step execution loop** — For each of the nine steps:
    - If the step's implementation is available, execute it and collect results.
    - If the step's implementation is not available, produce a skipped result with reason.
+   - If a delegated step returns a config error (exit 2), halt remaining steps immediately.
    - Append the step result to the gate result.
 3. **Result aggregation** — Compute summary counts (passed, failed, skipped, total violations).
 4. **Output formatting** — Format as JSON or human text based on --json flag.
-5. **Exit code determination** — 2 if config error, 1 if any failure, 0 otherwise.
+5. **Exit code determination** — 2 if config error (including delegated config errors), 1 if any failure, 0 otherwise.
 
 ### Step Implementation Pattern
 
@@ -583,20 +651,20 @@ Verification is defined in frontmatter. Integration-level verification at
 ## Sharp Edges
 
 - **Skipped steps mask missing verification.** Gate reports "all green" (exit
-  code 0) when steps 3-8 are skipped because the verifier, baseline, and
-  ledger don't exist yet. A consumer of the gate output (e.g., a GitHub Actions
+  code 0) when steps 3-9 are skipped because the verifier, baseline, waiver,
+  and ledger subsystems don't exist yet. A consumer of the gate output (e.g., a GitHub Actions
   gate action) must check the steps_skipped count and decide whether skipped
   steps are acceptable for merge. The gate itself does not make this policy
   decision — it reports the facts. A naive gate action that only checks the
   pass boolean will auto-merge code that has never been verified.
 
-- **Artifact validate and code check errors vs gate errors.** When artifact
-  validation or code check fails due to its own config error (e.g., schema
-  loading failure), gate must decide whether this is a gate-level config error
-  (exit 2) or a step failure (exit 1). The spec requires exit code 2 for
-  config errors, but a config error detected inside a delegated step is
-  ambiguous. The implementation must propagate config errors from delegated
-  steps as gate-level exit code 2, not as step failures.
+- **Delegated-step config errors are gate config errors.** When artifact
+  validation or code check returns exit 2 (config error — e.g., schema
+  loading failure), gate must propagate this as gate-level exit code 2 and
+  halt remaining steps. This is not a step failure (exit 1). The rule is
+  explicit: delegated exit 2 becomes gate exit 2. Gate does not attempt to
+  continue executing subsequent steps after a config error from a delegated
+  step.
 
 - **Step ordering is load-bearing for future steps.** Steps 3-6 depend on the
   code check (step 2) having already run — test verification needs test results,
@@ -625,16 +693,16 @@ Verification is defined in frontmatter. Integration-level verification at
 ## Review Questions
 
 1. Does the implementation correctly propagate config errors from delegated
-   steps (artifact validate, code check) as gate-level exit code 2, or does
-   it swallow them as step failures?
+   steps (artifact validate, code check) as gate-level exit code 2, and does
+   it halt remaining steps immediately rather than continuing execution?
 
 2. When a new verifier step is activated (e.g., test verification becomes
    implemented), does the gate output structure remain backward compatible
    with consumers that were parsing the "skipped" status?
 
-3. Does the human output correctly handle the case where all eight steps are
-   skipped (e.g., no verifier, no baseline, no ledger, and both artifact
-   validate and code check have config errors)?
+3. Does the human output correctly handle the case where all nine steps are
+   skipped (e.g., no verifier, no baseline, no waivers, no ledger, and both
+   artifact validate and code check have config errors)?
 
 4. Is the GateResult.Pass field computed correctly in all combinations of
    pass, fail, and skipped statuses? Specifically: pass+skipped=true,
@@ -643,10 +711,13 @@ Verification is defined in frontmatter. Integration-level verification at
 5. Does the implementation prevent scope flags (--diff, --file, etc.) from
    being accepted, or does it silently ignore them?
 
+6. When the waiver subsystem is activated, does the implementation correctly
+   handle expired waivers (not suppress) vs active waivers (suppress)?
+
 ## References
 
 - Bundle: cli (spec seed 6 — backstop gate)
-- ADR-0010: Verification Kill Chain — the eight-step chain gate implements
+- ADR-0010: Verification Kill Chain — the nine-step chain gate implements
 - ADR-0012: Review Model — "if it's green, it ships" (D-059)
 - ADR-0009: CI/CD Pipeline — the GitHub Actions gate action that consumes gate JSON
 - D-070: Schema evolution rules for the JSON output contract

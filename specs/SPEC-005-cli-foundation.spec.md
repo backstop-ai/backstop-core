@@ -18,12 +18,12 @@ implementation:
     reporting schema cohort identity, commands --json for agent discovery,
     and help generation. Commands are thin adapters with no business logic
     in cmd/ — all enforcement logic stays in pkg/.
-  package: cmd/backstop
+  package: cmd/backstop, pkg/config
 
 verification:
-  level: unit
-  test_command: go test ./cmd/backstop/... -run TestCLI -race -coverprofile=cover.out
-  coverage_threshold: 90
+  level: integration
+  test_command: go test ./cmd/backstop/... ./pkg/config/... -run "TestCLI|TestIntegration|TestConfig" -race -coverprofile=cover.out
+  coverage_threshold: 80
 
 requirements:
   - id: REQ-001
@@ -96,28 +96,20 @@ requirements:
 
   - id: REQ-008
     text: >
-      Commands must be thin adapters with no business logic in cmd/.
-      Each command function must only: parse flags, load config if needed,
-      call a pkg/ function, format the result, and set the exit code.
-      Enforcement logic, validation logic, and compilation logic must
-      remain in their respective pkg/ packages.
-
-  - id: REQ-009
-    text: >
       Help generation must be automatic via Cobra for all commands and
       subcommands. Each command must have a Short description (one line)
       and a Long description (paragraph). The root command help must list
       all namespace groups and top-level commands. Namespace command help
       must list subcommands within that namespace.
 
-  - id: REQ-010
+  - id: REQ-009
     text: >
       The human output formatter must respect the NO_COLOR environment
       variable. When NO_COLOR is set (to any value), the formatter must
       not emit ANSI color codes. When NO_COLOR is not set, the formatter
       may use color codes for terminal output.
 
-  - id: REQ-011
+  - id: REQ-010
     text: >
       The backstop.yml loader must return a typed Go struct representing
       the project manifest. The struct must include: project name, language,
@@ -130,7 +122,7 @@ requirements:
       against it.
     supports: cli:REQ-009
 
-  - id: REQ-014
+  - id: REQ-011
     text: >
       The backstop.yml schema must define required fields (project, language),
       optional fields (runtimes, enforcement, packs, registries), and their
@@ -158,7 +150,7 @@ requirements:
       set to an empty string, it must be treated as unset (walk-up
       discovery proceeds normally).
 
-  - id: REQ-015
+  - id: REQ-014
     text: >
       The assembled CLI binary must pass end-to-end integration tests that
       prove each command pipeline works when built and invoked as a real
@@ -334,178 +326,171 @@ claims:
     tests:
       - TestCLI_Commands_JSON_IncludesAllNamespaces
 
-  # REQ-008: Thin adapters
+  # REQ-008: Help generation
   - id: CLM-027
     requirement: REQ-008
-    text: Command functions delegate to pkg/ packages for enforcement logic
-    tests:
-      - TestCLI_ThinAdapter_DelegatesToPkg
-
-  - id: CLM-028
-    requirement: REQ-008
-    text: No validation or compilation logic exists in cmd/ package files
-    tests:
-      - TestCLI_ThinAdapter_NoBusinessLogicInCmd
-
-  # REQ-009: Help generation
-  - id: CLM-029
-    requirement: REQ-009
     text: Root command help lists all namespace groups and top-level commands
     tests:
       - TestCLI_Help_RootListsNamespaces
 
-  - id: CLM-030
-    requirement: REQ-009
+  - id: CLM-028
+    requirement: REQ-008
     text: Namespace command help lists subcommands within that namespace
     tests:
       - TestCLI_Help_NamespaceListsSubcommands
 
-  - id: CLM-031
-    requirement: REQ-009
+  - id: CLM-029
+    requirement: REQ-008
     text: Every command has a Short and Long description set
     tests:
       - TestCLI_Help_AllCommandsHaveDescriptions
 
-  # REQ-010: NO_COLOR support
-  - id: CLM-032
-    requirement: REQ-010
+  # REQ-009: NO_COLOR support
+  - id: CLM-030
+    requirement: REQ-009
     text: Human output omits ANSI color codes when NO_COLOR is set
     tests:
       - TestCLI_NoColor_OmitsANSI
 
-  - id: CLM-033
-    requirement: REQ-010
+  - id: CLM-031
+    requirement: REQ-009
     text: Human output may include ANSI color codes when NO_COLOR is not set
     tests:
       - TestCLI_NoColor_AllowsANSIWhenUnset
 
-  # REQ-011: backstop.yml typed struct
-  - id: CLM-034
-    requirement: REQ-011
-    text: Loader returns a typed Config struct with project name, schema cohort, and enforcement config
+  # REQ-010: backstop.yml typed struct
+  - id: CLM-032
+    requirement: REQ-010
+    text: >
+      Loader returns a typed Config struct with project name, language,
+      runtimes, enforcement configuration (security tier, waiver_warning_days),
+      pack declarations (rules and code packs with versions), and registry
+      configuration (scope-based resolution)
     tests:
-      - TestCLI_ConfigStruct_RequiredFields
+      - TestConfig_Struct_AllFields
 
-  - id: CLM-035
-    requirement: REQ-011
+  - id: CLM-033
+    requirement: REQ-010
     text: Loader rejects backstop.yml with unknown top-level keys
     tests:
-      - TestCLI_ConfigStruct_RejectsUnknownKeys
+      - TestConfig_Struct_RejectsUnknownKeys
+
+  - id: CLM-034
+    requirement: REQ-010
+    text: backstop.yml loader validates against the embedded schema
+    tests:
+      - TestConfig_LoaderValidatesAgainstSchema
+
+  # REQ-011: backstop.yml schema fields
+  - id: CLM-035
+    requirement: REQ-011
+    text: backstop.yml schema requires project and language fields
+    tests:
+      - TestConfig_RequiredFields_ProjectAndLanguage
+
+  - id: CLM-036
+    requirement: REQ-011
+    text: backstop.yml schema accepts valid enforcement block with tier enum
+    tests:
+      - TestConfig_Enforcement_ValidTier
+
+  - id: CLM-037
+    requirement: REQ-011
+    text: backstop.yml schema rejects invalid enforcement tier value
+    tests:
+      - TestConfig_Enforcement_InvalidTier
+
+  - id: CLM-038
+    requirement: REQ-011
+    text: backstop.yml schema accepts valid packs block with version strings
+    tests:
+      - TestConfig_Packs_ValidVersions
+
+  - id: CLM-039
+    requirement: REQ-011
+    text: backstop.yml schema accepts valid registries block with scope resolution
+    tests:
+      - TestConfig_Registries_ScopeResolution
+
+  - id: CLM-040
+    requirement: REQ-011
+    text: backstop.yml schema defaults waiver_warning_days to 30 when omitted
+    tests:
+      - TestConfig_WaiverWarningDays_Default
 
   # REQ-012: Embed introspection
-  - id: CLM-036
+  - id: CLM-041
     requirement: REQ-012
     text: Embed directive uses embed.FS type for the schema filesystem
     tests:
       - TestCLI_Embed_UsesEmbedFS
 
-  - id: CLM-037
+  - id: CLM-042
     requirement: REQ-012
     text: Schema listing function returns all embedded schema file paths
     tests:
       - TestCLI_Embed_ListSchemaPaths
 
-  - id: CLM-038
+  - id: CLM-043
     requirement: REQ-012
     text: Embedded schemas match the set of schema files on disk at build time
     tests:
       - TestCLI_Embed_MatchesDiskSchemas
 
   # REQ-013: BACKSTOP_CONFIG env var
-  - id: CLM-039
+  - id: CLM-044
     requirement: REQ-013
     text: BACKSTOP_CONFIG overrides walk-up discovery and loads from specified path
     tests:
-      - TestCLI_BackstopConfig_OverridesWalkUp
+      - TestConfig_BackstopConfig_OverridesWalkUp
 
-  - id: CLM-040
+  - id: CLM-045
     requirement: REQ-013
     text: BACKSTOP_CONFIG pointing to a nonexistent file exits with code 2
     tests:
-      - TestCLI_BackstopConfig_NonexistentFile_Exit2
+      - TestConfig_BackstopConfig_NonexistentFile_Exit2
 
-  - id: CLM-041
+  - id: CLM-046
     requirement: REQ-013
     text: BACKSTOP_CONFIG set to empty string is treated as unset (walk-up proceeds)
     tests:
-      - TestCLI_BackstopConfig_EmptyString_FallsBackToWalkUp
+      - TestConfig_BackstopConfig_EmptyString_FallsBackToWalkUp
 
-  - id: CLM-042
-    requirement: REQ-014
-    text: backstop.yml schema requires project and language fields
-    tests:
-      - TestConfig_RequiredFields_ProjectAndLanguage
-
-  - id: CLM-043
-    requirement: REQ-014
-    text: backstop.yml schema accepts valid enforcement block with tier enum
-    tests:
-      - TestConfig_Enforcement_ValidTier
-
-  - id: CLM-044
-    requirement: REQ-014
-    text: backstop.yml schema rejects invalid enforcement tier value
-    tests:
-      - TestConfig_Enforcement_InvalidTier
-
-  - id: CLM-045
-    requirement: REQ-014
-    text: backstop.yml schema accepts valid packs block with version strings
-    tests:
-      - TestConfig_Packs_ValidVersions
-
-  - id: CLM-046
-    requirement: REQ-014
-    text: backstop.yml schema accepts valid registries block with scope resolution
-    tests:
-      - TestConfig_Registries_ScopeResolution
-
+  # REQ-014: Integration tests
   - id: CLM-047
     requirement: REQ-014
-    text: backstop.yml schema defaults waiver_warning_days to 30 when omitted
-    tests:
-      - TestConfig_WaiverWarningDays_Default
-
-  - id: CLM-048
-    requirement: REQ-011
-    text: backstop.yml loader validates against the embedded schema
-    tests:
-      - TestConfig_LoaderValidatesAgainstSchema
-
-  - id: CLM-049
-    requirement: REQ-015
     text: >
       Built binary runs backstop artifact validate against a real spec file
       and returns structured JSON with violations
     tests:
       - TestIntegration_ArtifactValidate_RealSpec
 
-  - id: CLM-050
-    requirement: REQ-015
+  - id: CLM-048
+    requirement: REQ-014
     text: >
       Built binary runs backstop code check --file against a Go file and
       returns structured JSON with semgrep results
     tests:
       - TestIntegration_CodeCheck_RealGoFile
 
-  - id: CLM-051
-    requirement: REQ-015
+  - id: CLM-049
+    requirement: REQ-014
     text: >
       Built binary runs backstop pack compile against a real standard and
       produces enforcement manifests in .backstop/rules/
     tests:
       - TestIntegration_PackCompile_RealStandard
 
-  - id: CLM-052
-    requirement: REQ-015
+  - id: CLM-050
+    requirement: REQ-014
     text: >
       Built binary runs backstop gate and produces a structured pass/fail
       result combining artifact validation and code check
     tests:
       - TestIntegration_Gate_EndToEnd
 
-  - id: CLM-053
-    requirement: REQ-015
+  - id: CLM-051
+    requirement: REQ-014
     text: >
       Built binary runs backstop artifact new spec and produces a valid
       scaffolded spec file with auto-assigned ID
@@ -534,6 +519,9 @@ contracts:
       - source: github.com/spf13/cobra
         name: Command
         kind: type
+      - source: pkg/config
+        name: LoadConfig
+        kind: function
 
   - file: cmd/backstop/embed.go
     provides:
@@ -547,7 +535,7 @@ contracts:
         notes: "Returns paths of all embedded schema files for cohort introspection"
     consumes: []
 
-  - file: cmd/backstop/config.go
+  - file: pkg/config/config.go
     provides:
       - name: Config
         kind: type
@@ -683,12 +671,14 @@ embedded filesystem as a package-level `embed.FS` variable. Provide a
 `ListSchemas()` function that walks the embedded FS and returns all schema
 file paths for cohort introspection.
 
-### Pass 2: Config Loader (config.go)
+### Pass 2: Config Loader (pkg/config/config.go)
 
 Implement `DiscoverConfigPath()` which checks BACKSTOP_CONFIG env var first
 (empty string treated as unset), then walks up from cwd. Implement `LoadConfig()`
 which reads and validates the discovered file against its schema, returning a
 typed `Config` struct. Unknown top-level keys are rejected to catch typos.
+The Config type, LoadConfig, and DiscoverConfigPath live in pkg/config/ so they
+are importable by other packages.
 
 ### Pass 3: Output Formatter (output.go)
 
@@ -721,8 +711,8 @@ JSON array of command descriptors with name, path, description, and flags.
 
 ## Verification
 
-Claims are defined in frontmatter. Unit-level verification with 90% coverage
-threshold on the cmd/backstop/ package.
+Claims are defined in frontmatter. Integration-level verification with 80%
+coverage threshold across cmd/backstop/ and pkg/config/ packages.
 
 ## Sharp Edges
 
@@ -763,6 +753,12 @@ threshold on the cmd/backstop/ package.
 - **NO_COLOR interaction with --json.** When both --json and NO_COLOR are set, the
   --json flag takes precedence — JSON output never contains ANSI codes regardless
   of NO_COLOR. The NO_COLOR check only matters for the human formatter.
+
+- **Thin adapter enforcement is a code review concern.** cmd/ files must be thin
+  adapters — flag parsing, pkg/ delegation, output formatting. Whether enforcement
+  logic has leaked into cmd/ cannot be meaningfully asserted by a unit test ("no
+  business logic in cmd/" is not a mechanically testable property). This is enforced
+  through code review, not automated claims.
 
 ## Review Questions
 

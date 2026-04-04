@@ -4,21 +4,24 @@ number: SPEC-006
 created: "2026-04-04"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
     Implement the backstop artifact validate command that wraps pkg/validate
     for all six artifact types (spec, plan, adr, bundle, issue, standard).
-    The command resolves artifact type from the schema_version metadata field,
-    routes to the correct type-specific validator (validate.Spec, validate.Plan,
-    validate.ADR, validate.Bundle, validate.Issue, validate.Standard), loads
-    schemas from the go:embed cohort (SPEC-005), and formats results as
-    structured JSON (--json) or human-readable text. Supports scoping via
-    type-specific flags (--spec, --plan, --adr, --bundle, --issue, --standard)
-    with optional artifact ID arguments, plus --all to validate every artifact
-    in the project. Default behavior (no flags) validates all artifacts.
-    Exit codes follow the CLI contract: 0 (pass), 1 (violations), 2 (config error).
+    The command loads backstop.yml as a prerequisite (project root for discovery),
+    resolves artifact type from the schema_version metadata field, routes to the
+    correct type-specific validator (validate.Spec, validate.Plan, validate.ADR,
+    validate.Bundle, validate.Issue, validate.Standard), loads schemas from the
+    go:embed cohort via the refactored fs.FS-accepting schema.LoadArtifactSchema
+    (SPEC-005), and formats results as structured JSON (--json) or human-readable
+    text. Supports scoping via type-specific flags (--spec, --plan, --adr,
+    --bundle, --issue, --standard) with optional artifact ID arguments, plus
+    --all to validate every artifact in the project. Default behavior (no flags)
+    validates all artifacts. Zero artifacts discovered returns exit 0 with a
+    warning. Exit codes follow the CLI contract: 0 (pass), 1 (violations),
+    2 (config error).
   package: cmd/backstop
 
 verification:
@@ -83,10 +86,10 @@ requirements:
     text: >
       Schema loading must use the go:embed filesystem from SPEC-005. The
       command must resolve schema paths via schema.ResolveSchemaPath and load
-      schemas via schema.LoadArtifactSchema using the embedded filesystem. The
-      command must not access the real filesystem for schema files. If a
-      schema cannot be loaded from the embedded filesystem, the command must
-      produce a config error (exit code 2).
+      schemas via schema.LoadArtifactSchema, passing the embedded fs.FS
+      interface. The command must not access the real filesystem for schema
+      files. If a schema cannot be loaded from the embedded filesystem, the
+      command must produce a config error (exit code 2).
     supports: cli:REQ-008
 
   - id: REQ-007
@@ -107,8 +110,9 @@ requirements:
       the command must locate and validate only the artifact matching that ID.
       If no artifact with the given ID is found, the command must produce a
       config error (exit code 2) with a message identifying the missing artifact.
-      The ID match must be by the number field in the artifact metadata, not
-      by filename substring.
+      The ID match must use a per-type metadata field mapping: plan artifacts
+      match on the plan_id field, all other artifact types match on the number
+      field. The match must not use filename substring.
     supports: cli:REQ-001
 
   - id: REQ-009
@@ -128,6 +132,24 @@ requirements:
       embedded filesystem, call the appropriate pkg/validate function for
       each artifact, aggregate results, format output, and set the exit code.
       All validation logic must remain in pkg/validate.
+
+  - id: REQ-011
+    text: >
+      The command must load and validate backstop.yml as a prerequisite before
+      artifact validation begins. If backstop.yml is missing or invalid, the
+      command must produce a config error (exit code 2). The backstop.yml
+      provides the project root directory used for artifact discovery. This
+      is consistent with the CLI foundation prerequisite (SPEC-005 REQ-003)
+      and bundle requirement cli:REQ-009.
+    supports: cli:REQ-009
+
+  - id: REQ-012
+    text: >
+      When artifact discovery finds zero artifacts (no files matching any
+      artifact filename pattern, or no artifacts matching the requested type
+      scope), the command must return exit code 0 with an empty violations
+      list and emit a warning message to stderr indicating that no artifacts
+      were found to validate.
 
 claims:
   # REQ-001: Type routing (dependency matrix — all 6 types + unknown)
@@ -374,9 +396,9 @@ claims:
   # REQ-008: Scoping by artifact ID
   - id: CLM-040
     requirement: REQ-008
-    text: "--spec SPEC-002 matches by the number metadata field, not filename"
+    text: "--spec SPEC-002 matches by the number metadata field (non-plan type), not filename"
     tests:
-      - TestArtifactValidate_IDScope_MatchesByMetadata
+      - TestArtifactValidate_IDScope_SpecMatchesByNumber
 
   - id: CLM-041
     requirement: REQ-008
@@ -403,18 +425,51 @@ claims:
     tests:
       - TestArtifactValidate_Aggregate_AnyFailMeansOverallFail
 
-  # REQ-010: Thin adapter
+  # REQ-010: Thin adapter (enforcement is a code review concern — see Sharp Edges)
   - id: CLM-045
     requirement: REQ-010
-    text: Command delegates all validation logic to pkg/validate functions
+    text: Command calls pkg/validate functions and does not reimplement validation logic inline
     tests:
-      - TestArtifactValidate_ThinAdapter_DelegatesToPkg
+      - TestArtifactValidate_ThinAdapter_CallsPkgValidate
 
+  # REQ-011: backstop.yml prerequisite
   - id: CLM-046
-    requirement: REQ-010
-    text: No validation or schema logic exists in the command implementation
+    requirement: REQ-011
+    text: Command loads backstop.yml before artifact validation begins
     tests:
-      - TestArtifactValidate_ThinAdapter_NoValidationLogicInCmd
+      - TestArtifactValidate_BackstopYml_LoadedAsPrerequisite
+
+  - id: CLM-047
+    requirement: REQ-011
+    text: Missing backstop.yml produces exit code 2
+    tests:
+      - TestArtifactValidate_BackstopYml_Missing_Exit2
+
+  - id: CLM-048
+    requirement: REQ-011
+    text: Invalid backstop.yml produces exit code 2
+    tests:
+      - TestArtifactValidate_BackstopYml_Invalid_Exit2
+
+  # REQ-012: Zero-artifact scenario
+  - id: CLM-049
+    requirement: REQ-012
+    text: Zero artifacts discovered returns exit code 0 with empty violations list
+    tests:
+      - TestArtifactValidate_ZeroArtifacts_Exit0_EmptyViolations
+
+  - id: CLM-050
+    requirement: REQ-012
+    text: Zero artifacts discovered emits a warning message to stderr
+    tests:
+      - TestArtifactValidate_ZeroArtifacts_WarningMessage
+
+  # REQ-008: Plan ID uses plan_id field
+  - id: CLM-051
+    requirement: REQ-008
+    text: "--plan PLAN-SPEC-002 matches by the plan_id metadata field, not number"
+    tests:
+      - TestArtifactValidate_IDScope_PlanMatchesByPlanID
 
 contracts:
   - file: cmd/backstop/artifact_validate.go
@@ -472,9 +527,13 @@ contracts:
       - source: pkg/schema
         name: LoadArtifactSchema
         kind: function
+        notes: "Refactored to accept fs.FS interface (SPEC-005 scope prerequisite)"
       - source: pkg/schema
         name: Schema
         kind: type
+      - source: io/fs
+        name: FS
+        kind: interface
       - source: cmd/backstop
         name: SchemaFS
         kind: variable
@@ -575,9 +634,9 @@ artifact but is malformed).
 
 | Code | Condition |
 |------|-----------|
-| 0 | All validated artifacts pass with no violations |
+| 0 | All validated artifacts pass with no violations (includes zero-artifact case) |
 | 1 | One or more artifacts have violations |
-| 2 | Config error: unrecognized schema_version, schema load failure, parse failure, artifact not found by ID |
+| 2 | Config error: backstop.yml missing/invalid, unrecognized schema_version, schema load failure, parse failure, artifact not found by ID |
 
 Exit code 2 takes precedence over exit code 1 — the command must not report
 partial validation results when a config error is detected.
@@ -586,6 +645,22 @@ partial validation results when a config error is detected.
 
 The implementation creates a single file `cmd/backstop/artifact_validate.go`
 that registers under the artifact namespace command from SPEC-005.
+
+**Prerequisites:**
+
+- **pkg/schema refactor (SPEC-005 scope):** schema.LoadArtifactSchema must be
+  refactored to accept an fs.FS interface parameter instead of a base directory
+  string. This refactor is part of SPEC-005 and must be completed before this
+  command can consume the embedded schema filesystem.
+
+- **backstop.yml loading (SPEC-005 REQ-003):** The command loads backstop.yml
+  to determine the project root directory before artifact discovery begins.
+
+**Note on plan YAML handling:** artifact.ParseFile handles both
+Markdown-with-YAML-frontmatter files and pure YAML files (plans). The same
+YAML parser is used for frontmatter extraction — pure YAML files are parsed
+as all-frontmatter with no body. No separate parse path is required for plan
+artifacts.
 
 ### Pass 1: Command Registration
 
@@ -601,14 +676,16 @@ Register the command under the artifact namespace command.
 ### Pass 2: Artifact Discovery
 
 Implement artifact discovery that scans the project directory tree for files
-matching the six artifact filename patterns. The discovery function takes a
-root directory and optional type/ID filters and returns a list of file paths
-grouped by artifact type. Discovery must handle:
+matching the six artifact filename patterns. The discovery function takes the
+project root (from backstop.yml) and optional type/ID filters and returns a
+list of file paths grouped by artifact type. Discovery must handle:
 - Recursive directory scanning
 - Pattern matching per artifact type
 - Filtering by type when scoping flags are set
 - Filtering by ID when an ID argument is provided (requires parsing each
-  candidate to check the number metadata field)
+  candidate to check the per-type ID field: plan_id for plans, number for
+  all other types)
+- Zero artifacts found: return an empty list (caller emits warning, exit 0)
 
 ### Pass 3: Type Router
 
@@ -620,13 +697,15 @@ Unknown prefixes and missing schema_version are config errors.
 ### Pass 4: Validation Pipeline
 
 Implement the orchestration function `ValidateArtifacts` that:
-1. Discovers artifacts based on flags
-2. Parses each artifact via artifact.ParseFile
-3. Resolves the schema path via schema.ResolveSchemaPath
-4. Loads the schema from the embedded FS via schema.LoadArtifactSchema
-5. Routes to the correct validator
-6. Collects all violations
-7. Returns the aggregated result
+1. Loads and validates backstop.yml (exit 2 on failure)
+2. Discovers artifacts based on flags using the project root from backstop.yml
+3. If zero artifacts discovered, returns exit 0 with empty violations and warning
+4. Parses each artifact via artifact.ParseFile (handles both markdown and YAML)
+5. Resolves the schema path via schema.ResolveSchemaPath
+6. Loads the schema from the embedded fs.FS via schema.LoadArtifactSchema
+7. Routes to the correct validator
+8. Collects all violations
+9. Returns the aggregated result
 
 Config errors at any step (parse failure, schema resolution, schema load,
 unknown type) short-circuit with exit code 2.
@@ -648,17 +727,19 @@ library calls across multiple packages.
 
 - **Plan artifacts are YAML, not Markdown.** All other artifact types are
   Markdown with YAML frontmatter parsed by artifact.ParseFile. Plan files
-  (*.plan.yml) are pure YAML. The discovery and parsing pipeline must handle
-  this divergence — artifact.ParseFile may not work for plans, requiring a
-  separate parse path or a unified parser that handles both formats. If
-  ParseFile cannot handle YAML-only files, the command needs plan-specific
-  parsing logic, which risks violating the thin-adapter rule (REQ-010).
+  (*.plan.yml) are pure YAML. artifact.ParseFile handles both formats because
+  it uses the same YAML parser for frontmatter extraction — pure YAML files
+  are parsed as all-frontmatter with no body. No separate parse path is needed.
 
-- **ID matching semantics vary by type.** Spec IDs use the `number` field
-  (SPEC-002), plan IDs use `plan_id`, ADR IDs use `number` (ADR-0018). The
-  --spec SPEC-002 scoping must know which metadata field to check for each
-  type. Getting the field name wrong means the artifact is "not found" even
-  when it exists.
+- **ID matching semantics vary by type.** Plan artifacts use the `plan_id`
+  metadata field for ID matching; all other types use `number`. The per-type
+  field mapping (REQ-008) must be maintained in the ID-scoping logic. Getting
+  the field name wrong means the artifact is "not found" even when it exists.
+
+- **cmd/ files must be thin adapters.** REQ-010 states no validation logic
+  in cmd/. This is a code review concern, not a test assertion — verifying
+  the absence of logic via automated tests is brittle and couples tests to
+  implementation structure. Enforcement relies on review discipline.
 
 - **Default scope is all, not changed-files.** The bundle mentions
   changed-files-only as the default for `backstop validate`, but the spec seed
@@ -671,12 +752,11 @@ library calls across multiple packages.
   sequentially. Parallelization is a future optimization but introduces
   complexity around error aggregation and config error short-circuiting.
 
-- **go:embed FS path resolution.** schema.LoadArtifactSchema currently takes a
-  base directory string ("artifacts") for filesystem access. The embedded FS
-  uses the same path structure, but the LoadArtifactSchema function may need
-  to accept an fs.FS parameter instead of a string path to use the embedded
-  filesystem. If the function signature does not support fs.FS, it must be
-  extended (a change in pkg/schema, not cmd/).
+- **go:embed FS bridging requires pkg/schema refactor.** schema.LoadArtifactSchema
+  currently takes a base directory string ("artifacts") for filesystem access.
+  It is being refactored to accept an fs.FS interface parameter as part of
+  SPEC-005 scope. This command depends on that refactor being complete. Tests
+  must inject a test fs.FS to avoid depending on the real embedded filesystem.
 
 - **Type flag with ID but wrong type prefix.** If a user passes
   `--spec PLAN-SPEC-002`, the command searches for a spec with number
@@ -686,30 +766,31 @@ library calls across multiple packages.
 
 ## Review Questions
 
-1. Does artifact.ParseFile handle both Markdown-with-frontmatter (specs, ADRs,
-   bundles, issues, standards) and pure YAML (plans) files, or does the command
-   need separate parse paths per format?
+1. **RESOLVED:** artifact.ParseFile handles both Markdown-with-frontmatter
+   (specs, ADRs, bundles, issues, standards) and pure YAML (plans) files.
+   The YAML parser extracts frontmatter from both formats — pure YAML files
+   are parsed as all-frontmatter with no body. No separate parse path needed.
 
-2. Does schema.LoadArtifactSchema accept an fs.FS parameter for the embedded
-   filesystem, or does it only accept a filesystem path string? If the latter,
-   how does the command bridge from embed.FS to the schema loader?
+2. **RESOLVED:** schema.LoadArtifactSchema is being refactored to accept an
+   fs.FS interface parameter (SPEC-005 scope). This command consumes the
+   refactored signature.
 
 3. When --spec SPEC-002 is provided but SPEC-002 has validation violations,
    should the command still report exit code 1 (violations found), or could
    the single-artifact scoping mode reasonably return a different error
    structure?
 
-4. If artifact discovery finds zero artifacts (empty project or wrong directory),
-   should the command return exit 0 (nothing to validate, so no violations) or
-   exit 2 (unexpected state, likely a config problem)?
+4. **RESOLVED:** Zero artifacts discovered returns exit code 0 with an empty
+   violations list and a warning message (REQ-012). No artifacts to validate
+   means no violations.
 
-5. For the --plan flag, is the ID argument the plan_id field
-   (e.g., "PLAN-SPEC-002") or some other identifier? The plan schema uses
-   plan_id, not number, which differs from all other artifact types.
+5. **RESOLVED:** Plan artifacts use the plan_id metadata field for ID matching.
+   All other artifact types use the number field. This per-type mapping is
+   specified in REQ-008.
 
-6. Should the command validate backstop.yml loading as a prerequisite (per
-   SPEC-005 REQ-003), or can artifact validate run without a backstop.yml
-   since it only needs embedded schemas and artifact files?
+6. **RESOLVED:** backstop.yml must be loaded as a prerequisite (REQ-011),
+   consistent with SPEC-005 REQ-003 and bundle cli:REQ-009. The project root
+   from backstop.yml is used for artifact discovery.
 
 ## References
 

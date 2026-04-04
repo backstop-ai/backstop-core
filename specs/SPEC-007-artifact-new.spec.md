@@ -12,13 +12,17 @@ implementation:
     for all seven types (spec, plan, issue, adr, directive, bundle, capability)
     with auto-assigned next-available IDs via git annotated tag reservation.
     The command renders type-specific templates with correct frontmatter,
-    accepts a --slug flag for the human-readable filename suffix, writes the
-    file to the correct directory (specs/, plans/, issues/, adrs/, directives/,
-    bundles/, capabilities/), and supports both JSON and human output modes
-    with consistent exit codes (0 success, 1 violations, 2 config error).
-    ID reservation uses git annotated tags in backstop/<type>/<number> format
-    with atomic push, retry on conflict, and offline fallback to local
-    filesystem scan.
+    accepts a --slug flag for the human-readable filename suffix and a
+    --source flag (required for plan type, specifying the backing spec or
+    issue ID), writes the file to the correct directory (specs/, plans/,
+    issues/, adrs/, directives/, bundles/, capabilities/), and supports both
+    JSON and human output modes with consistent exit codes (0 success,
+    1 conflict, 2 config/usage error). All seven types including bundles
+    receive numeric IDs. ID reservation uses git annotated tags in
+    backstop/<type>/<number> format with atomic push, retry on tag conflict,
+    and offline fallback to local filesystem scan. Fallback triggers when
+    git is unavailable or non-conflict remote operations fail (network,
+    permissions, unreachable). Tag conflict retry exhaustion is exit 2.
   package: cmd/backstop
 
 verification:
@@ -49,23 +53,31 @@ requirements:
   - id: REQ-003
     text: >
       The command must auto-assign the next available ID for the given
-      artifact type. ID assignment uses git annotated tag reservation:
-      fetch existing backstop/<type>/* tags, compute the next sequential
-      number, create a git annotated tag backstop/<type>/<number>, and
-      push the tag atomically. If the push fails due to conflict (another
-      developer reserved the same number), the command must retry with the
-      next available number. Gaps from unused reservations are acceptable
-      and must not be filled.
+      artifact type. All seven types (spec, plan, issue, adr, directive,
+      bundle, capability) receive numeric IDs and use the same git tag
+      reservation mechanism. ID assignment uses git annotated tag
+      reservation: fetch existing backstop/<type>/* tags, compute the
+      next sequential number, create a git annotated tag
+      backstop/<type>/<number>, and push the tag atomically. If the push
+      fails due to conflict (another developer reserved the same number),
+      the command must retry with the next available number. Gaps from
+      unused reservations are acceptable and must not be filled.
     supports: cli:REQ-002
 
   - id: REQ-004
     text: >
       When git is unavailable (not a git repository, or git binary not
-      found), the command must fall back to local filesystem scan: scan
-      the target directory for existing artifacts, extract their numeric
-      IDs, and assign the next sequential number. The fallback must not
-      attempt any git operations. The command must not fail solely because
-      git is unavailable.
+      found) OR a non-conflict git remote operation fails (fetch failures,
+      push failures due to network errors, permission errors, or
+      unreachable remotes), the command must fall back to local filesystem
+      scan: scan the target directory for existing artifacts, extract
+      their numeric IDs, and assign the next sequential number. The
+      fallback must not attempt any further git remote operations. The
+      command must not fail solely because git is unavailable or a
+      non-conflict remote operation fails. Tag conflict failures (another
+      developer claimed the same ID) are NOT eligible for fallback; they
+      are handled by retry logic in REQ-003, and if retries are exhausted,
+      result in exit code 2 per REQ-010.
     supports: cli:REQ-002
 
   - id: REQ-005
@@ -83,13 +95,16 @@ requirements:
     text: >
       Each artifact type must produce a file with the correct filename
       pattern. The patterns are: spec -> SPEC-<NNN>-<slug>.spec.md,
-      plan -> PLAN-SPEC-<NNN>-<slug>.plan.yml, issue -> ISSUE-<NNN>-<slug>.md,
-      adr -> ADR-<NNNN>-<slug>.adr.md, directive -> D-<NNN>-<slug>.directive.md,
-      bundle -> <slug>.bundle.md, capability -> CAP-<NNN>-<slug>.capability.md.
+      plan -> PLAN-SPEC-<NNN>-<slug>.plan.yml or
+      PLAN-ISSUE-<NNN>-<slug>.plan.yml (depending on backing artifact),
+      issue -> ISSUE-<NNN>-<slug>.md, adr -> ADR-<NNNN>-<slug>.adr.md,
+      directive -> D-<NNN>-<slug>.directive.md,
+      bundle -> BUNDLE-<NNN>-<slug>.bundle.md,
+      capability -> CAP-<NNN>-<slug>.capability.md.
       The numeric portion must use zero-padded formatting matching the
-      type's ID pattern (3 digits for spec/issue/directive/capability,
-      4 digits for adr). Plans and bundles have type-specific naming rules
-      as described.
+      type's ID pattern (3 digits for spec/issue/directive/capability/bundle,
+      4 digits for adr). Plans have type-specific naming rules depending
+      on whether they back a spec or issue.
     supports: cli:REQ-002
 
   - id: REQ-007
@@ -101,8 +116,9 @@ requirements:
       requires title, schema_version, and the issue nested block with id,
       title, type, status, created; adr requires title, number, created,
       status, schema_version, deciders, decisions; bundle requires title,
-      schema_version, and the bundle nested block; directive and capability
-      require title, number, created, status, schema_version. All date
+      number, created, schema_version, and the bundle nested block with
+      name, version, created, category; directive and capability require
+      title, number, created, status, schema_version. All date
       fields must default to today's date. Status fields must default to
       the initial status for that type (draft for spec/plan/adr, open for
       issue, idea for bundle maturity).
@@ -133,9 +149,11 @@ requirements:
     text: >
       Exit codes must follow the CLI convention: 0 on successful scaffold,
       1 when the target file already exists (conflict), 2 on configuration
-      or usage error (invalid type, invalid slug, missing arguments, git
-      tag push failure after all retries exhausted in online mode). Exit
-      code 2 takes precedence over exit code 1.
+      or usage error (invalid type, invalid slug, missing arguments, missing
+      --source for plan type, git tag retry exhaustion due to tag conflict).
+      Non-conflict remote failures (network, permissions, unreachable remote)
+      do NOT produce exit 2; they trigger offline fallback per REQ-004.
+      Exit code 2 takes precedence over exit code 1.
     supports: cli:REQ-007
 
   - id: REQ-011
@@ -155,6 +173,20 @@ requirements:
       the template, write the file, and format the result. Template
       rendering logic and ID resolution logic must be in a pkg/ package,
       not in cmd/.
+    supports: cli:REQ-002
+
+  - id: REQ-013
+    text: >
+      When the artifact type is "plan", the command must require a --source
+      flag whose value is an existing spec or issue ID (matching SPEC-NNN
+      or ISSUE-NNN format). The --source value determines: (a) the plan
+      filename prefix (PLAN-SPEC- when source is a spec, PLAN-ISSUE- when
+      source is an issue), and (b) the frontmatter field populated (spec_id
+      when source is a spec, issue_id when source is an issue). If --source
+      is missing when type is "plan", the command exits with code 2. If
+      --source does not match the SPEC-NNN or ISSUE-NNN pattern, the
+      command exits with code 2. The --source flag is silently ignored
+      when the artifact type is not "plan".
     supports: cli:REQ-002
 
 claims:
@@ -294,6 +326,24 @@ claims:
     tests:
       - TestArtifactNew_OfflineFallback_ScansExistingArtifacts
 
+  - id: CLM-073
+    requirement: REQ-004
+    text: "Falls back to local scan when git fetch fails due to network failure"
+    tests:
+      - TestArtifactNew_OfflineFallback_FetchNetworkFailure
+
+  - id: CLM-074
+    requirement: REQ-004
+    text: "Falls back to local scan when git push fails due to unreachable remote"
+    tests:
+      - TestArtifactNew_OfflineFallback_PushUnreachableRemote
+
+  - id: CLM-075
+    requirement: REQ-004
+    text: "Falls back to local scan when git push fails due to permission error"
+    tests:
+      - TestArtifactNew_OfflineFallback_PushPermissionError
+
   # REQ-005: Target directory — all 7 types
   - id: CLM-023
     requirement: REQ-005
@@ -358,9 +408,15 @@ claims:
 
   - id: CLM-033
     requirement: REQ-006
-    text: "Plan filename follows PLAN-SPEC-<NNN>-<slug>.plan.yml pattern"
+    text: "Plan filename follows PLAN-SPEC-<NNN>-<slug>.plan.yml pattern for spec-backed plans"
     tests:
-      - TestArtifactNew_Filename_Plan
+      - TestArtifactNew_Filename_PlanSpec
+
+  - id: CLM-076
+    requirement: REQ-006
+    text: "Plan filename follows PLAN-ISSUE-<NNN>-<slug>.plan.yml pattern for issue-backed plans"
+    tests:
+      - TestArtifactNew_Filename_PlanIssue
 
   - id: CLM-034
     requirement: REQ-006
@@ -382,7 +438,7 @@ claims:
 
   - id: CLM-037
     requirement: REQ-006
-    text: "Bundle filename follows <slug>.bundle.md pattern"
+    text: "Bundle filename follows BUNDLE-<NNN>-<slug>.bundle.md pattern"
     tests:
       - TestArtifactNew_Filename_Bundle
 
@@ -401,9 +457,15 @@ claims:
 
   - id: CLM-040
     requirement: REQ-007
-    text: "Plan scaffold contains required frontmatter: plan_id, spec_id, created, status"
+    text: "Spec-backed plan scaffold contains required frontmatter: plan_id as PLAN-SPEC-NNN, spec_id, created, status"
     tests:
-      - TestArtifactNew_Frontmatter_Plan
+      - TestArtifactNew_Frontmatter_PlanSpec
+
+  - id: CLM-077
+    requirement: REQ-007
+    text: "Issue-backed plan scaffold contains required frontmatter: plan_id as PLAN-ISSUE-NNN, issue_id (not spec_id), created, status"
+    tests:
+      - TestArtifactNew_Frontmatter_PlanIssue
 
   - id: CLM-041
     requirement: REQ-007
@@ -425,7 +487,7 @@ claims:
 
   - id: CLM-044
     requirement: REQ-007
-    text: "Bundle scaffold contains required frontmatter: title, schema_version, bundle block with name, version, created, category"
+    text: "Bundle scaffold contains required frontmatter: title, number, created, schema_version, bundle block with name, version, created, category"
     tests:
       - TestArtifactNew_Frontmatter_Bundle
 
@@ -548,9 +610,21 @@ claims:
 
   - id: CLM-064
     requirement: REQ-010
-    text: "Exit code 2 when all git tag push retries are exhausted"
+    text: "Exit code 2 when all git tag push retries are exhausted due to tag conflict"
     tests:
       - TestArtifactNew_ExitCode_2_RetriesExhausted
+
+  - id: CLM-078
+    requirement: REQ-010
+    text: "Non-conflict remote push failure (network error) triggers fallback, not exit 2"
+    tests:
+      - TestArtifactNew_ExitCode_NonConflictPushFallsBack
+
+  - id: CLM-079
+    requirement: REQ-010
+    text: "Exit code 2 when --source is missing for plan type"
+    tests:
+      - TestArtifactNew_ExitCode_2_MissingSourceForPlan
 
   - id: CLM-065
     requirement: REQ-010
@@ -602,13 +676,74 @@ claims:
     tests:
       - TestArtifactNew_ThinAdapter_DelegatesIDResolution
 
+  # REQ-013: --source flag for plan scaffolding
+  - id: CLM-080
+    requirement: REQ-013
+    text: "backstop artifact new plan --source SPEC-002 produces PLAN-SPEC- prefixed filename and spec_id frontmatter"
+    tests:
+      - TestArtifactNew_Source_SpecBacked
+
+  - id: CLM-081
+    requirement: REQ-013
+    text: "backstop artifact new plan --source ISSUE-005 produces PLAN-ISSUE- prefixed filename and issue_id frontmatter"
+    tests:
+      - TestArtifactNew_Source_IssueBacked
+
+  - id: CLM-082
+    requirement: REQ-013
+    text: "backstop artifact new plan without --source exits with code 2"
+    tests:
+      - TestArtifactNew_Source_MissingForPlan_Exit2
+
+  - id: CLM-083
+    requirement: REQ-013
+    text: "--source value not matching SPEC-NNN or ISSUE-NNN pattern exits with code 2"
+    tests:
+      - TestArtifactNew_Source_InvalidFormat_Exit2
+
+  - id: CLM-084
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is spec"
+    tests:
+      - TestArtifactNew_Source_IgnoredForSpec
+
+  - id: CLM-085
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is issue"
+    tests:
+      - TestArtifactNew_Source_IgnoredForIssue
+
+  - id: CLM-086
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is adr"
+    tests:
+      - TestArtifactNew_Source_IgnoredForADR
+
+  - id: CLM-087
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is directive"
+    tests:
+      - TestArtifactNew_Source_IgnoredForDirective
+
+  - id: CLM-088
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is bundle"
+    tests:
+      - TestArtifactNew_Source_IgnoredForBundle
+
+  - id: CLM-089
+    requirement: REQ-013
+    text: "--source flag is silently ignored when artifact type is capability"
+    tests:
+      - TestArtifactNew_Source_IgnoredForCapability
+
 contracts:
   - file: cmd/backstop/artifact_new.go
     provides:
       - name: NewArtifactNewCommand
         kind: function
         signature: "func NewArtifactNewCommand() *cobra.Command"
-        notes: "Cobra command for backstop artifact new <type> --slug <slug>"
+        notes: "Cobra command for backstop artifact new <type> --slug <slug> [--source <SPEC-NNN|ISSUE-NNN>]"
     consumes:
       - source: github.com/spf13/cobra
         name: Command
@@ -627,8 +762,8 @@ contracts:
     provides:
       - name: Scaffold
         kind: function
-        signature: "func Scaffold(artifactType string, id string, slug string, date string) ([]byte, error)"
-        notes: "Renders artifact template with frontmatter and body sections for the given type"
+        signature: "func Scaffold(artifactType string, id string, slug string, date string, sourceID string) ([]byte, error)"
+        notes: "Renders artifact template with frontmatter and body sections for the given type. sourceID is the backing spec/issue ID for plan types (e.g. SPEC-002, ISSUE-005); empty string for non-plan types."
       - name: ResolveID
         kind: function
         signature: "func ResolveID(artifactType string, opts IDOptions) (string, error)"
@@ -651,8 +786,8 @@ contracts:
         notes: "Returns the target directory for the given artifact type"
       - name: Filename
         kind: function
-        signature: "func Filename(artifactType string, id string, slug string) string"
-        notes: "Returns the filename for the given artifact type, ID, and slug"
+        signature: "func Filename(artifactType string, id string, slug string, sourceID string) string"
+        notes: "Returns the filename for the given artifact type, ID, and slug. sourceID determines plan filename prefix (PLAN-SPEC- vs PLAN-ISSUE-)."
     consumes: []
 
   - file: pkg/scaffold/idresolver.go
@@ -673,6 +808,14 @@ contracts:
         kind: function
         signature: "func ValidateSlug(slug string) error"
         notes: "Validates slug against pattern, min/max length constraints"
+      - name: ValidateSource
+        kind: function
+        signature: "func ValidateSource(sourceID string) error"
+        notes: "Validates that sourceID matches SPEC-NNN or ISSUE-NNN pattern. Returns descriptive error on failure."
+      - name: ParseSourceKind
+        kind: function
+        signature: "func ParseSourceKind(sourceID string) (string, error)"
+        notes: "Returns 'spec' or 'issue' from a validated source ID. Error if format is invalid."
     consumes: []
 ---
 
@@ -711,10 +854,11 @@ Requirements are defined in frontmatter. Key design decisions from the bundle:
 |------|-----------|-----------------|-----------------|----------------|
 | spec | SPEC-NNN | SPEC-NNN-slug.spec.md | specs/ | draft |
 | plan | PLAN-SPEC-NNN | PLAN-SPEC-NNN-slug.plan.yml | plans/ | draft |
+| plan | PLAN-ISSUE-NNN | PLAN-ISSUE-NNN-slug.plan.yml | plans/ | draft |
 | issue | ISSUE-NNN | ISSUE-NNN-slug.md | issues/ | open |
 | adr | ADR-NNNN | ADR-NNNN-slug.adr.md | adrs/ | draft |
 | directive | D-NNN | D-NNN-slug.directive.md | directives/ | draft |
-| bundle | (none) | slug.bundle.md | bundles/ | idea (maturity) |
+| bundle | BUNDLE-NNN | BUNDLE-NNN-slug.bundle.md | bundles/ | idea (maturity) |
 | capability | CAP-NNN | CAP-NNN-slug.capability.md | capabilities/ | draft |
 
 ### ID Resolution Strategy
@@ -722,12 +866,18 @@ Requirements are defined in frontmatter. Key design decisions from the bundle:
 1. **Online (git available):** Fetch `backstop/<type>/*` tags from remote. Compute
    next sequential number. Create annotated tag `backstop/<type>/<number>`. Push
    the specific tag. On conflict, retry with incremented number (max 3 retries).
-2. **Offline (git unavailable):** Scan target directory for existing artifacts.
-   Extract numeric IDs from filenames. Assign next sequential number. No remote
-   interaction.
+2. **Offline (git unavailable or non-conflict remote failure):** Falls back when
+   git is not available (no git binary, not a git repo) OR when a non-conflict
+   git remote operation fails (fetch failure, push failure due to network errors,
+   permissions, or unreachable remote). Scans the target directory for existing
+   artifacts, extracts numeric IDs from filenames, and assigns the next sequential
+   number. No further remote interaction. Tag conflict failures (another developer
+   claimed the same ID) are NOT eligible for fallback — they are handled by retry
+   logic, and if retries exhaust, result in exit code 2.
 
-Bundles do not have numeric IDs — their filename is `<slug>.bundle.md`. The ID
-resolution step is skipped for bundles.
+All seven types including bundles receive numeric IDs via the same git tag
+reservation mechanism. Bundles use `backstop/bundle/<number>` tags like all other
+types.
 
 ### Exit Codes
 
@@ -735,7 +885,7 @@ resolution step is skipped for bundles.
 |------|-----------|
 | 0 | Artifact scaffolded successfully |
 | 1 | Target file already exists (conflict) |
-| 2 | Invalid type, invalid slug, missing arguments, git retries exhausted |
+| 2 | Invalid type, invalid slug, missing arguments, missing --source for plan, git tag conflict retries exhausted |
 
 ## Implementation
 
@@ -789,16 +939,17 @@ directory path from the type configuration, ID, and slug.
 ### Pass 7: Cobra Command (cmd/backstop/artifact_new.go)
 
 Implement `NewArtifactNewCommand()` that:
-1. Defines the Cobra command with `artifact new` usage and --slug flag
+1. Defines the Cobra command with `artifact new` usage, --slug flag, and --source flag
 2. Validates the type argument (must be in `ValidArtifactTypes`)
 3. Validates the slug via `ValidateSlug()`
-4. Calls `ResolveID()` to get the next available ID
-5. Calls `Scaffold()` to render the template
-6. Creates the target directory if needed
-7. Checks for existing file (exit 1 if exists)
-8. Writes the file
-9. Formats output via the Formatter interface
-10. Returns the appropriate exit code
+4. If type is "plan", validates --source is present and matches SPEC-NNN or ISSUE-NNN (exit 2 otherwise)
+5. Calls `ResolveID()` to get the next available ID
+6. Calls `Scaffold()` to render the template (passing sourceID for plan types)
+7. Creates the target directory if needed
+8. Checks for existing file (exit 1 if exists)
+9. Writes the file
+10. Formats output via the Formatter interface
+11. Returns the appropriate exit code
 
 ## Verification
 
@@ -817,16 +968,10 @@ mock git operations to avoid real git tag creation in test environments.
 
 - **Plan ID derivation is indirect.** Plan IDs are `PLAN-SPEC-NNN` (or
   `PLAN-ISSUE-NNN`), derived from the spec or issue they implement. The
-  `backstop artifact new plan` command needs additional context (which spec/issue)
-  that other types do not. The initial implementation may require a `--spec` or
-  `--issue` flag for plan scaffolding, or the plan template may use a placeholder
-  spec_id that the user fills in.
-
-- **Bundle filenames have no numeric ID.** Bundles use `<slug>.bundle.md` with no
-  numeric prefix. The git tag reservation and ID resolution logic must handle the
-  bundle type as a special case — either skip tag reservation entirely or use the
-  slug as the tag identifier. The tag format for bundles would be
-  `backstop/bundle/<slug>` rather than `backstop/bundle/<number>`.
+  `--source` flag resolves this, but introduces a parsing dependency: the
+  command must distinguish `SPEC-NNN` from `ISSUE-NNN` at the flag level.
+  If new source types are added later (e.g., ADR-backed plans), the
+  `--source` parser must be extended.
 
 - **Git tag push requires remote access and permissions.** The atomic push will
   fail if the developer has no push access to the remote, if the remote is
@@ -849,18 +994,19 @@ mock git operations to avoid real git tag creation in test environments.
 
 ## Review Questions
 
-1. Should `backstop artifact new plan` require a `--spec` or `--issue` flag to
-   derive the plan_id and spec_id, or should it accept the spec/issue ID as a
-   second positional argument?
+1. **Resolved.** `backstop artifact new plan` requires a `--source` flag whose
+   value is a spec or issue ID (e.g., `--source SPEC-002` or `--source ISSUE-005`).
+   The source determines the filename prefix (PLAN-SPEC- vs PLAN-ISSUE-) and the
+   frontmatter field (spec_id vs issue_id). This is encoded in REQ-013.
 
-2. When the git fetch for existing tags fails (network issue, not "no git"), should
-   the command fall back to local scan or fail with exit code 2? The current spec
-   says offline fallback triggers when git is unavailable, but a fetch failure in
-   an otherwise-git-enabled repository is ambiguous.
+2. **Resolved.** When any git remote operation fails (fetch or push), the command
+   falls back to local filesystem scan. This is encoded in REQ-004: fallback
+   triggers on git unavailable OR any git remote operation failure (network,
+   permissions, unreachable remote).
 
-3. For bundle scaffolding, should the tag format use the slug
-   (`backstop/bundle/<slug>`) to detect duplicate bundle names, or should bundles
-   skip tag reservation entirely since they have no numeric ID?
+3. **Resolved.** Bundles use git tag reservation with numeric IDs (BUNDLE-001,
+   BUNDLE-002, etc.) the same as all other types. Tag format is
+   `backstop/bundle/<number>`. This is encoded in REQ-003.
 
 4. The directive and capability types lack schemas. Should the scaffold command
    refuse to create these types until schemas exist, or should it use best-effort

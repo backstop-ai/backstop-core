@@ -21,7 +21,7 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/... -run TestCodeCheck -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/... ./pkg/check/... -run "TestCodeCheck" -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
@@ -87,11 +87,15 @@ requirements:
       If semgrep is not found on PATH, the command must auto-install it to
       .backstop/tools/semgrep on first invocation. The installed version must
       match the version pinned in backstop.yml (if specified). Subsequent
-      invocations must verify the installed version matches the pin. A version
-      mismatch is a configuration error (exit 2). If auto-install fails (no
-      network, download error), the command must skip semgrep checks and emit
-      a warning — it must not fail the entire command due to semgrep
-      unavailability.
+      invocations must verify the installed version matches the pin. Two
+      distinct failure modes exist: (a) semgrep is installed but at the wrong
+      version (version mismatch) — this is a configuration error and must
+      produce exit code 2 (hard stop, no checks run); (b) semgrep is not
+      installed and auto-install fails (no network, download error) — the
+      command must skip semgrep checks and emit a warning in degraded mode,
+      it must not fail the entire command. These are different scenarios:
+      a version mismatch means deliberate misconfiguration; an install
+      failure means infrastructure unavailability.
     supports: cli:REQ-003
 
   - id: REQ-008
@@ -129,24 +133,26 @@ requirements:
       and BACKSTOP_CONFIG env var override as defined in SPEC-005.
     supports: cli:REQ-009
 
-  - id: REQ-012
-    text: >
-      The command must be a thin adapter: parse flags, load config, determine
-      scope, invoke validation passes via pkg/ functions, format results,
-      set exit code. No enforcement logic may reside in cmd/. The lint,
-      build, test, and semgrep invocations must be implemented in a pkg/
-      package (e.g., pkg/check/) that the command calls.
-    supports: cli:REQ-003
-
   - id: REQ-013
     text: >
-      Changed-files detection in default (diff) mode must use git merge-base
-      HEAD origin/main to find the fork point, then git diff --name-only
-      <merge-base>..HEAD to list changed files. If origin/main does not exist,
-      the command must try origin/master. If neither exists, it must fall back
-      to git diff --name-only HEAD (local uncommitted changes only) and emit
-      a warning.
+      Changed-files detection in default (diff) mode must follow a 4-step
+      cascade: (1) git merge-base HEAD origin/main to find the fork point,
+      then git diff --name-only <merge-base>..HEAD to list changed files;
+      (2) if origin/main does not exist, try origin/master with the same
+      merge-base approach; (3) if neither remote branch exists, fall back to
+      git diff --name-only (staged + unstaged local changes) and emit a
+      warning; (4) if git is not available or the directory is not a git
+      repository, fall back to --all scope and emit a warning. Steps 3 and
+      4 correspond to the fallback behaviors in REQ-002.
     supports: cli:REQ-010
+
+  - id: REQ-014
+    text: >
+      If golangci-lint is not found on PATH, the lint pass must be skipped
+      with a warning (same pattern as semgrep install failure). The go and
+      go test tools are assumed available because backstop operates within
+      a Go project — their absence is not handled gracefully.
+    supports: cli:REQ-003
 
 claims:
   # REQ-001: Four validation passes
@@ -266,15 +272,15 @@ claims:
 
   - id: CLM-019
     requirement: REQ-007
-    text: Semgrep version mismatch with backstop.yml pin produces exit code 2
+    text: Installed semgrep at wrong version produces exit code 2 (config error, hard stop — not degraded mode)
     tests:
-      - TestCodeCheck_Semgrep_VersionMismatchExitCode2
+      - TestCodeCheck_Semgrep_WrongVersionExitCode2
 
   - id: CLM-020
     requirement: REQ-007
-    text: Failed auto-install skips semgrep checks with warning, does not fail command
+    text: Semgrep not installed and auto-install fails skips with warning in degraded mode (not exit code 2)
     tests:
-      - TestCodeCheck_Semgrep_InstallFailureSkipsWithWarning
+      - TestCodeCheck_Semgrep_InstallFailureDegradedMode
 
   - id: CLM-021
     requirement: REQ-007
@@ -376,37 +382,50 @@ claims:
     tests:
       - TestCodeCheck_Config_EnvVarOverride
 
-  # REQ-012: Thin adapter
+  # REQ-013: Changed-files detection (4-step cascade)
   - id: CLM-037
-    requirement: REQ-012
-    text: Command handler contains no enforcement logic — delegates to pkg/
-    tests:
-      - TestCodeCheck_ThinAdapter_NoLogicInCmd
-
-  - id: CLM-038
-    requirement: REQ-012
-    text: Validation passes are implemented in pkg/check, not cmd/
-    tests:
-      - TestCodeCheck_ThinAdapter_PkgCheckExists
-
-  # REQ-013: Changed-files detection
-  - id: CLM-039
     requirement: REQ-013
-    text: Uses git merge-base HEAD origin/main for fork point detection
+    text: Uses git merge-base HEAD origin/main for fork point detection (step 1)
     tests:
       - TestCodeCheck_ChangedFiles_MergeBaseOriginMain
 
-  - id: CLM-040
+  - id: CLM-038
     requirement: REQ-013
-    text: Falls back to origin/master when origin/main does not exist
+    text: Falls back to origin/master when origin/main does not exist (step 2)
     tests:
       - TestCodeCheck_ChangedFiles_FallbackOriginMaster
 
-  - id: CLM-041
+  - id: CLM-039
     requirement: REQ-013
-    text: Falls back to git diff HEAD with warning when neither remote branch exists
+    text: Falls back to git diff staged+unstaged with warning when neither remote branch exists (step 3)
     tests:
-      - TestCodeCheck_ChangedFiles_FallbackLocalDiff
+      - TestCodeCheck_ChangedFiles_FallbackLocalStagedUnstaged
+
+  - id: CLM-040
+    requirement: REQ-013
+    text: Falls back to --all scope with warning in non-git directory (step 4)
+    tests:
+      - TestCodeCheck_ChangedFiles_NonGitFallbackToAll
+
+  # REQ-002: Local scope path (staged+unstaged)
+  - id: CLM-041
+    requirement: REQ-002
+    text: Local scope detects staged and unstaged changes when no remote divergence exists
+    tests:
+      - TestCodeCheck_DefaultScope_LocalStagedAndUnstaged
+
+  # REQ-014: golangci-lint availability
+  - id: CLM-042
+    requirement: REQ-014
+    text: Lint pass is skipped with warning when golangci-lint is not on PATH
+    tests:
+      - TestCodeCheck_Lint_SkippedWhenGolangciLintMissing
+
+  - id: CLM-043
+    requirement: REQ-014
+    text: Build and test passes still run when golangci-lint is not on PATH
+    tests:
+      - TestCodeCheck_Lint_OtherPassesContinueWithoutLint
 
 contracts:
   - file: cmd/backstop/code_check.go
@@ -538,12 +557,16 @@ The --file and --all flags are mutually exclusive. Specifying both is exit code 
 
 ### Changed-Files Detection (REQ-002, REQ-013)
 
-The merge-base detection cascade:
+The 4-step detection cascade:
 
-1. `git merge-base HEAD origin/main` — PR scope against main
-2. `git merge-base HEAD origin/master` — fallback for repos using master
-3. `git diff --name-only HEAD` — local uncommitted changes only (with warning)
+1. `git merge-base HEAD origin/main` then `git diff --name-only <merge-base>..HEAD` — PR scope against main
+2. `git merge-base HEAD origin/master` then `git diff --name-only <merge-base>..HEAD` — fallback for repos using master
+3. `git diff --name-only` (staged + unstaged local changes) — when neither remote branch exists, with warning
 4. Fall back to --all scope — non-git environments (with warning)
+
+Step 3 captures both staged and unstaged changes (equivalent to `git diff HEAD`
+for tracked files plus untracked detection). This is the local scope path,
+distinct from the PR scope in steps 1-2.
 
 ### File-Type Routing (REQ-006)
 
@@ -561,8 +584,19 @@ If semgrep is not on PATH:
 
 1. Download to `.backstop/tools/semgrep`
 2. Pin version per backstop.yml
-3. Verify version on subsequent runs (mismatch is exit 2)
-4. If install fails, skip semgrep checks with a warning — do not fail the command
+3. Verify version on subsequent runs
+
+Two distinct failure modes:
+
+- **Version mismatch** (installed but wrong version): exit code 2 (configuration error, hard stop). This indicates deliberate misconfiguration.
+- **Install failure** (not installed, auto-install fails due to network/download error): skip semgrep checks with a warning (degraded mode). Do not fail the entire command.
+
+### Tool Availability (REQ-014)
+
+If golangci-lint is not found on PATH, the lint pass is skipped with a warning
+(same degradation pattern as semgrep install failure). The `go` and `go test`
+tools are assumed available — backstop operates within a Go project, so Go
+being installed is a precondition, not a graceful-degradation scenario.
 
 ### Exit Codes (REQ-009)
 
@@ -641,7 +675,7 @@ The --file mode design ensures concurrent safety:
 
 ## Verification
 
-Claims are defined in frontmatter. Integration-level verification with 90% coverage
+Claims are defined in frontmatter. Integration-level verification with 80% coverage
 threshold. Tests use the `TestCodeCheck` prefix and cover all requirements through
 positive and negative claims.
 
@@ -676,6 +710,13 @@ positive and negative claims.
   Multi-language projects without manifests will get incomplete coverage.
   The correct fix is to compile standards and produce manifests — the defaults
   are a bootstrapping convenience, not a permanent solution.
+
+- **cmd/ files must be thin adapters.** The design requires that no enforcement
+  logic reside in cmd/ — the command should parse flags, load config, delegate
+  to pkg/check, format results, and set exit codes. Enforcement of this
+  constraint is a code review concern, not a test assertion — there is no
+  reliable automated way to distinguish "enforcement logic" from "glue code"
+  in a thin adapter. Reviewers must verify this during implementation review.
 
 - **go test scope explosion.** When checking changed .go files, the test pass
   must determine which packages to test. A change to a widely-imported package

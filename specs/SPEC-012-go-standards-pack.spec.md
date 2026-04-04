@@ -45,11 +45,13 @@ requirements:
     text: >
       The core category must also contain semgrep YAML rules for: no naked
       returns in functions longer than 5 lines (GO-012), no panic in library
-      code (GO-013), no stuttering exports (GO-020), and error wrapping
-      required (GO-011). Rules that cannot be fully expressed as semgrep
-      patterns (GO-012 constraint on function length, GO-020 delegated to
-      golangci-lint) must include a note field explaining the detection
-      limitation and what supplementary tooling is needed.
+      code (GO-013), and error wrapping required (GO-011). GO-012 has
+      strategy: pattern in STD-GO-001 but its function-length constraint
+      cannot be expressed in semgrep; the semgrep rule must include a note
+      field explaining this limitation. GO-020 (no-stuttering-exports) has
+      strategy: delegated in STD-GO-001 and is enforced by golangci-lint;
+      it must NOT appear in any semgrep YAML rule file. GO-020 appears only
+      in the compiled manifest via the compiler.
     follows:
       - STD-GO-001:GO-011
       - STD-GO-001:GO-012
@@ -90,8 +92,11 @@ requirements:
       (format: go.<category>.<kebab-name>), patterns or pattern field,
       message, severity (ERROR, WARNING, or INFO), languages set to [go],
       and a metadata block containing backstop-specific fields (category,
-      rule_id, compliance_tier, rationale). The rule ID in the semgrep
-      file must correspond to the rule ID in STD-GO-001 metadata.
+      rule_id, compliance_tier, rationale). Two ID fields are required:
+      (1) the semgrep `id` field uses the format go.<category>.<kebab-name>
+      (e.g., go.core.no-global-mutable-state), and (2) the
+      `metadata.backstop.rule_id` field maps to the STD-GO-001 rule ID
+      (e.g., GO-003). Both fields must be present in every rule entry.
 
   - id: REQ-006
     text: >
@@ -148,11 +153,13 @@ requirements:
   - id: REQ-011
     text: >
       The seven deferred categories (performance, observability, integration,
-      contracts, concurrency, resilience, accessibility) must remain as
-      empty directories under standards/go/rules/. No rule files may be
-      added to these directories in this spec. The existing concurrency
-      rules in STD-GO-001 (GO-050, GO-051) are the only rules in deferred
-      categories and must continue to compile correctly.
+      contracts, concurrency, resilience, accessibility) must exist as
+      empty directories under standards/go/rules/. The accessibility/
+      directory does not currently exist and must be created by this spec.
+      No rule files may be added to any deferred category directory in this
+      spec. The existing concurrency rules in STD-GO-001 (GO-050, GO-051)
+      are the only rules in deferred categories and must continue to compile
+      correctly.
 
   - id: REQ-012
     text: >
@@ -206,6 +213,12 @@ claims:
     tests:
       - TestGoStandard_CoreRuleExists_GO013
 
+  - id: CLM-052
+    requirement: REQ-002
+    text: Core rules directory contains a semgrep YAML file for GO-012 no-naked-returns
+    tests:
+      - TestGoStandard_CoreRuleExists_GO012
+
   - id: CLM-008
     requirement: REQ-002
     text: GO-012 no-naked-returns rule includes a note explaining the function-length constraint limitation
@@ -214,9 +227,21 @@ claims:
 
   - id: CLM-009
     requirement: REQ-002
-    text: GO-020 no-stuttering-exports rule includes a note explaining delegation to golangci-lint
+    text: GO-020 no-stuttering-exports has a delegation note in STD-GO-001 explaining enforcement by golangci-lint (not in any semgrep rule file)
     tests:
-      - TestGoStandard_CoreRule_GO020_HasNote
+      - TestGoStandard_STD_GO001_GO020_HasDelegationNote
+
+  - id: CLM-047
+    requirement: REQ-002
+    text: GO-012 exists in STD-GO-001 rules array as a pattern-strategy rule with function-length constraint
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO012
+
+  - id: CLM-048
+    requirement: REQ-002
+    text: GO-020 exists in STD-GO-001 rules array as a delegated-strategy rule (not in semgrep YAML)
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO020
 
   # REQ-003: Test rules
   - id: CLM-010
@@ -242,6 +267,18 @@ claims:
     text: GO-031 table-driven-tests includes a note explaining custom analysis requirement
     tests:
       - TestGoStandard_TestRule_GO031_HasNote
+
+  - id: CLM-049
+    requirement: REQ-003
+    text: GO-030 exists in STD-GO-001 rules array as a metric-strategy rule
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO030
+
+  - id: CLM-050
+    requirement: REQ-003
+    text: GO-031 exists in STD-GO-001 rules array as a pattern-strategy rule with note
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO031
 
   # REQ-004: Security rules
   - id: CLM-014
@@ -298,6 +335,12 @@ claims:
     text: Every rule has languages set to [go]
     tests:
       - TestGoStandard_AllRulesTargetGo
+
+  - id: CLM-051
+    requirement: REQ-005
+    text: Every rule has a metadata.backstop.rule_id field that maps to a valid STD-GO-001 rule ID
+    tests:
+      - TestGoStandard_AllRulesHaveBackstopRuleID
 
   # REQ-006: Invalid testdata fixtures
   - id: CLM-023
@@ -467,7 +510,7 @@ contracts:
       - name: go.core rules
         kind: variable
         signature: "semgrep YAML rules file"
-        notes: "Core category rules: GO-003, GO-004, GO-005, GO-006, GO-011, GO-013"
+        notes: "Core category pattern-strategy rules: GO-003, GO-004, GO-005, GO-006, GO-011, GO-012, GO-013. GO-012 has a function-length constraint that semgrep cannot enforce; the rule includes a note. GO-020 is delegated-strategy and does NOT appear in this file."
     consumes: []
 
   - file: standards/go/rules/test/go-test.yml
@@ -492,8 +535,9 @@ contracts:
 ## Overview
 
 The Go standards pack (standards/go/) has the skeleton in place: STD-GO-001
-defines rule metadata, the rules/ directory has subdirectories for all ten
-categories (ADR-0006), and the testdata/ directory has valid/ and invalid/
+defines rule metadata, the rules/ directory has subdirectories for nine of
+the ten categories (ADR-0006) — the accessibility/ directory is missing and
+must be created by this spec. The testdata/ directory has valid/ and invalid/
 subdirectories. What it lacks is content — the actual semgrep YAML rules
 that `backstop pack compile` turns into enforcement manifests and `backstop
 code check` runs against real code.
@@ -527,20 +571,22 @@ Requirements are defined in frontmatter.
 The core category covers the highest-value Go conventions from mechsuit
 go-conventions.md and STD-GO-001:
 
-| Rule ID | Name | Detection | Tier |
-|---------|------|-----------|------|
-| GO-003 | no-global-mutable-state | pattern (semgrep) | baseline |
-| GO-004 | no-init-functions | pattern (semgrep) | baseline |
-| GO-005 | constructor-injection-required | pattern (semgrep) | standard |
-| GO-006 | structured-logging-required | pattern (semgrep) | standard |
-| GO-011 | error-wrapping-required | pattern (semgrep) | standard |
-| GO-012 | no-naked-returns | pattern + note (function length constraint) | standard |
-| GO-013 | no-panic-in-library-code | pattern (semgrep) | baseline |
-| GO-020 | no-stuttering-exports | delegated + note (golangci-lint revive) | standard |
+| Rule ID | Name | Detection | In Semgrep YAML? | Tier |
+|---------|------|-----------|------------------|------|
+| GO-003 | no-global-mutable-state | pattern (semgrep) | Yes | baseline |
+| GO-004 | no-init-functions | pattern (semgrep) | Yes | baseline |
+| GO-005 | constructor-injection-required | pattern (semgrep) | Yes | standard |
+| GO-006 | structured-logging-required | pattern (semgrep) | Yes | standard |
+| GO-011 | error-wrapping-required | pattern (semgrep) | Yes | standard |
+| GO-012 | no-naked-returns | pattern + note (function length constraint) | Yes (with note) | standard |
+| GO-013 | no-panic-in-library-code | pattern (semgrep) | Yes | baseline |
+| GO-020 | no-stuttering-exports | delegated (golangci-lint revive) | No — manifest only | standard |
 
-Rules GO-012 and GO-020 have detection limitations documented via notes.
-GO-012 needs function length measurement which semgrep cannot do natively.
-GO-020 is delegated to golangci-lint's revive linter.
+GO-012 has strategy: pattern in STD-GO-001 and appears in go-core.yml, but
+its function-length constraint cannot be expressed in semgrep. The semgrep
+rule includes a note documenting this limitation. GO-020 has strategy:
+delegated and does NOT appear in any semgrep YAML file. It is enforced by
+golangci-lint and appears only in the compiled manifest via the compiler.
 
 ### Test Rules (REQ-003)
 
@@ -576,9 +622,40 @@ Each detection strategy in STD-GO-001 maps to a specific compiler output:
 | metric | native check JSON entry with metric/threshold | GO-001, GO-002 |
 | regex | semgrep YAML entry with pattern-regex | GO-021 |
 | delegated | manifest entry with delegated_to, no semgrep/native output | GO-020, GO-040 |
-| advisory (note-only) | manifest entry with enforcement: advisory | GO-031 |
+| advisory (note-only) | manifest entry with enforcement: advisory | (no current rule — hypothetical future rules with note-only detection and no enforceable pattern) |
 
 ## Implementation
+
+### Category Mapping: STD-GO-001 to Pack Directories
+
+STD-GO-001 uses fine-grained categories (structure, error-handling, naming,
+testing, etc.). The pack directories use coarser groupings. This is the
+explicit mapping:
+
+| STD-GO-001 Category | Pack Directory | Rationale |
+|---------------------|----------------|-----------|
+| structure | core | Core Go idioms |
+| error-handling | core | Core Go idioms |
+| naming | core | Core Go idioms |
+| testing | test | Test-specific rules |
+| security | security | Security-specific rules |
+| imports | core | Core Go idioms (delegated, manifest only) |
+| concurrency | concurrency | Deferred category |
+
+This mapping means a rule's STD-GO-001 category (e.g., "error-handling")
+differs from its pack directory (e.g., "core") and its semgrep rule ID
+prefix (e.g., go.core.error-wrapping-required). The `metadata.backstop.rule_id`
+field links back to the STD-GO-001 rule ID regardless of directory placement.
+
+### Step 0: Create accessibility/ directory
+
+The accessibility/ directory does not currently exist under standards/go/rules/.
+Create it as an empty directory to ensure all ten category directories from
+ADR-0006 are present:
+
+```
+mkdir -p standards/go/rules/accessibility/
+```
 
 ### Step 1: Update STD-GO-001 with new rules
 
@@ -599,7 +676,7 @@ Add seven new rules to the STD-GO-001 frontmatter rules array:
 
 Create three rule files:
 
-**standards/go/rules/core/go-core.yml** — Rules GO-003, GO-004, GO-005, GO-006, GO-011, GO-013. Each rule follows the semgrep YAML format with backstop metadata block.
+**standards/go/rules/core/go-core.yml** — Rules GO-003, GO-004, GO-005, GO-006, GO-011, GO-012, GO-013. Each rule follows the semgrep YAML format with backstop metadata block. GO-012 is included with a note about its function-length constraint limitation. GO-020 is NOT included — it is a delegated-strategy rule enforced by golangci-lint and appears only in the compiled manifest.
 
 **standards/go/rules/test/go-test.yml** — Rule GO-032 (no-time-sleep-in-tests). Scoped to `_test.go` files using semgrep's paths include/exclude mechanism.
 
@@ -664,12 +741,14 @@ Claims are defined in frontmatter.
   anything. Fixture quality is as important as rule quality. Fixtures must be
   reviewed with the same rigor as the rules themselves.
 
-- **Category boundary ambiguity.** Some conventions span categories. Error
-  wrapping (GO-011) could be "error-handling" or "core." Structured logging
-  (GO-006) could be "core" or "observability." The mapping follows
-  STD-GO-001's existing category assignments. If a rule moves categories in
-  a future version, the semgrep rule ID (go.<category>.<name>) changes,
-  which breaks baseline comparisons. Category assignment is a one-way door.
+- **Category boundary ambiguity and the mapping table.** STD-GO-001 uses
+  fine-grained categories (structure, error-handling, naming) while the pack
+  directories use coarser groupings (core, test, security). The explicit
+  mapping (structure/error-handling/naming -> core, testing -> test, security
+  -> security) means a rule's STD-GO-001 category differs from its semgrep
+  rule ID prefix. If a rule moves categories in a future version, the semgrep
+  rule ID (go.<category>.<name>) changes, which breaks baseline comparisons.
+  Category assignment is a one-way door.
 
 - **GORM-specific rules from go-conventions.md are excluded.** The mechsuit
   conventions include GORM-specific patterns (error checking on GORM calls,
@@ -696,7 +775,9 @@ Claims are defined in frontmatter.
 
 5. Does the updated STD-GO-001 with new rules still compile correctly with the existing pkg/compile code, or do the new rules use detection fields that the compiler does not yet handle?
 
-6. Are the CWE/OWASP references on security rules correct? Cross-reference GO-060 through GO-063 against the actual CWE and OWASP entry texts to verify the mapping is precise, not approximate.
+6. Does the category mapping table (structure/error-handling/naming -> core) correctly place every rule? Verify that no rule's semgrep ID prefix contradicts its pack directory placement.
+
+7. Are the CWE/OWASP references on security rules correct? Cross-reference GO-060 through GO-063 against the actual CWE and OWASP entry texts to verify the mapping is precise, not approximate.
 
 ## References
 

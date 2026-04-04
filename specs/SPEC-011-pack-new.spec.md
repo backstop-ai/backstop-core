@@ -22,7 +22,7 @@ implementation:
 
 verification:
   level: unit
-  test_command: go test ./cmd/backstop/... -run TestPackNew -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/... ./pkg/pack/... -run TestPackNew -race -coverprofile=cover.out
   coverage_threshold: 90
 
 requirements:
@@ -59,10 +59,10 @@ requirements:
       where <LANG> is the uppercased language code and <NNN> is the zero-padded
       3-digit next available number. The file must contain valid frontmatter
       with title, number, created (today's date), status (active), schema_version
-      (standard/v1), language, pack, and scope fields. The body must contain a
-      rules array with a single template rule entry including id, name, category,
-      severity, description, compliance_tier, and detection block placeholder
-      fields. The standards/<language>/ directory must be created if it does not
+      (standard/v1), language, pack, and scope fields. The frontmatter must
+      include a rules array with a single template rule entry including id,
+      name, category, severity, description, compliance_tier, and detection
+      block placeholder fields. The standards/<language>/ directory must be created if it does not
       exist.
     supports: cli:REQ-005
 
@@ -70,9 +70,9 @@ requirements:
     text: >
       For code pack scaffolding (--type code), the command must create a recipe
       directory at recipes/<language>/<slug>/ containing a README.md with the
-      pack name and description placeholder, and a recipe template file. The
-      recipes/<language>/ and recipes/<language>/<slug>/ directories must be
-      created if they do not exist.
+      pack name and description placeholder, and a template recipe file named
+      <slug>.recipe.md. The recipes/<language>/ and recipes/<language>/<slug>/
+      directories must be created if they do not exist.
     supports: cli:REQ-005
 
   - id: REQ-006
@@ -236,7 +236,7 @@ claims:
 
   - id: CLM-019
     requirement: REQ-004
-    text: "Rule pack standard file body contains a template rule with detection block placeholder"
+    text: "Rule pack standard file frontmatter contains a rules array with template rule and detection block placeholder"
     tests:
       - TestPackNew_RulePack_TemplateRuleBody
 
@@ -261,7 +261,7 @@ claims:
 
   - id: CLM-023
     requirement: REQ-005
-    text: "Code pack recipe directory contains a template recipe file"
+    text: "Code pack recipe directory contains a template recipe file named <slug>.recipe.md"
     tests:
       - TestPackNew_CodePack_TemplateRecipeFile
 
@@ -485,8 +485,8 @@ Rule packs create a single `.standard.md` file in the language's standards
 directory. The filename follows the pattern `STD-<LANG>-<NNN>-<slug>.standard.md`
 where `<LANG>` is the uppercased language code. The file includes:
 
-- Frontmatter: title, number, created, status, schema_version, language, pack, scope
-- Body: rules array with a template rule entry containing id, name, category,
+- Frontmatter: title, number, created, status, schema_version, language, pack, scope,
+  and a rules array with a template rule entry containing id, name, category,
   severity, description, compliance_tier, and detection block placeholder
 
 The next available number is determined by scanning existing standard files in
@@ -498,7 +498,7 @@ not filled. First pack for a language starts at 001.
 Code packs create a recipe directory in `recipes/<language>/<slug>/` containing:
 
 - `README.md` with pack name and description placeholder
-- Template recipe file
+- `<slug>.recipe.md` template recipe file
 
 ### Exit Codes
 
@@ -539,8 +539,8 @@ Implement rule pack scaffolding within `ScaffoldPack()`:
 3. Render frontmatter: title (from slug), number (`STD-<LANG>-<NNN>`), created
    (today), status (`active`), schema_version (`standard/v1`), language, pack
    (language name), scope (`language`)
-4. Render body: rules array with one template rule including all required fields
-   and a detection block placeholder
+4. Render frontmatter rules array with one template rule including all required
+   fields and a detection block placeholder
 5. Create `standards/<language>/` if it does not exist
 6. Write the file; fail if it already exists
 
@@ -549,7 +549,7 @@ Implement rule pack scaffolding within `ScaffoldPack()`:
 Implement code pack scaffolding within `ScaffoldPack()`:
 1. Compute directory path: `recipes/<language>/<slug>/`
 2. Create `README.md` with pack name header and description placeholder
-3. Create a template recipe file with placeholder content
+3. Create `<slug>.recipe.md` template recipe file with placeholder content
 4. Create all parent directories if they do not exist
 5. Fail if `recipes/<language>/<slug>/` already exists
 
@@ -569,8 +569,8 @@ Implement `NewPackNewCommand()` that:
 ## Verification
 
 Claims are defined in frontmatter. Unit-level verification with 90% coverage
-threshold on the cmd/backstop/ package tree. Tests use temporary directories
-for filesystem operations.
+threshold on both the cmd/backstop/ and pkg/pack/ package trees. Tests use
+temporary directories for filesystem operations.
 
 ## Sharp Edges
 

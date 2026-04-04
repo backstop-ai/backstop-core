@@ -61,7 +61,10 @@ requirements:
       (including deprecation warnings), any errors, and a summary count of
       standards compiled. In human mode, the command prints a formatted
       summary showing each standard compiled, output files produced, warnings,
-      and errors. Both modes must produce identical underlying data.
+      and errors. Both modes must produce identical underlying data. The
+      PackCompileResult struct does not carry its own schema_version field —
+      schema_version is added to all JSON responses by the SPEC-005 CLI output
+      formatter, which wraps command results before writing to stdout.
     supports: cli:REQ-007
 
   - id: REQ-005
@@ -70,7 +73,11 @@ requirements:
       successfully, 1 when one or more standards have compilation errors
       (e.g., validation failures, unsupported strategies), 2 when a
       configuration error prevents compilation from starting (e.g., missing
-      backstop.yml, invalid config, standards directory does not exist).
+      backstop.yml, invalid config). When backstop.yml specifies multiple
+      standards_dirs and some exist but others do not, the command must
+      compile from valid directories and emit a warning for each missing
+      directory — this is not an exit 2 condition. Exit 2 for missing
+      directories applies only when NO configured directories exist.
     supports: cli:REQ-004
 
   - id: REQ-006
@@ -206,9 +213,15 @@ claims:
 
   - id: CLM-014
     requirement: REQ-005
-    text: Exit code 2 when standards directory does not exist
+    text: Exit code 2 when no configured standards directories exist
     tests:
-      - TestPackCompile_ExitCode2OnMissingStandardsDir
+      - TestPackCompile_ExitCode2OnAllStandardsDirsMissing
+
+  - id: CLM-030
+    requirement: REQ-005
+    text: When some configured standards_dirs exist and others do not, command compiles from valid directories and emits warning for missing ones (not exit 2)
+    tests:
+      - TestPackCompile_PartialDirsMissingCompilesAndWarns
 
   - id: CLM-015
     requirement: REQ-006
@@ -388,7 +401,9 @@ JSON, semgrep YAML config, and native checks JSON.
 | Human | (default) | Formatted summary: each standard compiled, output files, warnings, errors |
 | JSON | `--json` | Structured JSON: compiled standards list, warnings, errors, summary count |
 
-Both modes produce identical underlying data.
+Both modes produce identical underlying data. The PackCompileResult struct does
+not carry its own schema_version — the SPEC-005 CLI output formatter wraps all
+command results with a schema_version field before writing JSON to stdout.
 
 ### Exit Codes
 
@@ -396,9 +411,12 @@ Both modes produce identical underlying data.
 |------|---------|---------|
 | 0 | All standards compiled successfully, or no standards found | Clean compile, empty project |
 | 1 | One or more compilation errors | Validation failure, unsupported strategy |
-| 2 | Configuration error prevents compilation | Missing backstop.yml, invalid config, standards directory missing |
+| 2 | Configuration error prevents compilation | Missing backstop.yml, invalid config, all configured standards directories missing |
 
-Exit code 2 takes precedence — config errors prevent any compilation attempt.
+Exit code 2 takes precedence — config errors prevent any compilation attempt. When
+multiple standards_dirs are configured and some exist but others do not, the command
+compiles from valid directories and emits a warning for each missing directory. Exit 2
+applies only when no configured directories exist at all.
 
 ### Error Handling
 
@@ -430,8 +448,9 @@ The command executes in six sequential steps:
    loader. Exit 2 on failure.
 
 2. **Directory resolution** — read standards directories from config, defaulting
-   to `standards/`. Verify the directories exist. Exit 2 if configured
-   directories do not exist.
+   to `standards/`. Verify each directory exists. If some directories exist but
+   others do not, emit a warning for each missing directory and proceed with the
+   valid ones. Exit 2 only if no configured directories exist at all.
 
 3. **Standard discovery** — recursively walk each standards directory, collecting
    all files matching `*.standard.md`. Sort results by file path for
@@ -553,10 +572,10 @@ and exit codes. The compile.Compile function is called through the real package
    pkg/compile validates standards before compiling — is this distinction clear
    to the implementer?
 
-2. When backstop.yml specifies multiple standards_dirs entries, and one directory
-   exists but another does not, should the command exit 2 immediately or compile
-   from the valid directories and warn about the missing one? The current spec
-   says exit 2 for missing directories — is this too aggressive?
+2. **Resolved.** When backstop.yml specifies multiple standards_dirs entries and
+   some exist but others do not, the command compiles from valid directories and
+   emits a warning for each missing directory. Exit 2 applies only when no
+   configured directories exist. Partial success beats total failure.
 
 3. The discovery function returns absolute paths. Does the human output mode
    display absolute paths (verbose but unambiguous) or relative paths (cleaner
@@ -566,9 +585,10 @@ and exit codes. The compile.Compile function is called through the real package
    follow it or error? Standard os.MkdirAll follows symlinks, but this could
    write to unexpected locations.
 
-5. Does the JSON output schema_version field (required by SPEC-005 REQ-004)
-   need a specific version for the pack compile response, or does it reuse
-   a shared CLI output schema version?
+5. **Resolved.** The PackCompileResult struct does not carry its own
+   schema_version field. The SPEC-005 CLI output formatter wraps all command
+   results with a schema_version before writing JSON to stdout. No per-command
+   schema version is needed.
 
 ## References
 
