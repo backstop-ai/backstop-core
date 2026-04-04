@@ -1,0 +1,527 @@
+---
+plan_id: PLAN-SPEC-004
+spec_id: SPEC-004
+spec_version: 1.0.0
+created: "2026-04-03"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... -run \"TestSpec_|TestSpecAuthorAgent_|TestImplReviewerAgent_|TestStandardsHook_|TestSettingsJson_\" -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Extends the spec artifact schema and validator with two new features: an optional
+  follows field on requirements for standards binding, and an optional Review Questions
+  section. Also updates agent definitions (spec-author, impl-reviewer) with
+  standards-binding and review-question instructions, adds a SessionStart hook for
+  standards context injection, and registers the hook in settings.json.
+
+  The work touches four disjoint file groups:
+    A. Go validator: pkg/validate/spec.go, pkg/validate/spec_test.go
+    B. Schema JSON: artifacts/spec/v1/schema.json
+    C. Agent definitions: .claude/agents/spec-author.md, .claude/agents/impl-reviewer.md
+    D. Hook + settings: .claude/hooks/backstop-standards-context.sh, .claude/settings.json
+
+  Groups B, C, and D have no Go code — their tests are file-content verification
+  tests that read the files and assert expected content. These tests live in a
+  separate test file (pkg/validate/spec_integration_test.go) to avoid conflicting
+  with the validator test file.
+
+  Phases 2 and 3 are parallel: Phase 2 handles Go validator changes (follows +
+  review questions), Phase 3 handles non-Go artifacts (schema, agents, hook,
+  settings). They touch completely disjoint file sets.
+
+  Phase 4 is the final comprehensive verification phase.
+
+  Structure:
+    Phase 1: Setup — test helpers
+    Phase 2: Follows field + Review Questions validation (TDD on spec.go)
+    Phase 3: Schema + agents + hook + settings (TDD on file-content tests)  [parallel with Phase 2]
+    Phase 4: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Test Helpers
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Test Helpers"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create test helper for spec artifacts with follows and review questions"
+        description: |
+          Create pkg/validate/spec_follows_helpers_test.go with helper functions
+          shared across the new follows and review questions tests.
+
+          Helper functions:
+            - validSpecWithFollows(follows interface{}) — returns a valid
+              ParsedArtifact with a requirement that has the given follows value.
+              Uses the existing validSpecArtifact() pattern from spec_test.go as
+              the baseline but adds the follows field to requirements[0].
+            - validSpecWithReviewQuestions(present bool, empty bool) — returns a
+              valid ParsedArtifact. When present=true, adds "Review Questions" to
+              Sections. When empty=true, the section name is present but simulates
+              empty content (for the content check).
+
+          These helpers reduce boilerplate across the 20+ new test functions.
+        files:
+          - pkg/validate/spec_follows_helpers_test.go
+        claims:
+          - CLM-020
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Follows Field + Review Questions Validation (Go code)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Follows Field and Review Questions Validation"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for follows field validation"
+        description: |
+          Write failing tests in pkg/validate/spec_follows_test.go for follows
+          field validation (REQ-001, REQ-002, REQ-009).
+
+          Follows field positive tests:
+            - TestSpec_Follows_SingleStandardRule: single STD-GO-001:GO-010 passes (CLM-001)
+            - TestSpec_Follows_SingleRecipeName: single error-handling-recipe passes (CLM-002)
+            - TestSpec_Follows_ArrayValid: array of mixed valid values passes (CLM-003)
+            - TestSpec_Follows_OmittedPasses: no follows field passes (CLM-007)
+            - TestSpec_Follows_StandardRuleFormatPasses: STD-JAVA-001:J-042 passes (CLM-017)
+            - TestSpec_Follows_RecipeNameFormatPasses: error-handling-recipe passes (CLM-018)
+
+          Follows field negative tests:
+            - TestSpec_Follows_EmptyStringFails: follows="" fails (CLM-004)
+            - TestSpec_Follows_EmptyArrayFails: follows=[] fails (CLM-005)
+            - TestSpec_Follows_InvalidFormatFails: follows="INVALID" fails (CLM-006)
+            - TestSpec_Follows_NeitherFormatFails: values like "123-bad", "STD-go-001:go-010" fail (CLM-019)
+            - TestSpec_Follows_MixedValidInvalidFails: array with mix fails (CLM-021)
+            - TestSpec_Follows_LowercaseStdPrefixFails: "std-go-001:GO-010" fails (CLM-022)
+            - TestSpec_Follows_UppercaseRecipeNameFails: "Error-Handling" fails (CLM-023)
+
+          All tests should fail initially (red phase) since the validation logic
+          does not yet exist.
+        files:
+          - pkg/validate/spec_follows_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write tests for Review Questions section validation"
+        description: |
+          Write failing tests in pkg/validate/spec_reviewq_test.go for Review
+          Questions section validation (REQ-003, REQ-004).
+
+          Review Questions tests:
+            - TestSpec_ReviewQuestions_PresentPasses: spec with non-empty Review
+              Questions section passes (CLM-008)
+            - TestSpec_ReviewQuestions_EmptyFails: spec with empty Review
+              Questions section fails (CLM-009)
+            - TestSpec_ReviewQuestions_OmittedPasses: spec without Review
+              Questions section passes (CLM-010)
+
+          All tests should fail initially (red phase).
+        files:
+          - pkg/validate/spec_reviewq_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: test
+        title: "Write regression tests for existing spec validation rules"
+        description: |
+          Write tests in pkg/validate/spec_compat_test.go verifying that existing
+          validation rules still function after the follows and review questions
+          additions (REQ-010).
+
+          Existing rules regression tests:
+            - TestSpec_ExistingRules_FilenamePatternsStillWork: invalid filename
+              still produces spec/filename-pattern violation (CLM-020)
+            - TestSpec_ExistingRules_RequirementsArrayStillValidated: missing
+              requirements still produces spec/requirements-required violation (CLM-020)
+            - TestSpec_ExistingRules_ClaimsArrayStillValidated: missing claims
+              still produces spec/claims-required violation (CLM-020)
+            - TestSpec_ExistingRules_VerificationBlockStillValidated: missing
+              verification still produces spec/verification-required violation (CLM-020)
+
+          These tests should pass immediately since no code has changed yet.
+          They serve as a regression safety net.
+        files:
+          - pkg/validate/spec_compat_test.go
+        claims:
+          - CLM-020
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement follows field and Review Questions validation in spec.go"
+        description: |
+          Add follows field validation and Review Questions section validation
+          to pkg/validate/spec.go.
+
+          New package-level regex vars:
+            - followsStdRuleRe = regexp.MustCompile(`^STD-[A-Z]+-[0-9]{3}:[A-Z]+-[0-9]+$`)
+            - followsRecipeRe  = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+
+          Changes to validateRequirements():
+            - After the existing supports validation block (line ~455), add a
+              follows field validation block that:
+              - Accepts a single string or array of strings (same pattern as supports)
+              - Rejects empty string or empty array
+              - Validates each value against followsStdRuleRe or followsRecipeRe
+              - Values matching neither are rejected with spec/requirement-follows-format
+
+          New function validateReviewQuestions(art *artifact.ParsedArtifact) []Violation:
+            - Check if "Review Questions" appears in art.Sections
+            - If present, check that the section has non-empty content. This requires
+              reading the raw body or using a section content mechanism. Since the
+              current parser only stores section headings, this validation checks
+              for presence in Sections and uses a content-presence heuristic (e.g.,
+              checking if any content exists between the Review Questions heading
+              and the next heading or end of body).
+            - If the section is present but empty: emit spec/review-questions-empty
+
+          Wire into Spec() function after capabilities validation (step 13):
+            // 14. Review Questions — optional section content validation
+            specViolations = append(specViolations, validateReviewQuestions(art)...)
+        files:
+          - pkg/validate/spec.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify follows field and Review Questions validation passes"
+        description: |
+          Run the test suite and lint checks for Phase 2 implementation.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestSpec_Follows|TestSpec_ReviewQuestions|TestSpec_ExistingRules" -race -v
+            - go tool golangci-lint run ./pkg/validate/
+        files:
+          - pkg/validate/spec.go
+          - pkg/validate/spec_follows_test.go
+          - pkg/validate/spec_reviewq_test.go
+          - pkg/validate/spec_compat_test.go
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-020
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Schema + Agents + Hook + Settings (non-Go artifacts)
+  # Parallel with Phase 2 — completely disjoint file sets
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Schema, Agent Definitions, Hook Script, and Settings"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write tests for agent definitions content"
+        description: |
+          Write file-content verification tests in
+          pkg/validate/spec_agent_test.go that read agent definition files
+          and assert expected content is present (REQ-005, REQ-006).
+
+          spec-author agent tests (CLM-011):
+            - TestSpecAuthorAgent_ContainsFollowsInstructions: reads
+              .claude/agents/spec-author.md, asserts it contains instructions
+              about binding standards using the follows field
+            - TestSpecAuthorAgent_ContainsReviewQuestionsInstructions: asserts
+              it contains instructions about generating Review Questions section
+            - TestSpecAuthorAgent_ContainsEscalationInstructions: asserts it
+              contains DD-13 escalation-over-guessing instruction
+
+          impl-reviewer agent tests (CLM-012):
+            - TestImplReviewerAgent_ContainsReviewQuestionsInstructions: reads
+              .claude/agents/impl-reviewer.md, asserts it contains instructions
+              to check review questions during code review
+            - TestImplReviewerAgent_ContainsFollowsCheckInstructions: asserts
+              it contains instructions to verify follows-field standard rules
+
+          All tests should fail initially since agent files have not been updated.
+        files:
+          - pkg/validate/spec_agent_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-001
+
+      - id: TASK-008
+        type: test
+        title: "Write tests for hook script and settings.json"
+        description: |
+          Write file-content verification tests in
+          pkg/validate/spec_hook_test.go for the standards context hook
+          (REQ-007) and settings.json registration (REQ-008).
+
+          Hook tests (CLM-013, CLM-014, CLM-015):
+            - TestStandardsHook_OutputsManifestSummary: creates a temp directory
+              with a sample .manifest.json file, runs the hook script, and
+              asserts the output contains a formatted standards summary
+            - TestStandardsHook_MissingDirectoryGraceful: runs the hook with
+              a nonexistent .backstop/rules/ path, asserts exit code 0 and
+              no error output
+            - TestStandardsHook_EmptyDirectoryGraceful: runs the hook with
+              an empty .backstop/rules/ directory, asserts exit code 0 and
+              no error output
+
+          Settings.json tests (CLM-016):
+            - TestSettingsJson_SessionStartHookRegistered: reads
+              .claude/settings.json, parses as JSON, asserts the standards
+              context hook is registered under hooks.SessionStart
+            - TestSettingsJson_SubagentStartHookRegistered: asserts the hook
+              is also registered under hooks.SubagentStart
+
+          All tests should fail initially since the hook and settings changes
+          do not yet exist.
+        files:
+          - pkg/validate/spec_hook_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-001
+
+      - id: TASK-009
+        type: implementation
+        title: "Update spec schema JSON with follows and Review Questions"
+        description: |
+          Update artifacts/spec/v1/schema.json to:
+            - Add "follows" to requirements item_optional_keys alongside "supports"
+            - Add "Review Questions" to the optional_sections array
+            - Bump version to 1.1.0 to reflect the schema addition
+
+          The requirements nested block description should be updated to mention
+          the follows field alongside supports.
+        files:
+          - artifacts/spec/v1/schema.json
+        claims:
+          - CLM-020
+        depends_on:
+          - TASK-007
+
+      - id: TASK-010
+        type: implementation
+        title: "Update agent definitions with standards-binding and review-question instructions"
+        description: |
+          Update .claude/agents/spec-author.md to add a new section instructing
+          the spec author to:
+            - Check available standards (injected by SessionStart hook context)
+            - Bind applicable standard rules to requirements using the follows
+              field with the format STD-LANG-NNN:RULE-ID
+            - Use recipe names (lowercase-kebab) for non-standard references
+            - Generate a Review Questions section with adversarial questions
+              targeting risks the claims alone do not cover
+            - Escalate to the human when standards do not cover the exact case
+              rather than guessing (DD-13 escalation-over-guessing pattern)
+
+          Update .claude/agents/impl-reviewer.md to add a new review step
+          instructing the impl-reviewer to:
+            - Check the spec's Review Questions section during code review
+            - Evaluate each question against the implementation
+            - Report which review questions are satisfied and which are not
+            - Check that implementations follow the specific standard rules
+              referenced in requirement follows fields
+        files:
+          - .claude/agents/spec-author.md
+          - .claude/agents/impl-reviewer.md
+        claims:
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-007
+
+      - id: TASK-011
+        type: implementation
+        title: "Create standards context hook and register in settings.json"
+        description: |
+          Create .claude/hooks/backstop-standards-context.sh that:
+            - Reads all .manifest.json files from .backstop/rules/
+            - Extracts standard ID, language, and rule count from each manifest
+            - Outputs a formatted summary (e.g., "Available standards:
+              STD-GO-001 (go, 14 rules)")
+            - Exits 0 with no output if the directory does not exist or is empty
+            - Is executable (chmod +x)
+
+          Update .claude/settings.json to register the hook under both:
+            - hooks.SessionStart — fires for main sessions
+            - hooks.SubagentStart — fires for subagent sessions (reviewer, author)
+
+          The hook command should reference the script path relative to the
+          project root: .claude/hooks/backstop-standards-context.sh
+        files:
+          - .claude/hooks/backstop-standards-context.sh
+          - .claude/settings.json
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-008
+
+      - id: TASK-012
+        type: verification
+        title: "Verify schema, agents, hook, and settings changes"
+        description: |
+          Run tests and verify all Phase 3 artifacts.
+
+          Commands:
+            - go test ./pkg/validate/ -run "TestSpecAuthorAgent_|TestImplReviewerAgent_|TestStandardsHook_|TestSettingsJson_" -race -v
+            - Verify artifacts/spec/v1/schema.json is valid JSON
+            - Verify .claude/hooks/backstop-standards-context.sh is executable
+            - bash -n .claude/hooks/backstop-standards-context.sh (syntax check)
+        files:
+          - pkg/validate/spec_agent_test.go
+          - pkg/validate/spec_hook_test.go
+          - artifacts/spec/v1/schema.json
+          - .claude/hooks/backstop-standards-context.sh
+          - .claude/settings.json
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-016
+        depends_on:
+          - TASK-009
+          - TASK-010
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification"
+    tasks:
+      - id: TASK-013
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete test suite with race detection and coverage profiling.
+          Verify all claim tests pass and coverage meets the 80% threshold.
+
+          Commands:
+            - go test ./... -run "TestSpec_|TestSpecAuthorAgent_|TestImplReviewerAgent_|TestStandardsHook_|TestSettingsJson_" -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep pkg/validate/spec.go
+            - Verify coverage >= 80%
+            - go tool golangci-lint run ./pkg/validate/
+            - go build ./...
+            - go test ./... -race (full regression)
+
+          This covers code verification (.go files touched throughout the plan).
+        files:
+          - pkg/validate/spec.go
+          - pkg/validate/spec_test.go
+          - pkg/validate/spec_follows_helpers_test.go
+          - pkg/validate/spec_follows_test.go
+          - pkg/validate/spec_reviewq_test.go
+          - pkg/validate/spec_compat_test.go
+          - pkg/validate/spec_agent_test.go
+          - pkg/validate/spec_hook_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-011
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify all artifact files are valid"
+        description: |
+          Verify the updated artifact files pass their own validation and
+          structural checks.
+
+          Commands:
+            - Validate artifacts/spec/v1/schema.json is valid JSON with
+              python3 -m json.tool
+            - Validate .claude/settings.json is valid JSON
+            - Verify .claude/hooks/backstop-standards-context.sh passes
+              bash -n syntax check and is executable
+            - Verify .claude/agents/spec-author.md contains expected sections
+            - Verify .claude/agents/impl-reviewer.md contains expected sections
+
+          This covers artifact verification (non-Go files touched throughout
+          the plan: JSON schema, agent markdown, shell script, JSON config).
+        files:
+          - artifacts/spec/v1/schema.json
+          - .claude/agents/spec-author.md
+          - .claude/agents/impl-reviewer.md
+          - .claude/hooks/backstop-standards-context.sh
+          - .claude/settings.json
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-009
+          - TASK-010
+          - TASK-011
+          - TASK-012
