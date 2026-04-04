@@ -1,0 +1,569 @@
+---
+plan_id: PLAN-SPEC-003
+spec_id: SPEC-003
+spec_version: 1.0.0
+created: "2026-03-31"
+status: draft
+target_repo: backstop-core
+test_command: "bash specs/tests/spec-003-agent-hooks-test.sh"
+coverage_threshold: 80
+
+notes: |
+  Implements a PreToolUse hook script (.claude/hooks/backstop-agent-guard.sh)
+  that enforces per-agent file-type write restrictions. Nine agent types are
+  supported with specific allowlists. Reviewer agents are blocked from all
+  writes. Unknown agents default to deny. No agent name defaults to allow.
+
+  This is shell script + JSON config, not Go code. Tests are a bash test
+  harness at specs/tests/spec-003-agent-hooks-test.sh that invokes the hook
+  as a subprocess with controlled env vars and stdin JSON.
+
+  The hook script and settings.json are the two deliverables. The test harness
+  is the single test file. Since all three are independent files, some
+  parallelism is possible between test-writing and settings.json work.
+
+  Structure:
+    Phase 1: Setup — directories and test harness scaffold
+    Phase 2: Core hook behavior — input parsing, no-agent, malformed input
+    Phase 3: Per-agent allowlist enforcement — all 9 agent types
+    Phase 4: Settings.json registration + exit code semantics
+    Phase 5: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Directory Structure and Test Harness Scaffold
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Directory Structure and Test Harness Scaffold"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create directories and scaffold test harness"
+        description: |
+          Create the directory structure and scaffold the test harness.
+
+          Directories to create:
+            - .claude/hooks/ (for the hook script)
+            - specs/tests/ (for the test harness)
+
+          Create specs/tests/spec-003-agent-hooks-test.sh with:
+            - Shebang (#!/usr/bin/env bash)
+            - set -euo pipefail
+            - SCRIPT_DIR and PROJECT_ROOT resolution
+            - HOOK path variable pointing to .claude/hooks/backstop-agent-guard.sh
+            - PASS/FAIL/TOTAL counters
+            - Helper functions:
+              - run_hook(agent_name, file_path) — sets CLAUDE_AGENT_NAME, pipes
+                JSON stdin to the hook, captures exit code and stdout
+              - assert_allowed(test_name, agent_name, file_path) — runs hook,
+                asserts exit 0
+              - assert_blocked(test_name, agent_name, file_path) — runs hook,
+                asserts exit 2, validates JSON output has decision and reason
+              - report() — prints pass/fail summary, exits non-zero if any failed
+            - A jq availability check at the top (skip all tests if jq missing)
+            - Placeholder comment for test functions to be added in later phases
+
+          Create .claude/hooks/backstop-agent-guard.sh as an empty executable
+          placeholder (just shebang and exit 0) so the test harness can be
+          validated structurally.
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-001
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Core Hook Behavior — Input Parsing, No-Agent, Malformed Input
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Core Hook Behavior — Input Parsing and Edge Cases"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for core hook input behavior"
+        description: |
+          Add test functions to specs/tests/spec-003-agent-hooks-test.sh for
+          core hook behavior: reading agent name from env, reading file path
+          from stdin, handling no agent name, and handling malformed input.
+
+          Test functions (mandated names from spec):
+            - TestHook_ScriptExists — verify file exists at expected path
+            - TestHook_ScriptIsExecutable — verify file has execute permission
+            - TestHook_ReadsAgentNameFromEnv — set CLAUDE_AGENT_NAME=spec-author,
+              pipe valid JSON with .spec.md path, assert exit 0
+            - TestHook_ReadsFilePathFromStdin — set agent to spec-author, pipe
+              JSON with file_path field, verify hook processes correctly
+            - TestHook_NoAgentName_Allows — set CLAUDE_AGENT_NAME="" (empty),
+              pipe any file path, assert exit 0
+            - TestHook_UnsetAgentName_Allows — unset CLAUDE_AGENT_NAME entirely,
+              pipe any file path, assert exit 0
+            - TestHook_EmptyStdin_Allows — set agent name, provide empty stdin,
+              assert exit 0
+            - TestHook_InvalidJson_Allows — set agent name, pipe "not json" on
+              stdin, assert exit 0
+            - TestHook_UnknownAgent_Blocks — set CLAUDE_AGENT_NAME="rogue-agent",
+              pipe any file path, assert exit 2
+
+          All tests should fail initially since the hook is just a placeholder.
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement core hook script with input parsing"
+        description: |
+          Replace the placeholder .claude/hooks/backstop-agent-guard.sh with
+          the full core implementation.
+
+          The script must:
+            1. Read CLAUDE_AGENT_NAME from environment. If empty or unset,
+               exit 0 immediately.
+            2. Read all of stdin into a variable. If empty, exit 0.
+            3. Parse stdin JSON with jq to extract .tool_input.file_path.
+               If jq fails (invalid JSON), exit 0.
+            4. Store the agent name and file path for allowlist matching
+               (matching logic added in Phase 3).
+            5. For now, implement the default-deny case: if agent name is
+               not recognized by the case statement, output block JSON
+               ({"decision":"block","reason":"..."}) and exit 2.
+            6. Add empty case branches for all 9 known agents as stubs
+               that exit 0 (to be filled in Phase 3).
+
+          The script must use #!/usr/bin/env bash, never exit 1.
+
+          Block JSON format:
+            printf '{"decision":"block","reason":"agent %s not permitted to write %s"}\n'
+        files:
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify core hook behavior tests pass"
+        description: |
+          Run the test harness to verify core hook behavior.
+
+          Commands:
+            - bash specs/tests/spec-003-agent-hooks-test.sh
+            - Verify all Phase 2 test functions pass
+            - Verify the script is executable: test -x .claude/hooks/backstop-agent-guard.sh
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-001
+          - CLM-030
+          - CLM-038
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Per-Agent Allowlist Enforcement
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Per-Agent Allowlist Enforcement — All 9 Agent Types"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for bundle-author, spec-author, adr-author, issue-author, planner allowlists"
+        description: |
+          Add test functions to specs/tests/spec-003-agent-hooks-test.sh for
+          the five authoring agents and the planner agent.
+
+          Test functions (mandated names):
+            bundle-author:
+              - TestHook_BundleAuthor_AllowsBundleMd — bundles/foo.bundle.md, exit 0
+              - TestHook_BundleAuthor_BlocksSpecMd — specs/foo.spec.md, exit 2
+              - TestHook_BundleAuthor_BlocksGoFile — pkg/foo.go, exit 2
+
+            spec-author:
+              - TestHook_SpecAuthor_AllowsSpecMd — specs/foo.spec.md, exit 0
+              - TestHook_SpecAuthor_BlocksBundleMd — bundles/foo.bundle.md, exit 2
+              - TestHook_SpecAuthor_BlocksGoFile — pkg/foo.go, exit 2
+
+            adr-author:
+              - TestHook_AdrAuthor_AllowsAdrMd — adrs/foo.adr.md, exit 0
+              - TestHook_AdrAuthor_BlocksSpecMd — specs/foo.spec.md, exit 2
+              - TestHook_AdrAuthor_BlocksGoFile — pkg/foo.go, exit 2
+
+            issue-author:
+              - TestHook_IssueAuthor_AllowsIssueMd — issues/foo.issue.md, exit 0
+              - TestHook_IssueAuthor_BlocksSpecMd — specs/foo.spec.md, exit 2
+              - TestHook_IssueAuthor_BlocksGoFile — pkg/foo.go, exit 2
+
+            planner:
+              - TestHook_Planner_AllowsPlanYml — plans/foo.plan.yml, exit 0
+              - TestHook_Planner_BlocksSpecMd — specs/foo.spec.md, exit 2
+              - TestHook_Planner_BlocksGoFile — pkg/foo.go, exit 2
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: test
+        title: "Write tests for implementer allowlist and reviewer blocks"
+        description: |
+          Add test functions to specs/tests/spec-003-agent-hooks-test.sh for
+          the implementer agent (including scoped JSON/YAML) and all three
+          reviewer agents.
+
+          Test functions (mandated names):
+            implementer — basic patterns:
+              - TestHook_Implementer_AllowsGoFile — pkg/foo.go, exit 0
+              - TestHook_Implementer_AllowsTestGoFile — pkg/foo_test.go, exit 0
+              - TestHook_Implementer_AllowsGoMod — go.mod, exit 0
+              - TestHook_Implementer_AllowsGoSum — go.sum, exit 0
+              - TestHook_Implementer_AllowsMakefile — Makefile, exit 0
+              - TestHook_Implementer_BlocksSpecMd — specs/foo.spec.md, exit 2
+              - TestHook_Implementer_BlocksBundleMd — bundles/foo.bundle.md, exit 2
+              - TestHook_Implementer_BlocksPlanYml — plans/foo.plan.yml, exit 2
+
+            implementer — scoped JSON/YAML (REQ-010):
+              - TestHook_Implementer_AllowsJsonInArtifacts — artifacts/v1/schema.json, exit 0
+              - TestHook_Implementer_AllowsYmlInArtifacts — artifacts/v1/config.yml, exit 0
+              - TestHook_Implementer_AllowsJsonInBackstop — .backstop/state.json, exit 0
+              - TestHook_Implementer_AllowsYmlInBackstop — .backstop/config.yml, exit 0
+              - TestHook_Implementer_BlocksJsonOutsideScope — config/settings.json, exit 2
+              - TestHook_Implementer_BlocksYmlOutsideScope — config/settings.yml, exit 2
+
+            reviewers (all writes blocked):
+              - TestHook_SpecReviewer_BlocksAnyFile — any path, exit 2
+              - TestHook_PlanReviewer_BlocksAnyFile — any path, exit 2
+              - TestHook_ImplReviewer_BlocksAnyFile — any path, exit 2
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement per-agent allowlist matching in hook script"
+        description: |
+          Fill in the case statement branches in backstop-agent-guard.sh for
+          all 9 agent types.
+
+          Case branches:
+            bundle-author:
+              Allow if file_path ends with .bundle.md, block otherwise.
+
+            spec-author:
+              Allow if file_path ends with .spec.md, block otherwise.
+
+            adr-author:
+              Allow if file_path ends with .adr.md, block otherwise.
+
+            issue-author:
+              Allow if file_path ends with .issue.md, block otherwise.
+
+            planner:
+              Allow if file_path ends with .plan.yml, block otherwise.
+
+            implementer:
+              Allow if:
+                - file_path ends with .go, OR
+                - basename is go.mod, go.sum, or Makefile, OR
+                - file_path ends with .json or .yml AND path contains
+                  .backstop/ or artifacts/ as path segments
+              Block otherwise.
+
+            spec-reviewer|plan-reviewer|impl-reviewer:
+              Always block (exit 2 with JSON reason).
+
+            * (default):
+              Block (unknown agent, default-deny).
+
+          Sharp edge: implementer's scoped directory matching must check for
+          path segments (.backstop/ and artifacts/) not arbitrary substrings.
+          Use pattern matching like */\.backstop/* or */artifacts/* to avoid
+          false positives on paths like pkg/artifacts-legacy/schema.json.
+
+          All block outputs must use the JSON format:
+            {"decision":"block","reason":"agent <name> not permitted to write <path>"}
+        files:
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify per-agent allowlist tests pass"
+        description: |
+          Run the test harness to verify all per-agent allowlist tests pass.
+
+          Commands:
+            - bash specs/tests/spec-003-agent-hooks-test.sh
+            - Verify all 33 allowlist test functions pass (15 from TASK-005
+              + 18 from TASK-006)
+            - Check that blocked writes produce valid JSON with decision
+              and reason fields
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-004
+          - CLM-019
+          - CLM-027
+          - CLM-040
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Settings Registration + Exit Code Semantics
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Settings Registration and Exit Code Verification"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write tests for settings.json registration and exit code semantics"
+        description: |
+          Add test functions to specs/tests/spec-003-agent-hooks-test.sh for
+          settings.json hook registration and exit code semantics.
+
+          Test functions (mandated names):
+            Settings registration:
+              - TestHook_SettingsJson_EditHook — parse .claude/settings.json,
+                verify PreToolUse array contains entry with matcher "Edit"
+                pointing to backstop-agent-guard.sh
+              - TestHook_SettingsJson_WriteHook — parse .claude/settings.json,
+                verify PreToolUse array contains entry with matcher "Write"
+                pointing to backstop-agent-guard.sh
+
+            Exit code semantics:
+              - TestHook_AllowedWrite_ExitsZero — verify an allowed write
+                produces exit 0 and no stdout output
+              - TestHook_BlockedWrite_ExitsTwoWithJson — verify a blocked
+                write produces exit 2 with JSON containing decision:"block"
+                and a non-empty reason field
+              - TestHook_NeverExitsOne — run the hook with multiple scenarios
+                (valid agent+file, invalid agent, no agent, malformed input),
+                verify none produce exit 1
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Create settings.json with hook registration"
+        description: |
+          Create .claude/settings.json with PreToolUse hook entries for
+          Edit and Write tools.
+
+          The file must contain:
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Edit",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": ".claude/hooks/backstop-agent-guard.sh"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": "Write",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": ".claude/hooks/backstop-agent-guard.sh"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+
+          Note: .claude/settings.local.json already exists with permissions.
+          settings.json is a separate file — do not merge them. Claude Code
+          reads both files.
+        files:
+          - .claude/settings.json
+        claims:
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify settings registration and exit code tests pass"
+        description: |
+          Run the test harness to verify settings registration and exit
+          code semantics.
+
+          Commands:
+            - bash specs/tests/spec-003-agent-hooks-test.sh
+            - Verify TestHook_SettingsJson_EditHook passes
+            - Verify TestHook_SettingsJson_WriteHook passes
+            - Verify TestHook_AllowedWrite_ExitsZero passes
+            - Verify TestHook_BlockedWrite_ExitsTwoWithJson passes
+            - Verify TestHook_NeverExitsOne passes
+        files:
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-033
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Run full test suite and verify all 45 claims"
+        description: |
+          Run the complete test harness and verify all 45 claim tests pass.
+
+          Commands:
+            - bash specs/tests/spec-003-agent-hooks-test.sh
+            - Verify all test functions pass (45 claims across all categories)
+            - Verify the hook script is executable
+            - Verify .claude/settings.json is valid JSON
+            - Verify jq can parse the settings file
+            - Verify no test produces exit code 1
+
+          Coverage categories verified:
+            - Shell script: .claude/hooks/backstop-agent-guard.sh
+            - JSON config: .claude/settings.json
+            - Test harness: specs/tests/spec-003-agent-hooks-test.sh
+
+          This task covers all work categories in the plan:
+            - Script verification (hook behavior, exit codes)
+            - Config verification (settings.json structure)
+            - Integration verification (end-to-end hook invocation)
+        files:
+          - .claude/hooks/backstop-agent-guard.sh
+          - .claude/settings.json
+          - specs/tests/spec-003-agent-hooks-test.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-007
+          - CLM-010
+          - CLM-013
+          - CLM-016
+          - CLM-019
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-040
+          - CLM-044
+        depends_on:
+          - TASK-010
+          - TASK-011

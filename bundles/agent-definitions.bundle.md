@@ -4,9 +4,9 @@ schema_version: bundle/v1
 
 bundle:
   name: agent-definitions
-  version: "0.2.0"
+  version: "0.3.0"
   created: "2026-03-31"
-  updated: "2026-03-31"
+  updated: "2026-04-02"
   category: feature
 
 status:
@@ -159,6 +159,25 @@ execution" as a capability, not assume the underlying mechanism.
    IDs, filenames, required sections. Authors focus on content quality (claims,
    sharp edges, design decisions), not schema compliance.
 
+8. **Standards must be prescribed left of implementation** — a Java-savant
+   engineer running mechsuit found that agents constantly need reminding about
+   code standards during implementation. The fix: bind standards to requirements
+   in the spec, not just at the spec level. REQ-003 doesn't just "follow
+   STD-JAVA-001" — it follows STD-JAVA-001:J-042 specifically for mock chain
+   handling. The agent knows exactly which rule applies to which requirement.
+
+9. **Ambiguity needs an escalation path, not a guess** — when standards don't
+   fully cover a case (e.g., deeply nested API mocking patterns), agents
+   shouldn't improvise. They should escalate to the human or a principal
+   engineer agent that has a crib sheet of judgment calls. Better to ask than
+   to guess wrong and have it caught in review.
+
+10. **Spec-level review questions drive impl review** — like bundle OQs but
+    for code review. The spec author generates adversarial questions that the
+    impl-reviewer should check: "Did the implementation mock the nested chain
+    correctly?" "Did it handle the null case at depth 3?" Forces the reviewer
+    to check things the spec author already knows are risky.
+
 ### Plan Schema Evolution
 
 The current plan validator (D-080, D-081) needs these additions:
@@ -218,6 +237,43 @@ runtime hooks ship.
 Hook scripts live at `.claude/hooks/backstop-agent-guard.sh` and check the
 file path against allowed patterns based on the agent type passed via
 environment or stdin context.
+
+### Standards Binding and Review Questions
+
+**Standards at the requirement level:** The spec schema should support an optional
+`follows` field on requirements, referencing specific standard rules or recipes
+that constrain the implementation. Format: `STD-LANG-NNN:RULE-ID` or `recipe-name`.
+This is not just cataloging which standards apply — it's traceability from the
+standard down to the specific requirement that uses it.
+
+Example:
+```yaml
+requirements:
+  - id: REQ-003
+    text: Mock chain handling for nested API calls
+    follows: STD-JAVA-001:J-042
+```
+
+The planner then knows REQ-003's implementation must follow J-042. The implementer
+knows which rule to read. The reviewer knows which rule to check against.
+
+**Hook-injected standards context:** The spec-author agent shouldn't have to
+discover available standards manually. A SessionStart or SubagentStart hook reads
+the compiled manifests from `.backstop/rules/` and injects them as context:
+"Available standards: STD-GO-001 (23 rules covering core, test, security)..."
+The agent then binds relevant rules to requirements as it writes the spec.
+
+**Review questions on specs:** Specs should include an optional "Review Questions"
+section — adversarial questions the spec author generates for the impl-reviewer.
+These capture risks the author already sees that might not be obvious from the
+claims alone. The impl-reviewer agent is instructed to check each review question
+during code review.
+
+**Escalation for ambiguity:** When a standard doesn't cover the exact case, or
+when there's a judgment call (e.g., how to mock a deeply nested Java API chain),
+the agent escalates rather than guessing. Escalation goes to the human or a
+future principal engineer agent that maintains a crib sheet — an indexed
+collection of judgment calls for common ambiguous situations.
 
 ### Validator Hardening
 
@@ -293,6 +349,18 @@ runtime hooks ship.
 - **DD-9:** Copilot SDK requires separate sessions (not sub-agents) to achieve
   ADR-0012 isolation. Runtime provider abstraction must express "isolated agent
   execution" as a capability, not assume mechanism.
+- **DD-10:** Standards bound at the requirement level, not just spec level. The
+  `follows` field on requirements traces to specific standard rules (e.g.,
+  STD-JAVA-001:J-042), giving implementers and reviewers precise references.
+- **DD-11:** Spec-level review questions — adversarial questions authored during
+  spec creation that the impl-reviewer must check. Captures risk the spec author
+  sees that claims alone don't express.
+- **DD-12:** Hook-injected standards context — SessionStart/SubagentStart hooks
+  read compiled manifests and inject available standards as agent context. Agents
+  don't discover standards manually; the hook tells them what's available.
+- **DD-13:** Escalation over guessing — when standards don't cover the exact case,
+  agents escalate to the human or a principal engineer agent rather than
+  improvising. A future crib sheet artifact indexes common judgment calls.
 
 ## Draft Requirements
 
@@ -353,15 +421,44 @@ requirements:
       All existing plan validator tests must continue to pass after task
       type additions — backward compatibility for plans without type field
       is NOT required (plans must be updated)
+  - id: REQ-014
+    text: >
+      Spec schema must support an optional follows field on requirements
+      that references specific standard rules or recipes
+      (format: STD-LANG-NNN:RULE-ID or recipe-name)
+  - id: REQ-015
+    text: >
+      Spec schema must support an optional Review Questions section for
+      adversarial questions the spec author generates for the impl-reviewer
+  - id: REQ-016
+    text: >
+      The spec-author agent must be instructed to bind applicable standards
+      to requirements using the follows field and generate review questions
+  - id: REQ-017
+    text: >
+      The impl-reviewer agent must be instructed to check review questions
+      during code review in addition to claim verification
+  - id: REQ-018
+    text: >
+      SessionStart or SubagentStart hooks must inject available project
+      standards as agent context by reading compiled manifests from
+      .backstop/rules/
 
 ## Spec Seeds
 
-- **SPEC-NNN:** Plan Schema Evolution — task type field, TDD enforcement rules,
+- **SPEC-002:** Plan Schema Evolution — task type field, TDD enforcement rules,
   gate cadence validation, comprehensive final phase requirement, phase-level
-  parallel file exclusivity. Extends plan.go and plan schema.
-- **SPEC-NNN:** Agent Definitions — .claude/agents/ files for all ten roles,
-  tool restrictions, behavioral instructions, model selection, PreToolUse
-  hook scripts for file-type enforcement. References ADR-0012, ADR-0018.
+  parallel file exclusivity. Extends plan.go and plan schema. **IMPLEMENTED.**
+  Covers bundle REQ-004 through REQ-007, REQ-013.
+- **SPEC-003:** Agent Hooks — PreToolUse guard script (.claude/hooks/backstop-
+  agent-guard.sh) enforcing per-agent file-type write restrictions, settings.json
+  registration, exit code semantics, default-deny for unknown agents. Covers
+  bundle REQ-002, REQ-008.
+- **SPEC-004:** Spec Schema Evolution — optional follows field on requirements
+  binding to specific standard rules (STD-LANG-NNN:RULE-ID), optional Review
+  Questions section for impl-reviewer, agent instruction updates for spec-author
+  and impl-reviewer, SessionStart hook for standards context injection. Covers
+  bundle REQ-014 through REQ-018.
 
 ## Open Questions
 
@@ -376,6 +473,11 @@ None remaining. All seven original OQs resolved 2026-03-31.
   three reviewers), strict TDD enforcement (two impl tasks in a row rejected),
   PreToolUse hooks as first real backstop hooks, subagents for isolation with
   agent teams as future path, ship agents and validator together.
+- 0.3.0 (2026-04-02): Added standards binding at requirement level (follows
+  field), spec-level review questions for impl-reviewer, hook-injected standards
+  context, and escalation-over-guessing pattern. Driven by real-world feedback
+  from a Java engineer running mechsuit daily. Five new requirements (REQ-014
+  through REQ-018) and four new design decisions (DD-10 through DD-13).
 
 ## Notes / Ideas
 
