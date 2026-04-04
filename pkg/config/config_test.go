@@ -215,7 +215,7 @@ func TestCLI_ConfigLoader_WalkUpDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path, err := config.DiscoverConfigPath(child)
+	path, err := config.DiscoverConfigPathFrom(child)
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath from child: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestCLI_ConfigLoader_WalkUpDiscovery(t *testing.T) {
 // returns error. (CLM-010)
 func TestCLI_ConfigLoader_NotFound_Exit2(t *testing.T) {
 	dir := t.TempDir()
-	_, err := config.DiscoverConfigPath(dir)
+	_, err := config.DiscoverConfigPathFrom(dir)
 	if err == nil {
 		t.Fatal("expected error when backstop.yml not found, got nil")
 	}
@@ -263,7 +263,7 @@ func TestConfig_BackstopConfig_OverridesWalkUp(t *testing.T) {
 	t.Setenv("BACKSTOP_CONFIG", overridePath)
 	// Use a different directory to prove walk-up is bypassed
 	emptyDir := t.TempDir()
-	path, err := config.DiscoverConfigPath(emptyDir)
+	path, err := config.DiscoverConfigPathFrom(emptyDir)
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath with BACKSTOP_CONFIG: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestConfig_BackstopConfig_OverridesWalkUp(t *testing.T) {
 // path, expect error. (CLM-045)
 func TestConfig_BackstopConfig_NonexistentFile_Exit2(t *testing.T) {
 	t.Setenv("BACKSTOP_CONFIG", "/nonexistent/path/backstop.yml")
-	_, err := config.DiscoverConfigPath("")
+	_, err := config.DiscoverConfigPathFrom("")
 	if err == nil {
 		t.Fatal("expected error for nonexistent BACKSTOP_CONFIG path, got nil")
 	}
@@ -296,7 +296,7 @@ func TestConfig_BackstopConfig_EmptyString_FallsBackToWalkUp(t *testing.T) {
 	}
 
 	t.Setenv("BACKSTOP_CONFIG", "")
-	path, err := config.DiscoverConfigPath(child)
+	path, err := config.DiscoverConfigPathFrom(child)
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath with empty BACKSTOP_CONFIG: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestConfig_LoadConfig_UsesCurrentDirectory(t *testing.T) {
 func TestConfig_DiscoverConfigPath_BackstopConfigDirectoryError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("BACKSTOP_CONFIG", dir)
-	_, err := config.DiscoverConfigPath(t.TempDir())
+	_, err := config.DiscoverConfigPathFrom(t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "is a directory") {
 		t.Fatalf("expected directory error, got: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestConfig_BackstopConfig_RelativePath_ResolvesFromCWD(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	t.Setenv("BACKSTOP_CONFIG", "backstop.yml")
-	path, err := config.DiscoverConfigPath(t.TempDir())
+	path, err := config.DiscoverConfigPathFrom(t.TempDir())
 	if err != nil {
 		t.Fatalf("DiscoverConfigPath error: %v", err)
 	}

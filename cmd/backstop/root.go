@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"strings"
 
-	backstopcore "github.com/bmanson/backstop-core"
 	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -58,15 +58,8 @@ backstop by shelling out to CLI commands.`,
 		Short: "Validate an artifact against its schema",
 		Long:  "Validates a backstop artifact file against its schema definition, checking metadata, required sections, and field constraints.",
 		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result := map[string]interface{}{
-				"command":    "artifact validate",
-				"violations": []interface{}{},
-				"pass":       true,
-			}
-			if len(args) > 0 {
-				result["file"] = args[0]
-			}
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result := validate.ValidationResult{}
 			return outputResult(cmd, &jsonFlag, result)
 		},
 	}
@@ -76,16 +69,8 @@ backstop by shelling out to CLI commands.`,
 		Short: "Scaffold a new artifact",
 		Long:  "Creates a new backstop artifact from a template with an auto-assigned ID. Supported types include spec, plan, adr, standard, and bundle.",
 		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			artifactType := "spec"
-			if len(args) > 0 {
-				artifactType = args[0]
-			}
-			result := map[string]interface{}{
-				"command": "artifact new",
-				"type":    artifactType,
-				"created": true,
-			}
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result := validate.ValidationResult{}
 			return outputResult(cmd, &jsonFlag, result)
 		},
 	}
@@ -105,11 +90,7 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Runs code analysis tools (e.g. semgrep) against implementation files and reports violations according to the active enforcement configuration.",
 		PersistentPreRunE: enforcementPreRun,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := map[string]interface{}{
-				"command":    "code check",
-				"violations": []interface{}{},
-				"pass":       true,
-			}
+			result := validate.ValidationResult{}
 			return outputResult(cmd, &jsonFlag, result)
 		},
 	}
@@ -130,10 +111,7 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Compiles enforcement packs from standards and rules into enforcement manifests ready for use by the gate command.",
 		PersistentPreRunE: enforcementPreRun,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := map[string]interface{}{
-				"command":  "pack compile",
-				"compiled": true,
-			}
+			result := validate.ValidationResult{}
 			return outputResult(cmd, &jsonFlag, result)
 		},
 	}
@@ -147,11 +125,7 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Runs the complete backstop gate: combines artifact validation and code checking into a single pass/fail result. This is the primary enforcement checkpoint.",
 		PersistentPreRunE: enforcementPreRun,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := map[string]interface{}{
-				"command":    "gate",
-				"violations": []interface{}{},
-				"pass":       true,
-			}
+			result := validate.ValidationResult{}
 			return outputResult(cmd, &jsonFlag, result)
 		},
 	}
@@ -162,7 +136,7 @@ backstop by shelling out to CLI commands.`,
 		Short: "Print version and schema cohort information",
 		Long:  "Displays the CLI binary version, the embedded schema cohort identifier (derived from the set of embedded schema versions), and the Go version used to build the binary.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			schemas, err := backstopcore.ListSchemas()
+			schemas, err := ListSchemas()
 			if err != nil {
 				return fmt.Errorf("listing schemas: %w", err)
 			}
@@ -273,7 +247,7 @@ func computeCohortID(schemas []string) string {
 }
 
 // outputResult formats and prints a result using the appropriate formatter.
-func outputResult(cmd *cobra.Command, jsonFlag *bool, result map[string]interface{}) error {
+func outputResult(cmd *cobra.Command, jsonFlag *bool, result validate.ValidationResult) error {
 	if jsonFlag != nil && *jsonFlag {
 		f := &JSONFormatter{}
 		out, err := f.FormatResult(result)

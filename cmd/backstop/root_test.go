@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -260,7 +261,7 @@ func TestCLI_OutputResult_UsesJSONFormatter(t *testing.T) {
 	cmd.SetOut(buf)
 
 	jsonOn := true
-	err := outputResult(cmd, &jsonOn, map[string]interface{}{"pass": true})
+	err := outputResult(cmd, &jsonOn, validate.ValidationResult{})
 	if err != nil {
 		t.Fatalf("outputResult returned error: %v", err)
 	}
@@ -377,11 +378,11 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "artifact validate", args: []string{"artifact", "validate", "sample.md", "--json"}, want: "\"command\": \"artifact validate\""},
-		{name: "artifact new", args: []string{"artifact", "new", "spec", "--json"}, want: "\"command\": \"artifact new\""},
-		{name: "code check", args: []string{"code", "check", "--json"}, want: "\"command\": \"code check\""},
-		{name: "pack compile", args: []string{"pack", "compile", "--json"}, want: "\"command\": \"pack compile\""},
-		{name: "gate", args: []string{"gate", "--json"}, want: "\"command\": \"gate\""},
+		{name: "artifact validate", args: []string{"artifact", "validate", "sample.md", "--json"}, want: "\"pass\": true"},
+		{name: "artifact new", args: []string{"artifact", "new", "spec", "--json"}, want: "\"pass\": true"},
+		{name: "code check", args: []string{"code", "check", "--json"}, want: "\"pass\": true"},
+		{name: "pack compile", args: []string{"pack", "compile", "--json"}, want: "\"pass\": true"},
+		{name: "gate", args: []string{"gate", "--json"}, want: "\"pass\": true"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,13 +398,19 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 	}
 }
 
-func TestCLI_OutputResult_JSONErrorPath(t *testing.T) {
+func TestCLI_OutputResult_HumanMode(t *testing.T) {
 	cmd := &cobra.Command{}
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	jsonOn := true
-	err := outputResult(cmd, &jsonOn, map[string]interface{}{"bad": make(chan int)})
-	if err == nil {
-		t.Fatal("expected JSON formatting error for unsupported type")
+	jsonOff := false
+	result := validate.ValidationResult{
+		Violations: []validate.Violation{{Rule: "R001", Message: "test"}},
+	}
+	err := outputResult(cmd, &jsonOff, result)
+	if err != nil {
+		t.Fatalf("outputResult returned error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "R001") {
+		t.Fatalf("expected R001 in output: %s", buf.String())
 	}
 }

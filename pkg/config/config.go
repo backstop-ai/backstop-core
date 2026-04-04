@@ -15,18 +15,18 @@ import (
 
 // Config is the typed representation of backstop.yml.
 type Config struct {
-	Project     string      `yaml:"project" json:"project"`
-	Language    string      `yaml:"language" json:"language"`
-	Runtimes    []string    `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
-	Enforcement Enforcement `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
-	Packs       Packs       `yaml:"packs,omitempty" json:"packs,omitempty"`
+	Project     string            `yaml:"project" json:"project"`
+	Language    string            `yaml:"language" json:"language"`
+	Runtimes    []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
+	Enforcement Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
+	Packs       Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
 	Registries  map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
 }
 
 // Enforcement holds the enforcement configuration block.
 type Enforcement struct {
-	Security         Security `yaml:"security,omitempty" json:"security,omitempty"`
-	WaiverWarningDays int     `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
+	Security          Security `yaml:"security,omitempty" json:"security,omitempty"`
+	WaiverWarningDays int      `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
 }
 
 // Security holds the security enforcement settings.
@@ -41,8 +41,18 @@ type Packs struct {
 }
 
 // DiscoverConfigPath finds backstop.yml by checking BACKSTOP_CONFIG env var
-// first, then walking up from startDir.
-func DiscoverConfigPath(startDir string) (string, error) {
+// first, then walking up from the current working directory.
+func DiscoverConfigPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getting working directory: %w", err)
+	}
+	return DiscoverConfigPathFrom(cwd)
+}
+
+// DiscoverConfigPathFrom finds backstop.yml by checking BACKSTOP_CONFIG env var
+// first, then walking up from startDir. Exported for testing.
+func DiscoverConfigPathFrom(startDir string) (string, error) {
 	// Check BACKSTOP_CONFIG env var first
 	envPath := os.Getenv("BACKSTOP_CONFIG")
 	if envPath != "" {
@@ -87,16 +97,16 @@ func DiscoverConfigPath(startDir string) (string, error) {
 // LoadConfig discovers and loads backstop.yml from the current working
 // directory using walk-up discovery or BACKSTOP_CONFIG override.
 func LoadConfig() (*Config, error) {
-	cwd, err := os.Getwd()
+	path, err := DiscoverConfigPath()
 	if err != nil {
-		return nil, fmt.Errorf("getting working directory: %w", err)
+		return nil, err
 	}
-	return LoadConfigFromDir(cwd)
+	return LoadConfigFromPath(path)
 }
 
 // LoadConfigFromDir discovers and loads backstop.yml starting from dir.
 func LoadConfigFromDir(dir string) (*Config, error) {
-	path, err := DiscoverConfigPath(dir)
+	path, err := DiscoverConfigPathFrom(dir)
 	if err != nil {
 		return nil, err
 	}

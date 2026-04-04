@@ -1,5 +1,9 @@
 package main
 
+import (
+	"github.com/bmanson/backstop-core/pkg/validate"
+)
+
 // Exit code constants for consistent CLI behavior.
 const (
 	// ExitPass indicates all checks passed or the command completed successfully.
@@ -12,19 +16,13 @@ const (
 	ExitConfigError = 2
 )
 
-// ValidationResult holds the outcome of a CLI command execution.
-type ValidationResult struct {
-	Pass       bool
-	Violations []string
-}
-
 // ExitWithResult determines the exit code for a command execution.
 // Config error (2) takes precedence over violations (1).
-func ExitWithResult(result ValidationResult, configErr error) int {
+func ExitWithResult(result validate.ValidationResult, configErr error) int {
 	if configErr != nil {
 		return ExitConfigError
 	}
-	if !result.Pass && len(result.Violations) > 0 {
+	if !result.Pass() {
 		return ExitViolations
 	}
 	return ExitPass

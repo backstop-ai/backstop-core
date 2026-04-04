@@ -5,34 +5,52 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/bmanson/backstop-core/pkg/validate"
 )
 
 // Formatter is the output formatting contract for JSON and human modes.
 type Formatter interface {
-	FormatResult(result interface{}) (string, error)
+	FormatResult(result validate.ValidationResult) (string, error)
 }
 
 // JSONFormatter implements Formatter for structured JSON output.
 // It includes a schema_version field in every response for contract evolution.
 type JSONFormatter struct{}
 
-// FormatResult serializes the result to indented JSON with a schema_version field.
-func (f *JSONFormatter) FormatResult(result interface{}) (string, error) {
-	// Wrap result in envelope with schema_version
-	envelope := make(map[string]interface{})
+// jsonEnvelope is the wire format for JSON output.
+type jsonEnvelope struct {
+	SchemaVersion string          `json:"schema_version"`
+	Pass          bool            `json:"pass"`
+	Violations    []jsonViolation `json:"violations"`
+}
 
-	switch v := result.(type) {
-	case map[string]interface{}:
-		for k, val := range v {
-			envelope[k] = val
-		}
-	default:
-		envelope["data"] = result
+// jsonViolation is the JSON representation of a single violation.
+type jsonViolation struct {
+	Rule     string `json:"rule"`
+	File     string `json:"file,omitempty"`
+	Message  string `json:"message"`
+	Severity string `json:"severity,omitempty"`
+}
+
+// FormatResult serializes the result to indented JSON with a schema_version field.
+func (f *JSONFormatter) FormatResult(result validate.ValidationResult) (string, error) {
+	env := jsonEnvelope{
+		SchemaVersion: "cli/v1",
+		Pass:          result.Pass(),
+		Violations:    make([]jsonViolation, 0, len(result.Violations)),
 	}
 
-	envelope["schema_version"] = "cli/v1"
+	for _, v := range result.Violations {
+		env.Violations = append(env.Violations, jsonViolation{
+			Rule:     v.Rule,
+			File:     v.File,
+			Message:  v.Message,
+			Severity: v.Severity,
+		})
+	}
 
-	data, err := json.MarshalIndent(envelope, "", "  ")
+	data, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("formatting JSON output: %w", err)
 	}
@@ -44,88 +62,34 @@ func (f *JSONFormatter) FormatResult(result interface{}) (string, error) {
 type HumanFormatter struct{}
 
 // FormatResult formats the result as human-readable text.
-func (f *HumanFormatter) FormatResult(result interface{}) (string, error) {
+func (f *HumanFormatter) FormatResult(result validate.ValidationResult) (string, error) {
 	useColor := os.Getenv("NO_COLOR") == ""
 
 	var sb strings.Builder
 
-	switch v := result.(type) {
-	case map[string]interface{}:
-		f.formatMap(&sb, v, useColor)
-	default:
-		sb.WriteString(fmt.Sprintf("%v\n", result))
+	// Format violations
+	for _, v := range result.Violations {
+		if useColor && v.Severity == "error" {
+			sb.WriteString(fmt.Sprintf("\033[31m  ✗ [%s] %s\033[0m\n", v.Rule, v.Message))
+		} else {
+			sb.WriteString(fmt.Sprintf("  ✗ [%s] %s\n", v.Rule, v.Message))
+		}
+	}
+
+	// Format pass/fail status
+	if result.Pass() {
+		if useColor {
+			sb.WriteString("\033[32m✓ All checks passed\033[0m\n")
+		} else {
+			sb.WriteString("✓ All checks passed\n")
+		}
+	} else {
+		if useColor {
+			sb.WriteString("\033[31m✗ Checks failed\033[0m\n")
+		} else {
+			sb.WriteString("✗ Checks failed\n")
+		}
 	}
 
 	return sb.String(), nil
-}
-
-// formatMap formats a map as human-readable text.
-func (f *HumanFormatter) formatMap(sb *strings.Builder, m map[string]interface{}, useColor bool) {
-	// Check for violations
-	if violations, ok := m["violations"]; ok {
-		f.formatViolations(sb, violations, useColor)
-	}
-
-	// Check for pass/fail status
-	if pass, ok := m["pass"]; ok {
-		if passBool, ok := pass.(bool); ok {
-			if passBool {
-				if useColor {
-					sb.WriteString("\033[32m✓ All checks passed\033[0m\n")
-				} else {
-					sb.WriteString("✓ All checks passed\n")
-				}
-			} else {
-				if useColor {
-					sb.WriteString("\033[31m✗ Checks failed\033[0m\n")
-				} else {
-					sb.WriteString("✗ Checks failed\n")
-				}
-			}
-		}
-	}
-
-	// Format other fields
-	for key, val := range m {
-		if key == "violations" || key == "pass" {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("%s: %v\n", key, val))
-	}
-}
-
-// formatViolations formats a list of violations.
-func (f *HumanFormatter) formatViolations(sb *strings.Builder, violations interface{}, useColor bool) {
-	switch v := violations.(type) {
-	case []map[string]string:
-		for _, viol := range v {
-			rule := viol["rule"]
-			msg := viol["message"]
-			severity := viol["severity"]
-			if useColor && severity == "error" {
-				sb.WriteString(fmt.Sprintf("\033[31m  ✗ [%s] %s\033[0m\n", rule, msg))
-			} else {
-				sb.WriteString(fmt.Sprintf("  ✗ [%s] %s\n", rule, msg))
-			}
-		}
-	case []interface{}:
-		for _, item := range v {
-			if viol, ok := item.(map[string]interface{}); ok {
-				rule := fmt.Sprintf("%v", viol["rule"])
-				msg := fmt.Sprintf("%v", viol["message"])
-				severity := fmt.Sprintf("%v", viol["severity"])
-				if useColor && severity == "error" {
-					sb.WriteString(fmt.Sprintf("\033[31m  ✗ [%s] %s\033[0m\n", rule, msg))
-				} else {
-					sb.WriteString(fmt.Sprintf("  ✗ [%s] %s\n", rule, msg))
-				}
-			} else {
-				sb.WriteString(fmt.Sprintf("  ✗ %v\n", item))
-			}
-		}
-	case []string:
-		for _, s := range v {
-			sb.WriteString(fmt.Sprintf("  ✗ %s\n", s))
-		}
-	}
 }

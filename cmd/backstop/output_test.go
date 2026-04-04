@@ -5,16 +5,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/validate"
 )
 
 // TestCLI_Output_JSONFlag_ProducesJSON formats a result with JSONFormatter,
 // verifies output is valid JSON. (CLM-013)
 func TestCLI_Output_JSONFlag_ProducesJSON(t *testing.T) {
 	f := &JSONFormatter{}
-	result := map[string]interface{}{
-		"violations": []string{},
-		"pass":       true,
-	}
+	result := validate.ValidationResult{}
 	out, err := f.FormatResult(result)
 	if err != nil {
 		t.Fatalf("FormatResult error: %v", err)
@@ -28,7 +27,7 @@ func TestCLI_Output_JSONFlag_ProducesJSON(t *testing.T) {
 // schema_version field. (CLM-016)
 func TestCLI_Output_JSON_HasSchemaVersion(t *testing.T) {
 	f := &JSONFormatter{}
-	result := map[string]interface{}{"pass": true}
+	result := validate.ValidationResult{}
 	out, err := f.FormatResult(result)
 	if err != nil {
 		t.Fatalf("FormatResult error: %v", err)
@@ -49,11 +48,10 @@ func TestCLI_Output_JSON_HasSchemaVersion(t *testing.T) {
 // TestCLI_Output_JSONAndHuman_IdenticalData formats same result with both
 // formatters, verifies underlying violation data matches. (CLM-015)
 func TestCLI_Output_JSONAndHuman_IdenticalData(t *testing.T) {
-	result := map[string]interface{}{
-		"violations": []map[string]string{
-			{"rule": "R001", "message": "test violation"},
+	result := validate.ValidationResult{
+		Violations: []validate.Violation{
+			{Rule: "R001", Message: "test violation"},
 		},
-		"pass": false,
 	}
 
 	jf := &JSONFormatter{}
@@ -89,11 +87,10 @@ func TestCLI_Output_JSONAndHuman_IdenticalData(t *testing.T) {
 // HumanFormatter, verifies output is human-readable text (not JSON). (CLM-014)
 func TestCLI_Output_Default_ProducesHumanText(t *testing.T) {
 	f := &HumanFormatter{}
-	result := map[string]interface{}{
-		"violations": []map[string]string{
-			{"rule": "R001", "message": "something wrong"},
+	result := validate.ValidationResult{
+		Violations: []validate.Violation{
+			{Rule: "R001", Message: "something wrong"},
 		},
-		"pass": false,
 	}
 	out, err := f.FormatResult(result)
 	if err != nil {
@@ -114,11 +111,10 @@ func TestCLI_Output_Default_ProducesHumanText(t *testing.T) {
 func TestCLI_NoColor_OmitsANSI(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	f := &HumanFormatter{}
-	result := map[string]interface{}{
-		"violations": []map[string]string{
-			{"rule": "R001", "message": "test", "severity": "error"},
+	result := validate.ValidationResult{
+		Violations: []validate.Violation{
+			{Rule: "R001", Message: "test", Severity: "error"},
 		},
-		"pass": false,
 	}
 	out, err := f.FormatResult(result)
 	if err != nil {
@@ -134,11 +130,10 @@ func TestCLI_NoColor_OmitsANSI(t *testing.T) {
 func TestCLI_NoColor_AllowsANSIWhenUnset(t *testing.T) {
 	os.Unsetenv("NO_COLOR")
 	f := &HumanFormatter{}
-	result := map[string]interface{}{
-		"violations": []map[string]string{
-			{"rule": "R001", "message": "test", "severity": "error"},
+	result := validate.ValidationResult{
+		Violations: []validate.Violation{
+			{Rule: "R001", Message: "test", Severity: "error"},
 		},
-		"pass": false,
 	}
 	out, err := f.FormatResult(result)
 	if err != nil {
@@ -148,34 +143,5 @@ func TestCLI_NoColor_AllowsANSIWhenUnset(t *testing.T) {
 	// We verify the formatter runs without error; color is optional
 	if len(out) == 0 {
 		t.Error("output is empty")
-	}
-}
-
-func TestCLI_Output_HumanFormatter_CoversViolationShapes(t *testing.T) {
-	f := &HumanFormatter{}
-	result := map[string]interface{}{
-		"violations": []interface{}{
-			map[string]interface{}{"rule": "R100", "message": "bad", "severity": "warning"},
-			"plain violation",
-		},
-		"pass": false,
-	}
-	out, err := f.FormatResult(result)
-	if err != nil {
-		t.Fatalf("FormatResult error: %v", err)
-	}
-	if !strings.Contains(out, "R100") || !strings.Contains(out, "plain violation") {
-		t.Fatalf("unexpected output: %s", out)
-	}
-}
-
-func TestCLI_Output_HumanFormatter_HandlesNonMap(t *testing.T) {
-	f := &HumanFormatter{}
-	out, err := f.FormatResult("simple output")
-	if err != nil {
-		t.Fatalf("FormatResult error: %v", err)
-	}
-	if !strings.Contains(out, "simple output") {
-		t.Fatalf("missing expected content: %s", out)
 	}
 }
