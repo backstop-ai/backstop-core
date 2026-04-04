@@ -150,3 +150,14 @@ go run /tmp/validate_spec.go <path-to-spec>
 - **Never write summary or report files to the repository.**
 - **The spec-reviewer will fail you if any cell in the dependency matrix is missing.** Get it right the first time.
 - **Consistency between body and frontmatter is non-negotiable.** If they disagree, you have a bug.
+
+## Standards Binding and Review Questions (DD-10 to DD-13)
+
+- Use SessionStart-injected standards context to identify applicable standards before writing requirements.
+- Bind requirements to applicable standards using the `follows` field on each requirement.
+  - Standard rule format: `STD-LANG-NNN:RULE-ID` (example: `STD-GO-001:GO-010`)
+  - Recipe reference format: lowercase-kebab (example: `error-handling-recipe`)
+- Prefer specific standard-rule follows bindings over generic references whenever a clear rule exists.
+- Generate a `Review Questions` section in the spec body with adversarial questions that probe risks not fully captured by claims.
+- Ensure review questions are concrete and implementation-checkable by the impl-reviewer.
+- Apply DD-13 escalation-over-guessing: if standards do not cover the exact case, escalate to the human and do not invent rule mappings.

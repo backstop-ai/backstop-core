@@ -10,10 +10,12 @@ import (
 )
 
 var (
-	specNumberRe = regexp.MustCompile(`^(SPEC-\d{3})-`)
-	claimIDRe    = regexp.MustCompile(`^CLM-\d{3}$`)
-	reqIDRe      = regexp.MustCompile(`^REQ-\d{3}$`)
-	supportsRe   = regexp.MustCompile(`^[a-z0-9-]+:REQ-\d{3}$`)
+	specNumberRe     = regexp.MustCompile(`^(SPEC-\d{3})-`)
+	claimIDRe        = regexp.MustCompile(`^CLM-\d{3}$`)
+	reqIDRe          = regexp.MustCompile(`^REQ-\d{3}$`)
+	supportsRe       = regexp.MustCompile(`^[a-z0-9-]+:REQ-\d{3}$`)
+	followsStdRuleRe = regexp.MustCompile(`^STD-[A-Z]+-[0-9]{3}:[A-Z]+-[0-9]+$`)
+	followsRecipeRe  = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 )
 
 // Verification level → required coverage threshold. Nil means threshold must be absent.
@@ -180,6 +182,9 @@ func Spec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 
 	// 13. Capabilities — optional UC-NNN references
 	specViolations = append(specViolations, validateCapabilities(art.Frontmatter, art.Filename, "spec")...)
+
+	// 14. Review Questions — optional section content validation
+	specViolations = append(specViolations, validateReviewQuestions(art)...)
 
 	combined := make([]Violation, 0, len(base.Violations)+len(specViolations))
 	combined = append(combined, base.Violations...)
@@ -453,9 +458,99 @@ func validateRequirements(art *artifact.ParsedArtifact) reqResult {
 				}
 			}
 		}
+
+		// Optional follows field — binds requirement to standards/recipes.
+		// Accepts a single string or an array of strings.
+		if followsVal, ok := req["follows"]; ok {
+			var followsItems []string
+			switch v := followsVal.(type) {
+			case string:
+				if strings.TrimSpace(v) == "" {
+					result.violations = append(result.violations, Violation{
+						Rule:     "spec/requirement-follows-empty",
+						File:     art.Filename,
+						Message:  fmt.Sprintf("requirements[%d] 'follows' is empty", i),
+						Severity: "error",
+					})
+				} else {
+					followsItems = []string{v}
+				}
+			case []interface{}:
+				if len(v) == 0 {
+					result.violations = append(result.violations, Violation{
+						Rule:     "spec/requirement-follows-empty",
+						File:     art.Filename,
+						Message:  fmt.Sprintf("requirements[%d] 'follows' is empty", i),
+						Severity: "error",
+					})
+				} else {
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							followsItems = append(followsItems, s)
+						}
+					}
+				}
+			}
+
+			if len(followsItems) == 0 && !hasRule(result.violations, "spec/requirement-follows-empty") {
+				result.violations = append(result.violations, Violation{
+					Rule:     "spec/requirement-follows-empty",
+					File:     art.Filename,
+					Message:  fmt.Sprintf("requirements[%d] 'follows' is empty", i),
+					Severity: "error",
+				})
+			}
+			for _, follows := range followsItems {
+				if !followsStdRuleRe.MatchString(follows) && !followsRecipeRe.MatchString(follows) {
+					result.violations = append(result.violations, Violation{
+						Rule:     "spec/requirement-follows-format",
+						File:     art.Filename,
+						Message:  fmt.Sprintf("requirements[%d] 'follows' value '%s' must match format STD-LANG-NNN:RULE-ID or lowercase-kebab recipe name", i, follows),
+						Severity: "error",
+					})
+				}
+			}
+		}
 	}
 
 	return result
+}
+
+func validateReviewQuestions(art *artifact.ParsedArtifact) []Violation {
+	var violations []Violation
+	hasReviewQuestions := false
+	for _, section := range art.Sections {
+		if section == "Review Questions" {
+			hasReviewQuestions = true
+			break
+		}
+	}
+	if !hasReviewQuestions {
+		return violations
+	}
+
+	content := ""
+	if raw, ok := art.Frontmatter["review_questions"]; ok {
+		content = fmt.Sprintf("%v", raw)
+	}
+	if strings.TrimSpace(content) == "" {
+		violations = append(violations, Violation{
+			Rule:     "spec/review-questions-empty",
+			File:     art.Filename,
+			Message:  "Review Questions section is present but empty",
+			Severity: "error",
+		})
+	}
+	return violations
+}
+
+func hasRule(vs []Violation, rule string) bool {
+	for _, v := range vs {
+		if v.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
 
 // validateClaims checks the claims array for well-formed CLM-NNN entries

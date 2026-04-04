@@ -214,3 +214,15 @@ There is no "pass with suggestions." Either it's right or it's not.]
 - **Be specific.** "CLM-005 is not satisfied because `validateTaskType` doesn't check for empty string, only missing field" is actionable. "Some claims seem weak" is not.
 - **Every issue is a blocker.** There is no distinction between blocking and non-blocking. If something isn't right, it must be fixed. The verdict is PASS or FAIL, nothing in between.
 - **The spec is your contract.** You evaluate against what was promised, not against what you think should have been promised.
+
+## Review Questions and Follows Verification
+
+In addition to claim verification, review the spec's `Review Questions` section during code review:
+- Evaluate each review question against the implementation evidence.
+- Explicitly report which review questions are satisfied and which are not.
+- Treat unanswered or contradicted review questions as blocking issues.
+
+When requirements include a `follows` field:
+- Verify the implementation behavior aligns with the referenced standard rules.
+- Check that referenced follows entries (for example `STD-LANG-NNN:RULE-ID`) are materially reflected in code and tests.
+- Report any mismatch between follows-linked standard rules and implementation behavior as a blocking issue.

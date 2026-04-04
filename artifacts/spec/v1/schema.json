@@ -3,7 +3,7 @@
   "$id": "backstop-spec-v1",
   "title": "Backstop Implementation Spec Schema v1",
   "description": "Schema for implementation specifications with claims-based verification traceability. Extends backstop-artifact-base-v1.",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "extends": "backstop-artifact-base-v1",
   "artifact_type": "spec",
   "filename_pattern": "^SPEC-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.spec\\.md$",
@@ -39,7 +39,8 @@
     "Dependencies",
     "References",
     "Sharp Edges",
-    "Integration Contract"
+    "Integration Contract",
+    "Review Questions"
   ],
   "nested_blocks": {
     "implementation": {
@@ -53,8 +54,8 @@
     "requirements": {
       "type": "array",
       "item_required_keys": ["id", "text"],
-      "item_optional_keys": ["supports"],
-      "description": "REQ-NNN functional requirements — what must be true. Optional 'supports' traces back to bundle requirement(s) — accepts a single string or array of strings (format: bundle-name:REQ-NNN)"
+      "item_optional_keys": ["supports", "follows"],
+      "description": "REQ-NNN functional requirements — what must be true. Optional 'supports' traces back to bundle requirement(s) (format: bundle-name:REQ-NNN). Optional 'follows' binds standard rule references (STD-LANG-NNN:RULE-ID) or lowercase-kebab recipe names."
     },
     "claims": {
       "type": "array",
