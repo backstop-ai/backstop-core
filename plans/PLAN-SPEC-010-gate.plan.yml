@@ -1,0 +1,1154 @@
+---
+plan_id: PLAN-SPEC-010
+spec_id: SPEC-010
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... -run \"TestGate\" -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements the backstop gate command — the full reconciliation kill chain
+  (ADR-0010). Gate orchestrates nine verification steps: artifact validation,
+  code check, test verification, test substantiveness, coverage threshold,
+  contract signature verification, baseline comparison, waiver resolution,
+  and ledger integrity.
+
+  Logic lives in pkg/gate/ (orchestrator, step implementations, result types).
+  cmd/backstop/gate.go is a thin Cobra adapter that wires the CLI.
+
+  Steps 1-2 delegate to existing artifact validate and code check logic.
+  Steps 3-6 are mechanical verifiers (grep/AST for test names, substantiveness,
+  coverage, and contract signatures). Steps 7-9 are deferred (report "skipped").
+
+  Feature areas with disjoint file scopes:
+    1. Result types and step interface (pkg/gate/result.go)
+    2. Delegated steps — artifact validation + code check (pkg/gate/step_delegate.go)
+    3. Test verification + substantiveness (pkg/gate/step_testverify.go)
+    4. Coverage threshold (pkg/gate/step_coverage.go)
+    5. Contract signature verification (pkg/gate/step_contract.go)
+    6. Deferred steps — baseline, waiver, ledger (pkg/gate/step_deferred.go)
+    7. Orchestrator — step ordering, halt-on-config-error, result aggregation (pkg/gate/gate.go)
+    8. Output formatting — JSON and human modes (pkg/gate/output.go)
+    9. Cobra adapter (cmd/backstop/gate.go)
+
+  Structure:
+    Phase 1: Setup — scaffold pkg/gate/, test fixtures
+    Phase 2: Result types + step interface (test → impl → verify)
+    Phase 3: Deferred steps — baseline, waiver, ledger (test → impl → verify)
+    Phase 4: Delegated steps — artifact validate, code check (test → impl → verify)
+    Phase 5: Test verification + substantiveness (test → impl → verify)
+    Phase 6: Coverage threshold (test → impl → verify)
+    Phase 7: Contract signature verification (test → impl → verify)
+    Phase 8: Orchestrator — kill chain ordering, halt-on-config-error (test → impl → verify)
+    Phase 9: Output formatting + exit codes (test → impl → verify)
+    Phase 10: Cobra adapter + no-scope-flags + config loading (test → impl → verify)
+    Phase 11: Comprehensive verification
+
+  Phases 3-7 are parallel-eligible (disjoint file sets, no dependency chains
+  between them — all depend only on phase 2 result types).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Scaffold and Test Fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Scaffold and Test Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pkg/gate/ directory and test fixtures"
+        description: |
+          Create the pkg/gate/ directory structure and test fixtures.
+
+          Directory: pkg/gate/
+          Directory: pkg/gate/testdata/
+
+          Test fixtures in pkg/gate/testdata/:
+            - testdata/spec-with-claims.spec.md — minimal spec with claims and
+              mandated test names for test verification (steps 3-4)
+            - testdata/spec-with-coverage.spec.md — spec with verification block
+              containing coverage_threshold and test_command
+            - testdata/spec-with-contracts.spec.md — spec with contracts section
+              declaring functions, types, and interfaces
+            - testdata/hollow-test.go — Go test file with a test function that
+              has no assertions (for substantiveness checks)
+            - testdata/substantive-test.go — Go test file with assertions and
+              target package calls (for substantiveness checks)
+            - testdata/no-target-call-test.go — Go test file with assertions but
+              no call to the target package
+            - testdata/contract-target.go — Go source file with functions, types,
+              and interfaces matching contract declarations
+            - testdata/contract-target-wrong-sig.go — Go source file where a
+              function exists but with wrong signature
+
+          These fixtures support steps 3-6 testing across phases 5-7.
+        files:
+          - pkg/gate/testdata/spec-with-claims.spec.md
+          - pkg/gate/testdata/spec-with-coverage.spec.md
+          - pkg/gate/testdata/spec-with-contracts.spec.md
+          - pkg/gate/testdata/hollow-test.go
+          - pkg/gate/testdata/substantive-test.go
+          - pkg/gate/testdata/no-target-call-test.go
+          - pkg/gate/testdata/contract-target.go
+          - pkg/gate/testdata/contract-target-wrong-sig.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-047
+          - CLM-051
+          - CLM-052
+          - CLM-053
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Result Types and Step Interface
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Result Types and Step Interface"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for GateResult, StepResult, and step interface"
+        description: |
+          Write failing tests in pkg/gate/result_test.go for the core result
+          types and step interface.
+
+          Tests:
+            - TestGate_JSONOutput_StructureComplete (CLM-021): create a GateResult
+              with all fields, marshal to JSON, verify schema_version, pass,
+              steps array, and summary fields are present
+            - TestGate_JSONOutput_StepFieldsPresent (CLM-026): verify each
+              StepResult in JSON has step_name, status, violations fields
+            - TestGate_JSONOutput_SkippedStepHasReason (CLM-027): verify a
+              skipped StepResult includes reason field in JSON
+            - TestGate_JSONOutput_SchemaVersionGateV1 (CLM-036): verify
+              GateResult.SchemaVersion is "gate/v1"
+            - TestGate_JSONOutput_SummaryCounts (CLM-025): create GateResult
+              with mixed pass/fail/skipped steps, verify TotalViolations,
+              StepsPassed, StepsFailed, StepsSkipped counts
+            - TestGate_JSONOutput_PassTrueWhenAllGreen (CLM-022): all steps
+              pass → Pass is true
+            - TestGate_JSONOutput_PassFalseWhenAnyFail (CLM-023): one step
+              fails → Pass is false
+            - TestGate_JSONOutput_PassTrueWithSkippedSteps (CLM-024): pass +
+              skipped → Pass is true
+            - TestGate_JSONOutput_PassTrueWhenAllSkipped (CLM-056): all nine
+              steps skipped → Pass is true
+            - TestGate_CanonicalStepNames_AllPresent (CLM-037): verify constant
+              list of nine canonical step names
+            - TestGate_CanonicalStepNames_ExactMatch (CLM-038): verify step
+              names match exact strings from REQ-011
+        files:
+          - pkg/gate/result_test.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-056
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement GateResult, StepResult types and canonical step names"
+        description: |
+          Create pkg/gate/result.go with:
+
+          Constants for canonical step names (REQ-011):
+            StepArtifactValidation = "artifact_validation"
+            StepCodeCheck = "code_check"
+            StepTestVerification = "test_verification"
+            StepTestSubstantiveness = "test_substantiveness"
+            StepCoverageThreshold = "coverage_threshold"
+            StepContractSignature = "contract_signature"
+            StepBaselineComparison = "baseline_comparison"
+            StepWaiverResolution = "waiver_resolution"
+            StepLedgerIntegrity = "ledger_integrity"
+
+          var AllStepNames = [9]string{...} for ordered iteration.
+
+          Type StepResult struct:
+            - StepName string `json:"step_name"`
+            - Status string `json:"status"` // "pass", "fail", "skipped"
+            - Violations []Violation `json:"violations"`
+            - Reason string `json:"reason,omitempty"`
+
+          Type Violation struct:
+            - Rule string `json:"rule"`
+            - File string `json:"file"`
+            - Message string `json:"message"`
+            - Severity string `json:"severity"`
+
+          Type GateResult struct:
+            - SchemaVersion string `json:"schema_version"` // always "gate/v1"
+            - Pass bool `json:"pass"`
+            - TotalViolations int `json:"total_violations"`
+            - StepsPassed int `json:"steps_passed"`
+            - StepsFailed int `json:"steps_failed"`
+            - StepsSkipped int `json:"steps_skipped"`
+            - Steps []StepResult `json:"steps"`
+
+          Function NewGateResult(steps []StepResult) GateResult:
+            - Computes Pass (true if no step has status "fail")
+            - Computes summary counts
+            - Sets SchemaVersion to "gate/v1"
+
+          Type StepFunc func(ctx context.Context) StepResult — common step
+          signature for the orchestrator.
+        files:
+          - pkg/gate/result.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-056
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify result types and step interface tests pass"
+        description: |
+          Run result type tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_JSONOutput|TestGate_CanonicalStepNames" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/result_test.go
+        claims:
+          - CLM-021
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Deferred Steps — Baseline, Waiver, Ledger (parallel track A)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Deferred Steps — Baseline, Waiver, Ledger"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for deferred steps (baseline, waiver, ledger)"
+        description: |
+          Write failing tests in pkg/gate/step_deferred_test.go for the three
+          deferred steps that report "skipped" with reason strings.
+
+          Baseline comparison tests:
+            - TestGate_Baseline_SkippedWhenNoFile (CLM-012): no baseline file
+              exists → status "skipped", reason "no baseline recorded"
+            - TestGate_Baseline_SkippedWhenNotImplemented (CLM-013): subsystem
+              not implemented → status "skipped", reason "baseline not implemented"
+            - TestGate_Baseline_FailOnNewViolation (CLM-014): baseline exists,
+              new violation exceeds count → status "fail" (deferred — test
+              verifies the interface returns skipped for now)
+            - TestGate_Baseline_PassWhenClean (CLM-015): all violations at or
+              below baseline → status "pass" (deferred — test verifies skipped)
+
+          Waiver resolution tests:
+            - TestGate_Waiver_SkippedWhenNotImplemented (CLM-016): subsystem
+              not implemented → status "skipped", reason "waivers not implemented"
+
+          Ledger integrity tests:
+            - TestGate_Ledger_SkippedWhenNoLedger (CLM-017): no ledger file →
+              status "skipped", reason "no ledger found"
+            - TestGate_Ledger_SkippedWhenNotImplemented (CLM-018): subsystem
+              not implemented → status "skipped", reason "ledger not implemented"
+            - TestGate_Ledger_FailOnBrokenChain (CLM-019): broken chain →
+              status "fail" (deferred — test verifies skipped for now)
+            - TestGate_Ledger_PassWhenIntact (CLM-020): intact chain →
+              status "pass" (deferred — test verifies skipped for now)
+        files:
+          - pkg/gate/step_deferred_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement deferred step functions (baseline, waiver, ledger)"
+        description: |
+          Create pkg/gate/step_deferred.go with three step functions:
+
+          Function StepBaselineComparison(ctx context.Context) StepResult:
+            - Returns StepResult{StepName: StepBaselineComparison, Status: "skipped",
+              Reason: "baseline not implemented"}
+            - When baseline subsystem is implemented, this function will be
+              replaced with real logic
+
+          Function StepWaiverResolution(ctx context.Context) StepResult:
+            - Returns StepResult{StepName: StepWaiverResolution, Status: "skipped",
+              Reason: "waivers not implemented"}
+
+          Function StepLedgerIntegrity(ctx context.Context) StepResult:
+            - Returns StepResult{StepName: StepLedgerIntegrity, Status: "skipped",
+              Reason: "ledger not implemented"}
+
+          All three functions satisfy the StepFunc signature. The deferred
+          implementation ensures the gate output contract includes all nine
+          steps from day one.
+        files:
+          - pkg/gate/step_deferred.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify deferred step tests pass"
+        description: |
+          Run deferred step tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_Baseline|TestGate_Waiver|TestGate_Ledger" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/step_deferred.go
+          - pkg/gate/step_deferred_test.go
+        claims:
+          - CLM-012
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Delegated Steps — Artifact Validate + Code Check (parallel track B)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Delegated Steps — Artifact Validation and Code Check"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for delegated steps (artifact validate, code check)"
+        description: |
+          Write failing tests in pkg/gate/step_delegate_test.go for the two
+          delegated steps.
+
+          Artifact validation tests:
+            - TestGate_ArtifactValidation_ReportsViolations (CLM-003): delegate
+              returns violations → StepResult has status "fail" with violations
+              under "artifact_validation" section
+            - TestGate_ArtifactValidation_PassWhenValid (CLM-004): delegate
+              returns no violations → StepResult has status "pass"
+
+          Code check tests:
+            - TestGate_CodeCheck_ReportsViolations (CLM-005): delegate returns
+              violations → StepResult has status "fail" with violations under
+              "code_check" section
+            - TestGate_CodeCheck_PassWhenClean (CLM-006): delegate returns no
+              violations → StepResult has status "pass"
+
+          Config error propagation tests (these test the step-level behavior;
+          orchestrator-level halt is tested in phase 8):
+            - TestGate_ExitCode2_DelegatedArtifactValidateConfigError (CLM-034):
+              artifact validate returns config error → step signals config error
+            - TestGate_ExitCode2_DelegatedCodeCheckConfigError (CLM-035):
+              code check returns config error → step signals config error
+
+          Steps delegate to interfaces (not concrete implementations) so tests
+          can use mocks/stubs for the underlying validate/check logic.
+        files:
+          - pkg/gate/step_delegate_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-004
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement delegated step functions (artifact validate, code check)"
+        description: |
+          Create pkg/gate/step_delegate.go with:
+
+          Interface ArtifactValidator:
+            - ValidateAll(ctx context.Context) ([]StepViolation, error)
+            - The error return signals config errors (exit 2 equivalent)
+
+          Interface CodeChecker:
+            - CheckAll(ctx context.Context) ([]StepViolation, error)
+            - The error return signals config errors (exit 2 equivalent)
+
+          Type ConfigError struct wrapping error — used to distinguish config
+          errors from step failures for exit code propagation.
+
+          Function StepArtifactValidation(validator ArtifactValidator) StepFunc:
+            - Returns a StepFunc that calls validator.ValidateAll()
+            - Maps results to StepResult with step_name "artifact_validation"
+            - If error is ConfigError, sets a flag on the result for the
+              orchestrator to detect
+
+          Function StepCodeCheck(checker CodeChecker) StepFunc:
+            - Returns a StepFunc that calls checker.CheckAll()
+            - Maps results to StepResult with step_name "code_check"
+            - Same ConfigError handling as artifact validation
+
+          Sharp edge: config errors from these steps must be distinguishable
+          from step failures so the orchestrator can halt and exit 2.
+        files:
+          - pkg/gate/step_delegate.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify delegated step tests pass"
+        description: |
+          Run delegated step tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_ArtifactValidation|TestGate_CodeCheck|TestGate_ExitCode2_Delegated" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_delegate_test.go
+        claims:
+          - CLM-003
+          - CLM-005
+          - CLM-034
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Test Verification + Substantiveness (parallel track C)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Test Verification and Substantiveness"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for test verification and substantiveness steps"
+        description: |
+          Write failing tests in pkg/gate/step_testverify_test.go.
+
+          Test verification tests (step 3):
+            - TestGate_TestVerification_MandatedTestExists (CLM-007): mandated
+              test name exists as a function in test files → pass
+            - TestGate_TestVerification_MandatedTestMissing (CLM-008): mandated
+              test name does not exist → fail with violation
+            - TestGate_TestVerification_CollectsAllSpecClaims (CLM-009): multiple
+              specs with multiple claims → all mandated test names collected
+
+          Test substantiveness tests (step 4):
+            - TestGate_TestSubstantiveness_SubstantiveTestPasses (CLM-010):
+              test function has assertions and calls target package → pass
+            - TestGate_TestSubstantiveness_HollowTestFails (CLM-011): test
+              function has no assertions → fail
+            - TestGate_TestSubstantiveness_NoTargetCallFails (CLM-047): test
+              function has assertions but never calls target package → fail
+
+          Tests use the testdata fixtures created in phase 1 for the Go test
+          files and spec fixtures for claim extraction.
+        files:
+          - pkg/gate/step_testverify_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-047
+        depends_on:
+          - TASK-004
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement test verification and substantiveness step functions"
+        description: |
+          Create pkg/gate/step_testverify.go with:
+
+          Function StepTestVerification(specDir string) StepFunc:
+            - Parse all specs in specDir to extract claims with mandated test names
+            - For each mandated test name, grep test files (*_test.go) for
+              "func TestName(t *testing.T)" pattern
+            - Missing function → add violation
+            - Returns StepResult with step_name "test_verification"
+
+          Function StepTestSubstantiveness(specDir string) StepFunc:
+            - For each mandated test function found (from step 3 results or
+              independently), parse the Go test file using go/ast
+            - Check (a): function body contains at least one call to a function
+              from the package under test (derived from spec's implementation.package)
+            - Check (b): function body contains at least one assertion
+              (t.Fatal, t.Error, t.Errorf, t.Fatalf, or comparison patterns)
+            - Hollow (no assertions) → violation
+            - No target package call → violation
+            - Returns StepResult with step_name "test_substantiveness"
+
+          Helper functions:
+            - extractMandatedTests(specDir string) []MandatedTest — parses specs,
+              extracts claims and test names
+            - hasAssertions(funcBody *ast.BlockStmt) bool — AST check for
+              assertion calls
+            - callsTargetPackage(funcBody *ast.BlockStmt, pkg string) bool —
+              AST check for target package calls
+
+          Sharp edge: uses go/ast parsing for substantiveness but grep-level
+          matching for test name existence (REQ-004 says mechanical check).
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-047
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify test verification and substantiveness tests pass"
+        description: |
+          Run test verification and substantiveness tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_TestVerification|TestGate_TestSubstantiveness" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+        claims:
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Coverage Threshold (parallel track D)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Coverage Threshold Verification"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write tests for coverage threshold step"
+        description: |
+          Write failing tests in pkg/gate/step_coverage_test.go.
+
+          Tests:
+            - TestGate_CoverageThreshold_MeetsThreshold (CLM-048): coverage
+              output shows 85.0% with threshold 80 → pass
+            - TestGate_CoverageThreshold_BelowThreshold (CLM-049): coverage
+              output shows 65.0% with threshold 80 → fail
+            - TestGate_CoverageThreshold_UsesSpecTestCommand (CLM-050): verify
+              step uses the test_command from spec verification block
+            - TestGate_CoverageThreshold_TestCommandNotFound (CLM-057): test
+              command is not found / fails to execute → fail with error details
+            - TestGate_CoverageThreshold_NoCoverageSummaryLine (CLM-058): test
+              output lacks "coverage: NN.N% of statements" → fail with reason
+            - TestGate_CoverageThreshold_ParsesCoverageSummaryLine (CLM-059):
+              verify parsing of "coverage: 82.5% of statements" format
+
+          Tests use a mock command executor to simulate go test output without
+          actually running tests.
+        files:
+          - pkg/gate/step_coverage_test.go
+        claims:
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-004
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement coverage threshold step function"
+        description: |
+          Create pkg/gate/step_coverage.go with:
+
+          Interface CommandRunner:
+            - Run(ctx context.Context, name string, args ...string) ([]byte, error)
+            - Abstraction for executing external commands (testable)
+
+          Function StepCoverageThreshold(runner CommandRunner, specs []SpecVerification) StepFunc:
+            - For each spec with a coverage_threshold:
+              - Get test_command from spec verification block
+              - Append -coverprofile if not already present
+              - Execute via CommandRunner
+              - If command fails to execute → violation with error details
+              - Parse stdout for "coverage: NN.N% of statements" line
+              - If summary line not found → violation "coverage summary line
+                not found in test output"
+              - If coverage < threshold → violation with actual vs expected
+            - Returns StepResult with step_name "coverage_threshold"
+
+          Function parseCoverageLine(output string) (float64, bool):
+            - Regex match on "coverage: (\\d+\\.\\d+)% of statements"
+            - Returns percentage and whether the line was found
+
+          Type SpecVerification struct:
+            - SpecID string
+            - TestCommand string
+            - CoverageThreshold int
+
+          Sharp edge: test command failure is a step failure (exit 1), NOT a
+          config error (exit 2). The step reports the error in violations.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify coverage threshold tests pass"
+        description: |
+          Run coverage threshold tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_CoverageThreshold" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_test.go
+        claims:
+          - CLM-048
+          - CLM-058
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Contract Signature Verification (parallel track E)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Contract Signature Verification"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Write tests for contract signature verification step"
+        description: |
+          Write failing tests in pkg/gate/step_contract_test.go.
+
+          Tests:
+            - TestGate_ContractSignature_MatchingSignaturePasses (CLM-051):
+              declared function exists with matching signature → pass
+            - TestGate_ContractSignature_MissingFunctionFails (CLM-052):
+              declared function does not exist in file → fail
+            - TestGate_ContractSignature_WrongSignatureFails (CLM-053):
+              function exists but signature differs → fail
+            - TestGate_ContractSignature_TypeAndInterfaceVerified (CLM-054):
+              contract declares types and interfaces, not just functions →
+              verified correctly
+
+          Tests use testdata fixtures (contract-target.go and
+          contract-target-wrong-sig.go) from phase 1 setup.
+        files:
+          - pkg/gate/step_contract_test.go
+        claims:
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+        depends_on:
+          - TASK-004
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement contract signature verification step function"
+        description: |
+          Create pkg/gate/step_contract.go with:
+
+          Type ContractEntry struct:
+            - File string
+            - Name string
+            - Kind string // "function", "type", "variable", "interface"
+            - Signature string
+
+          Function StepContractSignature(contracts []ContractEntry) StepFunc:
+            - For each contract entry:
+              - Parse the declared file using go/ast
+              - Search for the declared symbol by name and kind
+              - If not found → violation "symbol not found"
+              - If found, compare signature against declared signature
+              - If signature differs → violation with expected vs actual
+            - Returns StepResult with step_name "contract_signature"
+
+          Helper functions:
+            - findFunction(file *ast.File, name string) (string, bool) —
+              find function declaration and extract signature
+            - findType(file *ast.File, name string) (string, bool) —
+              find type declaration
+            - findInterface(file *ast.File, name string) (string, bool) —
+              find interface declaration
+            - normalizeSignature(sig string) string — normalize whitespace
+              for comparison
+
+          Uses go/ast parsing for reliable signature extraction rather than
+          regex/grep which would be fragile for multi-line signatures.
+        files:
+          - pkg/gate/step_contract.go
+        claims:
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify contract signature tests pass"
+        description: |
+          Run contract signature tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_ContractSignature" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_contract_test.go
+        claims:
+          - CLM-051
+          - CLM-053
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Orchestrator — Kill Chain, Halt-on-Config-Error
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Orchestrator — Kill Chain Ordering and Config Error Halt"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Write tests for gate orchestrator"
+        description: |
+          Write failing tests in pkg/gate/gate_test.go for the orchestrator
+          that runs all nine steps.
+
+          Kill chain ordering tests:
+            - TestGate_AllNineStepsExecuteInOrder (CLM-001): run gate with
+              all steps, verify output contains all nine steps in canonical
+              order
+            - TestGate_ContinuesAfterStepFailure (CLM-002): inject a step
+              that fails, verify subsequent steps still execute
+            - TestGate_AllNineStepsAppearInOutput (CLM-055): regardless of
+              pass/fail/skip, all nine steps appear in result
+
+          Config error halt tests:
+            - TestGate_ExitCode2_ConfigError (CLM-032): backstop.yml missing
+              → config error before any steps
+            - TestGate_ExitCode2_PrecedenceOverExitCode1 (CLM-033): both
+              config error and step failure → config error wins
+
+          Exit code tests:
+            - TestGate_ExitCode0_AllPass (CLM-029): all steps pass → exit 0
+            - TestGate_ExitCode0_PassAndSkipped (CLM-030): pass + skipped →
+              exit 0
+            - TestGate_ExitCode1_StepFailed (CLM-031): any step fails → exit 1
+
+          Delegated config error halt tests:
+            - TestGate_ExitCode2_DelegatedArtifactValidateConfigError (CLM-034):
+              artifact validate config error → exit 2 and halt remaining
+            - TestGate_ExitCode2_DelegatedCodeCheckConfigError (CLM-035):
+              code check config error → exit 2 and halt remaining
+
+          Config loading tests:
+            - TestGate_ConfigMissing_ExitCode2 (CLM-045): no backstop.yml →
+              exit 2
+            - TestGate_ConfigInvalid_ExitCode2 (CLM-046): invalid backstop.yml
+              → exit 2
+        files:
+          - pkg/gate/gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-045
+          - CLM-046
+          - CLM-055
+        depends_on:
+          - TASK-007
+          - TASK-010
+          - TASK-013
+          - TASK-016
+          - TASK-019
+
+      - id: TASK-021
+        type: implementation
+        title: "Implement gate orchestrator"
+        description: |
+          Create pkg/gate/gate.go with:
+
+          Type Gate struct:
+            - Steps []StepFunc — ordered list of nine step functions
+            - ConfigError error — set when config loading fails
+
+          Function New(opts ...Option) *Gate:
+            - Functional options pattern for injecting step implementations
+            - Default steps use the concrete implementations from prior phases
+            - Options allow test overrides (mock validators, mock checkers)
+
+          Method (g *Gate) Run(ctx context.Context) (GateResult, int):
+            - If ConfigError is set → return empty GateResult and exit code 2
+            - Execute each step in order
+            - After each step, check for config error flag on StepResult
+              (from delegated steps)
+            - If config error detected → halt remaining steps, return exit 2
+            - After all steps execute, aggregate into GateResult via
+              NewGateResult()
+            - Return exit code: 2 if config error, 1 if any fail, 0 otherwise
+
+          Function ExitCode(result GateResult, configErr error) int:
+            - 2 if configErr != nil
+            - 1 if any step has status "fail"
+            - 0 otherwise (pass + skipped = 0)
+
+          The orchestrator is the central coordination point — it owns the
+          step ordering (REQ-001), continue-after-failure (REQ-001),
+          halt-on-config-error (REQ-009), and exit code semantics (REQ-009).
+        files:
+          - pkg/gate/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-045
+          - CLM-046
+          - CLM-055
+        depends_on:
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify orchestrator tests pass"
+        description: |
+          Run orchestrator tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_AllNineSteps|TestGate_ContinuesAfter|TestGate_ExitCode|TestGate_Config" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+        claims:
+          - CLM-001
+          - CLM-029
+          - CLM-032
+          - CLM-055
+        depends_on:
+          - TASK-021
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: Output Formatting — JSON and Human Modes
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: Output Formatting — JSON and Human Modes"
+    tasks:
+      - id: TASK-023
+        type: test
+        title: "Write tests for gate output formatting"
+        description: |
+          Write failing tests in pkg/gate/output_test.go.
+
+          JSON output tests:
+            - TestGate_JSONOutput_StructureComplete (CLM-021): already tested
+              in phase 2 at type level; this tests end-to-end formatting
+            - TestGate_HumanOutput_ProducedByDefault (CLM-028): format a
+              GateResult with human formatter, verify it produces text not JSON
+
+          Human output tests:
+            - TestGate_HumanOutput_SummaryTable (CLM-041): verify output
+              contains table with step name, status, violation count
+            - TestGate_HumanOutput_SkippedStepReason (CLM-042): verify
+              skipped steps show their reason in human output
+            - TestGate_HumanOutput_OverallVerdict (CLM-043): verify output
+              ends with "PASS" or "FAIL" verdict
+            - TestGate_HumanOutput_NoColorEnvVar (CLM-044): set NO_COLOR,
+              verify no ANSI escape sequences in output
+        files:
+          - pkg/gate/output_test.go
+        claims:
+          - CLM-028
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-022
+
+      - id: TASK-024
+        type: implementation
+        title: "Implement gate JSON and human output formatters"
+        description: |
+          Create pkg/gate/output.go with:
+
+          Function FormatJSON(result GateResult) ([]byte, error):
+            - Marshal GateResult to indented JSON
+            - SchemaVersion already set by NewGateResult ("gate/v1")
+
+          Function FormatHuman(result GateResult, noColor bool) string:
+            - Print summary table: step_name | status | violations
+            - For skipped steps, show "(reason)" after status
+            - Use ANSI green for pass, red for fail, yellow for skipped
+            - If noColor is true, omit ANSI codes
+            - End with "PASS" or "FAIL" overall verdict line
+            - Include total violation count in verdict line
+
+          Function NoColorFromEnv() bool:
+            - Check os.Getenv("NO_COLOR") — any non-empty value means no color
+
+          The formatters operate on GateResult which already has all computed
+          fields (pass, summary counts). No enforcement logic here.
+        files:
+          - pkg/gate/output.go
+        claims:
+          - CLM-028
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify output formatting tests pass"
+        description: |
+          Run output formatting tests and lint:
+            - go test ./pkg/gate/ -run "TestGate_HumanOutput|TestGate_JSONOutput" -race -v
+            - go vet ./pkg/gate/
+        files:
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+        claims:
+          - CLM-028
+          - CLM-041
+          - CLM-044
+        depends_on:
+          - TASK-024
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: Cobra Adapter + No-Scope-Flags + Config Loading
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: Cobra Adapter — CLI Registration, No-Scope-Flags"
+    tasks:
+      - id: TASK-026
+        type: test
+        title: "Write tests for Cobra gate command adapter"
+        description: |
+          Write failing tests in cmd/backstop/gate_test.go.
+
+          No-scope-flags tests:
+            - TestGate_NoScopeFlags_FullProject (CLM-039): gate command runs
+              without any scope flags, executes against full project
+            - TestGate_RejectsScopeFlags (CLM-040): passing --diff, --file,
+              --spec, --plan flags to gate → error (unknown flag)
+
+          These test the Cobra command registration and flag configuration.
+          The gate command only accepts --json (inherited from root).
+        files:
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-025
+
+      - id: TASK-027
+        type: implementation
+        title: "Implement Cobra gate command adapter"
+        description: |
+          Create cmd/backstop/gate.go with:
+
+          Variable gateCmd *cobra.Command:
+            - Use: "gate"
+            - Short: "Run full verification gate"
+            - Long: detailed description
+            - RunE: runGate
+            - No additional flags — gate accepts no scope flags (REQ-012)
+            - Only inherits --json from root command
+
+          Function runGate(cmd *cobra.Command, args []string) error:
+            - Load config via CLI foundation config loader
+            - If config error → return with exit code 2
+            - Build Gate with concrete step implementations:
+              - Wire artifact validator interface to existing validate logic
+              - Wire code checker interface to existing check logic
+              - Wire test verification with project root
+              - Wire substantiveness with project root
+              - Wire coverage with real CommandRunner
+              - Wire contract signature with spec contracts
+              - Wire deferred steps (baseline, waiver, ledger)
+            - Call gate.Run(ctx)
+            - Format output (JSON or human based on --json flag)
+            - Return appropriate exit code
+
+          Types GateResult and StepResult (re-export from pkg/gate for the
+          contract — these are the types declared in the spec's contracts
+          section for cmd/backstop/gate.go)
+
+          Registration: add gateCmd to rootCmd in init() or command builder.
+
+          Sharp edge: gate is a top-level command (not under a namespace).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-026
+
+      - id: TASK-028
+        type: verification
+        title: "Verify Cobra gate command tests pass"
+        description: |
+          Run gate command tests, build, and lint:
+            - go test ./cmd/backstop/ -run "TestGate_NoScopeFlags|TestGate_RejectsScopeFlags" -race -v
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-027
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 11: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-11
+    name: "Phase 11: Comprehensive Verification"
+    tasks:
+      - id: TASK-029
+        type: verification
+        title: "Run full gate test suite with coverage gate"
+        description: |
+          Run the complete gate test suite with race detection and coverage
+          profiling. Verify all 59 claim tests pass and coverage meets the
+          80% threshold.
+
+          Commands:
+            - go test ./pkg/gate/... -run "TestGate" -race -coverprofile=cover-gate.out -v
+            - go tool cover -func=cover-gate.out
+            - Verify coverage >= 80% for pkg/gate/
+            - go test ./cmd/backstop/... -run "TestGate" -race -coverprofile=cover-cmd.out -v
+            - go tool cover -func=cover-cmd.out
+            - go vet ./pkg/gate/... ./cmd/backstop/...
+            - go build ./cmd/backstop/
+
+          This covers code verification for all .go files in pkg/gate/ and
+          cmd/backstop/gate.go.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/result_test.go
+          - pkg/gate/step_deferred.go
+          - pkg/gate/step_deferred_test.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_delegate_test.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_contract_test.go
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-007
+          - CLM-010
+          - CLM-012
+          - CLM-016
+          - CLM-017
+          - CLM-021
+          - CLM-025
+          - CLM-029
+          - CLM-036
+          - CLM-037
+          - CLM-039
+          - CLM-041
+          - CLM-045
+          - CLM-048
+          - CLM-051
+          - CLM-055
+        depends_on:
+          - TASK-027
+          - TASK-028
+
+      - id: TASK-030
+        type: verification
+        title: "Validate plan artifact"
+        description: |
+          Validate the plan YAML itself passes the plan validator,
+          covering the artifact category for the final phase.
+
+          Commands:
+            - go run /tmp/validate_plan.go plans/PLAN-SPEC-010-gate.plan.yml
+        files:
+          - plans/PLAN-SPEC-010-gate.plan.yml
+        claims:
+          - CLM-055
+        depends_on:
+          - TASK-027
+          - TASK-029

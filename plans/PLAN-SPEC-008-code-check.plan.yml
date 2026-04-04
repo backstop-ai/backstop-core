@@ -1,0 +1,933 @@
+---
+plan_id: PLAN-SPEC-008
+spec_id: SPEC-008
+spec_version: 1.0.0
+created: "2026-04-04"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/check/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements backstop code check — four validation passes (lint, build, test,
+  semgrep) across three scope modes (diff/all/file) with file-type routing via
+  compiled manifests, semgrep auto-install, 2-second budget for --file mode,
+  and concurrent invocation safety.
+
+  Depends on SPEC-005 (CLI foundation: config loading, output formatting, exit
+  codes), SPEC-009 (pack compile: enforcement manifests), SPEC-012 (Go standards).
+
+  Six feature areas with distinct file scopes:
+    1. Scope resolution (pkg/check/scope.go) — git cascade, 3 modes
+    2. Manifest loading (pkg/check/manifest.go) — file-type routing
+    3. Semgrep management (pkg/check/semgrep.go) — auto-install, locking
+    4. Validation engine (pkg/check/check.go) — pass orchestration, timeout
+    5. Cobra adapter (cmd/backstop/code_check.go) — thin CLI wiring
+    6. Concurrency + integration tests
+
+  Areas 1-3 are independent (disjoint file sets) and can develop in parallel.
+  Area 4 depends on 1-3 (orchestrates them). Area 5 depends on 4.
+  Area 6 tests cross-cutting concerns after assembly.
+
+  Structure:
+    Phase 1: Setup — scaffold pkg/check/, test fixtures
+    Phase 2: Scope resolution (test -> impl -> verify) — parallel track A
+    Phase 3: Manifest loading (test -> impl -> verify) — parallel track B
+    Phase 4: Semgrep management (test -> impl -> verify) — parallel track C
+    Phase 5: Validation engine core — pass types + orchestration (test -> impl -> verify)
+    Phase 6: Output, exit codes, config integration (test -> impl -> verify)
+    Phase 7: Cobra adapter (test -> impl -> verify)
+    Phase 8: Concurrency and timeout (test -> impl -> verify)
+    Phase 9: Comprehensive verification
+
+  Phases 2-4 are parallel-eligible (disjoint file sets, no dependency chains).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Scaffold and Fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Scaffold pkg/check/ and Test Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pkg/check/ directory and test fixtures"
+        description: |
+          Create the pkg/check/ directory structure and test fixtures.
+
+          Directories:
+            - pkg/check/
+            - pkg/check/testdata/
+
+          Test fixtures in pkg/check/testdata/:
+            - testdata/manifest-go-all.json — manifest routing .go to all 4 passes
+            - testdata/manifest-mixed.json — manifest with multiple file types
+            - testdata/manifest-empty.json — empty manifest (triggers defaults)
+            - testdata/backstop-valid.yml — valid backstop.yml with semgrep version pin
+            - testdata/backstop-no-pin.yml — valid backstop.yml without semgrep version
+            - testdata/backstop-invalid.yml — invalid backstop.yml for config error tests
+
+          These fixtures support scope, manifest, semgrep, and engine tests across
+          all phases.
+        files:
+          - pkg/check/testdata/manifest-go-all.json
+          - pkg/check/testdata/manifest-mixed.json
+          - pkg/check/testdata/manifest-empty.json
+          - pkg/check/testdata/backstop-valid.yml
+          - pkg/check/testdata/backstop-no-pin.yml
+          - pkg/check/testdata/backstop-invalid.yml
+        claims:
+          - CLM-014
+          - CLM-016
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Scope Resolution (parallel track A)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Scope Resolution — Git Cascade and Three Modes"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for scope resolution (3 modes + git cascade)"
+        description: |
+          Write failing tests in pkg/check/scope_test.go covering the three scope
+          modes and the 4-step git merge-base cascade.
+
+          Scope mode tests:
+            - TestCodeCheck_DefaultScope_UsesGitMergeBase (CLM-005): verify diff
+              mode calls git merge-base with origin/main
+            - TestCodeCheck_DefaultScope_NonGitFallsBackToAll (CLM-006): non-git
+              directory returns all-scope file list with warning
+            - TestCodeCheck_AllFlag_FullCodebase (CLM-007): ScopeModeAll walks
+              directory for all files, no git invocation
+            - TestCodeCheck_AllFlag_NoGitCall (CLM-008): verify ScopeModeAll does
+              not shell out to git at all
+            - TestCodeCheck_DefaultScope_LocalStagedAndUnstaged (CLM-041): verify
+              local scope captures both staged and unstaged changes
+
+          Git cascade tests:
+            - TestCodeCheck_ChangedFiles_MergeBaseOriginMain (CLM-037): step 1,
+              merge-base with origin/main succeeds
+            - TestCodeCheck_ChangedFiles_FallbackOriginMaster (CLM-038): step 2,
+              origin/main fails, falls back to origin/master
+            - TestCodeCheck_ChangedFiles_FallbackLocalStagedUnstaged (CLM-039):
+              step 3, neither remote exists, falls back to local diff with warning
+            - TestCodeCheck_ChangedFiles_NonGitFallbackToAll (CLM-040): step 4,
+              not a git repo, falls back to --all with warning
+
+          Use a git executor interface to mock git commands in tests without
+          requiring real git repos for most cases. One test should use a real
+          temp git repo for the happy path.
+
+          Sharp edge coverage: detached HEAD states (CI environments), repos
+          with no remote named origin.
+        files:
+          - pkg/check/scope_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement scope resolution with git cascade"
+        description: |
+          Create pkg/check/scope.go with:
+
+          Type ScopeMode int:
+            - ScopeModeDiff = 0 (default)
+            - ScopeModeAll = 1
+            - ScopeModeFile = 2
+
+          Interface GitExecutor:
+            - MergeBase(remote string) (string, error)
+            - DiffNameOnly(base string) ([]string, error)
+            - DiffLocal() ([]string, error)
+            - IsGitRepo() bool
+
+          Type DefaultGitExecutor struct:
+            - Implements GitExecutor by shelling out to git
+            - Working directory configurable
+
+          Function ResolveScope(mode ScopeMode, filePath string) ([]string, error):
+            - ScopeModeDiff: execute 4-step cascade
+              1. git merge-base HEAD origin/main, then git diff --name-only
+              2. Fallback: try origin/master
+              3. Fallback: git diff --name-only (local staged+unstaged)
+              4. Fallback: return all files (non-git)
+            - ScopeModeAll: walk project directory for all relevant files
+            - ScopeModeFile: verify file exists, return single-element slice
+
+          Sharp edges handled:
+            - Detached HEAD in CI
+            - Non-origin remote names fall through to local diff
+            - File existence check for --file mode
+        files:
+          - pkg/check/scope.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify scope resolution tests pass"
+        description: |
+          Run scope resolution tests and lint:
+            - go test ./pkg/check/ -run "TestCodeCheck_DefaultScope|TestCodeCheck_AllFlag|TestCodeCheck_ChangedFiles" -race -v
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/scope.go
+          - pkg/check/scope_test.go
+        claims:
+          - CLM-005
+          - CLM-037
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Manifest Loading (parallel track B)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Manifest Loading — File-Type Routing"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for manifest loading and file-type routing"
+        description: |
+          Write failing tests in pkg/check/manifest_test.go covering manifest
+          loading, RouteFile logic, and built-in defaults.
+
+          Tests (all mandated by spec):
+            - TestCodeCheck_Routing_GoFileAllPasses (CLM-014): load Go-all
+              manifest, route a .go file, expect lint+build+test+semgrep
+            - TestCodeCheck_Routing_UnmatchedFileNoChecks (CLM-015): route a
+              file that matches no manifest entry, expect empty check list
+            - TestCodeCheck_Routing_DefaultsWhenNoManifest (CLM-016): load from
+              empty directory, verify built-in defaults (Go -> all 4, others ->
+              semgrep only)
+            - TestCodeCheck_Routing_PathPatternMatching (CLM-017): load manifest
+              with path patterns (e.g., "pkg/**/*.go"), verify routing
+
+          Additional edge cases:
+            - Multiple extensions (foo.test.go) route correctly
+            - Files with no extension route to semgrep-only default
+            - Manifest with overlapping patterns uses most specific match
+        files:
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement manifest loading and RouteFile"
+        description: |
+          Create pkg/check/manifest.go with:
+
+          Type CheckType int:
+            - CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep
+
+          Type Manifest struct:
+            - Rules []ManifestRule
+            - Has built-in default rules as fallback
+
+          Type ManifestRule struct:
+            - Extensions []string
+            - PathPatterns []string
+            - CheckTypes []CheckType
+
+          Function LoadManifest(dir string) (*Manifest, error):
+            - Read .manifest.json files from dir
+            - Parse into Manifest struct
+            - If no manifest files found, return Manifest with built-in defaults
+
+          Method (m *Manifest) RouteFile(path string) []CheckType:
+            - Match file against manifest rules by extension and path pattern
+            - Return applicable CheckTypes
+            - Files matching no rules return empty slice
+
+          Built-in defaults (when no manifest):
+            - .go files -> lint, build, test, semgrep
+            - All other files -> semgrep only (if matching rules exist)
+
+          Sharp edges handled:
+            - Multiple extensions (.test.go) — check rightmost first
+            - No extension — falls through to path pattern matching
+            - Empty manifest directory triggers defaults
+        files:
+          - pkg/check/manifest.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify manifest loading tests pass"
+        description: |
+          Run manifest loading tests and lint:
+            - go test ./pkg/check/ -run "TestCodeCheck_Routing" -race -v
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-014
+          - CLM-016
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Semgrep Management (parallel track C)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Semgrep Management — Auto-Install and Version Pinning"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for semgrep auto-install and version management"
+        description: |
+          Write failing tests in pkg/check/semgrep_test.go covering auto-install,
+          version pinning, and failure modes.
+
+          Tests (all mandated by spec):
+            - TestCodeCheck_Semgrep_AutoInstallWhenMissing (CLM-018): semgrep not
+              on PATH, verify download to .backstop/tools/semgrep
+            - TestCodeCheck_Semgrep_WrongVersionExitCode2 (CLM-019): semgrep
+              installed at wrong version vs pin, expect config error (not degraded)
+            - TestCodeCheck_Semgrep_InstallFailureDegradedMode (CLM-020): simulate
+              network failure, expect warning + skip (not exit code 2)
+            - TestCodeCheck_Semgrep_UsesPathWhenAvailable (CLM-021): semgrep on
+              PATH, verify no auto-install attempted
+
+          Use an installer interface to mock download behavior. Tests should
+          verify the distinct failure modes: version mismatch is hard stop (2),
+          install failure is degraded mode (warning only).
+
+          Sharp edge coverage: partial binary from killed install, concurrent
+          install attempts (tested in phase 8), .backstop/tools/ not existing
+          on first invocation.
+        files:
+          - pkg/check/semgrep_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-001
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement semgrep auto-install with version pinning"
+        description: |
+          Create pkg/check/semgrep.go with:
+
+          Function EnsureSemgrep(backstopDir string, pinnedVersion string) (string, error):
+            - Check PATH for existing semgrep binary
+            - If found on PATH: verify version if pin exists, return path
+            - If not on PATH:
+              a. Check .backstop/tools/semgrep exists
+              b. If exists: verify version matches pin
+              c. If not exists: attempt auto-install
+            - Version mismatch -> return typed ConfigError (exit code 2)
+            - Install failure -> return typed DegradedError (warning, skip semgrep)
+
+          Type ConfigError struct — signals hard stop (exit 2)
+          Type DegradedError struct — signals degraded mode (warning, continue)
+
+          Internal install function:
+            - Create .backstop/tools/ directory if not exists
+            - Download to temp file in .backstop/tools/
+            - Atomic rename to .backstop/tools/semgrep on success
+            - Clean up temp file on failure
+
+          Internal version check function:
+            - Run semgrep --version
+            - Compare against pinned version
+
+          Sharp edges handled:
+            - .backstop/tools/ directory creation on first invocation
+            - Atomic rename prevents partial binary on kill
+            - Temp file cleanup on download failure
+        files:
+          - pkg/check/semgrep.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify semgrep management tests pass"
+        description: |
+          Run semgrep management tests and lint:
+            - go test ./pkg/check/ -run "TestCodeCheck_Semgrep" -race -v
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/semgrep.go
+          - pkg/check/semgrep_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Validation Engine — Pass Types and Orchestration
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Validation Engine — Pass Orchestration and Result Aggregation"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for validation engine orchestration"
+        description: |
+          Write failing tests in pkg/check/check_test.go covering the Run function,
+          pass ordering, continuation after violations, and non-applicable pass
+          skipping.
+
+          Tests (all mandated by spec):
+            - TestCodeCheck_AllPassesRun (CLM-001): mock all 4 passes, verify
+              each was invoked and produced violations in result
+            - TestCodeCheck_PassesContinueAfterViolation (CLM-002): first pass
+              produces violations, verify remaining passes still execute
+            - TestCodeCheck_NonApplicablePassSkipped (CLM-003): manifest routes
+              file to only lint+build, verify test+semgrep are skipped
+            - TestCodeCheck_PassOrderLintBuildTestSemgrep (CLM-004): record
+              invocation order, verify lint->build->test->semgrep sequence
+
+          Tool availability tests:
+            - TestCodeCheck_Lint_SkippedWhenGolangciLintMissing (CLM-042):
+              golangci-lint not on PATH, verify lint skipped with warning
+            - TestCodeCheck_Lint_OtherPassesContinueWithoutLint (CLM-043):
+              golangci-lint missing, verify build+test+semgrep still run
+
+          Use pass executor interfaces to mock individual pass behavior.
+          The engine should accept pass executors as dependencies for testability.
+        files:
+          - pkg/check/check_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-042
+          - CLM-043
+        depends_on:
+          - TASK-004
+          - TASK-007
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement validation engine with pass orchestration"
+        description: |
+          Create pkg/check/check.go with:
+
+          Type Options struct:
+            - Mode ScopeMode
+            - FilePath string (for ScopeModeFile)
+            - ManifestDir string
+            - BackstopDir string
+            - PinnedSemgrepVersion string
+            - Timeout time.Duration (0 means no timeout)
+
+          Type Violation struct:
+            - Pass CheckType
+            - File string
+            - Line int
+            - Message string
+            - Severity string
+
+          Type PassResult struct:
+            - Pass CheckType
+            - Violations []Violation
+            - Skipped bool
+            - SkipReason string
+
+          Type Result struct:
+            - PassResults []PassResult
+            - Warnings []string
+            - ExitCode int
+            - Methods: HasViolations() bool, ViolationCount() int
+
+          Interface PassExecutor:
+            - Execute(ctx context.Context, files []string) (*PassResult, error)
+
+          Function Run(ctx context.Context, opts Options) (*Result, error):
+            1. Resolve scope via ResolveScope
+            2. Load manifest via LoadManifest
+            3. Ensure semgrep via EnsureSemgrep (handle ConfigError vs DegradedError)
+            4. For each pass in order (lint, build, test, semgrep):
+               a. Check manifest routing for applicable files
+               b. If no files apply, skip silently
+               c. Check tool availability (golangci-lint for lint)
+               d. Execute pass via PassExecutor
+               e. If context cancelled (timeout), record timeout violation, break
+               f. Collect violations
+            5. Aggregate into Result
+
+          Default pass executors:
+            - LintExecutor: shells out to golangci-lint
+            - BuildExecutor: shells out to go build
+            - TestExecutor: shells out to go test (package scope for --file mode)
+            - SemgrepExecutor: shells out to semgrep with rules from manifest
+
+          Sharp edges handled:
+            - golangci-lint not on PATH -> skip lint with warning (CLM-042/043)
+            - Context cancellation checked between passes and during execution
+            - Test pass in --file mode scopes to file's own package only
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-042
+          - CLM-043
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify validation engine tests pass"
+        description: |
+          Run validation engine tests and lint:
+            - go test ./pkg/check/ -run "TestCodeCheck_AllPassesRun|TestCodeCheck_PassesContinue|TestCodeCheck_NonApplicable|TestCodeCheck_PassOrder|TestCodeCheck_Lint" -race -v
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/check.go
+          - pkg/check/check_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-042
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Output, Exit Codes, Config Integration
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Output Formatting, Exit Codes, and Config Loading"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write tests for output modes, exit codes, and config loading"
+        description: |
+          Write failing tests in pkg/check/output_test.go covering JSON and human
+          output formatting, exit code determination, and config loading integration.
+
+          Output tests:
+            - TestCodeCheck_Output_JSONWithSchemaVersion (CLM-022): format Result
+              as JSON, verify schema_version field present
+            - TestCodeCheck_Output_IdenticalViolationData (CLM-023): format same
+              Result as JSON and human, verify identical violation data
+            - TestCodeCheck_Output_NoColorRespected (CLM-024): set NO_COLOR env
+              var, format as human, verify no ANSI escape codes
+
+          Exit code tests:
+            - TestCodeCheck_ExitCode_0OnPass (CLM-025): Result with no violations
+              produces exit code 0
+            - TestCodeCheck_ExitCode_1OnViolations (CLM-026): Result with
+              violations produces exit code 1
+            - TestCodeCheck_ExitCode_2OnConfigError (CLM-027): config error
+              produces exit code 2
+            - TestCodeCheck_ExitCode_2PrecedesOver1 (CLM-028): config error +
+              violations still produces exit code 2
+            - TestCodeCheck_ExitCode_2OnFlagConflict (CLM-029): --file + --all
+              produces exit code 2
+            - TestCodeCheck_ExitCode_2OnMissingBackstopDir (CLM-030): missing
+              .backstop/ produces exit code 2
+
+          Config loading tests:
+            - TestCodeCheck_Config_LoadedBeforeChecks (CLM-034): verify config
+              is loaded before any pass executes
+            - TestCodeCheck_Config_MissingYmlExitCode2 (CLM-035): missing
+              backstop.yml produces exit code 2
+            - TestCodeCheck_Config_EnvVarOverride (CLM-036): BACKSTOP_CONFIG
+              env var overrides walk-up discovery
+        files:
+          - pkg/check/output_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement output formatting, exit code logic, and config integration"
+        description: |
+          Create pkg/check/output.go with:
+
+          Type OutputMode int:
+            - OutputModeHuman, OutputModeJSON
+
+          Type JSONOutput struct:
+            - SchemaVersion string (e.g., "check/v1")
+            - Violations []Violation
+            - Warnings []string
+            - PassResults []PassResult summary
+            - ExitCode int
+
+          Function FormatResult(result *Result, mode OutputMode) (string, error):
+            - OutputModeJSON: marshal to indented JSON with schema_version
+            - OutputModeHuman: format as human-readable table/list
+              - Respect NO_COLOR env var for ANSI codes
+
+          Function DetermineExitCode(result *Result, configErr error, flagConflict bool) int:
+            - If configErr != nil or flagConflict: return 2
+            - If result has violations: return 1
+            - Otherwise: return 0
+            - Exit code 2 takes precedence over 1
+
+          Config integration in Run function:
+            - Load backstop.yml before any passes execute
+            - Missing backstop.yml -> return exit code 2 immediately
+            - BACKSTOP_CONFIG env var override
+            - Missing .backstop/ directory -> return exit code 2
+
+          Sharp edges handled:
+            - NO_COLOR with any value (including empty string) disables color
+            - JSON output never contains ANSI codes regardless of NO_COLOR
+            - schema_version field is always present in JSON
+        files:
+          - pkg/check/output.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify output, exit code, and config tests pass"
+        description: |
+          Run output and exit code tests and lint:
+            - go test ./pkg/check/ -run "TestCodeCheck_Output|TestCodeCheck_ExitCode|TestCodeCheck_Config" -race -v
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/output.go
+          - pkg/check/output_test.go
+        claims:
+          - CLM-022
+          - CLM-025
+          - CLM-034
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Cobra Adapter (cmd/backstop/code_check.go)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Cobra Command Adapter — backstop code check"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Write tests for Cobra code check command adapter"
+        description: |
+          Write failing tests in cmd/backstop/code_check_test.go covering the
+          thin Cobra adapter: flag parsing, flag conflict detection, and
+          delegation to pkg/check.Run.
+
+          Tests:
+            - TestCodeCheck_FileFlag_RoutesByType (CLM-009): invoke command with
+              --file flag pointing to .go file, verify pkg/check.Run called with
+              ScopeModeFile and correct file path
+            - TestCodeCheck_FileAndAllConflict_ExitCode2 (CLM-010): invoke with
+              both --file and --all, verify exit code 2 before any checks run
+
+          The adapter tests verify CLI wiring only — pass execution is tested
+          in pkg/check/. Use a mock check.Run function to verify the adapter
+          correctly translates flags to Options.
+        files:
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-016
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement Cobra code check command adapter"
+        description: |
+          Create cmd/backstop/code_check.go with:
+
+          Variable codeCheckCmd *cobra.Command:
+            - Use: "check"
+            - Short: "Run implementation validation"
+            - Long: detailed description
+            - Flags: --all (bool), --file (string), --json (bool)
+
+          RunE handler:
+            1. Validate flag combinations (--file + --all -> exit 2)
+            2. Load backstop.yml via shared config loader (SPEC-005)
+            3. Determine scope mode from flags
+            4. Construct check.Options from flags and config
+            5. If --file: set context timeout to 2 seconds
+            6. Call check.Run(ctx, opts)
+            7. Format result via shared output formatter
+            8. Set exit code via shared exit code handler
+
+          Init function:
+            - Register codeCheckCmd under codeCmd namespace
+
+          This is a thin adapter — no enforcement logic. All validation logic
+          lives in pkg/check/.
+        files:
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify Cobra adapter tests pass"
+        description: |
+          Run Cobra adapter tests, build, and lint:
+            - go test ./cmd/backstop/ -run "TestCodeCheck_FileFlag|TestCodeCheck_FileAndAll" -race -v
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/
+        files:
+          - cmd/backstop/code_check.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Concurrency, Timeout, and Integration
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Concurrency Safety, Timeout Budget, and Integration"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Write tests for concurrency safety and 2-second timeout"
+        description: |
+          Write failing tests in pkg/check/concurrent_test.go covering concurrent
+          invocation safety and the 2-second execution budget.
+
+          Timeout tests:
+            - TestCodeCheck_FileMode_CompletesWithinBudget (CLM-011): run --file
+              mode with fast mock passes, verify completion under 2 seconds
+            - TestCodeCheck_FileMode_TimeoutReturnsViolation (CLM-012): run --file
+              mode with a slow mock pass, verify timeout violation in result
+            - TestCodeCheck_FileMode_TimeoutExitCode1 (CLM-013): verify timeout
+              produces exit code 1 (violations), not exit code 2
+
+          Concurrency tests:
+            - TestCodeCheck_Concurrent_NoSharedStateCorruption (CLM-031): launch
+              10 concurrent --file invocations, verify no data races or corrupted
+              results (use -race flag)
+            - TestCodeCheck_Concurrent_IndependentOutput (CLM-032): launch
+              concurrent invocations, verify each gets its own complete result
+              without interleaving
+            - TestCodeCheck_Concurrent_SemgrepInstallIdempotent (CLM-033): launch
+              concurrent EnsureSemgrep calls, verify only one install occurs and
+              all callers get a valid path
+
+          Sharp edge coverage:
+            - Lock holder killed mid-download (stale lock detection)
+            - Concurrent manifest reads are safe (read-only)
+            - Each invocation has independent Options and Result
+        files:
+          - pkg/check/concurrent_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-019
+
+      - id: TASK-021
+        type: implementation
+        title: "Implement concurrency safety and timeout support"
+        description: |
+          Add concurrency and timeout support to existing pkg/check/ files.
+
+          In pkg/check/check.go — timeout integration:
+            - Run function checks opts.Timeout > 0
+            - If set, wraps ctx with context.WithTimeout
+            - Propagates context to all pass executor subprocess invocations
+            - Between passes, check ctx.Err() for cancellation
+            - On timeout: record a timeout Violation (pass=timeout, message
+              includes which pass was interrupted)
+            - Timeout violation -> exit code 1 (violations, not config error)
+
+          In pkg/check/semgrep.go — concurrent install safety:
+            - Add file-level locking using .backstop/tools/.semgrep.lock
+            - Lock acquisition uses os.OpenFile with O_CREATE|O_EXCL or flock(2)
+            - Handle stale locks: check lock age, force-remove if older than 5 min
+            - Download to temp file, atomic rename on completion
+            - Lock released after install (or on any error path via defer)
+
+          In pkg/check/check.go — invocation isolation:
+            - Each Run call constructs its own Result (no package-level state)
+            - Pass executors receive their own context
+            - No shared mutable state between invocations
+
+          Sharp edges handled:
+            - context.WithTimeout propagated to exec.CommandContext for subprocesses
+            - Stale lock from killed process detected by age
+            - Temp file cleanup on failed download
+        files:
+          - pkg/check/check.go
+          - pkg/check/semgrep.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify concurrency and timeout tests pass"
+        description: |
+          Run concurrency and timeout tests with race detection:
+            - go test ./pkg/check/ -run "TestCodeCheck_FileMode|TestCodeCheck_Concurrent" -race -v -timeout 30s
+            - go vet ./pkg/check/
+        files:
+          - pkg/check/concurrent_test.go
+          - pkg/check/check.go
+          - pkg/check/semgrep.go
+        claims:
+          - CLM-011
+          - CLM-031
+          - CLM-033
+        depends_on:
+          - TASK-021
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: Comprehensive Verification"
+    tasks:
+      - id: TASK-023
+        type: verification
+        title: "Run full pkg/check test suite with coverage gate"
+        description: |
+          Run the complete pkg/check test suite with race detection and coverage
+          profiling. Verify all 43 claim tests pass and coverage meets 80%.
+
+          Commands:
+            - go test ./pkg/check/... -run "TestCodeCheck" -race -coverprofile=cover-check.out -v
+            - go tool cover -func=cover-check.out
+            - Verify coverage >= 80% for pkg/check/
+            - go vet ./pkg/check/...
+
+          This covers all code verification for pkg/check/ files.
+        files:
+          - pkg/check/check.go
+          - pkg/check/check_test.go
+          - pkg/check/scope.go
+          - pkg/check/scope_test.go
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+          - pkg/check/semgrep.go
+          - pkg/check/semgrep_test.go
+          - pkg/check/output.go
+          - pkg/check/output_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-011
+          - CLM-014
+          - CLM-018
+          - CLM-022
+          - CLM-025
+          - CLM-031
+          - CLM-037
+          - CLM-042
+        depends_on:
+          - TASK-021
+          - TASK-022
+
+      - id: TASK-024
+        type: verification
+        title: "Run full cmd/backstop test suite and build verification"
+        description: |
+          Run the cmd/backstop tests, build the binary, and lint all touched files.
+
+          Commands:
+            - go test ./cmd/backstop/... -run "TestCodeCheck" -race -v
+            - go build ./cmd/backstop/
+            - go vet ./cmd/backstop/... ./pkg/check/...
+
+          This covers the Cobra adapter verification and ensures the binary
+          builds cleanly with all new code.
+        files:
+          - cmd/backstop/code_check.go
+          - cmd/backstop/code_check_test.go
+          - pkg/check/concurrent_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-018
+          - TASK-023
