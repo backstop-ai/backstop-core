@@ -15,22 +15,6 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-HOOK_OUTPUT=""
-HOOK_EXIT=0
-
-run_hook() {
-  local agent_name="$1"
-  local file_path="$2"
-  local json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"}}'
-
-  if [[ "$agent_name" == "__UNSET__" ]]; then
-    HOOK_OUTPUT="$(echo "$json" | env -u CLAUDE_AGENT_NAME "$HOOK" 2>/dev/null)" || true
-  else
-    HOOK_OUTPUT="$(echo "$json" | CLAUDE_AGENT_NAME="$agent_name" "$HOOK" 2>/dev/null)" || true
-  fi
-  HOOK_EXIT=${PIPESTATUS[0]:-$?}
-}
-
 assert_allowed() {
   local test_name="$1"
   local agent_name="$2"
