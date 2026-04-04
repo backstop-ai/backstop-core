@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-AGENT_NAME="${CLAUDE_AGENT_NAME:-}"
-[[ -z "$AGENT_NAME" ]] && exit 0
-
 INPUT="$(cat)"
 [[ -z "$INPUT" ]] && exit 0
+
+AGENT_NAME="$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)"
+[[ -z "$AGENT_NAME" ]] && exit 0
 
 FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
 [[ -z "$FILE_PATH" ]] && exit 0

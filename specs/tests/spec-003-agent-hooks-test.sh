@@ -21,15 +21,15 @@ assert_allowed() {
   local file_path="$3"
   TOTAL=$((TOTAL + 1))
 
-  local json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"}}'
+  local json
+  if [[ "$agent_name" == "__UNSET__" || -z "$agent_name" ]]; then
+    json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"}}'
+  else
+    json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"},"agent_type":"'"$agent_name"'"}'
+  fi
   local output
   local exit_code
-
-  if [[ "$agent_name" == "__UNSET__" ]]; then
-    output="$(echo "$json" | env -u CLAUDE_AGENT_NAME "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
-  else
-    output="$(echo "$json" | CLAUDE_AGENT_NAME="$agent_name" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
-  fi
+  output="$(echo "$json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
 
   if [[ $exit_code -eq 0 ]]; then
     PASS=$((PASS + 1))
@@ -46,10 +46,10 @@ assert_blocked() {
   local file_path="$3"
   TOTAL=$((TOTAL + 1))
 
-  local json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"}}'
+  local json='{"tool_name":"Edit","tool_input":{"file_path":"'"$file_path"'"},"agent_type":"'"$agent_name"'"}'
   local output
   local exit_code
-  output="$(echo "$json" | CLAUDE_AGENT_NAME="$agent_name" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  output="$(echo "$json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
 
   if [[ $exit_code -eq 2 ]]; then
     local decision
@@ -121,7 +121,7 @@ TestHook_EmptyStdin_Allows() {
   TOTAL=$((TOTAL + 1))
   local output
   local exit_code
-  output="$(printf '' | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  output="$(printf '' | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   if [[ $exit_code -eq 0 ]]; then
     PASS=$((PASS + 1))
     echo "  PASS: TestHook_EmptyStdin_Allows"
@@ -135,7 +135,7 @@ TestHook_InvalidJson_Allows() {
   TOTAL=$((TOTAL + 1))
   local output
   local exit_code
-  output="$(echo "not json" | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  output="$(echo "not json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   if [[ $exit_code -eq 0 ]]; then
     PASS=$((PASS + 1))
     echo "  PASS: TestHook_InvalidJson_Allows"
@@ -315,10 +315,10 @@ TestHook_SettingsJson_WriteHook() {
 
 TestHook_AllowedWrite_ExitsZero() {
   TOTAL=$((TOTAL + 1))
-  local json='{"tool_name":"Edit","tool_input":{"file_path":"specs/ok.spec.md"}}'
+  local json='{"tool_name":"Edit","tool_input":{"file_path":"specs/ok.spec.md"},"agent_type":"spec-author"}'
   local output
   local exit_code
-  output="$(echo "$json" | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  output="$(echo "$json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   if [[ $exit_code -eq 0 && -z "$output" ]]; then
     PASS=$((PASS + 1))
     echo "  PASS: TestHook_AllowedWrite_ExitsZero"
@@ -330,10 +330,10 @@ TestHook_AllowedWrite_ExitsZero() {
 
 TestHook_BlockedWrite_ExitsTwoWithJson() {
   TOTAL=$((TOTAL + 1))
-  local json='{"tool_name":"Edit","tool_input":{"file_path":"specs/not-allowed.spec.md"}}'
+  local json='{"tool_name":"Edit","tool_input":{"file_path":"specs/not-allowed.spec.md"},"agent_type":"bundle-author"}'
   local output
   local exit_code
-  output="$(echo "$json" | CLAUDE_AGENT_NAME="bundle-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  output="$(echo "$json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   if [[ $exit_code -ne 2 ]]; then
     FAIL=$((FAIL + 1))
     echo "  FAIL: TestHook_BlockedWrite_ExitsTwoWithJson (expected exit 2, got $exit_code)"
@@ -358,19 +358,24 @@ TestHook_NeverExitsOne() {
   local bad=0
   local output exit_code
 
-  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"specs/ok.spec.md"}}' | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  # Valid agent + allowed file
+  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"specs/ok.spec.md"},"agent_type":"spec-author"}' | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   [[ $exit_code -eq 1 ]] && bad=1
 
-  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"any/path.txt"}}' | CLAUDE_AGENT_NAME="rogue-agent" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  # Unknown agent (should exit 2, not 1)
+  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"any/path.txt"},"agent_type":"rogue-agent"}' | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   [[ $exit_code -eq 1 ]] && bad=1
 
-  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"any/path.txt"}}' | env -u CLAUDE_AGENT_NAME "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  # No agent_type in JSON (should exit 0)
+  output="$(echo '{"tool_name":"Edit","tool_input":{"file_path":"any/path.txt"}}' | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   [[ $exit_code -eq 1 ]] && bad=1
 
-  output="$(printf '' | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  # Empty stdin (should exit 0)
+  output="$(printf '' | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   [[ $exit_code -eq 1 ]] && bad=1
 
-  output="$(echo "not json" | CLAUDE_AGENT_NAME="spec-author" "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
+  # Invalid JSON (should exit 0)
+  output="$(echo "not json" | "$HOOK" 2>/dev/null)" && exit_code=0 || exit_code=$?
   [[ $exit_code -eq 1 ]] && bad=1
 
   if [[ $bad -eq 0 ]]; then
