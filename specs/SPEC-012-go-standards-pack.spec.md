@@ -43,30 +43,42 @@ requirements:
 
   - id: REQ-002
     text: >
-      The core category must also contain semgrep YAML rules for: no naked
-      returns in functions longer than 5 lines (GO-012), no panic in library
-      code (GO-013), and error wrapping required (GO-011). GO-012 has
-      strategy: pattern in STD-GO-001 but its function-length constraint
-      cannot be expressed in semgrep; the semgrep rule must include a note
-      field explaining this limitation. GO-020 (no-stuttering-exports) has
-      strategy: delegated in STD-GO-001 and is enforced by golangci-lint;
-      it must NOT appear in any semgrep YAML rule file. GO-020 appears only
+      The core category must also contain semgrep YAML rules for: no ignored
+      errors (GO-010), error wrapping required (GO-011), no naked returns in
+      functions longer than 5 lines (GO-012), no panic in library code
+      (GO-013), and error type suffix (GO-021). GO-010 has strategy: pattern
+      in STD-GO-001. GO-012 has strategy: pattern in STD-GO-001 but its
+      function-length constraint cannot be expressed in semgrep; the semgrep
+      rule must include a note field explaining this limitation. GO-021 has
+      strategy: regex in STD-GO-001 and produces a semgrep YAML entry using
+      pattern-regex. GO-020 (no-stuttering-exports) has strategy: delegated
+      in STD-GO-001 and is enforced by golangci-lint; it must NOT appear in
+      any semgrep YAML rule file. GO-020 appears only in the compiled
+      manifest via the compiler. GO-040 (import-ordering) has strategy:
+      delegated in STD-GO-001 and is enforced by golangci-lint (goimports);
+      it must NOT appear in any semgrep YAML rule file. GO-040 appears only
       in the compiled manifest via the compiler.
     follows:
+      - STD-GO-001:GO-010
       - STD-GO-001:GO-011
       - STD-GO-001:GO-012
       - STD-GO-001:GO-013
       - STD-GO-001:GO-020
+      - STD-GO-001:GO-021
+      - STD-GO-001:GO-040
 
   - id: REQ-003
     text: >
-      The test category (standards/go/rules/test/) must contain semgrep YAML
-      rules enforcing: every source file has a corresponding test file
-      (GO-030), table-driven tests with t.Run() for multiple cases (GO-031),
-      and no time.Sleep in tests (GO-032). The time.Sleep rule must be scoped
-      to _test.go files only. Rules that require metric or custom analysis
-      (GO-030 test file existence, GO-031 multi-assertion detection) must
-      include a note field documenting the detection limitation.
+      The test category (standards/go/rules/test/) must address three rules:
+      every source file has a corresponding test file (GO-030, metric strategy),
+      table-driven tests with t.Run() for multiple cases (GO-031, pattern
+      strategy with note), and no time.Sleep in tests (GO-032, pattern strategy
+      semgrep rule). GO-032 must be scoped to _test.go files only. GO-030 uses
+      metric detection (not semgrep) and must include a note documenting the
+      limitation. GO-031 uses pattern detection with a note acknowledging that
+      multi-assertion detection cannot be fully expressed as a single semgrep
+      pattern. Only GO-032 produces a semgrep YAML rule; GO-030 and GO-031
+      are enforced through their respective strategies in the manifest.
     follows:
       - STD-GO-001:GO-030
       - STD-GO-001:GO-031
@@ -82,8 +94,6 @@ requirements:
       (new rule GO-063). Each rule must include backstop metadata with
       tier set to baseline and references to the applicable CWE or OWASP
       identifier in the metadata.
-    follows:
-      - STD-GO-001:GO-010
 
   - id: REQ-005
     text: >
@@ -242,6 +252,42 @@ claims:
     text: GO-020 exists in STD-GO-001 rules array as a delegated-strategy rule (not in semgrep YAML)
     tests:
       - TestGoStandard_STD_GO001_HasRule_GO020
+
+  - id: CLM-053
+    requirement: REQ-002
+    text: Core rules directory contains a semgrep YAML rule for GO-010 no-ignored-errors with pattern strategy
+    tests:
+      - TestGoStandard_CoreRuleExists_GO010
+
+  - id: CLM-054
+    requirement: REQ-002
+    text: GO-010 exists in STD-GO-001 rules array as a pattern-strategy rule
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO010
+
+  - id: CLM-055
+    requirement: REQ-002
+    text: Core rules directory contains a semgrep YAML rule for GO-021 error-type-suffix with pattern-regex strategy
+    tests:
+      - TestGoStandard_CoreRuleExists_GO021
+
+  - id: CLM-056
+    requirement: REQ-002
+    text: GO-021 exists in STD-GO-001 rules array as a regex-strategy rule
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO021
+
+  - id: CLM-057
+    requirement: REQ-002
+    text: GO-040 exists in STD-GO-001 rules array as a delegated-strategy rule
+    tests:
+      - TestGoStandard_STD_GO001_HasRule_GO040
+
+  - id: CLM-058
+    requirement: REQ-002
+    text: GO-040 import-ordering does NOT appear in any semgrep YAML rule file (delegated to golangci-lint)
+    tests:
+      - TestGoStandard_GO040_NotInSemgrepYAML
 
   # REQ-003: Test rules
   - id: CLM-010
@@ -463,7 +509,10 @@ claims:
 
   - id: CLM-042
     requirement: REQ-010
-    text: Advisory rules (note-only) produce manifest entries with enforcement set to advisory
+    text: >
+      Advisory rules (note-only) produce manifest entries with enforcement
+      set to advisory. Tested using a synthetic advisory fixture rule since
+      no current STD-GO-001 rule uses advisory strategy.
     tests:
       - TestGoStandard_StrategyMapping_AdvisoryToManifest
 
@@ -510,7 +559,7 @@ contracts:
       - name: go.core rules
         kind: variable
         signature: "semgrep YAML rules file"
-        notes: "Core category pattern-strategy rules: GO-003, GO-004, GO-005, GO-006, GO-011, GO-012, GO-013. GO-012 has a function-length constraint that semgrep cannot enforce; the rule includes a note. GO-020 is delegated-strategy and does NOT appear in this file."
+        notes: "Core category rules: GO-003, GO-004, GO-005, GO-006, GO-010, GO-011, GO-012, GO-013 (pattern strategy), GO-021 (regex strategy, pattern-regex). GO-012 has a function-length constraint that semgrep cannot enforce; the rule includes a note. GO-020 and GO-040 are delegated-strategy and do NOT appear in this file."
     consumes: []
 
   - file: standards/go/rules/test/go-test.yml
@@ -577,16 +626,21 @@ go-conventions.md and STD-GO-001:
 | GO-004 | no-init-functions | pattern (semgrep) | Yes | baseline |
 | GO-005 | constructor-injection-required | pattern (semgrep) | Yes | standard |
 | GO-006 | structured-logging-required | pattern (semgrep) | Yes | standard |
+| GO-010 | no-ignored-errors | pattern (semgrep) | Yes | baseline |
 | GO-011 | error-wrapping-required | pattern (semgrep) | Yes | standard |
 | GO-012 | no-naked-returns | pattern + note (function length constraint) | Yes (with note) | standard |
 | GO-013 | no-panic-in-library-code | pattern (semgrep) | Yes | baseline |
 | GO-020 | no-stuttering-exports | delegated (golangci-lint revive) | No — manifest only | standard |
+| GO-021 | error-type-suffix | regex (pattern-regex) | Yes | standard |
+| GO-040 | import-ordering | delegated (golangci-lint goimports) | No — manifest only | standard |
 
-GO-012 has strategy: pattern in STD-GO-001 and appears in go-core.yml, but
-its function-length constraint cannot be expressed in semgrep. The semgrep
-rule includes a note documenting this limitation. GO-020 has strategy:
-delegated and does NOT appear in any semgrep YAML file. It is enforced by
-golangci-lint and appears only in the compiled manifest via the compiler.
+GO-010 has strategy: pattern and appears in go-core.yml. GO-012 has strategy:
+pattern in STD-GO-001 and appears in go-core.yml, but its function-length
+constraint cannot be expressed in semgrep. The semgrep rule includes a note
+documenting this limitation. GO-021 has strategy: regex and appears in
+go-core.yml using pattern-regex. GO-020 and GO-040 have strategy: delegated
+and do NOT appear in any semgrep YAML file. They are enforced by golangci-lint
+and appear only in the compiled manifest via the compiler.
 
 ### Test Rules (REQ-003)
 
@@ -676,7 +730,7 @@ Add seven new rules to the STD-GO-001 frontmatter rules array:
 
 Create three rule files:
 
-**standards/go/rules/core/go-core.yml** — Rules GO-003, GO-004, GO-005, GO-006, GO-011, GO-012, GO-013. Each rule follows the semgrep YAML format with backstop metadata block. GO-012 is included with a note about its function-length constraint limitation. GO-020 is NOT included — it is a delegated-strategy rule enforced by golangci-lint and appears only in the compiled manifest.
+**standards/go/rules/core/go-core.yml** — Rules GO-003, GO-004, GO-005, GO-006, GO-010, GO-011, GO-012, GO-013 (pattern strategy), and GO-021 (regex strategy, using pattern-regex). Each rule follows the semgrep YAML format with backstop metadata block. GO-012 is included with a note about its function-length constraint limitation. GO-020 and GO-040 are NOT included — they are delegated-strategy rules enforced by golangci-lint and appear only in the compiled manifest.
 
 **standards/go/rules/test/go-test.yml** — Rule GO-032 (no-time-sleep-in-tests). Scoped to `_test.go` files using semgrep's paths include/exclude mechanism.
 

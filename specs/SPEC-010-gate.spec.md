@@ -38,9 +38,11 @@ requirements:
       (3) test verification, (4) test substantiveness, (5) coverage threshold
       verification, (6) contract signature verification, (7) baseline
       comparison, (8) waiver resolution, (9) ledger integrity verification.
-      All nine steps must execute regardless of earlier step failures — gate
+      All nine steps execute regardless of earlier step failures — gate
       collects all results before producing its final output. No step is
-      short-circuited by a preceding failure.
+      short-circuited by a preceding failure. The one exception: if a
+      delegated step (artifact validate or code check) returns a config
+      error (exit 2), gate halts remaining steps per REQ-009.
     supports: cli:REQ-006
 
   - id: REQ-002
@@ -88,6 +90,13 @@ requirements:
       spec's verification.coverage_threshold field. Coverage below threshold
       is a failure. The test command from the spec's verification.test_command
       field is used with -coverprofile appended if not already present.
+      Coverage is extracted from the go test stdout summary line (format:
+      "coverage: NN.N% of statements"). If the summary line is not present
+      in the test output, the step reports status "fail" with reason "coverage
+      summary line not found in test output". If the test command fails to
+      execute (command not found, non-zero exit unrelated to coverage,
+      timeout), the step reports status "fail" with the error details. This
+      is a step failure (exit 1), not a config error (exit 2).
     supports: cli:REQ-006
 
   - id: REQ-017
@@ -306,6 +315,24 @@ claims:
     tests:
       - TestGate_CoverageThreshold_UsesSpecTestCommand
 
+  - id: CLM-057
+    requirement: REQ-016
+    text: Gate fails when test command fails to execute (command not found) with error details
+    tests:
+      - TestGate_CoverageThreshold_TestCommandNotFound
+
+  - id: CLM-058
+    requirement: REQ-016
+    text: Gate fails when coverage summary line is not present in test output
+    tests:
+      - TestGate_CoverageThreshold_NoCoverageSummaryLine
+
+  - id: CLM-059
+    requirement: REQ-016
+    text: Gate extracts coverage percentage from go test stdout summary line format
+    tests:
+      - TestGate_CoverageThreshold_ParsesCoverageSummaryLine
+
   # REQ-017: Contract signature verification
   - id: CLM-051
     requirement: REQ-017
@@ -333,7 +360,7 @@ claims:
 
   # All steps present in output
   - id: CLM-055
-    requirement: REQ-004
+    requirement: REQ-001
     text: All nine steps appear in gate output regardless of pass/fail/skip status
     tests:
       - TestGate_AllNineStepsAppearInOutput
@@ -425,6 +452,12 @@ claims:
     text: JSON output includes summary counts (total_violations, steps_passed, steps_failed, steps_skipped)
     tests:
       - TestGate_JSONOutput_SummaryCounts
+
+  - id: CLM-056
+    requirement: REQ-008
+    text: JSON output pass is true when all nine steps are skipped (no executed step failed)
+    tests:
+      - TestGate_JSONOutput_PassTrueWhenAllSkipped
 
   - id: CLM-026
     requirement: REQ-008
@@ -617,17 +650,20 @@ which runs lint, build, test, AND semgrep against the full codebase. This is a
 deliberate merge — semgrep is one of the tools code_check orchestrates — not an
 omission.
 
-The verifier subsystem (steps 3-6) does not yet exist. Gate initially runs
-everything available (artifact validation + code check) and reports verifier-
-dependent steps as "skipped" with an explicit reason. This ensures the gate
-output contract is stable from day one — consumers always see all nine steps,
-and the transition from "skipped" to "implemented" is additive, not structural.
+Steps 1-6 are implemented: artifact validation and code check delegate to
+existing commands, while steps 3-6 use grep and Go AST parsing for mechanical
+verification (function name existence, assertion presence, coverage parsing,
+signature matching). Steps 7-9 (baseline comparison, waiver resolution, ledger
+integrity) are deferred and report as "skipped" with an explicit reason. This
+ensures the gate output contract is stable from day one — consumers always see
+all nine steps, and the transition from "skipped" to "implemented" is additive,
+not structural.
 
 ## Requirements
 
-Requirements are defined in frontmatter. The gate command has 14 requirements
-covering step orchestration, delegation, deferred steps, output format, exit
-codes, and configuration loading.
+Requirements are defined in frontmatter. The gate command has 17 requirements
+covering step orchestration, delegation, mechanical verification (steps 3-6),
+deferred steps, output format, exit codes, and configuration loading.
 
 ### Kill Chain Steps
 
@@ -638,10 +674,10 @@ of whether it executed, failed, or was skipped.
 |---|-----------|--------|----------------|
 | 1 | `artifact_validation` | Delegates to artifact validate --all logic | Implemented |
 | 2 | `code_check` | Delegates to code check --all logic (includes semgrep) | Implemented |
-| 3 | `test_verification` | Mandated test names from spec claims exist as functions | grep test files for exact function names |
-| 4 | `test_substantiveness` | Test functions are not hollow — contain assertions and call target package | Go AST parsing or grep heuristics |
-| 5 | `coverage_threshold` | Test coverage meets spec-declared threshold | Run test_command with -coverprofile, parse output |
-| 6 | `contract_signature` | Spec contract declarations match actual code | grep/AST for declared symbols in declared files |
+| 3 | `test_verification` | Mandated test names from spec claims exist as functions (grep for exact function names) | Implemented |
+| 4 | `test_substantiveness` | Test functions are not hollow — contain assertions and call target package (Go AST parsing or grep heuristics) | Implemented |
+| 5 | `coverage_threshold` | Test coverage meets spec-declared threshold (run test_command with -coverprofile, parse stdout summary line) | Implemented |
+| 6 | `contract_signature` | Spec contract declarations match actual code (grep/AST for declared symbols in declared files) | Implemented |
 | 7 | `baseline_comparison` | Compares violations against recorded baseline | Skipped (baseline not implemented) |
 | 8 | `waiver_resolution` | Suppresses violations matched by active waivers | Skipped (waivers not implemented) |
 | 9 | `ledger_integrity` | Verifies provenance ledger hash chain | Skipped (ledger not implemented) |
