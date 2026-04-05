@@ -166,7 +166,7 @@ func TestGoStandard_InvalidFixtureExistsPerRule(t *testing.T) {
 }
 
 func TestGoStandard_InvalidFixtureNamingConvention(t *testing.T) {
-	re := regexp.MustCompile(`^go-\d{3}-[a-z0-9-]+\.go$`)
+	re := regexp.MustCompile(`^go-\d{3}-[a-z0-9-]+(_test)?\.go$`)
 	for _, name := range fixtureNames(t, "invalid") {
 		if !re.MatchString(name) {
 			t.Fatalf("invalid fixture %q does not match naming convention", name)

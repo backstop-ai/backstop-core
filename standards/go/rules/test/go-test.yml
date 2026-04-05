@@ -8,7 +8,6 @@ rules:
     paths:
       include:
         - "*_test.go"
-        - "go-032-time-sleep-in-test.go"
     metadata:
       backstop:
         category: testing

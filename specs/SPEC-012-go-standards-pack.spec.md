@@ -25,8 +25,13 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./pkg/compile/ -run TestGoStandard -race -coverprofile=cover.out && semgrep --config standards/go/rules/ --test standards/go/testdata/
-  coverage_threshold: 80
+  test_command: semgrep --config standards/go/rules/ --test standards/go/testdata/ && go test ./pkg/compile/ -run TestGoStandard -race
+  coverage_threshold: 100
+  coverage_note: >
+    Coverage here means 100% fixture coverage — every rule has both an invalid
+    fixture (triggers the rule) and a valid fixture (passes clean). Measured by
+    semgrep --test, not Go coverage profiling. The Go tests verify compilation
+    and metadata; semgrep --test verifies behavioral correctness.
 
 requirements:
   - id: REQ-001

@@ -86,7 +86,7 @@ rules:
   - id: go.core.error-wrapping-required
     patterns:
       - pattern-inside: |
-          func ReadRaw(...) (...) {
+          func $FUNC(...) (..., error) {
             ...
           }
       - pattern: |
@@ -102,6 +102,7 @@ rules:
         rule_id: GO-011
         compliance_tier: standard
         rationale: "Error wrapping preserves cause chains while adding diagnostic context."
+        note: "Pattern requires explicit (..., error) return signature; functions returning error in non-trailing position or via named returns may not be matched."
 
   - id: go.core.no-naked-returns
     pattern: |
