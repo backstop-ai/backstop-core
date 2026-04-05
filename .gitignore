@@ -29,3 +29,4 @@ dist/
 node_modules/
 cover.out
 backstop
+cover*.out
