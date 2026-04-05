@@ -88,16 +88,7 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Commands for compiling, managing, and distributing enforcement packs containing rules and code standards.",
 	}
 
-	packCompileCmd := &cobra.Command{
-		Use:   "compile",
-		Short: "Compile enforcement packs",
-		Long:  "Compiles enforcement packs from standards and rules into enforcement manifests ready for use by the gate command.",
-		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := validate.ValidationResult{}
-			return outputResult(cmd, &jsonFlag, result)
-		},
-	}
+	packCompileCmd := newPackCompileCommand(&jsonFlag)
 
 	packCmd.AddCommand(packCompileCmd)
 

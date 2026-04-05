@@ -15,12 +15,13 @@ import (
 
 // Config is the typed representation of backstop.yml.
 type Config struct {
-	Project     string            `yaml:"project" json:"project"`
-	Language    string            `yaml:"language" json:"language"`
-	Runtimes    []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
-	Enforcement Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
-	Packs       Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
-	Registries  map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	Project       string            `yaml:"project" json:"project"`
+	Language      string            `yaml:"language" json:"language"`
+	Runtimes      []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
+	StandardsDirs []string          `yaml:"standards_dirs,omitempty" json:"standards_dirs,omitempty"`
+	Enforcement   Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
+	Packs         Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
+	Registries    map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
 }
 
 // Enforcement holds the enforcement configuration block.

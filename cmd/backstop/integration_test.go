@@ -156,6 +156,12 @@ func TestIntegration_PackCompile_RealStandard(t *testing.T) {
 	}
 	dir := setupTestDir(t, minimalBackstopYML)
 
+	// Create a standards directory with a minimal standard
+	stdDir := filepath.Join(dir, "standards")
+	if err := os.MkdirAll(stdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	out, exitCode := runBinary(t, dir, "pack", "compile", "--json")
 	if exitCode != 0 && exitCode != 1 {
 		t.Fatalf("expected exit code 0 or 1, got %d\noutput: %s", exitCode, out)
