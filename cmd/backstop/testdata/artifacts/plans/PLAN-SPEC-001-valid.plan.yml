@@ -1,0 +1,28 @@
+---
+plan_id: PLAN-SPEC-001
+spec_id: SPEC-001
+spec_version: 1.0.0
+created: "2026-04-01"
+status: draft
+target_repo: test-repo
+target_module: github.com/test/repo
+test_command: "go test ./..."
+coverage_threshold: 90
+
+notes: |
+  A minimal valid plan used as a test fixture.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Setup"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create test files"
+        description: |
+          Create test files for the project.
+        files:
+          - pkg/test/test.go
+        claims:
+          - CLM-001
+        depends_on: []

@@ -53,16 +53,8 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Commands for validating, creating, and managing backstop artifacts such as specs, plans, ADRs, and standards.",
 	}
 
-	artifactValidateCmd := &cobra.Command{
-		Use:   "validate [file]",
-		Short: "Validate an artifact against its schema",
-		Long:  "Validates a backstop artifact file against its schema definition, checking metadata, required sections, and field constraints.",
-		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := validate.ValidationResult{}
-			return outputResult(cmd, &jsonFlag, result)
-		},
-	}
+	artifactValidateCmd := NewArtifactValidateCommand()
+	artifactValidateCmd.PersistentPreRunE = enforcementPreRun
 
 	artifactNewCmd := &cobra.Command{
 		Use:   "new [type]",
