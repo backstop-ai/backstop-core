@@ -90,7 +90,8 @@ backstop by shelling out to CLI commands.`,
 
 	packCompileCmd := newPackCompileCommand(&jsonFlag)
 
-	packCmd.AddCommand(packCompileCmd)
+	packNewCmd := NewPackNewCommand()
+	packCmd.AddCommand(packCompileCmd, packNewCmd)
 
 	// --- Top-level: gate ---
 	gateCmd := &cobra.Command{
