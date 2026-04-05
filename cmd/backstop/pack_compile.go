@@ -15,12 +15,22 @@ import (
 )
 
 // PackCompileResult holds aggregated results from compiling all standards.
+// Per REQ-004, this struct does not carry its own schema_version field —
+// schema_version is added to JSON output by the envelope wrapper in
+// formatPackCompileResult.
 type PackCompileResult struct {
-	SchemaVersion string                  `json:"schema_version"`
-	Standards     []CompileStandardResult `json:"standards"`
-	Warnings      []string                `json:"warnings"`
-	Errors        []string                `json:"errors"`
-	Summary       CompileSummary          `json:"summary"`
+	Standards []CompileStandardResult `json:"standards"`
+	Warnings  []string                `json:"warnings"`
+	Errors    []string                `json:"errors"`
+	Summary   CompileSummary          `json:"summary"`
+}
+
+// compileJSONEnvelope wraps PackCompileResult with a schema_version for JSON
+// output. This keeps schema_version out of the domain struct while ensuring
+// JSON responses include it (as SPEC-005 CLI output formatter would).
+type compileJSONEnvelope struct {
+	SchemaVersion string `json:"schema_version"`
+	*PackCompileResult
 }
 
 // CompileStandardResult holds the result of compiling a single standard.
@@ -109,10 +119,9 @@ type packCompileOpts struct {
 // opts and delegates here.
 func runPackCompileWithOpts(opts packCompileOpts) (*PackCompileResult, error) {
 	result := &PackCompileResult{
-		SchemaVersion: "cli/v1",
-		Standards:     make([]CompileStandardResult, 0),
-		Warnings:      make([]string, 0),
-		Errors:        make([]string, 0),
+		Standards: make([]CompileStandardResult, 0),
+		Warnings:  make([]string, 0),
+		Errors:    make([]string, 0),
 	}
 
 	// Step 2: Verify configured directories exist.
@@ -194,9 +203,15 @@ func runPackCompileWithOpts(opts packCompileOpts) (*PackCompileResult, error) {
 }
 
 // formatPackCompileResult formats the result as JSON or human-readable text.
+// In JSON mode, the result is wrapped in a jsonEnvelope that adds schema_version
+// per REQ-004 / SPEC-005 convention.
 func formatPackCompileResult(result *PackCompileResult, jsonOutput bool) string {
 	if jsonOutput {
-		data, err := json.MarshalIndent(result, "", "  ")
+		envelope := compileJSONEnvelope{
+			SchemaVersion:     "cli/v1",
+			PackCompileResult: result,
+		}
+		data, err := json.MarshalIndent(envelope, "", "  ")
 		if err != nil {
 			return fmt.Sprintf(`{"error": "marshal failed: %s"}`, err)
 		}

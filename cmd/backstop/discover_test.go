@@ -115,6 +115,35 @@ func TestPackCompile_DeterministicOrder(t *testing.T) {
 	}
 }
 
+// TestPackCompile_DiscoverStandardsPermissionError verifies discoverStandards
+// returns an error when a directory cannot be read due to permissions.
+func TestPackCompile_DiscoverStandardsPermissionError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test as root")
+	}
+	if os.Getenv("CI") != "" {
+		t.Skip("skipping permission test on CI")
+	}
+
+	dir := t.TempDir()
+	restricted := filepath.Join(dir, "noaccess")
+	if err := os.MkdirAll(restricted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(restricted, "test.standard.md"), "")
+
+	// Remove read+execute permission so WalkDir fails
+	if err := os.Chmod(restricted, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(restricted, 0o755) })
+
+	_, err := discoverStandards([]string{restricted})
+	if err == nil {
+		t.Error("expected error for permission-denied directory")
+	}
+}
+
 // writeFixture creates a file at path with content, creating parent dirs as needed.
 func writeFixture(t *testing.T, path, content string) {
 	t.Helper()

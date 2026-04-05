@@ -794,6 +794,19 @@ func TestPackCompile_JSONOutputStructure(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Parse via envelope to verify schema_version is present in JSON output
+	var envelope compileJSONEnvelope
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON unmarshal error: %v\noutput: %s", err, out)
+	}
+
+	// REQ-004: schema_version is added by the output formatter envelope,
+	// not carried in PackCompileResult itself.
+	if envelope.SchemaVersion != "cli/v1" {
+		t.Errorf("expected schema_version cli/v1 in JSON envelope, got %q", envelope.SchemaVersion)
+	}
+
+	// Also parse into plain PackCompileResult to confirm it works without schema_version
 	var parsed PackCompileResult
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		t.Fatalf("JSON unmarshal error: %v\noutput: %s", err, out)
@@ -1127,5 +1140,131 @@ func TestPackCompile_ExitCode1OnPartialFailure(t *testing.T) {
 	}
 	if exitErr.Code != ExitViolations {
 		t.Errorf("expected exit code %d, got %d", ExitViolations, exitErr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: Formatting edge cases and error paths
+// ---------------------------------------------------------------------------
+
+// TestPackCompile_HumanOutputZeroStandards verifies human output formatting
+// when no standards are compiled (zero total).
+func TestPackCompile_HumanOutputZeroStandards(t *testing.T) {
+	result := &PackCompileResult{
+		Standards: []CompileStandardResult{},
+		Warnings:  []string{},
+		Errors:    []string{},
+		Summary:   CompileSummary{Total: 0, Compiled: 0, Failed: 0},
+	}
+
+	out := formatPackCompileHuman(result)
+
+	if !strings.Contains(out, "Compiled 0 standards") {
+		t.Errorf("expected 'Compiled 0 standards' header, got: %s", out)
+	}
+	if !strings.Contains(out, "0 total, 0 compiled, 0 failed") {
+		t.Errorf("expected zero summary, got: %s", out)
+	}
+	// Should not contain Warnings section when there are none
+	if strings.Contains(out, "Warnings:") {
+		t.Error("should not show Warnings section when there are none")
+	}
+}
+
+// TestPackCompile_HumanOutputWithWarnings verifies human output includes the
+// Warnings section when warnings are present.
+func TestPackCompile_HumanOutputWithWarnings(t *testing.T) {
+	result := &PackCompileResult{
+		Standards: []CompileStandardResult{
+			{
+				Standard:    "STD-GO-001",
+				SourceFile:  "/tmp/STD-GO-001.standard.md",
+				OutputPaths: []string{"/tmp/rules/STD-GO-001.manifest.json"},
+				Warnings:    []string{"standard is deprecated"},
+			},
+		},
+		Warnings: []string{"standard is deprecated"},
+		Errors:   []string{},
+		Summary:  CompileSummary{Total: 1, Compiled: 1, Failed: 0},
+	}
+
+	out := formatPackCompileHuman(result)
+
+	if !strings.Contains(out, "Warnings:") {
+		t.Error("expected Warnings section in output")
+	}
+	if !strings.Contains(out, "standard is deprecated") {
+		t.Errorf("expected deprecation warning text, got: %s", out)
+	}
+}
+
+// TestPackCompile_HumanOutputWithFailures verifies human output shows FAIL
+// lines for standards with errors and includes failure count in header.
+func TestPackCompile_HumanOutputWithFailures(t *testing.T) {
+	result := &PackCompileResult{
+		Standards: []CompileStandardResult{
+			{
+				Standard:   "STD-GO-001",
+				SourceFile: "/tmp/STD-GO-001.standard.md",
+				Error:      "unsupported strategy",
+			},
+		},
+		Warnings: []string{},
+		Errors:   []string{"STD-GO-001: unsupported strategy"},
+		Summary:  CompileSummary{Total: 1, Compiled: 0, Failed: 1},
+	}
+
+	out := formatPackCompileHuman(result)
+
+	if !strings.Contains(out, "(1 failed)") {
+		t.Errorf("expected '(1 failed)' in header, got: %s", out)
+	}
+	if !strings.Contains(out, "FAIL") {
+		t.Error("expected FAIL marker in output")
+	}
+	if !strings.Contains(out, "unsupported strategy") {
+		t.Errorf("expected error message in output, got: %s", out)
+	}
+}
+
+// TestPackCompile_JSONEnvelopeSchemaVersion verifies that JSON output wraps
+// the result with schema_version via the envelope, while PackCompileResult
+// itself does not carry schema_version (REQ-004).
+func TestPackCompile_JSONEnvelopeSchemaVersion(t *testing.T) {
+	result := &PackCompileResult{
+		Standards: []CompileStandardResult{},
+		Warnings:  []string{},
+		Errors:    []string{},
+		Summary:   CompileSummary{Total: 0, Compiled: 0, Failed: 0},
+	}
+
+	out := formatPackCompileResult(result, true)
+
+	// Verify schema_version appears in JSON output
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		t.Fatalf("JSON unmarshal error: %v", err)
+	}
+
+	sv, ok := raw["schema_version"]
+	if !ok {
+		t.Fatal("expected schema_version in JSON output")
+	}
+	if sv != "cli/v1" {
+		t.Errorf("expected schema_version cli/v1, got %v", sv)
+	}
+
+	// Verify PackCompileResult struct itself has no SchemaVersion field
+	// by marshaling the result directly (not via envelope)
+	directJSON, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var directRaw map[string]interface{}
+	if err := json.Unmarshal(directJSON, &directRaw); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := directRaw["schema_version"]; has {
+		t.Error("PackCompileResult should not have schema_version field — it belongs in the envelope")
 	}
 }
