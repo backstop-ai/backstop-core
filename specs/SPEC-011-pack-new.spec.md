@@ -401,9 +401,10 @@ contracts:
       - source: pkg/pack
         name: ResolvePackNumber
         kind: function
-      - source: cmd/backstop/output
-        name: Formatter
-        kind: interface
+      - source: encoding/json
+        name: MarshalIndent
+        kind: function
+        notes: "Inline JSON formatting — Formatter interface not used per convention established across CLI commands"
 
   - file: pkg/pack/scaffold.go
     provides:
@@ -563,7 +564,7 @@ Implement `NewPackNewCommand()` that:
 4. Validates --slug via slug validation (reuses `pkg/scaffold/slug.go` or
    equivalent logic in `pkg/pack/`)
 5. Calls `ScaffoldPack()` to create the pack structure
-6. Formats output via the Formatter interface
+6. Formats output inline (JSON via json.MarshalIndent, human via ScaffoldResult.HumanString)
 7. Returns exit code 0 on success, 2 on any error
 
 ## Verification

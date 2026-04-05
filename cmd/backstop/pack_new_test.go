@@ -188,3 +188,13 @@ func TestPackNew_Command_HumanOutput(t *testing.T) {
 		t.Error("human output should contain pack identifier")
 	}
 }
+
+func TestPackNew_PublicConstructor(t *testing.T) {
+	cmd := NewPackNewCommand()
+	if cmd == nil {
+		t.Fatal("NewPackNewCommand returned nil")
+	}
+	if cmd.Name() != "new" {
+		t.Errorf("expected command name 'new', got %q", cmd.Name())
+	}
+}
