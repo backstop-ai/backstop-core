@@ -27,7 +27,7 @@ implementation:
 
 verification:
   level: unit
-  test_command: go test ./cmd/backstop/... -run TestArtifactNew -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/... ./pkg/scaffold/... -race -coverprofile=cover.out
   coverage_threshold: 90
 
 requirements:
