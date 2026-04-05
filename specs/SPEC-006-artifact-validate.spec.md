@@ -26,7 +26,7 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/... -run TestArtifactValidate -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/... -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
