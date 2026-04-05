@@ -2,8 +2,13 @@ package main
 
 import (
 	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/bmanson/backstop-core/pkg/schema"
+	"github.com/bmanson/backstop-core/pkg/validate"
 )
 
 // TestArtifactValidate_Scope_SpecAll verifies that --spec flag without ID
@@ -338,8 +343,10 @@ func TestArtifactValidate_Scope_DefaultAll(t *testing.T) {
 		t.Fatalf("ValidateArtifacts: %v", err)
 	}
 
-	// Both spec and plan should have been validated (check that result exists)
-	_ = result // No error means both types were processed
+	// Both spec and plan should have been validated
+	if result.ArtifactsFound != 2 {
+		t.Errorf("expected ArtifactsFound=2 (spec + plan), got %d", result.ArtifactsFound)
+	}
 }
 
 // TestArtifactValidate_AllFlag_ValidatesEverything verifies that --all flag
@@ -361,7 +368,9 @@ func TestArtifactValidate_AllFlag_ValidatesEverything(t *testing.T) {
 	}
 
 	// Should have processed all artifacts (spec and plan)
-	_ = result
+	if result.ArtifactsFound != 2 {
+		t.Errorf("expected ArtifactsFound=2 with --all, got %d", result.ArtifactsFound)
+	}
 }
 
 // TestArtifactValidate_AllFlag_PrecedesTypeFlags verifies that --all takes
@@ -384,7 +393,10 @@ func TestArtifactValidate_AllFlag_PrecedesTypeFlags(t *testing.T) {
 		t.Fatalf("ValidateArtifacts: %v", err)
 	}
 
-	_ = result // No error means all types were processed, not just specs
+	// --all overrides --spec, so both spec and plan should be processed
+	if result.ArtifactsFound != 2 {
+		t.Errorf("expected ArtifactsFound=2 (--all overrides --spec), got %d", result.ArtifactsFound)
+	}
 }
 
 // TestArtifactValidate_IDScope_SpecMatchesByNumber verifies that --spec SPEC-002
@@ -463,11 +475,33 @@ func TestArtifactValidate_IDScope_NotFound_Exit2(t *testing.T) {
 // TestArtifactValidate_ThinAdapter_CallsPkgValidate verifies that the command
 // calls pkg/validate functions and does not reimplement validation logic. (CLM-045)
 func TestArtifactValidate_ThinAdapter_CallsPkgValidate(t *testing.T) {
-	// This test verifies the thin adapter pattern by confirming that
-	// validation results come from pkg/validate — the command just
-	// orchestrates discovery, routing, and aggregation.
+	// Use an invalid spec that pkg/validate will flag with violations.
+	invalidSpec := `---
+title: "SPEC-099: Missing Sections"
+number: SPEC-099
+created: "2026-04-01"
+status: draft
+schema_version: spec/v1
+spec_version: 1.0.0
+
+implementation:
+  summary: Missing sections.
+  package: pkg/test
+
+verification:
+  level: unit
+  test_command: go test ./...
+  coverage_threshold: 90
+---
+
+# SPEC-099: Missing Sections
+
+## Overview
+
+This spec is missing required sections.
+`
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"specs/SPEC-001-a.spec.md": validSpecContent("SPEC-001"),
+		"specs/SPEC-099-missing.spec.md": invalidSpec,
 	})
 
 	cfg := ValidateConfig{
@@ -480,10 +514,27 @@ func TestArtifactValidate_ThinAdapter_CallsPkgValidate(t *testing.T) {
 		t.Fatalf("ValidateArtifacts: %v", err)
 	}
 
-	// Verify result was produced (comes from pkg/validate, not inline logic)
-	// The validator produces real violations — empty result means validator ran
-	// and found no issues, which is a valid outcome from pkg/validate.
-	_ = result.Pass // Accessing the Pass field proves we got a ValidateResult
+	// Also run pkg/validate directly on the same artifact to compare
+	art, parseErr := artifact.ParseFile(filepath.Join(dir, "specs", "SPEC-099-missing.spec.md"))
+	if parseErr != nil {
+		t.Fatalf("ParseFile: %v", parseErr)
+	}
+	schemaPath, _ := schema.ResolveSchemaPath(art)
+	sch, _ := loadSchemaFromFS(SchemaFS, schemaPath)
+	directResult := validate.Spec(art, sch)
+
+	// The command's violations should match pkg/validate's violations
+	if len(result.Violations) != len(directResult.Violations) {
+		t.Errorf("command produced %d violations, pkg/validate produced %d — command may not be using pkg/validate",
+			len(result.Violations), len(directResult.Violations))
+	}
+	for i, v := range result.Violations {
+		if i < len(directResult.Violations) {
+			if v.Rule != directResult.Violations[i].Rule {
+				t.Errorf("violation[%d] rule mismatch: command=%q, pkg/validate=%q", i, v.Rule, directResult.Violations[i].Rule)
+			}
+		}
+	}
 }
 
 // TestArtifactValidate_BackstopYml_LoadedAsPrerequisite verifies that

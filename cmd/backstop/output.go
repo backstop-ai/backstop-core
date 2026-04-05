@@ -20,9 +20,10 @@ type JSONFormatter struct{}
 
 // jsonEnvelope is the wire format for JSON output.
 type jsonEnvelope struct {
-	SchemaVersion string          `json:"schema_version"`
-	Pass          bool            `json:"pass"`
-	Violations    []jsonViolation `json:"violations"`
+	SchemaVersion   string          `json:"schema_version"`
+	Pass            bool            `json:"pass"`
+	ViolationsCount int             `json:"violations_count"`
+	Violations      []jsonViolation `json:"violations"`
 }
 
 // jsonViolation is the JSON representation of a single violation.
@@ -36,9 +37,10 @@ type jsonViolation struct {
 // FormatResult serializes the result to indented JSON with a schema_version field.
 func (f *JSONFormatter) FormatResult(result validate.ValidationResult) (string, error) {
 	env := jsonEnvelope{
-		SchemaVersion: "cli/v1",
-		Pass:          result.Pass(),
-		Violations:    make([]jsonViolation, 0, len(result.Violations)),
+		SchemaVersion:   "cli/v1",
+		Pass:            result.Pass(),
+		ViolationsCount: len(result.Violations),
+		Violations:      make([]jsonViolation, 0, len(result.Violations)),
 	}
 
 	for _, v := range result.Violations {
@@ -61,18 +63,40 @@ func (f *JSONFormatter) FormatResult(result validate.ValidationResult) (string, 
 // It respects the NO_COLOR environment variable.
 type HumanFormatter struct{}
 
-// FormatResult formats the result as human-readable text.
+// FormatResult formats the result as human-readable text, grouping
+// violations by file for readability (REQ-009).
 func (f *HumanFormatter) FormatResult(result validate.ValidationResult) (string, error) {
 	useColor := os.Getenv("NO_COLOR") == ""
 
 	var sb strings.Builder
 
-	// Format violations
+	// Group violations by file
+	fileOrder := make([]string, 0)
+	byFile := make(map[string][]validate.Violation)
 	for _, v := range result.Violations {
-		if useColor && v.Severity == "error" {
-			sb.WriteString(fmt.Sprintf("\033[31m  ✗ [%s] %s\033[0m\n", v.Rule, v.Message))
+		file := v.File
+		if file == "" {
+			file = "(no file)"
+		}
+		if _, seen := byFile[file]; !seen {
+			fileOrder = append(fileOrder, file)
+		}
+		byFile[file] = append(byFile[file], v)
+	}
+
+	// Format violations grouped by file
+	for _, file := range fileOrder {
+		if useColor {
+			sb.WriteString(fmt.Sprintf("\033[1m%s\033[0m\n", file))
 		} else {
-			sb.WriteString(fmt.Sprintf("  ✗ [%s] %s\n", v.Rule, v.Message))
+			sb.WriteString(fmt.Sprintf("%s\n", file))
+		}
+		for _, v := range byFile[file] {
+			if useColor && v.Severity == "error" {
+				sb.WriteString(fmt.Sprintf("\033[31m  ✗ [%s] %s\033[0m\n", v.Rule, v.Message))
+			} else {
+				sb.WriteString(fmt.Sprintf("  ✗ [%s] %s\n", v.Rule, v.Message))
+			}
 		}
 	}
 

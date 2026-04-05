@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/bmanson/backstop-core/pkg/validate"
 )
@@ -35,8 +36,19 @@ func TestArtifactValidate_JSON_OutputStructure(t *testing.T) {
 	if _, ok := envelope["violations"]; !ok {
 		t.Error("JSON output missing violations field")
 	}
+	if _, ok := envelope["violations_count"]; !ok {
+		t.Error("JSON output missing violations_count field")
+	}
 	if sv, ok := envelope["schema_version"].(string); ok && sv != "cli/v1" {
 		t.Errorf("schema_version = %q, want cli/v1", sv)
+	}
+	// violations_count must match len(violations)
+	if vc, ok := envelope["violations_count"].(float64); ok {
+		if vArr, ok2 := envelope["violations"].([]interface{}); ok2 {
+			if int(vc) != len(vArr) {
+				t.Errorf("violations_count=%d but len(violations)=%d", int(vc), len(vArr))
+			}
+		}
 	}
 }
 
@@ -86,7 +98,7 @@ Missing required sections.
 	}
 
 	if len(envelope.Violations) == 0 {
-		t.Skip("no violations generated — spec fixture may be fully valid")
+		t.Fatal("expected violations from invalid spec fixture, got none — fixture may need updating")
 	}
 
 	for i, v := range envelope.Violations {
@@ -102,8 +114,32 @@ Missing required sections.
 // TestArtifactValidate_Human_OutputFormat verifies that default output
 // (no --json) produces human-readable formatted text. (CLM-022)
 func TestArtifactValidate_Human_OutputFormat(t *testing.T) {
+	// Use an invalid spec that will produce violations so we can check formatting
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"specs/SPEC-001-a.spec.md": validSpecContent("SPEC-001"),
+		"specs/SPEC-002-invalid.spec.md": `---
+title: "SPEC-002: Invalid"
+number: SPEC-002
+created: "2026-04-01"
+status: draft
+schema_version: spec/v1
+spec_version: 1.0.0
+
+implementation:
+  summary: Missing sections.
+  package: pkg/test
+
+verification:
+  level: unit
+  test_command: go test ./...
+  coverage_threshold: 90
+---
+
+# SPEC-002: Invalid
+
+## Overview
+
+Missing required sections.
+`,
 	})
 
 	t.Setenv("NO_COLOR", "1")
@@ -118,9 +154,21 @@ func TestArtifactValidate_Human_OutputFormat(t *testing.T) {
 		t.Error("human output should not be valid JSON")
 	}
 
-	// Should contain human-readable text
 	if stdout == "" {
-		t.Error("expected non-empty human output")
+		t.Fatal("expected non-empty human output")
+	}
+
+	// Should contain file paths as grouping headers
+	if !strings.Contains(stdout, ".spec.md") {
+		t.Error("human output should contain file paths")
+	}
+	// Should contain structured violation markers
+	if !strings.Contains(stdout, "✗") {
+		t.Error("human output should contain violation markers (✗)")
+	}
+	// Should contain rule references in brackets
+	if !strings.Contains(stdout, "[") || !strings.Contains(stdout, "]") {
+		t.Error("human output should contain rule references in brackets")
 	}
 }
 
@@ -360,25 +408,35 @@ func TestArtifactValidate_Exit2_PrecedesExit1(t *testing.T) {
 }
 
 // TestArtifactValidate_Schema_LoadedFromEmbed verifies that schemas are loaded
-// from the go:embed filesystem. (CLM-030)
+// from the go:embed filesystem, not the real filesystem. (CLM-030)
 func TestArtifactValidate_Schema_LoadedFromEmbed(t *testing.T) {
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
 		"specs/SPEC-001-a.spec.md": validSpecContent("SPEC-001"),
 	})
 
+	// With the real embed FS, validation should succeed
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
 		TypeFilters: map[string]string{"spec": ""},
-		SchemaFS:    SchemaFS, // This is the go:embed FS
+		SchemaFS:    SchemaFS,
 	}
-	result, err := ValidateArtifacts(cfg)
+	_, err := ValidateArtifacts(cfg)
 	if err != nil {
 		t.Fatalf("ValidateArtifacts with embed FS: %v", err)
 	}
 
-	// Successfully loading and using the schema proves it came from the embed FS
-	// (there's no real filesystem path to schema files at test time)
-	_ = result
+	// With an empty FS, schema loading should fail — proving the embed FS
+	// is actually used for schema resolution.
+	emptyFS := fstest.MapFS{}
+	cfgEmpty := ValidateConfig{
+		ProjectRoot: dir,
+		TypeFilters: map[string]string{"spec": ""},
+		SchemaFS:    emptyFS,
+	}
+	_, errEmpty := ValidateArtifacts(cfgEmpty)
+	if errEmpty == nil {
+		t.Fatal("expected schema load failure with empty FS, got nil — embed FS may not be used")
+	}
 }
 
 // TestArtifactValidate_Schema_MissingFromEmbed_Exit2 verifies that a missing
@@ -536,6 +594,21 @@ Missing sections.
 
 	if humanOut == "" {
 		t.Error("expected non-empty human output")
+	}
+
+	// Verify violations are grouped by file: file paths should appear as headers
+	// before their violation lines. Check that at least one .spec.md path appears.
+	lines := strings.Split(humanOut, "\n")
+	foundFileHeader := false
+	for _, line := range lines {
+		// File headers are lines that contain a path but no "✗" prefix
+		if strings.HasSuffix(line, ".spec.md") && !strings.Contains(line, "✗") {
+			foundFileHeader = true
+			break
+		}
+	}
+	if len(result.Violations) > 0 && !foundFileHeader {
+		t.Error("human output should group violations by file with file path headers")
 	}
 }
 

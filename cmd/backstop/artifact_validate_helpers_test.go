@@ -153,6 +153,7 @@ func validPlanContent(planID, specID string) string {
 plan_id: ` + planID + `
 spec_id: ` + specID + `
 spec_version: 1.0.0
+schema_version: plan/v1
 created: "2026-04-01"
 status: draft
 target_repo: test-repo

@@ -128,15 +128,12 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 			}
 		}
 
-		// Route to the correct validator using discovery type
-		validatorFn, ok := validatorRouter[da.Type]
-		if !ok {
-			// Fallback: try schema_version-based routing
-			var routeErr error
-			validatorFn, routeErr = RouteValidator(art)
-			if routeErr != nil {
-				return ValidateResult{}, fmt.Errorf("routing artifact %s: %w", da.Path, routeErr)
-			}
+		// Route to the correct validator using schema_version metadata (REQ-001).
+		// Discovery determines which files to find; schema_version determines
+		// which validator handles them.
+		validatorFn, routeErr := RouteValidator(art)
+		if routeErr != nil {
+			return ValidateResult{}, fmt.Errorf("routing artifact %s: %w", da.Path, routeErr)
 		}
 
 		// Load schema from embedded FS (plans don't use schemas)
