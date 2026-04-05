@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,10 +18,20 @@ type ArtifactNewResult struct {
 	SchemaVersion string `json:"schema_version"`
 }
 
-// NewArtifactNewCommand creates the Cobra command for backstop artifact new.
-// It is a thin adapter: flag parsing, wiring, file I/O, and output formatting.
-// Template rendering and ID resolution are delegated to pkg/scaffold.
-func NewArtifactNewCommand(deps scaffold.ArtifactNewDeps) *cobra.Command {
+// NewArtifactNewCommand creates the Cobra command for backstop artifact new
+// using package-level defaults. It is a thin adapter: flag parsing, wiring,
+// file I/O, and output formatting. Template rendering and ID resolution are
+// delegated to pkg/scaffold.
+func NewArtifactNewCommand() *cobra.Command {
+	return newArtifactNewCommandWithDeps(scaffold.ArtifactNewDeps{
+		Executor:    &scaffold.RealGitExecutor{},
+		ProjectRoot: ".",
+	})
+}
+
+// newArtifactNewCommandWithDeps creates the command with injectable dependencies
+// for testing.
+func newArtifactNewCommandWithDeps(deps scaffold.ArtifactNewDeps) *cobra.Command {
 	var slugFlag string
 	var sourceFlag string
 	var jsonFlag bool
@@ -106,7 +115,7 @@ func NewArtifactNewCommand(deps scaffold.ArtifactNewDeps) *cobra.Command {
 				return fmt.Errorf("writing file %s: %w", filePath, err)
 			}
 
-			// Format output
+			// Format output using Formatter interface from output.go
 			result := ArtifactNewResult{
 				ArtifactType:  artifactType,
 				ID:            id,
@@ -114,15 +123,17 @@ func NewArtifactNewCommand(deps scaffold.ArtifactNewDeps) *cobra.Command {
 				SchemaVersion: "cli/v1",
 			}
 
+			var formatter ArtifactNewFormatter
 			if jsonFlag {
-				out, err := json.MarshalIndent(result, "", "  ")
-				if err != nil {
-					return err
-				}
-				cmd.Println(string(out))
+				formatter = &JSONArtifactNewFormatter{}
 			} else {
-				cmd.Printf("Created %s (ID: %s)\n", filePath, id)
+				formatter = &HumanArtifactNewFormatter{}
 			}
+			out, err := formatter.FormatNewResult(result)
+			if err != nil {
+				return err
+			}
+			cmd.Print(out)
 
 			return nil
 		},

@@ -125,6 +125,57 @@ func TestCLI_NoColor_OmitsANSI(t *testing.T) {
 	}
 }
 
+// --- ArtifactNewFormatter tests ---
+
+func TestJSONArtifactNewFormatter_FormatNewResult(t *testing.T) {
+	f := &JSONArtifactNewFormatter{}
+	result := ArtifactNewResult{
+		ArtifactType:  "spec",
+		ID:            "001",
+		FilePath:      "/tmp/specs/SPEC-001-my-spec.spec.md",
+		SchemaVersion: "cli/v1",
+	}
+	out, err := f.FormatNewResult(result)
+	if err != nil {
+		t.Fatalf("FormatNewResult error: %v", err)
+	}
+	if !json.Valid([]byte(strings.TrimSpace(out))) {
+		t.Errorf("output is not valid JSON: %s", out)
+	}
+	if !strings.Contains(out, "spec") {
+		t.Error("JSON output missing artifact type")
+	}
+	if !strings.Contains(out, "001") {
+		t.Error("JSON output missing ID")
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Error("JSON output missing schema_version")
+	}
+}
+
+func TestHumanArtifactNewFormatter_FormatNewResult(t *testing.T) {
+	f := &HumanArtifactNewFormatter{}
+	result := ArtifactNewResult{
+		ArtifactType:  "spec",
+		ID:            "001",
+		FilePath:      "/tmp/specs/SPEC-001-my-spec.spec.md",
+		SchemaVersion: "cli/v1",
+	}
+	out, err := f.FormatNewResult(result)
+	if err != nil {
+		t.Fatalf("FormatNewResult error: %v", err)
+	}
+	if !strings.Contains(out, "Created") {
+		t.Error("human output missing 'Created'")
+	}
+	if !strings.Contains(out, "001") {
+		t.Error("human output missing ID")
+	}
+	if !strings.Contains(out, "SPEC-001") {
+		t.Error("human output missing file path")
+	}
+}
+
 // TestCLI_NoColor_AllowsANSIWhenUnset unsets NO_COLOR, formats with
 // HumanFormatter, verifies ANSI codes may be present. (CLM-031)
 func TestCLI_NoColor_AllowsANSIWhenUnset(t *testing.T) {

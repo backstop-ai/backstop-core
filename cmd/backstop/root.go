@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/scaffold"
 	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -57,10 +56,7 @@ backstop by shelling out to CLI commands.`,
 	artifactValidateCmd := NewArtifactValidateCommand()
 	artifactValidateCmd.PersistentPreRunE = enforcementPreRun
 
-	artifactNewCmd := NewArtifactNewCommand(scaffold.ArtifactNewDeps{
-		Executor:    &scaffold.RealGitExecutor{},
-		ProjectRoot: ".",
-	})
+	artifactNewCmd := NewArtifactNewCommand()
 
 	artifactCmd.AddCommand(artifactValidateCmd, artifactNewCmd)
 

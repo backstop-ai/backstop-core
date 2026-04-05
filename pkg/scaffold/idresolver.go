@@ -229,35 +229,3 @@ func ResolveID(artifactType string, opts IDOptions) (string, error) {
 	return "", err
 }
 
-// RealGitExecutor shells out to git for real operations.
-type RealGitExecutor struct{}
-
-func (r *RealGitExecutor) ListTags(pattern string) ([]string, error) {
-	// Real implementation would exec: git tag -l <pattern>
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (r *RealGitExecutor) CreateAnnotatedTag(name, message string) error {
-	// Real implementation would exec: git tag -a <name> -m <message>
-	return fmt.Errorf("not implemented")
-}
-
-func (r *RealGitExecutor) PushTag(name string) error {
-	// Real implementation would exec: git push origin <name>
-	return fmt.Errorf("not implemented")
-}
-
-func (r *RealGitExecutor) FetchTags() error {
-	// Real implementation would exec: git fetch --tags
-	return fmt.Errorf("not implemented")
-}
-
-func (r *RealGitExecutor) IsGitRepo() bool {
-	// Real implementation would exec: git rev-parse --is-inside-work-tree
-	return false
-}
-
-func (r *RealGitExecutor) IsGitAvailable() bool {
-	// Real implementation would check: which git
-	return false
-}

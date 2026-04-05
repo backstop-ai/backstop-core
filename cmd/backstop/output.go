@@ -9,6 +9,31 @@ import (
 	"github.com/bmanson/backstop-core/pkg/validate"
 )
 
+// ArtifactNewFormatter formats artifact new results for output.
+type ArtifactNewFormatter interface {
+	FormatNewResult(result ArtifactNewResult) (string, error)
+}
+
+// JSONArtifactNewFormatter formats artifact new results as JSON.
+type JSONArtifactNewFormatter struct{}
+
+// FormatNewResult serializes the result to indented JSON.
+func (f *JSONArtifactNewFormatter) FormatNewResult(result ArtifactNewResult) (string, error) {
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("formatting JSON output: %w", err)
+	}
+	return string(data) + "\n", nil
+}
+
+// HumanArtifactNewFormatter formats artifact new results as human-readable text.
+type HumanArtifactNewFormatter struct{}
+
+// FormatNewResult formats the result for human consumption.
+func (f *HumanArtifactNewFormatter) FormatNewResult(result ArtifactNewResult) (string, error) {
+	return fmt.Sprintf("Created %s (ID: %s)\n", result.FilePath, result.ID), nil
+}
+
 // Formatter is the output formatting contract for JSON and human modes.
 type Formatter interface {
 	FormatResult(result validate.ValidationResult) (string, error)

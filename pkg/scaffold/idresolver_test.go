@@ -382,3 +382,38 @@ func TestArtifactNew_ResolveID_RetriesExhausted(t *testing.T) {
 		t.Fatalf("expected RetriesExhaustedError, got %T: %v", err, err)
 	}
 }
+
+// --- Error() method coverage ---
+
+func TestTagConflictError_Error(t *testing.T) {
+	err := &TagConflictError{Tag: "backstop/spec/001"}
+	msg := err.Error()
+	if !strings.Contains(msg, "backstop/spec/001") {
+		t.Fatalf("expected tag name in error message, got %q", msg)
+	}
+	if !strings.Contains(msg, "tag conflict") {
+		t.Fatalf("expected 'tag conflict' in error message, got %q", msg)
+	}
+}
+
+func TestFallbackError_Error(t *testing.T) {
+	err := &FallbackError{Reason: "git not available"}
+	msg := err.Error()
+	if !strings.Contains(msg, "git not available") {
+		t.Fatalf("expected reason in error message, got %q", msg)
+	}
+	if !strings.Contains(msg, "falling back") {
+		t.Fatalf("expected 'falling back' in error message, got %q", msg)
+	}
+}
+
+func TestRetriesExhaustedError_Error(t *testing.T) {
+	err := &RetriesExhaustedError{Attempts: 4}
+	msg := err.Error()
+	if !strings.Contains(msg, "4") {
+		t.Fatalf("expected attempt count in error message, got %q", msg)
+	}
+	if !strings.Contains(msg, "retries exhausted") {
+		t.Fatalf("expected 'retries exhausted' in error message, got %q", msg)
+	}
+}

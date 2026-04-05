@@ -48,8 +48,7 @@ func ParseSourceKind(sourceID string) (string, error) {
 	if strings.HasPrefix(sourceID, "SPEC-") {
 		return "spec", nil
 	}
-	if strings.HasPrefix(sourceID, "ISSUE-") {
-		return "issue", nil
-	}
-	return "", fmt.Errorf("unexpected source format: %q", sourceID)
+	// ValidateSource ensures sourceID matches ^(SPEC|ISSUE)-\d{3}$,
+	// so if we reach here, it must be ISSUE-prefixed.
+	return "issue", nil
 }

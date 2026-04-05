@@ -27,7 +27,7 @@ func runArtifactNewTest(t *testing.T, tc artifactNewTestCase) (int, string) {
 		projectDir = t.TempDir()
 	}
 
-	cmd := NewArtifactNewCommand(scaffold.ArtifactNewDeps{
+	cmd := newArtifactNewCommandWithDeps(scaffold.ArtifactNewDeps{
 		Executor:    tc.executor,
 		ProjectRoot: projectDir,
 		DateFunc:    func() string { return "2026-04-04" },

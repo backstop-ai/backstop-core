@@ -113,6 +113,37 @@ func TestArtifactNew_OfflineFallback_PushUnreachableRemote(t *testing.T) {
 	}
 }
 
+func TestArtifactNew_OfflineFallback_DirectoryWithSubdirs(t *testing.T) {
+	// Test that local scan handles subdirectories correctly (skips them)
+	tmpDir := t.TempDir()
+	specsDir := filepath.Join(tmpDir, "specs")
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a subdirectory that should be skipped
+	if err := os.MkdirAll(filepath.Join(specsDir, "SPEC-999-subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a valid artifact file
+	if err := os.WriteFile(filepath.Join(specsDir, "SPEC-001-foo.spec.md"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Create a file that doesn't match the pattern
+	if err := os.WriteFile(filepath.Join(specsDir, "README.md"), []byte("readme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &LocalScanResolver{}
+	id, err := resolver.Resolve("spec", specsDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should be 002 (next after 001), ignoring the subdir and non-matching file
+	if id != "002" {
+		t.Fatalf("expected id '002', got %q", id)
+	}
+}
+
 func TestArtifactNew_OfflineFallback_PushPermissionError(t *testing.T) {
 	mock := &mockGitExecutor{
 		tags:        []string{},
