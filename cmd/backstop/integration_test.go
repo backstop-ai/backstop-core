@@ -206,7 +206,7 @@ func TestIntegration_ArtifactNew_ScaffoldsSpec(t *testing.T) {
 	}
 	dir := setupTestDir(t, minimalBackstopYML)
 
-	out, exitCode := runBinary(t, dir, "artifact", "new", "--json", "spec")
+	out, exitCode := runBinary(t, dir, "artifact", "new", "--json", "--slug", "test-spec", "spec")
 	if exitCode != 0 && exitCode != 1 {
 		t.Fatalf("expected exit code 0 or 1, got %d\noutput: %s", exitCode, out)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/bmanson/backstop-core/pkg/scaffold"
 	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -56,16 +57,10 @@ backstop by shelling out to CLI commands.`,
 	artifactValidateCmd := NewArtifactValidateCommand()
 	artifactValidateCmd.PersistentPreRunE = enforcementPreRun
 
-	artifactNewCmd := &cobra.Command{
-		Use:   "new [type]",
-		Short: "Scaffold a new artifact",
-		Long:  "Creates a new backstop artifact from a template with an auto-assigned ID. Supported types include spec, plan, adr, standard, and bundle.",
-		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := validate.ValidationResult{}
-			return outputResult(cmd, &jsonFlag, result)
-		},
-	}
+	artifactNewCmd := NewArtifactNewCommand(scaffold.ArtifactNewDeps{
+		Executor:    &scaffold.RealGitExecutor{},
+		ProjectRoot: ".",
+	})
 
 	artifactCmd.AddCommand(artifactValidateCmd, artifactNewCmd)
 

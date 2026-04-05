@@ -379,7 +379,7 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 		want string
 	}{
 		{name: "artifact validate", args: []string{"artifact", "validate", "sample.md", "--json"}, want: "\"pass\": true"},
-		{name: "artifact new", args: []string{"artifact", "new", "spec", "--json"}, want: "\"pass\": true"},
+		{name: "artifact new", args: []string{"artifact", "new", "spec", "--slug", "test-stub", "--json"}, want: "\"artifact_type\""},
 		{name: "code check", args: []string{"code", "check", "--json"}, want: "\"pass\": true"},
 		{name: "pack compile", args: []string{"pack", "compile", "--json"}, want: "\"pass\": true"},
 		{name: "gate", args: []string{"gate", "--json"}, want: "\"pass\": true"},
