@@ -316,14 +316,22 @@ claims:
 contracts:
   - file: cmd/backstop/pack_compile.go
     provides:
-      - name: packCompileCmd
-        kind: variable
-        signature: "var packCompileCmd *cobra.Command"
-        notes: "Cobra command for backstop pack compile. Registered under the pack namespace."
-      - name: runPackCompile
+      - name: newPackCompileCommand
         kind: function
-        signature: "func runPackCompile(cmd *cobra.Command, args []string) error"
-        notes: "Command handler — discovers standards, compiles each, aggregates results, formats output."
+        signature: "func newPackCompileCommand(jsonFlag *bool) *cobra.Command"
+        notes: "Factory for Cobra pack compile command. Takes shared --json flag pointer."
+      - name: runPackCompileWithOpts
+        kind: function
+        signature: "func runPackCompileWithOpts(opts packCompileOpts) (*PackCompileResult, error)"
+        notes: "Testable core — receives resolved options, returns typed result."
+      - name: packCompileOpts
+        kind: type
+        signature: "type packCompileOpts struct"
+        notes: "Resolved options for pack compile run: projectRoot, standardsDirs, outputDir, jsonOutput, schemaSource."
+      - name: PackCompileResult
+        kind: type
+        signature: "type PackCompileResult struct"
+        notes: "Aggregated compilation results. Does not carry schema_version (added by JSON envelope)."
     consumes:
       - source: pkg/compile
         name: Compile
@@ -333,6 +341,21 @@ contracts:
         kind: type
       - source: pkg/compile
         name: CompileResult
+        kind: type
+      - source: pkg/compile
+        name: SchemaSource
+        kind: interface
+      - source: pkg/config
+        name: LoadConfig
+        kind: function
+      - source: pkg/config
+        name: Config
+        kind: type
+      - source: pkg/schema
+        name: LoadArtifactSchema
+        kind: function
+      - source: pkg/schema
+        name: Schema
         kind: type
 
   - file: cmd/backstop/discover.go
