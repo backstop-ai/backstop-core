@@ -96,7 +96,8 @@ func formatJSON(result *Result) (string, error) {
 }
 
 func formatHuman(result *Result) string {
-	useColor := os.Getenv("NO_COLOR") == ""
+	_, noColorSet := os.LookupEnv("NO_COLOR")
+	useColor := !noColorSet
 	var sb strings.Builder
 
 	violations := result.AllViolations()

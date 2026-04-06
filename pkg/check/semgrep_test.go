@@ -243,6 +243,50 @@ func TestCodeCheck_Semgrep_DegradedError_Message(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_DefaultSemgrepInstaller_ExistsAt verifies ExistsAt for real filesystem.
+func TestCodeCheck_DefaultSemgrepInstaller_ExistsAt(t *testing.T) {
+	d := &DefaultSemgrepInstaller{}
+
+	// Non-existent backstop dir — should return false
+	path, exists := d.ExistsAt("/nonexistent/.backstop")
+	if exists {
+		t.Errorf("expected false for non-existent dir, got path=%q", path)
+	}
+
+	// Create a fake semgrep binary
+	dir := t.TempDir()
+	toolsDir := filepath.Join(dir, "tools")
+	os.MkdirAll(toolsDir, 0o755)
+	os.WriteFile(filepath.Join(toolsDir, "semgrep"), []byte("fake"), 0o755)
+
+	path, exists = d.ExistsAt(dir)
+	if !exists {
+		t.Error("expected true for existing semgrep binary")
+	}
+	if path == "" {
+		t.Error("expected non-empty path")
+	}
+}
+
+// TestCodeCheck_DefaultSemgrepInstaller_LookPath verifies LookPath delegates to exec.LookPath.
+func TestCodeCheck_DefaultSemgrepInstaller_LookPath(t *testing.T) {
+	d := &DefaultSemgrepInstaller{}
+	// Look for a binary that definitely exists (go)
+	path, err := d.LookPath("go")
+	if err != nil {
+		t.Skipf("go not on PATH (unexpected in Go test): %v", err)
+	}
+	if path == "" {
+		t.Error("expected non-empty path for 'go'")
+	}
+
+	// Look for a binary that doesn't exist
+	_, err = d.LookPath("nonexistent-binary-backstop-test")
+	if err == nil {
+		t.Error("expected error for nonexistent binary")
+	}
+}
+
 // --- Test helpers ---
 
 type execNotFoundError struct {

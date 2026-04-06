@@ -197,14 +197,28 @@ func (e *Engine) applicableChecks(files []string) map[CheckType]bool {
 // RunOptions extends Options with injectable dependencies for testing.
 type RunOptions struct {
 	Options
-	Git       GitExecutor
-	Executors map[CheckType]PassExecutor
+	Git             GitExecutor
+	Executors       map[CheckType]PassExecutor
+	SemgrepEnsurer  SemgrepEnsurer
 }
 
 // Run executes validation passes against the given scope and returns
 // aggregated results. This is the top-level entry point.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	return RunWith(ctx, RunOptions{Options: opts})
+}
+
+// SemgrepEnsurer abstracts semgrep availability checking for testability.
+type SemgrepEnsurer interface {
+	EnsureSemgrep(backstopDir string, pinnedVersion string) (string, error)
+}
+
+// DefaultSemgrepEnsurer uses the real EnsureSemgrep function.
+type DefaultSemgrepEnsurer struct{}
+
+// EnsureSemgrep calls the package-level EnsureSemgrep function.
+func (d *DefaultSemgrepEnsurer) EnsureSemgrep(backstopDir string, pinnedVersion string) (string, error) {
+	return EnsureSemgrep(backstopDir, pinnedVersion)
 }
 
 // RunWith is the testable entry point with injectable dependencies.
@@ -244,6 +258,30 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 		return nil, err
 	}
 
+	// Ensure semgrep is available before running passes (Fix #1)
+	ensurer := opts.SemgrepEnsurer
+	if ensurer == nil {
+		ensurer = &DefaultSemgrepEnsurer{}
+	}
+
+	if opts.BackstopDir != "" {
+		_, semgrepErr := ensurer.EnsureSemgrep(opts.BackstopDir, opts.PinnedSemgrepVersion)
+		if semgrepErr != nil {
+			switch semgrepErr.(type) {
+			case *ConfigError:
+				// Version mismatch — hard stop, propagate
+				return nil, semgrepErr
+			case *DegradedError:
+				// Install failure — skip semgrep with warning
+				result.Warnings = append(result.Warnings, semgrepErr.Error())
+				// Remove semgrep executor so the engine skips it
+				if opts.Executors != nil {
+					delete(opts.Executors, CheckTypeSemgrep)
+				}
+			}
+		}
+	}
+
 	// Build engine
 	executors := opts.Executors
 	if executors == nil {
@@ -260,8 +298,8 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 		return nil, err
 	}
 
-	// Merge scope warnings with engine warnings
-	engineResult.Warnings = append(scopeWarnings, engineResult.Warnings...)
+	// Merge all accumulated warnings (scope + semgrep) with engine warnings
+	engineResult.Warnings = append(result.Warnings, engineResult.Warnings...)
 
 	return engineResult, nil
 }

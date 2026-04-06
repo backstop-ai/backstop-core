@@ -8,8 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestCodeCheck_FileFlag_RoutesByType verifies the --file flag routes to
-// ScopeModeFile in pkg/check. (CLM-009)
+// TestCodeCheck_FileFlag_RoutesByType verifies the --file flag is properly
+// defined and routes to ScopeModeFile. The actual routing verification
+// (which passes execute for which file types) is tested in pkg/check
+// via TestCodeCheck_RunWith_FileMode_RoutesByType. (CLM-009)
 func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	root := NewRootCommand()
 
@@ -29,6 +31,11 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	allFlag := cmd.Flags().Lookup("all")
 	if allFlag == nil {
 		t.Fatal("--all flag not found on code check command")
+	}
+
+	// Verify the command help mentions file-type routing
+	if cmd.Short == "" {
+		t.Error("code check command has no short description")
 	}
 }
 

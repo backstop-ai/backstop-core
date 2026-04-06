@@ -206,9 +206,14 @@ func TestCodeCheck_Concurrent_IndependentOutput(t *testing.T) {
 }
 
 // TestCodeCheck_Concurrent_SemgrepInstallIdempotent launches concurrent
-// EnsureSemgrep calls and verifies only one install occurs. (CLM-033)
+// ensureSemgrepWith calls using a real temp directory for locking and verifies
+// only one goroutine actually performs the install. (CLM-033)
 func TestCodeCheck_Concurrent_SemgrepInstallIdempotent(t *testing.T) {
 	const goroutines = 5
+
+	// Use a real temp directory for the lock file
+	dir := t.TempDir()
+	backstopDir := dir
 
 	var mu sync.Mutex
 	installCount := 0
@@ -217,12 +222,12 @@ func TestCodeCheck_Concurrent_SemgrepInstallIdempotent(t *testing.T) {
 		lookPathFn: func(name string) (string, error) {
 			return "", &execNotFoundError{name: name}
 		},
-		existsAtFn: func(backstopDir string) (string, bool) {
+		existsAtFn: func(bDir string) (string, bool) {
 			mu.Lock()
 			defer mu.Unlock()
-			// After first install, report as existing
+			// After first install completes, report as existing
 			if installCount > 0 {
-				return "/fake/semgrep", true
+				return bDir + "/tools/semgrep", true
 			}
 			return "", false
 		},
@@ -230,9 +235,9 @@ func TestCodeCheck_Concurrent_SemgrepInstallIdempotent(t *testing.T) {
 			mu.Lock()
 			installCount++
 			mu.Unlock()
-			// Simulate some work
-			time.Sleep(10 * time.Millisecond)
-			return "/fake/semgrep", nil
+			// Simulate install work
+			time.Sleep(50 * time.Millisecond)
+			return targetDir + "/tools/semgrep", nil
 		},
 		versionFn: func(binPath string) (string, error) {
 			return "1.50.0", nil
@@ -247,13 +252,14 @@ func TestCodeCheck_Concurrent_SemgrepInstallIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			paths[idx], errs[idx] = ensureSemgrepWith("/fake/.backstop", "1.50.0", installer)
+			paths[idx], errs[idx] = ensureSemgrepWith(backstopDir, "1.50.0", installer)
 		}(i)
 	}
 
 	wg.Wait()
 
-	// All calls should succeed (either via install or existsAt)
+	// Count successes — all should succeed (one via install, others via existsAt
+	// or lock contention fallback to existsAt)
 	successCount := 0
 	for i := 0; i < goroutines; i++ {
 		if errs[i] == nil {
@@ -262,6 +268,17 @@ func TestCodeCheck_Concurrent_SemgrepInstallIdempotent(t *testing.T) {
 	}
 	if successCount == 0 {
 		t.Error("no successful semgrep resolutions")
+	}
+
+	// The lock ensures only one goroutine runs Install. Others either:
+	// - See the binary via existsAt (after install finishes)
+	// - Get a lock contention error and fall back to existsAt check
+	// Install should have been called exactly once (due to locking)
+	mu.Lock()
+	ic := installCount
+	mu.Unlock()
+	if ic != 1 {
+		t.Errorf("install was called %d times, want exactly 1 (lock should serialize)", ic)
 	}
 
 	// Verify paths are non-empty for successful calls

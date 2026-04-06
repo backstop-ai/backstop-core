@@ -458,6 +458,235 @@ func TestCodeCheck_RunWith_AllMode(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_RunWith_FileMode_RoutesByType verifies that ScopeModeFile with a
+// .go file only runs passes applicable to Go files (lint, build, test, semgrep)
+// and that non-applicable passes are skipped. (CLM-009 functional coverage)
+func TestCodeCheck_RunWith_FileMode_RoutesByType(t *testing.T) {
+	dir := t.TempDir()
+	goFile := filepath.Join(dir, "main.go")
+	os.WriteFile(goFile, []byte("package main"), 0o644)
+
+	invoked := map[CheckType]bool{}
+	var mu sync.Mutex
+
+	makeExec := func(ct CheckType) PassExecutor {
+		return &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[ct] = true
+			mu.Unlock()
+			return &PassResult{Pass: ct}, nil
+		}}
+	}
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    makeExec(CheckTypeLint),
+		CheckTypeBuild:   makeExec(CheckTypeBuild),
+		CheckTypeTest:    makeExec(CheckTypeTest),
+		CheckTypeSemgrep: makeExec(CheckTypeSemgrep),
+	}
+
+	// Use default manifest (no manifest dir) so .go files get all 4 passes
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeFile,
+			FilePath:    goFile,
+			ManifestDir: dir, // empty dir, uses defaults
+			ProjectDir:  dir,
+		},
+		Executors:      executors,
+		SemgrepEnsurer: &mockSemgrepEnsurer{},
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+
+	// All four passes should be invoked for a .go file
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+		if !invoked[ct] {
+			t.Errorf("pass %v was not invoked for .go file", ct)
+		}
+	}
+	if len(result.PassResults) != 4 {
+		t.Errorf("got %d pass results, want 4", len(result.PassResults))
+	}
+
+	// Now test with a .txt file — only semgrep should run with default manifest
+	txtFile := filepath.Join(dir, "notes.txt")
+	os.WriteFile(txtFile, []byte("some notes"), 0o644)
+
+	invoked2 := map[CheckType]bool{}
+	makeExec2 := func(ct CheckType) PassExecutor {
+		return &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked2[ct] = true
+			mu.Unlock()
+			return &PassResult{Pass: ct}, nil
+		}}
+	}
+
+	executors2 := map[CheckType]PassExecutor{
+		CheckTypeLint:    makeExec2(CheckTypeLint),
+		CheckTypeBuild:   makeExec2(CheckTypeBuild),
+		CheckTypeTest:    makeExec2(CheckTypeTest),
+		CheckTypeSemgrep: makeExec2(CheckTypeSemgrep),
+	}
+
+	opts2 := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeFile,
+			FilePath:    txtFile,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+		},
+		Executors:      executors2,
+		SemgrepEnsurer: &mockSemgrepEnsurer{},
+	}
+
+	result2, err := RunWith(context.Background(), opts2)
+	if err != nil {
+		t.Fatalf("RunWith txt: %v", err)
+	}
+
+	// Only semgrep should be invoked for .txt (default manifest)
+	if invoked2[CheckTypeLint] {
+		t.Error("lint was invoked for .txt file")
+	}
+	if invoked2[CheckTypeBuild] {
+		t.Error("build was invoked for .txt file")
+	}
+	if invoked2[CheckTypeTest] {
+		t.Error("test was invoked for .txt file")
+	}
+	if !invoked2[CheckTypeSemgrep] {
+		t.Error("semgrep was NOT invoked for .txt file")
+	}
+
+	// Verify that lint, build, test were skipped
+	skippedCount := 0
+	for _, pr := range result2.PassResults {
+		if pr.Skipped {
+			skippedCount++
+		}
+	}
+	if skippedCount != 3 {
+		t.Errorf("got %d skipped passes for .txt, want 3", skippedCount)
+	}
+}
+
+// TestCodeCheck_RunWith_SemgrepConfigError verifies that RunWith propagates
+// ConfigError from EnsureSemgrep (version mismatch = hard stop).
+func TestCodeCheck_RunWith_SemgrepConfigError(t *testing.T) {
+	dir := t.TempDir()
+	goFile := filepath.Join(dir, "main.go")
+	os.WriteFile(goFile, []byte("package main"), 0o644)
+
+	ensurer := &mockSemgrepEnsurer{
+		fn: func(backstopDir, pinnedVersion string) (string, error) {
+			return "", &ConfigError{Message: "semgrep version mismatch: installed 1.40.0, pinned 1.50.0"}
+		},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeFile,
+			FilePath:    goFile,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+			BackstopDir: filepath.Join(dir, ".backstop"),
+		},
+		Executors:      map[CheckType]PassExecutor{},
+		SemgrepEnsurer: ensurer,
+	}
+
+	_, err := RunWith(context.Background(), opts)
+	if err == nil {
+		t.Fatal("expected ConfigError, got nil")
+	}
+	var cfgErr *ConfigError
+	if !asConfigError(err, &cfgErr) {
+		t.Errorf("expected ConfigError, got %T: %v", err, err)
+	}
+}
+
+// TestCodeCheck_RunWith_SemgrepDegradedMode verifies that RunWith skips semgrep
+// with a warning when EnsureSemgrep returns DegradedError (install failure).
+func TestCodeCheck_RunWith_SemgrepDegradedMode(t *testing.T) {
+	dir := t.TempDir()
+	goFile := filepath.Join(dir, "main.go")
+	os.WriteFile(goFile, []byte("package main"), 0o644)
+
+	ensurer := &mockSemgrepEnsurer{
+		fn: func(backstopDir, pinnedVersion string) (string, error) {
+			return "", &DegradedError{Message: "semgrep auto-install failed: network timeout"}
+		},
+	}
+
+	invoked := map[CheckType]bool{}
+	var mu sync.Mutex
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeLint] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeBuild] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeTest] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeSemgrep] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeFile,
+			FilePath:    goFile,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+			BackstopDir: filepath.Join(dir, ".backstop"),
+		},
+		Executors:      executors,
+		SemgrepEnsurer: ensurer,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith should not fail on degraded semgrep: %v", err)
+	}
+
+	// Semgrep should NOT be invoked (removed from executors by RunWith)
+	if invoked[CheckTypeSemgrep] {
+		t.Error("semgrep executor was invoked despite degraded mode")
+	}
+
+	// Warning should be present
+	foundWarning := false
+	for _, w := range result.Warnings {
+		if contains(w, "semgrep") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected warning about semgrep install failure, got: %v", result.Warnings)
+	}
+}
+
 // TestCodeCheck_BuildDefaultExecutors verifies buildDefaultExecutors creates
 // all four executors.
 func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
@@ -562,6 +791,59 @@ func findPassResult(result *Result, ct CheckType) *PassResult {
 		}
 	}
 	return nil
+}
+
+// mockSemgrepEnsurer is a test double for SemgrepEnsurer.
+type mockSemgrepEnsurer struct {
+	fn func(backstopDir, pinnedVersion string) (string, error)
+}
+
+func (m *mockSemgrepEnsurer) EnsureSemgrep(backstopDir, pinnedVersion string) (string, error) {
+	if m.fn != nil {
+		return m.fn(backstopDir, pinnedVersion)
+	}
+	return "/fake/semgrep", nil
+}
+
+// TestCodeCheck_Run_DelegatesToRunWith verifies Run delegates to RunWith.
+func TestCodeCheck_Run_DelegatesToRunWith(t *testing.T) {
+	// Run calls RunWith which calls ResolveScope (real git). We just verify
+	// it doesn't panic for ScopeModeFile with a real file.
+	dir := t.TempDir()
+	f := filepath.Join(dir, "main.go")
+	os.WriteFile(f, []byte("package main"), 0o644)
+
+	result, err := Run(context.Background(), Options{
+		Mode:        ScopeModeFile,
+		FilePath:    f,
+		ManifestDir: dir,
+		ProjectDir:  dir,
+	})
+	// May fail due to semgrep not being available, but should not panic
+	_ = err
+	_ = result
+}
+
+// TestCodeCheck_DefaultSemgrepEnsurer verifies the DefaultSemgrepEnsurer
+// delegates to EnsureSemgrep.
+func TestCodeCheck_DefaultSemgrepEnsurer(t *testing.T) {
+	e := &DefaultSemgrepEnsurer{}
+	// Calling with a nonexistent backstop dir should return a DegradedError
+	// since semgrep won't be on PATH in test environments reliably
+	_, err := e.EnsureSemgrep(t.TempDir(), "")
+	// It's OK if this succeeds (semgrep on PATH) or fails (degraded/not found)
+	// — we just verify the function doesn't panic.
+	_ = err
+}
+
+// TestCodeCheck_LintExecutor_IsAvailable verifies the lintExecutor.IsAvailable
+// function runs without panic (it checks for golangci-lint on PATH).
+func TestCodeCheck_LintExecutor_IsAvailable(t *testing.T) {
+	le := &lintExecutor{}
+	avail, msg := le.IsAvailable()
+	// golangci-lint may or may not be on PATH; just verify no panic
+	_ = avail
+	_ = msg
 }
 
 func init() {

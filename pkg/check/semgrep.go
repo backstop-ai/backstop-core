@@ -139,7 +139,32 @@ func ensureSemgrepWith(backstopDir string, pinnedVersion string, installer Semgr
 		return binPath, nil
 	}
 
-	// Step 3: Auto-install
+	// Step 3: Auto-install with lock for concurrent safety
+	unlock, lockErr := acquireSemgrepLock(backstopDir)
+	if lockErr != nil {
+		// Another process is installing — re-check if it finished
+		if binPath, exists := installer.ExistsAt(backstopDir); exists {
+			if pinnedVersion != "" {
+				installedVersion, verErr := installer.Version(binPath)
+				if verErr != nil {
+					return "", &DegradedError{
+						Message: fmt.Sprintf("semgrep at %s but cannot determine version: %v", binPath, verErr),
+					}
+				}
+				if installedVersion != pinnedVersion {
+					return "", &ConfigError{
+						Message: fmt.Sprintf("semgrep version mismatch: installed %s, pinned %s", installedVersion, pinnedVersion),
+					}
+				}
+			}
+			return binPath, nil
+		}
+		return "", &DegradedError{
+			Message: fmt.Sprintf("semgrep auto-install failed (lock contention): %v", lockErr),
+		}
+	}
+	defer unlock()
+
 	binPath, err := installer.Install(backstopDir, pinnedVersion)
 	if err != nil {
 		// Install failure is degraded mode, not config error
