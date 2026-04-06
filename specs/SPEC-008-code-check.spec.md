@@ -486,8 +486,8 @@ contracts:
     provides:
       - name: ResolveScope
         kind: function
-        signature: "func ResolveScope(mode ScopeMode, filePath string) ([]string, error)"
-        notes: "Resolves the list of files to check based on mode (diff, all, file)"
+        signature: "func ResolveScope(mode ScopeMode, filePath string) ([]string, []string, error)"
+        notes: "Resolves the list of files to check based on mode (diff, all, file). Second return is warnings (e.g., remote fallback notices)."
       - name: ScopeMode
         kind: type
         signature: "type ScopeMode int"
