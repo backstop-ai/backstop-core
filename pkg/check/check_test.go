@@ -458,10 +458,10 @@ func TestCodeCheck_RunWith_AllMode(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_RunWith_FileMode_RoutesByType verifies that ScopeModeFile with a
+// TestCodeCheck_FileFlag_RoutesByType verifies that ScopeModeFile with a
 // .go file only runs passes applicable to Go files (lint, build, test, semgrep)
 // and that non-applicable passes are skipped. (CLM-009 functional coverage)
-func TestCodeCheck_RunWith_FileMode_RoutesByType(t *testing.T) {
+func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	dir := t.TempDir()
 	goFile := filepath.Join(dir, "main.go")
 	os.WriteFile(goFile, []byte("package main"), 0o644)

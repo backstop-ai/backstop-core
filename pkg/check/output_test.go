@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // TestCodeCheck_Output_JSONWithSchemaVersion verifies JSON output includes
@@ -180,10 +182,10 @@ func TestCodeCheck_ExitCode_2OnMissingBackstopDir(t *testing.T) {
 // any pass executes. When .backstop/ is missing (config invalid), no passes
 // should execute. (CLM-034)
 func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
+	// Verify that ValidateBackstopDir returns ConfigError when .backstop/ is
+	// missing, which prevents pass execution in the cmd layer.
 	dir := t.TempDir() // no .backstop/ directory
 
-	// ValidateBackstopDir should return ConfigError — this gate runs before
-	// any check passes in the cmd handler (code_check.go step 3).
 	err := ValidateBackstopDir(dir)
 	if err == nil {
 		t.Fatal("expected ConfigError for missing .backstop dir")
@@ -194,10 +196,28 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 		t.Fatalf("expected ConfigError, got %T: %v", err, err)
 	}
 
-	// Verify that RunWith returns no pass results when scope is empty
-	// (simulating the case where config error prevents execution).
-	git := &mockGitExecutor{isGitRepo: false}
-	emptyDir := t.TempDir()
+	// Verify this produces exit code 2 (config error blocks execution)
+	exitCode := DetermineExitCode(nil, err, false)
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2 for config error, got %d", exitCode)
+	}
+
+	// Now verify that with a valid .backstop/ dir, passes DO execute
+	validDir := t.TempDir()
+	if mkErr := os.MkdirAll(filepath.Join(validDir, ".backstop", "rules"), 0o755); mkErr != nil {
+		t.Fatal(mkErr)
+	}
+
+	validErr := ValidateBackstopDir(validDir)
+	if validErr != nil {
+		t.Fatalf("expected no error for valid .backstop dir, got: %v", validErr)
+	}
+
+	// Add a Go file so scope resolution finds something
+	if err := os.WriteFile(filepath.Join(validDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	invoked := false
 	executors := map[CheckType]PassExecutor{
 		CheckTypeLint: &mockPassExecutor{fn: func(_ context.Context, _ []string) (*PassResult, error) {
@@ -208,25 +228,22 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 
 	opts := RunOptions{
 		Options: Options{
-			Mode:       ScopeModeDiff,
-			ProjectDir: emptyDir,
+			Mode:       ScopeModeAll,
+			ProjectDir: validDir,
 		},
-		Git:            git,
+		Git:            &mockGitExecutor{isGitRepo: false},
 		Executors:      executors,
 		SemgrepEnsurer: &mockSemgrepEnsurer{},
 	}
 
-	result, runErr := RunWith(context.Background(), opts)
+	_, runErr := RunWith(context.Background(), opts)
 	if runErr != nil {
 		t.Fatalf("RunWith: %v", runErr)
 	}
 
-	// The config error (from ValidateBackstopDir) would prevent RunWith from
-	// being called in the real flow. RunWith itself may process files found
-	// by the all-scope fallback, but the cmd layer gate ensures config is
-	// validated first. We verify the gate function returns ConfigError above.
-	_ = result
-	_ = invoked
+	if !invoked {
+		t.Error("expected pass executor to be invoked when config is valid")
+	}
 }
 
 // TestCodeCheck_Config_MissingYmlExitCode2 verifies missing backstop.yml
@@ -362,37 +379,32 @@ func TestCodeCheck_Output_InvalidMode(t *testing.T) {
 // TestCodeCheck_Config_EnvVarOverride verifies BACKSTOP_CONFIG env var
 // overrides walk-up discovery. (CLM-036)
 func TestCodeCheck_Config_EnvVarOverride(t *testing.T) {
-	// Create a custom config file in a non-standard location
+	// Create a backstop.yml in a non-standard location
 	customDir := t.TempDir()
-	customConfig := filepath.Join(customDir, "custom-backstop.yml")
-	os.WriteFile(customConfig, []byte("version: \"1\"\n"), 0o644)
+	customConfig := filepath.Join(customDir, "backstop.yml")
+	if err := os.WriteFile(customConfig, []byte("project: custom\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a different backstop.yml in a "normal" location that walk-up would find
+	normalDir := t.TempDir()
+	normalConfig := filepath.Join(normalDir, "backstop.yml")
+	if err := os.WriteFile(normalConfig, []byte("project: normal\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Set BACKSTOP_CONFIG to the custom path
 	t.Setenv("BACKSTOP_CONFIG", customConfig)
 
-	// Use DiscoverConfigPath from config package to verify the env var is honored
-	// We import config indirectly by verifying the code_check.go handler uses
-	// config.LoadConfig which respects BACKSTOP_CONFIG. Here we test the
-	// integration point: the env var causes DiscoverConfigPath to return our path.
-	//
-	// Since this test is in pkg/check, we verify that the env var mechanism works
-	// by checking that the custom path is accessible and the override is used
-	// when the cmd layer constructs options.
-	//
-	// Structural verification: code_check.go calls config.LoadConfig() which
-	// calls DiscoverConfigPath() which checks BACKSTOP_CONFIG env var first.
-	// We verify the contract by checking that the env var is set and that
-	// building Options from it produces the expected BackstopDir.
-	projectRoot := filepath.Dir(customConfig)
-	opts := Options{
-		BackstopDir: filepath.Join(projectRoot, ".backstop"),
-		ManifestDir: filepath.Join(projectRoot, ".backstop", "rules"),
+	// Call the real config discovery function — it should use the env var
+	// override, not walk-up from normalDir
+	discoveredPath, err := config.DiscoverConfigPathFrom(normalDir)
+	if err != nil {
+		t.Fatalf("DiscoverConfigPathFrom: %v", err)
 	}
 
-	// The key assertion: when BACKSTOP_CONFIG is set, the project root
-	// derives from the config file location, not walk-up discovery.
-	expectedBackstopDir := filepath.Join(customDir, ".backstop")
-	if opts.BackstopDir != expectedBackstopDir {
-		t.Errorf("BackstopDir = %q, want %q (derived from BACKSTOP_CONFIG)", opts.BackstopDir, expectedBackstopDir)
+	// The discovered path should be the custom one, not the normal one
+	if discoveredPath != customConfig {
+		t.Errorf("expected config path %q (from BACKSTOP_CONFIG), got %q", customConfig, discoveredPath)
 	}
 }
