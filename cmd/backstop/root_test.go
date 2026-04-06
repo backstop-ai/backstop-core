@@ -371,6 +371,10 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "standards"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Create .backstop/rules/ dir so code check doesn't fail
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)

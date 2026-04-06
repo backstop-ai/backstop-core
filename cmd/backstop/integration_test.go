@@ -122,6 +122,11 @@ func TestIntegration_CodeCheck_RealGoFile(t *testing.T) {
 	}
 	dir := setupTestDir(t, minimalBackstopYML)
 
+	// Create .backstop/rules/ dir so code check doesn't fail
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	// Create a minimal Go file
 	goContent := `package main
 

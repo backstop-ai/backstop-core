@@ -1,0 +1,570 @@
+package check
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+)
+
+// TestCodeCheck_AllPassesRun verifies all four validation passes (lint, build,
+// test, semgrep) execute and produce violations. (CLM-001)
+func TestCodeCheck_AllPassesRun(t *testing.T) {
+	invoked := map[CheckType]bool{}
+	var mu sync.Mutex
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeLint] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeLint, Violations: []Violation{{Pass: CheckTypeLint, File: "a.go", Message: "lint-err"}}}, nil }},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeBuild] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeBuild, Violations: []Violation{{Pass: CheckTypeBuild, File: "a.go", Message: "build-err"}}}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeTest] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeTest, Violations: []Violation{{Pass: CheckTypeTest, File: "a.go", Message: "test-err"}}}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeSemgrep] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeSemgrep, Violations: []Violation{{Pass: CheckTypeSemgrep, File: "a.go", Message: "semgrep-err"}}}, nil }},
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  defaultManifest(),
+	}
+
+	result, err := engine.RunPasses(context.Background(), []string{"a.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+		if !invoked[ct] {
+			t.Errorf("pass %v was not invoked", ct)
+		}
+	}
+	if result.ViolationCount() != 4 {
+		t.Errorf("got %d violations, want 4", result.ViolationCount())
+	}
+}
+
+// TestCodeCheck_PassesContinueAfterViolation verifies all passes run even when
+// an earlier pass produces violations. (CLM-002)
+func TestCodeCheck_PassesContinueAfterViolation(t *testing.T) {
+	callOrder := []CheckType{}
+	var mu sync.Mutex
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			callOrder = append(callOrder, CheckTypeLint)
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeLint, Violations: []Violation{{Pass: CheckTypeLint, File: "a.go", Message: "lint-fail"}}}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			callOrder = append(callOrder, CheckTypeBuild)
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			callOrder = append(callOrder, CheckTypeTest)
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			callOrder = append(callOrder, CheckTypeSemgrep)
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  defaultManifest(),
+	}
+
+	result, err := engine.RunPasses(context.Background(), []string{"a.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(callOrder) != 4 {
+		t.Errorf("got %d passes executed, want 4", len(callOrder))
+	}
+	if result.ViolationCount() != 1 {
+		t.Errorf("got %d violations, want 1", result.ViolationCount())
+	}
+}
+
+// TestCodeCheck_NonApplicablePassSkipped verifies that non-applicable passes
+// are skipped silently. (CLM-003)
+func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
+	invoked := map[CheckType]bool{}
+	var mu sync.Mutex
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeLint] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeLint}, nil }},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeBuild] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeTest] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeSemgrep] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	// Manifest that only routes .py to semgrep
+	manifest := &Manifest{
+		rules: []ManifestRule{
+			{
+				Extensions: []string{".py"},
+				CheckTypes: []string{"semgrep"},
+				parsed:     []CheckType{CheckTypeSemgrep},
+			},
+		},
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  manifest,
+	}
+
+	result, err := engine.RunPasses(context.Background(), []string{"script.py"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only semgrep should have been invoked
+	if invoked[CheckTypeLint] {
+		t.Error("lint was invoked for .py file")
+	}
+	if invoked[CheckTypeBuild] {
+		t.Error("build was invoked for .py file")
+	}
+	if invoked[CheckTypeTest] {
+		t.Error("test was invoked for .py file")
+	}
+	if !invoked[CheckTypeSemgrep] {
+		t.Error("semgrep was NOT invoked for .py file")
+	}
+
+	// Check that skipped passes are recorded
+	skippedCount := 0
+	for _, pr := range result.PassResults {
+		if pr.Skipped {
+			skippedCount++
+		}
+	}
+	// lint, build, test should be skipped; only semgrep should run
+	if skippedCount != 3 {
+		t.Errorf("got %d skipped passes, want 3", skippedCount)
+	}
+}
+
+// TestCodeCheck_PassOrderLintBuildTestSemgrep verifies passes execute in the
+// order lint -> build -> test -> semgrep. (CLM-004)
+func TestCodeCheck_PassOrderLintBuildTestSemgrep(t *testing.T) {
+	order := []CheckType{}
+	var mu sync.Mutex
+
+	makeExecutor := func(ct CheckType) PassExecutor {
+		return &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			order = append(order, ct)
+			mu.Unlock()
+			return &PassResult{Pass: ct}, nil
+		}}
+	}
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    makeExecutor(CheckTypeLint),
+		CheckTypeBuild:   makeExecutor(CheckTypeBuild),
+		CheckTypeTest:    makeExecutor(CheckTypeTest),
+		CheckTypeSemgrep: makeExecutor(CheckTypeSemgrep),
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  defaultManifest(),
+	}
+
+	_, err := engine.RunPasses(context.Background(), []string{"main.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	if len(order) != 4 {
+		t.Fatalf("got %d passes, want 4", len(order))
+	}
+	for i, ct := range expected {
+		if order[i] != ct {
+			t.Errorf("pass[%d] = %v, want %v", i, order[i], ct)
+		}
+	}
+}
+
+// TestCodeCheck_Lint_SkippedWhenGolangciLintMissing verifies lint pass is
+// skipped with warning when golangci-lint is not on PATH. (CLM-042)
+func TestCodeCheck_Lint_SkippedWhenGolangciLintMissing(t *testing.T) {
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{available: false, unavailableMsg: "golangci-lint not found on PATH"},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  defaultManifest(),
+	}
+
+	result, err := engine.RunPasses(context.Background(), []string{"main.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Lint should be skipped
+	lintResult := findPassResult(result, CheckTypeLint)
+	if lintResult == nil {
+		t.Fatal("expected lint pass result")
+	}
+	if !lintResult.Skipped {
+		t.Error("lint pass should be skipped when golangci-lint missing")
+	}
+
+	// Warning should mention golangci-lint
+	if len(result.Warnings) == 0 {
+		t.Error("expected warning about missing golangci-lint")
+	}
+}
+
+// TestCodeCheck_Lint_OtherPassesContinueWithoutLint verifies build and test
+// passes still run when golangci-lint is not on PATH. (CLM-043)
+func TestCodeCheck_Lint_OtherPassesContinueWithoutLint(t *testing.T) {
+	invoked := map[CheckType]bool{}
+	var mu sync.Mutex
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint: &mockPassExecutor{available: false, unavailableMsg: "golangci-lint not found"},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeBuild] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeTest] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeSemgrep] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
+	}
+
+	engine := &Engine{
+		Executors: executors,
+		Manifest:  defaultManifest(),
+	}
+
+	_, err := engine.RunPasses(context.Background(), []string{"main.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, ct := range []CheckType{CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+		if !invoked[ct] {
+			t.Errorf("pass %v was not invoked despite lint being unavailable", ct)
+		}
+	}
+}
+
+// TestCodeCheck_RunWith_Integration verifies the full RunWith flow with mocked
+// dependencies.
+func TestCodeCheck_RunWith_Integration(t *testing.T) {
+	dir := t.TempDir()
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	git := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "abc123", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			return []string{"main.go"}, nil
+		},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeDiff,
+			ManifestDir: dir, // empty dir, uses defaults
+			ProjectDir:  dir,
+		},
+		Git:       git,
+		Executors: executors,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if result.HasViolations() {
+		t.Error("expected no violations")
+	}
+	if len(result.PassResults) != 4 {
+		t.Errorf("got %d pass results, want 4", len(result.PassResults))
+	}
+}
+
+// TestCodeCheck_RunWith_EmptyScope verifies RunWith with no files returns early.
+func TestCodeCheck_RunWith_EmptyScope(t *testing.T) {
+	git := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "abc123", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			return []string{}, nil // no changes
+		},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode: ScopeModeDiff,
+		},
+		Git: git,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if len(result.PassResults) != 0 {
+		t.Errorf("expected no pass results for empty scope, got %d", len(result.PassResults))
+	}
+}
+
+// TestCodeCheck_RunWith_Timeout verifies RunWith respects timeout option.
+func TestCodeCheck_RunWith_Timeout(t *testing.T) {
+	git := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "abc", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			return []string{"main.go"}, nil
+		},
+	}
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(5 * time.Second):
+				return &PassResult{Pass: CheckTypeLint}, nil
+			}
+		}},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	dir := t.TempDir()
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeDiff,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+			Timeout:     100 * time.Millisecond,
+		},
+		Git:       git,
+		Executors: executors,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if !result.HasViolations() {
+		t.Error("expected timeout violation")
+	}
+}
+
+// TestCodeCheck_RunWith_FileMode verifies RunWith with ScopeModeFile.
+func TestCodeCheck_RunWith_FileMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "main.go")
+	os.WriteFile(f, []byte("package main"), 0o644)
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeFile,
+			FilePath:    f,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+		},
+		Executors: executors,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if len(result.PassResults) == 0 {
+		t.Error("expected pass results for file mode")
+	}
+}
+
+// TestCodeCheck_RunWith_AllMode verifies RunWith with ScopeModeAll.
+func TestCodeCheck_RunWith_AllMode(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+
+	executors := map[CheckType]PassExecutor{
+		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
+		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
+		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+	}
+
+	opts := RunOptions{
+		Options: Options{
+			Mode:        ScopeModeAll,
+			ManifestDir: dir,
+			ProjectDir:  dir,
+		},
+		Executors: executors,
+	}
+
+	result, err := RunWith(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if len(result.PassResults) == 0 {
+		t.Error("expected pass results for all mode")
+	}
+}
+
+// TestCodeCheck_BuildDefaultExecutors verifies buildDefaultExecutors creates
+// all four executors.
+func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
+	opts := Options{
+		Mode:        ScopeModeDiff,
+		BackstopDir: "/fake/.backstop",
+	}
+	executors := buildDefaultExecutors(opts)
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+		if _, ok := executors[ct]; !ok {
+			t.Errorf("missing executor for %v", ct)
+		}
+	}
+}
+
+// TestCodeCheck_DefaultExecutors_IsAvailable verifies IsAvailable for default
+// executors.
+func TestCodeCheck_DefaultExecutors_IsAvailable(t *testing.T) {
+	// Build executor — go is always available
+	be := &buildExecutor{}
+	avail, _ := be.IsAvailable()
+	if !avail {
+		t.Error("buildExecutor should be available")
+	}
+
+	// Test executor — go is always available
+	te := &testExecutor{}
+	avail, _ = te.IsAvailable()
+	if !avail {
+		t.Error("testExecutor should be available")
+	}
+
+	// Semgrep executor — always reports available (handled by EnsureSemgrep)
+	se := &semgrepExecutor{}
+	avail, _ = se.IsAvailable()
+	if !avail {
+		t.Error("semgrepExecutor should be available")
+	}
+}
+
+// TestCodeCheck_DefaultExecutors_Execute verifies Execute for default executors
+// returns correct pass types.
+func TestCodeCheck_DefaultExecutors_Execute(t *testing.T) {
+	ctx := context.Background()
+	files := []string{"main.go"}
+
+	be := &buildExecutor{}
+	r, err := be.Execute(ctx, files)
+	if err != nil || r.Pass != CheckTypeBuild {
+		t.Errorf("buildExecutor: pass=%v err=%v", r.Pass, err)
+	}
+
+	te := &testExecutor{}
+	r, err = te.Execute(ctx, files)
+	if err != nil || r.Pass != CheckTypeTest {
+		t.Errorf("testExecutor: pass=%v err=%v", r.Pass, err)
+	}
+
+	se := &semgrepExecutor{}
+	r, err = se.Execute(ctx, files)
+	if err != nil || r.Pass != CheckTypeSemgrep {
+		t.Errorf("semgrepExecutor: pass=%v err=%v", r.Pass, err)
+	}
+
+	le := &lintExecutor{}
+	r, err = le.Execute(ctx, files)
+	if err != nil || r.Pass != CheckTypeLint {
+		t.Errorf("lintExecutor: pass=%v err=%v", r.Pass, err)
+	}
+}
+
+// --- Test helpers ---
+
+// mockPassExecutor implements PassExecutor for testing.
+type mockPassExecutor struct {
+	fn             func(ctx context.Context, files []string) (*PassResult, error)
+	available      bool
+	unavailableMsg string
+}
+
+func (m *mockPassExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
+	if m.fn != nil {
+		return m.fn(ctx, files)
+	}
+	return &PassResult{}, nil
+}
+
+func (m *mockPassExecutor) IsAvailable() (bool, string) {
+	if m.fn != nil && !m.available && m.unavailableMsg == "" {
+		return true, ""
+	}
+	if m.unavailableMsg != "" {
+		return false, m.unavailableMsg
+	}
+	return true, ""
+}
+
+func findPassResult(result *Result, ct CheckType) *PassResult {
+	for i := range result.PassResults {
+		if result.PassResults[i].Pass == ct {
+			return &result.PassResults[i]
+		}
+	}
+	return nil
+}
+
+func init() {
+	// Suppress unused import warning
+	_ = fmt.Sprintf
+}

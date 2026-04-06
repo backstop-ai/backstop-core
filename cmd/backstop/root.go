@@ -67,17 +67,7 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Commands for checking implementation code against security standards and enforcement rules.",
 	}
 
-	codeCheckCmd := &cobra.Command{
-		Use:   "check",
-		Short: "Check code against enforcement rules",
-		Long:  "Runs code analysis tools (e.g. semgrep) against implementation files and reports violations according to the active enforcement configuration.",
-		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := validate.ValidationResult{}
-			return outputResult(cmd, &jsonFlag, result)
-		},
-	}
-	codeCheckCmd.Flags().String("file", "", "File to check")
+	codeCheckCmd := newCodeCheckCommand(&jsonFlag)
 
 	codeCmd.AddCommand(codeCheckCmd)
 
