@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -313,6 +314,213 @@ func TestCodeCheck_SplitLines(t *testing.T) {
 		if len(got) != tc.want {
 			t.Errorf("splitLines(%q) = %d lines, want %d", tc.input, len(got), tc.want)
 		}
+	}
+}
+
+// TestCodeCheck_ScopeModeAll_EmptyProjectDir verifies resolveScopeAll returns
+// error when project directory is empty string.
+func TestCodeCheck_ScopeModeAll_EmptyProjectDir(t *testing.T) {
+	_, _, err := resolveScopeWithGit(ScopeModeAll, "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty project dir, got nil")
+	}
+}
+
+// TestCodeCheck_ScopeModeAll_HiddenDirsSkipped verifies resolveScopeAll skips
+// hidden directories (starting with dot).
+func TestCodeCheck_ScopeModeAll_HiddenDirsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	hiddenDir := filepath.Join(dir, ".hidden")
+	os.MkdirAll(hiddenDir, 0o755)
+	os.WriteFile(filepath.Join(hiddenDir, "secret.go"), []byte("package hidden"), 0o644)
+
+	files, _, err := resolveScopeWithGit(ScopeModeAll, "", nil, withProjectDir(dir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range files {
+		if filepath.Base(f) == "secret.go" {
+			t.Error("hidden directory file should be skipped")
+		}
+	}
+	if len(files) != 1 {
+		t.Errorf("got %d files, want 1 (only main.go)", len(files))
+	}
+}
+
+// TestCodeCheck_ScopeDiff_MergeBaseSucceedsDiffFails verifies that when
+// merge-base succeeds for origin/main but diff-name-only fails, falls through
+// to origin/master.
+func TestCodeCheck_ScopeDiff_MergeBaseSucceedsDiffFails(t *testing.T) {
+	calls := []string{}
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			calls = append(calls, "merge-base:"+remote)
+			return "abc123", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			calls = append(calls, "diff:"+base)
+			if len(calls) <= 2 {
+				// First diff call (for origin/main) fails
+				return nil, fmt.Errorf("diff failed")
+			}
+			// Second diff call (for origin/master) succeeds
+			return []string{"recovered.go"}, nil
+		},
+	}
+
+	files, _, err := resolveScopeWithGit(ScopeModeDiff, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 1 || files[0] != "recovered.go" {
+		t.Errorf("files = %v, want [recovered.go]", files)
+	}
+}
+
+// TestCodeCheck_ScopeDiff_AllRemotesFailDiffLocalFails verifies fallback to
+// all-scope when both remotes and local diff all fail.
+func TestCodeCheck_ScopeDiff_AllRemotesFailDiffLocalFails(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "", errNoRemote
+		},
+		diffLocalFn: func() ([]string, error) {
+			return nil, fmt.Errorf("local diff failed")
+		},
+	}
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", mock, withProjectDir(dir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Error("expected fallback to all-scope files, got none")
+	}
+	foundWarning := false
+	for _, w := range warnings {
+		if contains(w, "git diff failed") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected warning about git diff failure, got: %v", warnings)
+	}
+}
+
+// TestCodeCheck_ScopeDiff_NilGitExecutor verifies that nil git executor
+// triggers all-scope fallback.
+func TestCodeCheck_ScopeDiff_NilGitExecutor(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", nil, withProjectDir(dir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Error("expected files from all-scope fallback")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warning about non-git fallback")
+	}
+}
+
+// TestCodeCheck_Scope_UnknownMode verifies unknown scope mode returns error.
+func TestCodeCheck_Scope_UnknownMode(t *testing.T) {
+	_, _, err := resolveScopeWithGit(ScopeMode(99), "", nil)
+	if err == nil {
+		t.Fatal("expected error for unknown scope mode, got nil")
+	}
+}
+
+// TestCodeCheck_DefaultGitExecutor_IsGitRepo verifies IsGitRepo against real
+// git repos and non-repos.
+func TestCodeCheck_DefaultGitExecutor_IsGitRepo(t *testing.T) {
+	// The current project directory should be a git repo
+	g := &DefaultGitExecutor{Dir: "."}
+	if !g.IsGitRepo() {
+		t.Skip("test requires running inside a git repo")
+	}
+
+	// A temp dir is NOT a git repo
+	nonRepo := t.TempDir()
+	g2 := &DefaultGitExecutor{Dir: nonRepo}
+	if g2.IsGitRepo() {
+		t.Error("temp dir should not be a git repo")
+	}
+}
+
+// TestCodeCheck_DefaultGitExecutor_MergeBase verifies MergeBase with a
+// non-existent remote returns error.
+func TestCodeCheck_DefaultGitExecutor_MergeBase(t *testing.T) {
+	g := &DefaultGitExecutor{Dir: "."}
+	if !g.IsGitRepo() {
+		t.Skip("test requires running inside a git repo")
+	}
+
+	// Non-existent remote should fail
+	_, err := g.MergeBase("nonexistent-remote/nonexistent-branch")
+	if err == nil {
+		t.Error("expected error for non-existent remote, got nil")
+	}
+}
+
+// TestCodeCheck_DefaultGitExecutor_DiffNameOnly verifies DiffNameOnly with
+// a valid base commit.
+func TestCodeCheck_DefaultGitExecutor_DiffNameOnly(t *testing.T) {
+	g := &DefaultGitExecutor{Dir: "."}
+	if !g.IsGitRepo() {
+		t.Skip("test requires running inside a git repo")
+	}
+
+	// Use HEAD as base — should return empty diff
+	files, err := g.DiffNameOnly("HEAD")
+	if err != nil {
+		t.Fatalf("DiffNameOnly(HEAD): %v", err)
+	}
+	// HEAD..HEAD should be empty
+	_ = files
+}
+
+// TestCodeCheck_DefaultGitExecutor_DiffLocal verifies DiffLocal runs without error.
+func TestCodeCheck_DefaultGitExecutor_DiffLocal(t *testing.T) {
+	g := &DefaultGitExecutor{Dir: "."}
+	if !g.IsGitRepo() {
+		t.Skip("test requires running inside a git repo")
+	}
+
+	files, err := g.DiffLocal()
+	if err != nil {
+		t.Fatalf("DiffLocal: %v", err)
+	}
+	// Result is environment-dependent; just verify no error
+	_ = files
+}
+
+// TestCodeCheck_ResolveScope_ScopeModeFile verifies ResolveScope with
+// ScopeModeFile works for an existing file.
+func TestCodeCheck_ResolveScope_ScopeModeFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "test.go")
+	os.WriteFile(f, []byte("package main"), 0o644)
+
+	files, warnings, err := ResolveScope(ScopeModeFile, f)
+	if err != nil {
+		t.Fatalf("ResolveScope: %v", err)
+	}
+	if len(files) != 1 || files[0] != f {
+		t.Errorf("files = %v, want [%s]", files, f)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none", warnings)
 	}
 }
 

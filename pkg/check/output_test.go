@@ -376,6 +376,57 @@ func TestCodeCheck_Output_InvalidMode(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_Output_JSONNilWarnings verifies JSON output serializes nil
+// warnings as empty array, not null.
+func TestCodeCheck_Output_JSONNilWarnings(t *testing.T) {
+	result := &Result{
+		PassResults: []PassResult{
+			{Pass: CheckTypeLint},
+		},
+		Warnings: nil,
+	}
+
+	out, err := FormatResult(result, OutputModeJSON)
+	if err != nil {
+		t.Fatalf("FormatResult: %v", err)
+	}
+
+	var parsed JSONOutput
+	if jsonErr := json.Unmarshal([]byte(out), &parsed); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v", jsonErr)
+	}
+	if parsed.Warnings == nil {
+		t.Error("warnings should be empty array, not null")
+	}
+	if len(parsed.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d", len(parsed.Warnings))
+	}
+}
+
+// TestCodeCheck_Output_HumanViolationNoFile verifies human output handles
+// violations with empty file field.
+func TestCodeCheck_Output_HumanViolationNoFile(t *testing.T) {
+	result := &Result{
+		PassResults: []PassResult{
+			{Pass: CheckTypeLint, Violations: []Violation{
+				{Pass: CheckTypeLint, Message: "general lint error", Severity: "warning"},
+			}},
+		},
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	out, err := FormatResult(result, OutputModeHuman)
+	if err != nil {
+		t.Fatalf("FormatResult: %v", err)
+	}
+	if !strings.Contains(out, "(no file)") {
+		t.Errorf("expected (no file) placeholder, got: %s", out)
+	}
+	if !strings.Contains(out, "general lint error") {
+		t.Errorf("expected violation message in output, got: %s", out)
+	}
+}
+
 // TestCodeCheck_Config_EnvVarOverride verifies BACKSTOP_CONFIG env var
 // overrides walk-up discovery. (CLM-036)
 func TestCodeCheck_Config_EnvVarOverride(t *testing.T) {

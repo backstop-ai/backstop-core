@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -338,6 +339,205 @@ func (m *mockSemgrepInstaller) Version(binPath string) (string, error) {
 		return m.versionFn(binPath)
 	}
 	return "", nil
+}
+
+// TestCodeCheck_Semgrep_LockFailureFallbackExistsAt verifies that when lock
+// acquisition fails but the binary exists (installed by another process),
+// ensureSemgrepWith returns the existing binary.
+func TestCodeCheck_Semgrep_LockFailureFallbackExistsAt(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+	toolsDir := filepath.Join(backstopDir, "tools")
+	os.MkdirAll(toolsDir, 0o755)
+
+	// Hold the lock so ensureSemgrepWith can't acquire it
+	cleanup, err := acquireSemgrepLock(backstopDir)
+	if err != nil {
+		t.Fatalf("setup: acquireSemgrepLock: %v", err)
+	}
+	defer cleanup()
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "", &execNotFoundError{name: name}
+		},
+		existsAtFn: func(bDir string) (string, bool) {
+			// Simulate another process having installed it
+			return filepath.Join(bDir, "tools", "semgrep"), true
+		},
+		versionFn: func(binPath string) (string, error) {
+			return "1.50.0", nil
+		},
+	}
+
+	path, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	if ensureErr != nil {
+		t.Fatalf("expected success via lock-contention fallback, got: %v", ensureErr)
+	}
+	if path == "" {
+		t.Error("expected non-empty path")
+	}
+}
+
+// TestCodeCheck_Semgrep_LockFailureNoBinaryDegraded verifies that when lock
+// acquisition fails and no binary exists, ensureSemgrepWith returns DegradedError.
+func TestCodeCheck_Semgrep_LockFailureNoBinaryDegraded(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+	toolsDir := filepath.Join(backstopDir, "tools")
+	os.MkdirAll(toolsDir, 0o755)
+
+	// Hold the lock
+	cleanup, err := acquireSemgrepLock(backstopDir)
+	if err != nil {
+		t.Fatalf("setup: acquireSemgrepLock: %v", err)
+	}
+	defer cleanup()
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "", &execNotFoundError{name: name}
+		},
+		existsAtFn: func(bDir string) (string, bool) {
+			return "", false // no binary exists
+		},
+	}
+
+	_, ensureErr := ensureSemgrepWith(backstopDir, "", installer)
+	if ensureErr == nil {
+		t.Fatal("expected DegradedError, got nil")
+	}
+	var degradedErr *DegradedError
+	if !asDegradedError(ensureErr, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", ensureErr, ensureErr)
+	}
+}
+
+// TestCodeCheck_Semgrep_VersionParseFailureOnPath verifies that when semgrep
+// is on PATH but version check fails, ensureSemgrepWith returns DegradedError.
+func TestCodeCheck_Semgrep_VersionParseFailureOnPath(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "/usr/local/bin/semgrep", nil
+		},
+		versionFn: func(binPath string) (string, error) {
+			return "", fmt.Errorf("cannot parse version output")
+		},
+	}
+
+	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	if err == nil {
+		t.Fatal("expected error when version check fails, got nil")
+	}
+	var degradedErr *DegradedError
+	if !asDegradedError(err, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", err, err)
+	}
+}
+
+// TestCodeCheck_Semgrep_VersionParseFailureAtBackstop verifies that when
+// semgrep exists at .backstop/tools but version check fails, returns DegradedError.
+func TestCodeCheck_Semgrep_VersionParseFailureAtBackstop(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "", &execNotFoundError{name: name}
+		},
+		existsAtFn: func(bDir string) (string, bool) {
+			return filepath.Join(bDir, "tools", "semgrep"), true
+		},
+		versionFn: func(binPath string) (string, error) {
+			return "", fmt.Errorf("binary corrupt")
+		},
+	}
+
+	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	if err == nil {
+		t.Fatal("expected error when version check fails at backstop dir, got nil")
+	}
+	var degradedErr *DegradedError
+	if !asDegradedError(err, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", err, err)
+	}
+}
+
+// TestCodeCheck_Semgrep_LockFailureExistsAtVersionMismatch verifies that when
+// lock fails, binary exists, but version mismatches, returns ConfigError.
+func TestCodeCheck_Semgrep_LockFailureExistsAtVersionMismatch(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+	toolsDir := filepath.Join(backstopDir, "tools")
+	os.MkdirAll(toolsDir, 0o755)
+
+	// Hold the lock
+	cleanup, err := acquireSemgrepLock(backstopDir)
+	if err != nil {
+		t.Fatalf("setup: acquireSemgrepLock: %v", err)
+	}
+	defer cleanup()
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "", &execNotFoundError{name: name}
+		},
+		existsAtFn: func(bDir string) (string, bool) {
+			return filepath.Join(bDir, "tools", "semgrep"), true
+		},
+		versionFn: func(binPath string) (string, error) {
+			return "1.40.0", nil // wrong version
+		},
+	}
+
+	_, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	if ensureErr == nil {
+		t.Fatal("expected ConfigError for version mismatch, got nil")
+	}
+	var cfgErr *ConfigError
+	if !asConfigError(ensureErr, &cfgErr) {
+		t.Errorf("expected ConfigError, got %T: %v", ensureErr, ensureErr)
+	}
+}
+
+// TestCodeCheck_Semgrep_LockFailureExistsAtVersionCheckFails verifies that when
+// lock fails, binary exists, but version check errors, returns DegradedError.
+func TestCodeCheck_Semgrep_LockFailureExistsAtVersionCheckFails(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+	toolsDir := filepath.Join(backstopDir, "tools")
+	os.MkdirAll(toolsDir, 0o755)
+
+	// Hold the lock
+	cleanup, err := acquireSemgrepLock(backstopDir)
+	if err != nil {
+		t.Fatalf("setup: acquireSemgrepLock: %v", err)
+	}
+	defer cleanup()
+
+	installer := &mockSemgrepInstaller{
+		lookPathFn: func(name string) (string, error) {
+			return "", &execNotFoundError{name: name}
+		},
+		existsAtFn: func(bDir string) (string, bool) {
+			return filepath.Join(bDir, "tools", "semgrep"), true
+		},
+		versionFn: func(binPath string) (string, error) {
+			return "", fmt.Errorf("binary corrupt")
+		},
+	}
+
+	_, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	if ensureErr == nil {
+		t.Fatal("expected DegradedError, got nil")
+	}
+	var degradedErr *DegradedError
+	if !asDegradedError(ensureErr, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", ensureErr, ensureErr)
+	}
 }
 
 // asConfigError checks if err is a *ConfigError.

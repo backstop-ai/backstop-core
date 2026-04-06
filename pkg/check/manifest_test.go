@@ -218,6 +218,117 @@ func TestCodeCheck_Routing_ParseCheckType(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_Routing_InvalidJSON verifies LoadManifest returns error
+// for malformed JSON manifest files.
+func TestCodeCheck_Routing_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad.manifest.json"), []byte("{not json!}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadManifest(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON manifest, got nil")
+	}
+}
+
+// TestCodeCheck_Routing_EmptyDir verifies LoadManifest returns defaults
+// when the directory exists but has no manifest files.
+func TestCodeCheck_Routing_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	m, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest on empty dir: %v", err)
+	}
+	// Should use defaults — Go files get all 4
+	checks := m.RouteFile("main.go")
+	if len(checks) != 4 {
+		t.Errorf("expected 4 checks for .go with defaults, got %d", len(checks))
+	}
+}
+
+// TestCodeCheck_Routing_MatchGlobPattern_EdgeCases verifies matchGlobPattern
+// handles various edge cases correctly.
+func TestCodeCheck_Routing_MatchGlobPattern_EdgeCases(t *testing.T) {
+	tests := []struct {
+		path    string
+		pattern string
+		want    bool
+	}{
+		// Simple wildcard
+		{"main.go", "*.go", true},
+		{"main.py", "*.go", false},
+		// No wildcard — exact match
+		{"Makefile", "Makefile", true},
+		{"makefile", "Makefile", false},
+		// Invalid pattern — should return false, not panic
+		{"main.go", "[invalid", false},
+		// Double star patterns
+		{"pkg/foo/bar.go", "pkg/**/*.go", true},
+		{"pkg/bar.go", "pkg/**/*.go", true},
+		// Empty pattern
+		{"main.go", "", false},
+		// Empty path with pattern
+		{"", "*.go", false},
+	}
+	for _, tc := range tests {
+		got := matchGlobPattern(tc.path, tc.pattern)
+		if got != tc.want {
+			t.Errorf("matchGlobPattern(%q, %q) = %v, want %v", tc.path, tc.pattern, got, tc.want)
+		}
+	}
+}
+
+// TestCodeCheck_Routing_MatchDoubleStarPattern_EdgeCases verifies
+// matchDoubleStarPattern handles various edge cases correctly.
+func TestCodeCheck_Routing_MatchDoubleStarPattern_EdgeCases(t *testing.T) {
+	tests := []struct {
+		path    string
+		pattern string
+		want    bool
+	}{
+		// Basic double star
+		{"pkg/handler/serve.go", "pkg/**/*.go", true},
+		// Double star at end — matches everything under prefix
+		{"pkg/anything/here", "pkg/**", true},
+		// Double star at start — matches anything ending with suffix
+		{"deeply/nested/file.go", "**/*.go", true},
+		// No match
+		{"pkg/handler/serve.py", "pkg/**/*.go", false},
+		// Single segment after prefix
+		{"pkg/serve.go", "pkg/**/*.go", true},
+		// Empty suffix after **
+		{"anything", "**", true},
+		// Prefix with no match
+		{"src/handler.go", "pkg/**/*.go", false},
+		// Multiple segments deep
+		{"a/b/c/d/e.go", "a/**/*.go", true},
+	}
+	for _, tc := range tests {
+		got := matchDoubleStarPattern(tc.path, tc.pattern)
+		if got != tc.want {
+			t.Errorf("matchDoubleStarPattern(%q, %q) = %v, want %v", tc.path, tc.pattern, got, tc.want)
+		}
+	}
+}
+
+// TestCodeCheck_Routing_ReadError verifies LoadManifest returns error when
+// a manifest file exists but cannot be read.
+func TestCodeCheck_Routing_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "bad.manifest.json")
+	// Create a manifest file with no read permission
+	if err := os.WriteFile(manifestPath, []byte(`{"rules":[]}`), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	// Ensure cleanup restores permissions so t.TempDir can remove it
+	t.Cleanup(func() { os.Chmod(manifestPath, 0o644) })
+
+	_, err := LoadManifest(dir)
+	if err == nil {
+		t.Skip("test requires OS-level permission enforcement (may not work as root)")
+	}
+}
+
 // TestCodeCheck_Routing_NoExtension verifies files with no extension
 // fall through to path pattern matching or defaults.
 func TestCodeCheck_Routing_NoExtension(t *testing.T) {
