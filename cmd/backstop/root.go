@@ -84,16 +84,7 @@ backstop by shelling out to CLI commands.`,
 	packCmd.AddCommand(packCompileCmd, packNewCmd)
 
 	// --- Top-level: gate ---
-	gateCmd := &cobra.Command{
-		Use:   "gate",
-		Short: "Full reconciliation kill chain",
-		Long:  "Runs the complete backstop gate: combines artifact validation and code checking into a single pass/fail result. This is the primary enforcement checkpoint.",
-		PersistentPreRunE: enforcementPreRun,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result := validate.ValidationResult{}
-			return outputResult(cmd, &jsonFlag, result)
-		},
-	}
+	gateCmd := newGateCommand(&jsonFlag)
 
 	// --- Top-level: version ---
 	versionCmd := &cobra.Command{

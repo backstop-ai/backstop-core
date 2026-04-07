@@ -1,0 +1,321 @@
+package gate
+
+import (
+	"bufio"
+	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// MandatedTest represents a test function mandated by a spec claim.
+type MandatedTest struct {
+	FuncName  string
+	FilePath  string // path to the file containing the test (set during verification)
+	TargetPkg string // last component of the spec's implementation.package
+	SpecID    string
+	ClaimID   string
+}
+
+// specFrontmatter is a minimal representation of spec YAML frontmatter
+// for extracting claims and mandated test names.
+type specFrontmatter struct {
+	Number         string `yaml:"number"`
+	Implementation struct {
+		Package string `yaml:"package"`
+	} `yaml:"implementation"`
+	Claims []struct {
+		ID    string   `yaml:"id"`
+		Tests []string `yaml:"tests"`
+	} `yaml:"claims"`
+}
+
+// extractMandatedTests parses all spec files in specDir and extracts
+// mandated test names from claims.
+func extractMandatedTests(specDir string) ([]MandatedTest, error) {
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var tests []MandatedTest
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+			continue
+		}
+
+		path := filepath.Join(specDir, entry.Name())
+		fm, err := parseSpecFrontmatter(path)
+		if err != nil {
+			continue // skip unparseable specs
+		}
+
+		targetPkg := filepath.Base(fm.Implementation.Package)
+
+		for _, claim := range fm.Claims {
+			for _, testName := range claim.Tests {
+				tests = append(tests, MandatedTest{
+					FuncName:  testName,
+					TargetPkg: targetPkg,
+					SpecID:    fm.Number,
+					ClaimID:   claim.ID,
+				})
+			}
+		}
+	}
+	return tests, nil
+}
+
+// parseSpecFrontmatter reads YAML frontmatter from a spec markdown file.
+func parseSpecFrontmatter(path string) (*specFrontmatter, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+
+	// Find opening ---
+	if !scanner.Scan() || strings.TrimSpace(scanner.Text()) != "---" {
+		return nil, os.ErrNotExist
+	}
+
+	var yamlLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "---" {
+			break
+		}
+		yamlLines = append(yamlLines, line)
+	}
+
+	var fm specFrontmatter
+	if err := yaml.Unmarshal([]byte(strings.Join(yamlLines, "\n")), &fm); err != nil {
+		return nil, err
+	}
+	return &fm, nil
+}
+
+// funcPattern matches Go test function declarations.
+var funcPattern = regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)
+
+// StepTestVerificationFunc returns a StepFunc that verifies mandated test names
+// exist as actual test functions in the codebase. This is a mechanical check —
+// grep for exact function name in *_test.go files.
+func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
+	return func(_ context.Context) StepResult {
+		mandated, err := extractMandatedTests(specDir)
+		if err != nil {
+			return StepResult{
+				StepName:   StepTestVerification,
+				Status:     "fail",
+				Violations: []Violation{{Rule: "test_verification", Message: "failed to extract mandated tests: " + err.Error(), Severity: "error"}},
+			}
+		}
+
+		if len(mandated) == 0 {
+			return StepResult{
+				StepName:   StepTestVerification,
+				Status:     "pass",
+				Violations: []Violation{},
+			}
+		}
+
+		// Collect all test function names from *_test.go files
+		found := collectTestFuncNames(codeDir)
+
+		var violations []Violation
+		for _, mt := range mandated {
+			if _, ok := found[mt.FuncName]; !ok {
+				violations = append(violations, Violation{
+					Rule:     "test_verification",
+					Message:  "mandated test function " + mt.FuncName + " not found (spec " + mt.SpecID + ", claim " + mt.ClaimID + ")",
+					Severity: "error",
+				})
+			}
+		}
+
+		status := "pass"
+		if len(violations) > 0 {
+			status = "fail"
+		}
+		if violations == nil {
+			violations = []Violation{}
+		}
+		return StepResult{
+			StepName:   StepTestVerification,
+			Status:     status,
+			Violations: violations,
+		}
+	}
+}
+
+// collectTestFuncNames walks codeDir recursively and finds all test function
+// names in *_test.go files using grep-level line matching.
+func collectTestFuncNames(codeDir string) map[string]string {
+	found := make(map[string]string) // funcName → filePath
+
+	_ = filepath.Walk(codeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), "_test.go") {
+			return nil
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			if matches := funcPattern.FindStringSubmatch(scanner.Text()); len(matches) > 1 {
+				found[matches[1]] = path
+			}
+		}
+		return nil
+	})
+
+	return found
+}
+
+// StepTestSubstantivenessFunc returns a StepFunc that checks whether mandated
+// test functions are substantive (not hollow). Uses Go AST parsing.
+func StepTestSubstantivenessFunc(tests []MandatedTest) StepFunc {
+	return func(_ context.Context) StepResult {
+		var violations []Violation
+
+		for _, mt := range tests {
+			if mt.FilePath == "" {
+				continue // skip tests not found (already reported by verification)
+			}
+
+			hollow, noTarget := checkSubstantiveness(mt.FilePath, mt.FuncName, mt.TargetPkg)
+			if hollow {
+				violations = append(violations, Violation{
+					Rule:     "test_substantiveness",
+					File:     mt.FilePath,
+					Message:  "test function " + mt.FuncName + " has no assertions (hollow)",
+					Severity: "error",
+				})
+			}
+			if noTarget {
+				violations = append(violations, Violation{
+					Rule:     "test_substantiveness",
+					File:     mt.FilePath,
+					Message:  "test function " + mt.FuncName + " does not call package " + mt.TargetPkg,
+					Severity: "error",
+				})
+			}
+		}
+
+		status := "pass"
+		if len(violations) > 0 {
+			status = "fail"
+		}
+		if violations == nil {
+			violations = []Violation{}
+		}
+		return StepResult{
+			StepName:   StepTestSubstantiveness,
+			Status:     status,
+			Violations: violations,
+		}
+	}
+}
+
+// checkSubstantiveness parses a Go file and checks if the named test function
+// has assertions and calls the target package. Returns (hollow, noTargetCall).
+func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
+	if err != nil {
+		return true, true // can't parse → treat as hollow
+	}
+
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != funcName || fn.Body == nil {
+			continue
+		}
+
+		hasAssertion := hasAssertions(fn.Body)
+		callsTarget := callsTargetPackage(fn.Body, targetPkg)
+
+		return !hasAssertion, !callsTarget
+	}
+
+	// Function not found in file
+	return true, true
+}
+
+// assertionSelectors are method names on *testing.T that count as assertions.
+var assertionSelectors = map[string]bool{
+	"Fatal":  true,
+	"Fatalf": true,
+	"Error":  true,
+	"Errorf": true,
+}
+
+// hasAssertions checks if a function body contains at least one assertion call
+// (t.Fatal, t.Error, t.Errorf, t.Fatalf).
+func hasAssertions(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if assertionSelectors[sel.Sel.Name] {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// callsTargetPackage checks if a function body contains at least one call to
+// a function/method from the target package (identified by package name).
+func callsTargetPackage(body *ast.BlockStmt, pkg string) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if ident.Name == pkg {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
