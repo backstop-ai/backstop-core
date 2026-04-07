@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/spf13/cobra"
@@ -33,20 +36,20 @@ it's green, it ships.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGate(cmd, args, jsonFlag)
+			return runGate(cmd, args)
 		},
 	}
 	// No additional flags — gate accepts no scope flags (REQ-012)
+	gateCmd = cmd
 	return cmd
 }
 
 // runGate is the Cobra RunE handler that orchestrates all nine gate steps.
-func runGate(cmd *cobra.Command, _ []string, jsonFlag *bool) error {
+func runGate(cmd *cobra.Command, _ []string) error {
 	// Load config via CLI foundation config loader.
 	_, cfgErr := config.LoadConfig()
 
 	// If config loading fails, return immediately with exit code 2.
-	// This preserves the original error message for upstream tests.
 	if cfgErr != nil {
 		return &ExitCodeError{
 			Code:    ExitConfigError,
@@ -54,21 +57,25 @@ func runGate(cmd *cobra.Command, _ []string, jsonFlag *bool) error {
 		}
 	}
 
+	// Resolve project root from backstop.yml location.
+	cfgPath, discoverErr := config.DiscoverConfigPath()
+	projectRoot := "."
+	if discoverErr == nil {
+		projectRoot = filepath.Dir(cfgPath)
+	}
+
 	// Build gate with step implementations.
 	var opts []gate.Option
 
-	// Wire up the nine steps with concrete implementations.
-	// Steps 1-2 delegate to placeholder implementations for now.
-	// Steps 3-6 use real grep/AST verification.
-	// Steps 7-9 are deferred.
-	steps := buildGateSteps()
+	steps := buildGateSteps(projectRoot)
 	opts = append(opts, gate.WithSteps(steps))
 
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
 
 	// Format output based on --json flag.
-	if jsonFlag != nil && *jsonFlag {
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	if jsonFlag {
 		data, err := gate.FormatJSON(result)
 		if err != nil {
 			return fmt.Errorf("formatting gate JSON output: %w", err)
@@ -90,54 +97,194 @@ func runGate(cmd *cobra.Command, _ []string, jsonFlag *bool) error {
 }
 
 // buildGateSteps constructs the nine ordered step functions with concrete
-// implementations. Steps 1-2 use no-op validators for now (the real
-// delegation will be wired when artifact validate and code check expose
-// library functions). Steps 3-6 are mechanical verifiers. Steps 7-9 are
-// deferred.
-func buildGateSteps() []gate.StepFunc {
+// implementations wired to real pkg/gate logic.
+// Steps 1-2: delegate to real artifact validation and code check.
+// Steps 3-6: mechanical verification using grep/AST parsing.
+// Steps 7-9: deferred (baseline, waivers, ledger).
+func buildGateSteps(projectRoot string) []gate.StepFunc {
+	specDir := filepath.Join(projectRoot, "specs")
+
+	// Step 1: Artifact validation — delegates to ValidateArtifacts.
+	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
+
+	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll.
+	codeChecker := &realCodeChecker{projectRoot: projectRoot}
+
+	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
+	// We use the project root as the code directory for walking test files.
+	testVerifyStep := gate.StepTestVerificationFunc(specDir, projectRoot)
+
+	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
+	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
+	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot)
+
+	// Step 5: Coverage threshold needs spec verifications and a command runner.
+	coverageStep := buildCoverageStep(specDir, projectRoot)
+
+	// Step 6: Contract signature needs contract entries extracted from specs.
+	contractStep := buildContractStep(specDir, projectRoot)
+
 	return []gate.StepFunc{
-		// Step 1: Artifact validation — no-op pass for now
-		gate.StepArtifactValidationFunc(&noopValidator{}),
-		// Step 2: Code check — no-op pass for now
-		gate.StepCodeCheckFunc(&noopChecker{}),
-		// Step 3: Test verification — would need spec/code dirs
-		makeNoopStepFunc(gate.StepTestVerification),
-		// Step 4: Test substantiveness — needs test function list
-		makeNoopStepFunc(gate.StepTestSubstantiveness),
-		// Step 5: Coverage threshold — needs command runner and spec data
-		makeNoopStepFunc(gate.StepCoverageThreshold),
-		// Step 6: Contract signature — needs contract entries
-		makeNoopStepFunc(gate.StepContractSignature),
-		// Step 7: Baseline comparison (deferred)
+		gate.StepArtifactValidationFunc(artifactValidator),
+		gate.StepCodeCheckFunc(codeChecker),
+		testVerifyStep,
+		testSubstantivenessStep,
+		coverageStep,
+		contractStep,
+		// Steps 7-9: deferred
 		gate.StepBaselineComparisonFunc(),
-		// Step 8: Waiver resolution (deferred)
 		gate.StepWaiverResolutionFunc(),
-		// Step 9: Ledger integrity (deferred)
 		gate.StepLedgerIntegrityFunc(),
 	}
 }
 
-// makeNoopStepFunc creates a pass step for steps not yet wired to real logic.
-func makeNoopStepFunc(name string) gate.StepFunc {
-	return func(_ context.Context) gate.StepResult {
-		return gate.StepResult{
-			StepName:   name,
-			Status:     "pass",
-			Violations: []gate.Violation{},
+// buildTestSubstantivenessStep creates a StepFunc that extracts mandated tests
+// from specs, resolves their file paths, and checks substantiveness.
+func buildTestSubstantivenessStep(specDir, codeDir string) gate.StepFunc {
+	return func(ctx context.Context) gate.StepResult {
+		mandated, err := gate.ExtractMandatedTests(specDir)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "fail",
+				Violations: []gate.Violation{{Rule: "test_substantiveness", Message: "failed to extract mandated tests: " + err.Error(), Severity: "error"}},
+			}
 		}
+
+		// Resolve file paths for found tests.
+		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir)
+
+		// Delegate to the real substantiveness checker.
+		step := gate.StepTestSubstantivenessFunc(mandated)
+		return step(ctx)
 	}
 }
 
-// noopValidator is a placeholder ArtifactValidator that always passes.
-type noopValidator struct{}
+// buildCoverageStep creates a StepFunc that extracts spec verifications
+// and runs coverage checks using a real command runner.
+func buildCoverageStep(specDir, projectRoot string) gate.StepFunc {
+	return func(ctx context.Context) gate.StepResult {
+		specs, err := gate.ExtractSpecVerifications(specDir)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepCoverageThreshold,
+				Status:     "fail",
+				Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to extract spec verifications: " + err.Error(), Severity: "error"}},
+			}
+		}
 
-func (n *noopValidator) ValidateAll(_ context.Context) ([]gate.Violation, error) {
-	return nil, nil
+		runner := &gate.ExecCommandRunner{Dir: projectRoot}
+		step := gate.StepCoverageThresholdFunc(runner, specs)
+		return step(ctx)
+	}
 }
 
-// noopChecker is a placeholder CodeChecker that always passes.
-type noopChecker struct{}
+// buildContractStep creates a StepFunc that extracts contract entries
+// from specs and verifies them against actual code.
+func buildContractStep(specDir, projectRoot string) gate.StepFunc {
+	return func(ctx context.Context) gate.StepResult {
+		contracts, err := gate.ExtractContractEntries(specDir, projectRoot)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepContractSignature,
+				Status:     "fail",
+				Violations: []gate.Violation{{Rule: "contract_signature", Message: "failed to extract contracts: " + err.Error(), Severity: "error"}},
+			}
+		}
 
-func (n *noopChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
-	return nil, nil
+		step := gate.StepContractSignatureFunc(contracts)
+		return step(ctx)
+	}
+}
+
+// realArtifactValidator implements gate.ArtifactValidator by calling
+// ValidateArtifacts with the embedded schema FS.
+type realArtifactValidator struct {
+	projectRoot string
+}
+
+func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation, error) {
+	cfg := ValidateConfig{
+		ProjectRoot: v.projectRoot,
+		All:         true,
+		SchemaFS:    SchemaFS,
+	}
+
+	result, err := ValidateArtifacts(cfg)
+	if err != nil {
+		return nil, &gate.ConfigError{Err: err}
+	}
+
+	// Convert validate.Violation to gate.Violation.
+	var violations []gate.Violation
+	for _, vv := range result.Violations {
+		violations = append(violations, gate.Violation{
+			Rule:     vv.Rule,
+			File:     vv.File,
+			Message:  vv.Message,
+			Severity: vv.Severity,
+		})
+	}
+	return violations, nil
+}
+
+// realCodeChecker implements gate.CodeChecker by calling pkg/check.Run
+// with ScopeModeAll.
+type realCodeChecker struct {
+	projectRoot string
+}
+
+func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
+	cfgPath, cfgErr := config.DiscoverConfigPath()
+	pRoot := c.projectRoot
+	if cfgErr == nil {
+		pRoot = filepath.Dir(cfgPath)
+	}
+
+	backstopDir := filepath.Join(pRoot, ".backstop")
+
+	// Check .backstop/ directory validity. Missing .backstop is a step
+	// failure, not a config error — gate should continue with other steps.
+	if verr := check.ValidateBackstopDir(pRoot); verr != nil {
+		return nil, verr
+	}
+
+	opts := check.Options{
+		Mode:        check.ScopeModeAll,
+		ManifestDir: filepath.Join(backstopDir, "rules"),
+		BackstopDir: backstopDir,
+		ProjectDir:  pRoot,
+	}
+
+	// Load config to extract semgrep version pin.
+	cfg, err := config.LoadConfig()
+	if err == nil && cfg.Packs.Rules != nil {
+		if v, ok := cfg.Packs.Rules["semgrep"]; ok {
+			opts.PinnedSemgrepVersion = v
+		}
+	}
+
+	result, runErr := check.Run(context.Background(), opts)
+	if runErr != nil {
+		return nil, &gate.ConfigError{Err: runErr}
+	}
+
+	// Convert check.Violation to gate.Violation.
+	var violations []gate.Violation
+	for _, cv := range result.AllViolations() {
+		violations = append(violations, gate.Violation{
+			Rule:     cv.Pass.String(),
+			File:     cv.File,
+			Message:  cv.Message,
+			Severity: cv.Severity,
+		})
+	}
+	return violations, nil
+}
+
+// Verify that specDir exists before building steps — avoid confusing
+// errors when specs directory is missing.
+func specsExist(specDir string) bool {
+	info, err := os.Stat(specDir)
+	return err == nil && info.IsDir()
 }

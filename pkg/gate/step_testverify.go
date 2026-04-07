@@ -24,21 +24,33 @@ type MandatedTest struct {
 }
 
 // specFrontmatter is a minimal representation of spec YAML frontmatter
-// for extracting claims and mandated test names.
+// for extracting claims, mandated test names, verification blocks, and contracts.
 type specFrontmatter struct {
 	Number         string `yaml:"number"`
 	Implementation struct {
 		Package string `yaml:"package"`
 	} `yaml:"implementation"`
+	Verification struct {
+		TestCommand       string `yaml:"test_command"`
+		CoverageThreshold int    `yaml:"coverage_threshold"`
+	} `yaml:"verification"`
 	Claims []struct {
 		ID    string   `yaml:"id"`
 		Tests []string `yaml:"tests"`
 	} `yaml:"claims"`
+	Contracts []struct {
+		File     string `yaml:"file"`
+		Provides []struct {
+			Name      string `yaml:"name"`
+			Kind      string `yaml:"kind"`
+			Signature string `yaml:"signature"`
+		} `yaml:"provides"`
+	} `yaml:"contracts"`
 }
 
-// extractMandatedTests parses all spec files in specDir and extracts
+// ExtractMandatedTests parses all spec files in specDir and extracts
 // mandated test names from claims.
-func extractMandatedTests(specDir string) ([]MandatedTest, error) {
+func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {
 		return nil, err
@@ -111,7 +123,7 @@ var funcPattern = regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)
 // grep for exact function name in *_test.go files.
 func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
 	return func(_ context.Context) StepResult {
-		mandated, err := extractMandatedTests(specDir)
+		mandated, err := ExtractMandatedTests(specDir)
 		if err != nil {
 			return StepResult{
 				StepName:   StepTestVerification,
@@ -318,4 +330,88 @@ func callsTargetPackage(body *ast.BlockStmt, pkg string) bool {
 		return true
 	})
 	return found
+}
+
+// ExtractSpecVerifications parses all spec files in specDir and extracts
+// verification blocks (test_command, coverage_threshold) for use by the
+// coverage threshold step.
+func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var specs []SpecVerification
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+			continue
+		}
+
+		path := filepath.Join(specDir, entry.Name())
+		fm, err := parseSpecFrontmatter(path)
+		if err != nil {
+			continue // skip unparseable specs
+		}
+
+		if fm.Verification.TestCommand != "" && fm.Verification.CoverageThreshold > 0 {
+			specs = append(specs, SpecVerification{
+				SpecID:            fm.Number,
+				TestCommand:       fm.Verification.TestCommand,
+				CoverageThreshold: fm.Verification.CoverageThreshold,
+			})
+		}
+	}
+	return specs, nil
+}
+
+// ExtractContractEntries parses all spec files in specDir and extracts
+// contract declarations for use by the contract signature verification step.
+// projectRoot is prepended to relative file paths in contracts.
+func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error) {
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var contracts []ContractEntry
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+			continue
+		}
+
+		path := filepath.Join(specDir, entry.Name())
+		fm, err := parseSpecFrontmatter(path)
+		if err != nil {
+			continue // skip unparseable specs
+		}
+
+		for _, c := range fm.Contracts {
+			filePath := c.File
+			if !filepath.IsAbs(filePath) {
+				filePath = filepath.Join(projectRoot, filePath)
+			}
+			for _, p := range c.Provides {
+				contracts = append(contracts, ContractEntry{
+					File:      filePath,
+					Name:      p.Name,
+					Kind:      p.Kind,
+					Signature: p.Signature,
+				})
+			}
+		}
+	}
+	return contracts, nil
+}
+
+// ResolveMandatedTestPaths takes mandated tests and a map of found test functions
+// (from collectTestFuncNames) and fills in the FilePath field for each found test.
+// Returns the updated list.
+func ResolveMandatedTestPaths(mandated []MandatedTest, codeDir string) []MandatedTest {
+	found := collectTestFuncNames(codeDir)
+	for i := range mandated {
+		if path, ok := found[mandated[i].FuncName]; ok {
+			mandated[i].FilePath = path
+		}
+	}
+	return mandated
 }

@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,6 +36,20 @@ func parseCoverageLine(line string) (float64, bool) {
 		return 0, false
 	}
 	return pct, true
+}
+
+// ExecCommandRunner is a CommandRunner that uses os/exec to run commands.
+type ExecCommandRunner struct {
+	Dir string // working directory for commands
+}
+
+// Run executes the named command with args and returns combined output.
+func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if r.Dir != "" {
+		cmd.Dir = r.Dir
+	}
+	return cmd.CombinedOutput()
 }
 
 // StepCoverageThresholdFunc returns a StepFunc that runs the test suite with
