@@ -128,12 +128,18 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 			}
 		}
 
-		// Route to the correct validator using schema_version metadata (REQ-001).
-		// Discovery determines which files to find; schema_version determines
-		// which validator handles them.
-		validatorFn, routeErr := RouteValidator(art)
-		if routeErr != nil {
-			return ValidateResult{}, fmt.Errorf("routing artifact %s: %w", da.Path, routeErr)
+		// Route to the correct validator.
+		// Plans are pure YAML without schema_version — route by discovery type.
+		// All other artifacts route by schema_version metadata (REQ-001).
+		var validatorFn ValidatorFunc
+		if da.Type == "plan" {
+			validatorFn = validatorRouter["plan"]
+		} else {
+			var routeErr error
+			validatorFn, routeErr = RouteValidator(art)
+			if routeErr != nil {
+				return ValidateResult{}, fmt.Errorf("routing artifact %s: %w", da.Path, routeErr)
+			}
 		}
 
 		// Load schema from embedded FS (plans don't use schemas)

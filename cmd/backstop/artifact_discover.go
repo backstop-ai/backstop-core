@@ -41,6 +41,12 @@ func DiscoverArtifacts(root string, typeFilters []string) ([]DiscoveredArtifact,
 			return err
 		}
 		if info.IsDir() {
+			// Skip directories that should not be scanned for artifacts
+			base := filepath.Base(path)
+			switch base {
+			case "testdata", "vendor", "node_modules", ".git", ".backstop":
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
