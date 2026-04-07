@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -138,5 +139,31 @@ func TestGate_HumanOutput_NoColorEnvVar(t *testing.T) {
 	colorOutput := FormatHuman(result, false)
 	if !strings.Contains(colorOutput, "\033[") {
 		t.Error("human output without NO_COLOR should contain ANSI escape sequences")
+	}
+}
+
+// TestGate_NoColorFromEnv_RespectsEnv verifies that NoColorFromEnv returns true
+// when NO_COLOR is set and false when it is not.
+func TestGate_NoColorFromEnv_RespectsEnv(t *testing.T) {
+	// Save and restore original value
+	orig, hadOrig := os.LookupEnv("NO_COLOR")
+	defer func() {
+		if hadOrig {
+			os.Setenv("NO_COLOR", orig)
+		} else {
+			os.Unsetenv("NO_COLOR")
+		}
+	}()
+
+	// When NO_COLOR is set, should return true
+	os.Setenv("NO_COLOR", "1")
+	if !NoColorFromEnv() {
+		t.Error("expected NoColorFromEnv() == true when NO_COLOR is set")
+	}
+
+	// When NO_COLOR is unset, should return false
+	os.Unsetenv("NO_COLOR")
+	if NoColorFromEnv() {
+		t.Error("expected NoColorFromEnv() == false when NO_COLOR is unset")
 	}
 }

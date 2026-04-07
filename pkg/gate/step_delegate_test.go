@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -105,6 +106,27 @@ func TestGate_CodeCheck_PassWhenClean(t *testing.T) {
 	}
 	if len(result.Violations) != 0 {
 		t.Errorf("expected 0 violations, got %d", len(result.Violations))
+	}
+}
+
+// --- ConfigError Unwrap tests ---
+
+// TestGate_ConfigError_Unwrap verifies that ConfigError.Unwrap returns the
+// wrapped error, enabling errors.Is and errors.As chains.
+func TestGate_ConfigError_Unwrap(t *testing.T) {
+	inner := fmt.Errorf("inner error")
+	ce := &ConfigError{Err: inner}
+
+	unwrapped := ce.Unwrap()
+	if unwrapped != inner {
+		t.Errorf("expected Unwrap to return inner error, got %v", unwrapped)
+	}
+
+	// Verify errors.Is works through the wrapper
+	sentinel := fmt.Errorf("sentinel")
+	wrapped := &ConfigError{Err: fmt.Errorf("wrapping: %w", sentinel)}
+	if !errors.Is(wrapped, sentinel) {
+		t.Error("expected errors.Is to find sentinel through ConfigError.Unwrap")
 	}
 }
 

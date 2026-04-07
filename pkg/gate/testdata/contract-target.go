@@ -18,3 +18,6 @@ type Widget struct {
 type Runner interface {
 	Run(ctx context.Context) error
 }
+
+// DefaultTimeout is a variable that matches the declared contract.
+var DefaultTimeout int

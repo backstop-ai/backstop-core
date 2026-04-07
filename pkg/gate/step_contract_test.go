@@ -2,6 +2,8 @@ package gate
 
 import (
 	"context"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"testing"
 )
@@ -90,5 +92,67 @@ func TestGate_ContractSignature_TypeAndInterfaceVerified(t *testing.T) {
 
 	if result.Status != "pass" {
 		t.Errorf("expected status %q, got %q; violations: %v", "pass", result.Status, result.Violations)
+	}
+}
+
+// TestGate_ContractSignature_VariableVerified verifies that contract variable
+// declarations are verified by the contract signature step.
+func TestGate_ContractSignature_VariableVerified(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contracts := []ContractEntry{
+		{File: target, Name: "DefaultTimeout", Kind: "variable", Signature: "var DefaultTimeout int"},
+	}
+	step := StepContractSignatureFunc(contracts)
+	result := step(context.Background())
+
+	if result.Status != "pass" {
+		t.Errorf("expected status %q, got %q; violations: %v", "pass", result.Status, result.Violations)
+	}
+}
+
+// TestGate_FindVariable_Found verifies that findVariable locates a var
+// declaration and returns its signature.
+func TestGate_FindVariable_Found(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, target, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing file: %v", err)
+	}
+
+	sig, ok := findVariable(fset, f, "DefaultTimeout")
+	if !ok {
+		t.Fatal("expected to find variable DefaultTimeout")
+	}
+	if sig != "var DefaultTimeout int" {
+		t.Errorf("expected signature %q, got %q", "var DefaultTimeout int", sig)
+	}
+}
+
+// TestGate_FindVariable_NotFound verifies that findVariable returns false
+// for a variable name that does not exist.
+func TestGate_FindVariable_NotFound(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, target, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing file: %v", err)
+	}
+
+	_, ok := findVariable(fset, f, "NonExistentVar")
+	if ok {
+		t.Error("expected findVariable to return false for missing variable")
 	}
 }

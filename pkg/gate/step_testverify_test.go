@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -137,6 +138,179 @@ func TestGate_TestVerification_CollectsAllSpecClaims(t *testing.T) {
 
 	if result.Status != "pass" {
 		t.Errorf("expected status %q, got %q; violations: %v", "pass", result.Status, result.Violations)
+	}
+}
+
+// --- ExtractSpecVerifications tests ---
+
+// TestGate_ExtractSpecVerifications_HappyPath verifies that verification
+// blocks are extracted from spec files with both test_command and coverage_threshold.
+func TestGate_ExtractSpecVerifications_HappyPath(t *testing.T) {
+	specDir := t.TempDir()
+
+	writeSpecFixture(t, specDir, "test.spec.md", []struct{ id, testName string }{
+		{"CLM-001", "TestSomething"},
+	})
+
+	specs, err := ExtractSpecVerifications(specDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(specs) != 1 {
+		t.Fatalf("expected 1 spec verification, got %d", len(specs))
+	}
+	if specs[0].SpecID != "TEST-001" {
+		t.Errorf("expected SpecID %q, got %q", "TEST-001", specs[0].SpecID)
+	}
+	if specs[0].TestCommand != "go test ./pkg/gate/... -race" {
+		t.Errorf("expected TestCommand %q, got %q", "go test ./pkg/gate/... -race", specs[0].TestCommand)
+	}
+	if specs[0].CoverageThreshold != 80 {
+		t.Errorf("expected CoverageThreshold 80, got %d", specs[0].CoverageThreshold)
+	}
+}
+
+// TestGate_ExtractSpecVerifications_InvalidDir verifies that a non-existent
+// directory returns an error.
+func TestGate_ExtractSpecVerifications_InvalidDir(t *testing.T) {
+	_, err := ExtractSpecVerifications("/nonexistent/path/to/specs")
+	if err == nil {
+		t.Error("expected error for non-existent directory")
+	}
+}
+
+// TestGate_ExtractSpecVerifications_SkipsNonSpecFiles verifies that files
+// without the .spec.md suffix are ignored.
+func TestGate_ExtractSpecVerifications_SkipsNonSpecFiles(t *testing.T) {
+	specDir := t.TempDir()
+
+	// Write a non-spec file
+	if err := os.WriteFile(filepath.Join(specDir, "notes.md"), []byte("# Notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	specs, err := ExtractSpecVerifications(specDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(specs) != 0 {
+		t.Errorf("expected 0 spec verifications, got %d", len(specs))
+	}
+}
+
+// --- ExtractContractEntries tests ---
+
+// TestGate_ExtractContractEntries_HappyPath verifies that contract entries
+// are extracted from spec files and paths are resolved relative to projectRoot.
+func TestGate_ExtractContractEntries_HappyPath(t *testing.T) {
+	specDir := t.TempDir()
+
+	content := `---
+title: "Contract Spec"
+number: SPEC-001
+created: "2026-01-01"
+status: draft
+schema_version: spec/v1
+spec_version: 1.0.0
+
+implementation:
+  summary: Contract test
+  package: pkg/gate
+
+verification:
+  level: unit
+  test_command: go test ./pkg/gate/... -race
+  coverage_threshold: 80
+
+requirements:
+  - id: REQ-001
+    text: Test req
+    supports: cli:REQ-001
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: Test claim
+    tests:
+      - TestSomething
+
+contracts:
+  - file: pkg/gate/gate.go
+    provides:
+      - name: New
+        kind: function
+        signature: "func New(opts ...Option) *Gate"
+---
+
+# Contract Spec
+`
+	if err := os.WriteFile(filepath.Join(specDir, "contract.spec.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contracts, err := ExtractContractEntries(specDir, "/project/root")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(contracts) != 1 {
+		t.Fatalf("expected 1 contract entry, got %d", len(contracts))
+	}
+	if contracts[0].Name != "New" {
+		t.Errorf("expected name %q, got %q", "New", contracts[0].Name)
+	}
+	if contracts[0].Kind != "function" {
+		t.Errorf("expected kind %q, got %q", "function", contracts[0].Kind)
+	}
+	// Relative path should be joined with projectRoot
+	expectedPath := filepath.Join("/project/root", "pkg/gate/gate.go")
+	if contracts[0].File != expectedPath {
+		t.Errorf("expected file %q, got %q", expectedPath, contracts[0].File)
+	}
+}
+
+// TestGate_ExtractContractEntries_InvalidDir verifies that a non-existent
+// directory returns an error.
+func TestGate_ExtractContractEntries_InvalidDir(t *testing.T) {
+	_, err := ExtractContractEntries("/nonexistent/path", "/root")
+	if err == nil {
+		t.Error("expected error for non-existent directory")
+	}
+}
+
+// --- ResolveMandatedTestPaths tests ---
+
+// TestGate_ResolveMandatedTestPaths_ResolvesExisting verifies that mandated
+// tests get their FilePath set when the test function exists in codeDir.
+func TestGate_ResolveMandatedTestPaths_ResolvesExisting(t *testing.T) {
+	codeDir := t.TempDir()
+	writeTestFile(t, codeDir, "foo_test.go", []string{"TestFoo_Works"})
+
+	mandated := []MandatedTest{
+		{FuncName: "TestFoo_Works", SpecID: "SPEC-001", ClaimID: "CLM-001"},
+	}
+	result := ResolveMandatedTestPaths(mandated, codeDir)
+
+	if result[0].FilePath == "" {
+		t.Error("expected FilePath to be set for existing test function")
+	}
+	if !filepath.IsAbs(result[0].FilePath) || !strings.HasSuffix(result[0].FilePath, "foo_test.go") {
+		t.Errorf("expected FilePath ending in foo_test.go, got %q", result[0].FilePath)
+	}
+}
+
+// TestGate_ResolveMandatedTestPaths_MissingTestUnresolved verifies that
+// mandated tests that do not exist in codeDir keep an empty FilePath.
+func TestGate_ResolveMandatedTestPaths_MissingTestUnresolved(t *testing.T) {
+	codeDir := t.TempDir()
+	// No test files in codeDir
+
+	mandated := []MandatedTest{
+		{FuncName: "TestDoesNotExist", SpecID: "SPEC-001", ClaimID: "CLM-001"},
+	}
+	result := ResolveMandatedTestPaths(mandated, codeDir)
+
+	if result[0].FilePath != "" {
+		t.Errorf("expected empty FilePath for missing test, got %q", result[0].FilePath)
 	}
 }
 
