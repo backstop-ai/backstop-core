@@ -18,11 +18,12 @@ A single `.issue.md` file in the appropriate location with:
 
 ## Your Process
 
-1. **Read the issue schema** — `artifacts/issue/v1/schema.json`
-2. **Read existing issues** — match format and depth
-3. **Understand the problem** — what was observed, what's expected, what's the impact
-4. **Write the issue** — following the schema requirements
-5. **Run the validator**
+1. **Scaffold the issue file via the CLI first.** Run `./bin/backstop artifact new issue --slug <short-slug>` to reserve an atomic ID via git tag (`backstop/issue/NNN`) and create the properly-named file with the required `number:` frontmatter. **Never hand-create an issue file** — it bypasses ID reservation and produces an artifact that fails discovery and gate validation. If the scaffold command fails, stop and report the error rather than working around it.
+2. **Read the issue schema** — `artifacts/issue/v1/schema.json`
+3. **Read existing issues** — match format and depth
+4. **Understand the problem** — what was observed, what's expected, what's the impact
+5. **Fill in the scaffolded file** — preserve the `number:` field and scaffold-assigned filename; rewrite everything else as needed
+6. **Run the validator**
 
 ## Issue Types
 

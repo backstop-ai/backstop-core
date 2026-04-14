@@ -30,5 +30,9 @@ case "$AGENT_NAME" in
     block
     ;;
   spec-reviewer|plan-reviewer|impl-reviewer) block ;;
+  general-purpose)
+    [[ "$FILE_PATH" == */prototype/* ]] && exit 0
+    block
+    ;;
   *) block ;;
 esac

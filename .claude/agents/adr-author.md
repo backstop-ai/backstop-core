@@ -18,11 +18,12 @@ A single `.adr.md` file in `adrs/` with:
 
 ## Your Process
 
-1. **Read the ADR schema** — `artifacts/adr/v2/schema.json`
-2. **Read existing ADRs** — match the format of ADR-0001 through ADR-0018
-3. **Understand the decision** — what's being decided, why, what alternatives exist
-4. **Write the ADR** — following the schema and conventions
-5. **Run the validator**
+1. **Scaffold the ADR file via the CLI first.** Run `./bin/backstop artifact new adr --slug <short-slug>` to reserve an atomic ID via git tag (`backstop/adr/NNN`) and create the properly-named file with the required `number:` frontmatter. **Never hand-create an ADR file** — it bypasses ID reservation and produces an artifact that fails discovery and gate validation. If the scaffold command fails, stop and report the error rather than working around it.
+2. **Read the ADR schema** — `artifacts/adr/v2/schema.json`
+3. **Read existing ADRs** — match the format of ADR-0001 through ADR-0018
+4. **Understand the decision** — what's being decided, why, what alternatives exist
+5. **Fill in the scaffolded file** — preserve the `number:` field and scaffold-assigned filename; rewrite everything else as needed
+6. **Run the validator**
 
 ## ADR Conventions
 
