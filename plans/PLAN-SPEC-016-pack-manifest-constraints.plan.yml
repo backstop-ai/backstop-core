@@ -1,0 +1,606 @@
+---
+plan_id: PLAN-SPEC-016
+spec_id: SPEC-016
+spec_version: 1.0.0
+created: "2026-04-14"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements constraint validation and layout rules for pack manifests.
+  This spec consumes SPEC-013 types (Manifest, Rule, Scaffold, ToolConfigEntry)
+  from pkg/pack/manifest.go and adds ValidateManifest + ExpectedLayout in
+  pkg/pack/validate_manifest.go.
+
+  All implementation touches a single file (validate_manifest.go), so phases
+  must be strictly sequential. Each phase follows the TDD cycle:
+  test -> implementation -> verification.
+
+  Phase 1: Setup (ValidationError type, test helpers)
+  Phase 2: Content types + layer field constraints (27 claims)
+  Phase 3: Security + tool_config + co-occurrence + fixture proof (16 claims)
+  Phase 4: Directory layout + fixture naming (8 claims)
+  Phase 5: Final comprehensive verification
+
+  Assumes SPEC-013 types exist in pkg/pack/manifest.go.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — ValidationError type and test helpers
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Foundation Types"
+    description: |
+      Establish the ValidationError type and test helper functions that all
+      subsequent test and implementation tasks depend on.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold ValidationError type and test helpers"
+        description: |
+          Create pkg/pack/validate_manifest.go with the ValidationError struct
+          (Field, Message, Rule string) and the ValidateManifest function
+          signature returning []ValidationError. The function body should be
+          a stub returning nil. Also create ExpectedLayout stub returning nil.
+
+          Create pkg/pack/validate_manifest_test.go with package pack_test and
+          common test helper functions:
+            - makeMinimalManifest() *Manifest — returns a valid enforcement
+              manifest with one layer 1 rule that has risk_class, claims, and
+              fixtures. Used as a baseline across all tests.
+            - hasError(errs []ValidationError, rule string) bool — checks if
+              any error matches the given Rule string.
+            - requireError/requireNoError helpers for cleaner assertions.
+
+          These helpers avoid duplication across the 50+ test functions.
+        files:
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/validate_manifest_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Content Types and Layer Field Constraints (REQ-001 to REQ-004)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Content Types and Layer Field Constraints"
+    description: |
+      TDD cycle for Pass 1 (content type allowlist) and Pass 2 (layer-specific
+      field enforcement) covering REQ-001 through REQ-004. This is the largest
+      group of claims (27 claims) covering the Layer Field Requirements Matrix.
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for content type validation (REQ-001)"
+        description: |
+          Add tests to pkg/pack/validate_content_test.go with package pack_test:
+            - TestValidateContent_EnforcementRulesetOnly: enforcement pack with
+              only ruleset in content block is accepted (CLM-001)
+            - TestValidateContent_EnforcementWithScaffolds: enforcement pack
+              declaring scaffolds is rejected (CLM-002)
+            - TestValidateContent_EnforcementWithSDK: enforcement pack declaring
+              sdk is rejected (CLM-003)
+            - TestValidateContent_CodeWithRulesetAndScaffolds: code pack with
+              ruleset and scaffolds is valid (CLM-004)
+            - TestValidateContent_UnknownContentType: content block with unknown
+              key is rejected (CLM-005)
+
+          Use makeMinimalManifest from TASK-001 as baseline, modifying archetype
+          and content fields per test case. All tests should fail (red phase).
+        files:
+          - pkg/pack/validate_content_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write tests for layer 2 field constraints (REQ-002)"
+        description: |
+          Add tests to pkg/pack/validate_layer2_test.go with package pack_test:
+            - TestValidateLayer2_BothFields: layer 2 rule with both rule and
+              standard fields is accepted (CLM-006)
+            - TestValidateLayer2_MissingRuleField: layer 2 rule missing rule
+              field is rejected (CLM-007)
+            - TestValidateLayer2_MissingStandard: layer 2 rule missing standard
+              field is rejected (CLM-008)
+            - TestValidateLayer1_WithRuleField: layer 1 rule declaring rule
+              field is rejected (CLM-009)
+            - TestValidateLayer3_WithRuleField: layer 3 rule declaring rule
+              field is rejected (CLM-010)
+
+          Each test constructs a manifest with rules at specific layers and
+          verifies field presence/absence enforcement.
+        files:
+          - pkg/pack/validate_layer2_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: test
+        title: "Write tests for layer 3 category validation (REQ-003)"
+        description: |
+          Add tests to pkg/pack/validate_layer3_cat_test.go with package pack_test:
+            - TestValidateLayer3Category_Presence: category presence accepted
+              without justification (CLM-011)
+            - TestValidateLayer3Category_Structural: category structural accepted
+              without justification (CLM-012)
+            - TestValidateLayer3Category_OtherWithJustification: category other
+              with justification accepted (CLM-013)
+            - TestValidateLayer3Category_OtherMissingJustification: category other
+              missing justification rejected (CLM-014)
+            - TestValidateLayer3Category_Missing: missing category rejected (CLM-015)
+            - TestValidateLayer3Category_Invalid: invalid category rejected (CLM-016)
+            - TestValidateLayer1_WithCategory: layer 1 with category rejected (CLM-017)
+            - TestValidateLayer2_WithCategory: layer 2 with category rejected (CLM-018)
+
+          Sharp edge: verify that empty string justification ("") is rejected,
+          not just absent justification.
+        files:
+          - pkg/pack/validate_layer3_cat_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: test
+        title: "Write tests for layer 3 input_scope and validator (REQ-004)"
+        description: |
+          Add tests to pkg/pack/validate_layer3_fields_test.go with package pack_test:
+            - TestValidateLayer3_SingleFileWithValidator: input_scope single-file
+              with validator accepted (CLM-019)
+            - TestValidateLayer3_MultiFileWithValidator: input_scope multi-file
+              with validator accepted (CLM-020)
+            - TestValidateLayer3_MissingInputScope: missing input_scope rejected (CLM-021)
+            - TestValidateLayer3_MissingValidator: missing validator rejected (CLM-022)
+            - TestValidateLayer3_InvalidInputScope: invalid input_scope rejected (CLM-023)
+            - TestValidateLayer1_WithInputScope: layer 1 with input_scope rejected (CLM-024)
+            - TestValidateLayer2_WithInputScope: layer 2 with input_scope rejected (CLM-025)
+            - TestValidateLayer1_WithValidator: layer 1 with validator rejected (CLM-026)
+            - TestValidateLayer2_WithValidator: layer 2 with validator rejected (CLM-027)
+        files:
+          - pkg/pack/validate_layer3_fields_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement content type and layer field validation passes"
+        description: |
+          Implement in pkg/pack/validate_manifest.go:
+
+          Pass 1 — validateContentTypes(m *Manifest) []ValidationError:
+            - Allowlist: ruleset, scaffolds, sdk, contracts, test_patterns,
+              ast_checks, rubrics
+            - Reject unknown keys
+            - Enforcement packs: reject scaffolds, sdk
+
+          Pass 2 — validateLayerFields(m *Manifest) []ValidationError:
+            - Layer 2: require rule + standard; reject on layer 1, 3
+            - Layer 3: require category, input_scope, validator; reject on layer 1, 2
+            - Category validation: presence/structural accepted without justification;
+              other requires non-empty justification; missing/invalid category rejected
+            - Prohibit rule field on layer 1 and 3
+            - Prohibit category, input_scope, validator on layer 1 and 2
+
+          Both pass functions are called from ValidateManifest, which accumulates
+          all errors (does not stop at first error).
+        files:
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify content type and layer field tests pass"
+        description: |
+          Run go test ./pkg/pack/ -run "TestValidateContent|TestValidateLayer" -race -v
+          to verify all 27 content type and layer field constraint tests pass.
+          Check for any unexpected test failures or panics.
+        files:
+          - pkg/pack/validate_content_test.go
+          - pkg/pack/validate_layer2_test.go
+          - pkg/pack/validate_layer3_cat_test.go
+          - pkg/pack/validate_layer3_fields_test.go
+        claims:
+          - CLM-005
+          - CLM-010
+          - CLM-018
+          - CLM-027
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Security, ToolConfig, Co-occurrence, Fixture Proof
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Security, ToolConfig, Co-occurrence, Fixture Proof"
+    description: |
+      TDD cycle for Pass 4 (security bypass_attempt), Pass 5 (tool_config
+      traceability), Pass 6 (bidirectional co-occurrence), and Pass 7
+      (fixture proof). Depends on phase 2 completion since implementation
+      touches the same validate_manifest.go file.
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for security bypass_attempt (REQ-005)"
+        description: |
+          Add tests to pkg/pack/validate_security_test.go with package pack_test:
+            - TestValidateSecurityFixtures_WithBypass: security-class rule with
+              at least one bypass_attempt fixture accepted (CLM-028)
+            - TestValidateSecurityFixtures_NoBypass: security-class rule with no
+              bypass_attempt fixture rejected (CLM-029)
+            - TestValidateSecurityFixtures_NonSecurityNoBypass: non-security rule
+              without bypass_attempt accepted (CLM-030)
+
+          Construct manifests with rules at various risk_class values and
+          fixture configurations.
+        files:
+          - pkg/pack/validate_security_test.go
+        claims:
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: test
+        title: "Write tests for tool_config traceability (REQ-006)"
+        description: |
+          Add tests to pkg/pack/validate_toolconfig_test.go with package pack_test:
+            - TestValidateToolConfigTrace_Standalone: tool_config with id field
+              is traceable (CLM-031)
+            - TestValidateToolConfigTrace_Supporting: tool_config with required_by
+              is traceable (CLM-032)
+            - TestValidateToolConfigTrace_NeitherIdNorRequiredBy: tool_config
+              with neither id nor required_by is rejected (CLM-033)
+
+          Sharp edge: standalone tool_config is simultaneously a tool config and
+          a layer 1 rule — test that both validation paths apply.
+        files:
+          - pkg/pack/validate_toolconfig_test.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-007
+
+      - id: TASK-010
+        type: test
+        title: "Write tests for bidirectional co-occurrence (REQ-013)"
+        description: |
+          Add tests to pkg/pack/validate_cooccurrence_test.go with package pack_test:
+            - TestValidateCoOccurrence_CodePackValid: code pack with scaffolds
+              and rules properly paired is accepted (CLM-044)
+            - TestValidateCoOccurrence_ScaffoldNoPairedRule: code pack scaffold
+              without any paired rule is rejected (CLM-045)
+            - TestValidateCoOccurrence_RuleNoPairedContent: code pack rule
+              without pairs_with scaffold or SDK is rejected (CLM-046)
+            - TestValidateCoOccurrence_EnforcementWithScaffolds: enforcement pack
+              with scaffolds rejected by co-occurrence pass independently (CLM-047)
+            - TestValidateCoOccurrence_EnforcementWithSDK: enforcement pack with
+              sdk rejected by co-occurrence pass independently (CLM-048)
+
+          Sharp edge: both directions of co-occurrence must be tested independently.
+          Sharp edge: enforcement pack prohibition must be enforced in co-occurrence
+          pass independently from content type pass.
+        files:
+          - pkg/pack/validate_cooccurrence_test.go
+        claims:
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+        depends_on:
+          - TASK-007
+
+      - id: TASK-011
+        type: test
+        title: "Write tests for fixture proof (REQ-014) and layer 3 isolation (REQ-010)"
+        description: |
+          Add tests to pkg/pack/validate_proof_test.go with package pack_test:
+            - TestValidateFixtureProof_EnforcementWithFixtures: enforcement pack
+              rule with claims and fixtures accepted (CLM-049)
+            - TestValidateFixtureProof_CodeWithFixtures: code pack rule with
+              claims and fixtures accepted (CLM-050)
+            - TestValidateFixtureProof_RuleNoClaims: rule without any claims
+              is rejected (CLM-051)
+            - TestValidateConstraint_Layer3MissingIsolationFields: ValidateManifest
+              rejects layer 3 rule missing input_scope or validator (CLM-040)
+
+          CLM-040 tests the constraint check path through ValidateManifest
+          specifically (distinct from the direct field validation in REQ-004).
+        files:
+          - pkg/pack/validate_proof_test.go
+        claims:
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-040
+        depends_on:
+          - TASK-007
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement security, tool_config, co-occurrence, and fixture proof passes"
+        description: |
+          Implement in pkg/pack/validate_manifest.go:
+
+          Pass 4 — validateSecurityFixtures(m *Manifest) []ValidationError:
+            - For each rule with risk_class "security", check that at least one
+              negative fixture has bypass_attempt: true
+            - Non-security rules are skipped
+
+          Pass 5 — validateToolConfigTrace(m *Manifest) []ValidationError:
+            - Each tool_config entry must have id (standalone) or required_by
+              (supporting). Reject entries with neither.
+
+          Pass 6 — validateCoOccurrence(m *Manifest) []ValidationError:
+            - Enforcement packs: reject if scaffolds or sdk declared
+            - Code packs: every scaffold must have pairs_with.rules referencing
+              at least one rule; every rule must have pairs_with referencing at
+              least one scaffold or SDK
+
+          Pass 7 — validateFixtureProof(m *Manifest) []ValidationError:
+            - Every rule must have at least one claim
+            - Every claim must have fixtures
+
+          Wire all four pass functions into ValidateManifest, accumulating errors.
+        files:
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-040
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+        depends_on:
+          - TASK-008
+          - TASK-009
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify security, tool_config, co-occurrence, and fixture proof tests pass"
+        description: |
+          Run go test ./pkg/pack/ -run "TestValidateSecurity|TestValidateToolConfig|TestValidateCoOccurrence|TestValidateFixtureProof|TestValidateConstraint" -race -v
+          to verify all 16 tests from this phase pass.
+        files:
+          - pkg/pack/validate_security_test.go
+          - pkg/pack/validate_toolconfig_test.go
+          - pkg/pack/validate_cooccurrence_test.go
+          - pkg/pack/validate_proof_test.go
+        claims:
+          - CLM-030
+          - CLM-033
+          - CLM-048
+          - CLM-051
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Directory Layout and Fixture Naming
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Directory Layout and Fixture Naming"
+    description: |
+      TDD cycle for ExpectedLayout (REQ-009) and fixture directory naming
+      (REQ-008). Depends on phase 3 completion since implementation touches
+      validate_manifest.go.
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write tests for ExpectedLayout and fixture directory naming"
+        description: |
+          Add tests to pkg/pack/validate_layout_test.go with package pack_test:
+
+          ExpectedLayout tests (REQ-009):
+            - TestExpectedLayout_PackYmlAlways: layout always includes pack.yml (CLM-052)
+            - TestExpectedLayout_GoModAlways: layout always includes go.mod (CLM-053)
+            - TestExpectedLayout_EnforcementWithLayer2: enforcement pack with
+              layer 2 rules expects rules/ directory (CLM-036)
+            - TestExpectedLayout_WithLayer3: pack with layer 3 rules expects
+              validators/ directory (CLM-037)
+            - TestExpectedLayout_CodePack: code pack expects scaffolds/ directory (CLM-038)
+            - TestExpectedLayout_FixturesAlways: pack always expects
+              fixtures/rules/ directory (CLM-039)
+
+          Fixture directory naming tests (REQ-008):
+            - TestValidateFixtureDir_MatchesRuleID: fixture directory matching
+              rule ID in lowercase is accepted (CLM-034)
+            - TestValidateFixtureDir_Mismatch: fixture directory not matching
+              rule ID is flagged (CLM-035)
+
+          Sharp edge: ExpectedLayout must use forward slashes consistently
+          for portability, not OS path separators.
+        files:
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-052
+          - CLM-053
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement ExpectedLayout and fixture directory naming validation"
+        description: |
+          Implement in pkg/pack/validate_manifest.go:
+
+          ExpectedLayout(m *Manifest) []string:
+            - Always include "pack.yml" and "go.mod"
+            - Always include "fixtures/rules/"
+            - If any layer 2 rules exist: include "rules/"
+            - If any layer 3 rules exist: include "validators/"
+            - If archetype is "code": include "scaffolds/"
+            - Use forward slashes for all paths
+
+          Pass 8 — validateFixtureDirNaming(m *Manifest) []ValidationError:
+            - For each rule, verify the expected fixture directory path
+              (fixtures/rules/<lowercase-rule-id>/) matches the rule ID
+            - Flag mismatches between rule ID and directory naming
+
+          Wire validateFixtureDirNaming into ValidateManifest.
+        files:
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-052
+          - CLM-053
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify layout and fixture naming tests pass"
+        description: |
+          Run go test ./pkg/pack/ -run "TestExpectedLayout|TestValidateFixtureDir" -race -v
+          to verify all 8 layout and fixture naming tests pass.
+        files:
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-035
+          - CLM-039
+          - CLM-053
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification"
+    description: |
+      Final verification phase. Run the full test suite with race detection
+      and coverage measurement. Verify coverage meets the 90% threshold.
+    tasks:
+      - id: TASK-017
+        type: verification
+        title: "Full test suite with coverage verification"
+        description: |
+          Run the complete test suite:
+            go test ./pkg/pack/ -race -coverprofile=cover.out -v
+
+          Verify:
+            1. All 50 claim tests pass (no failures, no panics)
+            2. Coverage meets the 90% threshold for validate_manifest.go
+            3. Race detector reports no data races
+            4. ValidateManifest accumulates all errors across all passes
+               (does not stop at first error)
+
+          Check coverage specifically for validate_manifest.go:
+            go tool cover -func=cover.out | grep validate_manifest
+
+          If coverage is below 90%, identify uncovered lines and report
+          which claims or passes need additional test coverage.
+        files:
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/validate_manifest_test.go
+          - pkg/pack/validate_content_test.go
+          - pkg/pack/validate_layer2_test.go
+          - pkg/pack/validate_layer3_cat_test.go
+          - pkg/pack/validate_layer3_fields_test.go
+          - pkg/pack/validate_security_test.go
+          - pkg/pack/validate_toolconfig_test.go
+          - pkg/pack/validate_cooccurrence_test.go
+          - pkg/pack/validate_proof_test.go
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-001
+          - CLM-014
+          - CLM-029
+          - CLM-040
+          - CLM-045
+          - CLM-052
+        depends_on:
+          - TASK-015
+          - TASK-016

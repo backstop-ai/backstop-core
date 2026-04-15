@@ -14,7 +14,7 @@ implementation:
     versioning fields, coordinate reference parsing, and namespaced rule IDs.
     This spec covers the data model — what a valid pack.yml looks like as Go
     types. Constraint validation (layer-specific field requirements, archetype
-    enforcement, co-occurrence, layout) is in SPEC-019.
+    enforcement, co-occurrence, layout) is in SPEC-016.
   package: pkg/pack
 
 verification:
@@ -135,7 +135,7 @@ requirements:
       The standard field on rules accepts a filepath string (pointing to a
       .standard.md file) or an inline string. The field is parsed as a
       string regardless of content. Layer-specific requirements for when
-      standard must be present are enforced in SPEC-019.
+      standard must be present are enforced in SPEC-016.
     supports: pack-manifest-authoring:REQ-025
 
   - id: REQ-015
@@ -777,7 +777,7 @@ Scope:
 - Coordinate reference parsing (`ParseCoordinate`)
 - Namespaced rule ID construction (`NamespacedRuleID`)
 
-Out of scope: layer-specific field requirements, archetype content restrictions, co-occurrence rules, and directory layout validation. Those belong to SPEC-019.
+Out of scope: layer-specific field requirements, archetype content restrictions, co-occurrence rules, and directory layout validation. Those belong to SPEC-016.
 
 ## Requirements
 
@@ -887,12 +887,12 @@ go test ./pkg/pack/ -race -coverprofile=cover.out
 
 3. Can a `FixtureEntry` have an empty string path? The spec requires fixture presence but does not explicitly address zero-length paths.
 
-4. If `pairs_with.sdk` references a non-existent SDK, is that a parse-time error (this spec) or a constraint-time error (SPEC-019)? The boundary must be clear.
+4. If `pairs_with.sdk` references a non-existent SDK, is that a parse-time error (this spec) or a constraint-time error (SPEC-016)? The boundary must be clear.
 
 5. How does `ParseManifest` handle unknown YAML keys? Strict unmarshaling rejects typos early; lenient unmarshaling risks silent misconfiguration.
 
 ## References
 
 - **BUNDLE-004** (pack-manifest-authoring) -- source bundle for pack manifest requirements
-- **SPEC-019** -- pack manifest constraints and layout; consumes types defined here
+- **SPEC-016** -- pack manifest constraints and layout; consumes types defined here
 - **ADR-0001** -- agent-first discipline framework

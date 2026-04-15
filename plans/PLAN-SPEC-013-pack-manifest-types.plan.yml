@@ -1,0 +1,876 @@
+---
+plan_id: PLAN-SPEC-013
+spec_id: SPEC-013
+spec_version: 1.0.0
+created: "2026-04-14"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements pack.yml manifest types and parsing for pkg/pack/.
+  This adds manifest.go (types + parsing) and manifest_test.go alongside
+  the existing scaffold.go and number.go in pkg/pack/.
+
+  The spec defines 81 claims (CLM-001 through CLM-083, gap at 068/069)
+  covering: Go struct definitions, YAML parsing, required field validation,
+  enum validation, fixture entry polymorphism, coordinate parsing,
+  namespaced rule IDs, naming normalization, versioning, scaffold/SDK/tool_config
+  structures.
+
+  Out of scope: layer-specific field requirements, archetype content
+  restrictions, co-occurrence rules (those belong to SPEC-019).
+
+  Structure: manifest.go holds all types and parsing functions.
+  manifest_test.go holds all tests. A testdata/ directory holds YAML fixtures
+  for integration-style parse tests. coordinate.go is split out for
+  ParseCoordinate and NamespacedRuleID to enable parallel work.
+
+  Note: the spec contracts declare ParseCoordinate and NamespacedRuleID on
+  manifest.go. This plan splits them into coordinate.go for D-081 parallel
+  file exclusivity. Both files are in pkg/pack/ (same Go package) so the
+  public API is identical. The spec contract is satisfied at the package
+  level; the file split is an implementation optimization.
+
+  Parallelism strategy:
+    - Phase 2: Two parallel test+impl pairs using disjoint files
+      (manifest.go/manifest_test.go vs coordinate.go/coordinate_test.go)
+    - Phase 3: Sequential — enum/field validation on manifest.go
+    - Phase 4: Sequential — scaffold/pairs_with validation on manifest.go
+    - Phase 5: Sequential — SDK/ToolConfig validation on manifest.go
+    - Phase 6: Sequential — claim uniqueness + namespacing integration
+    - Phase 7: Comprehensive verification
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Type Definitions and Test Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Define all Go struct types and create testdata fixtures"
+        description: |
+          Create pkg/pack/manifest.go with all struct type definitions from
+          the contracts section. No parsing logic yet — just the types and
+          placeholder function signatures that return errors.
+
+          Types to define:
+            - Manifest (Name, NormalizedName, Version, Language, Archetype,
+              Description, Content, ToolConfig)
+            - Content (Ruleset, Scaffolds, SDK)
+            - Ruleset (Version, Rules)
+            - Rule (ID, NamespacedID, Standard, RulePath, RiskClass, Layer,
+              Claims, Category, Justification, Validator, InputScope, PairsWith)
+            - Claim (ID, Text, Fixtures)
+            - Fixtures (Positive, Negative — both []FixtureEntry)
+            - FixtureEntry (Path, BypassAttempt) with custom UnmarshalYAML stub
+            - Scaffold (ID, Version, Tier, Path, TestCommand, Description,
+              UseWhen, Assumes, PairsWith, SampleConfig)
+            - SDK (Module, Version, Provides)
+            - ToolConfigEntry (ID, Tool, File, Settings, RiskClass, Claims, RequiredBy)
+            - PairsWith (Rules, Scaffolds, SDK)
+            - Coordinate (PackName, PackVersion, ItemName, ItemVersion)
+
+          Placeholder functions (return nil/error):
+            - ParseManifest(data []byte) (*Manifest, error)
+            - ParseManifestFile(path string) (*Manifest, error)
+
+          Also create pkg/pack/testdata/ directory with YAML fixture files:
+            - valid-enforcement-pack.yml: complete valid enforcement pack manifest
+            - valid-code-pack.yml: complete valid code pack manifest
+            - missing-name.yml, missing-version.yml, missing-language.yml,
+              missing-archetype.yml, missing-description.yml, missing-content.yml
+
+          These fixtures are consumed by Phase 2 tests.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/testdata/valid-enforcement-pack.yml
+          - pkg/pack/testdata/valid-code-pack.yml
+          - pkg/pack/testdata/missing-name.yml
+          - pkg/pack/testdata/missing-version.yml
+          - pkg/pack/testdata/missing-language.yml
+          - pkg/pack/testdata/missing-archetype.yml
+          - pkg/pack/testdata/missing-description.yml
+          - pkg/pack/testdata/missing-content.yml
+        claims:
+          - CLM-001
+          - CLM-077
+          - CLM-078
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Create coordinate.go with Coordinate type and function stubs"
+        description: |
+          Create pkg/pack/coordinate.go with:
+            - ParseCoordinate(ref string) (*Coordinate, error) — stub returns error
+            - NamespacedRuleID(packName, ruleID string) string — stub returns ""
+            - ValidateRuleID(id string) error — stub returns error
+
+          This file is split from manifest.go to enable parallel development
+          in Phase 2 (disjoint file sets for D-081 compliance).
+        files:
+          - pkg/pack/coordinate.go
+        claims:
+          - CLM-074
+          - CLM-035
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Core Parsing + Coordinate Parsing (parallel pairs)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Core Manifest Parsing and Coordinate/RuleID Functions"
+    tasks:
+      # --- Parallel pair A: ParseManifest core + required fields + name + fixture polymorphism ---
+      - id: TASK-003
+        type: test
+        title: "Write tests for ParseManifest, required fields, name validation, fixture polymorphism"
+        description: |
+          Write failing tests in pkg/pack/manifest_test.go covering:
+
+          ParseManifest valid parsing (CLM-001):
+            - TestParseManifest_ValidEnforcementPack: parse testdata fixture, verify all fields
+            - TestParseManifest_ValidCodePack: parse code pack fixture, verify fields
+
+          Required field rejection (CLM-002..007):
+            - TestParseManifest_MissingName
+            - TestParseManifest_MissingVersion
+            - TestParseManifest_MissingLanguage
+            - TestParseManifest_MissingArchetype
+            - TestParseManifest_MissingDescription
+            - TestParseManifest_MissingContent
+
+          Name validation (CLM-008..012):
+            - TestValidateName_ValidTwoPart
+            - TestValidateName_NoSlash
+            - TestValidateName_MultipleSlashes
+            - TestValidateName_InvalidChars
+            - TestValidateName_NormalizedToLowercase
+
+          Language validation (CLM-072..073):
+            - TestValidateLanguage_Valid
+            - TestValidateLanguage_Empty
+
+          Standard field parsing (CLM-066..067):
+            - TestParseStandard_Filepath
+            - TestParseStandard_InlineString
+
+          Fixture entry polymorphism (CLM-081..083):
+            - TestParseFixture_StringPath
+            - TestParseFixture_ObjectWithBypass
+            - TestParseFixture_ObjectWithoutBypass
+
+          Struct shape tests (CLM-077..078):
+            - TestScaffoldType_HasPathNoUpdate
+            - TestSDKType_ModuleVersionProvides
+
+          All tests use YAML literal strings or testdata fixtures. Tests
+          call ParseManifest or internal validation helpers directly.
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-066
+          - CLM-067
+          - CLM-072
+          - CLM-073
+          - CLM-077
+          - CLM-078
+          - CLM-081
+          - CLM-082
+          - CLM-083
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Implement ParseManifest core, required fields, name validation, fixture UnmarshalYAML"
+        description: |
+          Implement in pkg/pack/manifest.go:
+
+          ParseManifest(data []byte) (*Manifest, error):
+            1. yaml.Unmarshal into Manifest struct
+            2. Validate required fields: name, version, language, archetype,
+               description, content (reject with error identifying missing field)
+            3. Validate name format: exactly one slash, alphanumeric+hyphen parts
+            4. Set NormalizedName to strings.ToLower(Name)
+            5. Validate language is non-empty string
+            6. Parse standard field as string (filepath or inline)
+            7. Return validated *Manifest
+
+          ParseManifestFile(path string) (*Manifest, error):
+            - Read file, delegate to ParseManifest
+
+          FixtureEntry.UnmarshalYAML:
+            - Try string first: if successful, set Path = string, BypassAttempt = false
+            - Try object: unmarshal into struct with path and bypass_attempt fields
+            - This handles the polymorphism sharp edge
+
+          Internal helpers:
+            - validateName(name string) error
+            - validateLanguageField(lang string) error
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-066
+          - CLM-067
+          - CLM-072
+          - CLM-073
+          - CLM-077
+          - CLM-078
+          - CLM-081
+          - CLM-082
+          - CLM-083
+        depends_on:
+          - TASK-003
+
+      # --- Parallel pair B: Coordinate parsing + NamespacedRuleID ---
+      - id: TASK-005
+        type: test
+        title: "Write tests for ParseCoordinate and NamespacedRuleID"
+        description: |
+          Write failing tests in pkg/pack/coordinate_test.go:
+
+          Coordinate parsing (CLM-074..076):
+            - TestParseCoordinate_FullFormat: parse pack-name@1.0.0:item@2.0.0
+            - TestParseCoordinate_NoItemVersion: parse pack-name@1.0.0:item
+            - TestParseCoordinate_Invalid: various invalid formats return error
+
+          Rule ID namespacing (CLM-035):
+            - TestNamespaceRuleID_Correct: NamespacedRuleID("org/pack", "rule-id")
+              returns "org/pack/rule-id"
+
+          Rule ID validation (CLM-032..034):
+            - TestValidateRuleID_ValidKebab
+            - TestValidateRuleID_Uppercase
+            - TestValidateRuleID_Underscores
+        files:
+          - pkg/pack/coordinate_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-074
+          - CLM-075
+          - CLM-076
+        depends_on:
+          - TASK-002
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement ParseCoordinate, NamespacedRuleID, and rule ID validation"
+        description: |
+          Implement in pkg/pack/coordinate.go:
+
+          ParseCoordinate(ref string) (*Coordinate, error):
+            1. Split on ":" to get pack-part and item-part
+            2. Split pack-part on "@" to get PackName and PackVersion
+            3. Split item-part on "@" to get ItemName and optional ItemVersion
+            4. Return populated Coordinate or error for invalid format
+
+          NamespacedRuleID(packName, ruleID string) string:
+            - Return packName + "/" + ruleID
+
+          ValidateRuleID(id string) error:
+            - Match against ^[a-z][a-z0-9]*(-[a-z0-9]+)*$
+            - Reject uppercase, underscores, invalid patterns
+        files:
+          - pkg/pack/coordinate.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-074
+          - CLM-075
+          - CLM-076
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify core parsing and coordinate functions"
+        description: |
+          Run tests and lint for Phase 2 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestParseManifest|TestValidateName|TestValidateLanguage|TestParseStandard|TestParseFixture|TestScaffoldType|TestSDKType|TestParseCoordinate|TestNamespaceRuleID|TestValidateRuleID" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+          - pkg/pack/coordinate.go
+          - pkg/pack/coordinate_test.go
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-035
+          - CLM-074
+          - CLM-081
+        depends_on:
+          - TASK-004
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Enum Validation + Versioning + Fixture Presence
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Enum Validation, Versioning, and Fixture Presence"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for archetype, risk_class, layer enums, versioning, and fixture presence"
+        description: |
+          Write failing tests in pkg/pack/manifest_test.go:
+
+          Archetype enum (CLM-013..016):
+            - TestValidateArchetype_Enforcement
+            - TestValidateArchetype_Code
+            - TestValidateArchetype_Invalid
+            - TestValidateArchetype_Missing
+
+          Risk class enum (CLM-017..022):
+            - TestValidateRiskClass_Security
+            - TestValidateRiskClass_Correctness
+            - TestValidateRiskClass_Style
+            - TestValidateRiskClass_Perf
+            - TestValidateRiskClass_Invalid
+            - TestValidateRiskClass_Missing
+
+          Layer enum (CLM-023..028):
+            - TestValidateLayer_One
+            - TestValidateLayer_Two
+            - TestValidateLayer_Three
+            - TestValidateLayer_Zero
+            - TestValidateLayer_Four
+            - TestValidateLayer_Missing
+
+          Versioning (CLM-036..039):
+            - TestValidateVersion_ValidSemver
+            - TestValidateVersion_InvalidFormat
+            - TestValidateVersion_RulesetDefaultsToPackVersion
+            - TestValidateVersion_ExplicitRulesetVersion
+            - TestValidateVersion_CodePackNoRulesetDefault (sharp edge: code
+              packs must NOT inherit pack version as ruleset version)
+
+          Fixture presence (CLM-029..031):
+            - TestValidateFixtures_BothPresent
+            - TestValidateFixtures_NoPositive
+            - TestValidateFixtures_NoNegative
+            - TestParseFixture_BypassAttemptOnPositiveIgnored (sharp edge:
+              bypass_attempt on positive fixtures is silently ignored)
+
+          Empty vs missing content (sharp edge):
+            - TestParseManifest_EmptyContent (content: {} must be rejected
+              same as missing content)
+
+          Tests call internal validation helpers or ParseManifest with
+          crafted YAML.
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement enum validation, versioning logic, and fixture presence checks"
+        description: |
+          Extend ParseManifest validation in pkg/pack/manifest.go:
+
+          Archetype validation:
+            - Accept "enforcement" or "code", reject all else
+            - Missing archetype already caught by required field check
+
+          Risk class validation:
+            - Accept: security, correctness, style, perf
+            - Iterate all rules (including standalone tool_config rules)
+            - Reject missing or invalid risk_class
+
+          Layer validation:
+            - Accept: 1, 2, 3 (as integers)
+            - Reject: 0, 4, or missing layer
+
+          Version validation:
+            - Validate pack version against semver regex
+            - If enforcement pack and ruleset version omitted: default to pack version
+            - If ruleset version present: validate as semver
+            - Validate scaffold/SDK item versions if present
+
+          Fixture presence:
+            - For each claim: require len(Positive) >= 1 and len(Negative) >= 1
+            - Reject claims with zero positive or zero negative fixtures
+
+          Internal helpers:
+            - validateArchetype(a string) error
+            - validateRiskClass(rc string) error
+            - validateLayer(l int) error
+            - validateSemver(v string) error
+            - validateFixtures(f Fixtures) error
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify enum validation, versioning, and fixture presence"
+        description: |
+          Run tests and lint for Phase 3 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestValidateArchetype|TestValidateRiskClass|TestValidateLayer|TestValidateVersion|TestValidateFixtures" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-013
+          - CLM-017
+          - CLM-023
+          - CLM-029
+          - CLM-036
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Scaffold and PairsWith Validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Scaffold and PairsWith Validation"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for scaffold validation and pairs_with parsing"
+        description: |
+          Write failing tests in pkg/pack/manifest_test.go:
+
+          Scaffold tier (CLM-040..043):
+            - TestValidateScaffoldTier_Complete
+            - TestValidateScaffoldTier_Skeleton
+            - TestValidateScaffoldTier_Invalid
+            - TestValidateScaffoldTier_Missing
+
+          Scaffold test_command (CLM-044..045):
+            - TestValidateScaffold_WithTestCommand
+            - TestValidateScaffold_MissingTestCommand
+
+          Scaffold fields (CLM-046..052):
+            - TestValidateScaffold_AllFieldsPresent
+            - TestValidateScaffold_MissingUseWhen
+            - TestValidateScaffold_MissingAssumes
+            - TestValidateScaffold_MissingPairsWith
+            - TestValidateScaffold_EmptyUseWhen
+            - TestValidateScaffold_SampleConfigNonString
+            - TestParseScaffold_PairsWithAllKeys
+
+          PairsWith parsing (CLM-079..080):
+            - TestParsePairsWith_AllKeys
+            - TestParsePairsWith_RulesOnly
+
+          Tests construct Scaffold structs or parse YAML snippets and
+          call validation helpers.
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-079
+          - CLM-080
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement scaffold and pairs_with validation"
+        description: |
+          Extend ParseManifest validation in pkg/pack/manifest.go:
+
+          Scaffold tier validation:
+            - Accept: "complete", "skeleton"
+            - Reject invalid or missing tier
+
+          Scaffold required fields:
+            - test_command: must be non-empty string
+            - use_when: must be non-empty list of strings
+            - assumes: must be non-empty list of strings
+            - pairs_with: must be present (PairsWith struct)
+
+          Scaffold sample_config:
+            - If present, all values must be strings (flat key-value)
+            - Reject non-string values
+
+          PairsWith parsing:
+            - Already handled by YAML unmarshal into PairsWith struct
+            - Verify rules, scaffolds, sdk keys all parsed
+
+          Internal helpers:
+            - validateScaffold(s Scaffold) error
+            - validateScaffoldTier(tier string) error
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-079
+          - CLM-080
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify scaffold and pairs_with validation"
+        description: |
+          Run tests and lint for scaffold validation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestValidateScaffoldTier|TestValidateScaffold|TestParseScaffold|TestParsePairsWith" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-040
+          - CLM-079
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: SDK and ToolConfig Validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: SDK and ToolConfig Validation"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write tests for SDK and ToolConfig validation"
+        description: |
+          Write failing tests in pkg/pack/manifest_test.go:
+
+          SDK validation (CLM-053..057):
+            - TestValidateSDK_Valid
+            - TestValidateSDK_MissingModule
+            - TestValidateSDK_MissingVersion
+            - TestValidateSDK_EmptyProvides
+            - TestValidateSDK_MissingProvides
+
+          ToolConfig validation (CLM-058..065):
+            - TestValidateToolConfig_Standalone
+            - TestValidateToolConfig_Supporting
+            - TestValidateToolConfig_BothIdAndRequiredBy
+            - TestValidateToolConfig_NeitherIdNorRequiredBy
+            - TestValidateToolConfig_StandaloneMissingRiskClass
+            - TestValidateToolConfig_StandaloneMissingClaims
+            - TestValidateToolConfig_MissingTool
+            - TestValidateToolConfig_MissingFile
+
+          Tests construct SDK/ToolConfigEntry structs and call validation
+          helpers or parse YAML with ParseManifest.
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement SDK and ToolConfig validation"
+        description: |
+          Extend ParseManifest validation in pkg/pack/manifest.go:
+
+          SDK validation:
+            - module: must be non-empty string
+            - version: must be non-empty string
+            - provides: must be non-nil and non-empty list
+
+          ToolConfig validation:
+            - Classification: each entry must have exactly id XOR required_by
+            - Both id and required_by present: reject
+            - Neither id nor required_by: reject
+            - Standalone (has id): require tool, file, risk_class, claims
+            - Supporting (has required_by): require tool, file only
+            - tool and file are required on all entries
+
+          Internal helpers:
+            - validateSDK(sdk *SDK) error
+            - validateToolConfig(tc ToolConfigEntry) error
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify SDK and ToolConfig validation"
+        description: |
+          Run tests and lint for Phase 5 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestValidateSDK|TestValidateToolConfig" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-053
+          - CLM-058
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Claim Uniqueness + Rule ID Namespacing Integration
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Claim Uniqueness, Rule ID Namespacing, and End-to-End Parsing"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Write tests for claim ID uniqueness and rule ID namespacing in ParseManifest"
+        description: |
+          Write failing tests in pkg/pack/manifest_test.go:
+
+          Claim ID uniqueness (CLM-070..071):
+            - TestValidateClaimIDs_Unique: manifest with distinct claim IDs accepted
+            - TestValidateClaimIDs_Duplicate: manifest with duplicate claim ID rejected
+
+          Rule ID namespacing integration (CLM-035):
+            - Verify that after ParseManifest, each rule's NamespacedID is set
+              to pack-name/rule-id format (tested via the valid enforcement pack
+              fixture or inline YAML)
+
+          End-to-end fixture parsing:
+            - Parse the valid-enforcement-pack.yml testdata fixture through
+              the full ParseManifest pipeline and verify all validation passes,
+              all fields populated, rule IDs namespaced, ruleset version defaulted
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-035
+          - CLM-070
+          - CLM-071
+        depends_on:
+          - TASK-016
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement claim ID uniqueness check and rule ID namespacing in ParseManifest"
+        description: |
+          Complete the ParseManifest pipeline in pkg/pack/manifest.go:
+
+          Claim ID uniqueness:
+            - Collect all claim IDs across rules and standalone tool_config entries
+            - Use a map to detect duplicates
+            - Reject with error identifying the duplicate claim ID
+
+          Rule ID namespacing (integration with coordinate.go):
+            - After all validation passes, iterate rules and set
+              NamespacedID = NamespacedRuleID(manifest.NormalizedName, rule.ID)
+            - Call NamespacedRuleID from coordinate.go
+
+          Ensure the full ParseManifest pipeline runs all validation steps
+          in the order specified in the spec's Parsing Flow section.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-035
+          - CLM-070
+          - CLM-071
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify claim uniqueness and end-to-end parsing"
+        description: |
+          Run tests and lint for Phase 6 implementation.
+
+          Commands:
+            - go test ./pkg/pack/ -run "TestValidateClaimIDs" -race -v
+            - go tool golangci-lint run ./pkg/pack/
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-070
+          - CLM-071
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification"
+    tasks:
+      - id: TASK-020
+        type: verification
+        title: "Run full test suite with coverage gate"
+        description: |
+          Run the complete test suite with race detection and coverage
+          profiling. Verify all mandated test names pass and coverage
+          meets the 90% threshold.
+
+          Commands:
+            - go test ./pkg/pack/ -race -coverprofile=cover.out -v
+            - go tool cover -func=cover.out | grep "pkg/pack/"
+            - Verify coverage >= 90% for pkg/pack/manifest.go and
+              pkg/pack/coordinate.go
+            - go tool golangci-lint run ./pkg/pack/
+            - go build ./...
+
+          This covers code verification for all .go files touched in
+          the plan. No artifact files were modified, so only code
+          verification is needed.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+          - pkg/pack/coordinate.go
+          - pkg/pack/coordinate_test.go
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-013
+          - CLM-017
+          - CLM-023
+          - CLM-029
+          - CLM-032
+          - CLM-035
+          - CLM-036
+          - CLM-040
+          - CLM-053
+          - CLM-058
+          - CLM-066
+          - CLM-070
+          - CLM-072
+          - CLM-074
+          - CLM-077
+          - CLM-079
+          - CLM-081
+        depends_on:
+          - TASK-018
+          - TASK-019

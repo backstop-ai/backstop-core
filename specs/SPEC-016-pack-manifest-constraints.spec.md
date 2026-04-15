@@ -1,6 +1,6 @@
 ---
-title: "SPEC-019: Pack Manifest Constraints and Layout"
-number: SPEC-019
+title: "SPEC-016: Pack Manifest Constraints and Layout"
+number: SPEC-016
 created: "2026-04-14"
 status: draft
 schema_version: spec/v1
@@ -463,7 +463,7 @@ contracts:
         kind: type
 ---
 
-# SPEC-019: Pack Manifest Constraints and Layout
+# SPEC-016: Pack Manifest Constraints and Layout
 
 ## Overview
 
@@ -618,7 +618,7 @@ Test command: `go test ./pkg/pack/ -race -coverprofile=cover.out`
 
 ## References
 
-- **SPEC-013** — Pack manifest types and parsing. Defines the Go types that this spec's validation logic consumes. The two specs share `pkg/pack/` but have distinct responsibilities: SPEC-013 owns the data model, SPEC-019 owns the constraint rules.
+- **SPEC-013** — Pack manifest types and parsing. Defines the Go types that this spec's validation logic consumes. The two specs share `pkg/pack/` but have distinct responsibilities: SPEC-013 owns the data model, SPEC-016 owns the constraint rules.
 - **BUNDLE-004** (pack-manifest-authoring) — Source bundle. Requirements REQ-003 through REQ-035 are the origin of the constraints in this spec.
 - **BUNDLE-005** (pack-validation-pipeline) — Consumer of these constraints. The validation pipeline invokes `ValidateManifest` as part of `pack check`.
 - **ADR-0001** — Agent-first discipline framework. Pack manifests are optimized for machine generation and parsing.
