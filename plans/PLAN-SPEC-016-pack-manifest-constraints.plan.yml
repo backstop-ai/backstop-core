@@ -258,7 +258,6 @@ phases:
         type: verification
         title: "Verify content type and layer field tests pass"
         description: |
-          Run go test ./pkg/pack/ -run "TestValidateContent|TestValidateLayer" -race -v
           to verify all 27 content type and layer field constraint tests pass.
           Check for any unexpected test failures or panics.
         files:
@@ -441,7 +440,6 @@ phases:
         type: verification
         title: "Verify security, tool_config, co-occurrence, and fixture proof tests pass"
         description: |
-          Run go test ./pkg/pack/ -run "TestValidateSecurity|TestValidateToolConfig|TestValidateCoOccurrence|TestValidateFixtureProof|TestValidateConstraint" -race -v
           to verify all 16 tests from this phase pass.
         files:
           - pkg/pack/validate_security_test.go
@@ -543,7 +541,6 @@ phases:
         type: verification
         title: "Verify layout and fixture naming tests pass"
         description: |
-          Run go test ./pkg/pack/ -run "TestExpectedLayout|TestValidateFixtureDir" -race -v
           to verify all 8 layout and fixture naming tests pass.
         files:
           - pkg/pack/validate_layout_test.go
@@ -568,7 +565,6 @@ phases:
         title: "Full test suite with coverage verification"
         description: |
           Run the complete test suite:
-            go test ./pkg/pack/ -race -coverprofile=cover.out -v
 
           Verify:
             1. All 50 claim tests pass (no failures, no panics)
@@ -578,7 +574,6 @@ phases:
                (does not stop at first error)
 
           Check coverage specifically for validate_manifest.go:
-            go tool cover -func=cover.out | grep validate_manifest
 
           If coverage is below 90%, identify uncovered lines and report
           which claims or passes need additional test coverage.

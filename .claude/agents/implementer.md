@@ -29,7 +29,19 @@ Execute plan tasks in order, producing code and tests that:
    - For `refactor` tasks: modify existing code, verify tests still pass
    - For `verification` tasks: run the specified gate commands
    - For `setup` tasks: create scaffolding, directories, fixtures
-5. **Run tests after every implementation task** — `go test -race ./...`
+5. **Run `backstop code check` after every implementation/refactor task** — this is the diff-scoped standards check. If it returns violations, STOP and fix them before moving to the next task. Do NOT proceed with violations. Do NOT use raw `go test` or `golangci-lint` directly — always use the backstop CLI.
+
+## Verification Model
+
+Three levels of verification, each at a different point in the plan:
+
+1. **After each impl/refactor task:** Run `backstop code check` (diff-scoped by default). This catches lint errors, build failures, semgrep violations, and test failures on the files you just changed. If it fails, fix before proceeding. This is fast — seconds, not minutes.
+
+2. **Verification tasks in middle phases:** Run `backstop code check --all` scoped to the phase's files, or as the plan's verification task specifies. This catches cross-file issues the diff-scoped check might miss.
+
+3. **Final phase verification task:** Run `backstop gate`. This is the full kill chain — artifact validation, test verification, substantiveness, coverage, contracts. Only the final phase runs the full gate. If the gate fails, fix violations before declaring the plan complete.
+
+**The rule is simple: `backstop code check` is your inner loop. `backstop gate` is your exit gate. Never use raw tool commands (`go test`, `golangci-lint`, `go vet`) directly — always go through the backstop CLI so enforcement is consistent.**
 
 ## Task Execution Rules
 
@@ -52,9 +64,10 @@ Execute plan tasks in order, producing code and tests that:
 - Stay within file scope
 
 ### Verification Tasks
-- Run the gate commands specified in the task description
-- Report results accurately — do not fabricate passing results
-- If verification fails, report what failed and why
+- **Middle phases:** Run `backstop code check` (or `backstop code check --all` if specified). Report results accurately.
+- **Final phase:** Run `backstop gate`. This is the full kill chain. Report all step results.
+- If verification fails, STOP. Fix the violations. Re-run verification. Do not declare the task complete until verification passes.
+- Do not fabricate passing results. Do not skip verification. Do not proceed past a failing verification task.
 
 ### Setup Tasks
 - Create directories, fixtures, configuration files

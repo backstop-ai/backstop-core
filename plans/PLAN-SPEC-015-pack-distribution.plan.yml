@@ -113,7 +113,7 @@ phases:
           sorted manifest of "relative/path:hexdigest" entries. Paths use forward
           slashes regardless of OS.
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestContent -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/hash.go
         claims:
@@ -167,7 +167,7 @@ phases:
           YAML output must have sorted keys at all levels. LockEntry.GitRef is
           a pointer to allow null representation for local packs.
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestLockfile -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/lockfile.go
         claims:
@@ -182,8 +182,6 @@ phases:
         title: "Verify hash and lockfile infrastructure"
         description: |
           Run all tests for hash and lockfile:
-            go test ./pkg/pack/distribution/ -run "TestContent|TestLockfile|TestCompute" -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/hash_test.go
           - pkg/pack/distribution/lockfile_test.go
@@ -241,7 +239,7 @@ phases:
             - WriteProvenance(path string, prov *Provenance) error: writes JSON
               with "entries" array wrapper
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestProvenance -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/provenance.go
         claims:
@@ -298,7 +296,7 @@ phases:
           Conflicts populated. Caller decides to abort. No interactive prompts.
           On success: merges settings, returns Merged entries for provenance recording.
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestMerge -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/config_merge.go
         claims:
@@ -314,8 +312,6 @@ phases:
         title: "Verify provenance and config merge infrastructure"
         description: |
           Run all tests for provenance and config merge:
-            go test ./pkg/pack/distribution/ -run "TestProvenance|TestMerge|TestPackAdd_ToolConfig" -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/provenance_test.go
           - pkg/pack/distribution/config_merge_test.go
@@ -386,7 +382,7 @@ phases:
 
           Non-tamper changes (new rules, new fixtures, description edits) are accepted.
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestDetectTamper -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/tamper.go
         claims:
@@ -453,7 +449,7 @@ phases:
             3. For each pack in packsDir: check present in lockfile
             4. Local packs verified by hash at their source path
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestGate -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/verify.go
         claims:
@@ -473,8 +469,6 @@ phases:
         title: "Verify tamper detection and lock verification"
         description: |
           Run all tests for tamper and verify:
-            go test ./pkg/pack/distribution/ -run "TestDetectTamper|TestGate" -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/tamper_test.go
           - pkg/pack/distribution/verify_test.go
@@ -597,7 +591,7 @@ phases:
             14. Skip SDK dependencies (CLM-063)
             15. Reject transitive pack dependencies (CLM-056)
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestPackAdd -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/add.go
         claims:
@@ -628,8 +622,6 @@ phases:
         title: "Verify pack add implementation"
         description: |
           Run all pack add tests and check for regressions:
-            go test ./pkg/pack/distribution/ -run "TestPackAdd|TestBackstopYml" -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/add_test.go
         claims:
@@ -695,7 +687,7 @@ phases:
             7. Remove from backstop.lock (CLM-014)
             8. Remove entries from provenance (CLM-014)
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestPackRemove -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/remove.go
         claims:
@@ -712,8 +704,6 @@ phases:
         title: "Verify pack remove implementation"
         description: |
           Run all pack remove tests:
-            go test ./pkg/pack/distribution/ -run TestPackRemove -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/remove_test.go
         claims:
@@ -792,7 +782,7 @@ phases:
             6. Do NOT merge tool_config (CLM-019)
             7. Do NOT install SDK dependencies (CLM-064)
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestPackInstall -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/install.go
         claims:
@@ -815,8 +805,6 @@ phases:
         title: "Verify pack install implementation"
         description: |
           Run all pack install tests:
-            go test ./pkg/pack/distribution/ -run TestPackInstall -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/install_test.go
         claims:
@@ -895,7 +883,7 @@ phases:
             10. Install new version, update backstop.yml exact pin (CLM-020/058)
             11. Update backstop.lock (CLM-020)
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestPackUpdate -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/update.go
         claims:
@@ -916,8 +904,6 @@ phases:
         title: "Verify pack update implementation"
         description: |
           Run all pack update tests:
-            go test ./pkg/pack/distribution/ -run TestPackUpdate -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/update_test.go
         claims:
@@ -994,7 +980,7 @@ phases:
             7. Update backstop.yml and backstop.lock (CLM-033)
             8. Baseline new violations (CLM-029)
 
-          Run tests: go test ./pkg/pack/distribution/ -run TestPackUpgrade -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/upgrade.go
         claims:
@@ -1015,8 +1001,6 @@ phases:
         title: "Verify pack upgrade implementation"
         description: |
           Run all pack upgrade tests:
-            go test ./pkg/pack/distribution/ -run TestPackUpgrade -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/upgrade_test.go
         claims:
@@ -1091,7 +1075,7 @@ phases:
 
           Local packs (CLM-051/052) appear with same fields, null git_ref.
 
-          Run tests: go test ./pkg/pack/distribution/ -run "TestPackList|TestLocalPack" -race
+          Run backstop code check to verify tests compile and code standards pass.
         files:
           - pkg/pack/distribution/list.go
         claims:
@@ -1109,8 +1093,6 @@ phases:
         title: "Verify pack list implementation"
         description: |
           Run all pack list tests:
-            go test ./pkg/pack/distribution/ -run "TestPackList|TestLocalPack" -race -v
-            go vet ./pkg/pack/distribution/
         files:
           - pkg/pack/distribution/list_test.go
         claims:
@@ -1229,8 +1211,6 @@ phases:
         title: "Verify CLI adapter registration and wiring"
         description: |
           Run all CLI adapter tests and verify command tree:
-            go test ./cmd/backstop/ -run "TestPack" -race -v
-            go build ./cmd/backstop/
             ./bin/backstop commands | jq '.[] | select(.path | startswith("pack"))'
         files:
           - cmd/backstop/pack_add_test.go
@@ -1256,10 +1236,6 @@ phases:
         title: "Full test suite with coverage gate"
         description: |
           Run the complete test suite for the distribution package and CLI adapters:
-            go test ./pkg/pack/distribution/... -race -coverprofile=cover.out -v
-            go test ./cmd/backstop/ -race -v
-            go vet ./pkg/pack/distribution/...
-            go vet ./cmd/backstop/
 
           Verify coverage meets the 80% threshold specified in the spec.
           Verify no race conditions detected.

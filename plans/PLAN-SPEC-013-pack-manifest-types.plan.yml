@@ -320,11 +320,11 @@ phases:
         type: verification
         title: "Verify core parsing and coordinate functions"
         description: |
-          Run tests and lint for Phase 2 implementation.
+          Run backstop code check to verify Phase 2 implementation passes
+          all code standards (lint, build, test, semgrep) on changed files.
 
-          Commands:
-            - go test ./pkg/pack/ -run "TestParseManifest|TestValidateName|TestValidateLanguage|TestParseStandard|TestParseFixture|TestScaffoldType|TestSDKType|TestParseCoordinate|TestNamespaceRuleID|TestValidateRuleID" -race -v
-            - go tool golangci-lint run ./pkg/pack/
+          Command:
+            backstop code check
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go
@@ -492,11 +492,11 @@ phases:
         type: verification
         title: "Verify enum validation, versioning, and fixture presence"
         description: |
-          Run tests and lint for Phase 3 implementation.
+          Run backstop code check to verify Phase 3 implementation passes
+          all code standards on changed files.
 
-          Commands:
-            - go test ./pkg/pack/ -run "TestValidateArchetype|TestValidateRiskClass|TestValidateLayer|TestValidateVersion|TestValidateFixtures" -race -v
-            - go tool golangci-lint run ./pkg/pack/
+          Command:
+            backstop code check
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go
@@ -619,11 +619,11 @@ phases:
         type: verification
         title: "Verify scaffold and pairs_with validation"
         description: |
-          Run tests and lint for scaffold validation.
+          Run backstop code check to verify scaffold validation passes
+          all code standards on changed files.
 
-          Commands:
-            - go test ./pkg/pack/ -run "TestValidateScaffoldTier|TestValidateScaffold|TestParseScaffold|TestParsePairsWith" -race -v
-            - go tool golangci-lint run ./pkg/pack/
+          Command:
+            backstop code check
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go
@@ -728,11 +728,11 @@ phases:
         type: verification
         title: "Verify SDK and ToolConfig validation"
         description: |
-          Run tests and lint for Phase 5 implementation.
+          Run backstop code check to verify Phase 5 implementation passes
+          all code standards on changed files.
 
-          Commands:
-            - go test ./pkg/pack/ -run "TestValidateSDK|TestValidateToolConfig" -race -v
-            - go tool golangci-lint run ./pkg/pack/
+          Command:
+            backstop code check
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go
@@ -807,11 +807,11 @@ phases:
         type: verification
         title: "Verify claim uniqueness and end-to-end parsing"
         description: |
-          Run tests and lint for Phase 6 implementation.
+          Run backstop code check to verify Phase 6 implementation passes
+          all code standards on changed files.
 
-          Commands:
-            - go test ./pkg/pack/ -run "TestValidateClaimIDs" -race -v
-            - go tool golangci-lint run ./pkg/pack/
+          Command:
+            backstop code check
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go
@@ -831,21 +831,17 @@ phases:
         type: verification
         title: "Run full test suite with coverage gate"
         description: |
-          Run the complete test suite with race detection and coverage
-          profiling. Verify all mandated test names pass and coverage
-          meets the 90% threshold.
+          Run the full backstop gate — the complete verification kill chain
+          including artifact validation, code check, test verification,
+          substantiveness, coverage, and contract signatures.
 
-          Commands:
-            - go test ./pkg/pack/ -race -coverprofile=cover.out -v
-            - go tool cover -func=cover.out | grep "pkg/pack/"
-            - Verify coverage >= 90% for pkg/pack/manifest.go and
-              pkg/pack/coordinate.go
-            - go tool golangci-lint run ./pkg/pack/
-            - go build ./...
+          Command:
+            backstop gate
 
-          This covers code verification for all .go files touched in
-          the plan. No artifact files were modified, so only code
-          verification is needed.
+          This is the exit gate for the entire plan. All steps must pass.
+          If any step fails, fix the violations before declaring the plan
+          complete. Do not use raw go test, golangci-lint, or go vet — the
+          gate runs all of those and more.
         files:
           - pkg/pack/manifest.go
           - pkg/pack/manifest_test.go

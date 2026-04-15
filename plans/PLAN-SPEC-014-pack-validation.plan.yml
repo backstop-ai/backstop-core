@@ -255,8 +255,6 @@ phases:
         title: "Verify foundation types"
         description: |
           Run tests and lint for all foundation types.
-          go test ./pkg/packval/... -run "TestPackVal_(Result|ParseManifest|JSON|Error|Phase|Skipped|Text|Default)" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/result_test.go
           - pkg/packval/manifest_test.go
@@ -390,8 +388,6 @@ phases:
         title: "Verify Phase 1 structural validation"
         description: |
           Run Phase 1 tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_P1" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/phase1_test.go
         claims:
@@ -512,8 +508,6 @@ phases:
         title: "Verify Phase 2 coherence validation"
         description: |
           Run Phase 2 tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_P2" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/phase2_test.go
         claims:
@@ -662,8 +656,6 @@ phases:
         title: "Verify executor and sandbox"
         description: |
           Run executor and sandbox tests.
-          go test ./pkg/packval/... -run "TestPackVal_(DefaultExecutor|MockExecutor|P3_Sandbox)" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/executor_test.go
           - pkg/packval/sandbox_test.go
@@ -850,8 +842,6 @@ phases:
         title: "Verify Phase 3 fixture execution"
         description: |
           Run Phase 3 tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_P3" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/phase3_test.go
           - pkg/packval/phase3_layer3_test.go
@@ -1030,8 +1020,6 @@ phases:
         title: "Verify Phase 4 and Phase 5"
         description: |
           Run Phase 4 and Phase 5 tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_P(4|5)" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/phase4_test.go
           - pkg/packval/phase5_test.go
@@ -1115,8 +1103,6 @@ phases:
         title: "Verify Phase 6 risk class enforcement"
         description: |
           Run Phase 6 tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_P6" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/phase6_test.go
         claims:
@@ -1242,8 +1228,6 @@ phases:
         title: "Verify pipeline orchestrator"
         description: |
           Run pipeline tests and lint.
-          go test ./pkg/packval/... -run "TestPackVal_(Check|Test|EarlyTermination|AllPhases|Idempotent|NoSideEffects|ErrorOrdering)" -race -v
-          go tool golangci-lint run ./pkg/packval/
         files:
           - pkg/packval/pipeline_test.go
         claims:
@@ -1390,8 +1374,6 @@ phases:
         title: "Verify CLI adapters"
         description: |
           Run CLI adapter tests and lint.
-          go test ./cmd/backstop/... -run "TestPackVal_Pack(Check|Test)Command" -race -v
-          go tool golangci-lint run ./cmd/backstop/
         files:
           - cmd/backstop/pack_check_test.go
           - cmd/backstop/pack_test_cmd_test.go
@@ -1418,9 +1400,8 @@ phases:
           Run the complete test suite for both pkg/packval and cmd/backstop
           with race detection and coverage profiling.
 
-          Commands:
-            go test ./pkg/packval/... ./cmd/backstop/... -run TestPackVal -race -coverprofile=cover.out -v
-            go tool cover -func=cover.out | grep total | awk '{print $3}'
+          Command:
+              backstop code check
 
           Verify:
             - All tests pass
@@ -1449,11 +1430,8 @@ phases:
         description: |
           Run linter and verify clean build across all modified packages.
 
-          Commands:
-            go tool golangci-lint run ./pkg/packval/... ./cmd/backstop/...
-            go build ./pkg/packval/...
-            go build ./cmd/backstop/...
-            go vet ./pkg/packval/... ./cmd/backstop/...
+          Command:
+              backstop code check
 
           Verify:
             - No lint violations
@@ -1481,6 +1459,7 @@ phases:
           validator to ensure structural correctness.
 
           Command:
+              backstop gate
             ./bin/backstop artifact validate plans/PLAN-SPEC-014-pack-validation.plan.yml
         files:
           - plans/PLAN-SPEC-014-pack-validation.plan.yml
