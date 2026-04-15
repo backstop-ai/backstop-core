@@ -1,0 +1,7 @@
+name: acme/missing-language
+version: 1.0.0
+archetype: enforcement
+description: Missing language fixture
+content:
+  ruleset:
+    rules: []

@@ -1,0 +1,7 @@
+name: acme/missing-description
+version: 1.0.0
+language: go
+archetype: enforcement
+content:
+  ruleset:
+    rules: []

@@ -1,0 +1,5 @@
+name: acme/missing-content
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Missing content fixture

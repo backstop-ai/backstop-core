@@ -1,0 +1,7 @@
+name: acme/missing-version
+language: go
+archetype: enforcement
+description: Missing version fixture
+content:
+  ruleset:
+    rules: []

@@ -1,0 +1,7 @@
+name: acme/missing-archetype
+version: 1.0.0
+language: go
+description: Missing archetype fixture
+content:
+  ruleset:
+    rules: []
