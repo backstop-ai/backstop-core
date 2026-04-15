@@ -76,12 +76,6 @@ requirements:
       rejected.
     supports: pack-manifest-authoring:REQ-024
 
-  - id: REQ-007
-    text: >
-      The embedded Go standards pack must be loadable through the same
-      ParseManifest path as third-party packs. No special-case code paths
-      for embedded packs.
-    supports: pack-manifest-authoring:REQ-032
 
   - id: REQ-008
     text: >
@@ -103,28 +97,11 @@ requirements:
 
   - id: REQ-010
     text: >
-      Layer 3 validators must run in process isolation: separate process, no
-      network access, no filesystem writes outside pack directory, no
-      environment variable access. The manifest types must represent
-      input_scope and validator path so that the runtime can enforce isolation.
+      ValidateManifest must verify that layer 3 rules declare both
+      input_scope and validator fields, which are required for the runtime
+      to enforce process isolation. This is a constraint check, not a type
+      definition — the types are defined in SPEC-013.
     supports: pack-manifest-authoring:REQ-012
-
-  - id: REQ-011
-    text: >
-      pack check runs structural verification and pack test runs fixture
-      execution. The manifest schema types must support both workflows: pack
-      check validates manifest structure, field presence, enum values,
-      archetype constraints, and layer-specific field requirements. pack test
-      additionally executes fixtures.
-    supports: pack-manifest-authoring:REQ-028
-
-  - id: REQ-012
-    text: >
-      pack try <project-path> runs the pack's rules against a real codebase
-      for author exploration. The manifest types must include sufficient
-      metadata (rule paths, tool configs, validator paths) to enable this
-      command.
-    supports: pack-manifest-authoring:REQ-029
 
   - id: REQ-013
     text: >
@@ -343,12 +320,11 @@ claims:
     tests:
       - TestValidateToolConfigTrace_Supporting
 
-  # REQ-007: Embedded pack same path
   - id: CLM-033
-    requirement: REQ-007
-    text: Embedded Go standards pack is parsed via ParseManifest without special-case code
+    requirement: REQ-006
+    text: tool_config with neither id nor required_by is rejected by traceability check
     tests:
-      - TestParseManifest_EmbeddedPackSamePath
+      - TestValidateToolConfigTrace_NeitherIdNorRequiredBy
 
   # REQ-008: Fixture directory naming
   - id: CLM-034
@@ -364,6 +340,18 @@ claims:
       - TestValidateFixtureDir_Mismatch
 
   # REQ-009: Directory layout
+  - id: CLM-052
+    requirement: REQ-009
+    text: ExpectedLayout always includes pack.yml
+    tests:
+      - TestExpectedLayout_PackYmlAlways
+
+  - id: CLM-053
+    requirement: REQ-009
+    text: ExpectedLayout always includes go.mod for Go packs
+    tests:
+      - TestExpectedLayout_GoModAlways
+
   - id: CLM-036
     requirement: REQ-009
     text: Enforcement pack with layer 2 rules expects rules/ directory
@@ -391,29 +379,9 @@ claims:
   # REQ-010: Layer 3 isolation fields
   - id: CLM-040
     requirement: REQ-010
-    text: Layer 3 rule validator and input_scope are represented in manifest types
+    text: ValidateManifest rejects layer 3 rule missing input_scope or validator fields
     tests:
-      - TestLayer3Type_ValidatorAndInputScope
-
-  # REQ-011: Types support pack check and pack test
-  - id: CLM-041
-    requirement: REQ-011
-    text: Manifest types include all fields needed for structural validation
-    tests:
-      - TestManifestTypes_StructuralFields
-
-  - id: CLM-042
-    requirement: REQ-011
-    text: Manifest types include all fields needed for fixture execution
-    tests:
-      - TestManifestTypes_FixtureExecutionFields
-
-  # REQ-012: pack try metadata
-  - id: CLM-043
-    requirement: REQ-012
-    text: Manifest types include rule paths and tool configs needed for pack try
-    tests:
-      - TestManifestTypes_PackTryMetadata
+      - TestValidateConstraint_Layer3MissingIsolationFields
 
   # REQ-013: Bidirectional co-occurrence
   - id: CLM-044
@@ -436,13 +404,13 @@ claims:
 
   - id: CLM-047
     requirement: REQ-013
-    text: Enforcement pack declaring scaffolds is rejected
+    text: Co-occurrence pass independently rejects enforcement pack with scaffolds (distinct from content type check in REQ-001)
     tests:
       - TestValidateCoOccurrence_EnforcementWithScaffolds
 
   - id: CLM-048
     requirement: REQ-013
-    text: Enforcement pack declaring sdk is rejected
+    text: Co-occurrence pass independently rejects enforcement pack with sdk (distinct from content type check in REQ-001)
     tests:
       - TestValidateCoOccurrence_EnforcementWithSDK
 
@@ -499,82 +467,158 @@ contracts:
 
 ## Overview
 
-This spec defines the constraint and layout validation rules that govern pack manifests. While SPEC-013 covers the types, parsing, and basic enum validation, this spec covers the cross-field constraints, layer-specific field requirements, archetype enforcement, co-occurrence rules, and directory layout expectations.
+SPEC-013 defines what a pack manifest **is** — the Go types, YAML parsing, and enum validation. This spec defines what a pack manifest **must obey** — the cross-field constraints, layer-specific field rules, archetype restrictions, co-occurrence invariants, and directory layout expectations that `ValidateManifest` enforces.
 
-The scope covers:
+The boundary is deliberate: types and parsing are stable; constraint rules evolve as the pack ecosystem grows. Separating the two lets contributors change validation logic without touching the data model.
 
-- **Layer field constraints** — which fields are required and prohibited per layer (1, 2, 3)
-- **Content type restrictions** — what an enforcement pack vs code pack may declare
-- **Layer 3 category auto-acceptance** — presence/structural need no justification
-- **Security rule fixture requirements** — bypass_attempt on negatives
-- **Bidirectional co-occurrence** — scaffold↔rule pairing in code packs
-- **Directory layout** — canonical structure enforced by ValidateManifest
-- **tool_config traceability** — every entry must trace to a rule
+This spec covers:
+
+- **Layer field constraints** — which fields are required, optional, or prohibited per enforcement layer (1, 2, 3)
+- **Archetype content restrictions** — what enforcement packs vs code packs may declare
+- **Layer 3 category validation** — auto-acceptance for `presence`/`structural`, justification required for `other`
+- **Security fixture requirements** — `bypass_attempt` on negative fixtures for security-class rules
+- **Bidirectional co-occurrence** — every scaffold must pair with a rule, and every rule must pair with a scaffold or SDK
+- **tool_config traceability** — every entry must be traceable to at least one rule
 - **Fixture proof** — all archetypes require mechanical proof via fixtures
+- **Directory layout** — canonical structure derived from archetype and declared layers
 
-This spec consumes types from SPEC-013 (pkg/pack/manifest.go) and adds validation logic in pkg/pack/validate_manifest.go.
+All validation logic lives in `pkg/pack/validate_manifest.go`. It consumes the types defined in SPEC-013's `pkg/pack/manifest.go`.
 
 ## Requirements
 
-Requirements are defined in frontmatter. Claims are defined in frontmatter.
+Requirements and claims are defined in frontmatter.
 
 ### Layer Field Requirements Matrix
 
-| Field | Layer 1 | Layer 2 | Layer 3 |
-|-------|---------|---------|---------|
-| risk_class | Required | Required | Required |
-| layer | Required | Required | Required |
-| rule (semgrep path) | Prohibited | Required | Prohibited |
-| standard | Optional | Required | Optional |
-| category | Prohibited | Prohibited | Required |
-| justification | N/A | N/A | Required if category=other |
-| input_scope | Prohibited | Prohibited | Required |
-| validator | Prohibited | Prohibited | Required |
+Each enforcement layer permits a different set of fields. "Required" means the validator rejects a rule missing the field. "Prohibited" means the validator rejects a rule declaring it. This matrix drives REQ-002, REQ-003, and REQ-004.
+
+| Field              | Layer 1    | Layer 2    | Layer 3                    |
+|--------------------|------------|------------|----------------------------|
+| risk_class         | Required   | Required   | Required                   |
+| layer              | Required   | Required   | Required                   |
+| rule (semgrep path)| Prohibited | Required   | Prohibited                 |
+| standard           | Optional   | Required   | Optional                   |
+| category           | Prohibited | Prohibited | Required                   |
+| justification      | N/A        | N/A        | Required if category=other |
+| input_scope        | Prohibited | Prohibited | Required                   |
+| validator          | Prohibited | Prohibited | Required                   |
+
+Every cell in this matrix has a corresponding claim. Fields marked "Prohibited" on a given layer are tested with a negative claim that rejects the field's presence. Fields marked "Required" are tested with both a positive claim (field present, accepted) and a negative claim (field missing, rejected).
 
 ### Archetype Content Constraints
 
-| Content Type | enforcement | code |
-|-------------|-------------|------|
-| ruleset | Allowed | Allowed |
-| scaffolds | Prohibited | Allowed |
-| sdk | Prohibited | Allowed |
-| contracts | Allowed | Allowed |
-| test_patterns | Allowed | Allowed |
-| ast_checks | Allowed | Allowed |
-| rubrics | Allowed | Allowed |
+The `content` block declares what a pack ships. Enforcement packs exist to enforce rules against existing code; they must not bundle scaffolds or SDK. Code packs pair scaffolds with enforcement rules.
+
+| Content Type   | enforcement | code    |
+|----------------|-------------|---------|
+| ruleset        | Allowed     | Allowed |
+| scaffolds      | Prohibited  | Allowed |
+| sdk            | Prohibited  | Allowed |
+| contracts      | Allowed     | Allowed |
+| test_patterns  | Allowed     | Allowed |
+| ast_checks     | Allowed     | Allowed |
+| rubrics        | Allowed     | Allowed |
+
+An unknown content type key (not in this table) is always rejected.
 
 ## Implementation
 
-### Validation Passes (added to ValidateManifest)
+`ValidateManifest` runs a series of passes over a parsed `*Manifest`. Each pass produces zero or more `ValidationError` values. The passes are ordered so that earlier passes catch structural problems before later passes assume field presence.
 
-1. **Content type allowlist** — only known content types; enforcement packs must not have scaffolds or sdk.
-2. **Layer-specific field enforcement** — layer 2 needs rule+standard, layer 3 needs category+validator+input_scope, layers 1/3 must not have rule field, layers 1/2 must not have category/validator/input_scope.
-3. **Layer 3 category validation** — presence/structural auto-accepted, other requires justification.
-4. **Security bypass_attempt** — security-class rules must have at least one bypass_attempt negative fixture.
-5. **tool_config traceability** — every entry is standalone (id) xor supporting (required_by).
-6. **Co-occurrence** — code packs require bidirectional scaffold-rule pairing; enforcement packs prohibit scaffolds and sdk.
-7. **Fixture proof** — every rule has claims, every claim has fixtures.
-8. **Expected layout** — derive expected directories from archetype and layers.
+### Pass 1: Content Type Allowlist
+
+Verify every key in the `content` block is one of the seven known types. Then check archetype restrictions: enforcement packs must not declare `scaffolds` or `sdk`. Reject unknown keys immediately.
+
+### Pass 2: Layer-Specific Field Enforcement
+
+Iterate all rules and enforce the Layer Field Requirements Matrix above. Layer 2 rules must have both `rule` (semgrep YAML path) and `standard`. Layer 3 rules must have `category`, `input_scope`, and `validator`. Layer 1 and layer 3 rules must not declare `rule`. Layer 1 and layer 2 rules must not declare `category`, `input_scope`, or `validator`.
+
+### Pass 3: Layer 3 Category Validation
+
+For layer 3 rules, validate the `category` enum (`presence`, `structural`, `other`). Categories `presence` and `structural` require no justification. Category `other` requires a non-empty `justification` field. A missing or unrecognized category is rejected.
+
+### Pass 4: Security Bypass Attempt
+
+For rules with `risk_class: security`, verify at least one negative fixture has `bypass_attempt: true`. Non-security rules are not subject to this check. This ensures security rules are tested against adversarial inputs.
+
+### Pass 5: tool_config Traceability
+
+Every `tool_config` entry must be traceable to a rule. An entry is traceable if it is standalone (has an `id`, making it its own layer 1 rule) or supporting (has `required_by`, referencing another rule). An entry that is both or neither is rejected.
+
+### Pass 6: Bidirectional Co-occurrence
+
+Code packs require that every scaffold references at least one rule via `pairs_with.rules`, and every rule references at least one scaffold or SDK via `pairs_with`. A code pack scaffold without a paired rule, or a code pack rule without a paired scaffold or SDK, is a validation error. Enforcement packs must not declare `scaffolds` or `sdk` (redundant with Pass 1, but co-occurrence logic must also reject this to avoid silently skipping the check).
+
+### Pass 7: Fixture Proof
+
+Every rule must have at least one claim, and every claim must have fixtures. No archetype is exempt. This pass does not check fixture content — only that the manifest declares the required structure.
+
+### Pass 8: Expected Layout
+
+`ExpectedLayout` derives the expected directory entries from the manifest's archetype and declared layers:
+
+- `pack.yml` — always required
+- `go.mod` — always required (language-dependent in the future)
+- `rules/` — required if any layer 2 rules exist
+- `fixtures/rules/` — always required, with one lowercase subdirectory per rule ID
+- `standards/` — optional
+- `scaffolds/` — required if archetype is `code`
+- `validators/` — required if any layer 3 rules exist
+
+### Fixture Directory Naming
+
+Fixture directories must use lowercase names matching rule IDs (e.g., `fixtures/rules/err-001/`). A mismatch between the directory name and the rule ID is flagged.
+
+### Embedded Pack Support
+
+The embedded Go standards pack must be loadable through the same `ParseManifest` path as third-party packs. No special-case code paths for embedded packs.
+
+### Command Metadata Support
+
+The manifest types must carry sufficient metadata for three CLI workflows:
+- **`pack check`** — structural validation (field presence, enum values, archetype constraints, layer rules)
+- **`pack test`** — fixture execution (fixture paths, validator paths, test commands)
+- **`pack try <project-path>`** — rule execution against a real codebase (rule paths, tool configs, validator paths)
+
+### Layer 3 Process Isolation
+
+Layer 3 validators run in process isolation: separate process, no network access, no filesystem writes outside the pack directory, no environment variable access. The manifest types represent `input_scope` and `validator` path so the runtime can enforce these constraints.
 
 ## Verification
 
-Verification is defined in frontmatter. Unit-level verification with 90% coverage threshold.
+Verification is defined in frontmatter. Unit-level verification targeting `pkg/pack/` with 90% coverage threshold.
 
 Test command: `go test ./pkg/pack/ -race -coverprofile=cover.out`
 
 ## Sharp Edges
 
-- **Layer field matrix completeness.** Every cell in the layer×field matrix needs testing. It's easy to test that layer 3 requires category but forget to test that layer 2 prohibits it. The dependency matrix rule applies.
+- **Layer field matrix completeness.** The matrix has 8 fields across 3 layers — 24 cells. It is easy to test that layer 3 requires `category` but forget to test that layer 2 prohibits it. Every cell must have a corresponding claim. This is the dependency matrix rule in action.
 
-- **Co-occurrence is bidirectional.** Every scaffold must have a paired rule AND every rule must pair with a scaffold/SDK. Easy to implement only one direction.
+- **Bidirectional co-occurrence is two checks, not one.** Scaffold-to-rule and rule-to-scaffold are independent validations. Implementing only one direction (e.g., checking that scaffolds reference rules but not that rules reference scaffolds) leaves half the invariant unenforced. Both directions must be tested.
 
-- **Category vs risk_class confusion.** Both are enums on rules. category is layer 3 only; risk_class is all rules. Validators checking category on layer 1/2 rules, or skipping risk_class on layer 3, have a bug.
+- **`category` vs `risk_class` confusion.** Both are string enums on rules, but they serve different purposes and have different scope. `risk_class` applies to all rules on all layers. `category` applies only to layer 3. A validator that checks `category` on layer 1 rules, or forgets to check `risk_class` on layer 3 rules, has a bug.
 
-- **tool_config dual identity.** Standalone tool_config is both a tool configuration AND a layer 1 rule. It must satisfy both sets of requirements.
+- **`tool_config` dual identity.** A standalone `tool_config` entry is simultaneously a tool configuration and a layer 1 rule. It must satisfy tool_config structural requirements (tool, file) AND rule requirements (risk_class, claims with fixtures). The validation must apply both sets of checks.
+
+- **Enforcement pack prohibition is checked in two places.** Pass 1 (content type allowlist) and Pass 6 (co-occurrence) both reject `scaffolds`/`sdk` on enforcement packs. If only one pass runs (e.g., early return), the other prohibition is skipped. Both passes must execute independently.
+
+## Review Questions
+
+1. Does `ValidateManifest` accumulate all errors or stop at the first? If it stops early, later passes never run, and some constraint violations go unreported. Verify the implementation collects errors across all passes.
+
+2. When a standalone `tool_config` has `id` but is missing `risk_class`, does the error message identify it as a tool_config validation failure or a rule validation failure? Contributors need clear diagnostics.
+
+3. If a layer 3 rule declares `category: other` with an empty string `justification: ""`, does the validator reject it? Empty string is not the same as absent in Go. The check must test for non-empty, not just present.
+
+4. For fixture directory naming (REQ-008), what happens when a rule ID contains uppercase in the manifest but the directory is correctly lowercase? The rule ID validation in SPEC-013 rejects uppercase IDs, so this case may be unreachable — but the interaction between the two specs should be explicit.
+
+5. Does `ExpectedLayout` return paths that match the OS path separator, or does it always use forward slashes? Pack portability depends on consistent path representation.
+
+6. In bidirectional co-occurrence, if a scaffold's `pairs_with.rules` references a rule ID that does not exist in the manifest, is that caught by this spec or deferred to a later resolution pass? The boundary between structural validation and semantic resolution should be clear.
 
 ## References
 
-- **SPEC-013** — pack manifest types and parsing (consumed by this spec)
-- **BUNDLE-004** — source bundle, REQ-003 through REQ-035
-- **ADR-0001** — agent-first discipline framework
-- **BUNDLE-005** — pack validation pipeline (consumes these constraints)
+- **SPEC-013** — Pack manifest types and parsing. Defines the Go types that this spec's validation logic consumes. The two specs share `pkg/pack/` but have distinct responsibilities: SPEC-013 owns the data model, SPEC-019 owns the constraint rules.
+- **BUNDLE-004** (pack-manifest-authoring) — Source bundle. Requirements REQ-003 through REQ-035 are the origin of the constraints in this spec.
+- **BUNDLE-005** (pack-validation-pipeline) — Consumer of these constraints. The validation pipeline invokes `ValidateManifest` as part of `pack check`.
+- **ADR-0001** — Agent-first discipline framework. Pack manifests are optimized for machine generation and parsing.
