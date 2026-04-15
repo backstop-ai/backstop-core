@@ -46,7 +46,7 @@ func TestExpectedLayout_WithLayer3(t *testing.T) {
 	m := makeMinimalManifest()
 	m.Content.Ruleset.Rules[0].Layer = 3
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	m.Content.Ruleset.Rules[0].InputScope = "single_file"
+	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
 
 	layout := pack.ExpectedLayout(m)

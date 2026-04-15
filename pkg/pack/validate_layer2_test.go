@@ -52,7 +52,7 @@ func TestValidateLayer3_WithRuleField(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Layer = 3
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo-rule.rego"
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	m.Content.Ruleset.Rules[0].InputScope = "single_file"
+	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
 
 	errs := pack.ValidateManifest(m)

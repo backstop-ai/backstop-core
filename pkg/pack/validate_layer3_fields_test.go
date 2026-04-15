@@ -18,7 +18,7 @@ func TestValidateLayer3_SingleFileWithValidator(t *testing.T) {
 func TestValidateLayer3_MultiFileWithValidator(t *testing.T) {
 	m := makeLayer3Manifest()
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	m.Content.Ruleset.Rules[0].InputScope = "multi_file"
+	m.Content.Ruleset.Rules[0].InputScope = "multi-file"
 
 	errs := pack.ValidateManifest(m)
 
@@ -57,7 +57,7 @@ func TestValidateLayer3_InvalidInputScope(t *testing.T) {
 
 func TestValidateLayer1_WithInputScope(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].InputScope = "single_file"
+	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 
 	errs := pack.ValidateManifest(m)
 
@@ -69,7 +69,7 @@ func TestValidateLayer2_WithInputScope(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Layer = 2
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.rego"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
-	m.Content.Ruleset.Rules[0].InputScope = "single_file"
+	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 
 	errs := pack.ValidateManifest(m)
 

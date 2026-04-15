@@ -189,7 +189,7 @@ func validateLayerFields(m *Manifest) []ValidationError {
 			} else if !isValidLayer3Category(rule.Category) {
 				errs = append(errs, ValidationError{
 					Field:   fieldPrefix + ".category",
-					Message: "layer 3 category must be structural, semantic, or other",
+					Message: "layer 3 category must be presence, structural, or other",
 					Rule:    "CLM-016",
 				})
 			}
@@ -206,10 +206,10 @@ func validateLayerFields(m *Manifest) []ValidationError {
 					Message: "layer 3 requires input_scope",
 					Rule:    "CLM-021",
 				})
-			} else if rule.InputScope != "single_file" && rule.InputScope != "multi_file" {
+			} else if rule.InputScope != "single-file" && rule.InputScope != "multi-file" {
 				errs = append(errs, ValidationError{
 					Field:   fieldPrefix + ".input_scope",
-					Message: "layer 3 input_scope must be single_file or multi_file",
+					Message: "layer 3 input_scope must be single-file or multi-file",
 					Rule:    "CLM-023",
 				})
 			}
@@ -235,7 +235,7 @@ func validateLayerFields(m *Manifest) []ValidationError {
 
 func isValidLayer3Category(category string) bool {
 	switch category {
-	case "structural", "semantic", "other":
+	case "presence", "structural", "other":
 		return true
 	default:
 		return false
@@ -322,6 +322,14 @@ func validateCoOccurrence(m *Manifest) []ValidationError {
 	}
 
 	for i, scaffold := range m.Content.Scaffolds {
+		if len(scaffold.PairsWith.Rules) == 0 {
+			errs = append(errs, ValidationError{
+				Field:   "content.scaffolds[" + strconv.Itoa(i) + "].pairs_with.rules",
+				Message: "scaffold must pair with at least one rule",
+				Rule:    "CLM-045",
+			})
+			continue
+		}
 		for _, ruleID := range scaffold.PairsWith.Rules {
 			if _, ok := ruleSet[ruleID]; !ok {
 				errs = append(errs, ValidationError{
@@ -335,6 +343,14 @@ func validateCoOccurrence(m *Manifest) []ValidationError {
 	}
 
 	for i, rule := range m.Content.Ruleset.Rules {
+		if len(rule.PairsWith.Scaffolds) == 0 && rule.PairsWith.SDK == "" {
+			errs = append(errs, ValidationError{
+				Field:   "content.ruleset.rules[" + strconv.Itoa(i) + "].pairs_with",
+				Message: "rule must pair with at least one scaffold or sdk",
+				Rule:    "CLM-046",
+			})
+			continue
+		}
 		for _, scaffoldID := range rule.PairsWith.Scaffolds {
 			if _, ok := scaffoldSet[scaffoldID]; !ok {
 				errs = append(errs, ValidationError{

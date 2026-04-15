@@ -28,7 +28,7 @@ func TestValidateCoOccurrence_ScaffoldNoPairedRule(t *testing.T) {
 	m.Content.Scaffolds = []pack.Scaffold{
 		{
 			ID:        "svc",
-			PairsWith: pack.PairsWith{Rules: []string{"missing-rule"}},
+			PairsWith: pack.PairsWith{},
 		},
 	}
 	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{Scaffolds: []string{"svc"}}
@@ -42,9 +42,12 @@ func TestValidateCoOccurrence_RuleNoPairedContent(t *testing.T) {
 	m := makeMinimalManifest()
 	m.Archetype = "code"
 	m.Content.Scaffolds = []pack.Scaffold{
-		{ID: "svc"},
+		{
+			ID:        "svc",
+			PairsWith: pack.PairsWith{Rules: []string{"demo-rule"}},
+		},
 	}
-	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{Scaffolds: []string{"unknown-scaffold"}}
+	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{}
 
 	errs := pack.ValidateManifest(m)
 
