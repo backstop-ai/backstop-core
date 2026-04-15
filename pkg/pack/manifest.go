@@ -223,7 +223,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			return nil, err
 		}
 	}
-	if manifest.Content.SDK != nil && manifest.Content.SDK.Version != "" {
+	if manifest.Content.SDK != nil {
 		if err := validateSDK(manifest.Content.SDK); err != nil {
 			return nil, err
 		}
