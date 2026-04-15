@@ -1,0 +1,1491 @@
+---
+plan_id: PLAN-SPEC-014
+spec_id: SPEC-014
+spec_version: 1.0.0
+created: "2026-04-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/packval/... ./cmd/backstop/... -run TestPackVal -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements the pack validation pipeline as two CLI commands (pack check and
+  pack test) backed by a pkg/packval library. The pipeline runs six phases in
+  strict dependency order with early termination. pack check runs phases
+  1/2/4/5/6 (manifest-only). pack test runs all six phases including phase 3
+  (fixture execution with semgrep, tool_config temp modules, layer 3 sandbox).
+
+  Package structure:
+    pkg/packval/ — pipeline orchestrator, 6 phase functions, executor interface,
+                   sandbox, result types, manifest parser, output formatters
+    cmd/backstop/ — thin CLI adapters for pack check and pack test
+
+  Dependency order:
+    result types + manifest parser → phase functions (parallel where possible)
+    → pipeline orchestrator → CLI adapters → integration verification
+
+  Ambiguities resolved during planning:
+    - go mod tidy runs in a temp copy per REQ-014 to preserve REQ-029 idempotency
+    - Sandbox uses OS-level isolation (sandbox-exec on macOS, seccomp on Linux)
+    - pack_test_cmd.go avoids Go test file naming collision per sharp edge 7
+    - FixtureExecutor interface enables mock-based testing of phase 3 dispatch
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Foundation Types — Result, Manifest, Format
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Foundation Types"
+    description: |
+      Establish the core types that all subsequent phases depend on: Result
+      and error types, PackManifest parser, and output formatters. These must
+      exist before any phase function or pipeline orchestrator.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pkg/packval directory and testdata"
+        description: |
+          Create the pkg/packval/ package directory. Create a minimal testdata/
+          directory with a valid pack manifest fixture (pack.yml) that has all
+          required fields (name, version, language, archetype, content with at
+          least one rule having risk_class, claims with positive/negative
+          fixtures). This fixture will be reused across phase tests.
+
+          Also create testdata/fixtures/ with minimal positive and negative
+          fixture files for coherence and fixture execution tests.
+        files:
+          - pkg/packval/testdata/valid-pack/pack.yml
+          - pkg/packval/testdata/valid-pack/fixtures/positive.go
+          - pkg/packval/testdata/valid-pack/fixtures/negative.go
+        claims:
+          - CLM-004
+          - CLM-016
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write result type tests"
+        description: |
+          Create pkg/packval/result_test.go with package packval_test.
+
+          Test functions:
+            - TestPackVal_ResultPassWhenNoErrors: construct Result with empty
+              Errors, verify Status is "pass"
+            - TestPackVal_ResultFailWhenErrors: construct Result with errors,
+              verify Status is "fail"
+            - TestPackVal_ValidationErrorFields: construct ValidationError with
+              all fields (Phase, Check, Rule, Claim, Message, FixHint,
+              ManifestPath), verify each accessor
+            - TestPackVal_PhaseResultSkippedReason: construct PhaseResult with
+              Status "skipped" and Reason, verify reason is populated
+            - TestPackVal_ValidationWarningFields: construct ValidationWarning
+              with Phase, Check, Message, Files, FixHint, verify fields
+        files:
+          - pkg/packval/result_test.go
+        claims:
+          - CLM-103
+          - CLM-104
+          - CLM-105
+          - CLM-106
+        depends_on: []
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement result types"
+        description: |
+          Create pkg/packval/result.go with package packval.
+
+          Types:
+            - Result struct: Status string, Pack string, Version string,
+              Phases []PhaseResult, Errors []ValidationError,
+              Warnings []ValidationWarning. Status is computed: "pass" when
+              Errors is empty, "fail" otherwise.
+            - PhaseResult struct: Phase string, Status string, Checks int,
+              DurationMs int64, Reason string (for skipped phases)
+            - ValidationError struct: Phase string, Check string, Rule string,
+              Claim string, Message string, FixHint string, ManifestPath string.
+              JSON tags on all fields for ADR-0001 output.
+            - ValidationWarning struct: Phase string, Check string,
+              Message string, Files []string, FixHint string.
+
+          All types must have json struct tags matching the output format spec.
+        files:
+          - pkg/packval/result.go
+        claims:
+          - CLM-103
+          - CLM-104
+          - CLM-105
+          - CLM-106
+        depends_on: [TASK-002]
+
+      - id: TASK-004
+        type: test
+        title: "Write manifest parser tests"
+        description: |
+          Create pkg/packval/manifest_test.go with package packval_test.
+
+          Test functions:
+            - TestPackVal_ParseManifestValid: parse testdata/valid-pack/pack.yml,
+              verify Name, Version, Language, Archetype, Content fields populated
+            - TestPackVal_ParseManifestInvalidYAML: parse a string that is not
+              valid YAML, verify error returned
+            - TestPackVal_ParseManifestMissingFile: parse a path that does not
+              exist, verify error returned
+            - TestPackVal_ParseManifestRulesExtracted: parse a manifest with
+              rules in content.ruleset.rules, verify rules slice populated with
+              correct IDs
+            - TestPackVal_ParseManifestToolConfigExtracted: parse a manifest
+              with tool_config entries, verify they are extracted
+        files:
+          - pkg/packval/manifest_test.go
+        claims:
+          - CLM-004
+          - CLM-016
+        depends_on: [TASK-001]
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement manifest parser"
+        description: |
+          Create pkg/packval/manifest.go with package packval.
+
+          Types:
+            - PackManifest struct: Name, Version, Language, Archetype string;
+              Content ContentBlock; ToolConfig []ToolConfigEntry.
+              Includes nested types for rules, claims, fixtures, scaffolds, SDK.
+            - ContentBlock struct: Ruleset *Ruleset; Scaffolds []Scaffold;
+              SDK *SDKBlock.
+            - Ruleset struct: Rules []Rule.
+            - Rule struct: ID, RiskClass, Layer string; RuleFile string;
+              Claims []Claim; Category, Justification, InputScope, Validator
+              string; PairsWith *PairsWith.
+            - Claim struct: ID string; PositiveFixtures, NegativeFixtures
+              []Fixture.
+            - Fixture struct: Path string; BypassAttempt bool. Supports both
+              plain string and object fixture formats.
+            - ToolConfigEntry struct: Tool, File string; ID, RiskClass string;
+              Claims []Claim.
+            - Scaffold struct: Type, Dir, TestCommand string; PairsWith
+              *PairsWith; SampleConfig map[string]interface{}.
+            - SDKBlock struct: Provides []string.
+            - PairsWith struct: Rules []string.
+
+          Functions:
+            - ParseManifest(path string) (*PackManifest, error): reads YAML
+              file, unmarshals into PackManifest. Returns error on YAML parse
+              failure or file not found.
+            - AllRules(m *PackManifest) []Rule: returns combined rules from
+              ruleset and tool_config entries that have their own ID.
+            - AllRuleIDs(m *PackManifest) []string: returns all rule IDs from
+              both sources.
+
+          Use gopkg.in/yaml.v3 for YAML parsing with custom UnmarshalYAML
+          on Fixture to handle both string and object formats.
+        files:
+          - pkg/packval/manifest.go
+        claims:
+          - CLM-004
+          - CLM-016
+        depends_on: [TASK-004]
+
+      - id: TASK-006
+        type: test
+        title: "Write format output tests"
+        description: |
+          Create pkg/packval/format_test.go with package packval_test.
+
+          Test functions:
+            - TestPackVal_JSONOutputStructure: format a Result with phases,
+              errors, warnings as JSON, verify top-level keys: status, pack,
+              version, phases, errors, warnings
+            - TestPackVal_ErrorFieldsComplete: format a Result with one error,
+              verify JSON includes phase, check, rule, claim, message,
+              fix_hint, manifest_path
+            - TestPackVal_PhaseStatusFields: format a Result with phase results,
+              verify each phase has phase, status, checks, duration_ms
+            - TestPackVal_SkippedPhaseReason: format a Result with skipped
+              phase, verify reason field present
+            - TestPackVal_TextFormat: format a Result as text, verify
+              human-readable output
+            - TestPackVal_DefaultFormatJSON: verify FormatResult with empty
+              format string defaults to JSON
+        files:
+          - pkg/packval/format_test.go
+        claims:
+          - CLM-103
+          - CLM-104
+          - CLM-105
+          - CLM-106
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-002]
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement output formatters"
+        description: |
+          Create pkg/packval/format.go with package packval.
+
+          Functions:
+            - FormatResult(result *Result, format string) (string, error):
+              dispatches to JSON or text formatter based on format string.
+              Empty string or "json" → JSON. "text" → text.
+            - formatJSON(result *Result) (string, error): marshals Result
+              to indented JSON. Ensures all fields present per CLM-103/104/105.
+            - formatText(result *Result) (string, error): produces
+              human-readable output with phase summaries, error details,
+              and warning details.
+
+          JSON output must match the structure defined in the spec:
+          status, pack, version, phases array, errors array, warnings array.
+        files:
+          - pkg/packval/format.go
+        claims:
+          - CLM-103
+          - CLM-104
+          - CLM-105
+          - CLM-106
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-006, TASK-003]
+
+      - id: TASK-008
+        type: verification
+        title: "Verify foundation types"
+        description: |
+          Run tests and lint for all foundation types.
+          go test ./pkg/packval/... -run "TestPackVal_(Result|ParseManifest|JSON|Error|Phase|Skipped|Text|Default)" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/result_test.go
+          - pkg/packval/manifest_test.go
+          - pkg/packval/format_test.go
+        claims:
+          - CLM-103
+          - CLM-104
+        depends_on: [TASK-003, TASK-005, TASK-007]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Phase 1 Structural Validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Structural Validation (Phase 1)"
+    description: |
+      Implement Phase 1 of the validation pipeline: structural checks for
+      YAML parsing, required fields, enums, file existence, and risk_class.
+      This covers REQ-003 through REQ-005 with 17 claims.
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write Phase 1 structural validation tests"
+        description: |
+          Create pkg/packval/phase1_test.go with package packval_test.
+
+          Test functions (using mandated test names from spec):
+            - TestPackVal_P1_InvalidYAML (CLM-004): pass invalid YAML, verify
+              structural error
+            - TestPackVal_P1_MissingName (CLM-005): manifest without name field
+            - TestPackVal_P1_MissingVersion (CLM-006): manifest without version
+            - TestPackVal_P1_MissingLanguage (CLM-007): manifest without language
+            - TestPackVal_P1_MissingArchetype (CLM-008): manifest without archetype
+            - TestPackVal_P1_MissingContent (CLM-009): manifest without content
+            - TestPackVal_P1_InvalidArchetype (CLM-010): archetype not in
+              {enforcement, code}
+            - TestPackVal_P1_InvalidVersion (CLM-011): non-semver version
+            - TestPackVal_P1_UnsupportedLanguage (CLM-012): language not in {go}
+            - TestPackVal_P1_LanguageGoAccepted (CLM-013): language "go" passes
+            - TestPackVal_P1_RuleFileMissing (CLM-014): layer 2 rule file missing
+            - TestPackVal_P1_ReferencedFileNotFound (CLM-015): referenced path
+              missing
+            - TestPackVal_P1_ValidManifest (CLM-016): fully valid manifest passes
+            - TestPackVal_P1_ToolConfigFileExcluded (CLM-017): tool_config.file
+              not checked for existence
+            - TestPackVal_P1_MissingRiskClass (CLM-018): rule without risk_class
+            - TestPackVal_P1_InvalidRiskClass (CLM-019): invalid risk_class value
+            - TestPackVal_P1_ToolConfigMissingRiskClass (CLM-020): standalone
+              tool_config entry missing risk_class
+            - TestPackVal_P1_ValidRiskClassSecurity (CLM-021): security accepted
+            - TestPackVal_P1_ValidRiskClassCorrectness (CLM-021): correctness
+            - TestPackVal_P1_ValidRiskClassStyle (CLM-021): style accepted
+            - TestPackVal_P1_ValidRiskClassPerf (CLM-021): perf accepted
+
+          Each test constructs a PackManifest (or temp YAML file) and calls
+          RunStructural, then asserts on PhaseResult status and errors.
+        files:
+          - pkg/packval/phase1_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on: [TASK-008]
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement Phase 1 structural validation"
+        description: |
+          Create pkg/packval/phase1.go with package packval.
+
+          Function:
+            - RunStructural(pack *PackManifest, packDir string) *PhaseResult:
+              1. If pack is nil (YAML parse failed), return fail with error
+              2. Check required fields: name, version, language, archetype,
+                 content — each missing field is a separate error
+              3. Validate archetype in {enforcement, code}
+              4. Validate version matches semver regex
+              5. Validate language in supported set {go}
+              6. Check risk_class on every rule (AllRules): must be in
+                 {security, correctness, style, perf}
+              7. For layer 2 rules: verify rule field file exists relative
+                 to packDir
+              8. For all referenced file paths: verify existence, EXCEPT
+                 tool_config.file (consumer-side path per REQ-004)
+              9. Return PhaseResult with status, checks count, errors
+
+          Helper functions:
+            - isValidSemver(v string) bool
+            - isValidArchetype(a string) bool
+            - isValidLanguage(l string) bool
+            - isValidRiskClass(rc string) bool
+        files:
+          - pkg/packval/phase1.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on: [TASK-009]
+
+      - id: TASK-011
+        type: verification
+        title: "Verify Phase 1 structural validation"
+        description: |
+          Run Phase 1 tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_P1" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/phase1_test.go
+        claims:
+          - CLM-016
+        depends_on: [TASK-010]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Phase 2 Coherence Validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Coherence Validation (Phase 2)"
+    description: |
+      Implement Phase 2 of the validation pipeline: coherence checks for
+      claims, fixtures, unique IDs, tool_config traceability, pairs_with
+      resolution, and orphan fixture detection. Covers REQ-006 through REQ-010.
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write Phase 2 coherence validation tests"
+        description: |
+          Create pkg/packval/phase2_test.go with package packval_test.
+
+          Test functions (mandated test names):
+            - TestPackVal_P2_RuleNoClaims (CLM-022)
+            - TestPackVal_P2_ClaimNoPositiveFixtures (CLM-023)
+            - TestPackVal_P2_ClaimNoNegativeFixtures (CLM-024)
+            - TestPackVal_P2_FixtureFileNotFound (CLM-025)
+            - TestPackVal_P2_FixtureFileEmpty (CLM-026)
+            - TestPackVal_P2_DuplicateClaimIDs (CLM-027)
+            - TestPackVal_P2_DuplicateRuleIDRulesetAndToolConfig (CLM-028)
+            - TestPackVal_P2_DuplicateRuleIDWithinRuleset (CLM-029)
+            - TestPackVal_P2_UniqueRuleIDsAcrossSources (CLM-030)
+            - TestPackVal_P2_ToolConfigOwnIDNoClaims (CLM-031)
+            - TestPackVal_P2_ToolConfigOwnIDNoFixtures (CLM-032)
+            - TestPackVal_P2_ToolConfigOwnIDWithClaimsAndFixtures (CLM-033)
+            - TestPackVal_P2_DanglingPairsWithWarning (CLM-034)
+            - TestPackVal_P2_DanglingPairsWithNotError (CLM-035)
+            - TestPackVal_P2_ValidPairsWithReference (CLM-036)
+            - TestPackVal_P2_OrphanFixtureWarning (CLM-037)
+            - TestPackVal_P2_OrphanFixtureNotError (CLM-038)
+
+          Each test constructs a PackManifest with appropriate fixture
+          directories in t.TempDir() and calls RunCoherence.
+        files:
+          - pkg/packval/phase2_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on: [TASK-011]
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement Phase 2 coherence validation"
+        description: |
+          Create pkg/packval/phase2.go with package packval.
+
+          Function:
+            - RunCoherence(pack *PackManifest, packDir string) *PhaseResult:
+              1. Verify every rule has at least one claim
+              2. Verify every claim has both positive and negative fixtures
+                 (at least one each)
+              3. Verify every fixture file exists and is non-empty (relative
+                 to packDir)
+              4. Verify claim ID uniqueness within the pack
+              5. Verify rule ID uniqueness spanning ruleset and tool_config
+                 entries (using AllRuleIDs)
+              6. Verify tool_config entries with own rule ID have claims
+                 and fixtures
+              7. Check pairs_with.rules resolve to existing rule IDs;
+                 dangling = warning not error
+              8. Scan fixture directory for orphan files not referenced by
+                 any claim; orphans = warning not error
+              9. Return PhaseResult with status, checks, errors, warnings
+
+          Helper functions:
+            - collectAllClaimIDs(pack *PackManifest) []string
+            - collectReferencedFixturePaths(pack *PackManifest) map[string]bool
+            - scanFixtureDirectory(packDir string) ([]string, error)
+        files:
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on: [TASK-012]
+
+      - id: TASK-014
+        type: verification
+        title: "Verify Phase 2 coherence validation"
+        description: |
+          Run Phase 2 tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_P2" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/phase2_test.go
+        claims:
+          - CLM-030
+        depends_on: [TASK-013]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Executor Interface and Sandbox
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Executor Interface and Sandbox"
+    description: |
+      Define the FixtureExecutor interface and implement the sandbox for
+      layer 3 validators. These are prerequisites for Phase 3 fixture
+      execution. Executor and sandbox can be built in parallel.
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write executor interface tests"
+        description: |
+          Create pkg/packval/executor_test.go with package packval_test.
+
+          Test functions:
+            - TestPackVal_DefaultExecutorImplementsInterface: verify
+              DefaultExecutor satisfies FixtureExecutor interface
+            - TestPackVal_MockExecutorSemgrep: verify a mock executor
+              can simulate semgrep pass/fail results
+            - TestPackVal_MockExecutorToolConfig: verify mock can simulate
+              tool_config execution
+            - TestPackVal_MockExecutorValidator: verify mock can simulate
+              layer 3 validator execution
+            - TestPackVal_MockExecutorScaffoldTest: verify mock can simulate
+              scaffold test_command execution
+        files:
+          - pkg/packval/executor_test.go
+        claims:
+          - CLM-039
+          - CLM-045
+          - CLM-051
+          - CLM-057
+        depends_on: [TASK-008]
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement executor interface and default executor"
+        description: |
+          Create pkg/packval/executor.go with package packval.
+
+          Types:
+            - FixtureExecutor interface:
+              - RunSemgrep(ruleFile string, fixtureFile string, packDir string)
+                (*ExecutionResult, error)
+              - RunToolConfig(tool string, fixtureFile string, packDir string,
+                goMod string) (*ExecutionResult, error)
+              - RunValidator(validatorPath string, fixturePath string,
+                packDir string) (*ExecutionResult, error)
+              - RunScaffoldTest(scaffoldDir string, testCommand string)
+                (*ExecutionResult, error)
+            - ExecutionResult struct: Passed bool, Output string, ExitCode int,
+              Diagnostics []string.
+            - DefaultExecutor struct: implements FixtureExecutor using real
+              OS commands (os/exec).
+            - MockExecutor struct: implements FixtureExecutor for testing,
+              allows configuring per-call return values.
+
+          DefaultExecutor methods:
+            - RunSemgrep: executes semgrep --test, parses output
+            - RunToolConfig: creates temp module, copies go.mod and fixture,
+              runs tool, checks results
+            - RunValidator: delegates to SandboxedRun
+            - RunScaffoldTest: runs test_command in scaffold dir
+        files:
+          - pkg/packval/executor.go
+        claims:
+          - CLM-039
+          - CLM-045
+          - CLM-051
+          - CLM-057
+        depends_on: [TASK-015]
+
+      - id: TASK-017
+        type: test
+        title: "Write sandbox tests"
+        description: |
+          Create pkg/packval/sandbox_test.go with package packval_test.
+
+          Test functions (mandated test names):
+            - TestPackVal_P3_SandboxBlocksFilesystemWrite (CLM-111): invoke
+              SandboxedRun with a command that tries to write outside pack dir,
+              verify error returned
+            - TestPackVal_P3_SandboxBlocksNetwork (CLM-112): invoke SandboxedRun
+              with a command that tries network access, verify error returned
+            - TestPackVal_P3_SandboxBlocksEnvVars (CLM-113): invoke SandboxedRun
+              with a command that reads env vars, verify no env vars accessible
+            - TestPackVal_P3_SandboxViolationIsHardError (CLM-114): verify
+              sandbox violation returns error that maps to a hard validation
+              error
+            - TestPackVal_P3_SandboxAllowsReadInPackDir: verify command can
+              read files within pack dir
+            - TestPackVal_P3_SandboxAllowsExecution: verify command can
+              execute normally within constraints
+        files:
+          - pkg/packval/sandbox_test.go
+        claims:
+          - CLM-111
+          - CLM-112
+          - CLM-113
+          - CLM-114
+        depends_on: [TASK-008]
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement sandbox"
+        description: |
+          Create pkg/packval/sandbox.go with package packval.
+
+          Function:
+            - SandboxedRun(cmd string, args []string, packDir string)
+              ([]byte, error):
+              Executes the given command in a restricted process environment.
+              On macOS: uses sandbox-exec with a profile that allows read
+              access to packDir, denies filesystem writes outside packDir,
+              denies network access, clears environment variables.
+              On Linux: uses seccomp/namespaces for equivalent restrictions.
+              On unsupported platforms: returns error (fail closed per sharp
+              edge 3).
+
+              The sandbox profile:
+                - Allow: read packDir/*, execute the command binary
+                - Deny: write outside packDir, all network syscalls
+                - Clear: all environment variables before exec
+
+              Returns command stdout on success, error on sandbox violation
+              or command failure.
+        files:
+          - pkg/packval/sandbox.go
+        claims:
+          - CLM-111
+          - CLM-112
+          - CLM-113
+          - CLM-114
+        depends_on: [TASK-017]
+
+      - id: TASK-019
+        type: verification
+        title: "Verify executor and sandbox"
+        description: |
+          Run executor and sandbox tests.
+          go test ./pkg/packval/... -run "TestPackVal_(DefaultExecutor|MockExecutor|P3_Sandbox)" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/executor_test.go
+          - pkg/packval/sandbox_test.go
+        claims:
+          - CLM-114
+        depends_on: [TASK-016, TASK-018]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Phase 3 Fixture Execution
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Fixture Execution (Phase 3)"
+    description: |
+      Implement Phase 3 of the validation pipeline: fixture execution
+      covering semgrep path, tool_config path, layer 3 validator path,
+      scaffold validation, SDK validation, and go mod tidy pre-check.
+      This is the most complex phase with 26 claims.
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Write Phase 3 semgrep and rule ID match tests"
+        description: |
+          Create pkg/packval/phase3_test.go with package packval_test.
+
+          Test functions (mandated names) — semgrep path:
+            - TestPackVal_P3_SemgrepPositivePass (CLM-039)
+            - TestPackVal_P3_SemgrepPositiveFalsePositive (CLM-040)
+            - TestPackVal_P3_SemgrepNegativeAllTrigger (CLM-041)
+            - TestPackVal_P3_SemgrepNegativeNotTriggered (CLM-042)
+            - TestPackVal_P3_SemgrepRuleIDMismatch (CLM-043)
+            - TestPackVal_P3_SemgrepRuleIDMatch (CLM-044)
+
+          Tool_config path:
+            - TestPackVal_P3_ToolConfigTempModule (CLM-045)
+            - TestPackVal_P3_ToolConfigPositiveClean (CLM-046)
+            - TestPackVal_P3_ToolConfigNegativeNotTriggered (CLM-047)
+            - TestPackVal_P3_ToolConfigNegativeTriggered (CLM-048)
+
+          Go mod tidy:
+            - TestPackVal_P3_GoModTidyRuns (CLM-049)
+            - TestPackVal_P3_GoModTidyFails (CLM-050)
+
+          Engine limitation hint:
+            - TestPackVal_P3_NegativeFixtureEngineLimitationHint (CLM-109)
+
+          All tests use MockExecutor to avoid requiring semgrep/go toolchain.
+          Tests construct PackManifests with appropriate rules and fixtures,
+          call RunFixtures with the mock executor.
+        files:
+          - pkg/packval/phase3_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-109
+        depends_on: [TASK-019]
+
+      - id: TASK-021
+        type: test
+        title: "Write Phase 3 layer 3 validator and scaffold tests"
+        description: |
+          Create pkg/packval/phase3_layer3_test.go with package packval_test.
+
+          Test functions (mandated names) — layer 3 validators:
+            - TestPackVal_P3_Layer3SingleFileInvocation (CLM-051)
+            - TestPackVal_P3_Layer3MultiFileInvocation (CLM-052)
+            - TestPackVal_P3_Layer3PositiveExitZero (CLM-053)
+            - TestPackVal_P3_Layer3PositiveExitNonZero (CLM-054)
+            - TestPackVal_P3_Layer3NegativeExitNonZero (CLM-055)
+            - TestPackVal_P3_Layer3NegativeExitZero (CLM-056)
+
+          Scaffold validation:
+            - TestPackVal_P3_CompleteScaffoldRenderAndTest (CLM-057)
+            - TestPackVal_P3_CompleteScaffoldTestFails (CLM-058)
+            - TestPackVal_P3_SkeletonScaffoldStructure (CLM-059)
+            - TestPackVal_P3_SkeletonScaffoldTestNames (CLM-060)
+            - TestPackVal_P3_SkeletonScaffoldNoTestExecution (CLM-061)
+
+          SDK validation:
+            - TestPackVal_P3_SDKProvidesDeclared (CLM-062)
+            - TestPackVal_P3_SDKProvidesMissing (CLM-063)
+
+          All tests use MockExecutor.
+        files:
+          - pkg/packval/phase3_layer3_test.go
+        claims:
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+        depends_on: [TASK-019]
+
+      - id: TASK-022
+        type: implementation
+        title: "Implement Phase 3 fixture execution"
+        description: |
+          Create pkg/packval/phase3.go with package packval.
+
+          Function:
+            - RunFixtures(pack *PackManifest, packDir string,
+              executor FixtureExecutor) *PhaseResult:
+              1. Pre-check: if language is "go", run go mod tidy in a temp
+                 copy of packDir (per REQ-014). Failure is a pre-check error.
+              2. For each rule in the pack:
+                 a. Semgrep rules (layer 1-2 with rule file):
+                    - Read semgrep rule file, verify rule ID matches pack
+                      rule ID (CLM-043/044)
+                    - For each claim's fixtures: call executor.RunSemgrep
+                    - Positive must not trigger; negative must trigger
+                    - On negative failure: include engine-limitation fix hint
+                      (CLM-109)
+                 b. Tool_config rules:
+                    - Call executor.RunToolConfig with pack go.mod
+                    - Positive must pass clean; negative must trigger
+                 c. Layer 3 rules:
+                    - Determine fixture path (file for single-file, dir for
+                      multi-file input_scope)
+                    - Call executor.RunValidator (uses SandboxedRun)
+                    - Exit 0 = pass, non-zero = fail
+              3. Scaffold validation:
+                 a. Complete scaffolds: render with sample_config, call
+                    executor.RunScaffoldTest
+                 b. Skeleton scaffolds: check directory exists, expected
+                    files present, test function names present. Do NOT run
+                    test_command.
+              4. SDK validation: verify provides surface is declared in
+                 manifest
+              5. Return PhaseResult
+
+          Helper functions:
+            - verifySemgrepRuleID(ruleFile string, expectedID string) error
+            - prepTempPackDir(packDir string) (string, func(), error)
+        files:
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-109
+        depends_on: [TASK-020, TASK-021]
+
+      - id: TASK-023
+        type: verification
+        title: "Verify Phase 3 fixture execution"
+        description: |
+          Run Phase 3 tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_P3" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/phase3_test.go
+          - pkg/packval/phase3_layer3_test.go
+        claims:
+          - CLM-044
+          - CLM-109
+        depends_on: [TASK-022]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Phase 4 Archetype and Phase 5 Layer (Parallel)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Archetype and Layer Enforcement"
+    description: |
+      Implement Phase 4 (archetype) and Phase 5 (layer) of the validation
+      pipeline. These are independent phase functions that can be built in
+      parallel with disjoint file sets.
+    tasks:
+      - id: TASK-024
+        type: test
+        title: "Write Phase 4 archetype enforcement tests"
+        description: |
+          Create pkg/packval/phase4_test.go with package packval_test.
+
+          Test functions (mandated names):
+            - TestPackVal_P4_CodePackNoRules (CLM-064)
+            - TestPackVal_P4_ScaffoldNoEnforcementRule (CLM-065)
+            - TestPackVal_P4_CodePackWithRulesPass (CLM-066)
+            - TestPackVal_P4_RuleNoPairsWithInCodePack (CLM-067)
+            - TestPackVal_P4_AllRulesHavePairsWith (CLM-068)
+            - TestPackVal_P4_EnforcementPackWithSDK (CLM-069)
+            - TestPackVal_P4_EnforcementPackWithScaffolds (CLM-070)
+            - TestPackVal_P4_EnforcementPackRulesOnlyPass (CLM-071)
+
+          Each test constructs a PackManifest with appropriate archetype
+          and content, calls RunArchetype.
+        files:
+          - pkg/packval/phase4_test.go
+        claims:
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-071
+        depends_on: [TASK-011]
+
+      - id: TASK-025
+        type: implementation
+        title: "Implement Phase 4 archetype enforcement"
+        description: |
+          Create pkg/packval/phase4.go with package packval.
+
+          Function:
+            - RunArchetype(pack *PackManifest) *PhaseResult:
+              1. If archetype is "code":
+                 a. Verify rules are declared (CLM-064)
+                 b. Verify every scaffold has at least one enforcement rule
+                    (CLM-065)
+                 c. Verify every rule has pairs_with reference to scaffold
+                    or SDK (CLM-067) — bidirectional co-occurrence
+              2. If archetype is "enforcement":
+                 a. Verify no sdk declared (CLM-069)
+                 b. Verify no scaffolds declared (CLM-070)
+              3. Return PhaseResult
+        files:
+          - pkg/packval/phase4.go
+        claims:
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-071
+        depends_on: [TASK-024]
+
+      - id: TASK-026
+        type: test
+        title: "Write Phase 5 layer enforcement tests"
+        description: |
+          Create pkg/packval/phase5_test.go with package packval_test.
+
+          Test functions (mandated names):
+            - TestPackVal_P5_MissingLayer (CLM-072)
+            - TestPackVal_P5_InvalidLayer (CLM-073)
+            - TestPackVal_P5_ValidLayerAndRiskClass (CLM-074)
+            - TestPackVal_P5_Layer1WithCategoryFails (CLM-075)
+            - TestPackVal_P5_Layer2WithCategoryFails (CLM-076)
+            - TestPackVal_P5_Layer3WithCategoryPass (CLM-077)
+            - TestPackVal_P5_Layer3MissingCategory (CLM-078)
+            - TestPackVal_P5_CategoryPresenceAutoAccepted (CLM-079)
+            - TestPackVal_P5_CategoryStructuralAutoAccepted (CLM-080)
+            - TestPackVal_P5_CategoryOtherEmptyJustificationFails (CLM-081)
+            - TestPackVal_P5_CategoryOtherMissingJustificationFails (CLM-082)
+            - TestPackVal_P5_CategoryOtherWithJustificationPass (CLM-083)
+            - TestPackVal_P5_Layer3MissingInputScope (CLM-084)
+            - TestPackVal_P5_Layer3InvalidInputScope (CLM-085)
+            - TestPackVal_P5_Layer3MissingValidator (CLM-086)
+            - TestPackVal_P5_Layer3ValidatorFileNotFound (CLM-087)
+            - TestPackVal_P5_Layer3ValidInputScopeAndValidator (CLM-088)
+
+          Tests construct PackManifest with rules at various layers and
+          categories, call RunLayer with packDir for file existence checks.
+        files:
+          - pkg/packval/phase5_test.go
+        claims:
+          - CLM-072
+          - CLM-073
+          - CLM-074
+          - CLM-075
+          - CLM-076
+          - CLM-077
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+        depends_on: [TASK-011]
+
+      - id: TASK-027
+        type: implementation
+        title: "Implement Phase 5 layer enforcement"
+        description: |
+          Create pkg/packval/phase5.go with package packval.
+
+          Function:
+            - RunLayer(pack *PackManifest, packDir string) *PhaseResult:
+              1. For each rule:
+                 a. Verify layer is declared and in {1, 2, 3} (CLM-072/073)
+                 b. Verify risk_class is valid (CLM-074)
+                 c. If layer 1 or 2: verify category is NOT present (CLM-075/076)
+                 d. If layer 3:
+                    - Verify category is present (CLM-078)
+                    - If category is "presence" or "structural": auto-accept
+                      (CLM-079/080)
+                    - If category is "other": verify non-empty justification
+                      (CLM-081/082/083)
+                    - Verify input_scope in {single-file, multi-file} (CLM-084/085)
+                    - Verify validator field points to existing executable
+                      file (CLM-086/087/088)
+              2. Return PhaseResult
+        files:
+          - pkg/packval/phase5.go
+        claims:
+          - CLM-072
+          - CLM-073
+          - CLM-074
+          - CLM-075
+          - CLM-076
+          - CLM-077
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+        depends_on: [TASK-026]
+
+      - id: TASK-028
+        type: verification
+        title: "Verify Phase 4 and Phase 5"
+        description: |
+          Run Phase 4 and Phase 5 tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_P(4|5)" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/phase4_test.go
+          - pkg/packval/phase5_test.go
+        claims:
+          - CLM-066
+          - CLM-074
+        depends_on: [TASK-025, TASK-027]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Phase 6 Risk Class Enforcement
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Risk Class Enforcement (Phase 6)"
+    description: |
+      Implement Phase 6 of the validation pipeline: risk class enforcement
+      for security bypass_attempt fixtures and independent claim fixtures.
+    tasks:
+      - id: TASK-029
+        type: test
+        title: "Write Phase 6 risk class enforcement tests"
+        description: |
+          Create pkg/packval/phase6_test.go with package packval_test.
+
+          Test functions (mandated names):
+            - TestPackVal_P6_SecurityClaimNoBypassAttempt (CLM-089)
+            - TestPackVal_P6_SecurityClaimWithBypassAttempt (CLM-090)
+            - TestPackVal_P6_NormalizeMixedFixtureFormats (CLM-091)
+            - TestPackVal_P6_NonSecurityNoBypassRequired (CLM-092)
+            - TestPackVal_P6_SecurityClaimsSharedFixtureFails (CLM-093)
+            - TestPackVal_P6_SecurityClaimsIndependentFixturesPass (CLM-094)
+
+          Tests construct PackManifest with security and non-security rules,
+          various fixture formats, call RunRiskClass.
+        files:
+          - pkg/packval/phase6_test.go
+        claims:
+          - CLM-089
+          - CLM-090
+          - CLM-091
+          - CLM-092
+          - CLM-093
+          - CLM-094
+        depends_on: [TASK-011]
+
+      - id: TASK-030
+        type: implementation
+        title: "Implement Phase 6 risk class enforcement"
+        description: |
+          Create pkg/packval/phase6.go with package packval.
+
+          Function:
+            - RunRiskClass(pack *PackManifest) *PhaseResult:
+              1. For each rule with risk_class "security":
+                 a. For each claim: normalize fixture formats (plain strings
+                    become Fixture{Path: s, BypassAttempt: false}; objects
+                    keep their fields) (CLM-091)
+                 b. Verify at least one negative fixture has bypass_attempt
+                    true per claim (CLM-089/090)
+                 c. Collect all fixture paths per claim; verify no sharing
+                    across claims within the same rule (CLM-093/094)
+              2. Non-security rules: skip bypass_attempt and independence
+                 checks (CLM-092)
+              3. Return PhaseResult
+
+          Helper:
+            - normalizeFixtures(fixtures []Fixture) []Fixture: ensures
+              consistent Fixture struct format
+        files:
+          - pkg/packval/phase6.go
+        claims:
+          - CLM-089
+          - CLM-090
+          - CLM-091
+          - CLM-092
+          - CLM-093
+          - CLM-094
+        depends_on: [TASK-029]
+
+      - id: TASK-031
+        type: verification
+        title: "Verify Phase 6 risk class enforcement"
+        description: |
+          Run Phase 6 tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_P6" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/phase6_test.go
+        claims:
+          - CLM-094
+        depends_on: [TASK-030]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Pipeline Orchestrator
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Pipeline Orchestrator"
+    description: |
+      Implement the Pipeline type that orchestrates all six phases with
+      mode selection (check vs test), early termination, error ordering,
+      and idempotency.
+    tasks:
+      - id: TASK-032
+        type: test
+        title: "Write pipeline orchestrator tests"
+        description: |
+          Create pkg/packval/pipeline_test.go with package packval_test.
+
+          Test functions (mandated names):
+            - TestPackVal_CheckRunsManifestOnlyPhases (CLM-001): run pipeline
+              in check mode, verify phases 1,2,4,5,6 ran
+            - TestPackVal_CheckSkipsPhase3 (CLM-002): run pipeline in check
+              mode, verify phase 3 not in results
+            - TestPackVal_TestRunsAllSixPhases (CLM-003): run pipeline in
+              test mode with valid pack and mock executor, verify all 6 phases
+            - TestPackVal_EarlyTermination_P1FailSkipsP2 (CLM-095)
+            - TestPackVal_EarlyTermination_P2FailSkipsP3 (CLM-096)
+            - TestPackVal_EarlyTermination_P3FailSkipsP4P5P6 (CLM-097)
+            - TestPackVal_EarlyTermination_P4FailSkipsP5 (CLM-098)
+            - TestPackVal_EarlyTermination_P5FailSkipsP6 (CLM-099)
+            - TestPackVal_AllPhasesRunOnSuccess (CLM-100)
+            - TestPackVal_Idempotent (CLM-101): run pipeline twice, compare
+              results excluding duration_ms
+            - TestPackVal_NoSideEffects (CLM-102): snapshot pack dir before
+              and after pipeline run, verify no files changed
+            - TestPackVal_ErrorOrdering (CLM-110): create pack with errors
+              in multiple phases, verify errors ordered by phase then
+              manifest order
+            - TestPackVal_ErrorFieldsComplete (CLM-104): verify every error
+              in result has all required fields
+
+          Tests use MockExecutor for phase 3 tests. Tests construct temporary
+          pack directories with valid/invalid manifests.
+        files:
+          - pkg/packval/pipeline_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-095
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-099
+          - CLM-100
+          - CLM-101
+          - CLM-102
+          - CLM-110
+        depends_on: [TASK-023, TASK-028, TASK-031]
+
+      - id: TASK-033
+        type: implementation
+        title: "Implement pipeline orchestrator"
+        description: |
+          Create pkg/packval/pipeline.go with package packval.
+
+          Types:
+            - Pipeline struct: packDir string, opts PipelineOptions,
+              executor FixtureExecutor.
+            - PipelineOptions struct: Mode string (check/test),
+              Format string (json/text), Executor FixtureExecutor.
+
+          Functions:
+            - NewPipeline(packDir string, opts PipelineOptions) *Pipeline:
+              creates pipeline with mode, format, and executor. If executor
+              is nil, uses DefaultExecutor.
+            - (p *Pipeline) Run() *Result:
+              1. Parse manifest via ParseManifest
+              2. Determine phase list based on mode:
+                 - check: [1, 2, 4, 5, 6]
+                 - test: [1, 2, 3, 4, 5, 6]
+              3. Execute phases in order:
+                 - Phase 1: RunStructural(pack, packDir)
+                 - Phase 2: RunCoherence(pack, packDir)
+                 - Phase 3: RunFixtures(pack, packDir, executor) [test only]
+                 - Phase 4: RunArchetype(pack)
+                 - Phase 5: RunLayer(pack, packDir)
+                 - Phase 6: RunRiskClass(pack)
+              4. After each phase: if status is "fail", mark remaining
+                 phases as "skipped" with reason field, break
+              5. Collect all errors from all phases in phase order, then
+                 manifest order within phase (CLM-110)
+              6. Collect all warnings
+              7. Build Result with status, pack name, version, phases,
+                 errors, warnings
+              8. Return Result
+
+          The pipeline must be idempotent (CLM-101) and side-effect-free
+          (CLM-102). No files modified, no state persisted, no network calls.
+        files:
+          - pkg/packval/pipeline.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-095
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-099
+          - CLM-100
+          - CLM-101
+          - CLM-102
+          - CLM-110
+        depends_on: [TASK-032]
+
+      - id: TASK-034
+        type: verification
+        title: "Verify pipeline orchestrator"
+        description: |
+          Run pipeline tests and lint.
+          go test ./pkg/packval/... -run "TestPackVal_(Check|Test|EarlyTermination|AllPhases|Idempotent|NoSideEffects|ErrorOrdering)" -race -v
+          go tool golangci-lint run ./pkg/packval/
+        files:
+          - pkg/packval/pipeline_test.go
+        claims:
+          - CLM-001
+          - CLM-100
+        depends_on: [TASK-033]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: CLI Adapters
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: CLI Adapters"
+    description: |
+      Implement the thin CLI adapter commands for pack check and pack test,
+      and wire them into the root command. These are thin adapters that
+      delegate all logic to pkg/packval.
+    tasks:
+      - id: TASK-035
+        type: test
+        title: "Write pack check CLI tests"
+        description: |
+          Create cmd/backstop/pack_check_test.go with package main.
+
+          Test functions:
+            - TestPackVal_PackCheckCommand_Exists: verify pack check command
+              is registered on the root command
+            - TestPackVal_PackCheckCommand_DefaultJSON (CLM-108): run pack
+              check without --format, verify JSON output
+            - TestPackVal_PackCheckCommand_TextFormat (CLM-107): run pack
+              check with --format=text, verify text output
+            - TestPackVal_PackCheckCommand_InvalidPack: run pack check on
+              non-existent directory, verify error exit code
+            - TestPackVal_PackCheckCommand_ValidPack: run pack check on
+              valid testdata pack, verify pass result
+        files:
+          - cmd/backstop/pack_check_test.go
+        claims:
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-034]
+
+      - id: TASK-036
+        type: implementation
+        title: "Implement pack check CLI command"
+        description: |
+          Create cmd/backstop/pack_check.go.
+
+          Function:
+            - newPackCheckCommand(jsonFlag *bool) *cobra.Command:
+              Creates cobra command for "pack check". Accepts a positional
+              argument for the pack directory. Supports --format flag
+              (json or text, default json per ADR-0001).
+
+              RunE:
+              1. Validate pack directory argument
+              2. Create Pipeline with mode "check" and format from flag
+              3. Call Pipeline.Run()
+              4. Format result (JSON default, text with --format=text)
+              5. Print output
+              6. Set exit code: 0 for pass, 1 for fail
+
+          Wire into root.go: add packCheckCmd to packCmd.
+        files:
+          - cmd/backstop/pack_check.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-035]
+
+      - id: TASK-037
+        type: test
+        title: "Write pack test CLI tests"
+        description: |
+          Create cmd/backstop/pack_test_cmd_test.go with package main.
+
+          Test functions:
+            - TestPackVal_PackTestCommand_Exists: verify pack test command
+              is registered on the root command
+            - TestPackVal_PackTestCommand_RunsAllPhases (CLM-003): run pack
+              test with mock executor, verify all 6 phases in output
+            - TestPackVal_PackTestCommand_DefaultJSON: verify JSON output
+              by default
+            - TestPackVal_PackTestCommand_TextFormat: verify text output
+              with --format=text
+        files:
+          - cmd/backstop/pack_test_cmd_test.go
+        claims:
+          - CLM-003
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-034]
+
+      - id: TASK-038
+        type: implementation
+        title: "Implement pack test CLI command"
+        description: |
+          Create cmd/backstop/pack_test_cmd.go.
+
+          Function:
+            - newPackTestCommand(jsonFlag *bool) *cobra.Command:
+              Creates cobra command for "pack test". Same structure as
+              pack check but with mode "test" (runs all 6 phases including
+              phase 3 fixture execution).
+
+              RunE:
+              1. Validate pack directory argument
+              2. Create Pipeline with mode "test" and format from flag
+              3. Call Pipeline.Run()
+              4. Format result
+              5. Print output
+              6. Set exit code: 0 for pass, 1 for fail
+
+          Wire into root.go: add packTestCmd to packCmd.
+        files:
+          - cmd/backstop/pack_test_cmd.go
+        claims:
+          - CLM-003
+          - CLM-107
+          - CLM-108
+        depends_on: [TASK-037]
+
+      - id: TASK-039
+        type: refactor
+        title: "Wire pack check and pack test into root command"
+        description: |
+          Modify cmd/backstop/root.go to register the pack check and pack
+          test commands under the existing pack namespace.
+
+          Changes:
+            - Import pack check and pack test command constructors
+            - Add packCheckCmd and packTestCmd to packCmd.AddCommand()
+            - Ensure --json flag is passed through consistently
+        files:
+          - cmd/backstop/root.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on: [TASK-036, TASK-038]
+
+      - id: TASK-040
+        type: verification
+        title: "Verify CLI adapters"
+        description: |
+          Run CLI adapter tests and lint.
+          go test ./cmd/backstop/... -run "TestPackVal_Pack(Check|Test)Command" -race -v
+          go tool golangci-lint run ./cmd/backstop/
+        files:
+          - cmd/backstop/pack_check_test.go
+          - cmd/backstop/pack_test_cmd_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-108
+        depends_on: [TASK-039]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: Final Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: Comprehensive Verification"
+    description: |
+      Final verification phase covering all work categories: full test
+      suite, lint, race detection, coverage threshold, and artifact
+      validation.
+    tasks:
+      - id: TASK-041
+        type: verification
+        title: "Run full test suite with coverage"
+        description: |
+          Run the complete test suite for both pkg/packval and cmd/backstop
+          with race detection and coverage profiling.
+
+          Commands:
+            go test ./pkg/packval/... ./cmd/backstop/... -run TestPackVal -race -coverprofile=cover.out -v
+            go tool cover -func=cover.out | grep total | awk '{print $3}'
+
+          Verify:
+            - All tests pass
+            - Coverage >= 80% (spec threshold)
+            - No race conditions detected
+        files:
+          - pkg/packval/pipeline_test.go
+          - pkg/packval/phase1_test.go
+          - pkg/packval/phase3_test.go
+          - pkg/packval/phase3_layer3_test.go
+          - pkg/packval/phase4_test.go
+          - pkg/packval/phase5_test.go
+          - pkg/packval/phase6_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-100
+          - CLM-101
+          - CLM-102
+        depends_on: [TASK-039]
+
+      - id: TASK-042
+        type: verification
+        title: "Run lint and build verification"
+        description: |
+          Run linter and verify clean build across all modified packages.
+
+          Commands:
+            go tool golangci-lint run ./pkg/packval/... ./cmd/backstop/...
+            go build ./pkg/packval/...
+            go build ./cmd/backstop/...
+            go vet ./pkg/packval/... ./cmd/backstop/...
+
+          Verify:
+            - No lint violations
+            - Clean build
+            - No vet warnings
+        files:
+          - pkg/packval/pipeline.go
+          - pkg/packval/result.go
+          - pkg/packval/manifest.go
+          - pkg/packval/format.go
+          - cmd/backstop/pack_check.go
+          - cmd/backstop/pack_test_cmd.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-110
+        depends_on: [TASK-039]
+
+      - id: TASK-043
+        type: verification
+        title: "Validate plan artifact"
+        description: |
+          Validate the plan artifact itself using the backstop artifact
+          validator to ensure structural correctness.
+
+          Command:
+            ./bin/backstop artifact validate plans/PLAN-SPEC-014-pack-validation.plan.yml
+        files:
+          - plans/PLAN-SPEC-014-pack-validation.plan.yml
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-110
+        depends_on: [TASK-039]
