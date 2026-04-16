@@ -163,38 +163,59 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	}
 	contentHash, err := ComputeContentHash(hashDir)
 	if err != nil {
-		// Rollback on failure.
 		if !isLocal && installedPath != "" {
 			os.RemoveAll(installedPath)
 		}
 		return nil, fmt.Errorf("computing content hash: %w", err)
 	}
 
-	// Merge tool_config.
+	// Snapshot files for transactional rollback.
+	ymlPath := filepath.Join(opts.ProjectDir, "backstop.yml")
+	lockPath := filepath.Join(opts.ProjectDir, "backstop.lock")
 	backstopDir := filepath.Join(opts.ProjectDir, ".backstop")
 	if err := os.MkdirAll(backstopDir, 0o755); err != nil {
 		return nil, err
 	}
-
 	provPath := filepath.Join(backstopDir, "pack-config-provenance.json")
+
+	ymlSnap, _ := os.ReadFile(ymlPath)
+	lockSnap, _ := os.ReadFile(lockPath)
+	provSnap, _ := os.ReadFile(provPath)
+
+	rollback := func() {
+		if !isLocal && installedPath != "" {
+			os.RemoveAll(installedPath)
+		}
+		if ymlSnap != nil {
+			os.WriteFile(ymlPath, ymlSnap, 0o644)
+		}
+		if lockSnap != nil {
+			os.WriteFile(lockPath, lockSnap, 0o644)
+		} else {
+			os.Remove(lockPath)
+		}
+		if provSnap != nil {
+			os.WriteFile(provPath, provSnap, 0o644)
+		} else {
+			os.Remove(provPath)
+		}
+	}
+
+	// Merge tool_config.
 	prov, err := ReadProvenance(provPath)
 	if err != nil {
+		rollback()
 		return nil, err
 	}
 
 	mergeResult, err := MergeToolConfig(packDir, opts.ProjectDir, prov)
 	if err != nil {
-		if !isLocal && installedPath != "" {
-			os.RemoveAll(installedPath)
-		}
+		rollback()
 		return nil, fmt.Errorf("merging tool_config: %w", err)
 	}
 
 	if len(mergeResult.Conflicts) > 0 {
-		// Rollback and report conflicts.
-		if !isLocal && installedPath != "" {
-			os.RemoveAll(installedPath)
-		}
+		rollback()
 		var msgs []string
 		for _, c := range mergeResult.Conflicts {
 			msgs = append(msgs, fmt.Sprintf("%s: %s (pack=%s, current=%s)", c.ConfigFile, c.SettingKey, c.PackValue, c.CurrentValue))
@@ -208,19 +229,17 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	}
 	prov.Entries = append(prov.Entries, mergeResult.Merged...)
 	if err := WriteProvenance(provPath, prov); err != nil {
+		rollback()
 		return nil, err
 	}
 
 	// Update backstop.yml.
 	if err := updateBackstopYml(opts.ProjectDir, packName, version, isLocal, packDir); err != nil {
-		if !isLocal && installedPath != "" {
-			os.RemoveAll(installedPath)
-		}
+		rollback()
 		return nil, err
 	}
 
 	// Update backstop.lock.
-	lockPath := filepath.Join(opts.ProjectDir, "backstop.lock")
 	lf, _ := ReadLockfile(lockPath)
 	if lf == nil {
 		lf = &Lockfile{Packs: make(map[string]LockEntry)}
@@ -236,6 +255,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	}
 
 	if err := WriteLockfile(lockPath, lf); err != nil {
+		rollback()
 		return nil, err
 	}
 

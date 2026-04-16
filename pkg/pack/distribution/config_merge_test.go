@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
@@ -96,6 +98,16 @@ func TestPackAdd_ToolConfigAdditiveMerge(t *testing.T) {
 	}
 	if len(result.Merged) == 0 {
 		t.Error("expected merged entries")
+	}
+
+	// Verify the config file was actually written to disk.
+	configPath := filepath.Join(projectDir, ".golangci.yml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("config file not written: %v", err)
+	}
+	if !strings.Contains(string(data), "revive") {
+		t.Fatalf("config file missing merged setting: %s", data)
 	}
 }
 
@@ -200,6 +212,16 @@ func TestMergeToolConfig_YamlFormat(t *testing.T) {
 	if len(result.Merged) == 0 {
 		t.Error("expected merged entries for YAML config")
 	}
+
+	// Verify the config file was written with both settings.
+	data, err := os.ReadFile(filepath.Join(projectDir, ".golangci.yml"))
+	if err != nil {
+		t.Fatalf("config file not written: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "errcheck") {
+		t.Error("config missing newly merged setting")
+	}
 }
 
 func TestMergeToolConfig_JsonFormat(t *testing.T) {
@@ -219,6 +241,15 @@ func TestMergeToolConfig_JsonFormat(t *testing.T) {
 
 	if len(result.Merged) == 0 {
 		t.Error("expected merged entries for JSON config")
+	}
+
+	// Verify JSON config was actually written.
+	data, err := os.ReadFile(filepath.Join(projectDir, ".eslintrc.json"))
+	if err != nil {
+		t.Fatalf("JSON config not written: %v", err)
+	}
+	if !strings.Contains(string(data), "no-console") {
+		t.Fatalf("JSON config missing merged setting: %s", data)
 	}
 }
 
@@ -274,4 +305,45 @@ func computeSettingHash(value interface{}) string {
 	data, _ := json.Marshal(value)
 	h := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+func TestMergeToolConfig_SameValueSkipped(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		".golangci.yml": map[string]interface{}{
+			"linters.enable.revive": true,
+		},
+	})
+
+	// Project already has the same value — should skip (no merge, no conflict).
+	writeYAMLConfig(t, filepath.Join(projectDir, ".golangci.yml"), map[string]interface{}{
+		"linters.enable.revive": true,
+	})
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Conflicts) != 0 {
+		t.Errorf("expected no conflicts for same value, got %d", len(result.Conflicts))
+	}
+	if len(result.Merged) != 0 {
+		t.Errorf("expected no merges for same value, got %d", len(result.Merged))
+	}
+}
+
+func TestMergeToolConfig_InvalidManifest(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	// Write invalid pack.yml
+	writeFile(t, filepath.Join(packDir, "pack.yml"), "not: [valid: yaml")
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	_, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err == nil {
+		t.Fatal("expected error for invalid manifest")
+	}
 }

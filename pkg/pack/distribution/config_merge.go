@@ -80,6 +80,11 @@ func MergeToolConfig(packDir string, projectDir string, prov *Provenance) (*Merg
 			}
 
 			// New setting — merge additively.
+			if currentConfig == nil {
+				currentConfig = make(map[string]interface{})
+			}
+			currentConfig[key] = packValue
+
 			valueHash := computeValueHash(packValue)
 			result.Merged = append(result.Merged, ProvenanceEntry{
 				ConfigFile: tc.ConfigFile,
@@ -87,9 +92,49 @@ func MergeToolConfig(packDir string, projectDir string, prov *Provenance) (*Merg
 				ValueHash:  valueHash,
 			})
 		}
+
+		// Write the updated config file if settings were merged for this file.
+		mergedForFile := false
+		for _, m := range result.Merged {
+			if m.ConfigFile == tc.ConfigFile {
+				mergedForFile = true
+				break
+			}
+		}
+		if mergedForFile {
+			configPath := filepath.Join(projectDir, tc.ConfigFile)
+			if err := writeConfigFile(configPath, currentConfig); err != nil {
+				return nil, fmt.Errorf("writing config %s: %w", tc.ConfigFile, err)
+			}
+		}
 	}
 
 	return result, nil
+}
+
+// writeConfigFile writes a config map to disk in the appropriate format.
+func writeConfigFile(path string, data map[string]interface{}) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	var content []byte
+	var err error
+
+	if strings.HasSuffix(path, ".json") {
+		content, err = json.MarshalIndent(data, "", "  ")
+		if err != nil {
+			return err
+		}
+		content = append(content, '\n')
+	} else {
+		content, err = yaml.Marshal(data)
+		if err != nil {
+			return err
+		}
+	}
+
+	return os.WriteFile(path, content, 0o644)
 }
 
 // readPackManifest reads the pack.yml manifest from a pack directory.

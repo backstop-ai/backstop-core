@@ -265,6 +265,11 @@ func TestPackAdd_UpdatesBackstopLock(t *testing.T) {
 
 func TestPackAdd_RollbackOnPostCloneFailure(t *testing.T) {
 	projectDir := setupAddProject(t)
+
+	// Snapshot backstop.yml before add.
+	ymlPath := filepath.Join(projectDir, "backstop.yml")
+	ymlBefore, _ := os.ReadFile(ymlPath)
+
 	opts := newTestAddOptions(projectDir)
 	// Validator passes check but fails test — post-clone failure.
 	opts.Validator = &mockValidator{testFail: true}
@@ -278,6 +283,12 @@ func TestPackAdd_RollbackOnPostCloneFailure(t *testing.T) {
 	packsDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")
 	if _, statErr := os.Stat(packsDir); !os.IsNotExist(statErr) {
 		t.Error("pack should be rolled back after failure")
+	}
+
+	// Verify rollback: backstop.yml unchanged.
+	ymlAfter, _ := os.ReadFile(ymlPath)
+	if string(ymlBefore) != string(ymlAfter) {
+		t.Error("backstop.yml should be rolled back after failure")
 	}
 }
 

@@ -59,23 +59,32 @@ For each mandated test, read the test body and check:
 
 A test that exists but doesn't meaningfully verify its claim is a hollow test. Flag it.
 
-### 5. Run the Tests
+### 5. Run Backstop Gates
+
+**CRITICAL: Always use backstop CLI commands, never raw tool commands.**
 
 ```bash
-# Run the test command from the spec's verification config
-go test ./pkg/validate/ -run TestPlan -race -v
+# Run diff-scoped code check (lint, build, test, semgrep on changed files)
+backstop code check
+
+# Run full gate (all 9 steps of the kill chain)
+backstop gate --json
 ```
 
-All tests must pass. Report any failures with the full error output.
+Both must be run and results reported. `backstop code check` verifies the implementation passes code standards. `backstop gate` runs the full verification kill chain including artifact validation, test verification, substantiveness, coverage, and contract signatures.
+
+Report the gate output: which steps passed, which failed, how many violations, and whether any violations are attributable to the new implementation (vs pre-existing).
 
 ### 6. Check Coverage
 
+The gate's coverage_threshold step (step 5) reports whether coverage meets the spec's threshold. Check the gate output for this. If you need per-function detail:
+
 ```bash
-go test ./pkg/validate/ -run TestPlan -race -coverprofile=cover.out
+go test <spec-test-command> -coverprofile=cover.out
 go tool cover -func=cover.out | grep -E "^github|total"
 ```
 
-Coverage must meet the spec's threshold (typically 90%). Report the actual number.
+Use the test command from the spec's verification config for the coverage profile.
 
 ### 7. Verify Claim Correctness
 
@@ -110,11 +119,11 @@ For each task in the plan:
 ### 10. Run Existing Tests (Regression)
 
 ```bash
-# Full test suite — nothing should be broken
-go test ./... -race
+# Full test suite via backstop — nothing should be broken
+backstop code check --all
 ```
 
-The implementation must not break existing functionality.
+The implementation must not break existing functionality. Use `backstop code check --all` for the full codebase check, not raw `go test`.
 
 ## Review Report Format
 
