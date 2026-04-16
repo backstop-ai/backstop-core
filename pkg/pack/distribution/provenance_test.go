@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
@@ -189,5 +190,97 @@ func TestWriteProvenance_JSONFormat(t *testing.T) {
 
 	if len(arr) != 1 {
 		t.Errorf("entries array length = %d, want 1", len(arr))
+	}
+}
+
+func TestReadProvenance_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "provenance.json")
+	if err := os.WriteFile(path, []byte("{{{not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := distribution.ReadProvenance(path)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+
+	if !strings.Contains(err.Error(), "parsing provenance") {
+		t.Errorf("error should mention parsing provenance, got: %v", err)
+	}
+}
+
+func TestReadProvenance_NullEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "provenance.json")
+	if err := os.WriteFile(path, []byte(`{"entries": null}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prov, err := distribution.ReadProvenance(path)
+	if err != nil {
+		t.Fatalf("ReadProvenance: %v", err)
+	}
+
+	if prov == nil {
+		t.Fatal("expected non-nil Provenance")
+	}
+	if prov.Entries == nil {
+		t.Fatal("expected non-nil Entries after nil-coalescing")
+	}
+	if len(prov.Entries) != 0 {
+		t.Errorf("expected empty Entries, got %d", len(prov.Entries))
+	}
+}
+
+func TestReadProvenance_MissingEntriesKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "provenance.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prov, err := distribution.ReadProvenance(path)
+	if err != nil {
+		t.Fatalf("ReadProvenance: %v", err)
+	}
+
+	if prov.Entries == nil {
+		t.Fatal("expected non-nil Entries for empty JSON object")
+	}
+	if len(prov.Entries) != 0 {
+		t.Errorf("expected empty Entries, got %d", len(prov.Entries))
+	}
+}
+
+func TestWriteProvenance_NilEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "provenance.json")
+
+	prov := &distribution.Provenance{Entries: nil}
+	if err := distribution.WriteProvenance(path, prov); err != nil {
+		t.Fatalf("WriteProvenance: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading file: %v", err)
+	}
+
+	// Should serialize as empty array, not null.
+	if !strings.Contains(string(data), `"entries": []`) {
+		t.Errorf("expected empty entries array in JSON, got: %s", string(data))
+	}
+}
+
+func TestWriteProvenance_BadPath(t *testing.T) {
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	err := distribution.WriteProvenance("/nonexistent/dir/prov.json", prov)
+	if err == nil {
+		t.Fatal("expected error for bad path")
+	}
+
+	if !strings.Contains(err.Error(), "writing provenance") {
+		t.Errorf("error should mention writing provenance, got: %v", err)
 	}
 }

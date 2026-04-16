@@ -221,3 +221,209 @@ func TestLocalPack_LockEntryHasHashNoGitRefList(t *testing.T) {
 		t.Error("JSON should contain local pack name")
 	}
 }
+
+func TestPackList_MissingBackstopYml(t *testing.T) {
+	projectDir := t.TempDir()
+	// No backstop.yml file.
+
+	_, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected error for missing backstop.yml")
+	}
+
+	if !strings.Contains(err.Error(), "reading backstop.yml") {
+		t.Errorf("error should mention reading backstop.yml, got: %v", err)
+	}
+}
+
+func TestPackList_MalformedBackstopYml(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: [invalid: yaml: {{{")
+
+	_, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected error for malformed backstop.yml")
+	}
+
+	if !strings.Contains(err.Error(), "parsing backstop.yml") {
+		t.Errorf("error should mention parsing backstop.yml, got: %v", err)
+	}
+}
+
+func TestPackList_PackNotInLockfile(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/unlocked-pack\n    version: \"1.0.0\"\n")
+
+	// Lockfile with a different pack.
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"other/pack": {
+				Name:        "other/pack",
+				ContentHash: "sha256:abc",
+				SourceType:  "git",
+			},
+		},
+	}
+	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(result.Packs) == 0 {
+		t.Fatal("expected at least one pack")
+	}
+
+	pack := result.Packs[0]
+	if pack.LockStatus != "missing" {
+		t.Errorf("LockStatus = %q, want %q for pack not in lockfile", pack.LockStatus, "missing")
+	}
+}
+
+func TestPackList_VersionBackfillFromLock(t *testing.T) {
+	projectDir := t.TempDir()
+	// backstop.yml with no version field.
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/valid-pack\n")
+
+	// Create installed pack dir for lock status computation.
+	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packDir, "pack.yml"), "name: acme/valid-pack\n")
+
+	hash, _ := distribution.ComputeContentHash(packDir)
+	ref := "v2.0.0"
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/valid-pack": {
+				Name:        "acme/valid-pack",
+				Version:     "2.0.0",
+				GitRef:      &ref,
+				ContentHash: hash,
+				SourceType:  "git",
+			},
+		},
+	}
+	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	pack := result.Packs[0]
+	if pack.Version != "2.0.0" {
+		t.Errorf("Version = %q, want %q (should backfill from lockfile)", pack.Version, "2.0.0")
+	}
+}
+
+func TestPackList_EmptyPacksList(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: []\n")
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(result.Packs) != 0 {
+		t.Errorf("expected empty packs list, got %d", len(result.Packs))
+	}
+
+	// Table output should contain header only.
+	if !strings.Contains(result.FormattedOutput, "NAME") {
+		t.Error("formatted output should contain header even for empty list")
+	}
+}
+
+func TestPackList_NoLockfile(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/some-pack\n    version: \"1.0.0\"\n")
+	// No backstop.lock.
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	pack := result.Packs[0]
+	// Without a lockfile, LockStatus should be empty.
+	if pack.LockStatus != "" {
+		t.Errorf("LockStatus = %q, want empty when no lockfile", pack.LockStatus)
+	}
+}
+
+func TestPackList_TableEmptyVersion(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/no-version\n")
+	// No lockfile either, so version stays empty.
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	// Table output should have "-" for empty version.
+	if !strings.Contains(result.FormattedOutput, "-") {
+		t.Error("table should show '-' for empty version")
+	}
+}
+
+func TestPackList_ManifestInvalidYaml(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/bad-pack\n    version: \"1.0.0\"\n")
+
+	// Create pack dir with invalid pack.yml.
+	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "bad-pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packDir, "pack.yml"), "not: [valid: yaml: {{{")
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List should succeed even with invalid manifest: %v", err)
+	}
+
+	// Pack should be listed but without metadata.
+	pack := result.Packs[0]
+	if pack.Archetype != "" {
+		t.Error("expected empty archetype for invalid manifest")
+	}
+	if pack.RuleCount != 0 {
+		t.Error("expected zero rule count for invalid manifest")
+	}
+}
+
+func TestPackList_ManifestMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  - name: acme/no-manifest\n    version: \"1.0.0\"\n")
+
+	// Create pack dir but no pack.yml inside.
+	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "no-manifest")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List should succeed without manifest: %v", err)
+	}
+
+	pack := result.Packs[0]
+	if pack.Archetype != "" {
+		t.Error("expected empty archetype when manifest is missing")
+	}
+}

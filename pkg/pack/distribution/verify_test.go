@@ -242,10 +242,228 @@ func TestGate_LocalPackVerifiedByHash(t *testing.T) {
 
 	// Local packs are NOT expected in packsDir, so this should not fail
 	// as "missing_pack" — the verifier should recognize local source type.
-	// Note: The verifier skips local packs when checking packsDir.
 	if !result.Pass {
 		for _, f := range result.Failures {
-			t.Logf("failure: %s - %s - %s", f.Pack, f.Kind, f.Message)
+			t.Errorf("unexpected failure: %s - %s - %s", f.Pack, f.Kind, f.Message)
 		}
+		t.Fatal("expected pass for local pack")
+	}
+}
+
+func TestGate_PackPathIsFileFails(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+	if err := os.MkdirAll(packsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a file instead of directory at the pack path.
+	packPath := filepath.Join(packsDir, "acme", "pack")
+	if err := os.MkdirAll(filepath.Dir(packPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, packPath, "I am a file, not a directory")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/pack": {
+				Name:        "acme/pack",
+				ContentHash: "sha256:abc",
+				SourceType:  "git",
+			},
+		},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{"acme/pack"})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if result.Pass {
+		t.Fatal("expected fail when pack path is a file")
+	}
+
+	found := false
+	for _, f := range result.Failures {
+		if f.Kind == "missing_pack" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected missing_pack failure when path is a file")
+	}
+}
+
+func TestGate_MultipleLockedPacksAllPass(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+
+	// Create two packs.
+	pack1 := filepath.Join(packsDir, "acme", "pack-a")
+	if err := os.MkdirAll(pack1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pack1, "pack.yml"), "name: acme/pack-a\n")
+	hash1, _ := distribution.ComputeContentHash(pack1)
+
+	pack2 := filepath.Join(packsDir, "acme", "pack-b")
+	if err := os.MkdirAll(pack2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pack2, "pack.yml"), "name: acme/pack-b\n")
+	hash2, _ := distribution.ComputeContentHash(pack2)
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/pack-a": {
+				Name: "acme/pack-a", ContentHash: hash1, SourceType: "git",
+			},
+			"acme/pack-b": {
+				Name: "acme/pack-b", ContentHash: hash2, SourceType: "git",
+			},
+		},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{"acme/pack-a", "acme/pack-b"})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if !result.Pass {
+		t.Errorf("expected pass, got failures: %v", result.Failures)
+	}
+}
+
+func TestGate_NonDirEntryInPacksDirIgnored(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+	if err := os.MkdirAll(packsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Place a regular file at org level (not a directory).
+	writeFile(t, filepath.Join(packsDir, "README.md"), "not an org dir")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if !result.Pass {
+		t.Errorf("expected pass, file at org level should be ignored, got: %v", result.Failures)
+	}
+}
+
+func TestGate_NonDirEntryInOrgDirIgnored(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+
+	orgDir := filepath.Join(packsDir, "acme")
+	if err := os.MkdirAll(orgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Place a file inside the org directory (not a pack directory).
+	writeFile(t, filepath.Join(orgDir, "notes.txt"), "not a pack")
+
+	// Also add a valid pack so the org dir is walked.
+	packDir := filepath.Join(orgDir, "valid-pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packDir, "pack.yml"), "name: acme/valid-pack\n")
+	hash, _ := distribution.ComputeContentHash(packDir)
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/valid-pack": {
+				Name: "acme/valid-pack", ContentHash: hash, SourceType: "git",
+			},
+		},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{"acme/valid-pack"})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if !result.Pass {
+		t.Errorf("expected pass, file in org dir should be ignored, got: %v", result.Failures)
+	}
+}
+
+func TestGate_EmptyLockfileNoPacks(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if !result.Pass {
+		t.Errorf("expected pass for empty lockfile and no packs, got: %v", result.Failures)
+	}
+}
+
+func TestGate_MultipleFailuresCombined(t *testing.T) {
+	dir := t.TempDir()
+	packsDir := filepath.Join(dir, ".backstop", "packs")
+
+	// Create pack-b with wrong hash for hash_mismatch.
+	packBDir := filepath.Join(packsDir, "acme", "pack-b")
+	if err := os.MkdirAll(packBDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packBDir, "pack.yml"), "name: acme/pack-b\n")
+
+	// Create pack-c on disk but NOT in lockfile for extra_unlocked.
+	packCDir := filepath.Join(packsDir, "extra", "pack-c")
+	if err := os.MkdirAll(packCDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packCDir, "pack.yml"), "name: extra/pack-c\n")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/pack-a": {
+				Name: "acme/pack-a", ContentHash: "sha256:abc", SourceType: "git",
+			},
+			"acme/pack-b": {
+				Name: "acme/pack-b", ContentHash: "wrong-hash", SourceType: "git",
+			},
+		},
+	}
+
+	result, err := distribution.VerifyLock(lf, packsDir, []string{"acme/pack-a", "acme/pack-b"})
+	if err != nil {
+		t.Fatalf("VerifyLock: %v", err)
+	}
+
+	if result.Pass {
+		t.Fatal("expected failures")
+	}
+
+	kinds := make(map[string]bool)
+	for _, f := range result.Failures {
+		kinds[f.Kind] = true
+	}
+
+	if !kinds["missing_pack"] {
+		t.Error("expected missing_pack failure for pack-a")
+	}
+	if !kinds["hash_mismatch"] {
+		t.Error("expected hash_mismatch failure for pack-b")
+	}
+	if !kinds["extra_unlocked"] {
+		t.Error("expected extra_unlocked failure for pack-c")
 	}
 }

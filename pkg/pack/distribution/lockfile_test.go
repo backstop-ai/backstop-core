@@ -294,3 +294,116 @@ func TestLocalPack_LockEntryHasHashNoGitRef(t *testing.T) {
 		t.Errorf("expected nil GitRef for local pack, got %q", *entry.GitRef)
 	}
 }
+
+func TestReadLockfile_MalformedYaml(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+	writeFile(t, path, "packs: [invalid: yaml: {{{")
+
+	_, err := distribution.ReadLockfile(path)
+	if err == nil {
+		t.Fatal("expected error for malformed YAML")
+	}
+
+	if !strings.Contains(err.Error(), "parsing lockfile") {
+		t.Errorf("error should mention parsing lockfile, got: %v", err)
+	}
+}
+
+func TestReadLockfile_EmptyPacksMap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+	// YAML with packs key but null value triggers nil-coalescing.
+	writeFile(t, path, "packs:\n")
+
+	lf, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+
+	if lf.Packs == nil {
+		t.Fatal("expected non-nil Packs map after nil coalescing")
+	}
+	if len(lf.Packs) != 0 {
+		t.Errorf("expected empty Packs map, got %d entries", len(lf.Packs))
+	}
+}
+
+func TestWriteLockfile_BadPath(t *testing.T) {
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{},
+	}
+
+	err := distribution.WriteLockfile("/nonexistent/dir/backstop.lock", lf)
+	if err == nil {
+		t.Fatal("expected error for bad path")
+	}
+
+	if !strings.Contains(err.Error(), "writing lockfile") {
+		t.Errorf("error should mention writing lockfile, got: %v", err)
+	}
+}
+
+func TestWriteLockfile_EmptyLockfile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{},
+	}
+
+	if err := distribution.WriteLockfile(path, lf); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+
+	// Should be valid YAML that can be read back.
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+
+	if len(read.Packs) != 0 {
+		t.Errorf("expected empty Packs, got %d", len(read.Packs))
+	}
+}
+
+func TestReadLockfile_RoundTrip_LocalPack(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	original := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"internal/local": {
+				Name:        "internal/local",
+				ContentHash: "sha256:localhash123",
+				SourceType:  "local",
+				InstallDate: now,
+				GitRef:      nil,
+			},
+		},
+	}
+
+	if err := distribution.WriteLockfile(path, original); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+
+	entry := read.Packs["internal/local"]
+	if entry.Version != "" {
+		t.Errorf("Version = %q, want empty", entry.Version)
+	}
+	if entry.GitRef != nil {
+		t.Errorf("expected nil GitRef, got %v", entry.GitRef)
+	}
+	if entry.SourceType != "local" {
+		t.Errorf("SourceType = %q, want %q", entry.SourceType, "local")
+	}
+	if entry.ContentHash != "sha256:localhash123" {
+		t.Errorf("ContentHash = %q, want %q", entry.ContentHash, "sha256:localhash123")
+	}
+}

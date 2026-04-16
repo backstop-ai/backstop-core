@@ -3,6 +3,7 @@ package distribution_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
@@ -161,4 +162,160 @@ func setupTamperOldPack(t *testing.T) string {
 	writeFile(t, filepath.Join(fixtureDir, "fixture.json"), `{"input": "test", "expected": "pass"}`)
 
 	return dir
+}
+
+func TestDetectTamper_OldManifestMissing(t *testing.T) {
+	oldDir := t.TempDir()
+	// No pack.yml in oldDir.
+	newDir := filepath.Join("testdata", "valid-pack")
+
+	_, err := distribution.DetectTamper(oldDir, newDir)
+	if err == nil {
+		t.Fatal("expected error when old manifest is missing")
+	}
+
+	if !strings.Contains(err.Error(), "reading old manifest") {
+		t.Errorf("error should mention reading old manifest, got: %v", err)
+	}
+}
+
+func TestDetectTamper_NewManifestMissing(t *testing.T) {
+	oldDir := filepath.Join("testdata", "valid-pack")
+	newDir := t.TempDir()
+	// No pack.yml in newDir.
+
+	_, err := distribution.DetectTamper(oldDir, newDir)
+	if err == nil {
+		t.Fatal("expected error when new manifest is missing")
+	}
+
+	if !strings.Contains(err.Error(), "reading new manifest") {
+		t.Errorf("error should mention reading new manifest, got: %v", err)
+	}
+}
+
+func TestDetectTamper_InvalidYAML(t *testing.T) {
+	oldDir := t.TempDir()
+	writeFile(t, filepath.Join(oldDir, "pack.yml"), "not: [valid: yaml: {{{")
+
+	newDir := filepath.Join("testdata", "valid-pack")
+
+	_, err := distribution.DetectTamper(oldDir, newDir)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML in manifest")
+	}
+}
+
+func TestDetectTamper_OldTestdataDoesNotExist(t *testing.T) {
+	oldDir := t.TempDir()
+	writeFile(t, filepath.Join(oldDir, "pack.yml"), "name: test\nrules: []\n")
+	// No testdata directory.
+
+	newDir := filepath.Join("testdata", "valid-pack")
+
+	result, err := distribution.DetectTamper(oldDir, newDir)
+	if err != nil {
+		t.Fatalf("DetectTamper: %v", err)
+	}
+
+	// No fixture removal should be detected when old pack has no testdata.
+	for _, c := range result.Changes {
+		if c.Kind == "fixture_removal" {
+			t.Error("should not detect fixture_removal when old pack has no testdata dir")
+		}
+	}
+}
+
+func TestDetectTamper_SeverityUpgradeNotTamper(t *testing.T) {
+	// Old pack with info severity, new pack with error severity (upgrade).
+	oldDir := t.TempDir()
+	writeFile(t, filepath.Join(oldDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: info\n    risk_class: low\n")
+
+	newDir := t.TempDir()
+	writeFile(t, filepath.Join(newDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: error\n    risk_class: low\n")
+
+	result, err := distribution.DetectTamper(oldDir, newDir)
+	if err != nil {
+		t.Fatalf("DetectTamper: %v", err)
+	}
+
+	for _, c := range result.Changes {
+		if c.Kind == "severity_downgrade" {
+			t.Error("severity upgrade should not be detected as tamper")
+		}
+	}
+
+	if result.HasTamper {
+		t.Error("severity upgrade should not count as tamper")
+	}
+}
+
+func TestDetectTamper_EmptyRules(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.yml"), "name: test\nrules: []\n")
+
+	result, err := distribution.DetectTamper(dir, dir)
+	if err != nil {
+		t.Fatalf("DetectTamper: %v", err)
+	}
+
+	if result.HasTamper {
+		t.Error("expected no tamper for empty rules")
+	}
+}
+
+func TestDetectTamper_NewRuleAddedNotTamper(t *testing.T) {
+	oldDir := t.TempDir()
+	writeFile(t, filepath.Join(oldDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: error\n    risk_class: high\n")
+
+	newDir := t.TempDir()
+	writeFile(t, filepath.Join(newDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: error\n    risk_class: high\n  - id: RULE-2\n    severity: warning\n    risk_class: medium\n")
+
+	result, err := distribution.DetectTamper(oldDir, newDir)
+	if err != nil {
+		t.Fatalf("DetectTamper: %v", err)
+	}
+
+	if result.HasTamper {
+		t.Error("adding a new rule should not be tamper")
+	}
+}
+
+func TestDetectTamper_MultipleChanges(t *testing.T) {
+	oldDir := t.TempDir()
+	writeFile(t, filepath.Join(oldDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: error\n    risk_class: high\n  - id: RULE-2\n    severity: warning\n    risk_class: medium\n")
+
+	// New pack: RULE-1 severity downgraded + risk_class changed, RULE-2 removed.
+	newDir := t.TempDir()
+	writeFile(t, filepath.Join(newDir, "pack.yml"),
+		"name: test\nrules:\n  - id: RULE-1\n    severity: info\n    risk_class: low\n")
+
+	result, err := distribution.DetectTamper(oldDir, newDir)
+	if err != nil {
+		t.Fatalf("DetectTamper: %v", err)
+	}
+
+	if !result.HasTamper {
+		t.Fatal("expected tamper for multiple changes")
+	}
+
+	kinds := make(map[string]bool)
+	for _, c := range result.Changes {
+		kinds[c.Kind] = true
+	}
+
+	if !kinds["severity_downgrade"] {
+		t.Error("expected severity_downgrade")
+	}
+	if !kinds["risk_class_change"] {
+		t.Error("expected risk_class_change")
+	}
+	if !kinds["rule_removal"] {
+		t.Error("expected rule_removal")
+	}
 }

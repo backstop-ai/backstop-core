@@ -347,3 +347,160 @@ func TestMergeToolConfig_InvalidManifest(t *testing.T) {
 		t.Fatal("expected error for invalid manifest")
 	}
 }
+
+func TestMergeToolConfig_MissingPackManifest(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+	// Don't write any pack.yml.
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	_, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err == nil {
+		t.Fatal("expected error for missing pack manifest")
+	}
+
+	if !strings.Contains(err.Error(), "reading pack manifest") {
+		t.Errorf("error should mention reading pack manifest, got: %v", err)
+	}
+}
+
+func TestMergeToolConfig_MixedConflictAndMerge(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	// Pack wants two settings: one conflicts, one is new.
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		".golangci.yml": map[string]interface{}{
+			"linters.enable.revive":   true,
+			"linters.enable.errcheck": true,
+		},
+	})
+
+	// Project has revive=false (conflict), errcheck is new.
+	writeYAMLConfig(t, filepath.Join(projectDir, ".golangci.yml"), map[string]interface{}{
+		"linters.enable.revive": false,
+	})
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Conflicts) == 0 {
+		t.Error("expected at least one conflict")
+	}
+	if len(result.Merged) == 0 {
+		t.Error("expected at least one merged entry")
+	}
+}
+
+func TestMergeToolConfig_SubdirectoryConfigFile(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	// Config in a subdirectory.
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		"config/lint.yml": map[string]interface{}{
+			"rules.enabled": true,
+		},
+	})
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Merged) == 0 {
+		t.Fatal("expected merged entries")
+	}
+
+	// Verify the file was created in the subdirectory.
+	configPath := filepath.Join(projectDir, "config", "lint.yml")
+	if _, statErr := os.Stat(configPath); statErr != nil {
+		t.Errorf("config file not created in subdirectory: %v", statErr)
+	}
+}
+
+func TestMergeToolConfig_NoWriteWhenOnlyConflicts(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		".newconfig.yml": map[string]interface{}{
+			"setting1": true,
+		},
+	})
+
+	// Pre-write a conflicting value.
+	writeYAMLConfig(t, filepath.Join(projectDir, ".newconfig.yml"), map[string]interface{}{
+		"setting1": false,
+	})
+
+	// Snapshot file content before merge.
+	before, _ := os.ReadFile(filepath.Join(projectDir, ".newconfig.yml"))
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Conflicts) == 0 {
+		t.Fatal("expected conflicts")
+	}
+	if len(result.Merged) != 0 {
+		t.Errorf("expected no merges when all conflicts, got %d", len(result.Merged))
+	}
+
+	// File should be unchanged.
+	after, _ := os.ReadFile(filepath.Join(projectDir, ".newconfig.yml"))
+	if string(before) != string(after) {
+		t.Error("config file should be unchanged when only conflicts exist")
+	}
+}
+
+func TestMergeToolConfig_InvalidExistingJsonConfig(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		".eslintrc.json": map[string]interface{}{
+			"rules.no-console": "error",
+		},
+	})
+
+	// Write invalid JSON to the existing config file.
+	writeFile(t, filepath.Join(projectDir, ".eslintrc.json"), "{{{not valid json")
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	// readConfigFile returns (nil, error) but MergeToolConfig discards error,
+	// so it treats the config as non-existent and does an additive merge.
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Merged) == 0 {
+		t.Error("expected additive merge when existing config is invalid")
+	}
+}
+
+func TestMergeToolConfig_InvalidExistingYamlConfig(t *testing.T) {
+	packDir, projectDir := setupMergeTestDirs(t)
+
+	writePackYMLWithToolConfig(t, packDir, map[string]interface{}{
+		".golangci.yml": map[string]interface{}{
+			"linters.enable.revive": true,
+		},
+	})
+
+	// Write invalid YAML to the existing config file.
+	writeFile(t, filepath.Join(projectDir, ".golangci.yml"), "not: [valid: yaml: {{{")
+
+	prov := &distribution.Provenance{Entries: []distribution.ProvenanceEntry{}}
+	result, err := distribution.MergeToolConfig(packDir, projectDir, prov)
+	if err != nil {
+		t.Fatalf("MergeToolConfig: %v", err)
+	}
+
+	if len(result.Merged) == 0 {
+		t.Error("expected additive merge when existing config is invalid YAML")
+	}
+}

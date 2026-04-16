@@ -1,6 +1,7 @@
 package distribution_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,4 +401,213 @@ func TestPackUpdate_NonTamperChangesAccepted(t *testing.T) {
 	if result.NewVersion != "1.1.0" {
 		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "1.1.0")
 	}
+}
+
+func TestPackUpdate_VersionResolverError(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	resolver := &mockVersionResolverWithError{
+		err: fmt.Errorf("resolution failed"),
+	}
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		VersionResolver: resolver,
+	}
+
+	_, err := distribution.Update("acme/valid-pack", opts)
+	if err == nil {
+		t.Fatal("expected error when version resolver fails")
+	}
+
+	if !strings.Contains(err.Error(), "resolving version") {
+		t.Errorf("error should mention resolving version, got: %v", err)
+	}
+}
+
+func TestPackUpdate_GitCloneFailure(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{failWith: &distribution.GitError{Message: "clone failed"}},
+		Validator:       &mockValidator{},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	_, err := distribution.Update("acme/valid-pack", opts)
+	if err == nil {
+		t.Fatal("expected error for clone failure")
+	}
+
+	// Verify old version retained.
+	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	if !strings.Contains(string(data), "1.0.0") {
+		t.Error("should retain old version on clone failure")
+	}
+}
+
+func TestPackUpdate_RunPackTestFailure(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       &mockValidator{testFail: true},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	_, err := distribution.Update("acme/valid-pack", opts)
+	if err == nil {
+		t.Fatal("expected error when pack test fails")
+	}
+}
+
+func TestPackUpdate_NilValidatorSkipsValidation(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       nil,
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	result, err := distribution.Update("acme/valid-pack", opts)
+	if err != nil {
+		t.Fatalf("Update with nil validator should succeed: %v", err)
+	}
+
+	if result.NewVersion != "1.1.0" {
+		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "1.1.0")
+	}
+}
+
+func TestPackUpdate_NoExistingPackDir(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+	// Remove the installed pack directory so tamper detection is skipped.
+	os.RemoveAll(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack"))
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       &mockValidator{},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	result, err := distribution.Update("acme/valid-pack", opts)
+	if err != nil {
+		t.Fatalf("Update should succeed without existing pack dir: %v", err)
+	}
+
+	if result.NewVersion != "1.1.0" {
+		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "1.1.0")
+	}
+}
+
+func TestPackUpdate_LockfileCreatedWhenMissing(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+	// Delete lockfile.
+	os.Remove(filepath.Join(projectDir, "backstop.lock"))
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       &mockValidator{},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	_, err := distribution.Update("acme/valid-pack", opts)
+	if err != nil {
+		t.Fatalf("Update should succeed and create lockfile: %v", err)
+	}
+
+	// Verify lockfile was created.
+	lf, readErr := distribution.ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	if readErr != nil {
+		t.Fatalf("lockfile should exist after update: %v", readErr)
+	}
+
+	entry := lf.Packs["acme/valid-pack"]
+	if entry.Version != "1.1.0" {
+		t.Errorf("lockfile version = %q, want %q", entry.Version, "1.1.0")
+	}
+}
+
+func TestPackUpdate_ResultFields(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       &mockValidator{},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	result, err := distribution.Update("acme/valid-pack", opts)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if result.OldVersion != "1.0.0" {
+		t.Errorf("OldVersion = %q, want %q", result.OldVersion, "1.0.0")
+	}
+	if result.ContentHash == "" {
+		t.Error("expected non-empty ContentHash")
+	}
+	if result.NewVersion != "1.1.0" {
+		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "1.1.0")
+	}
+}
+
+func TestPackUpdate_BackstopYmlMalformed(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: [invalid: yaml: {{{")
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		VersionResolver: &mockVersionResolver{latestMinor: "1.0.0"},
+	}
+
+	_, err := distribution.Update("acme/pack", opts)
+	if err == nil {
+		t.Fatal("expected error for malformed backstop.yml")
+	}
+}
+
+func TestPackUpdate_TamperDetectionError(t *testing.T) {
+	projectDir := setupUpdateProject(t)
+
+	// Corrupt the installed pack's pack.yml so DetectTamper fails.
+	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")
+	writeFile(t, filepath.Join(packDir, "pack.yml"), "{{{invalid yaml")
+
+	opts := distribution.UpdateOptions{
+		ProjectDir:      projectDir,
+		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		Validator:       &mockValidator{},
+		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	}
+
+	_, err := distribution.Update("acme/valid-pack", opts)
+	if err == nil {
+		t.Fatal("expected error for tamper detection failure")
+	}
+
+	if !strings.Contains(err.Error(), "tamper detection") {
+		t.Errorf("error should mention tamper detection, got: %v", err)
+	}
+}
+
+// mockVersionResolverWithError returns an error from ResolveLatestCompatible.
+type mockVersionResolverWithError struct {
+	err error
+}
+
+func (m *mockVersionResolverWithError) ResolveLatestCompatible(_, _ string) (string, error) {
+	return "", m.err
+}
+
+func (m *mockVersionResolverWithError) IsMajorBump(_, _ string) bool {
+	return false
 }

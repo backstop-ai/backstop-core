@@ -3,6 +3,7 @@ package distribution_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
@@ -169,6 +170,65 @@ func TestContentHash_MixedLineEndings(t *testing.T) {
 	}
 	if hash1 == hash3 {
 		t.Log("CRLF and LF produce different hashes (expected byte-level hashing)")
+	}
+}
+
+func TestComputeContentHash_NonExistentDir(t *testing.T) {
+	_, err := distribution.ComputeContentHash("/nonexistent/dir/does/not/exist")
+	if err == nil {
+		t.Fatal("expected error for non-existent directory")
+	}
+
+	if !strings.Contains(err.Error(), "walking directory") {
+		t.Errorf("error should mention walking directory, got: %v", err)
+	}
+}
+
+func TestComputeFileHash_NonExistentFile(t *testing.T) {
+	_, err := distribution.ComputeFileHash("/nonexistent/file.txt")
+	if err == nil {
+		t.Fatal("expected error for non-existent file")
+	}
+
+	if !strings.Contains(err.Error(), "opening file") {
+		t.Errorf("error should mention opening file, got: %v", err)
+	}
+}
+
+func TestComputeFileHash_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.txt")
+	writeFile(t, path, "")
+
+	hash, err := distribution.ComputeFileHash(path)
+	if err != nil {
+		t.Fatalf("ComputeFileHash: %v", err)
+	}
+
+	// SHA-256 of empty bytes.
+	expected := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	if hash != expected {
+		t.Errorf("ComputeFileHash(empty) = %s, want %s", hash, expected)
+	}
+}
+
+func TestComputeContentHash_SingleFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "only.txt"), "hello")
+
+	hash, err := distribution.ComputeContentHash(dir)
+	if err != nil {
+		t.Fatalf("ComputeContentHash: %v", err)
+	}
+
+	if hash == "" {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// Hash should be deterministic.
+	hash2, _ := distribution.ComputeContentHash(dir)
+	if hash != hash2 {
+		t.Errorf("hash not deterministic: %s != %s", hash, hash2)
 	}
 }
 
