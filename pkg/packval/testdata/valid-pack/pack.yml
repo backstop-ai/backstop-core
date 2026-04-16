@@ -1,0 +1,19 @@
+name: acme/sample
+version: 1.0.0
+language: go
+archetype: enforcement
+content:
+  ruleset:
+    rules:
+      - id: R-001
+        file: rules/rule.yml
+        risk_class: security
+        layer: 2
+        claims:
+          - id: C-001
+            fixtures:
+              positive:
+                - path: fixtures/rules/r-001/positive.go
+                  bypass_attempt: true
+              negative:
+                - fixtures/rules/r-001/negative.go
