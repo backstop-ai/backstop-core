@@ -20,11 +20,12 @@ A single `.plan.yml` file in `plans/` with:
 ## Your Process
 
 1. **Read the spec** — understand every requirement, claim, mandated test name, contract, and sharp edge
-2. **Read the existing code** — understand the target package, what exists, what needs to change
-3. **Read the plan schema** — `artifacts/plan/v1/schema.json` for structural requirements
-4. **Read existing plans** — match the format of PLAN-SPEC-001
-5. **Write the plan** — following the rules below
-6. **Run the validator** — fix any structural issues before declaring done
+2. **Scaffold the plan file via the CLI first.** Run `./bin/backstop artifact new plan --source SPEC-NNN --slug <short-slug>` to reserve an atomic ID via git tag (`backstop/plan/NNN`) and create `plans/PLAN-SPEC-NNN-<slug>.plan.yml` linked to its source spec. **Never hand-create a plan file** — it bypasses ID reservation and breaks the plan→spec linkage. `--source` is required for plans. If the scaffold command fails, stop and report the error rather than working around it.
+3. **Read the existing code** — understand the target package, what exists, what needs to change
+4. **Read the plan schema** — `artifacts/plan/v1/schema.json` for structural requirements
+5. **Read existing plans** — match the format of PLAN-SPEC-001
+6. **Fill in the scaffolded file** — preserve the `plan_id`/`spec_id` fields and scaffold-assigned filename; rewrite everything else as needed
+7. **Run the validator** — fix any structural issues before declaring done
 
 ## Task Types
 
@@ -60,12 +61,25 @@ setup → test → implementation → verification
 
 **Never** put two implementation tasks in sequence. If an implementation is too large for one task, split it so each piece has its own preceding test task.
 
-## Gate Cadence
+## Gate Cadence and Verification Commands
+
+**CRITICAL: All verification tasks must use backstop CLI commands, never raw tool commands.** Do not prescribe `go test`, `golangci-lint`, or `go vet` directly. Always use `backstop code check` or `backstop gate`.
+
+### Three verification levels:
+
+1. **Middle-phase verification tasks:** Use `backstop code check` (diff-scoped by default) or `backstop code check --all` for broader scope. This is the fast inner loop that catches lint, build, test, and semgrep violations.
+
+2. **Final-phase verification tasks:** Use `backstop gate`. This is the full kill chain — artifact validation, code check, test verification, substantiveness, coverage, contracts. Only the final phase runs the full gate.
+
+3. **The implementer also runs `backstop code check` after every impl/refactor task** (this is in the implementer agent definition, not something the plan needs to specify — but the plan's verification tasks should NOT duplicate this by prescribing per-task checks).
+
+### Gate cadence rules:
 
 - Every phase with implementation OR refactor tasks must also contain at least one verification task
-- The final phase must contain comprehensive verification covering every category of work:
-  - If the plan touches `.go` files → final phase needs code verification (test, lint, build)
-  - If the plan touches artifact files (`.spec.md`, `.plan.yml`, etc.) → final phase needs artifact verification
+- Middle-phase verification tasks prescribe: `backstop code check` or `backstop code check --all`
+- The final phase must contain comprehensive verification using `backstop gate`:
+  - If the plan touches `.go` files → final phase runs `backstop gate` (covers code verification)
+  - If the plan touches artifact files (`.spec.md`, `.plan.yml`, etc.) → final phase also runs `backstop artifact validate`
 - Verification tasks must depend on at least one implementation or refactor task
 
 ## Claim Coverage — NON-NEGOTIABLE

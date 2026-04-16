@@ -81,7 +81,19 @@ backstop by shelling out to CLI commands.`,
 	packCompileCmd := newPackCompileCommand(&jsonFlag)
 
 	packNewCmd := NewPackNewCommand()
-	packCmd.AddCommand(packCompileCmd, packNewCmd)
+	packCheckCmd := newPackCheckCommand(&jsonFlag)
+	packTestCmd := newPackTestCommand(&jsonFlag)
+
+	// Distribution lifecycle commands
+	packAddCmd := newPackAddCommand(&jsonFlag)
+	packRemoveCmd := newPackRemoveCommand(&jsonFlag)
+	packInstallCmd := newPackInstallCommand(&jsonFlag)
+	packUpdateCmd := newPackUpdateCommand(&jsonFlag)
+	packUpgradeCmd := newPackUpgradeCommand(&jsonFlag)
+	packListCmd := newPackListCommand(&jsonFlag)
+
+	packCmd.AddCommand(packCompileCmd, packNewCmd, packCheckCmd, packTestCmd,
+		packAddCmd, packRemoveCmd, packInstallCmd, packUpdateCmd, packUpgradeCmd, packListCmd)
 
 	// --- Top-level: gate ---
 	gateCmd := newGateCommand(&jsonFlag)

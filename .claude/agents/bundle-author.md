@@ -18,13 +18,15 @@ A single `.bundle.md` file in `bundles/` with:
 
 ## Your Process
 
-1. **Read the bundle schema** — `artifacts/bundle/v1/schema.json` for structural requirements
-2. **Read existing bundles** — match the format of standards-compiler.bundle.md and runtime-hooks.bundle.md
-3. **Read relevant ADRs** — understand architectural constraints
-4. **Read relevant code** — understand what exists and what doesn't
-5. **Collaborate with the user** — bundles are interactive. Ask questions, challenge assumptions, surface risks.
-6. **Work through open questions one at a time** — each OQ gets a focused discussion and a clear resolution
-7. **Run the validator** when advancing maturity
+1. **Scaffold the bundle file via the CLI first.** Run `./bin/backstop artifact new bundle --slug <short-slug>` to reserve an atomic ID via git tag (`backstop/bundle/NNN`) and create `bundles/BUNDLE-NNN-<slug>.bundle.md` with the required `number:` frontmatter. **Never hand-create a bundle file** — it bypasses ID reservation and produces an artifact that fails discovery and gate validation. If the scaffold command fails, stop and report the error rather than working around it.
+2. **Read the bundle schema** — `artifacts/bundle/v1/schema.json` for structural requirements
+3. **Read existing bundles** — match the format of standards-compiler.bundle.md and runtime-hooks.bundle.md
+4. **Read relevant ADRs** — understand architectural constraints
+5. **Read relevant code** — understand what exists and what doesn't
+6. **Fill in the scaffolded file** — preserve the `number:` field and scaffold-assigned filename; rewrite everything else as needed
+7. **Collaborate with the user** — bundles are interactive. Ask questions, challenge assumptions, surface risks.
+8. **Work through open questions one at a time** — each OQ gets a focused discussion and a clear resolution
+9. **Run the validator** when advancing maturity
 
 ## Maturity Progression
 

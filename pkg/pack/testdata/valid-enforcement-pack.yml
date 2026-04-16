@@ -1,0 +1,65 @@
+name: acme/security-pack
+version: 1.2.3
+language: go
+archetype: enforcement
+description: Enforcement pack for secure defaults
+content:
+  ruleset:
+    rules:
+      - id: insecure-transport
+        standard: standards/go/transport.standard.md
+        rule_path: rules/insecure-transport.yml
+        risk_class: security
+        layer: 2
+        claims:
+          - id: insecure-transport-claim
+            text: Transport must use TLS.
+            fixtures:
+              positive:
+                - fixtures/positive/secure.go
+              negative:
+                - path: fixtures/negative/insecure.go
+                  bypass_attempt: true
+        category: security
+        justification: Prevents plaintext transport.
+        validator: semgrep
+        input_scope: file
+        pairs_with:
+          rules: [tls-configured]
+          scaffolds: [tls-service]
+          sdk: acme/security-sdk
+  scaffolds:
+    - id: tls-service
+      version: 1.0.0
+      tier: complete
+      path: scaffolds/tls-service
+      test_command: go test ./...
+      description: TLS service scaffold.
+      use_when: [services]
+      assumes: [go-mod]
+      pairs_with:
+        rules: [insecure-transport]
+        scaffolds: [service-base]
+        sdk: acme/security-sdk
+      sample_config:
+        port: "443"
+  sdk:
+    module: github.com/acme/security-sdk
+    version: 1.4.0
+    provides: [tls, authz]
+tool_config:
+  - id: semgrep-default
+    tool: semgrep
+    file: semgrep.yml
+    risk_class: security
+    claims:
+      - id: tc-claim-1
+        text: Semgrep baseline.
+        fixtures:
+          positive: [fixtures/positive/semgrep-ok.yml]
+          negative:
+            - path: fixtures/negative/semgrep-bad.yml
+              bypass_attempt: true
+  - required_by: semgrep-default
+    tool: semgrep
+    file: semgrep-extra.yml

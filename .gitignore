@@ -30,3 +30,6 @@ node_modules/
 cover.out
 /backstop
 cover*.out
+
+# Prototype working output
+prototype/

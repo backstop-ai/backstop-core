@@ -1,0 +1,1343 @@
+---
+plan_id: PLAN-SPEC-015
+spec_id: SPEC-015
+spec_version: 1.0.0
+created: "2026-04-14"
+status: ready
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/distribution/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements the pack distribution lifecycle: six commands (pack add, pack remove,
+  pack install, pack update, pack upgrade, pack list) plus the backstop.lock format,
+  SHA-256 content hashing, gate-time lock verification, tool_config provenance
+  tracking, and .backstop/packs/ lifecycle management.
+
+  Build order: shared infrastructure first (hash, lockfile, provenance, config_merge,
+  tamper, verify), then commands (add, remove, install, update, upgrade, list), then
+  CLI adapters. Each layer follows TDD: test -> implementation -> verification.
+
+  Parallel execution: hash and lockfile are independent (Phase 2). Provenance and
+  config_merge are independent (Phase 3). Tamper and verify are independent (Phase 4).
+  pack remove and pack install are independent (Phase 7). pack list and CLI adapters
+  for earlier commands are independent where file sets are disjoint.
+
+  The package target is pkg/pack/distribution/ (not pkg/distribution/).
+  CLI adapters live at cmd/backstop/pack_*.go.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup and Scaffolding
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup and Scaffolding"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pkg/pack/distribution package and test fixtures"
+        description: |
+          Create the pkg/pack/distribution/ package directory with a doc.go file
+          establishing the package declaration. Create testdata/ directory with
+          fixture pack directories for testing:
+          - testdata/valid-pack/ with a minimal pack.yml and one rule file
+          - testdata/valid-pack-v2/ with a second version for update/upgrade tests
+          - testdata/invalid-pack/ with a pack that fails validation
+          - testdata/local-pack/ for local path pack tests
+          - testdata/tamper-pack-fixture-removed/ for tamper detection tests
+          - testdata/tamper-pack-severity-downgrade/ for severity downgrade tests
+          - testdata/tamper-pack-risk-class-change/ for risk_class change tests
+          - testdata/tamper-pack-rule-removed/ for rule removal tests
+
+          These fixtures support all downstream test tasks.
+        files:
+          - pkg/pack/distribution/doc.go
+          - pkg/pack/distribution/testdata/valid-pack/pack.yml
+          - pkg/pack/distribution/testdata/valid-pack-v2/pack.yml
+          - pkg/pack/distribution/testdata/invalid-pack/pack.yml
+          - pkg/pack/distribution/testdata/local-pack/pack.yml
+        claims:
+          - CLM-001
+          - CLM-041
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Content Hash and Lockfile (parallel)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Content Hash and Lockfile Infrastructure"
+    tasks:
+      # --- Content Hash: test ---
+      - id: TASK-002
+        type: test
+        title: "Write content hash tests"
+        description: |
+          Create pkg/pack/distribution/hash_test.go with tests for the SHA-256
+          content hashing algorithm (REQ-021).
+
+          Test functions (from spec claims):
+            - TestContentHash_SortedManifest: verify hash is computed from sorted
+              manifest of relative-path:SHA-256-file-hash pairs
+            - TestContentHash_CoversAllFiles: verify every file in the pack
+              directory is included in the hash computation
+            - TestContentHash_DeterministicOutput: verify same directory produces
+              identical hash on repeated calls
+            - TestComputeFileHash: verify individual file hashing returns correct
+              SHA-256 hex digest
+            - TestContentHash_EmptyDir: verify behavior on empty directory
+            - TestContentHash_NestedDirs: verify nested directory files are included
+              with correct relative paths
+            - TestContentHash_MixedLineEndings: verify content with CRLF and LF
+              produces consistent hash (cross-platform stability)
+        files:
+          - pkg/pack/distribution/hash_test.go
+        claims:
+          - CLM-041
+        depends_on:
+          - TASK-001
+
+      # --- Content Hash: implementation ---
+      - id: TASK-003
+        type: implementation
+        title: "Implement content hash functions"
+        description: |
+          Create pkg/pack/distribution/hash.go implementing:
+            - ComputeContentHash(dir string) (string, error): walks all files in
+              dir, computes SHA-256 of each, builds sorted manifest of
+              relative-path:SHA-256 pairs, hashes the manifest to produce final hash
+            - ComputeFileHash(path string) (string, error): computes SHA-256 of a
+              single file's content
+
+          The content hash is the SHA-256 of a newline-joined, lexicographically
+          sorted manifest of "relative/path:hexdigest" entries. Paths use forward
+          slashes regardless of OS.
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/hash.go
+        claims:
+          - CLM-041
+        depends_on:
+          - TASK-002
+
+      # --- Lockfile: test ---
+      - id: TASK-004
+        type: test
+        title: "Write lockfile tests"
+        description: |
+          Create pkg/pack/distribution/lockfile_test.go with tests for the
+          backstop.lock format (REQ-020).
+
+          Test functions (from spec claims):
+            - TestLockfile_YamlSortedKeys: verify lockfile output has sorted keys
+            - TestLockfile_ContainsAllRequiredFields: verify each entry has name,
+              version, git_ref, content_hash, source_type, install_date
+            - TestLockfile_NullGitRefForLocalPack: verify local packs have null
+              git_ref in YAML output
+            - TestLockfile_ValidGitRefForGitPack: verify git packs have valid
+              git_ref string
+            - TestReadLockfile_RoundTrip: write then read, verify identical data
+            - TestReadLockfile_MissingFile: verify appropriate error
+            - TestWriteLockfile_SortedOutput: verify YAML output is key-sorted
+            - TestLocalPack_LockEntryHasHashNoGitRef (CLM-052): verify local
+              pack lockfile entry has content hash but null git ref
+        files:
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-052
+        depends_on:
+          - TASK-001
+
+      # --- Lockfile: implementation ---
+      - id: TASK-005
+        type: implementation
+        title: "Implement lockfile read/write"
+        description: |
+          Create pkg/pack/distribution/lockfile.go implementing:
+            - Lockfile struct: Packs map[string]LockEntry
+            - LockEntry struct: Name, Version, GitRef *string, ContentHash,
+              SourceType, InstallDate (RFC 3339) fields
+            - ReadLockfile(path string) (*Lockfile, error): reads and parses YAML
+            - WriteLockfile(path string, lockfile *Lockfile) error: writes YAML
+              with sorted keys
+
+          YAML output must have sorted keys at all levels. LockEntry.GitRef is
+          a pointer to allow null representation for local packs.
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/lockfile.go
+        claims:
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-004
+
+      # --- Phase 2 verification ---
+      - id: TASK-006
+        type: verification
+        title: "Verify hash and lockfile infrastructure"
+        description: |
+          Run all tests for hash and lockfile:
+        files:
+          - pkg/pack/distribution/hash_test.go
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-003
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Provenance and Config Merge (parallel)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Provenance and Config Merge Infrastructure"
+    tasks:
+      # --- Provenance: test ---
+      - id: TASK-007
+        type: test
+        title: "Write provenance tests"
+        description: |
+          Create pkg/pack/distribution/provenance_test.go with tests for
+          pack-config-provenance.json read/write (REQ-029).
+
+          Test functions (from spec claims):
+            - TestProvenance_TracksAllFields: verify entries contain config_file,
+              setting_key, source_pack, and value_hash fields
+            - TestProvenance_CommittedToRepo: verify provenance file is written
+              to a predictable path alongside backstop.yml
+            - TestReadProvenance_RoundTrip: write then read, verify identical data
+            - TestReadProvenance_MissingFile: verify returns empty provenance (not error)
+              for first-time use
+            - TestWriteProvenance_JSONFormat: verify output is valid JSON with
+              "entries" array
+        files:
+          - pkg/pack/distribution/provenance_test.go
+        claims:
+          - CLM-059
+          - CLM-060
+        depends_on:
+          - TASK-001
+
+      # --- Provenance: implementation ---
+      - id: TASK-008
+        type: implementation
+        title: "Implement provenance read/write"
+        description: |
+          Create pkg/pack/distribution/provenance.go implementing:
+            - Provenance struct: Entries []ProvenanceEntry
+            - ProvenanceEntry struct: ConfigFile, SettingKey, SourcePack,
+              ValueHash string
+            - ReadProvenance(path string) (*Provenance, error): reads JSON,
+              returns empty Provenance if file does not exist
+            - WriteProvenance(path string, prov *Provenance) error: writes JSON
+              with "entries" array wrapper
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/provenance.go
+        claims:
+          - CLM-059
+          - CLM-060
+        depends_on:
+          - TASK-007
+
+      # --- Config Merge: test ---
+      - id: TASK-009
+        type: test
+        title: "Write config merge tests"
+        description: |
+          Create pkg/pack/distribution/config_merge_test.go with tests for
+          tool_config merge (REQ-004, REQ-005).
+
+          Test functions (from spec claims):
+            - TestPackAdd_ToolConfigConflictExitsNonZero: verify merge returns
+              conflict error when pack's value differs from consumer's current value
+            - TestPackAdd_ToolConfigConflictDiagnosticFormat: verify conflict
+              result lists config file, setting key, pack value, current value
+            - TestPackAdd_ToolConfigAdditiveMerge: verify merge succeeds when
+              there are no conflicts (new settings added)
+            - TestMergeToolConfig_RecordsProvenance: verify merged settings
+              produce ProvenanceEntry records
+            - TestMergeToolConfig_MultipleConfigFiles: verify merge handles
+              settings across multiple config files
+            - TestMergeToolConfig_EmptyPackConfig: verify merge is no-op when
+              pack has no tool_config
+            - TestMergeToolConfig_YamlFormat: verify merge handles YAML config files
+            - TestMergeToolConfig_JsonFormat: verify merge handles JSON config files
+        files:
+          - pkg/pack/distribution/config_merge_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-001
+
+      # --- Config Merge: implementation ---
+      - id: TASK-010
+        type: implementation
+        title: "Implement config merge with conflict detection"
+        description: |
+          Create pkg/pack/distribution/config_merge.go implementing:
+            - MergeToolConfig(packDir string, projectDir string, prov *Provenance)
+              (*MergeResult, error): reads tool_config from pack, compares to
+              consumer's current config, detects conflicts, merges additively
+            - MergeResult struct: Merged []ProvenanceEntry, Conflicts []ConfigConflict
+            - ConfigConflict struct: ConfigFile, SettingKey, PackValue, CurrentValue
+
+          On conflict (same setting, different value): returns MergeResult with
+          Conflicts populated. Caller decides to abort. No interactive prompts.
+          On success: merges settings, returns Merged entries for provenance recording.
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/config_merge.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-009
+
+      # --- Phase 3 verification ---
+      - id: TASK-011
+        type: verification
+        title: "Verify provenance and config merge infrastructure"
+        description: |
+          Run all tests for provenance and config merge:
+        files:
+          - pkg/pack/distribution/provenance_test.go
+          - pkg/pack/distribution/config_merge_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-059
+          - CLM-060
+        depends_on:
+          - TASK-008
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Tamper Detection and Lock Verification (parallel)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Tamper Detection and Lock Verification"
+    tasks:
+      # --- Tamper Detection: test ---
+      - id: TASK-012
+        type: test
+        title: "Write tamper detection tests"
+        description: |
+          Create pkg/pack/distribution/tamper_test.go with tests for tamper
+          detection (REQ-013).
+
+          Test functions (from spec claims):
+            - TestPackUpdate_TamperDetectsFixtureRemoval: verify DetectTamper
+              identifies when a test fixture is removed between versions
+            - TestPackUpdate_TamperDetectsSeverityDowngrade: verify DetectTamper
+              identifies when a rule severity is lowered
+            - TestPackUpdate_TamperDetectsRiskClassChange: verify DetectTamper
+              identifies when risk_class changes
+            - TestPackUpdate_TamperDetectsRuleRemoval: verify DetectTamper
+              identifies when a rule is removed
+            - TestDetectTamper_NoTamper: verify clean comparison returns no tamper
+            - TestDetectTamper_NonTamperChangesAccepted: verify content changes
+              that do not match tamper categories return HasTamper=false
+        files:
+          - pkg/pack/distribution/tamper_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-027
+        depends_on:
+          - TASK-001
+
+      # --- Tamper Detection: implementation ---
+      - id: TASK-013
+        type: implementation
+        title: "Implement tamper detection"
+        description: |
+          Create pkg/pack/distribution/tamper.go implementing:
+            - DetectTamper(oldPackDir string, newPackDir string) (*TamperResult, error):
+              compares old and new pack directories for the four tamper categories
+            - TamperResult struct: Changes []TamperChange, HasTamper bool
+            - TamperChange struct: Kind string (fixture_removal, severity_downgrade,
+              risk_class_change, rule_removal), Description string
+
+          Tamper categories:
+            1. fixture_removal: test fixture file present in old but absent in new
+            2. severity_downgrade: rule severity lowered (error->warning, warning->info)
+            3. risk_class_change: rule risk_class field differs
+            4. rule_removal: rule present in old manifest but absent in new
+
+          Non-tamper changes (new rules, new fixtures, description edits) are accepted.
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/tamper.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-027
+        depends_on:
+          - TASK-012
+
+      # --- Lock Verification: test ---
+      - id: TASK-014
+        type: test
+        title: "Write lock verification tests"
+        description: |
+          Create pkg/pack/distribution/verify_test.go with tests for gate-time
+          lock verification (REQ-022, REQ-023).
+
+          Test functions (from spec claims):
+            - TestGate_HashMismatchFails: verify VerifyLock fails when installed
+              pack hash does not match lockfile hash
+            - TestGate_MissingPackFails: verify VerifyLock fails when locked pack
+              is not present in .backstop/packs/
+            - TestGate_ExtraUnlockedPackFails: verify VerifyLock fails when pack
+              exists in .backstop/packs/ but not in backstop.lock
+            - TestGate_AllPacksMatchPasses: verify VerifyLock passes when all
+              packs match hashes with no extras
+            - TestGate_MissingLockfileWithPacksFails: verify failure when
+              backstop.lock absent but packs declared in backstop.yml
+            - TestGate_NoPacksNoLockfilePasses: verify pass when no packs
+              declared and no lockfile
+            - TestGate_LocalPackVerifiedByHash: verify local path packs are
+              verified by content hash at gate time
+        files:
+          - pkg/pack/distribution/verify_test.go
+        claims:
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-053
+        depends_on:
+          - TASK-006
+
+      # --- Lock Verification: implementation ---
+      - id: TASK-015
+        type: implementation
+        title: "Implement lock verification"
+        description: |
+          Create pkg/pack/distribution/verify.go implementing:
+            - VerifyLock(lockfile *Lockfile, packsDir string, ymlPacks []string)
+              (*VerifyResult, error): verifies all locked packs are present with
+              matching hashes, detects extra unlocked packs, handles missing lockfile
+            - VerifyResult struct: Pass bool, Failures []LockFailure
+            - LockFailure struct: Pack, Kind (hash_mismatch, missing_pack,
+              extra_unlocked, missing_lockfile), Message string
+
+          Verification logic:
+            1. If lockfile is nil but ymlPacks is non-empty: missing_lockfile failure
+            2. For each locked pack: check present in packsDir, compute hash, compare
+            3. For each pack in packsDir: check present in lockfile
+            4. Local packs verified by hash at their source path
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/verify.go
+        claims:
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-053
+        depends_on:
+          - TASK-014
+
+      # --- Phase 4 verification ---
+      - id: TASK-016
+        type: verification
+        title: "Verify tamper detection and lock verification"
+        description: |
+          Run all tests for tamper and verify:
+        files:
+          - pkg/pack/distribution/tamper_test.go
+          - pkg/pack/distribution/verify_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-027
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-053
+        depends_on:
+          - TASK-013
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: pack add Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: pack add Command"
+    tasks:
+      # --- pack add: test ---
+      - id: TASK-017
+        type: test
+        title: "Write pack add tests"
+        description: |
+          Create pkg/pack/distribution/add_test.go with tests for pack add
+          (REQ-001 through REQ-005, REQ-024, REQ-027, REQ-028, REQ-031,
+          REQ-032, REQ-037).
+
+          Test functions (from spec claims):
+            - TestPackAdd_ResolvesGitURL (CLM-001)
+            - TestPackAdd_ClonesAtVersionTag (CLM-001)
+            - TestPackAdd_MissingTagExitsNonZero (CLM-002)
+            - TestPackAdd_CloneFailureExitsNonZero (CLM-003)
+            - TestPackAdd_RunsPackCheckBeforeInstall (CLM-004)
+            - TestPackAdd_RunsPackTestBeforeInstall (CLM-004)
+            - TestPackAdd_PackCheckFailureAbortsInstall (CLM-005)
+            - TestPackAdd_PackTestFailureAbortsInstall (CLM-006)
+            - TestPackAdd_CopiesToPacksDir (CLM-007)
+            - TestPackAdd_ComputesContentHash (CLM-007)
+            - TestPackAdd_UpdatesBackstopYml (CLM-007)
+            - TestPackAdd_UpdatesBackstopLock (CLM-007)
+            - TestPackAdd_RollbackOnPostCloneFailure (CLM-008)
+            - TestPackAdd_RecordsProvenance (CLM-011)
+            - TestPackAdd_ProvenanceContainsAllFields (CLM-011)
+            - TestPackAdd_CreatesGitignore (CLM-048)
+            - TestPackAdd_AppendsToGitignore (CLM-049)
+            - TestPackAdd_GitignoreAlreadyPresent (CLM-050)
+            - TestPackAdd_NoTransitiveDependencies (CLM-056)
+            - TestBackstopYml_ExactVersionPins (CLM-057)
+            - TestPackAdd_SkipsSDKDependencies (CLM-063)
+            - TestPackAdd_AlreadyInstalledExitsNonZero (CLM-065)
+            - TestPackAdd_LocalPathSkipsGit (CLM-071)
+            - TestPackAdd_LocalPathValidatesInPlace (CLM-071)
+            - TestPackAdd_LocalPathRegistersWithPathEntry (CLM-071)
+            - TestPackAdd_LocalPathComputesHash (CLM-072)
+            - TestPackAdd_LocalPathNotClonedToPacksDir (CLM-072)
+            - TestLocalPack_ValidatedSameAsGit (CLM-051)
+
+          Use dependency injection for git operations and pack check/test runners
+          to enable unit testing without network access.
+        files:
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-056
+          - CLM-057
+          - CLM-063
+          - CLM-065
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-006
+          - TASK-011
+
+      # --- pack add: implementation ---
+      - id: TASK-018
+        type: implementation
+        title: "Implement pack add command"
+        description: |
+          Create pkg/pack/distribution/add.go implementing:
+            - Add(packRef string, opts AddOptions) (*AddResult, error): the full
+              pack add pipeline
+            - AddOptions struct: ProjectDir, Version string; GitCloner, Validator
+              interfaces for dependency injection
+            - AddResult struct: PackName, Version, ContentHash, InstalledPath string
+
+          Pipeline (per spec REQ-001 through REQ-005, REQ-024, REQ-037):
+            1. Parse packRef: detect local path vs org/pack-name@version
+            2. If git: resolve to github.com/org/pack-name, clone at version tag
+            3. If local: validate path exists
+            4. Check if already installed (CLM-065): exit non-zero if in backstop.yml
+            5. Run pack check + pack test (CLM-004/005/006)
+            6. If git: copy to .backstop/packs/org/pack-name/
+            7. Compute content hash (CLM-007)
+            8. Merge tool_config (CLM-009/010), abort on conflict
+            9. Record provenance (CLM-011)
+            10. Update backstop.yml with exact version pin or path: entry (CLM-057/071)
+            11. Update backstop.lock (CLM-007/039)
+            12. Ensure .backstop/packs/ in .gitignore (CLM-048/049/050)
+            13. On failure after clone: rollback all changes (CLM-008)
+            14. Skip SDK dependencies (CLM-063)
+            15. Reject transitive pack dependencies (CLM-056)
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-056
+          - CLM-057
+          - CLM-063
+          - CLM-065
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-017
+
+      # --- Phase 5 verification ---
+      - id: TASK-019
+        type: verification
+        title: "Verify pack add implementation"
+        description: |
+          Run all pack add tests and check for regressions:
+        files:
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+          - CLM-007
+          - CLM-008
+          - CLM-048
+          - CLM-065
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: pack remove Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: pack remove Command"
+    tasks:
+      # --- pack remove: test ---
+      - id: TASK-020
+        type: test
+        title: "Write pack remove tests"
+        description: |
+          Create pkg/pack/distribution/remove_test.go with tests for pack remove
+          (REQ-006, REQ-007, REQ-033).
+
+          Test functions (from spec claims):
+            - TestPackRemove_RevertsProvenanceSettings (CLM-012)
+            - TestPackRemove_WarnsOnModifiedSetting (CLM-013)
+            - TestPackRemove_DeletesFromPacksDir (CLM-014)
+            - TestPackRemove_RemovesFromBackstopYml (CLM-014)
+            - TestPackRemove_RemovesFromBackstopLock (CLM-014)
+            - TestPackRemove_RemovesFromProvenance (CLM-014)
+            - TestPackRemove_NotInstalledExitsNonZero (CLM-066)
+        files:
+          - pkg/pack/distribution/remove_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-066
+        depends_on:
+          - TASK-011
+
+      # --- pack remove: implementation ---
+      - id: TASK-021
+        type: implementation
+        title: "Implement pack remove command"
+        description: |
+          Create pkg/pack/distribution/remove.go implementing:
+            - Remove(packName string, opts RemoveOptions) (*RemoveResult, error)
+            - RemoveOptions struct: ProjectDir string
+            - RemoveResult struct: RevertedSettings []string, Warnings []string
+
+          Pipeline (per spec REQ-006, REQ-007, REQ-033):
+            1. Verify pack is in backstop.yml (CLM-066)
+            2. Read provenance for target pack settings (CLM-012)
+            3. For each setting: compare current hash to install-time hash
+            4. Revert matching settings; warn on modified settings (CLM-013)
+            5. Delete from .backstop/packs/ (CLM-014)
+            6. Remove from backstop.yml (CLM-014)
+            7. Remove from backstop.lock (CLM-014)
+            8. Remove entries from provenance (CLM-014)
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/remove.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-066
+        depends_on:
+          - TASK-020
+
+      # --- Phase 6 verification ---
+      - id: TASK-022
+        type: verification
+        title: "Verify pack remove implementation"
+        description: |
+          Run all pack remove tests:
+        files:
+          - pkg/pack/distribution/remove_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-066
+        depends_on:
+          - TASK-021
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: pack install Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: pack install Command"
+    tasks:
+      # --- pack install: test ---
+      - id: TASK-023
+        type: test
+        title: "Write pack install tests"
+        description: |
+          Create pkg/pack/distribution/install_test.go with tests for pack install
+          (REQ-008 through REQ-011, REQ-034, REQ-035).
+
+          Test functions (from spec claims):
+            - TestPackInstall_RestoresFromLockfile (CLM-015)
+            - TestPackInstall_VerifiesContentHash (CLM-015)
+            - TestPackInstall_SkipsValidation (CLM-016)
+            - TestPackInstall_HashMismatchFailsHard (CLM-017)
+            - TestPackInstall_CacheReadsFromLocalDir (CLM-018)
+            - TestPackInstall_CacheStillVerifiesHash (CLM-018)
+            - TestPackInstall_SkipsToolConfigMerge (CLM-019)
+            - TestPackInstall_LocalPackHashVerification (CLM-055)
+            - TestPackInstall_SkipsSDKDependencies (CLM-064)
+            - TestPackInstall_MissingLockfileExitsNonZero (CLM-067)
+            - TestPackInstall_AtomicRollbackOnCloneFailure (CLM-068)
+            - TestPackInstall_AtomicRollbackOnHashFailure (CLM-069)
+        files:
+          - pkg/pack/distribution/install_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-055
+          - CLM-064
+          - CLM-067
+          - CLM-068
+          - CLM-069
+        depends_on:
+          - TASK-006
+
+      # --- pack install: implementation ---
+      - id: TASK-024
+        type: implementation
+        title: "Implement pack install command"
+        description: |
+          Create pkg/pack/distribution/install.go implementing:
+            - Install(opts InstallOptions) (*InstallResult, error)
+            - InstallOptions struct: ProjectDir, CachePath string; GitCloner interface
+            - InstallResult struct: InstalledPacks []string
+
+          Pipeline (per spec REQ-008 through REQ-011, REQ-034, REQ-035):
+            1. Verify backstop.lock exists (CLM-067)
+            2. Read lockfile entries
+            3. Snapshot current .backstop/packs/ for atomic rollback (CLM-068/069)
+            4. For each locked pack:
+               a. If git + cache: read from CachePath (CLM-018)
+               b. If git + no cache: clone at pinned version (CLM-015)
+               c. If local: read from source path (CLM-055)
+               d. Compute content hash, compare to locked hash
+               e. On mismatch: abort entire install, restore snapshot (CLM-017)
+               f. Copy to .backstop/packs/ (git packs only)
+            5. Do NOT run pack check/test (CLM-016)
+            6. Do NOT merge tool_config (CLM-019)
+            7. Do NOT install SDK dependencies (CLM-064)
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/install.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-055
+          - CLM-064
+          - CLM-067
+          - CLM-068
+          - CLM-069
+        depends_on:
+          - TASK-023
+
+      # --- Phase 7 verification ---
+      - id: TASK-025
+        type: verification
+        title: "Verify pack install implementation"
+        description: |
+          Run all pack install tests:
+        files:
+          - pkg/pack/distribution/install_test.go
+        claims:
+          - CLM-015
+          - CLM-017
+          - CLM-018
+          - CLM-067
+          - CLM-068
+          - CLM-069
+        depends_on:
+          - TASK-024
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: pack update Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: pack update Command"
+    tasks:
+      # --- pack update: test ---
+      - id: TASK-026
+        type: test
+        title: "Write pack update tests"
+        description: |
+          Create pkg/pack/distribution/update_test.go with tests for pack update
+          (REQ-012, REQ-013, REQ-026, REQ-028, REQ-030, REQ-036).
+
+          Test functions (from spec claims):
+            - TestPackUpdate_ResolvesLatestMinorPatch (CLM-020)
+            - TestPackUpdate_ValidatesBeforeUpdate (CLM-020)
+            - TestPackUpdate_WritesExactPin (CLM-020)
+            - TestPackUpdate_UpdatesLockfile (CLM-020)
+            - TestPackUpdate_AbortsOnValidationFailure (CLM-021)
+            - TestPackUpdate_AcknowledgeBypassesTamperBlock (CLM-026)
+            - TestPackUpdate_LocalPackNoOp (CLM-054)
+            - TestPackUpdate_WritesResolvedExactPin (CLM-058)
+            - TestPackUpdate_AppliesPatchVersion (CLM-061)
+            - TestPackUpdate_AppliesMinorVersion (CLM-061)
+            - TestPackUpdate_RefusesMajorVersion (CLM-062)
+            - TestPackUpdate_AlreadyLatestNoOp (CLM-070)
+        files:
+          - pkg/pack/distribution/update_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-026
+          - CLM-054
+          - CLM-058
+          - CLM-061
+          - CLM-062
+          - CLM-070
+        depends_on:
+          - TASK-016
+
+      # --- pack update: implementation ---
+      - id: TASK-027
+        type: implementation
+        title: "Implement pack update command"
+        description: |
+          Create pkg/pack/distribution/update.go implementing:
+            - Update(packName string, opts UpdateOptions) (*UpdateResult, error)
+            - UpdateOptions struct: ProjectDir string; Acknowledge bool;
+              GitCloner, Validator, VersionResolver interfaces
+            - UpdateResult struct: OldVersion, NewVersion, ContentHash string;
+              NoOp bool; Message string
+
+          Pipeline (per spec REQ-012, REQ-013, REQ-026, REQ-028, REQ-030, REQ-036):
+            1. Read current version from backstop.yml
+            2. If local pack: return no-op with message (CLM-054)
+            3. Resolve latest compatible minor/patch from git tags (CLM-020/058/061)
+            4. If already latest: return no-op with message (CLM-070)
+            5. If resolved is major bump: refuse, suggest pack upgrade (CLM-062)
+            6. Clone new version, run pack check + pack test (CLM-020/021)
+            7. Run tamper detection vs current (CLM-022-027)
+            8. If tamper and no --acknowledge: exit non-zero (CLM-022-025)
+            9. If tamper and --acknowledge: proceed (CLM-026)
+            10. Install new version, update backstop.yml exact pin (CLM-020/058)
+            11. Update backstop.lock (CLM-020)
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/update.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-026
+          - CLM-054
+          - CLM-058
+          - CLM-061
+          - CLM-062
+          - CLM-070
+        depends_on:
+          - TASK-026
+
+      # --- Phase 8 verification ---
+      - id: TASK-028
+        type: verification
+        title: "Verify pack update implementation"
+        description: |
+          Run all pack update tests:
+        files:
+          - pkg/pack/distribution/update_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-026
+          - CLM-054
+          - CLM-061
+          - CLM-062
+          - CLM-070
+        depends_on:
+          - TASK-027
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: pack upgrade Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: pack upgrade Command"
+    tasks:
+      # --- pack upgrade: test ---
+      - id: TASK-029
+        type: test
+        title: "Write pack upgrade tests"
+        description: |
+          Create pkg/pack/distribution/upgrade_test.go with tests for pack upgrade
+          (REQ-014 through REQ-018).
+
+          Test functions (from spec claims):
+            - TestPackUpgrade_AcceptsMajorVersionTarget (CLM-028)
+            - TestPackUpgrade_GeneratesRemediationBundle (CLM-028)
+            - TestPackUpgrade_BaselinesNewViolations (CLM-029)
+            - TestPackUpgrade_ValidatesBeforeInstall (CLM-030)
+            - TestPackUpgrade_AbortsOnValidationFailure (CLM-031)
+            - TestPackUpgrade_UpdatesToolConfig (CLM-032)
+            - TestPackUpgrade_ToolConfigConflictExitsNonZero (CLM-032)
+            - TestPackUpgrade_UpdatesBackstopYml (CLM-033)
+            - TestPackUpgrade_UpdatesBackstopLock (CLM-033)
+            - TestPackUpgrade_RemediationBundleCoversAllViolations (CLM-034)
+            - TestPackUpgrade_RollbackOnRemediationFailure (CLM-035)
+        files:
+          - pkg/pack/distribution/upgrade_test.go
+        claims:
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-019
+          - TASK-016
+
+      # --- pack upgrade: implementation ---
+      - id: TASK-030
+        type: implementation
+        title: "Implement pack upgrade command"
+        description: |
+          Create pkg/pack/distribution/upgrade.go implementing:
+            - Upgrade(packRef string, opts UpgradeOptions) (*UpgradeResult, error)
+            - UpgradeOptions struct: ProjectDir string; GitCloner, Validator,
+              RemediationGenerator, Scanner interfaces
+            - UpgradeResult struct: OldVersion, NewVersion, ContentHash string;
+              RemediationBundle string; BaselinedViolations int
+
+          Pipeline (per spec REQ-014 through REQ-018):
+            1. Parse explicit major version target from packRef (CLM-028)
+            2. Clone new version, run pack check + pack test (CLM-030/031)
+            3. Scan consumer codebase against new version (CLM-028)
+            4. Generate remediation bundle scoping new violations (CLM-028/034)
+            5. If remediation fails: roll back everything (CLM-035)
+            6. Update tool_config with conflict escalation (CLM-032)
+            7. Update backstop.yml and backstop.lock (CLM-033)
+            8. Baseline new violations (CLM-029)
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/upgrade.go
+        claims:
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-029
+
+      # --- Phase 9 verification ---
+      - id: TASK-031
+        type: verification
+        title: "Verify pack upgrade implementation"
+        description: |
+          Run all pack upgrade tests:
+        files:
+          - pkg/pack/distribution/upgrade_test.go
+        claims:
+          - CLM-028
+          - CLM-030
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-030
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: pack list Command
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: pack list Command"
+    tasks:
+      # --- pack list: test ---
+      - id: TASK-032
+        type: test
+        title: "Write pack list tests"
+        description: |
+          Create pkg/pack/distribution/list_test.go with tests for pack list
+          (REQ-019, REQ-025).
+
+          Test functions (from spec claims):
+            - TestPackList_HumanTableOutput (CLM-036): verify table format with
+              name, version, lock status, archetype, rule count, scaffold count
+            - TestPackList_JsonOutput (CLM-037): verify --json produces structured
+              JSON with same data fields
+            - TestPackList_LockStatusLocked (CLM-038): verify "locked" when hash
+              matches lockfile
+            - TestPackList_LockStatusStale (CLM-038): verify "stale" when hash
+              differs from lockfile
+            - TestPackList_LockStatusMissing (CLM-038): verify "missing" when
+              pack is in lockfile but not installed
+            - TestLocalPack_ValidatedSameAsGit (CLM-051): verify local packs
+              appear in list with same fields
+            - TestLocalPack_LockEntryHasHashNoGitRef (CLM-052): verify local
+              pack lock entry format in list output
+        files:
+          - pkg/pack/distribution/list_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-006
+
+      # --- pack list: implementation ---
+      - id: TASK-033
+        type: implementation
+        title: "Implement pack list command"
+        description: |
+          Create pkg/pack/distribution/list.go implementing:
+            - List(opts ListOptions) (*ListResult, error)
+            - ListOptions struct: ProjectDir string; JSON bool
+            - ListResult struct: Packs []PackInfo; FormattedOutput string
+            - PackInfo struct: Name, Version, LockStatus, Archetype string;
+              RuleCount, ScaffoldCount int
+
+          Pipeline (per spec REQ-019):
+            1. Read backstop.yml for declared packs
+            2. Read backstop.lock for locked versions and hashes
+            3. For each pack: compute current content hash, compare to lock
+            4. Determine lock status: locked/stale/missing
+            5. Read pack manifest for archetype, rule count, scaffold count
+            6. Format as human table (default) or JSON (--json)
+
+          Local packs (CLM-051/052) appear with same fields, null git_ref.
+
+          Run backstop code check to verify tests compile and code standards pass.
+        files:
+          - pkg/pack/distribution/list.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-032
+
+      # --- Phase 10 verification ---
+      - id: TASK-034
+        type: verification
+        title: "Verify pack list implementation"
+        description: |
+          Run all pack list tests:
+        files:
+          - pkg/pack/distribution/list_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-033
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 11: CLI Adapters
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-11
+    name: "Phase 11: CLI Adapters"
+    tasks:
+      # --- CLI adapters: test ---
+      - id: TASK-035
+        type: test
+        title: "Write CLI adapter tests"
+        description: |
+          Create cmd/backstop/pack_add_test.go, cmd/backstop/pack_remove_test.go,
+          cmd/backstop/pack_install_test.go, and cmd/backstop/pack_update_test.go
+          with tests for the Cobra command wrappers.
+
+          Tests verify:
+            - Command registration under "backstop pack" namespace
+            - Flag parsing (--json, --cache, --acknowledge, --version)
+            - Exit code mapping from domain errors to CLI exit codes
+            - Human and JSON output formatting
+        files:
+          - cmd/backstop/pack_add_test.go
+          - cmd/backstop/pack_remove_test.go
+          - cmd/backstop/pack_install_test.go
+          - cmd/backstop/pack_update_test.go
+        claims:
+          - CLM-001
+          - CLM-036
+        depends_on:
+          - TASK-019
+          - TASK-022
+          - TASK-025
+          - TASK-028
+
+      # --- CLI adapters: implementation ---
+      - id: TASK-036
+        type: implementation
+        title: "Implement CLI adapters for pack distribution commands"
+        description: |
+          Create cmd/backstop/pack_add.go, cmd/backstop/pack_remove.go,
+          cmd/backstop/pack_install.go, and cmd/backstop/pack_update.go as Cobra
+          command wrappers that delegate to pkg/pack/distribution functions.
+
+          Each adapter:
+            1. Parses Cobra flags into domain Options struct
+            2. Calls the domain function
+            3. Maps results to CLI output (human or JSON)
+            4. Maps errors to ExitCodeError
+
+          Register all new commands in root.go under the existing "pack" namespace.
+        files:
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_remove.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+        claims:
+          - CLM-001
+          - CLM-036
+        depends_on:
+          - TASK-035
+
+      # --- CLI adapters part 2: test ---
+      - id: TASK-037
+        type: test
+        title: "Write CLI adapter tests for upgrade, list, and root wiring"
+        description: |
+          Create cmd/backstop/pack_upgrade_test.go and
+          cmd/backstop/pack_list_test.go with tests for remaining Cobra commands.
+
+          Tests verify:
+            - pack upgrade command registration and flag parsing
+            - pack list command registration and --json flag
+            - All six pack distribution commands registered under "backstop pack"
+        files:
+          - cmd/backstop/pack_upgrade_test.go
+          - cmd/backstop/pack_list_test.go
+        claims:
+          - CLM-028
+          - CLM-037
+        depends_on:
+          - TASK-031
+          - TASK-034
+
+      # --- CLI adapters part 2: implementation ---
+      - id: TASK-038
+        type: implementation
+        title: "Implement CLI adapters for pack upgrade and list"
+        description: |
+          Create cmd/backstop/pack_upgrade.go and cmd/backstop/pack_list.go as
+          Cobra command wrappers. Update cmd/backstop/root.go to register all six
+          new pack distribution commands under the "pack" namespace.
+        files:
+          - cmd/backstop/pack_upgrade.go
+          - cmd/backstop/pack_list.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-028
+          - CLM-037
+        depends_on:
+          - TASK-037
+
+      # --- Phase 11 verification ---
+      - id: TASK-039
+        type: verification
+        title: "Verify CLI adapter registration and wiring"
+        description: |
+          Run all CLI adapter tests and verify command tree:
+            ./bin/backstop commands | jq '.[] | select(.path | startswith("pack"))'
+        files:
+          - cmd/backstop/pack_add_test.go
+          - cmd/backstop/pack_upgrade_test.go
+          - cmd/backstop/pack_list_test.go
+        claims:
+          - CLM-001
+          - CLM-028
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-036
+          - TASK-038
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 12: Final Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-12
+    name: "Phase 12: Final Comprehensive Verification"
+    tasks:
+      - id: TASK-040
+        type: verification
+        title: "Full test suite with coverage gate"
+        description: |
+          Run the complete test suite for the distribution package and CLI adapters:
+
+          Verify coverage meets the 80% threshold specified in the spec.
+          Verify no race conditions detected.
+          Verify all 72 claims have passing tests.
+        files:
+          - pkg/pack/distribution/hash_test.go
+          - pkg/pack/distribution/lockfile_test.go
+          - pkg/pack/distribution/provenance_test.go
+          - pkg/pack/distribution/config_merge_test.go
+          - pkg/pack/distribution/tamper_test.go
+          - pkg/pack/distribution/verify_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/remove_test.go
+          - pkg/pack/distribution/install_test.go
+          - pkg/pack/distribution/update_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-071
+          - CLM-072
+        depends_on:
+          - TASK-038
+          - TASK-039
+
+      - id: TASK-041
+        type: verification
+        title: "Artifact validation of plan"
+        description: |
+          Validate this plan file passes the backstop artifact validator:
+            ./bin/backstop artifact validate plans/PLAN-SPEC-015-pack-distribution.plan.yml
+        files:
+          - plans/PLAN-SPEC-015-pack-distribution.plan.yml
+        claims:
+          - CLM-001
+          - CLM-072
+        depends_on:
+          - TASK-038

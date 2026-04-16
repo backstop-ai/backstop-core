@@ -1,0 +1,3 @@
+name: ""
+version: "not-semver"
+description: An invalid pack for testing validation failures

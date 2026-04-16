@@ -1,0 +1,16 @@
+name: acme/valid-pack
+version: "1.0.1"
+archetype: rule-pack
+description: Pack with a test fixture removed (tamper)
+rules:
+  - id: RULE-001
+    severity: error
+    risk_class: high
+    description: Test rule one
+    pattern: "test-pattern-1"
+  - id: RULE-002
+    severity: warning
+    risk_class: medium
+    description: Test rule two
+    pattern: "test-pattern-2"
+scaffolds: []

@@ -1,0 +1,38 @@
+name: acme/tooling-pack
+version: 2.0.0
+language: go
+archetype: code
+description: Code-focused pack
+content:
+  ruleset:
+    version: 2.1.0
+    rules:
+      - id: no-debug-prints
+        standard: inline standard text
+        risk_class: style
+        layer: 1
+        claims:
+          - id: no-debug-prints-claim
+            text: Debug prints should not ship.
+            fixtures:
+              positive:
+                - fixtures/positive/no-debug.go
+              negative:
+                - path: fixtures/negative/has-debug.go
+        pairs_with:
+          rules: [structured-logging]
+  scaffolds:
+    - id: logger
+      version: 2.0.0
+      tier: skeleton
+      path: scaffolds/logger
+      test_command: go test ./...
+      description: Logger scaffold.
+      use_when: [apps]
+      assumes: [go-mod]
+      pairs_with:
+        rules: [no-debug-prints]
+  sdk:
+    module: github.com/acme/logger-sdk
+    version: 0.9.0
+    provides: [logging]

@@ -20,13 +20,14 @@ The CLI scaffolds the file structure. You fill in the substance.
 
 ## Your Process
 
-1. **Read the bundle** — understand the problem, requirements, design decisions, resolved OQs, and which spec seed you're writing
-2. **Read related ADRs** — referenced in the bundle or relevant to the domain
-3. **Read existing code** — understand what exists in the target package
-4. **Read the spec schema** — `artifacts/spec/v1/schema.json` for structural requirements
-5. **Read existing specs** — match the tone and depth of SPEC-001
-6. **Write the spec** — following the rules below
-7. **Run the validator** — fix any structural issues before declaring done
+1. **Scaffold the spec file via the CLI first.** Run `./bin/backstop artifact new spec --slug <short-slug>` to reserve an atomic ID via git tag (`backstop/spec/NNN`) and create `specs/SPEC-NNN-<slug>.spec.md` with the required `number:` frontmatter. **Never hand-create a spec file** — it bypasses ID reservation and produces an artifact that fails discovery and gate validation. If the scaffold command fails, stop and report the error rather than working around it.
+2. **Read the bundle** — understand the problem, requirements, design decisions, resolved OQs, and which spec seed you're writing
+3. **Read related ADRs** — referenced in the bundle or relevant to the domain
+4. **Read existing code** — understand what exists in the target package
+5. **Read the spec schema** — `artifacts/spec/v1/schema.json` for structural requirements
+6. **Read existing specs** — match the tone and depth of SPEC-001
+7. **Fill in the scaffolded file** — preserve the `number:` field and scaffold-assigned filename; rewrite everything else as needed
+8. **Run the validator** — fix any structural issues before declaring done
 
 ## Rules for Writing Requirements
 
