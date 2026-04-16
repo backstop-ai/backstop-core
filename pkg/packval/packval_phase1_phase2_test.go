@@ -105,16 +105,27 @@ func TestPackVal_ErrorFieldsComplete(t *testing.T) {
 	}
 }
 func TestPackVal_PhaseStatusFields(t *testing.T) {
-	p := packval.PhaseResult{Phase: "p", Status: "pass"}
+	p := packval.RunStructural(baseManifest(), makePackDir(t))
 	if p.Status != "pass" {
 		t.Fatal("status")
 	}
+	if len(p.Checks) == 0 {
+		t.Fatal("checks")
+	}
 }
 func TestPackVal_SkippedPhaseReason(t *testing.T) {
-	p := packval.PhaseResult{Status: "skipped", Reason: "r"}
-	if p.Reason == "" {
-		t.Fatal("reason")
+	dir := t.TempDir()
+	writeFile(t, dir, "pack.yml", "invalid: [yaml")
+	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "check"}).Run()
+	for _, ph := range r.Phases {
+		if ph.Status == "skipped" {
+			if !strings.Contains(ph.Reason, "phase1") {
+				t.Fatalf("expected reason to name the failed phase, got %q", ph.Reason)
+			}
+			return
+		}
 	}
+	t.Fatal("expected at least one skipped phase")
 }
 func TestPackVal_TextFormat(t *testing.T) {
 	out, _ := packval.FormatResult(&packval.Result{Status: "pass"}, "text")

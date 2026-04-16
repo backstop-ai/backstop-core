@@ -7,7 +7,11 @@ import (
 )
 
 func RunLayer(pack *PackManifest, packDir string) *PhaseResult {
-	res := &PhaseResult{Phase: "phase5-layer", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase5-layer",
+		Status: "pass",
+		Checks: []string{"layer", "category", "input-scope", "validator"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})

@@ -89,11 +89,12 @@ type PairsWith struct {
 }
 
 type Scaffold struct {
-	ID          string    `json:"id" yaml:"id"`
-	Path        string    `json:"path" yaml:"path"`
-	Tier        string    `json:"tier,omitempty" yaml:"tier,omitempty"`
-	TestCommand string    `json:"test_command,omitempty" yaml:"test_command,omitempty"`
-	PairsWith   PairsWith `json:"pairs_with,omitempty" yaml:"pairs_with,omitempty"`
+	ID           string            `json:"id" yaml:"id"`
+	Path         string            `json:"path" yaml:"path"`
+	Tier         string            `json:"tier,omitempty" yaml:"tier,omitempty"`
+	TestCommand  string            `json:"test_command,omitempty" yaml:"test_command,omitempty"`
+	SampleConfig map[string]string `json:"sample_config,omitempty" yaml:"sample_config,omitempty"`
+	PairsWith    PairsWith         `json:"pairs_with,omitempty" yaml:"pairs_with,omitempty"`
 }
 
 type SDK struct {

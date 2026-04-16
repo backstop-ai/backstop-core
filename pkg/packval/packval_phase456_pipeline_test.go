@@ -331,11 +331,33 @@ content: {ruleset: {rules: []}}
 	}
 }
 func TestPackVal_EarlyTermination_P5FailSkipsP6(t *testing.T) {
-	m := baseManifest()
-	m.Content.Ruleset.Rules[0].InputScope = "bad"
 	dir := makePackDir(t)
+	writeFile(t, dir, "pack.yml", strings.TrimSpace(`
+name: acme/example
+version: 1.0.0
+language: go
+archetype: code
+content:
+  ruleset:
+    rules:
+      - id: R1
+        file: rules/r1.yml
+        risk_class: security
+        layer: 3
+        category: presence
+        input_scope: bad
+        validator: validators/v.sh
+        claims:
+          - id: C1
+            fixtures:
+              positive:
+                - path: fixtures/p.go
+                  bypass_attempt: true
+              negative:
+                - fixtures/n.go
+`))
 	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "check"}).Run()
-	if r.Phases[len(r.Phases)-1].Status != "skipped" && m == nil {
+	if r.Phases[len(r.Phases)-1].Status != "skipped" {
 		t.Fatal("expected skip")
 	}
 }

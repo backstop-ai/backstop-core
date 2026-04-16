@@ -56,7 +56,7 @@ func baseManifest() *packval.PackManifest {
 func makePackDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeFile(t, dir, "rules/r1.yml", "rules: []")
+	writeFile(t, dir, "rules/r1.yml", "rules:\n  - id: R1\n    pattern: x\n")
 	writeFile(t, dir, "fixtures/p.go", "package p")
 	writeFile(t, dir, "fixtures/n.go", "package p")
 	writeFile(t, dir, "validators/v.sh", "#!/bin/sh\nexit 0\n")

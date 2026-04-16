@@ -1,6 +1,7 @@
 package packval
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 )
@@ -74,9 +75,10 @@ func (p *Pipeline) Run() *Result {
 	)
 
 	stopped := false
+	failedPhase := ""
 	for _, phase := range phases {
 		if stopped {
-			out.Phases = append(out.Phases, PhaseResult{Phase: phase.name, Status: "skipped", Reason: "previous phase failed"})
+			out.Phases = append(out.Phases, PhaseResult{Phase: phase.name, Status: "skipped", Reason: fmt.Sprintf("%s failed", failedPhase)})
 			continue
 		}
 		start := time.Now()
@@ -87,6 +89,7 @@ func (p *Pipeline) Run() *Result {
 		out.Warnings = append(out.Warnings, pr.Warnings...)
 		if pr.Status == "fail" {
 			stopped = true
+			failedPhase = phase.name
 		}
 	}
 	if p.opts.Mode == "check" {

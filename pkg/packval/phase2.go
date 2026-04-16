@@ -7,7 +7,11 @@ import (
 )
 
 func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
-	res := &PhaseResult{Phase: "phase2-coherence", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase2-coherence",
+		Status: "pass",
+		Checks: []string{"claims", "fixtures", "unique-ids", "tool-config-traceability", "pairs-with", "orphans"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})

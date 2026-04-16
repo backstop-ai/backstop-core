@@ -1,7 +1,11 @@
 package packval
 
 func RunArchetype(pack *PackManifest) *PhaseResult {
-	res := &PhaseResult{Phase: "phase4-archetype", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase4-archetype",
+		Status: "pass",
+		Checks: []string{"archetype-rules", "co-occurrence"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})

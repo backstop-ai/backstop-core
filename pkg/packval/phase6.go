@@ -1,7 +1,11 @@
 package packval
 
 func RunRiskClass(pack *PackManifest) *PhaseResult {
-	res := &PhaseResult{Phase: "phase6-risk-class", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase6-risk-class",
+		Status: "pass",
+		Checks: []string{"bypass-attempt", "fixture-independence"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})

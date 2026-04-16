@@ -10,7 +10,11 @@ import (
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$`)
 
 func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
-	res := &PhaseResult{Phase: "phase1-structural", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase1-structural",
+		Status: "pass",
+		Checks: []string{"yaml-parse", "required-fields", "valid-enums", "file-existence", "risk-class"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})

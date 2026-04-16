@@ -168,12 +168,22 @@ func TestPackVal_P3_SemgrepNegativeNotTriggered(t *testing.T) {
 	}
 }
 func TestPackVal_P3_SemgrepRuleIDMismatch(t *testing.T) {
-	m := newFixtureMock(true, true)
-	m.SemgrepFn = func(_, _, _ string) (packval.ExecutionResult, error) {
-		return packval.ExecutionResult{Passed: true, Output: "WRONG"}, nil
+	m := baseManifest()
+	dir := makePackDir(t)
+	writeFile(t, dir, "rules/r1.yml", "rules:\n  - id: WRONG_ID\n")
+	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
+	if r.Status == "pass" {
+		t.Fatal("expected fail when rule ID doesn't match file")
 	}
-	if packval.RunFixtures(baseManifest(), makePackDir(t), m).Status != "fail" {
-		t.Fatal("expected fail")
+	found := false
+	for _, e := range r.Errors {
+		if e.Check == "semgrep-rule-id" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected semgrep-rule-id error")
 	}
 }
 func TestPackVal_P3_SemgrepRuleIDMatch(t *testing.T) {
@@ -184,8 +194,23 @@ func TestPackVal_P3_SemgrepRuleIDMatch(t *testing.T) {
 func TestPackVal_P3_ToolConfigTempModule(t *testing.T) {
 	m := baseManifest()
 	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
-	writeFile(t, makePackDir(t), ".golangci.yml", "")
-	_ = packval.RunFixtures(m, makePackDir(t), newFixtureMock(true, true))
+	dir := makePackDir(t)
+	writeFile(t, dir, ".golangci.yml", "")
+	goModBefore, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod before: %v", err)
+	}
+	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
+	if r.Status != "pass" {
+		t.Fatalf("expected pass, got %s: %+v", r.Status, r.Errors)
+	}
+	goModAfter, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod after: %v", err)
+	}
+	if string(goModBefore) != string(goModAfter) {
+		t.Fatal("go.mod was modified — temp copy not used")
+	}
 }
 func TestPackVal_P3_ToolConfigPositiveClean(t *testing.T) {
 	m := baseManifest()
@@ -242,6 +267,9 @@ func TestPackVal_P3_NegativeFixtureEngineLimitationHint(t *testing.T) {
 	for _, e := range r.Errors {
 		if strings.Contains(e.FixHint, "engine limitation") {
 			found = true
+			if !strings.Contains(e.FixHint, "removing") || !strings.Contains(e.FixHint, "documenting") {
+				t.Fatalf("fix hint missing removal/documentation guidance: %s", e.FixHint)
+			}
 		}
 	}
 	if !found {
@@ -249,8 +277,30 @@ func TestPackVal_P3_NegativeFixtureEngineLimitationHint(t *testing.T) {
 	}
 }
 func TestPackVal_P3_Layer3SingleFileInvocation(t *testing.T) {
-	if packval.RunFixtures(baseManifest(), makePackDir(t), newFixtureMock(true, true)).Status != "pass" {
-		t.Fatal("pass")
+	m := baseManifest()
+	var calls [][]string
+	mock := newFixtureMock(true, true)
+	mock.ValidatorFn = func(_, _ string, fixturePaths []string) (packval.ExecutionResult, error) {
+		captured := append([]string(nil), fixturePaths...)
+		calls = append(calls, captured)
+		for _, p := range fixturePaths {
+			if strings.Contains(p, "n.") {
+				return packval.ExecutionResult{Passed: false}, nil
+			}
+		}
+		return packval.ExecutionResult{Passed: true}, nil
+	}
+	r := packval.RunFixtures(m, makePackDir(t), mock)
+	if r.Status != "pass" {
+		t.Fatalf("expected pass, got %s", r.Status)
+	}
+	if len(calls) == 0 {
+		t.Fatal("validator was never called")
+	}
+	for i, c := range calls {
+		if len(c) != 1 {
+			t.Fatalf("call %d: expected 1 fixture path for single-file, got %d", i, len(c))
+		}
 	}
 }
 func TestPackVal_P3_Layer3MultiFileInvocation(t *testing.T) {
@@ -300,10 +350,25 @@ func TestPackVal_P3_Layer3NegativeExitZero(t *testing.T) {
 }
 func TestPackVal_P3_CompleteScaffoldRenderAndTest(t *testing.T) {
 	m := baseManifest()
-	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", Path: "scaf", Tier: "complete", TestCommand: "go test ./..."}}
-	writeFile(t, makePackDir(t), "scaf/main.go", "package main")
-	if packval.RunFixtures(m, makePackDir(t), newFixtureMock(true, true)).Status != "pass" {
-		t.Fatal("pass")
+	m.Content.Scaffolds = []packval.Scaffold{{
+		ID:           "S1",
+		Path:         "scaf",
+		Tier:         "complete",
+		TestCommand:  "go test ./...",
+		SampleConfig: map[string]string{"config.yml": "key: value"},
+	}}
+	dir := makePackDir(t)
+	writeFile(t, dir, "scaf/main.go", "package main")
+	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
+	if r.Status != "pass" {
+		t.Fatalf("expected pass, got %s: %+v", r.Status, r.Errors)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "scaf", "config.yml"))
+	if err != nil {
+		t.Fatalf("sample_config not rendered: %v", err)
+	}
+	if string(data) != "key: value" {
+		t.Fatalf("sample_config content wrong: %s", data)
 	}
 }
 func TestPackVal_P3_CompleteScaffoldTestFails(t *testing.T) {
@@ -330,9 +395,15 @@ func TestPackVal_P3_SkeletonScaffoldTestNames(t *testing.T) {
 	m := baseManifest()
 	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", Path: "scaf", Tier: "skeleton"}}
 	dir := makePackDir(t)
-	writeFile(t, dir, "scaf/template_test.go", "package x")
-	if packval.RunFixtures(m, dir, newFixtureMock(true, true)).Status != "pass" {
-		t.Fatal("pass")
+	writeFile(t, dir, "scaf/template_test.go", "package x\n\nfunc TestExample(t *testing.T) {}\n")
+	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
+	if r.Status != "pass" {
+		t.Fatalf("expected pass, got %s", r.Status)
+	}
+	for _, w := range r.Warnings {
+		if w.Check == "scaffold-skeleton-test-names" {
+			t.Fatal("should not warn when test function names are present")
+		}
 	}
 }
 func TestPackVal_P3_SkeletonScaffoldNoTestExecution(t *testing.T) {

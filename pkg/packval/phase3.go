@@ -9,7 +9,11 @@ import (
 )
 
 func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *PhaseResult {
-	res := &PhaseResult{Phase: "phase3-fixtures", Status: "pass"}
+	res := &PhaseResult{
+		Phase:  "phase3-fixtures",
+		Status: "pass",
+		Checks: []string{"semgrep", "tool-config", "validators", "scaffolds", "sdk"},
+	}
 	if pack == nil {
 		res.Status = "fail"
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "manifest", Message: "manifest is nil"})
@@ -20,15 +24,31 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 	}
 
 	for _, rule := range pack.Content.Ruleset.Rules {
+		if rule.File != "" {
+			ruleFilePath := filepath.Join(packDir, rule.File)
+			ruleData, err := os.ReadFile(ruleFilePath)
+			if err != nil {
+				res.Errors = append(res.Errors, ValidationError{
+					Phase:   res.Phase,
+					Check:   "semgrep-rule-id",
+					Rule:    rule.ID,
+					Message: fmt.Sprintf("failed to read rule file %s: %v", rule.File, err),
+				})
+			} else if !strings.Contains(string(ruleData), rule.ID) {
+				res.Errors = append(res.Errors, ValidationError{
+					Phase:   res.Phase,
+					Check:   "semgrep-rule-id",
+					Rule:    rule.ID,
+					Message: fmt.Sprintf("pack rule ID %q not found in rule file %s", rule.ID, rule.File),
+				})
+			}
+		}
 		for _, claim := range rule.Claims {
 			for _, f := range claim.Fixtures.Positive {
 				if rule.File != "" {
 					r, err := executor.RunSemgrep(packDir, rule.File, f.Path)
 					if err != nil || !r.Passed {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-positive", Rule: rule.ID, Claim: claim.ID, Message: "positive fixture failed"})
-					}
-					if !strings.Contains(r.Output, rule.ID) && r.Output != "" {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-rule-id", Rule: rule.ID, Claim: claim.ID, Message: "output missing rule id"})
 					}
 				}
 				if rule.Layer == 3 && rule.Validator != "" {
@@ -44,7 +64,14 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 					if err != nil {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-negative", Rule: rule.ID, Claim: claim.ID, Message: "negative fixture run failed"})
 					} else if r.Passed {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-negative", Rule: rule.ID, Claim: claim.ID, Message: "negative fixture not triggered", FixHint: "engine limitation possible"})
+						res.Errors = append(res.Errors, ValidationError{
+							Phase:   res.Phase,
+							Check:   "semgrep-negative",
+							Rule:    rule.ID,
+							Claim:   claim.ID,
+							Message: "negative fixture not triggered",
+							FixHint: "This negative fixture did not trigger the rule and may indicate an engine limitation. The fixture may represent a pattern the rule engine cannot detect. Consider removing this fixture and documenting the limitation rather than shipping an untestable claim.",
+						})
 					}
 				}
 				if rule.Layer == 3 && rule.Validator != "" {
@@ -100,6 +127,32 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 
 	for _, scaffold := range pack.Content.Scaffolds {
 		if scaffold.Tier == "complete" {
+			renderErr := false
+			for relPath, content := range scaffold.SampleConfig {
+				target := filepath.Join(packDir, scaffold.Path, relPath)
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					renderErr = true
+					res.Errors = append(res.Errors, ValidationError{
+						Phase:   res.Phase,
+						Check:   "scaffold-complete-config",
+						Rule:    scaffold.ID,
+						Message: fmt.Sprintf("failed to render sample_config %s: %v", relPath, err),
+					})
+					continue
+				}
+				if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+					renderErr = true
+					res.Errors = append(res.Errors, ValidationError{
+						Phase:   res.Phase,
+						Check:   "scaffold-complete-config",
+						Rule:    scaffold.ID,
+						Message: fmt.Sprintf("failed to render sample_config %s: %v", relPath, err),
+					})
+				}
+			}
+			if renderErr {
+				continue
+			}
 			r, err := executor.RunScaffoldTest(packDir, scaffold.Path, scaffold.TestCommand)
 			if err != nil || !r.Passed {
 				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "scaffold-complete", Rule: scaffold.ID, Message: "complete scaffold test failed"})
@@ -110,6 +163,25 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 			entries, err := os.ReadDir(path)
 			if err != nil || len(entries) == 0 {
 				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "scaffold-skeleton", Rule: scaffold.ID, Message: "skeleton scaffold missing structure"})
+			} else {
+				hasTestFunc := false
+				for _, entry := range entries {
+					if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+						continue
+					}
+					data, readErr := os.ReadFile(filepath.Join(path, entry.Name()))
+					if readErr == nil && strings.Contains(string(data), "func Test") {
+						hasTestFunc = true
+						break
+					}
+				}
+				if !hasTestFunc {
+					res.Warnings = append(res.Warnings, ValidationWarning{
+						Phase:   res.Phase,
+						Check:   "scaffold-skeleton-test-names",
+						Message: "skeleton scaffold has no test function names in _test.go files",
+					})
+				}
 			}
 		}
 	}
