@@ -13,7 +13,7 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase1-structural",
 		Status: "pass",
-		Checks: []string{"yaml-parse", "required-fields", "valid-enums", "file-existence", "risk-class"},
+		Checks: 5, // yaml-parse, required-fields, valid-enums, file-existence, risk-class
 	}
 	if pack == nil {
 		res.Status = "fail"

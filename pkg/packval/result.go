@@ -12,7 +12,7 @@ type Result struct {
 type PhaseResult struct {
 	Phase      string              `json:"phase"`
 	Status     string              `json:"status"`
-	Checks     []string            `json:"checks"`
+	Checks     int                 `json:"checks"`
 	DurationMs int64               `json:"duration_ms"`
 	Reason     string              `json:"reason,omitempty"`
 	Errors     []ValidationError   `json:"errors,omitempty"`

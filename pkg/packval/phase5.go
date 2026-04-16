@@ -10,7 +10,7 @@ func RunLayer(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase5-layer",
 		Status: "pass",
-		Checks: []string{"layer", "category", "input-scope", "validator"},
+		Checks: 4, // layer, category, input-scope, validator
 	}
 	if pack == nil {
 		res.Status = "fail"

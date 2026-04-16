@@ -6,13 +6,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase3-fixtures",
 		Status: "pass",
-		Checks: []string{"semgrep", "tool-config", "validators", "scaffolds", "sdk"},
+		Checks: 5, // semgrep, tool-config, validators, scaffolds, sdk
 	}
 	if pack == nil {
 		res.Status = "fail"
@@ -34,7 +36,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 					Rule:    rule.ID,
 					Message: fmt.Sprintf("failed to read rule file %s: %v", rule.File, err),
 				})
-			} else if !strings.Contains(string(ruleData), rule.ID) {
+			} else if !semgrepFileContainsRuleID(ruleData, rule.ID) {
 				res.Errors = append(res.Errors, ValidationError{
 					Phase:   res.Phase,
 					Check:   "semgrep-rule-id",
@@ -237,4 +239,23 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(target, data, info.Mode())
 	})
+}
+
+// semgrepFileContainsRuleID parses a semgrep YAML rule file and checks
+// whether any rule entry has an id field matching the given ruleID.
+func semgrepFileContainsRuleID(data []byte, ruleID string) bool {
+	var doc struct {
+		Rules []struct {
+			ID string `yaml:"id"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	for _, r := range doc.Rules {
+		if r.ID == ruleID {
+			return true
+		}
+	}
+	return false
 }

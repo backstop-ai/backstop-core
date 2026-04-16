@@ -4,7 +4,7 @@ func RunArchetype(pack *PackManifest) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase4-archetype",
 		Status: "pass",
-		Checks: []string{"archetype-rules", "co-occurrence"},
+		Checks: 2, // archetype-rules, co-occurrence
 	}
 	if pack == nil {
 		res.Status = "fail"

@@ -4,7 +4,7 @@ func RunRiskClass(pack *PackManifest) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase6-risk-class",
 		Status: "pass",
-		Checks: []string{"bypass-attempt", "fixture-independence"},
+		Checks: 2, // bypass-attempt, fixture-independence
 	}
 	if pack == nil {
 		res.Status = "fail"

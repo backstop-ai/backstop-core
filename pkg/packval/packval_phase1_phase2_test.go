@@ -109,8 +109,8 @@ func TestPackVal_PhaseStatusFields(t *testing.T) {
 	if p.Status != "pass" {
 		t.Fatal("status")
 	}
-	if len(p.Checks) == 0 {
-		t.Fatal("checks")
+	if p.Checks == 0 {
+		t.Fatal("checks should be > 0")
 	}
 }
 func TestPackVal_SkippedPhaseReason(t *testing.T) {
@@ -436,5 +436,22 @@ func TestPackVal_P2_OrphanFixtureNotError(t *testing.T) {
 	writeFile(t, dir, "fixtures/orphan.go", "package p")
 	if packval.RunCoherence(baseManifest(), dir).Status != "pass" {
 		t.Fatal("warning should not fail")
+	}
+}
+
+func TestPackVal_FormatResultUnknownFormat(t *testing.T) {
+	_, err := packval.FormatResult(&packval.Result{Status: "pass"}, "xml")
+	if err == nil {
+		t.Fatal("expected error for unknown format")
+	}
+	if !strings.Contains(err.Error(), "unknown format") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPackVal_AllRulesNilManifest(t *testing.T) {
+	rules := packval.AllRules(nil)
+	if rules != nil {
+		t.Fatalf("expected nil, got %v", rules)
 	}
 }
