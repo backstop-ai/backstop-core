@@ -1,0 +1,11 @@
+name: acme/valid-pack
+version: "1.0.1"
+archetype: rule-pack
+description: Pack with rule removed (tamper)
+rules:
+  - id: RULE-002
+    severity: warning
+    risk_class: medium
+    description: Test rule two
+    pattern: "test-pattern-2"
+scaffolds: []

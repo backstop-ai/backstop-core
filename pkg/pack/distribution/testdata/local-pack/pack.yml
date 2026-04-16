@@ -1,0 +1,14 @@
+name: internal/local-rules
+archetype: rule-pack
+description: A local pack for testing local path distribution
+rules:
+  - id: LOCAL-001
+    severity: error
+    risk_class: high
+    description: Local rule one
+    pattern: "local-pattern-1"
+scaffolds: []
+tool_config:
+  - config_file: ".eslintrc.json"
+    settings:
+      rules.no-console: "error"
