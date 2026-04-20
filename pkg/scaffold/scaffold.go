@@ -65,11 +65,11 @@ var ValidArtifactTypes = map[string]ArtifactTypeConfig{
 	},
 	"directive": {
 		Directory:     "directives",
-		IDPrefix:      "D",
+		IDPrefix:      "DIR",
 		DigitCount:    3,
-		DefaultStatus: "draft",
+		DefaultStatus: "queued",
 		FileExtension: ".directive.md",
-		BodySections:  []string{"Purpose", "Scope", "Rules"},
+		BodySections:  []string{"Description"},
 	},
 	"bundle": {
 		Directory:     "bundles",
@@ -186,10 +186,14 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 
 	case "directive":
 		sb.WriteString(fmt.Sprintf("title: %q\n", title))
-		sb.WriteString(fmt.Sprintf("number: D-%s\n", id))
+		sb.WriteString(fmt.Sprintf("number: DIR-%s\n", id))
 		sb.WriteString(fmt.Sprintf("created: %q\n", date))
-		sb.WriteString("status: draft\n")
 		sb.WriteString("schema_version: directive/v1\n")
+		sb.WriteString("\n")
+		sb.WriteString("directive:\n")
+		sb.WriteString("  status: queued\n")
+		sb.WriteString("  source:\n")
+		sb.WriteString("    - \"\"\n")
 
 	case "bundle":
 		sb.WriteString(fmt.Sprintf("title: %q\n", title))

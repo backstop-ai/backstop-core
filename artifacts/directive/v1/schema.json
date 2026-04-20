@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-directive-v1",
+  "title": "Backstop Directive Schema v1",
+  "description": "Schema for directives — atomic units of committed work that form the project backlog. Position in BACKLOG.yml determines priority. Each directive cites source artifacts and progresses through queued → active → specced → done.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "directive",
+  "filename_pattern": "^(DIR-[0-9]+-)?[a-z0-9-]+\\.directive\\.md$",
+  "metadata": {
+    "required": ["title", "number", "schema_version", "created"],
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Human-readable directive title"
+      },
+      "number": {
+        "pattern": "^DIR-[0-9]{3}$",
+        "description": "Unique directive identifier"
+      },
+      "schema_version": {
+        "const": "directive/v1"
+      },
+      "created": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "description": "Creation date (YYYY-MM-DD)"
+      }
+    }
+  },
+  "required_sections": [
+    "Description"
+  ],
+  "optional_sections": [
+    "Acceptance Criteria",
+    "Notes",
+    "References"
+  ],
+  "nested_blocks": {
+    "directive": {
+      "type": "object",
+      "description": "Core directive metadata",
+      "required_keys": ["status", "source"],
+      "properties": {
+        "status": {
+          "enum": ["queued", "active", "specced", "done"],
+          "description": "Lifecycle status. queued = committed but not started. active = work in progress. specced = spec exists. done = implementation complete, gate passed."
+        },
+        "source": {
+          "type": "array",
+          "min_items": 1,
+          "description": "Source artifacts that authorized this directive. At least one required. Traceability: 'why is this in the backlog?' must always be answerable. Values are artifact IDs (BUNDLE-NNN, ISSUE-NNN, ADR-NNNN) or session timestamps."
+        },
+        "spec": {
+          "type": "string",
+          "description": "SPEC-NNN reference once the directive has been specced. Required when status is specced or done."
+        },
+        "completed": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Completion date. Required when status is done."
+        }
+      }
+    }
+  },
+  "status_gates": {
+    "specced": {
+      "required_fields": ["directive.spec"],
+      "description": "At specced status, the directive must reference the spec that implements it"
+    },
+    "done": {
+      "required_fields": ["directive.spec", "directive.completed"],
+      "description": "At done status, the directive must have a spec reference and completion date"
+    }
+  },
+  "enforcement": {
+    "source-required": "Every directive must cite at least one source artifact. Lineage must be traceable.",
+    "position-is-priority": "Priority is not a field on the directive. Priority is determined by position in BACKLOG.yml.",
+    "no-orphan-directives": "A directive without a source is rejected. 'Why is this in the backlog?' must always be answerable."
+  }
+}

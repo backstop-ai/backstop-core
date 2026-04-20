@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-backlog-v1",
+  "title": "Backstop Backlog Schema v1",
+  "description": "Schema for BACKLOG.yml — the ordered list of directive IDs that constitutes the project backlog. Position in the list IS priority. First item is highest priority. Reordering the file is reprioritizing.",
+  "version": "1.0.0",
+  "filename": "BACKLOG.yml",
+  "location": ".backstop/BACKLOG.yml (consuming repos) or BACKLOG.yml (backstop-core)",
+  "format": {
+    "type": "object",
+    "required": ["directives"],
+    "properties": {
+      "directives": {
+        "type": "array",
+        "description": "Ordered list of directive IDs. Position = priority. First = highest.",
+        "items": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^DIR-[0-9]{3}$",
+              "description": "Directive ID reference"
+            },
+            "title": {
+              "type": "string",
+              "description": "Human-readable title (denormalized for readability, source of truth is the directive file)"
+            }
+          }
+        }
+      }
+    }
+  },
+  "enforcement": {
+    "position-is-priority": "No priority field exists. Moving an item up or down in the list IS the prioritization action.",
+    "all-active-directives-listed": "Every directive with status queued or active should appear in the backlog. Done directives may be removed or kept for history.",
+    "no-duplicates": "Each directive ID appears at most once in the list."
+  }
+}
