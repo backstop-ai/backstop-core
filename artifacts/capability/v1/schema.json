@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-capability-v1",
+  "title": "Backstop Capability Schema v1",
+  "description": "Schema for user capabilities — automated user acceptance testing as a first-class artifact. Each capability declares what a user can do, specifies behavioral scenarios (Gherkin), and provides executable verification that proves the capability works end-to-end. Stack-agnostic: works for web apps, CLIs, APIs, mobile, desktop — any user-facing feature in any tech stack.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "capability",
+  "filename_pattern": "^(CAP-[0-9]+-)?[a-z0-9-]+\\.capability\\.yml$",
+  "directory_structure": {
+    "description": "Each capability lives in its own directory with co-located behavioral scenarios and acceptance tests.",
+    "pattern": "capabilities/CAP-{NNN}-{slug}/",
+    "required_files": ["capability.yml", "user-journeys.feature"],
+    "optional_files": ["acceptance.*"]
+  },
+  "metadata": {
+    "required": ["capability"],
+    "properties": {
+      "capability": {
+        "type": "object",
+        "required": ["id", "title", "status", "strictness"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^CAP-[0-9]{3,}$",
+            "description": "Unique capability identifier"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable title describing what the user can do"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "defined", "ready", "in-progress", "verified", "broken", "deprecated"],
+            "description": "Lifecycle status. verified = acceptance tests pass. broken = acceptance tests fail."
+          },
+          "strictness": {
+            "type": "string",
+            "enum": ["strict", "standard", "relaxed"],
+            "description": "Enforcement level. strict = gate blocks on failure. standard = gate warns. relaxed = gate reports only (bootstrap mode)."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this capability enables the user to do"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Team or individual responsible"
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Searchable categorization tags"
+          }
+        }
+      }
+    }
+  },
+  "nested_blocks": {
+    "infrastructure_specs": {
+      "type": "array",
+      "description": "Spec IDs (SPEC-NNN) that implement the infrastructure this capability depends on. These are the unit/component-level specs — capabilities verify the integration layer above them.",
+      "items": {
+        "type": "string",
+        "pattern": "^SPEC-[0-9]{3}$"
+      }
+    },
+    "integration_spec": {
+      "type": "string",
+      "pattern": "^SPEC-[0-9]{3}$",
+      "description": "The spec that wires infrastructure together for this capability. The integration point where unit-tested pieces become a working feature."
+    },
+    "scenarios": {
+      "type": "object",
+      "description": "Behavioral scenario configuration",
+      "properties": {
+        "feature_file": {
+          "type": "string",
+          "default": "user-journeys.feature",
+          "description": "Path to the Gherkin .feature file relative to the capability directory"
+        },
+        "id_pattern": {
+          "type": "string",
+          "default": "^@UJ-[0-9]{3}$",
+          "description": "Regex pattern for scenario IDs. Each scenario must have a unique ID tag."
+        }
+      }
+    },
+    "test_configuration": {
+      "type": "object",
+      "description": "Stack-agnostic test execution configuration",
+      "properties": {
+        "app_origins": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Application URLs or endpoints to test against (web apps, APIs). Empty for CLI tools."
+        },
+        "auth_strategy": {
+          "type": "string",
+          "enum": ["none", "mocked_session", "test_tenant", "real_auth", "api_key", "token"],
+          "description": "How authentication is handled during acceptance tests"
+        },
+        "setup_command": {
+          "type": "string",
+          "description": "Command to run before acceptance tests (start server, seed data, etc.)"
+        },
+        "teardown_command": {
+          "type": "string",
+          "description": "Command to run after acceptance tests (stop server, cleanup, etc.)"
+        }
+      }
+    },
+    "performance_requirements": {
+      "type": "array",
+      "description": "Performance targets that must be met for the capability to be considered verified",
+      "items": {
+        "type": "object",
+        "required": ["metric", "threshold", "unit"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "description": "What is being measured (e.g., feedback_latency, page_load, command_execution)"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Maximum acceptable value"
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["ms", "s", "mb", "rps", "percent"],
+            "description": "Unit of measurement"
+          },
+          "test_command": {
+            "type": "string",
+            "description": "Command that measures this metric"
+          }
+        }
+      }
+    },
+    "quality_gates": {
+      "type": "array",
+      "description": "Commands that must pass for the capability to be verified. Stack-agnostic — each gate is a command + exit code check. Could be Playwright, go test, curl, a shell script, anything.",
+      "items": {
+        "type": "object",
+        "required": ["type", "command", "must_pass"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["acceptance", "performance", "integration", "custom"],
+            "description": "Gate category"
+          },
+          "command": {
+            "type": "string",
+            "description": "The command to run. Exit 0 = pass, non-zero = fail."
+          },
+          "must_pass": {
+            "type": "boolean",
+            "description": "Whether this gate blocks promotion"
+          },
+          "description": {
+            "type": "string",
+            "description": "What this gate verifies"
+          }
+        }
+      }
+    }
+  },
+  "enforcement": {
+    "scenario-coverage": "Every scenario in the .feature file (tagged @UJ-NNN) must have a corresponding test in the acceptance test file with a matching name/ID",
+    "scenario-uniqueness": "Each @UJ-NNN tag must be unique within the .feature file",
+    "gate-execution": "All quality_gates with must_pass: true must exit 0 for the capability status to be 'verified'",
+    "infrastructure-traceability": "Every infrastructure_spec must exist as a real spec artifact",
+    "status-integrity": "Status 'verified' can only be set when all gates pass. Status 'broken' must be set when any gate fails."
+  },
+  "status_gates": {
+    "verified": {
+      "description": "All quality gates pass, all scenarios have corresponding tests",
+      "required_conditions": ["all quality_gates with must_pass=true exit 0", "scenario-test coverage is 100%"]
+    },
+    "broken": {
+      "description": "At least one quality gate fails or scenario coverage is incomplete",
+      "trigger": "any quality_gate with must_pass=true exits non-zero"
+    }
+  }
+}

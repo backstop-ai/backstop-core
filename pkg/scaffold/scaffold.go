@@ -84,8 +84,8 @@ var ValidArtifactTypes = map[string]ArtifactTypeConfig{
 		IDPrefix:      "CAP",
 		DigitCount:    3,
 		DefaultStatus: "draft",
-		FileExtension: ".capability.md",
-		BodySections:  []string{"Overview", "Requirements"},
+		FileExtension: ".capability.yml",
+		BodySections:  nil,
 	},
 }
 
@@ -208,11 +208,19 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 		sb.WriteString("  category: idea\n")
 
 	case "capability":
-		sb.WriteString(fmt.Sprintf("title: %q\n", title))
-		sb.WriteString(fmt.Sprintf("number: CAP-%s\n", id))
-		sb.WriteString(fmt.Sprintf("created: %q\n", date))
-		sb.WriteString("status: draft\n")
-		sb.WriteString("schema_version: capability/v1\n")
+		sb.WriteString(fmt.Sprintf("# Capability: %s\n", title))
+		sb.WriteString(fmt.Sprintf("# See artifacts/capability/v1/schema.json for format\n\n"))
+		sb.WriteString("capability:\n")
+		sb.WriteString(fmt.Sprintf("  id: CAP-%s\n", id))
+		sb.WriteString(fmt.Sprintf("  title: %q\n", title))
+		sb.WriteString("  status: draft\n")
+		sb.WriteString("  strictness: relaxed\n")
+		sb.WriteString("\ninfrastructure_specs: []\n")
+		sb.WriteString("\nquality_gates:\n")
+		sb.WriteString("  - type: acceptance\n")
+		sb.WriteString("    command: \"\"\n")
+		sb.WriteString("    must_pass: true\n")
+		return []byte(sb.String()), nil
 	}
 
 	sb.WriteString("---\n")

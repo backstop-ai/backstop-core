@@ -22,7 +22,8 @@ var artifactPatterns = map[string]func(string) bool{
 	"bundle":   func(name string) bool { return strings.HasSuffix(name, ".bundle.md") },
 	"issue":    func(name string) bool { return strings.HasSuffix(name, ".issue.md") },
 	"standard":  func(name string) bool { return strings.HasSuffix(name, ".standard.md") },
-	"directive": func(name string) bool { return strings.HasSuffix(name, ".directive.md") },
+	"directive":  func(name string) bool { return strings.HasSuffix(name, ".directive.md") },
+	"capability": func(name string) bool { return strings.HasSuffix(name, ".capability.yml") },
 }
 
 // DiscoverArtifacts scans the directory tree rooted at root for files matching
