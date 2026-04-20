@@ -15,12 +15,12 @@ type ValidatorFunc func(*artifact.ParsedArtifact, *schema.Schema) validate.Valid
 
 // validatorRouter maps schema_version prefixes to their validator functions.
 var validatorRouter = map[string]ValidatorFunc{
-	"spec":     validate.Spec,
-	"plan":     validate.Plan,
-	"adr":      validate.ADR,
-	"bundle":   validate.Bundle,
-	"issue":    validate.Issue,
-	"standard": validate.Standard,
+	"spec":      validate.Spec,
+	"plan":      validate.Plan,
+	"adr":       validate.ADR,
+	"bundle":    validate.Bundle,
+	"issue":     validate.Issue,
+	"directive": validate.Directive,
 }
 
 // RouteValidator extracts the schema_version from the artifact metadata and

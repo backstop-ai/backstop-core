@@ -186,7 +186,6 @@ func NewArtifactValidateCommand() *cobra.Command {
 		adrFlag       string
 		bundleFlag    string
 		issueFlag     string
-		standardFlag  string
 		directiveFlag string
 		allFlag       bool
 	)
@@ -231,10 +230,6 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 			}
 			if cmd.Flags().Changed("issue") {
 				typeFilters["issue"] = issueFlag
-				flagSet = true
-			}
-			if cmd.Flags().Changed("standard") {
-				typeFilters["standard"] = standardFlag
 				flagSet = true
 			}
 			if cmd.Flags().Changed("directive") {
@@ -300,7 +295,6 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 	cmd.Flags().StringVar(&adrFlag, "adr", "", "Validate ADR artifacts (optional ID)")
 	cmd.Flags().StringVar(&bundleFlag, "bundle", "", "Validate bundle artifacts (optional ID)")
 	cmd.Flags().StringVar(&issueFlag, "issue", "", "Validate issue artifacts (optional ID)")
-	cmd.Flags().StringVar(&standardFlag, "standard", "", "Validate standard artifacts (optional ID)")
 	cmd.Flags().StringVar(&directiveFlag, "directive", "", "Validate directive artifacts (optional ID)")
 	cmd.Flags().BoolVar(&allFlag, "all", false, "Validate all artifacts (takes precedence over type flags)")
 

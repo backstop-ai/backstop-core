@@ -10,7 +10,7 @@ import (
 // during project directory scanning.
 type DiscoveredArtifact struct {
 	Path string // Full file path
-	Type string // Artifact type: spec, plan, adr, bundle, issue, standard
+	Type string // Artifact type: spec, plan, adr, bundle, issue, directive, capability
 }
 
 // artifactPatterns maps artifact types to their filename matching functions.
@@ -21,7 +21,6 @@ var artifactPatterns = map[string]func(string) bool{
 	"adr":      func(name string) bool { return strings.HasPrefix(name, "ADR-") && strings.HasSuffix(name, ".adr.md") },
 	"bundle":   func(name string) bool { return strings.HasSuffix(name, ".bundle.md") },
 	"issue":    func(name string) bool { return strings.HasSuffix(name, ".issue.md") },
-	"standard":  func(name string) bool { return strings.HasSuffix(name, ".standard.md") },
 	"directive":  func(name string) bool { return strings.HasSuffix(name, ".directive.md") },
 	"capability": func(name string) bool { return strings.HasSuffix(name, ".capability.yml") },
 }
