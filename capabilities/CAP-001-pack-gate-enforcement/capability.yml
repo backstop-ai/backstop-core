@@ -1,0 +1,52 @@
+---
+# Capability: Pack Gate Enforcement
+#
+# Proves that a user can install a pack and have backstop gate
+# enforce its rules on their code — the core value proposition
+# of the pack system.
+
+capability:
+  id: CAP-001
+  title: "User adds a pack and gate enforces its rules"
+  status: draft
+  strictness: strict
+  description: >
+    A user installs an enforcement pack from a git repo. The pack's
+    semgrep rules, tool_config, and custom validators are loaded by
+    backstop gate and enforced on the user's code. Violations from
+    pack rules appear in gate output with namespaced rule IDs
+    (pack-name/rule-id). The lock is verified — tampered or missing
+    packs block the gate.
+
+infrastructure_specs:
+  - SPEC-013  # Pack manifest types and parsing
+  - SPEC-014  # Pack validation pipeline
+  - SPEC-015  # Pack distribution lifecycle
+  - SPEC-016  # Pack manifest constraints and layout
+
+integration_spec: SPEC-017  # Pack Gate Integration
+
+scenarios:
+  feature_file: user-journeys.feature
+  id_pattern: "^@UJ-[0-9]{3}$"
+
+test_configuration:
+  auth_strategy: none
+  setup_command: "go build -o bin/backstop ./cmd/backstop/"
+  teardown_command: ""
+
+quality_gates:
+  - type: acceptance
+    command: "go test ./tests/smoke/ -run TestSmoke_PackGateEnforcement -v"
+    must_pass: true
+    description: "Smoke test: add pack, run gate, verify pack rules fire"
+
+  - type: acceptance
+    command: "go test ./tests/smoke/ -run TestSmoke_PackLockVerification -v"
+    must_pass: true
+    description: "Smoke test: tamper with installed pack, verify gate catches it"
+
+  - type: acceptance
+    command: "go test ./tests/smoke/ -run TestSmoke_PackRemoveClean -v"
+    must_pass: true
+    description: "Smoke test: remove pack, verify gate no longer enforces its rules"
