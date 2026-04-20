@@ -2,7 +2,7 @@
 title: "Onboarding Experience — Zero to First Value in Under 2 Minutes"
 number: BUNDLE-003
 created: "2026-04-09"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience

@@ -2,7 +2,7 @@
 title: "Pack Distribution Lifecycle — From Validated Pack to Running Gate"
 number: BUNDLE-006
 created: "2026-04-14"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: pack-distribution-lifecycle

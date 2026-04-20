@@ -265,6 +265,17 @@ func validateNameFilenameConsistency(art *artifact.ParsedArtifact) []Violation {
 	} else if strings.HasSuffix(stem, ".bundle.md") {
 		stem = strings.TrimSuffix(stem, ".bundle.md")
 	}
+	// Strip BUNDLE-NNN- prefix if present (e.g., "BUNDLE-007-baseline" → "baseline")
+	// This supports the numbered bundle convention from artifact new
+	if idx := strings.Index(stem, "-"); idx > 0 {
+		prefix := stem[:idx]
+		if prefix == "BUNDLE" {
+			rest := stem[idx+1:] // "007-baseline"
+			if dashIdx := strings.Index(rest, "-"); dashIdx > 0 {
+				stem = rest[dashIdx+1:] // "baseline"
+			}
+		}
+	}
 
 	if stem != name {
 		violations = append(violations, Violation{

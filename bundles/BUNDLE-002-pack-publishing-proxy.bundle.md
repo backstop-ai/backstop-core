@@ -2,7 +2,7 @@
 title: "Pack Publishing Proxy — Native-Registry Fan-Out, Attestations, and Credential Management"
 number: BUNDLE-002
 created: "2026-04-09"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: pack-publishing-proxy

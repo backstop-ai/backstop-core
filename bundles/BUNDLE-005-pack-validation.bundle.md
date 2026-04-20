@@ -2,7 +2,7 @@
 title: "Pack Validation — How an Agent Verifies Its Pack Output Is Correct"
 number: BUNDLE-005
 created: "2026-04-08"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: pack-validation

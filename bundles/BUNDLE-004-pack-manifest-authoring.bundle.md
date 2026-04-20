@@ -2,7 +2,7 @@
 title: "Pack Manifest and Authoring — What an Agent Needs to Extract a Pack"
 number: BUNDLE-004
 created: "2026-04-11"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: pack-manifest-authoring

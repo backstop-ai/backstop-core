@@ -2,7 +2,7 @@
 title: "Pack Distribution, Verification, and Review — Declarative Packs, Git-Tap Distribution, Mechanical Curation"
 number: BUNDLE-001
 created: "2026-04-08"
-schema_version: bundle/v1
+schema_version: bundle/v2
 
 bundle:
   name: pack-distribution
