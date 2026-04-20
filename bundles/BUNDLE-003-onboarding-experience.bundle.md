@@ -6,7 +6,7 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.1.0"
+  version: "0.2.0"
   created: "2026-04-09"
   category: feature
 
@@ -126,6 +126,38 @@ chips away at the baseline, but day one is zero friction.
   automatically. Multi-language projects get multiple packs wired. The user
   can override or add packs later.
 
+- **DD-6:** Consuming repos use `.backstop/` as the artifact root. All
+  governance artifacts (bundles, specs, plans, ADRs, issues, standards)
+  live under `.backstop/` — not at the repo root. This keeps the consuming
+  repo clean: only `backstop.yml`, `backstop.lock`, and `.backstop/` are
+  visible at root level. `backstop init` creates the full `.backstop/`
+  directory structure. backstop-core itself uses top-level directories
+  because it IS the framework — its artifacts are primary content, not
+  governance overhead. The convention is: if you're backstop-core,
+  artifacts live at root. If you're any other project, artifacts live
+  in `.backstop/`.
+
+- **DD-7:** The consuming repo footprint is exactly three items at root:
+  `backstop.yml` (project config, committed), `backstop.lock` (pack pins,
+  committed), and `.backstop/` (everything else). `backstop.yml` and
+  `backstop.lock` stay at root because they're project-level config that
+  should be visible — same convention as go.mod/go.sum. Everything
+  operational (packs, baseline, provenance, compiled rules, artifacts)
+  goes in `.backstop/`.
+
+- **DD-8:** `backstop init` scaffolds the `.backstop/` directory structure:
+  `.backstop/bundles/`, `.backstop/specs/`, `.backstop/plans/`,
+  `.backstop/adrs/`, `.backstop/issues/`, `.backstop/standards/`,
+  `.backstop/rules/` (compiled), `.backstop/packs/` (gitignored),
+  `.backstop/baseline.json` (gitignored). It also creates `backstop.yml`
+  and `backstop.lock` at root.
+
+- **DD-9:** Artifact discovery and `artifact new` respect the artifact root.
+  In consuming repos, `backstop artifact new spec` scaffolds into
+  `.backstop/specs/`, not `specs/`. The artifact root is determined by
+  convention: `.backstop/` if it exists, repo root otherwise. No config
+  field needed — just directory detection.
+
 ## Open Questions
 
 - **OQ-1: Binary distribution.** How do users get backstop? `brew install`
@@ -141,24 +173,21 @@ chips away at the baseline, but day one is zero friction.
   packages (CI containers, locked-down corporate machines)? The EnsureSemgrep
   pattern downloads a binary directly — does that scale to all tools?
 
-- **OQ-3: Baseline storage format and location.** Where does the baseline
-  live? `.backstop/baseline.json`? Committed to the repo (shared across the
-  team) or local-only (per-developer)? If committed, how does it interact
-  with branches? If local, how does a new team member get the baseline?
-  The baseline is a gate input (step 7 in the kill chain) so its format
-  matters for the gate's consumption.
+- **OQ-3: Baseline storage format and location.** RESOLVED — see BUNDLE-007.
+  Baseline is a CI post-merge artifact, cached locally at
+  `.backstop/baseline.json` (gitignored). CI generates it after every merge
+  to main. Agents pull it via `backstop baseline pull` or auto-pull with
+  TTL caching during `backstop gate`. Never committed, never hand-edited.
 
-- **OQ-4: Baseline granularity.** Is the baseline per-file, per-rule, or
-  per-violation? Per-file is coarse (any change to a baselined file
-  re-evaluates everything). Per-violation is precise but fragile (line
-  numbers shift on any edit). Per-rule-per-file is a middle ground ("this
-  file had 3 GO-011 violations at baseline time").
+- **OQ-4: Baseline granularity.** RESOLVED — see BUNDLE-007 OQ-2. The
+  baseline contains the full violation set with rule ID + file + line range.
+  Diffing uses structural comparison. The exact identity scheme (line-based
+  vs content-hash-based) is an open question in BUNDLE-007.
 
-- **OQ-5: Progressive baseline reduction.** How does the team chip away at
-  the baseline over time? Manual (`backstop baseline update`)? Automatic
-  (if a file is touched and violations decrease, update the baseline)?
-  Ratchet (baseline can only go down, never up)? Ratchet is the strongest
-  model but needs careful UX.
+- **OQ-5: Progressive baseline reduction.** RESOLVED — see BUNDLE-007 DD-4.
+  Ratchet model: baselines can only go down. Each merge to main produces a
+  new baseline. PRs that fix violations produce a lower post-merge baseline.
+  No manual baseline update command needed.
 
 - **OQ-6: Multi-language project init.** A project with Go backend and
   TypeScript frontend — does init wire both packs? Ask the user? Only wire
@@ -212,6 +241,10 @@ chips away at the baseline, but day one is zero friction.
   detection), 8 open questions, 5 spec seeds. Maturity: exploring.
   Motivated by thought exercise analyzing onboarding from a tech lead's
   perspective.
+- 0.2.0 (2026-04-19): Added DD-6 through DD-9 for .backstop/ directory
+  convention in consuming repos. Resolved OQ-3/4/5 via BUNDLE-007
+  (baseline is CI-generated, not local). Three-item repo footprint:
+  backstop.yml, backstop.lock, .backstop/.
 
 ## References
 
@@ -221,3 +254,5 @@ chips away at the baseline, but day one is zero friction.
   baseline work unblocks it)
 - BUNDLE-001: Pack distribution (default pack wiring depends on packs
   being distributable)
+- BUNDLE-007: Baseline (CI-generated immutable violation reference —
+  resolves OQ-3/4/5 from this bundle)
