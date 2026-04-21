@@ -17,7 +17,7 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/ ./pkg/gate/ -race -coverprofile=cover.out -v
+  test_command: go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ -race -coverprofile=cover.out -v
   coverage_threshold: 80
 
 requirements:
@@ -98,9 +98,21 @@ requirements:
   - id: REQ-010
     text: >
       backstop code check must also load and enforce pack rules when
-      packs are installed. The same pack loading logic used by the gate
-      applies to code check. Diff-scoped code check (default mode)
-      runs pack rules only against changed files.
+      packs are installed. Code check calls the same loadInstalledPacks
+      function used by the gate. Pack semgrep rules are merged into
+      code check's semgrep invocation. Layer 3 validators run against
+      the full project (not diff-scoped) because presence and structural
+      checks require full-project visibility. Diff-scoped code check
+      (default mode) runs pack semgrep rules only against changed files
+      but always runs layer 3 validators against the full project.
+
+  - id: REQ-011
+    text: >
+      When a pack is removed (via backstop pack remove), the gate must
+      not attempt to enforce the removed pack's rules. The gate loads
+      only packs currently listed in backstop.yml. A pack absent from
+      backstop.yml and .backstop/packs/ produces no violations, no
+      errors, and no warnings — it is simply not loaded.
 
 claims:
   # REQ-001: Pack loading
@@ -125,7 +137,13 @@ claims:
   # REQ-002: Lock verification
   - id: CLM-004
     requirement: REQ-002
-    text: Gate runs VerifyLock before other steps and fails on hash mismatch
+    text: Gate runs VerifyLock before any code check steps execute
+    tests:
+      - TestGateIntegration_LockRunsFirst
+
+  - id: CLM-020
+    requirement: REQ-002
+    text: Gate fails on content hash mismatch between installed pack and lockfile
     tests:
       - TestGateIntegration_LockHashMismatch
 
@@ -227,7 +245,34 @@ claims:
     tests:
       - TestGateIntegration_CodeCheckAllLoadsPacks
 
+  - id: CLM-021
+    requirement: REQ-010
+    text: backstop code check runs layer 3 validators against full project even in diff mode
+    tests:
+      - TestGateIntegration_CodeCheckLayer3FullProject
+
+  # REQ-011: Removed pack not enforced
+  - id: CLM-022
+    requirement: REQ-011
+    text: Gate does not enforce rules from a pack that has been removed from backstop.yml
+    tests:
+      - TestGateIntegration_RemovedPackNotEnforced
+
+  - id: CLM-023
+    requirement: REQ-011
+    text: Gate produces no errors or warnings for a pack that was previously installed but is now absent
+    tests:
+      - TestGateIntegration_RemovedPackNoWarnings
+
 contracts:
+  - file: pkg/gate/result.go
+    provides:
+      - name: Violation
+        kind: type
+        signature: "type Violation struct"
+        notes: "Extended with SourcePack string field for pack-sourced violations. Empty string for native violations."
+    consumes: []
+
   - file: cmd/backstop/gate.go
     provides:
       - name: loadInstalledPacks
@@ -319,7 +364,24 @@ backstop gate
 
 ### Validator Execution
 
-`runPackValidators` iterates loaded manifests and for each layer 3 rule, executes the validator script via `SandboxedRun` against the project's source files. Input scope (single-file vs multi-file) determines how the validator is invoked.
+`runPackValidators` iterates loaded manifests and for each layer 3 rule:
+1. Resolves the validator script path relative to the pack's install directory
+2. Determines invocation mode from `input_scope` (single-file: one call per source file, multi-file: one call with directory path)
+3. Calls `SandboxedRun(validatorPath, args, packDir)` which returns `([]byte, error)`
+4. Parses the `[]byte` output: exit 0 = no violation, non-zero exit = violation. The validator's stdout is captured as the violation message.
+5. Constructs a `gate.Violation` with `Rule` set to the namespaced rule ID, `Message` from validator stdout, `SourcePack` set to the pack name.
+
+Layer 3 validators always run against the full project, even during diff-scoped code check, because presence and structural checks require full-project visibility.
+
+### Code Check Integration
+
+`backstop code check` calls the same `loadInstalledPacks` function used by the gate. The pack loading result is passed into the code check pipeline:
+- Pack semgrep rules are merged via `mergePackRules` and added to the semgrep `--config` arguments
+- Layer 3 validators run via `runPackValidators` against the full project
+- In diff mode, semgrep rules are scoped to changed files; layer 3 validators are not scoped
+- `backstop code check --all` runs everything against the full project
+
+This means `cmd/backstop/code_check.go` gains a dependency on `pkg/pack/manifest.go` (for `ParseManifestFile`) and `pkg/pack/distribution/verify.go` (for lock verification). The test_command in the verification section includes `./pkg/check/` to cover this.
 
 ### Lock Verification
 
@@ -345,7 +407,7 @@ Tests use temporary project directories with pre-installed packs (testdata fixtu
 
 4. **tool_config was already merged at `pack add` time.** The gate does NOT re-merge tool_config at runtime — it trusts that `pack add` already wrote the config files. If a user manually reverts their `.golangci.yml`, the pack's config is lost and the gate won't catch what the pack intended to catch. This is by design but worth documenting.
 
-5. **Interaction with diff-scoped code check.** `backstop code check` (diff-scoped) must also load pack rules. But layer 3 validators may need to see files outside the diff scope (e.g., presence checks across the whole project). The integration must decide: run layer 3 validators against the full project or only the diff.
+5. **Diff-scoped code check and layer 3 validators.** `backstop code check` (diff-scoped) runs pack semgrep rules only against changed files, but layer 3 validators always run against the full project. This is because presence and structural checks (the primary layer 3 use cases) require full-project visibility — you can't check "does middleware.go exist" by looking only at changed files. This means diff-scoped code check is NOT purely diff-scoped when packs with layer 3 validators are installed. The performance implication is acceptable for v1 since layer 3 validators are the minority case.
 
 ## Review Questions
 

@@ -1,0 +1,691 @@
+---
+plan_id: PLAN-SPEC-017
+spec_id: SPEC-017
+spec_version: 1.0.0
+created: "2026-04-08"
+status: ready
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... ./pkg/check/... -run \"TestGateIntegration\" -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-017: Pack Gate Integration — wires the pack system
+  (SPEC-013/014/015/016) into the gate pipeline (SPEC-010) and code check
+  command (SPEC-008). After this plan, backstop gate loads installed packs,
+  verifies lock integrity, merges semgrep rules, executes layer 3 validators,
+  and reports violations with namespaced pack rule IDs.
+
+  Key integration points:
+    - pkg/gate/result.go: Violation struct gains SourcePack field (CLM-014)
+    - cmd/backstop/pack_gate.go: New file with loadInstalledPacks, mergePackRules,
+      runPackValidators functions — the core integration logic
+    - cmd/backstop/gate.go: buildGateSteps gains lock verification pre-step and
+      pack rule merging into existing code check step
+    - cmd/backstop/code_check.go: Gains pack loading and rule merging
+    - pkg/gate/output.go: JSON output includes source_pack, human output shows
+      pack-name/rule-id prefix
+
+  Feature areas with disjoint file scopes:
+    1. Violation struct extension (pkg/gate/result.go, result_test.go)
+    2. Pack gate functions (cmd/backstop/pack_gate.go, pack_gate_test.go)
+    3. Gate wiring (cmd/backstop/gate.go, gate_test.go)
+    4. Code check wiring (cmd/backstop/code_check.go, code_check_test.go)
+    5. Output formatting (pkg/gate/output.go, output_test.go)
+
+  Structure:
+    Phase 1: Setup — test fixtures for integration tests
+    Phase 2: Violation struct extension (test -> impl -> verify)
+    Phase 3: Pack loading and lock verification functions (test -> impl -> verify)
+    Phase 4: Rule merging and validator execution functions (test -> impl -> verify)
+    Phase 5: Output formatting for pack violations (test -> impl -> verify)
+    Phase 6: Gate wiring — buildGateSteps integration (test -> impl -> verify)
+    Phase 7: Code check wiring — pack loading in code check (test -> impl -> verify)
+    Phase 8: Multi-pack, removed pack, and read-only edge cases (test -> impl -> verify)
+    Phase 9: Comprehensive verification
+
+  Phases 2, 3 (partial), and 5 are parallel-eligible (disjoint file sets).
+  Phases 6 and 7 are parallel-eligible (disjoint file sets, both depend on phases 3-4).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — Scaffold and Test Fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Test Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create integration test fixtures for pack gate scenarios"
+        description: |
+          Create test fixture directories and files that simulate installed
+          packs for integration testing. These fixtures support all gate
+          integration test scenarios.
+
+          Fixtures needed:
+            - testdata/packgate/backstop.yml — config with packs declared
+            - testdata/packgate/backstop-no-packs.yml — config with no packs
+            - testdata/packgate/.backstop/packs/test-org/test-pack/pack.yml —
+              valid pack manifest with layer 2 semgrep rule and layer 3 validator
+            - testdata/packgate/.backstop/packs/test-org/test-pack/rules/no-eval.yml —
+              semgrep rule file
+            - testdata/packgate/.backstop/packs/test-org/test-pack/validators/check-middleware.sh —
+              layer 3 validator script
+            - testdata/packgate/backstop.lock — valid lockfile matching test pack
+            - testdata/packgate-multi/ — directory with two packs installed for
+              multi-pack testing (CLM-012, CLM-013)
+            - testdata/packgate-broken/ — directory with pack referencing missing
+              rule file (CLM-016)
+            - testdata/packgate-hash-mismatch/ — directory with tampered pack
+              content for hash mismatch testing (CLM-020)
+        files:
+          - cmd/backstop/testdata/packgate/backstop.yml
+          - cmd/backstop/testdata/packgate/.backstop/packs/test-org/test-pack/pack.yml
+          - cmd/backstop/testdata/packgate/backstop.lock
+          - cmd/backstop/testdata/packgate-multi/backstop.yml
+          - cmd/backstop/testdata/packgate-broken/backstop.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Violation Struct Extension
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Violation Struct Extension — SourcePack Field"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Test SourcePack field on Violation struct"
+        description: |
+          Write tests for the Violation struct's new SourcePack field.
+
+          Tests:
+            - TestGateIntegration_JSONSourcePackField: Verify that JSON
+              marshalling of a Violation with SourcePack set produces a
+              source_pack field in the output. Verify that native violations
+              (empty SourcePack) omit the field or show empty string.
+            - TestGateIntegration_HumanOutputPackPrefix: Verify that
+              FormatHuman renders pack-sourced violations with
+              pack-name/rule-id prefix in the step violation output.
+
+          These tests will fail until the SourcePack field is added and
+          output formatters updated.
+        files:
+          - pkg/gate/result_test.go
+          - pkg/gate/output_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Add SourcePack field to Violation struct and update output"
+        description: |
+          Extend the Violation struct in pkg/gate/result.go with:
+            SourcePack string `json:"source_pack,omitempty"`
+
+          Update pkg/gate/output.go:
+            - FormatJSON: SourcePack is included via struct tag (automatic).
+            - FormatHuman: When rendering violations, if SourcePack is non-empty,
+              prefix the Rule display with "pack-name/" format.
+
+          This is a backward-compatible change — existing violations with
+          empty SourcePack produce identical output.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify Violation struct extension passes code check"
+        description: |
+          Run backstop code check to verify the SourcePack field addition
+          and output formatting changes compile and pass tests.
+
+          Command: backstop code check --all
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - pkg/gate/result_test.go
+          - pkg/gate/output_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Pack Loading and Lock Verification Functions
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Pack Loading and Lock Verification"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Test loadInstalledPacks and lock verification integration"
+        description: |
+          Write tests for the core pack loading function and lock verification
+          integration in a new test file.
+
+          Tests:
+            - TestGateIntegration_LoadsPacksFromConfig: Call loadInstalledPacks
+              with a project root containing backstop.yml with packs and
+              .backstop/packs/ with valid manifests. Verify manifests are
+              returned.
+            - TestGateIntegration_NoPacks: Call loadInstalledPacks with a
+              backstop.yml that declares no packs. Verify empty slice returned,
+              no error.
+            - TestGateIntegration_MissingPackDir: Call loadInstalledPacks with
+              backstop.yml declaring a pack but .backstop/packs/ missing the
+              pack directory. Verify error with diagnostic.
+            - TestGateIntegration_LockRunsFirst: Verify that when VerifyLock
+              fails, no code check steps execute. Use a test fixture with
+              invalid lock state.
+            - TestGateIntegration_MissingLockfile: Call lock verification with
+              packs declared but no backstop.lock. Verify failure diagnostic.
+            - TestGateIntegration_ExtraUnlockedPack: Set up .backstop/packs/
+              with a pack not in backstop.lock. Verify failure diagnostic.
+            - TestGateIntegration_LockHashMismatch: Set up a pack whose
+              content has been modified after locking. Verify hash mismatch
+              failure diagnostic.
+
+          All tests use testdata fixtures from TASK-001.
+        files:
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-020
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement loadInstalledPacks function"
+        description: |
+          Create cmd/backstop/pack_gate.go with the pack gate integration
+          functions.
+
+          Implement loadInstalledPacks(projectRoot string) ([]*pack.Manifest, error):
+            1. Read backstop.yml via config.LoadConfigFrom(projectRoot)
+            2. Extract packs list (cfg.Packs.Rules keys)
+            3. If no packs declared, return empty slice, nil
+            4. For each pack name:
+               a. Resolve pack dir: .backstop/packs/<pack-name>/
+               b. Check directory exists — if not, return error with diagnostic
+               c. Call pack.ParseManifestFile(packDir/pack.yml)
+               d. Collect parsed manifest
+            5. Return manifests slice
+
+          Also implement verifyPackLock(projectRoot string, packs []string) error:
+            1. Read backstop.lock via distribution.ReadLockfile
+            2. If missing and packs declared, return error
+            3. Call distribution.VerifyLock(lockfile, packsDir, packs)
+            4. If VerifyResult.Pass is false, format failure diagnostics
+               and return error
+
+          Import pkg/pack, pkg/pack/distribution, pkg/config.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-020
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify pack loading and lock verification passes code check"
+        description: |
+          Run backstop code check to verify pack loading and lock verification
+          functions compile and pass tests.
+
+          Command: backstop code check --all
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Rule Merging and Validator Execution
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Rule Merging and Validator Execution"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Test mergePackRules and runPackValidators"
+        description: |
+          Write tests for semgrep rule merging and layer 3 validator execution.
+
+          Tests:
+            - TestGateIntegration_SemgrepRulesMerged: Call mergePackRules with
+              a manifest containing layer 2 rules. Verify returned paths are
+              correct absolute paths to semgrep YAML files within pack dirs.
+            - TestGateIntegration_NamespacedRuleIDs: Verify that violations
+              from pack semgrep rules use pack-name/rule-id format.
+            - TestGateIntegration_Layer3ValidatorExecuted: Call runPackValidators
+              with a manifest containing a layer 3 validator. Verify the
+              validator script is invoked via SandboxedRun and violations
+              are collected.
+            - TestGateIntegration_Layer3NamespacedIDs: Verify layer 3 validator
+              violations use namespaced rule IDs.
+            - TestGateIntegration_BrokenPackRuleFile: Call mergePackRules with
+              a manifest referencing a non-existent rule file. Verify error
+              with diagnostic identifying the broken pack and missing file.
+            - TestGateIntegration_ToolConfigApplied: Verify that when a pack
+              has tool_config entries, the gate does not re-merge at runtime
+              but proceeds with lint (tool config was applied at pack add time).
+        files:
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-016
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement mergePackRules and runPackValidators"
+        description: |
+          Add to cmd/backstop/pack_gate.go:
+
+          mergePackRules(packs []*pack.Manifest, packDir string) ([]string, error):
+            1. For each manifest, iterate Content.Ruleset.Rules
+            2. For layer 2 rules, resolve RulePath relative to
+               packDir/<pack-name>/
+            3. Verify the resolved path exists on disk — if not, return
+               error with diagnostic (CLM-016)
+            4. Collect and return all resolved paths as --config arguments
+
+          runPackValidators(packs []*pack.Manifest, packDir, projectRoot string) ([]gate.Violation, error):
+            1. For each manifest, iterate Content.Ruleset.Rules
+            2. For layer 3 rules, resolve Validator path relative to
+               packDir/<pack-name>/
+            3. Verify validator script exists — if not, return error
+            4. Call packval.SandboxedRun(validatorPath, args, packDir)
+            5. On non-zero exit, create gate.Violation with:
+               - Rule: pack.NamespacedRuleID(packName, ruleID)
+               - Message: validator stdout
+               - SourcePack: packName
+            6. Return collected violations
+
+          tool_config handling: The gate does NOT re-merge tool_config at
+          runtime. The lint pass picks up config files that were merged
+          during pack add. No runtime action needed for CLM-009.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-016
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify rule merging and validator execution passes code check"
+        description: |
+          Run backstop code check to verify mergePackRules and runPackValidators
+          compile and pass tests.
+
+          Command: backstop code check --all
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Output Formatting for Pack Violations
+  # This phase is parallel-eligible with Phase 3 and 4 since it only
+  # touches pkg/gate/ files while those touch cmd/backstop/ files.
+  # However, TASK-003 already handles the output changes, so this phase
+  # is reserved for any additional output formatting needs.
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Gate Wiring — buildGateSteps Integration
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Gate Wiring — buildGateSteps Integration"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Test gate wiring with pack loading and lock verification"
+        description: |
+          Write integration tests that exercise the full gate pipeline with
+          pack loading wired in.
+
+          Tests:
+            - TestGateIntegration_ReadOnlyExecution: Run the gate against a
+              project with installed packs. Snapshot all file mtimes in
+              .backstop/packs/, backstop.yml, backstop.lock, and consumer
+              config files before and after. Verify no file was modified.
+            - TestGateIntegration_RemovedPackNotEnforced: Set up backstop.yml
+              with one pack, .backstop/packs/ with two packs (one removed
+              from config). Run gate. Verify only the declared pack's rules
+              are enforced. The undeclared pack produces no violations.
+            - TestGateIntegration_RemovedPackNoWarnings: Same setup as above.
+              Verify gate output contains no warnings or errors about the
+              removed pack.
+
+          These tests verify end-to-end gate behavior with packs wired in.
+        files:
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-017
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-010
+          - TASK-004
+
+      - id: TASK-012
+        type: implementation
+        title: "Wire pack loading into buildGateSteps"
+        description: |
+          Modify cmd/backstop/gate.go buildGateSteps to integrate pack loading:
+
+          1. At the start of buildGateSteps, call loadInstalledPacks(projectRoot)
+          2. If packs are returned (non-empty):
+             a. Insert lock verification as a pre-step (before step 1).
+                Create a StepFunc that calls verifyPackLock. On failure,
+                return a StepResult with status "fail" and lock diagnostic
+                violations. This ensures CLM-004 (lock runs first).
+             b. Collect semgrep rule paths via mergePackRules. Pass these
+                to the code checker so it includes them as --config args.
+             c. After the code check step, insert a pack validator step
+                that calls runPackValidators and returns violations with
+                SourcePack set.
+          3. If no packs declared, buildGateSteps behaves exactly as before
+             (CLM-002, CLM-011).
+          4. Gate does not modify any files — all operations are read-only
+             (CLM-017).
+
+          The realCodeChecker.CheckAll method needs to accept additional
+          semgrep config paths from pack rules. Add a field to realCodeChecker
+          for extra semgrep configs.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-017
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify gate wiring passes code check"
+        description: |
+          Run backstop code check to verify gate wiring changes compile and
+          pass tests.
+
+          Command: backstop code check --all
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-004
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Code Check Wiring
+  # Parallel-eligible with Phase 5 (disjoint files: code_check.go vs gate.go)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Code Check Wiring — Pack Loading in Code Check"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Test code check integration with pack rules"
+        description: |
+          Write integration tests for backstop code check with pack loading.
+
+          Tests:
+            - TestGateIntegration_CodeCheckLoadsPacks: Run code check in
+              diff mode against a project with installed packs. Verify pack
+              semgrep rules are included in the check. Verify layer 3
+              validators run against full project even in diff mode.
+            - TestGateIntegration_CodeCheckAllLoadsPacks: Run code check
+              with --all flag. Verify pack rules apply to entire codebase.
+            - TestGateIntegration_CodeCheckLayer3FullProject: Run code check
+              in diff mode with a pack that has layer 3 validators. Verify
+              the validator runs against the full project directory, not
+              just changed files.
+        files:
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-010
+          - TASK-004
+
+      - id: TASK-015
+        type: implementation
+        title: "Wire pack loading into code check command"
+        description: |
+          Modify cmd/backstop/code_check.go to integrate pack loading:
+
+          1. After loading config and resolving project root, call
+             loadInstalledPacks(projectRoot)
+          2. If packs are returned:
+             a. Call mergePackRules to get additional semgrep --config paths
+             b. Add these paths to check.Options (may need to extend Options
+                struct or use a new field for extra semgrep configs)
+             c. After check.Run completes, call runPackValidators with
+                full project root (not diff-scoped)
+             d. Merge validator violations into the result
+          3. If no packs, code check behaves exactly as before
+          4. Layer 3 validators always run against full project even in
+             diff mode (CLM-021) — this is because presence/structural
+             checks need full project visibility
+
+          The code check command calls the same loadInstalledPacks function
+          used by the gate (CLM-018).
+        files:
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify code check wiring passes code check"
+        description: |
+          Run backstop code check to verify code check wiring changes compile
+          and pass tests.
+
+          Command: backstop code check --all
+        files:
+          - cmd/backstop/code_check.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Multi-Pack and Edge Cases
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Multi-Pack and Edge Cases"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Test multi-pack enforcement and attribution"
+        description: |
+          Write tests for multi-pack scenarios using testdata/packgate-multi/.
+
+          Tests:
+            - TestGateIntegration_MultiplePacksEnforced: Load two packs via
+              loadInstalledPacks. Call mergePackRules and runPackValidators.
+              Verify rules from both packs are included and violations from
+              both are collected.
+            - TestGateIntegration_MultiPackAttribution: With two packs
+              producing violations, verify each violation's SourcePack field
+              correctly identifies which pack produced it. Verify Rule field
+              uses the correct pack's namespace.
+        files:
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-010
+
+      - id: TASK-018
+        type: implementation
+        title: "Ensure multi-pack support in pack gate functions"
+        description: |
+          Review and if necessary update loadInstalledPacks, mergePackRules,
+          and runPackValidators to correctly handle multiple packs.
+
+          The implementation from TASK-006 and TASK-009 should already iterate
+          over all manifests. This task verifies and fixes:
+            1. loadInstalledPacks iterates all packs from config, not just first
+            2. mergePackRules collects rules from ALL manifests
+            3. runPackValidators runs validators from ALL manifests
+            4. Each violation's SourcePack is set to the correct pack name
+            5. NamespacedRuleID uses the correct pack name for each rule
+
+          If the prior implementation already handles these correctly, this
+          task adds any missing edge case handling (e.g., duplicate rule IDs
+          across packs are disambiguated by namespace).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify multi-pack and edge cases pass code check"
+        description: |
+          Run backstop code check to verify multi-pack support compiles
+          and passes tests.
+
+          Command: backstop code check --all
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Comprehensive Verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Comprehensive Verification"
+    tasks:
+      - id: TASK-020
+        type: verification
+        title: "Run full gate to verify all pack integration"
+        description: |
+          Run backstop gate to verify the complete integration of pack loading,
+          lock verification, rule merging, validator execution, and output
+          formatting.
+
+          This comprehensive verification covers:
+            - Code compilation and tests: all cmd/backstop/ and pkg/gate/ tests
+            - Artifact validation: SPEC-017 spec file and this plan file
+            - All 23 claims across 11 requirements
+
+          Command: backstop gate
+
+          Verify:
+            1. All tests pass (TestGateIntegration_*)
+            2. Coverage meets 80% threshold
+            3. No lint violations in modified files
+            4. Artifact validation passes for spec and plan
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_test.go
+          - pkg/gate/result.go
+          - pkg/gate/result_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-012
+          - TASK-013
+          - TASK-015
+          - TASK-016
+          - TASK-018
+          - TASK-019
