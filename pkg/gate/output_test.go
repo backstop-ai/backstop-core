@@ -167,3 +167,24 @@ func TestGate_NoColorFromEnv_RespectsEnv(t *testing.T) {
 		t.Error("expected NoColorFromEnv() == false when NO_COLOR is unset")
 	}
 }
+
+func TestGateIntegration_HumanOutputPackPrefix(t *testing.T) {
+	result := NewGateResult([]StepResult{
+		{
+			StepName: StepCodeCheck,
+			Status:   "fail",
+			Violations: []Violation{
+				{
+					Rule:       "test-org/test-pack/no-eval",
+					Message:    "eval usage is forbidden",
+					SourcePack: "test-org/test-pack",
+				},
+			},
+		},
+	})
+
+	out := FormatHuman(result, true)
+	if !strings.Contains(out, "test-org/test-pack/no-eval") {
+		t.Fatalf("expected namespaced pack rule in human output, got: %s", out)
+	}
+}

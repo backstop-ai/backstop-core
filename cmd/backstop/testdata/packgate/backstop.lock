@@ -1,0 +1,8 @@
+packs:
+  test-org/test-pack:
+    name: test-org/test-pack
+    version: 1.0.0
+    git_ref: v1.0.0
+    content_hash: 7da0d86142055d18da7d6508941e69fe5a6fae341568f70ae6831d2387398548
+    source_type: git
+    install_date: "2026-04-20T00:00:00Z"

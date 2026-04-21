@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -214,5 +215,32 @@ func TestGate_CanonicalStepNames_ExactMatch(t *testing.T) {
 	}
 	if AllStepNames != expected {
 		t.Errorf("canonical step names mismatch:\n  got:  %v\n  want: %v", AllStepNames, expected)
+	}
+}
+
+func TestGateIntegration_JSONSourcePackField(t *testing.T) {
+	withPack := Violation{
+		Rule:       "test-org/test-pack/no-eval",
+		Message:    "bad call",
+		SourcePack: "test-org/test-pack",
+	}
+	data, err := json.Marshal(withPack)
+	if err != nil {
+		t.Fatalf("marshal with pack: %v", err)
+	}
+	if !strings.Contains(string(data), `"source_pack":"test-org/test-pack"`) {
+		t.Fatalf("expected source_pack field in JSON, got: %s", string(data))
+	}
+
+	native := Violation{
+		Rule:    "code_check",
+		Message: "native violation",
+	}
+	nativeData, err := json.Marshal(native)
+	if err != nil {
+		t.Fatalf("marshal native: %v", err)
+	}
+	if strings.Contains(string(nativeData), `"source_pack"`) {
+		t.Fatalf("did not expect source_pack for native violation, got: %s", string(nativeData))
 	}
 }

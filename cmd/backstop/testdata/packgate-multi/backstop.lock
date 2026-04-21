@@ -1,0 +1,15 @@
+packs:
+  test-org/other-pack:
+    name: test-org/other-pack
+    version: 2.0.0
+    git_ref: v2.0.0
+    content_hash: 4913ca4693d0e0ebc8d833b0f37e49563dc9992700136b1f70e1f7bb79b5e0d0
+    source_type: git
+    install_date: "2026-04-20T00:00:00Z"
+  test-org/test-pack:
+    name: test-org/test-pack
+    version: 1.0.0
+    git_ref: v1.0.0
+    content_hash: a0a5dd87f3b54127a7fd96c68003d0b22d0b1b24ce412b44ce97a98636de0e12
+    source_type: git
+    install_date: "2026-04-20T00:00:00Z"

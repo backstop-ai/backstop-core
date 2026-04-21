@@ -2,9 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/spf13/cobra"
 )
 
@@ -118,4 +124,169 @@ func executeCommandSilent(root *cobra.Command, args ...string) (*cobra.Command, 
 	root.SetArgs(args)
 	cmd, err := root.ExecuteC()
 	return cmd, err
+}
+
+func TestGateIntegration_CodeCheckLoadsPacks(t *testing.T) {
+	projectRoot := setupCodeCheckPackProject(t)
+	restore := chdirTemp(t, projectRoot)
+	defer restore()
+
+	calledLoad := false
+	calledMerge := false
+	origLoad := loadInstalledPacksFn
+	origMerge := mergePackRulesFn
+	origRun := checkRunFn
+	origValidators := runPackValidatorsFn
+	defer func() {
+		loadInstalledPacksFn = origLoad
+		mergePackRulesFn = origMerge
+		checkRunFn = origRun
+		runPackValidatorsFn = origValidators
+	}()
+
+	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
+		calledLoad = true
+		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
+	}
+	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
+		calledMerge = true
+		return []string{filepath.Join(packDir, "test-org", "test-pack", "rules", "no-eval.yml")}, nil
+	}
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return &check.Result{}, nil
+	}
+	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+		return nil, nil
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("code check: %v", err)
+	}
+	if !calledLoad {
+		t.Fatal("expected code check to load packs")
+	}
+	if !calledMerge {
+		t.Fatal("expected code check to merge pack rules")
+	}
+}
+
+func TestGateIntegration_CodeCheckAllLoadsPacks(t *testing.T) {
+	projectRoot := setupCodeCheckPackProject(t)
+	restore := chdirTemp(t, projectRoot)
+	defer restore()
+
+	origLoad := loadInstalledPacksFn
+	origMerge := mergePackRulesFn
+	origRun := checkRunFn
+	origValidators := runPackValidatorsFn
+	defer func() {
+		loadInstalledPacksFn = origLoad
+		mergePackRulesFn = origMerge
+		checkRunFn = origRun
+		runPackValidatorsFn = origValidators
+	}()
+
+	var capturedMode check.ScopeMode
+	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
+		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
+	}
+	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
+		return []string{"dummy.yml"}, nil
+	}
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		capturedMode = opts.Mode
+		return &check.Result{}, nil
+	}
+	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+		return nil, nil
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("code check --all: %v", err)
+	}
+	if capturedMode != check.ScopeModeAll {
+		t.Fatalf("expected --all mode, got %v", capturedMode)
+	}
+}
+
+func TestGateIntegration_CodeCheckLayer3FullProject(t *testing.T) {
+	projectRoot := setupCodeCheckPackProject(t)
+	restore := chdirTemp(t, projectRoot)
+	defer restore()
+
+	origLoad := loadInstalledPacksFn
+	origMerge := mergePackRulesFn
+	origRun := checkRunFn
+	origValidators := runPackValidatorsFn
+	defer func() {
+		loadInstalledPacksFn = origLoad
+		mergePackRulesFn = origMerge
+		checkRunFn = origRun
+		runPackValidatorsFn = origValidators
+	}()
+
+	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
+		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
+	}
+	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
+		return nil, nil
+	}
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return &check.Result{}, nil
+	}
+
+	var validatorRoot string
+	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+		validatorRoot = root
+		return nil, nil
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("code check: %v", err)
+	}
+	// Resolve symlinks (macOS /var → /private/var) for comparison.
+	resolvedRoot, _ := filepath.EvalSymlinks(projectRoot)
+	resolvedValidator, _ := filepath.EvalSymlinks(validatorRoot)
+	if resolvedValidator != resolvedRoot {
+		t.Fatalf("expected layer3 validators to run on full project root %q, got %q", resolvedRoot, resolvedValidator)
+	}
+}
+
+func setupCodeCheckPackProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(`project: code-check-pack
+language: go
+packs:
+  rules:
+    test-org/test-pack: "1.0.0"
+`), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	return dir
+}
+
+func chdirTemp(t *testing.T, dir string) func() {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	return func() {
+		if err := os.Chdir(wd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}
 }

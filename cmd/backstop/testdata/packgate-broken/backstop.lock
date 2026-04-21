@@ -1,0 +1,8 @@
+packs:
+  test-org/broken-pack:
+    name: test-org/broken-pack
+    version: 1.0.0
+    git_ref: v1.0.0
+    content_hash: 7b14d30dce482bad6cadb3855db9c9d819cc8d55ae1fcb2391c87a1d29c01619
+    source_type: git
+    install_date: "2026-04-20T00:00:00Z"

@@ -1,0 +1,8 @@
+rules:
+  - id: no-eval
+    severity: ERROR
+    message: eval usage is forbidden
+    languages: [go]
+    patterns:
+      - pattern: eval(...)
+

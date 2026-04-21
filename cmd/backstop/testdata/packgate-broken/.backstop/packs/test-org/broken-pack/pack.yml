@@ -1,0 +1,24 @@
+name: test-org/broken-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Broken pack fixture for missing rule file
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: missing-rule-file
+        standard: standards/go/missing.standard.md
+        rule_path: rules/does-not-exist.yml
+        risk_class: security
+        layer: 2
+        category: static-analysis
+        claims:
+          - id: c-missing-rule
+            text: Missing rule file should fail.
+            fixtures:
+              positive:
+                - fixtures/positive.go
+              negative:
+                - fixtures/negative.go
+

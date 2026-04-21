@@ -34,10 +34,11 @@ var AllStepNames = [9]string{
 
 // Violation represents a single gate violation.
 type Violation struct {
-	Rule     string `json:"rule"`
-	File     string `json:"file,omitempty"`
-	Message  string `json:"message"`
-	Severity string `json:"severity,omitempty"`
+	Rule       string `json:"rule"`
+	File       string `json:"file,omitempty"`
+	Message    string `json:"message"`
+	Severity   string `json:"severity,omitempty"`
+	SourcePack string `json:"source_pack,omitempty"`
 }
 
 // StepResult holds the result of a single gate step.

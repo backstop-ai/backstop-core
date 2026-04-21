@@ -1,0 +1,6 @@
+project: packgate-broken
+language: go
+packs:
+  rules:
+    test-org/broken-pack: "1.0.0"
+

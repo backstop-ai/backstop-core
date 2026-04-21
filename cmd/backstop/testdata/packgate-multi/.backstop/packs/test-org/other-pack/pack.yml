@@ -1,0 +1,25 @@
+name: test-org/other-pack
+version: 2.0.0
+language: go
+archetype: enforcement
+description: Second test pack for multi-pack fixtures
+content:
+  ruleset:
+    version: 2.0.0
+    rules:
+      - id: no-printf
+        standard: standards/go/no-printf.standard.md
+        risk_class: correctness
+        layer: 3
+        category: custom-validator
+        validator: validators/check-printf.sh
+        input_scope: multi-file
+        claims:
+          - id: c-no-printf
+            text: Flag fmt.Printf usage.
+            fixtures:
+              positive:
+                - fixtures/positive.go
+              negative:
+                - fixtures/negative.go
+

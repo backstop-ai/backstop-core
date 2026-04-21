@@ -1,0 +1,6 @@
+project: packgate-fixture
+language: go
+packs:
+  rules:
+    test-org/test-pack: "1.0.0"
+

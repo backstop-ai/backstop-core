@@ -1,0 +1,56 @@
+name: test-org/test-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Test pack for gate integration fixtures
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: no-eval
+        standard: standards/go/no-eval.standard.md
+        rule_path: rules/no-eval.yml
+        risk_class: security
+        layer: 2
+        category: static-analysis
+        claims:
+          - id: c-no-eval
+            text: Prevent eval usage.
+            fixtures:
+              positive:
+                - fixtures/positive.go
+              negative:
+                - fixtures/negative.go
+      - id: middleware-check
+        standard: standards/go/middleware.standard.md
+        risk_class: correctness
+        layer: 3
+        category: custom-validator
+        validator: validators/check-middleware.sh
+        input_scope: multi-file
+        claims:
+          - id: c-middleware
+            text: Middleware file must exist.
+            fixtures:
+              positive:
+                - fixtures/positive.go
+              negative:
+                - fixtures/negative.go
+tool_config:
+  - id: lint-config
+    tool: golangci-lint
+    file: .golangci.yml
+    settings:
+      linters:
+        enable:
+          - revive
+    risk_class: style
+    claims:
+      - id: tc-1
+        text: Lint settings must be enabled.
+        fixtures:
+          positive:
+            - fixtures/tool-positive.go
+          negative:
+            - fixtures/tool-negative.go
+

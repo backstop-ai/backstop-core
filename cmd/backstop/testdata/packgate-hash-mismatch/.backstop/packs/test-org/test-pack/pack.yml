@@ -1,0 +1,24 @@
+name: test-org/test-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Tampered test pack fixture
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: no-eval
+        standard: standards/go/no-eval.standard.md
+        rule_path: rules/no-eval.yml
+        risk_class: security
+        layer: 2
+        category: static-analysis
+        claims:
+          - id: c-no-eval
+            text: Prevent eval usage.
+            fixtures:
+              positive:
+                - fixtures/positive.go
+              negative:
+                - fixtures/negative.go
+

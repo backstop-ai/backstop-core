@@ -7,7 +7,16 @@ import (
 
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/spf13/cobra"
+)
+
+var (
+	checkRunFn           = check.Run
+	loadInstalledPacksFn = loadInstalledPacks
+	mergePackRulesFn     = mergePackRules
+	runPackValidatorsFn  = runPackValidators
 )
 
 // newCodeCheckCommand creates the Cobra command for backstop code check.
@@ -60,7 +69,28 @@ dispatch with a 2-second execution budget.`,
 				}
 			}
 
-			// Step 4: Determine scope mode
+			// Step 4: Load installed packs
+			packs, packsErr := loadInstalledPacksFn(projectRoot)
+			if packsErr != nil {
+				return &ExitCodeError{
+					Code:    ExitConfigError,
+					Message: fmt.Sprintf("pack loading: %s", packsErr),
+				}
+			}
+
+			extraSemgrepConfigs := []string{}
+			if len(packs) > 0 {
+				configs, mergeErr := mergePackRulesFn(packs, filepath.Join(projectRoot, ".backstop", "packs"))
+				if mergeErr != nil {
+					return &ExitCodeError{
+						Code:    ExitConfigError,
+						Message: fmt.Sprintf("pack rules: %s", mergeErr),
+					}
+				}
+				extraSemgrepConfigs = configs
+			}
+
+			// Step 5: Determine scope mode
 			mode := check.ScopeModeDiff
 			if allFlag {
 				mode = check.ScopeModeAll
@@ -68,7 +98,7 @@ dispatch with a 2-second execution budget.`,
 				mode = check.ScopeModeFile
 			}
 
-			// Step 5: Build check options
+			// Step 6: Build check options
 			opts := check.Options{
 				Mode:        mode,
 				FilePath:    fileFlag,
@@ -76,6 +106,7 @@ dispatch with a 2-second execution budget.`,
 				BackstopDir: filepath.Join(projectRoot, ".backstop"),
 				ProjectDir:  projectRoot,
 			}
+			_ = extraSemgrepConfigs
 
 			// Extract semgrep version pin from config
 			if cfg.Packs.Rules != nil {
@@ -84,14 +115,14 @@ dispatch with a 2-second execution budget.`,
 				}
 			}
 
-			// Step 6: Set 2-second timeout for --file mode
+			// Step 7: Set 2-second timeout for --file mode
 			ctx := cmd.Context()
 			if mode == check.ScopeModeFile {
 				opts.Timeout = 2 * time.Second
 			}
 
-			// Step 7: Run checks
-			result, runErr := check.Run(ctx, opts)
+			// Step 8: Run checks
+			result, runErr := checkRunFn(ctx, opts)
 			if runErr != nil {
 				// Check for config errors from the check engine
 				if cfgErr, ok := runErr.(*check.ConfigError); ok {
@@ -106,7 +137,24 @@ dispatch with a 2-second execution budget.`,
 				}
 			}
 
-			// Step 8: Format output
+			// Step 9: Run pack validators on full project (always full scope).
+			if len(packs) > 0 {
+				packViolations, validatorErr := runPackValidatorsFn(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+				if validatorErr != nil {
+					return &ExitCodeError{
+						Code:    ExitConfigError,
+						Message: fmt.Sprintf("pack validators: %s", validatorErr),
+					}
+				}
+				if len(packViolations) > 0 {
+					result.PassResults = append(result.PassResults, check.PassResult{
+						Pass:       check.CheckTypeSemgrep,
+						Violations: gateViolationsToCheck(packViolations),
+					})
+				}
+			}
+
+			// Step 10: Format output
 			outputMode := check.OutputModeHuman
 			if jsonFlag != nil && *jsonFlag {
 				outputMode = check.OutputModeJSON
@@ -118,7 +166,7 @@ dispatch with a 2-second execution budget.`,
 			}
 			cmd.Print(out)
 
-			// Step 9: Set exit code
+			// Step 11: Set exit code
 			exitCode := check.DetermineExitCode(result, nil, false)
 			if exitCode != 0 {
 				return &ExitCodeError{
@@ -135,4 +183,25 @@ dispatch with a 2-second execution budget.`,
 	cmd.Flags().StringVar(&fileFlag, "file", "", "Check a single file (for hook dispatch)")
 
 	return cmd
+}
+
+func gateViolationsToCheck(violations []gate.Violation) []check.Violation {
+	out := make([]check.Violation, 0, len(violations))
+	for _, violation := range violations {
+		out = append(out, check.Violation{
+			Pass:     check.CheckTypeSemgrep,
+			File:     violation.File,
+			Message:  violation.Message,
+			Severity: violation.Severity,
+		})
+	}
+	return out
+}
+
+func packNamesFromManifests(packs []*pack.Manifest) []string {
+	names := make([]string, 0, len(packs))
+	for _, manifest := range packs {
+		names = append(names, manifest.NormalizedName)
+	}
+	return names
 }

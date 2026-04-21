@@ -103,12 +103,43 @@ func runGate(cmd *cobra.Command, _ []string) error {
 // Steps 7-9: deferred (baseline, waivers, ledger).
 func buildGateSteps(projectRoot string) []gate.StepFunc {
 	specDir := filepath.Join(projectRoot, "specs")
+	packs, packErr := loadInstalledPacks(projectRoot)
+	if packErr != nil {
+		return []gate.StepFunc{
+			func(context.Context) gate.StepResult {
+				return gate.StepResult{
+					StepName:   "pack_loading",
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "pack_loading", Message: packErr.Error(), Severity: "error"}},
+				}
+			},
+		}
+	}
+
+	extraSemgrepConfigs := []string{}
+	if len(packs) > 0 {
+		merged, mergeErr := mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
+		if mergeErr != nil {
+			return []gate.StepFunc{
+				func(context.Context) gate.StepResult {
+					return gate.StepResult{
+						StepName:   "pack_rule_merge",
+						Status:     "fail",
+						ConfigErr:  true,
+						Violations: []gate.Violation{{Rule: "pack_rule_merge", Message: mergeErr.Error(), Severity: "error"}},
+					}
+				},
+			}
+		}
+		extraSemgrepConfigs = merged
+	}
 
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
 	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll.
-	codeChecker := &realCodeChecker{projectRoot: projectRoot}
+	codeChecker := &realCodeChecker{projectRoot: projectRoot, extraSemgrepConfigs: extraSemgrepConfigs}
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
@@ -124,7 +155,7 @@ func buildGateSteps(projectRoot string) []gate.StepFunc {
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot)
 
-	return []gate.StepFunc{
+	steps := []gate.StepFunc{
 		gate.StepArtifactValidationFunc(artifactValidator),
 		gate.StepCodeCheckFunc(codeChecker),
 		testVerifyStep,
@@ -136,6 +167,59 @@ func buildGateSteps(projectRoot string) []gate.StepFunc {
 		gate.StepWaiverResolutionFunc(),
 		gate.StepLedgerIntegrityFunc(),
 	}
+
+	if len(packs) == 0 {
+		return steps
+	}
+
+	packNames := make([]string, 0, len(packs))
+	for _, manifest := range packs {
+		packNames = append(packNames, manifest.NormalizedName)
+	}
+
+	lockStep := func(context.Context) gate.StepResult {
+		err := verifyPackLock(projectRoot, packNames)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   "pack_lock_verification",
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "pack_lock_verification", Message: err.Error(), Severity: "error"}},
+			}
+		}
+		return gate.StepResult{
+			StepName:   "pack_lock_verification",
+			Status:     "pass",
+			Violations: []gate.Violation{},
+		}
+	}
+
+	packValidatorStep := func(context.Context) gate.StepResult {
+		violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   "pack_validators",
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "pack_validators", Message: err.Error(), Severity: "error"}},
+			}
+		}
+		status := "pass"
+		if len(violations) > 0 {
+			status = "fail"
+		}
+		return gate.StepResult{
+			StepName:   "pack_validators",
+			Status:     status,
+			Violations: violations,
+		}
+	}
+
+	packed := make([]gate.StepFunc, 0, len(steps)+2)
+	packed = append(packed, lockStep)
+	packed = append(packed, steps[0], steps[1], packValidatorStep)
+	packed = append(packed, steps[2:]...)
+	return packed
 }
 
 // buildTestSubstantivenessStep creates a StepFunc that extracts mandated tests
@@ -231,7 +315,8 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 // realCodeChecker implements gate.CodeChecker by calling pkg/check.Run
 // with ScopeModeAll.
 type realCodeChecker struct {
-	projectRoot string
+	projectRoot         string
+	extraSemgrepConfigs []string
 }
 
 func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
@@ -255,6 +340,7 @@ func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) 
 		BackstopDir: backstopDir,
 		ProjectDir:  pRoot,
 	}
+	_ = c.extraSemgrepConfigs
 
 	// Load config to extract semgrep version pin.
 	cfg, err := config.LoadConfig()

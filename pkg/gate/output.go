@@ -48,6 +48,25 @@ func FormatHuman(result GateResult, noColor bool) string {
 		sb.WriteString(line + "\n")
 	}
 
+	// Violation details
+	for _, step := range result.Steps {
+		if len(step.Violations) == 0 {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("\n  %s violations:\n", step.StepName))
+		for _, violation := range step.Violations {
+			rule := violation.Rule
+			if violation.SourcePack != "" && !strings.HasPrefix(rule, violation.SourcePack+"/") {
+				rule = violation.SourcePack + "/" + rule
+			}
+			sb.WriteString(fmt.Sprintf("    - [%s] %s", rule, violation.Message))
+			if violation.File != "" {
+				sb.WriteString(fmt.Sprintf(" (%s)", violation.File))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
 	// Summary counts
