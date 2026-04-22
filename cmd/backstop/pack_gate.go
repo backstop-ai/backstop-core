@@ -83,6 +83,9 @@ func verifyPackLock(projectRoot string, packs []string) error {
 }
 
 func declaredPackNames(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
 	packSet := map[string]struct{}{}
 	if cfg.Packs.Rules != nil {
 		for name := range cfg.Packs.Rules {

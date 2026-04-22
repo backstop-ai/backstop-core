@@ -199,51 +199,7 @@ Test.
 	}
 }
 
-// TestArtifactValidate_Discover_Standard verifies that *.standard.md files are
-// discovered as standard artifacts. (CLM-037)
-func TestArtifactValidate_Discover_Standard(t *testing.T) {
-	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"standards/SEC-001-test.standard.md": `---
-title: Test Standard
-number: SEC-001
-created: "2026-04-01"
-status: active
-schema_version: standard/v1
-pack: security
-scope: language
----
-
-# SEC-001: Test Standard
-
-## Overview
-
-Test.
-
-## Rules
-
-None.
-`,
-	})
-
-	arts, err := DiscoverArtifacts(dir, nil)
-	if err != nil {
-		t.Fatalf("DiscoverArtifacts: %v", err)
-	}
-
-	var standards []string
-	for _, a := range arts {
-		if a.Type == "standard" {
-			standards = append(standards, filepath.Base(a.Path))
-		}
-	}
-
-	if len(standards) != 1 {
-		t.Fatalf("expected 1 standard artifact, got %d: %v", len(standards), standards)
-	}
-	if standards[0] != "SEC-001-test.standard.md" {
-		t.Errorf("unexpected standard file: %s", standards[0])
-	}
-}
+// Standard artifact type removed — standards live inside packs now (DD-18/DD-45).
 
 // TestArtifactValidate_Discover_IgnoresNonArtifacts verifies that files not
 // matching any artifact filename pattern are ignored. (CLM-038)

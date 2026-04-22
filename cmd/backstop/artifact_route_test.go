@@ -130,30 +130,7 @@ func TestArtifactValidate_Route_Issue(t *testing.T) {
 	}
 }
 
-// TestArtifactValidate_Route_Standard verifies that an artifact with
-// schema_version "standard/v1" routes to validate.Standard. (CLM-006)
-func TestArtifactValidate_Route_Standard(t *testing.T) {
-	art := &artifact.ParsedArtifact{
-		Metadata: map[string]string{"schema_version": "standard/v1"},
-	}
-	fn, err := RouteValidator(art)
-	if err != nil {
-		t.Fatalf("RouteValidator: %v", err)
-	}
-	if fn == nil {
-		t.Fatal("expected non-nil validator function for standard/v1")
-	}
-	// Call the validator on a known-bad standard artifact
-	badArt := &artifact.ParsedArtifact{
-		Metadata: map[string]string{"schema_version": "standard/v1"},
-	}
-	schPath, _ := schema.ResolveSchemaPath(badArt)
-	sch, _ := loadSchemaFromFS(SchemaFS, schPath)
-	result := fn(badArt, sch)
-	if len(result.Violations) == 0 {
-		t.Error("expected violations from known-bad standard artifact")
-	}
-}
+// Standard artifact type removed — standards live inside packs now (DD-18/DD-45).
 
 // TestArtifactValidate_Route_UnknownType_Exit2 verifies that an artifact with
 // an unrecognized schema_version prefix produces a config error. (CLM-007)
