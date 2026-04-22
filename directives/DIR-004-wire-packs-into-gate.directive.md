@@ -5,11 +5,12 @@ created: "2026-04-19"
 schema_version: directive/v1
 
 directive:
-  status: active
+  status: done
   source:
     - "BUNDLE-004"
     - "BUNDLE-005"
   spec: SPEC-017
+  completed: "2026-04-21"
 ---
 
 ## Description

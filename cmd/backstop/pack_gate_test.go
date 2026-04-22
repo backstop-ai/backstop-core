@@ -326,6 +326,64 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 	}
 }
 
+// TestGateIntegration_Layer3SingleFileScope verifies that single-file input_scope
+// validators are invoked per-file, not once with the project root.
+func TestGateIntegration_Layer3SingleFileScope(t *testing.T) {
+	projectRoot := t.TempDir()
+	// Create source files
+	os.WriteFile(filepath.Join(projectRoot, "main.go"), []byte("package main\n"), 0o644)
+	os.WriteFile(filepath.Join(projectRoot, "util.go"), []byte("package main\n"), 0o644)
+
+	// Create pack with single-file validator
+	packDir := filepath.Join(projectRoot, ".backstop", "packs", "test-org", "sf-pack")
+	os.MkdirAll(packDir, 0o755)
+	validatorScript := filepath.Join(packDir, "check.sh")
+	os.WriteFile(validatorScript, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+
+	manifests := []*pack.Manifest{{
+		Name:           "test-org/sf-pack",
+		NormalizedName: "test-org/sf-pack",
+		Content: pack.Content{
+			Ruleset: pack.Ruleset{
+				Rules: []pack.Rule{{
+					ID:         "sf-check",
+					Layer:      3,
+					Validator:  "check.sh",
+					InputScope: "single-file",
+				}},
+			},
+		},
+	}}
+
+	var calls []string
+	orig := sandboxedRun
+	sandboxedRun = func(cmd string, args []string, dir string) ([]byte, error) {
+		if len(args) > 0 {
+			calls = append(calls, args[0])
+		}
+		return []byte("fail"), errors.New("exit status 1")
+	}
+	defer func() { sandboxedRun = orig }()
+
+	violations, err := runPackValidators(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	if err != nil {
+		t.Fatalf("runPackValidators: %v", err)
+	}
+	// Should have been called per-file, not once with project root
+	if len(calls) < 2 {
+		t.Fatalf("expected at least 2 single-file calls, got %d: %v", len(calls), calls)
+	}
+	// Each violation should be per-file
+	if len(violations) < 2 {
+		t.Fatalf("expected at least 2 violations (one per file), got %d", len(violations))
+	}
+	for _, v := range violations {
+		if v.SourcePack != "test-org/sf-pack" {
+			t.Errorf("expected SourcePack 'test-org/sf-pack', got %q", v.SourcePack)
+		}
+	}
+}
+
 func fixtureProjectRoot(t *testing.T, name string) string {
 	t.Helper()
 	dst := t.TempDir()

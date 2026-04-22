@@ -273,7 +273,7 @@ contracts:
         notes: "Extended with SourcePack string field for pack-sourced violations. Empty string for native violations."
     consumes: []
 
-  - file: cmd/backstop/gate.go
+  - file: cmd/backstop/pack_gate.go
     provides:
       - name: loadInstalledPacks
         kind: function
