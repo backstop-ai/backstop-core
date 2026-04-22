@@ -335,12 +335,12 @@ func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) 
 	}
 
 	opts := check.Options{
-		Mode:        check.ScopeModeAll,
-		ManifestDir: filepath.Join(backstopDir, "rules"),
-		BackstopDir: backstopDir,
-		ProjectDir:  pRoot,
+		Mode:                check.ScopeModeAll,
+		ManifestDir:         filepath.Join(backstopDir, "rules"),
+		BackstopDir:         backstopDir,
+		ProjectDir:          pRoot,
+		ExtraSemgrepConfigs: c.extraSemgrepConfigs,
 	}
-	_ = c.extraSemgrepConfigs
 
 	// Load config to extract semgrep version pin.
 	cfg, err := config.LoadConfig()

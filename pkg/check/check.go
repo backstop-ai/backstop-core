@@ -19,6 +19,7 @@ type Options struct {
 	Timeout               time.Duration
 	ProjectDir            string
 	GolangciLintAvailable bool
+	ExtraSemgrepConfigs   []string // Additional --config paths from installed packs
 }
 
 // Violation represents a single validation finding.
@@ -310,7 +311,7 @@ func buildDefaultExecutors(opts Options) map[CheckType]PassExecutor {
 		CheckTypeLint:    &lintExecutor{},
 		CheckTypeBuild:   &buildExecutor{},
 		CheckTypeTest:    &testExecutor{fileMode: opts.Mode == ScopeModeFile},
-		CheckTypeSemgrep: &semgrepExecutor{backstopDir: opts.BackstopDir, pinnedVersion: opts.PinnedSemgrepVersion},
+		CheckTypeSemgrep: &semgrepExecutor{backstopDir: opts.BackstopDir, pinnedVersion: opts.PinnedSemgrepVersion, extraSemgrepConfigs: opts.ExtraSemgrepConfigs},
 	}
 }
 
@@ -356,8 +357,9 @@ func (e *testExecutor) IsAvailable() (bool, string) {
 
 // semgrepExecutor runs semgrep rules.
 type semgrepExecutor struct {
-	backstopDir   string
-	pinnedVersion string
+	backstopDir         string
+	pinnedVersion       string
+	extraSemgrepConfigs []string
 }
 
 func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {

@@ -100,13 +100,13 @@ dispatch with a 2-second execution budget.`,
 
 			// Step 6: Build check options
 			opts := check.Options{
-				Mode:        mode,
-				FilePath:    fileFlag,
-				ManifestDir: filepath.Join(projectRoot, ".backstop", "rules"),
-				BackstopDir: filepath.Join(projectRoot, ".backstop"),
-				ProjectDir:  projectRoot,
+				Mode:                mode,
+				FilePath:            fileFlag,
+				ManifestDir:         filepath.Join(projectRoot, ".backstop", "rules"),
+				BackstopDir:         filepath.Join(projectRoot, ".backstop"),
+				ProjectDir:          projectRoot,
+				ExtraSemgrepConfigs: extraSemgrepConfigs,
 			}
-			_ = extraSemgrepConfigs
 
 			// Extract semgrep version pin from config
 			if cfg.Packs.Rules != nil {
