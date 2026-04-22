@@ -78,8 +78,6 @@ backstop by shelling out to CLI commands.`,
 		Long:  "Commands for compiling, managing, and distributing enforcement packs containing rules and code standards.",
 	}
 
-	packCompileCmd := newPackCompileCommand(&jsonFlag)
-
 	packNewCmd := NewPackNewCommand()
 	packCheckCmd := newPackCheckCommand(&jsonFlag)
 	packTestCmd := newPackTestCommand(&jsonFlag)
@@ -92,7 +90,7 @@ backstop by shelling out to CLI commands.`,
 	packUpgradeCmd := newPackUpgradeCommand(&jsonFlag)
 	packListCmd := newPackListCommand(&jsonFlag)
 
-	packCmd.AddCommand(packCompileCmd, packNewCmd, packCheckCmd, packTestCmd,
+	packCmd.AddCommand(packNewCmd, packCheckCmd, packTestCmd,
 		packAddCmd, packRemoveCmd, packInstallCmd, packUpdateCmd, packUpgradeCmd, packListCmd)
 
 	// --- Top-level: gate ---

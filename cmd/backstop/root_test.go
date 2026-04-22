@@ -367,10 +367,6 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Create standards/ dir so pack compile doesn't fail
-	if err := os.MkdirAll(filepath.Join(dir, "standards"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	// Create .backstop/rules/ dir so code check doesn't fail
 	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
 		t.Fatal(err)
@@ -389,7 +385,6 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 		{name: "artifact validate", args: []string{"artifact", "validate", "sample.md", "--json"}, want: "\"pass\": true"},
 		{name: "artifact new", args: []string{"artifact", "new", "spec", "--slug", "test-stub", "--json"}, want: "\"artifact_type\""},
 		{name: "code check", args: []string{"code", "check", "--json"}, want: "\"pass\": true"},
-		{name: "pack compile", args: []string{"pack", "compile", "--json"}, want: "\"summary\""},
 		{name: "gate", args: []string{"gate", "--json"}, want: "\"schema_version\""},
 	}
 	for _, tc := range tests {

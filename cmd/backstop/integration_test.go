@@ -153,34 +153,7 @@ func main() {
 	}
 }
 
-// TestIntegration_PackCompile_RealStandard runs backstop pack compile and
-// produces enforcement manifests. (CLM-049)
-func TestIntegration_PackCompile_RealStandard(t *testing.T) {
-	if binaryPath == "" {
-		t.Skip("binary not built")
-	}
-	dir := setupTestDir(t, minimalBackstopYML)
-
-	// Create a standards directory with a minimal standard
-	stdDir := filepath.Join(dir, "standards")
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	out, exitCode := runBinary(t, dir, "pack", "compile", "--json")
-	if exitCode != 0 && exitCode != 1 {
-		t.Fatalf("expected exit code 0 or 1, got %d\noutput: %s", exitCode, out)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &parsed); err != nil {
-		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
-	}
-
-	if _, ok := parsed["schema_version"]; !ok {
-		t.Error("JSON output missing schema_version field")
-	}
-}
+// pack compile removed — standards live inside packs now (DD-18/DD-45).
 
 // TestIntegration_Gate_EndToEnd runs backstop gate and produces a structured
 // pass/fail result. (CLM-050)
