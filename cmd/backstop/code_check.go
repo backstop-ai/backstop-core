@@ -109,10 +109,8 @@ dispatch with a 2-second execution budget.`,
 			}
 
 			// Extract semgrep version pin from config
-			if cfg.Packs.Rules != nil {
-				if v, ok := cfg.Packs.Rules["semgrep"]; ok {
-					opts.PinnedSemgrepVersion = v
-				}
+			if cfg.Enforcement.SemgrepVersion != "" {
+				opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
 			}
 
 			// Step 7: Set 2-second timeout for --file mode

@@ -62,17 +62,17 @@ func List(opts ListOptions) (*ListResult, error) {
 		Packs: []PackInfo{},
 	}
 
-	for _, p := range yml.Packs {
+	for ref, version := range yml.Packs {
 		info := PackInfo{
-			Name:    p.Name,
-			Version: p.Version,
+			Name:    ref,
+			Version: version,
 		}
 
 		// Determine lock status.
 		if lf != nil {
-			if entry, exists := lf.Packs[p.Name]; exists {
-				info.LockStatus = computeLockStatus(opts.ProjectDir, p, entry)
-				if info.Version == "" {
+			if entry, exists := lf.Packs[ref]; exists {
+				info.LockStatus = computeLockStatus(opts.ProjectDir, ref, version, entry)
+				if info.Version == "" || info.Version == "local" {
 					info.Version = entry.Version
 				}
 			} else {
@@ -81,7 +81,7 @@ func List(opts ListOptions) (*ListResult, error) {
 		}
 
 		// Read pack metadata.
-		packDir := resolvePackDir(opts.ProjectDir, p)
+		packDir := filepath.Join(opts.ProjectDir, ".backstop", "packs", filepath.FromSlash(ref))
 		if manifest, readErr := readListManifest(packDir); readErr == nil {
 			info.Archetype = manifest.Archetype
 			info.RuleCount = len(manifest.Rules)
@@ -106,8 +106,8 @@ func List(opts ListOptions) (*ListResult, error) {
 }
 
 // computeLockStatus determines the lock status: locked, stale, or missing.
-func computeLockStatus(projectDir string, p backstopYmlPack, entry LockEntry) string {
-	packDir := resolvePackDir(projectDir, p)
+func computeLockStatus(projectDir, ref, version string, entry LockEntry) string {
+	packDir := filepath.Join(projectDir, ".backstop", "packs", filepath.FromSlash(ref))
 
 	if _, err := os.Stat(packDir); os.IsNotExist(err) {
 		return "missing"
@@ -122,14 +122,6 @@ func computeLockStatus(projectDir string, p backstopYmlPack, entry LockEntry) st
 		return "locked"
 	}
 	return "stale"
-}
-
-// resolvePackDir determines the directory for a pack.
-func resolvePackDir(projectDir string, p backstopYmlPack) string {
-	if p.Path != "" {
-		return p.Path
-	}
-	return filepath.Join(projectDir, ".backstop", "packs", p.Name)
 }
 
 // readListManifest reads minimal pack manifest for list metadata.

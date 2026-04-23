@@ -111,13 +111,7 @@ func removeFromBackstopYml(projectDir, packName string) error {
 		return err
 	}
 
-	var filtered []backstopYmlPack
-	for _, p := range yml.Packs {
-		if p.Name != packName {
-			filtered = append(filtered, p)
-		}
-	}
-	yml.Packs = filtered
+	delete(yml.Packs, packName)
 
 	out, err := yaml.Marshal(&yml)
 	if err != nil {

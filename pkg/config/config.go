@@ -28,6 +28,7 @@ type Config struct {
 type Enforcement struct {
 	Security          Security `yaml:"security,omitempty" json:"security,omitempty"`
 	WaiverWarningDays int      `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
+	SemgrepVersion    string   `yaml:"semgrep_version,omitempty" json:"semgrep_version,omitempty"`
 }
 
 // Security holds the security enforcement settings.
@@ -35,11 +36,11 @@ type Security struct {
 	Tier string `yaml:"tier,omitempty" json:"tier,omitempty"`
 }
 
-// Packs holds rule and code pack declarations.
-type Packs struct {
-	Rules map[string]string `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Code  map[string]string `yaml:"code,omitempty" json:"code,omitempty"`
-}
+// Packs is a map of pack ref → version. The ref is either the pack name
+// (public, e.g. "acme/go-standards") or a generated opaque ref (private,
+// e.g. "gentle-river-k8x2"). Version is the pinned semver string.
+// Local packs use "local" as the version.
+type Packs map[string]string
 
 // DiscoverConfigPath finds backstop.yml by checking BACKSTOP_CONFIG env var
 // first, then walking up from the current working directory.

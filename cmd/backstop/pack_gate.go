@@ -83,28 +83,12 @@ func verifyPackLock(projectRoot string, packs []string) error {
 }
 
 func declaredPackNames(cfg *config.Config) []string {
-	if cfg == nil {
+	if cfg == nil || len(cfg.Packs) == 0 {
 		return nil
 	}
-	packSet := map[string]struct{}{}
-	if cfg.Packs.Rules != nil {
-		for name := range cfg.Packs.Rules {
-			if strings.Contains(name, "/") {
-				packSet[name] = struct{}{}
-			}
-		}
-	}
-	if cfg.Packs.Code != nil {
-		for name := range cfg.Packs.Code {
-			if strings.Contains(name, "/") {
-				packSet[name] = struct{}{}
-			}
-		}
-	}
-
-	names := make([]string, 0, len(packSet))
-	for name := range packSet {
-		names = append(names, name)
+	names := make([]string, 0, len(cfg.Packs))
+	for ref := range cfg.Packs {
+		names = append(names, ref)
 	}
 	sort.Strings(names)
 	return names

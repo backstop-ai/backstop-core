@@ -177,16 +177,14 @@ func readPackVersion(projectDir, packName string) (string, bool, error) {
 		return "", false, err
 	}
 
-	for _, p := range yml.Packs {
-		if p.Name == packName {
-			if p.Path != "" {
-				return "", true, nil
-			}
-			return p.Version, false, nil
-		}
+	version, exists := yml.Packs[packName]
+	if !exists {
+		return "", false, fmt.Errorf("pack %s not found in backstop.yml", packName)
 	}
-
-	return "", false, fmt.Errorf("pack %s not found in backstop.yml", packName)
+	if version == "local" {
+		return "", true, nil
+	}
+	return version, false, nil
 }
 
 // updatePackVersion updates the version of a pack in backstop.yml.
@@ -202,12 +200,7 @@ func updatePackVersion(projectDir, packName, newVersion string) error {
 		return err
 	}
 
-	for i, p := range yml.Packs {
-		if p.Name == packName {
-			yml.Packs[i].Version = newVersion
-			break
-		}
-	}
+	yml.Packs[packName] = newVersion
 
 	out, err := yaml.Marshal(&yml)
 	if err != nil {

@@ -344,10 +344,8 @@ func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) 
 
 	// Load config to extract semgrep version pin.
 	cfg, err := config.LoadConfig()
-	if err == nil && cfg.Packs.Rules != nil {
-		if v, ok := cfg.Packs.Rules["semgrep"]; ok {
-			opts.PinnedSemgrepVersion = v
-		}
+	if err == nil && cfg.Enforcement.SemgrepVersion != "" {
+		opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
 	}
 
 	result, runErr := check.Run(context.Background(), opts)

@@ -52,16 +52,14 @@ type AddResult struct {
 	InstalledPath string `json:"installed_path"`
 }
 
-// backstopYml represents a minimal backstop.yml for pack management.
+// backstopYml represents backstop.yml preserving all fields during read-modify-write.
+// Packs is a map of ref → version, matching pkg/config.Packs format.
 type backstopYml struct {
-	Packs []backstopYmlPack `yaml:"packs"`
-}
-
-// backstopYmlPack represents a pack entry in backstop.yml.
-type backstopYmlPack struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version,omitempty"`
-	Path    string `yaml:"path,omitempty"`
+	Project  string            `yaml:"project,omitempty"`
+	Language string            `yaml:"language,omitempty"`
+	Packs    map[string]string `yaml:"packs"`
+	// Catch-all for fields we don't explicitly model.
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 // Add implements the pack add pipeline: resolve, clone, validate, install,
@@ -312,12 +310,8 @@ func isPackInstalled(projectDir, packName string) bool {
 		return false
 	}
 
-	for _, p := range yml.Packs {
-		if p.Name == packName {
-			return true
-		}
-	}
-	return false
+	_, exists := yml.Packs[packName]
+	return exists
 }
 
 // updateBackstopYml adds a pack entry to backstop.yml.
@@ -333,14 +327,15 @@ func updateBackstopYml(projectDir, packName, version string, isLocal bool, local
 		return err
 	}
 
-	entry := backstopYmlPack{Name: packName}
-	if isLocal {
-		entry.Path = localPath
-	} else {
-		entry.Version = version
+	if yml.Packs == nil {
+		yml.Packs = make(map[string]string)
 	}
 
-	yml.Packs = append(yml.Packs, entry)
+	if isLocal {
+		yml.Packs[packName] = "local"
+	} else {
+		yml.Packs[packName] = version
+	}
 
 	out, err := yaml.Marshal(&yml)
 	if err != nil {
