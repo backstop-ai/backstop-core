@@ -141,29 +141,20 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		}
 	}
 
-	// For git packs: copy to .backstop/packs/org/pack-name/.
-	var installedPath string
-	if !isLocal {
-		installedPath = filepath.Join(opts.ProjectDir, ".backstop", "packs", packName)
-		if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-			return nil, fmt.Errorf("creating packs dir: %w", err)
-		}
-
-		if err := copyDirRecursive(packDir, installedPath); err != nil {
-			return nil, fmt.Errorf("copying pack: %w", err)
-		}
+	// Copy pack to .backstop/packs/org/pack-name/ (both git and local).
+	installedPath := filepath.Join(opts.ProjectDir, ".backstop", "packs", packName)
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
+		return nil, fmt.Errorf("creating packs dir: %w", err)
 	}
 
-	// Compute content hash.
-	hashDir := packDir
-	if !isLocal {
-		hashDir = installedPath
+	if err := copyDirRecursive(packDir, installedPath); err != nil {
+		return nil, fmt.Errorf("copying pack: %w", err)
 	}
-	contentHash, err := ComputeContentHash(hashDir)
+
+	// Compute content hash from the installed copy.
+	contentHash, err := ComputeContentHash(installedPath)
 	if err != nil {
-		if !isLocal && installedPath != "" {
-			os.RemoveAll(installedPath)
-		}
+		os.RemoveAll(installedPath)
 		return nil, fmt.Errorf("computing content hash: %w", err)
 	}
 
@@ -181,9 +172,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	provSnap, _ := os.ReadFile(provPath)
 
 	rollback := func() {
-		if !isLocal && installedPath != "" {
-			os.RemoveAll(installedPath)
-		}
+		os.RemoveAll(installedPath)
 		if ymlSnap != nil {
 			os.WriteFile(ymlPath, ymlSnap, 0o644)
 		}
