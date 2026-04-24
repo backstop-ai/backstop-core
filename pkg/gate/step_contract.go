@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"os"
 	"strings"
 )
 
@@ -32,6 +33,19 @@ func StepContractSignatureFunc(contracts []ContractEntry) StepFunc {
 		}
 
 		for file, entries := range byFile {
+			// Skip non-Go files — the Go parser can only handle .go files.
+			// Specs may reference non-Go files (JSON schemas, YAML configs,
+			// shell scripts, markdown) in their contracts for documentation
+			// purposes. These are not checkable via AST parsing.
+			if !strings.HasSuffix(file, ".go") {
+				continue
+			}
+
+			// Skip files that don't exist (may have been deleted/moved).
+			if _, statErr := os.Stat(file); statErr != nil {
+				continue
+			}
+
 			fset := token.NewFileSet()
 			parsed, err := parser.ParseFile(fset, file, nil, parser.AllErrors)
 			if err != nil {
@@ -57,6 +71,10 @@ func StepContractSignatureFunc(contracts []ContractEntry) StepFunc {
 					actualSig, found = findType(parsed, entry.Name)
 				case "variable":
 					actualSig, found = findVariable(fset, parsed, entry.Name)
+				case "constant":
+					actualSig, found = findVariable(fset, parsed, entry.Name) // constants parsed like variables
+				case "method":
+					actualSig, found = findFunction(fset, parsed, entry.Name) // methods parsed like functions
 				default:
 					violations = append(violations, Violation{
 						Rule:     "contract_signature",
