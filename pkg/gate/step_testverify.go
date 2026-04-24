@@ -254,6 +254,18 @@ func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
 		return true, true // can't parse → treat as hollow
 	}
 
+	// If the test file's package matches the target package (or is the
+	// _test variant), the test IS in the target package — skip the
+	// target-call check. Same-package tests call functions directly
+	// without a package qualifier (Function() not pkg.Function()).
+	filePkg := ""
+	if file.Name != nil {
+		filePkg = file.Name.Name
+	}
+	samePackage := filePkg == targetPkg ||
+		filePkg == targetPkg+"_test" ||
+		strings.TrimSuffix(filePkg, "_test") == targetPkg
+
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Name.Name != funcName || fn.Body == nil {
@@ -261,8 +273,13 @@ func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
 		}
 
 		hasAssertion := hasAssertions(fn.Body)
-		callsTarget := callsTargetPackage(fn.Body, targetPkg)
 
+		// Same-package tests don't need a qualified call to the target.
+		if samePackage {
+			return !hasAssertion, false
+		}
+
+		callsTarget := callsTargetPackage(fn.Body, targetPkg)
 		return !hasAssertion, !callsTarget
 	}
 
@@ -272,14 +289,26 @@ func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
 
 // assertionSelectors are method names on *testing.T that count as assertions.
 var assertionSelectors = map[string]bool{
-	"Fatal":  true,
-	"Fatalf": true,
-	"Error":  true,
-	"Errorf": true,
+	"Fatal":   true,
+	"Fatalf":  true,
+	"Error":   true,
+	"Errorf":  true,
+	"Fail":    true,
+	"FailNow": true,
+	"Skip":    true,
+	"Skipf":   true,
+	"Log":     true,
+	"Logf":    true,
+	"Run":     true, // subtests
+	"Helper":  true, // test helpers that delegate
 }
 
-// hasAssertions checks if a function body contains at least one assertion call
-// (t.Fatal, t.Error, t.Errorf, t.Fatalf).
+// hasAssertions checks if a function body contains at least one assertion call.
+// Recognizes:
+//   - t.Fatal, t.Error, t.Run, etc. (selector expressions on *testing.T)
+//   - Helper functions whose names suggest assertions: require*, assert*,
+//     check*, verify*, expect*, must* (plain function calls)
+//   - Any function call that receives a *testing.T as first argument
 func hasAssertions(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -290,14 +319,36 @@ func hasAssertions(body *ast.BlockStmt) bool {
 		if !ok {
 			return true
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
+
+		// Check selector expressions: t.Fatal, t.Error, etc.
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if assertionSelectors[sel.Sel.Name] {
+				found = true
+				return false
+			}
 		}
-		if assertionSelectors[sel.Sel.Name] {
-			found = true
-			return false
+
+		// Check plain function calls that look like assertion helpers.
+		if ident, ok := call.Fun.(*ast.Ident); ok {
+			name := strings.ToLower(ident.Name)
+			if strings.HasPrefix(name, "require") ||
+				strings.HasPrefix(name, "assert") ||
+				strings.HasPrefix(name, "check") ||
+				strings.HasPrefix(name, "verify") ||
+				strings.HasPrefix(name, "expect") ||
+				strings.HasPrefix(name, "must") {
+				found = true
+				return false
+			}
+			// Any function that takes t as first arg is likely an assertion helper.
+			if len(call.Args) > 0 {
+				if argIdent, ok := call.Args[0].(*ast.Ident); ok && argIdent.Name == "t" {
+					found = true
+					return false
+				}
+			}
 		}
+
 		return true
 	})
 	return found
