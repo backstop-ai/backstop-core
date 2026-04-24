@@ -3,21 +3,13 @@
 # See artifacts/directive/v1/backlog-schema.json for format.
 
 directives:
-  - id: DIR-004
-    title: Wire Packs Into Gate
-  - id: DIR-009
-    title: End-to-End Pack Smoke Test
-  - id: DIR-006
-    title: Fix Substantiveness Checker
-  - id: DIR-007
-    title: Fix Contract Verifier
-  - id: DIR-001
-    title: Release Workflow
   - id: DIR-005
     title: Extract Go Standards Pack
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002
     title: backstop init Command
+  - id: DIR-001
+    title: Release Workflow
   - id: DIR-008
     title: CLI Self-Update
