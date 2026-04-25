@@ -6,7 +6,8 @@ issue:
   id: ISSUE-001
   title: "backstop.yml packs schema mismatch between config and distribution"
   type: bug
-  status: open
+  status: resolved
+  resolved: "2026-04-24"
   created: "2026-04-21"
 ---
 

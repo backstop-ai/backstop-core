@@ -44,28 +44,18 @@
           "type": "integer",
           "default": 30,
           "description": "Number of days before waiver expiry to warn"
+        },
+        "semgrep_version": {
+          "type": "string",
+          "description": "Pinned semgrep version for reproducible scans"
         }
       }
     },
     "packs": {
       "type": "object",
-      "description": "Pack declarations",
-      "additionalProperties": false,
-      "properties": {
-        "rules": {
-          "type": "object",
-          "description": "Rule pack name to version mapping",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "code": {
-          "type": "object",
-          "description": "Code pack name to version mapping",
-          "additionalProperties": {
-            "type": "string"
-          }
-        }
+      "description": "Pack ref to version mapping (e.g. acme/go-standards: 1.0.0, or local for local packs)",
+      "additionalProperties": {
+        "type": "string"
       }
     },
     "registries": {

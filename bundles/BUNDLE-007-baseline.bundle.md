@@ -6,12 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: baseline
-  version: "0.1.0"
+  version: "0.3.0"
   created: "2026-04-19"
+  updated: "2026-04-24"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: ready
 
 problem:
   summary: >
@@ -36,6 +37,15 @@ problem:
     "3 new violations beyond baseline — fix before proceeding." I never
     produce or edit the baseline — CI does that after every merge to main.
 
+  success_criteria:
+    - Gate reports differential violations (new vs baseline), not absolute counts
+    - Agents can determine whether their changes introduced regressions
+    - Baseline is CI-generated and immutable — no local generation or editing
+    - Baseline ratchet ensures violation counts can only decrease over time
+    - First-run experience is non-hostile — missing baseline skips comparison with warning
+    - Local caching with configurable TTL avoids excessive network calls
+    - Pack upgrades produce new baseline violations that are chipped away, not blocked
+
 solution:
   approach: >
     Baseline is a CI post-merge artifact, not a committed file. After
@@ -46,6 +56,69 @@ solution:
     new violations = fail, fixed violations = progress. The baseline file
     is cached at .backstop/baseline.json (gitignored) and never committed
     to the repo.
+
+  assumptions:
+    - GitHub Actions is available as the CI provider
+    - CI runs on every merge to main (post-merge trigger)
+    - Network is available for baseline pull (offline fallback uses stale cache with warning)
+    - GitHub Actions artifact storage provides sufficient retention (90-day default)
+    - Gate emits violation data with enough structure for content-hash-based identity
+
+requirements:
+  - id: REQ-001
+    text: >
+      CI must run backstop gate after every merge to main and publish
+      the full violation set as an immutable GitHub Actions artifact.
+      The artifact includes git SHA, timestamp, backstop version, and
+      per-step violation counts with rule IDs.
+  - id: REQ-002
+    text: >
+      backstop gate must cache the baseline locally at
+      .backstop/baseline.json (gitignored) with TTL-based freshness.
+      If the cached baseline is within TTL, use it without network
+      access. If expired, check GitHub for a newer artifact. If
+      offline, use stale cache with a warning.
+  - id: REQ-003
+    text: >
+      Gate step 7 (baseline comparison) must compute a differential
+      between the current violation set and the cached baseline.
+      Violations are matched by rule + file + content-hash of the
+      violating region. New violations (not in baseline) are
+      regressions. Violations in the baseline but not in current are
+      progress. The gate reports the differential, not absolute counts.
+  - id: REQ-004
+    text: >
+      Baselines must ratchet: each post-merge baseline can only have
+      equal or fewer violations than the previous one. If a PR adds
+      net-new violations, the PR gate fails. If a PR fixes violations,
+      the post-merge baseline reflects the improvement. There is no
+      mechanism to raise the baseline without a corresponding code change.
+  - id: REQ-005
+    text: >
+      backstop baseline pull must fetch the latest baseline artifact
+      from GitHub Actions, cache it locally at .backstop/baseline.json,
+      and bypass TTL. This command is for explicit use at session start
+      or after a known merge.
+  - id: REQ-006
+    text: >
+      When no baseline exists (first run, no CI runs yet), gate step 7
+      must skip baseline comparison and emit a warning indicating that
+      CI needs to run first. The gate does not treat all violations as
+      new and does not auto-generate a local baseline.
+  - id: REQ-007
+    text: >
+      The baseline artifact must be a JSON file containing: full
+      violation set from all gate steps, git SHA of the merge commit,
+      timestamp, backstop version, per-step violation counts, and
+      per-violation identity (rule + file + content-hash of violating
+      region). The schema must be versioned.
+  - id: REQ-008
+    text: >
+      When a pack version upgrade introduces new rules, the post-merge
+      baseline must capture all new violations from those rules. New
+      code is enforced immediately; existing violations enter the
+      baseline and are remediated over time via the remediation bundle
+      (BUNDLE-004 DD-42).
 ---
 
 # Baseline
@@ -130,10 +203,11 @@ The baseline artifact contains:
 - The timestamp
 - The backstop version used
 - Per-step violation counts and rule IDs
+- Per-violation identity: rule + file + content-hash of violating region
 
 This is enough to do a structural diff: same rule + same file + same
-line range = pre-existing. New rule or new file or new line range =
-regression.
+content-hash = pre-existing. New rule or new file or different
+content-hash = regression.
 
 ### Interaction with pack upgrades
 
@@ -150,6 +224,21 @@ captures the initial state as "here's what we noticed." That initial
 capture IS the first baseline. `backstop init` runs the gate, publishes
 the result as the baseline, and from that point forward everything is
 differential.
+
+## Draft Requirements
+
+Requirements are formally captured in the frontmatter `requirements`
+block (REQ-001 through REQ-008). Summary:
+
+- **REQ-001**: CI post-merge baseline generation via GitHub Actions
+- **REQ-002**: Local baseline caching with TTL at .backstop/baseline.json
+- **REQ-003**: Differential violation reporting in gate step 7 using
+  rule + file + content-hash identity
+- **REQ-004**: Baseline ratchet — violation counts can only decrease
+- **REQ-005**: `backstop baseline pull` command for explicit fetch
+- **REQ-006**: First-run bootstrap skips comparison with warning
+- **REQ-007**: Baseline artifact JSON schema (versioned)
+- **REQ-008**: Pack upgrade interaction — new rules captured in baseline
 
 ## Draft Design Decisions
 
@@ -187,62 +276,90 @@ differential.
   is not blocked; new code is enforced immediately.
 
 - **DD-7:** The baseline artifact includes: full violation set, git SHA,
-  timestamp, backstop version, per-step violation counts with rule IDs.
-  This enables structural diffing: same rule + same file + same line
-  range = pre-existing.
+  timestamp, backstop version, per-step violation counts with rule IDs,
+  and per-violation content-hash identity. This enables structural
+  diffing: same rule + same file + same content-hash = pre-existing.
 
-## Open Questions
+- **DD-8:** Baseline artifact storage uses GitHub Actions artifacts
+  for v1. Free, simple, 90-day retention is sufficient. Permanent
+  storage (release assets, S3) can be added later if needed.
+  Rationale: avoids infrastructure requirements; 90-day retention
+  exceeds practical need since baselines are replaced on every merge.
 
-- **OQ-1: Baseline artifact storage.** Where does CI publish the
-  baseline? GitHub Actions artifact storage (free, 90-day retention)?
-  GitHub release asset (permanent)? S3 (requires infra)? Git tag with
-  attached artifact? The storage choice affects TTL, availability, and
-  cost. Lean: GitHub Actions artifacts for v1 — free, simple, good
-  enough. Permanent storage can come later.
+- **DD-9:** Violation identity for diffing uses rule + file +
+  content-hash of the violating region. More stable than line numbers
+  (which shift on any edit). Requires the gate to emit richer violation
+  data including the violating code region content. Rationale: line-based
+  identity is too fragile for real-world use where edits above a
+  violation shift its line number without changing the violation itself.
 
-- **OQ-2: Violation identity for diffing.** How do you determine
-  whether a violation in the current run is "the same" as one in the
-  baseline? Same rule + same file + same line is fragile (line numbers
-  shift on any edit). Same rule + same file + same code snippet is
-  more robust but requires storing code context in the baseline.
-  Same rule + same file only is too coarse (a file with 10 violations
-  of the same rule — fixing one doesn't register). Needs a stable
-  identity scheme.
+- **DD-10:** Main-only baselines for v1. All branches compare against
+  main's baseline. Long-lived feature branches may accumulate noise but
+  the simplicity tradeoff is worth it. Branch-specific baselines can be
+  added in a future version if demand warrants. Rationale: branch
+  baselines add significant complexity (storage, selection logic,
+  staleness) for an edge case.
 
-- **OQ-3: Branch baselines.** Long-lived feature branches diverge from
-  main. Should each branch have its own baseline? Or always compare
-  against main's baseline? Branch baselines add complexity; main-only
-  is simpler but may produce noise on large branches that accumulate
-  violations before merging.
+- **DD-11:** Baseline TTL is configurable in backstop.yml under
+  `enforcement.baseline_ttl`, default 15 minutes. Rationale: teams
+  merging frequently need shorter TTL; solo developers can use longer.
+  Configurable with a sane default avoids one-size-fits-all friction.
 
-- **OQ-4: Baseline TTL configurability.** Default 15 minutes. Should
-  this be configurable in backstop.yml? Too short = excessive network
-  checks. Too long = stale baseline during active development when
-  teammates are merging. Maybe configurable with a sane default.
+- **DD-12:** First-run bootstrap skips baseline comparison with a
+  warning. The gate does not treat all violations as new (too harsh)
+  and does not auto-generate a local baseline (defeats the CI-only
+  model). Rationale: permissive first-run avoids blocking adoption
+  while making clear that CI needs to run first.
 
-- **OQ-5: First-run bootstrap.** If no baseline exists anywhere (new
-  project, no CI runs yet), what does the gate do? Options: (a) treat
-  everything as new (harsh), (b) skip baseline comparison with a
-  warning (permissive), (c) auto-generate a local baseline on first
-  run (defeats the CI-only model). Lean: (b) — skip with warning,
-  document that CI needs to run first.
+- **DD-13:** Baseline proceeds independently of the ledger (gate
+  step 9). No dependency between baseline generation and ledger
+  entries. Integration can come later. Rationale: the ledger is also
+  deferred; coupling two deferred features creates unnecessary
+  blocking. Each can ship independently.
 
-- **OQ-6: Baseline and the ledger.** Gate step 9 is the append-only
-  ledger. Should each baseline be a ledger entry? The ledger would
-  then contain the full history of violation counts over time — useful
-  for trend analysis. But the ledger is also deferred. Should baseline
-  block on ledger, or proceed independently?
+## Resolved Design Questions
+
+- **OQ-1 (storage):** Resolved as GitHub Actions artifacts for v1.
+  Free, simple, 90-day retention is sufficient since baselines are
+  replaced on every merge. Permanent storage deferred. See DD-8.
+
+- **OQ-2 (violation identity):** Resolved as rule + file +
+  content-hash of the violating region. More stable than line numbers
+  which shift on any edit. Requires richer violation data from the
+  gate. See DD-9.
+
+- **OQ-3 (branch baselines):** Resolved as main-only for v1. All
+  branches compare against main's baseline. Simpler model; branch
+  baselines deferred. See DD-10.
+
+- **OQ-4 (TTL configurability):** Resolved as configurable in
+  backstop.yml under `enforcement.baseline_ttl`, default 15 minutes.
+  See DD-11.
+
+- **OQ-5 (first-run bootstrap):** Resolved as skip baseline
+  comparison with warning. Document that CI needs to run first. No
+  local baseline generation. See DD-12.
+
+- **OQ-6 (baseline and ledger):** Resolved as independent. Baseline
+  proceeds without waiting for ledger. Can integrate later. See DD-13.
 
 ## Spec Seeds
 
-- **`backstop baseline pull`** — fetch latest from CI, cache locally,
-  bypass TTL
-- **Gate step 7 implementation** — baseline comparison logic,
-  structural diffing, differential reporting
+- **Baseline artifact schema** — the JSON structure for the cached
+  baseline file, versioned schema, content-hash identity format.
+  Covers REQ-007. Implement first as foundation for other specs.
+
 - **CI workflow for baseline generation** — GitHub Actions workflow
-  that runs gate post-merge and publishes the artifact
-- **Baseline format schema** — the JSON structure for the cached
-  baseline file
+  that runs gate post-merge and publishes the artifact. GitHub Actions
+  artifact API integration. Covers REQ-001, REQ-008.
+
+- **`backstop baseline pull`** — fetch latest from CI, cache locally,
+  bypass TTL. TTL configuration from backstop.yml. Offline fallback.
+  Covers REQ-002, REQ-005.
+
+- **Gate step 7 implementation** — baseline comparison logic,
+  content-hash structural diffing, differential reporting, first-run
+  bootstrap behavior. Covers REQ-003, REQ-004, REQ-006.
 
 ## Notes / Ideas
 
@@ -253,19 +370,31 @@ differential.
 - The 15-minute TTL is a guess. Real-world usage will determine the
   right value. Teams merging frequently need shorter TTL; solo
   developers can use longer.
-- The "same rule + same file + same line" identity scheme is the
-  weakest part of the design. Line numbers shift on every edit. A
-  content-hash-based identity (hash of the violating code region)
-  would be more stable but requires the gate to emit richer violation
-  data than it currently does.
+- Content-hash identity requires the gate to emit the violating code
+  region, not just file + line. This is a prerequisite for baseline
+  diffing and may require changes to existing gate step outputs.
 
 ## Version History
 
-- 0.1.0 (2026-04-19): Initial bundle. Captured the CI-generated
-  baseline model, local caching with TTL, differential gate reporting,
-  ratchet semantics, pack upgrade interaction. 7 DDs, 6 OQs, 4 spec
-  seeds. Motivated by real-world pain from local baseline generation
-  at the founder's day-job project.
+- 0.1.0 (2026-04-19): Initial bundle at exploring. Captured the
+  CI-generated baseline model, local caching with TTL, differential
+  gate reporting, ratchet semantics, pack upgrade interaction. 7 DDs,
+  6 OQs, 4 spec seeds. Motivated by real-world pain from local
+  baseline generation at the founder's day-job project.
+
+- 0.2.0 (2026-04-24): Advanced to defined. Resolved all 6 OQs:
+  GitHub Actions artifacts for storage (OQ-1), content-hash violation
+  identity (OQ-2), main-only baselines (OQ-3), configurable TTL in
+  backstop.yml (OQ-4), skip-with-warning bootstrap (OQ-5), independent
+  of ledger (OQ-6). Added 6 new DDs (DD-8 through DD-13) from OQ
+  resolutions. Added formal requirements REQ-001 through REQ-008.
+  Added Draft Requirements section. Moved OQs to Resolved Design
+  Questions section.
+
+- 0.3.0 (2026-04-24): Advanced to ready. Added success_criteria and
+  assumptions to frontmatter. Refined spec seeds with requirement
+  traceability and implementation ordering. Updated baseline format
+  notes to reflect content-hash identity decision.
 
 ## References
 

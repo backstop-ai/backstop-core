@@ -74,7 +74,7 @@ func StepContractSignatureFunc(contracts []ContractEntry) StepFunc {
 				case "constant":
 					actualSig, found = findVariable(fset, parsed, entry.Name) // constants parsed like variables
 				case "method":
-					actualSig, found = findFunction(fset, parsed, entry.Name) // methods parsed like functions
+					actualSig, found = findMethod(fset, parsed, entry.Name)
 				default:
 					violations = append(violations, Violation{
 						Rule:     "contract_signature",
@@ -138,6 +138,22 @@ func findFunction(fset *token.FileSet, file *ast.File, name string) (string, boo
 	return "", false
 }
 
+// findMethod finds a method declaration (function with receiver) by name and returns its signature.
+func findMethod(fset *token.FileSet, file *ast.File, name string) (string, bool) {
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != name {
+			continue
+		}
+		if fn.Recv == nil {
+			continue
+		}
+		sig := formatMethodSignature(fset, fn)
+		return sig, true
+	}
+	return "", false
+}
+
 // findType finds a type declaration by name and returns "type Name struct"
 // or "type Name interface".
 func findType(file *ast.File, name string) (string, bool) {
@@ -168,7 +184,7 @@ func findType(file *ast.File, name string) (string, bool) {
 func findVariable(fset *token.FileSet, file *ast.File, name string) (string, bool) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
+		if !ok || (gen.Tok != token.VAR && gen.Tok != token.CONST) {
 			continue
 		}
 		for _, spec := range gen.Specs {
@@ -178,13 +194,17 @@ func findVariable(fset *token.FileSet, file *ast.File, name string) (string, boo
 			}
 			for _, ident := range vs.Names {
 				if ident.Name == name {
+					prefix := "var"
+					if gen.Tok == token.CONST {
+						prefix = "const"
+					}
 					if vs.Type != nil {
 						var buf bytes.Buffer
 						if err := printer.Fprint(&buf, fset, vs.Type); err == nil {
-							return "var " + name + " " + buf.String(), true
+							return prefix + " " + name + " " + buf.String(), true
 						}
 					}
-					return "var " + name, true
+					return prefix + " " + name, true
 				}
 			}
 		}
@@ -196,6 +216,46 @@ func findVariable(fset *token.FileSet, file *ast.File, name string) (string, boo
 func formatFuncSignature(fset *token.FileSet, fn *ast.FuncDecl) string {
 	var buf bytes.Buffer
 	buf.WriteString("func ")
+	buf.WriteString(fn.Name.Name)
+
+	// Print params
+	buf.WriteString("(")
+	if fn.Type.Params != nil {
+		printFieldList(&buf, fset, fn.Type.Params.List)
+	}
+	buf.WriteString(")")
+
+	// Print results
+	if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
+		buf.WriteString(" ")
+		if len(fn.Type.Results.List) == 1 && len(fn.Type.Results.List[0].Names) == 0 {
+			var tbuf bytes.Buffer
+			if err := printer.Fprint(&tbuf, fset, fn.Type.Results.List[0].Type); err == nil {
+				buf.WriteString(tbuf.String())
+			}
+		} else {
+			buf.WriteString("(")
+			printFieldList(&buf, fset, fn.Type.Results.List)
+			buf.WriteString(")")
+		}
+	}
+
+	return buf.String()
+}
+
+// formatMethodSignature formats a method declaration as its signature string,
+// including the receiver type.
+func formatMethodSignature(fset *token.FileSet, fn *ast.FuncDecl) string {
+	var buf bytes.Buffer
+	buf.WriteString("func ")
+
+	// Print receiver
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		buf.WriteString("(")
+		printFieldList(&buf, fset, fn.Recv.List)
+		buf.WriteString(") ")
+	}
+
 	buf.WriteString(fn.Name.Name)
 
 	// Print params

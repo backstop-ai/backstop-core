@@ -34,14 +34,14 @@ func TestConfig_Struct_AllFields(t *testing.T) {
 	if cfg.Enforcement.WaiverWarningDays != 14 {
 		t.Errorf("WaiverWarningDays = %d, want 14", cfg.Enforcement.WaiverWarningDays)
 	}
-	if len(cfg.Packs.Rules) == 0 {
-		t.Error("Packs.Rules is empty, expected entries")
+	if len(cfg.Packs) == 0 {
+		t.Error("Packs is empty, expected entries")
 	}
-	if cfg.Packs.Rules["owasp-go"] != "1.0.0" {
-		t.Errorf("Packs.Rules[owasp-go] = %q, want %q", cfg.Packs.Rules["owasp-go"], "1.0.0")
+	if cfg.Packs["owasp-go"] != "1.0.0" {
+		t.Errorf("Packs[owasp-go] = %q, want %q", cfg.Packs["owasp-go"], "1.0.0")
 	}
-	if len(cfg.Packs.Code) == 0 {
-		t.Error("Packs.Code is empty, expected entries")
+	if cfg.Packs["go-standards"] != "1.0.0" {
+		t.Errorf("Packs[go-standards] = %q, want %q", cfg.Packs["go-standards"], "1.0.0")
 	}
 	if len(cfg.Registries) == 0 {
 		t.Error("Registries is empty, expected entries")
@@ -141,10 +141,8 @@ func TestConfig_Packs_ValidVersions(t *testing.T) {
 	content := `project: svc
 language: go
 packs:
-  rules:
-    owasp-go: "1.0.0"
-  code:
-    go-standards: "2.0.0"
+  owasp-go: "1.0.0"
+  go-standards: "2.0.0"
 `
 	path := filepath.Join(dir, "backstop.yml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -154,11 +152,11 @@ packs:
 	if err != nil {
 		t.Fatalf("valid packs rejected: %v", err)
 	}
-	if cfg.Packs.Rules["owasp-go"] != "1.0.0" {
-		t.Errorf("Rules[owasp-go] = %q, want %q", cfg.Packs.Rules["owasp-go"], "1.0.0")
+	if cfg.Packs["owasp-go"] != "1.0.0" {
+		t.Errorf("Packs[owasp-go] = %q, want %q", cfg.Packs["owasp-go"], "1.0.0")
 	}
-	if cfg.Packs.Code["go-standards"] != "2.0.0" {
-		t.Errorf("Code[go-standards] = %q, want %q", cfg.Packs.Code["go-standards"], "2.0.0")
+	if cfg.Packs["go-standards"] != "2.0.0" {
+		t.Errorf("Packs[go-standards] = %q, want %q", cfg.Packs["go-standards"], "2.0.0")
 	}
 }
 
