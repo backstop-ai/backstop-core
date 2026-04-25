@@ -1,0 +1,127 @@
+# pack.yml — enforcement pack archetype
+# Extracted from: github.com/fescueai/slotly
+name: slotly/go-slotly-standards
+version: "0.1.0"
+language: go
+archetype: enforcement
+description: "Enforcement standards extracted from Slotly — token safety, Slack signature verification, config hygiene, error handling"
+
+tool_config:
+  # Standalone layer 1 enforcement — errcheck via golangci-lint
+  - id: slotly-tool-errcheck
+    tool: golangci-lint
+    risk_class: correctness
+    file: .golangci.yml
+    settings:
+      linters:
+        enable:
+          - errcheck
+    claims:
+      - id: slotly-tool-errcheck-clm-001
+        text: "All error returns must be checked — unchecked errors hide failures in database, API, and crypto operations"
+        fixtures:
+          positive:
+            - fixtures/rules/slotly-tool-errcheck/good-checked-err.go
+          negative:
+            - fixtures/rules/slotly-tool-errcheck/unchecked-err.go
+
+  # Tool config supporting slotly-003 custom rule
+  - tool: golangci-lint
+    file: .golangci.yml
+    settings:
+      linters:
+        enable:
+          - govet
+          - staticcheck
+    required_by: [slotly-003]
+
+content:
+  ruleset:
+    version: "0.1.0"
+    rules:
+      # Rule 1: Token corruption prevention — NEVER db.Save after loading user
+      - id: slotly-001
+        standard: standards/token-save-safety.standard.md
+        rule: rules/slotly-001.yml
+        risk_class: security
+        layer: 2
+        claims:
+          - id: slotly-001-clm-001
+            text: "After loading a user from the database, updates must use Model().Update() or Model().Updates() — never db.Save()"
+            fixtures:
+              positive:
+                - fixtures/rules/slotly-001/good-targeted-update.go
+              negative:
+                - path: fixtures/rules/slotly-001/bad-save-after-load.go
+                - path: fixtures/rules/slotly-001/save-user-pointer.go
+                - path: fixtures/rules/slotly-001/bypass-save-via-variable.go
+                  bypass_attempt: true
+
+      # Rule 2: Slack signature verification on all Slack endpoints
+      - id: slotly-002
+        standard: standards/slack-signature-verification.standard.md
+        rule: rules/slotly-002.yml
+        risk_class: security
+        layer: 2
+        claims:
+          - id: slotly-002-clm-001
+            text: "Every handler that processes Slack payloads must verify the request signature via slack.NewSecretsVerifier before parsing"
+            fixtures:
+              positive:
+                - fixtures/rules/slotly-002/good-verified-handler.go
+              negative:
+                - path: fixtures/rules/slotly-002/no-verification.go
+                - path: fixtures/rules/slotly-002/verify-after-parse.go
+                - path: fixtures/rules/slotly-002/noop-verifier.go
+                  bypass_attempt: true
+
+      # Rule 3: Error wrapping with context
+      - id: slotly-003
+        standard: standards/error-wrapping.standard.md
+        rule: rules/slotly-003.yml
+        risk_class: correctness
+        layer: 2
+        claims:
+          - id: slotly-003-clm-001
+            text: "Error returns from external calls must be wrapped with fmt.Errorf and %w verb to preserve the error chain"
+            fixtures:
+              positive:
+                - fixtures/rules/slotly-003/good-wrapped-error.go
+              negative:
+                - fixtures/rules/slotly-003/bare-error-return.go
+
+      # Rule 4: Config secrets from environment — no hardcoded credentials
+      - id: slotly-004
+        standard: standards/config-from-env.standard.md
+        rule: rules/slotly-004.yml
+        risk_class: security
+        layer: 2
+        claims:
+          - id: slotly-004-clm-001
+            text: "Secret values (API keys, tokens, signing secrets, encryption keys) must be loaded from environment variables, never hardcoded"
+            fixtures:
+              positive:
+                - fixtures/rules/slotly-004/good-env-config.go
+              negative:
+                - path: fixtures/rules/slotly-004/hardcoded-secret.go
+                - path: fixtures/rules/slotly-004/obfuscated-secret.go
+                  bypass_attempt: true
+                - path: fixtures/rules/slotly-004/env-with-fallback-secret.go
+                  bypass_attempt: true
+
+      # Rule 5: Slack handler must have signature middleware
+      - id: slotly-005
+        standard: standards/slack-handler-middleware.standard.md
+        risk_class: correctness
+        layer: 3
+        validator: validators/slack-handler-middleware-check.sh
+        input_scope: multi-file
+        category: presence
+        claims:
+          - id: slotly-005-clm-001
+            text: "Every package that registers Slack HTTP routes must include signature verification middleware or inline verification"
+            fixtures:
+              positive:
+                - fixtures/rules/slotly-005/valid-package/
+              negative:
+                - fixtures/rules/slotly-005/missing-middleware/

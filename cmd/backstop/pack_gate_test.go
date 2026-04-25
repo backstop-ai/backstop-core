@@ -47,8 +47,7 @@ func TestGateIntegration_MissingPackDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(`project: test
 language: go
 packs:
-  rules:
-    test-org/missing-pack: "1.0.0"
+  test-org/missing-pack: "1.0.0"
 `), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}

@@ -36,7 +36,7 @@ func setupUpdateProject(t *testing.T) string {
 	dir := t.TempDir()
 
 	writeFile(t, filepath.Join(dir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
 
 	packDir := filepath.Join(dir, ".backstop", "packs", "acme", "valid-pack")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
@@ -203,7 +203,7 @@ func TestPackUpdate_AcknowledgeBypassesTamperBlock(t *testing.T) {
 func TestPackUpdate_LocalPackNoOp(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: internal/local\n    path: /some/local/path\n")
+		"packs:\n  internal/local: local\n")
 
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -366,7 +366,7 @@ func TestPackUpdate_NoVersionResolver(t *testing.T) {
 
 func TestPackUpdate_PackNotFound(t *testing.T) {
 	projectDir := t.TempDir()
-	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: []\n")
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: {}\n")
 
 	opts := distribution.UpdateOptions{
 		ProjectDir:      projectDir,

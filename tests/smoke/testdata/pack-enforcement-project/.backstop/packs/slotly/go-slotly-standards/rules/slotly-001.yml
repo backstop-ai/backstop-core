@@ -1,0 +1,13 @@
+rules:
+  - id: slotly-001
+    patterns:
+      - pattern: $DB.Save($USER)
+      - metavariable-regex:
+          metavariable: $USER
+          regex: ".*user.*"
+    message: >
+      Do not call db.Save() on a user struct that may contain decrypted tokens.
+      Use db.Model(&user).Update() or db.Model(&user).Updates() for targeted
+      field updates. See standards/token-save-safety.standard.md.
+    languages: [go]
+    severity: ERROR

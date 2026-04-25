@@ -15,7 +15,7 @@ func setupListProject(t *testing.T) string {
 	dir := t.TempDir()
 
 	writeFile(t, filepath.Join(dir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
 
 	packDir := filepath.Join(dir, ".backstop", "packs", "acme", "valid-pack")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
@@ -150,7 +150,7 @@ func TestLocalPack_ValidatedSameAsGitList(t *testing.T) {
 	absPath, _ := filepath.Abs(localDir)
 
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: internal/local-rules\n    path: "+absPath+"\n")
+		"packs:\n  internal/local-rules: local\n")
 
 	hash, _ := distribution.ComputeContentHash(absPath)
 	lf := &distribution.Lockfile{
@@ -191,7 +191,7 @@ func TestLocalPack_LockEntryHasHashNoGitRefList(t *testing.T) {
 	absPath, _ := filepath.Abs(localDir)
 
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: internal/local-rules\n    path: "+absPath+"\n")
+		"packs:\n  internal/local-rules: local\n")
 
 	hash, _ := distribution.ComputeContentHash(absPath)
 	lf := &distribution.Lockfile{
@@ -253,7 +253,7 @@ func TestPackList_MalformedBackstopYml(t *testing.T) {
 func TestPackList_PackNotInLockfile(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/unlocked-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/unlocked-pack: \"1.0.0\"\n")
 
 	// Lockfile with a different pack.
 	lf := &distribution.Lockfile{
@@ -288,7 +288,7 @@ func TestPackList_VersionBackfillFromLock(t *testing.T) {
 	projectDir := t.TempDir()
 	// backstop.yml with no version field.
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n")
+		"packs:\n  acme/valid-pack: local\n")
 
 	// Create installed pack dir for lock status computation.
 	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")
@@ -327,7 +327,7 @@ func TestPackList_VersionBackfillFromLock(t *testing.T) {
 
 func TestPackList_EmptyPacksList(t *testing.T) {
 	projectDir := t.TempDir()
-	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: []\n")
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: {}\n")
 
 	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
 	if err != nil {
@@ -347,7 +347,7 @@ func TestPackList_EmptyPacksList(t *testing.T) {
 func TestPackList_NoLockfile(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/some-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/some-pack: \"1.0.0\"\n")
 	// No backstop.lock.
 
 	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
@@ -365,7 +365,7 @@ func TestPackList_NoLockfile(t *testing.T) {
 func TestPackList_TableEmptyVersion(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/no-version\n")
+		"packs:\n  acme/no-version: local\n")
 	// No lockfile either, so version stays empty.
 
 	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
@@ -382,7 +382,7 @@ func TestPackList_TableEmptyVersion(t *testing.T) {
 func TestPackList_ManifestInvalidYaml(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/bad-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/bad-pack: \"1.0.0\"\n")
 
 	// Create pack dir with invalid pack.yml.
 	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "bad-pack")
@@ -409,7 +409,7 @@ func TestPackList_ManifestInvalidYaml(t *testing.T) {
 func TestPackList_ManifestMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/no-manifest\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/no-manifest: \"1.0.0\"\n")
 
 	// Create pack dir but no pack.yml inside.
 	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "no-manifest")

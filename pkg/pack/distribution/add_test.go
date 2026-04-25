@@ -32,7 +32,7 @@ func setupAddProject(t *testing.T) string {
 	dir := t.TempDir()
 
 	// Create backstop.yml with empty packs.
-	writeFile(t, filepath.Join(dir, "backstop.yml"), "packs: []\n")
+	writeFile(t, filepath.Join(dir, "backstop.yml"), "packs: {}\n")
 
 	return dir
 }
@@ -486,7 +486,7 @@ func TestPackAdd_AlreadyInstalledExitsNonZero(t *testing.T) {
 
 	// Write backstop.yml with the pack already listed.
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
 
 	opts := newTestAddOptions(projectDir)
 
@@ -557,8 +557,8 @@ func TestPackAdd_LocalPathRegistersWithPathEntry(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
 	content := string(data)
 
-	if !strings.Contains(content, "path:") {
-		t.Error("backstop.yml should contain path: entry for local pack")
+	if !strings.Contains(content, ": local") {
+		t.Error("backstop.yml should contain 'local' version for local pack")
 	}
 }
 
@@ -583,7 +583,7 @@ func TestPackAdd_LocalPathComputesHash(t *testing.T) {
 	}
 }
 
-func TestPackAdd_LocalPathNotClonedToPacksDir(t *testing.T) {
+func TestPackAdd_LocalPathCopiedToPacksDir(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
@@ -599,10 +599,11 @@ func TestPackAdd_LocalPathNotClonedToPacksDir(t *testing.T) {
 		t.Fatalf("Add local: %v", err)
 	}
 
-	// Local pack should NOT be in .backstop/packs/.
-	packsDir := filepath.Join(projectDir, ".backstop", "packs", "internal", "local-rules")
-	if _, statErr := os.Stat(packsDir); !os.IsNotExist(statErr) {
-		t.Error("local pack should not be cloned to .backstop/packs/")
+	// Local pack SHOULD be copied to .backstop/packs/ (same as git packs).
+	packName := "internal/local-rules" // from testdata/local-pack/pack.yml
+	packsDir := filepath.Join(projectDir, ".backstop", "packs", filepath.FromSlash(packName))
+	if _, statErr := os.Stat(packsDir); os.IsNotExist(statErr) {
+		t.Error("local pack should be copied to .backstop/packs/")
 	}
 }
 

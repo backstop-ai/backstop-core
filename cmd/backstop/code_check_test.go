@@ -264,8 +264,7 @@ func setupCodeCheckPackProject(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(`project: code-check-pack
 language: go
 packs:
-  rules:
-    test-org/test-pack: "1.0.0"
+  test-org/test-pack: "1.0.0"
 `), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}

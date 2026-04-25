@@ -1,0 +1,16 @@
+rules:
+  - id: slotly-003
+    patterns:
+      - pattern: |
+          if $ERR != nil {
+              return ..., $ERR
+          }
+      - pattern-not: |
+          if $ERR != nil {
+              return ..., fmt.Errorf("...", ..., $ERR)
+          }
+    message: >
+      Error returned without wrapping. Use fmt.Errorf("context: %w", err)
+      to preserve the error chain. See standards/error-wrapping.standard.md.
+    languages: [go]
+    severity: WARNING

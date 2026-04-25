@@ -36,7 +36,7 @@ func setupUpgradeProject(t *testing.T) string {
 	dir := t.TempDir()
 
 	writeFile(t, filepath.Join(dir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
 
 	packDir := filepath.Join(dir, ".backstop", "packs", "acme", "valid-pack")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {

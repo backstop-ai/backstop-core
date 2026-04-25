@@ -1,0 +1,8 @@
+packs:
+    slotly/go-standards:
+        content_hash: cd24c773753dadd5210d322d194b70f9a2cc703dd5fe25ac657847b8cb5c75e3
+        git_ref: null
+        install_date: 2026-04-22T01:48:36Z
+        name: slotly/go-standards
+        source_type: local
+        version: null

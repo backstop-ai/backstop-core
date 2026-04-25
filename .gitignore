@@ -33,3 +33,4 @@ cover*.out
 
 # Prototype working output
 prototype/
+.backstop/packs/

@@ -15,7 +15,7 @@ func setupRemoveProject(t *testing.T) string {
 
 	// Install a pack first.
 	writeFile(t, filepath.Join(dir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
 
 	// Create installed pack.
 	packDir := filepath.Join(dir, ".backstop", "packs", "acme", "valid-pack")
@@ -160,7 +160,7 @@ func TestPackRemove_RemovesFromProvenance(t *testing.T) {
 
 func TestPackRemove_NotInstalledExitsNonZero(t *testing.T) {
 	projectDir := t.TempDir()
-	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: []\n")
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: {}\n")
 
 	_, err := distribution.Remove("acme/nonexistent", distribution.RemoveOptions{ProjectDir: projectDir})
 	if err == nil {
@@ -229,7 +229,7 @@ func TestPackRemove_MultiplePacksInYml(t *testing.T) {
 
 	// Add another pack to backstop.yml.
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  - name: acme/valid-pack\n    version: \"1.0.0\"\n  - name: other/pack\n    version: \"2.0.0\"\n")
+		"packs:\n  acme/valid-pack: \"1.0.0\"\n  other/pack: \"2.0.0\"\n")
 
 	_, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
 	if err != nil {
