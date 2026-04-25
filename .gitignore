@@ -34,3 +34,5 @@ cover*.out
 # Prototype working output
 prototype/
 .backstop/packs/
+backstop.lock
+.backstop/pack-config-provenance.json
