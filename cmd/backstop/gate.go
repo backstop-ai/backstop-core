@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
@@ -22,10 +23,11 @@ type StepResult = gate.StepResult
 var gateCmd *cobra.Command
 
 // newGateCommand creates the Cobra command for backstop gate.
-// Gate accepts no scope flags (REQ-012) — only inherits --json from root.
 func newGateCommand(jsonFlag *bool) *cobra.Command {
+	var allFlag bool
+	var fileFlag string
 	cmd := &cobra.Command{
-		Use:   "gate",
+		Use:   "gate [--all | --file FILE [FILE...]]",
 		Short: "Run full verification gate",
 		Long: `Runs the complete backstop gate: the full reconciliation kill chain
 that orchestrates artifact validation, code checking, test verification,
@@ -39,13 +41,14 @@ it's green, it ships.`,
 			return runGate(cmd, args)
 		},
 	}
-	// No additional flags — gate accepts no scope flags (REQ-012)
+	cmd.Flags().BoolVar(&allFlag, "all", false, "run the full project sweep")
+	cmd.Flags().StringVar(&fileFlag, "file", "", "scope gate to one or more explicit files")
 	gateCmd = cmd
 	return cmd
 }
 
 // runGate is the Cobra RunE handler that orchestrates all nine gate steps.
-func runGate(cmd *cobra.Command, _ []string) error {
+func runGate(cmd *cobra.Command, args []string) error {
 	// Load config via CLI foundation config loader.
 	_, cfgErr := config.LoadConfig()
 
@@ -64,11 +67,35 @@ func runGate(cmd *cobra.Command, _ []string) error {
 		projectRoot = filepath.Dir(cfgPath)
 	}
 
+	allFlag, _ := cmd.Flags().GetBool("all")
+	fileValue, _ := cmd.Flags().GetString("file")
+	if allFlag && fileValue != "" {
+		return &ExitCodeError{Code: ExitConfigError, Message: "config: --all and --file are mutually exclusive"}
+	}
+
+	scopeMode := gate.GateScopeModeDiff
+	explicitFiles := []string{}
+	if allFlag {
+		scopeMode = gate.GateScopeModeAll
+	}
+	if fileValue != "" {
+		scopeMode = gate.GateScopeModeFile
+		explicitFiles = append([]string{fileValue}, args...)
+	} else if len(args) > 0 {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: unexpected gate arguments: %s", strings.Join(args, " "))}
+	}
+
+	scope, scopeErr := gate.ComputeGateScope(projectRoot, scopeMode, explicitFiles)
+	if scopeErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", scopeErr)}
+	}
+
 	// Build gate with step implementations.
 	var opts []gate.Option
 
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, scope)
 	opts = append(opts, gate.WithSteps(steps))
+	opts = append(opts, gate.WithScope(scope))
 
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
@@ -101,7 +128,11 @@ func runGate(cmd *cobra.Command, _ []string) error {
 // Steps 1-2: delegate to real artifact validation and code check.
 // Steps 3-6: mechanical verification using grep/AST parsing.
 // Steps 7-9: deferred (baseline, waivers, ledger).
-func buildGateSteps(projectRoot string) []gate.StepFunc {
+func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFunc {
+	var activeScope *gate.GateScope
+	if len(scope) > 0 {
+		activeScope = scope[0]
+	}
 	specDir := filepath.Join(projectRoot, "specs")
 	packs, packErr := loadInstalledPacks(projectRoot)
 	if packErr != nil {
@@ -143,29 +174,29 @@ func buildGateSteps(projectRoot string) []gate.StepFunc {
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
-	testVerifyStep := gate.StepTestVerificationFunc(specDir, projectRoot)
+	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope)
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
-	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot)
+	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, activeScope)
 
 	// Step 5: Coverage threshold needs spec verifications and a command runner.
-	coverageStep := buildCoverageStep(specDir, projectRoot)
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope)
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
-	contractStep := buildContractStep(specDir, projectRoot)
+	contractStep := buildContractStep(specDir, projectRoot, activeScope)
 
 	steps := []gate.StepFunc{
-		gate.StepArtifactValidationFunc(artifactValidator),
-		gate.StepCodeCheckFunc(codeChecker),
+		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
+		gate.StepCodeCheckScopedFunc(codeChecker, activeScope),
 		testVerifyStep,
 		testSubstantivenessStep,
 		coverageStep,
 		contractStep,
 		// Steps 7-9: deferred
-		gate.StepBaselineComparisonFunc(),
-		gate.StepWaiverResolutionFunc(),
-		gate.StepLedgerIntegrityFunc(),
+		gate.StepBaselineComparisonScopedFunc(activeScope),
+		gate.StepWaiverResolutionScopedFunc(activeScope),
+		gate.StepLedgerIntegrityScopedFunc(activeScope),
 	}
 
 	if len(packs) == 0 {
@@ -224,7 +255,7 @@ func buildGateSteps(projectRoot string) []gate.StepFunc {
 
 // buildTestSubstantivenessStep creates a StepFunc that extracts mandated tests
 // from specs, resolves their file paths, and checks substantiveness.
-func buildTestSubstantivenessStep(specDir, codeDir string) gate.StepFunc {
+func buildTestSubstantivenessStep(specDir, codeDir string, scope *gate.GateScope) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		mandated, err := gate.ExtractMandatedTests(specDir)
 		if err != nil {
@@ -239,14 +270,14 @@ func buildTestSubstantivenessStep(specDir, codeDir string) gate.StepFunc {
 		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir)
 
 		// Delegate to the real substantiveness checker.
-		step := gate.StepTestSubstantivenessFunc(mandated)
+		step := gate.StepTestSubstantivenessScopedFunc(mandated, scope)
 		return step(ctx)
 	}
 }
 
 // buildCoverageStep creates a StepFunc that extracts spec verifications
 // and runs coverage checks using a real command runner.
-func buildCoverageStep(specDir, projectRoot string) gate.StepFunc {
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -258,14 +289,14 @@ func buildCoverageStep(specDir, projectRoot string) gate.StepFunc {
 		}
 
 		runner := &gate.ExecCommandRunner{Dir: projectRoot}
-		step := gate.StepCoverageThresholdFunc(runner, specs)
+		step := gate.StepCoverageThresholdScopedFunc(runner, specs, scope)
 		return step(ctx)
 	}
 }
 
 // buildContractStep creates a StepFunc that extracts contract entries
 // from specs and verifies them against actual code.
-func buildContractStep(specDir, projectRoot string) gate.StepFunc {
+func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		contracts, err := gate.ExtractContractEntries(specDir, projectRoot)
 		if err != nil {
@@ -276,7 +307,7 @@ func buildContractStep(specDir, projectRoot string) gate.StepFunc {
 			}
 		}
 
-		step := gate.StepContractSignatureFunc(contracts)
+		step := gate.StepContractSignatureScopedFunc(contracts, scope)
 		return step(ctx)
 	}
 }
@@ -312,14 +343,35 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 	return violations, nil
 }
 
-// realCodeChecker implements gate.CodeChecker by calling pkg/check.Run
-// with ScopeModeAll.
+// realCodeChecker implements gate.CodeChecker by calling pkg/check.Run.
 type realCodeChecker struct {
 	projectRoot         string
 	extraSemgrepConfigs []string
 }
 
 func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
+	return c.runCheck(context.Background(), check.ScopeModeAll, "")
+}
+
+func (c *realCodeChecker) CheckScoped(ctx context.Context, scope *gate.GateScope) ([]gate.Violation, error) {
+	if scope == nil || scope.Mode == gate.GateScopeModeAll {
+		return c.runCheck(ctx, check.ScopeModeAll, "")
+	}
+	var violations []gate.Violation
+	for _, file := range scope.Files {
+		fileViolations, err := c.runCheck(ctx, check.ScopeModeFile, filepath.Join(c.projectRoot, file))
+		if err != nil {
+			return nil, err
+		}
+		violations = append(violations, fileViolations...)
+	}
+	if violations == nil {
+		return []gate.Violation{}, nil
+	}
+	return violations, nil
+}
+
+func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, filePath string) ([]gate.Violation, error) {
 	cfgPath, cfgErr := config.DiscoverConfigPath()
 	pRoot := c.projectRoot
 	if cfgErr == nil {
@@ -335,7 +387,8 @@ func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) 
 	}
 
 	opts := check.Options{
-		Mode:                check.ScopeModeAll,
+		Mode:                mode,
+		FilePath:            filePath,
 		ManifestDir:         filepath.Join(backstopDir, "rules"),
 		BackstopDir:         backstopDir,
 		ProjectDir:          pRoot,
@@ -348,7 +401,7 @@ func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) 
 		opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
 	}
 
-	result, runErr := check.Run(context.Background(), opts)
+	result, runErr := check.Run(ctx, opts)
 	if runErr != nil {
 		return nil, &gate.ConfigError{Err: runErr}
 	}

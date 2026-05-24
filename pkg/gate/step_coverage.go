@@ -19,6 +19,7 @@ type SpecVerification struct {
 	SpecID            string
 	TestCommand       string
 	CoverageThreshold int
+	File              string
 }
 
 // coverageRe matches the go test coverage summary line format.
@@ -55,16 +56,24 @@ func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string
 // StepCoverageThresholdFunc returns a StepFunc that runs the test suite with
 // coverage profiling and compares against the spec-declared threshold.
 func StepCoverageThresholdFunc(runner CommandRunner, specs []SpecVerification) StepFunc {
+	return StepCoverageThresholdScopedFunc(runner, specs, nil)
+}
+
+// StepCoverageThresholdScopedFunc runs coverage only for scoped specs or changed packages.
+func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerification, scope *GateScope) StepFunc {
 	return func(ctx context.Context) StepResult {
 		var violations []Violation
 
 		for _, spec := range specs {
+			if !coverageSpecInScope(spec, scope) {
+				continue
+			}
 			if spec.CoverageThreshold <= 0 {
 				continue
 			}
 
 			// Parse the test command
-			parts := strings.Fields(spec.TestCommand)
+			parts := commandFields(spec.TestCommand)
 			if len(parts) == 0 {
 				violations = append(violations, Violation{
 					Rule:     "coverage_threshold",
@@ -140,4 +149,89 @@ func StepCoverageThresholdFunc(runner CommandRunner, specs []SpecVerification) S
 			Violations: violations,
 		}
 	}
+}
+
+func coverageSpecInScope(spec SpecVerification, scope *GateScope) bool {
+	if scope == nil || scope.Mode == GateScopeModeAll {
+		return true
+	}
+	if scope.Empty() {
+		return false
+	}
+	if spec.File != "" && scope.Contains(spec.File) {
+		return true
+	}
+	for _, pkg := range coverageCommandPackages(spec.TestCommand) {
+		if pkg == "" {
+			continue
+		}
+		for _, file := range scope.Files {
+			if coveragePackageContainsFile(pkg, file) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func coverageCommandPackages(command string) []string {
+	var packages []string
+	for _, part := range commandFields(command) {
+		if strings.HasPrefix(part, "-") || strings.Contains(part, "=") {
+			continue
+		}
+		if strings.HasPrefix(part, "./") || strings.HasPrefix(part, "/") {
+			packages = append(packages, normalizeCoveragePackage(part))
+		}
+	}
+	return packages
+}
+
+func commandFields(command string) []string {
+	var fields []string
+	var current strings.Builder
+	var quote rune
+	for _, r := range command {
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			current.WriteRune(r)
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\n' {
+			if current.Len() > 0 {
+				fields = append(fields, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 {
+		fields = append(fields, current.String())
+	}
+	return fields
+}
+
+func normalizeCoveragePackage(pkg string) string {
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(pkg, "./"), "/")
+	if trimmed == "..." {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(trimmed, "/..."), "/")
+}
+
+func coveragePackageContainsFile(pkg, file string) bool {
+	cleanFile := normalizeScopePath("", file)
+	cleanPkg := normalizeCoveragePackage(pkg)
+	if cleanPkg == "" {
+		return true
+	}
+	return cleanFile == cleanPkg || strings.HasPrefix(cleanFile, cleanPkg+"/")
 }

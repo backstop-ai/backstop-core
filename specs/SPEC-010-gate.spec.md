@@ -193,12 +193,12 @@ requirements:
     supports: cli:REQ-006
 
   - id: REQ-012
+    superseded_by: SPEC-018 REQ-008
     text: >
-      The gate command must accept no scope flags — it always runs against
-      the full project. Unlike backstop artifact validate (which supports
-      --spec, --plan, etc.) and backstop code check (which supports --diff,
-      --all, --file), gate has no scoping mechanism. Gate always runs all
-      steps against all artifacts and the full codebase.
+      Superseded by SPEC-018 REQ-008. The gate command originally accepted no
+      scope flags and always ran against the full project. Gate now accepts
+      --all and --file; the original comprehensive behavior is preserved via
+      --all.
     supports: cli:REQ-006
 
   - id: REQ-013
@@ -600,11 +600,11 @@ contracts:
         notes: "Top-level gate command registered on root"
       - name: GateResult
         kind: type
-        signature: "type GateResult struct"
+        signature: "type GateResult"
         notes: "Holds the unified gate output including all step results"
       - name: StepResult
         kind: type
-        signature: "type StepResult struct"
+        signature: "type StepResult"
         notes: "Per-step result with name, status, violations, and optional reason"
       - name: runGate
         kind: function

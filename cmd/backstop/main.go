@@ -7,6 +7,11 @@ import (
 
 func main() {
 	rootCmd := NewRootCommand()
+	// Cobra's cmd.Print/Println default to stderr when SetOut is never
+	// called. Route success output to stdout so JSON consumers (the
+	// runtime, scripts) see what they expect on stdout.
+	rootCmd.SetOut(os.Stdout)
+	rootCmd.SetErr(os.Stderr)
 	if err := rootCmd.Execute(); err != nil {
 		// Check if the error carries a specific exit code
 		if exitErr, ok := err.(*ExitCodeError); ok {

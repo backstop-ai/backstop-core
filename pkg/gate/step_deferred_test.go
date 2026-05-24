@@ -127,3 +127,18 @@ func TestGate_Ledger_PassWhenIntact(t *testing.T) {
 		t.Errorf("expected deferred status %q, got %q", "skipped", result.Status)
 	}
 }
+
+func TestGateSteps_FilterToChangedFiles_Deferred(t *testing.T) {
+	scope := newGateScope("", GateScopeModeDiff, []string{"changed.go"}, nil)
+	steps := []StepFunc{
+		StepBaselineComparisonScopedFunc(scope),
+		StepWaiverResolutionScopedFunc(scope),
+		StepLedgerIntegrityScopedFunc(scope),
+	}
+	for _, step := range steps {
+		result := step(context.Background())
+		if result.Status != "skipped" || len(result.Violations) != 0 {
+			t.Fatalf("expected deferred scoped step to stay skipped with no violations, got %#v", result)
+		}
+	}
+}

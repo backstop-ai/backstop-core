@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,14 +10,11 @@ import (
 	"time"
 
 	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/spf13/pflag"
 )
 
-// TestGate_NoScopeFlags_FullProject verifies gate command runs without any
-// scope flags and executes against the full project.
-func TestGate_NoScopeFlags_FullProject(t *testing.T) {
+// TestGate_DefaultsToDiffMode verifies gate defaults to diff scope.
+func TestGate_DefaultsToDiffMode(t *testing.T) {
 	root := NewRootCommand()
-	// gate should not require any scope flags — just --json is inherited from root
 	cmd, _, err := root.Find([]string{"gate"})
 	if err != nil {
 		t.Fatalf("find gate: %v", err)
@@ -25,32 +23,57 @@ func TestGate_NoScopeFlags_FullProject(t *testing.T) {
 		t.Errorf("expected command name %q, got %q", "gate", cmd.Name())
 	}
 
-	// Verify gate has no local flags (only inherits --json from root).
-	// We check by counting flags on the command's own flag set.
-	localFlagCount := 0
-	cmd.LocalFlags().VisitAll(func(_ *pflag.Flag) { localFlagCount++ })
-	if localFlagCount != 0 {
-		t.Errorf("expected 0 local flags on gate command, got %d", localFlagCount)
+	allFlag, _ := cmd.Flags().GetBool("all")
+	fileFlag, _ := cmd.Flags().GetString("file")
+	if allFlag || fileFlag != "" {
+		t.Fatalf("expected default diff mode flags, got all=%v file=%q", allFlag, fileFlag)
 	}
 }
 
-// TestGate_RejectsScopeFlags verifies gate does not accept --diff, --file,
-// --spec, --plan, or other scoping flags.
-func TestGate_RejectsScopeFlags(t *testing.T) {
-	scopeFlags := []string{"--diff", "--file", "--spec", "--plan", "--all"}
+func TestGate_AllFlagUsesFullSweep(t *testing.T) {
+	root := NewRootCommand()
+	cmd, _, err := root.Find([]string{"gate", "--all"})
+	if err != nil {
+		t.Fatalf("find gate --all: %v", err)
+	}
+	if err := cmd.ParseFlags([]string{"--all"}); err != nil {
+		t.Fatalf("parse --all: %v", err)
+	}
+	allFlag, _ := cmd.Flags().GetBool("all")
+	if !allFlag {
+		t.Fatal("expected --all to select full-sweep mode")
+	}
+}
 
-	for _, flag := range scopeFlags {
-		t.Run(flag, func(t *testing.T) {
-			root := NewRootCommand()
-			_, err := executeCommand(root, "gate", flag)
-			if err == nil {
-				t.Errorf("expected error for gate %s, but got nil", flag)
-				return
-			}
-			if !strings.Contains(err.Error(), "unknown flag") {
-				t.Errorf("expected 'unknown flag' error for gate %s, got: %v", flag, err)
-			}
-		})
+func TestGate_FileFlagScopesExplicitFiles(t *testing.T) {
+	root := NewRootCommand()
+	cmd, _, err := root.Find([]string{"gate", "--file", "a.go", "b.go"})
+	if err != nil {
+		t.Fatalf("find gate --file: %v", err)
+	}
+	if err := cmd.ParseFlags([]string{"--file", "a.go", "b.go"}); err != nil {
+		t.Fatalf("parse --file: %v", err)
+	}
+	fileFlag, _ := cmd.Flags().GetString("file")
+	args := cmd.Flags().Args()
+	if fileFlag != "a.go" || len(args) != 1 || args[0] != "b.go" {
+		t.Fatalf("expected one --file flag to consume multiple files via args, got file=%q args=%v", fileFlag, args)
+	}
+}
+
+func TestGate_AllAndFileMutuallyExclusive(t *testing.T) {
+	root := NewRootCommand()
+	root.SetArgs([]string{"gate", "--all", "--file", "a.go"})
+	err := root.Execute()
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitCodeError, got %T %v", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Fatalf("expected config exit %d, got %d", ExitConfigError, exitErr.Code)
+	}
+	if !strings.Contains(exitErr.Message, "--all and --file are mutually exclusive") {
+		t.Fatalf("expected conflict message, got %q", exitErr.Message)
 	}
 }
 

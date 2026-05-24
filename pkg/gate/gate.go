@@ -6,6 +6,7 @@ import "context"
 type Gate struct {
 	steps     []StepFunc
 	configErr error
+	scope     *GateScope
 }
 
 // Option is a functional option for configuring a Gate.
@@ -22,6 +23,13 @@ func WithSteps(steps []StepFunc) Option {
 func WithConfigError(err error) Option {
 	return func(g *Gate) {
 		g.configErr = err
+	}
+}
+
+// WithScope attaches the gate scope computed once at command startup.
+func WithScope(scope *GateScope) Option {
+	return func(g *Gate) {
+		g.scope = scope
 	}
 }
 
@@ -45,6 +53,7 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 	if g.configErr != nil {
 		return GateResult{
 			SchemaVersion: "gate/v1",
+			Scope:         g.scope,
 			Pass:          false,
 			Steps:         []StepResult{},
 		}, 2
@@ -64,7 +73,7 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 		}
 	}
 
-	gateResult := NewGateResult(results)
+	gateResult := NewGateResultWithScope(results, g.scope)
 
 	if configErrHalt {
 		return gateResult, 2

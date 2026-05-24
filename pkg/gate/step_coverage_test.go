@@ -10,9 +10,11 @@ import (
 type mockCommandRunner struct {
 	output []byte
 	err    error
+	runs   int
 }
 
 func (m *mockCommandRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	m.runs++
 	return m.output, m.err
 }
 
@@ -32,6 +34,40 @@ func TestGate_CoverageThreshold_MeetsThreshold(t *testing.T) {
 	}
 	if result.Status != "pass" {
 		t.Errorf("expected status %q, got %q; violations: %v", "pass", result.Status, result.Violations)
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles_Coverage(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	specs := []SpecVerification{
+		{SpecID: "CHANGED", TestCommand: "go test ./pkg/gate/...", CoverageThreshold: 80, File: "specs/changed.spec.md"},
+		{SpecID: "UNCHANGED", TestCommand: "go test ./pkg/gate/...", CoverageThreshold: 80, File: "specs/unchanged.spec.md"},
+	}
+	result := StepCoverageThresholdScopedFunc(runner, specs, newGateScope("", GateScopeModeDiff, []string{"specs/changed.spec.md"}, nil))(context.Background())
+	if result.Status != "pass" || runner.runs != 1 {
+		t.Fatalf("expected coverage to run only changed spec, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles_CoverageChangedPackage(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	specs := []SpecVerification{
+		{SpecID: "GATE", TestCommand: "go test ./pkg/gate/...", CoverageThreshold: 80, File: "specs/unchanged-gate.spec.md"},
+		{SpecID: "OTHER", TestCommand: "go test ./pkg/other", CoverageThreshold: 80, File: "specs/unchanged-other.spec.md"},
+	}
+	result := StepCoverageThresholdScopedFunc(runner, specs, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if result.Status != "pass" || runner.runs != 1 {
+		t.Fatalf("expected coverage to run for changed package, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles_CoverageRootPackage(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
+		{SpecID: "ROOT", TestCommand: "go test ./...", CoverageThreshold: 80, File: "specs/unchanged-root.spec.md"},
+	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if result.Status != "pass" || runner.runs != 0 {
+		t.Fatalf("expected broad root coverage to stay skipped unless its spec changed, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
 	}
 }
 
@@ -77,6 +113,13 @@ func TestGate_CoverageThreshold_UsesSpecTestCommand(t *testing.T) {
 	}
 	if capturedArgs[0] != "go" {
 		t.Errorf("expected command %q, got %q", "go", capturedArgs[0])
+	}
+}
+
+func TestGate_CoverageThreshold_StripsQuotedRunPattern(t *testing.T) {
+	parts := commandFields("go test ./cmd/backstop ./pkg/gate/... -run 'TestGate|TestBackstopGate' -v")
+	if len(parts) != 7 || parts[5] != "TestGate|TestBackstopGate" {
+		t.Fatalf("expected quoted run pattern as one unquoted arg, got %#v", parts)
 	}
 }
 
@@ -143,9 +186,9 @@ func TestGate_CoverageThreshold_NoCoverageSummaryLine(t *testing.T) {
 // the "coverage: 82.5% of statements" format.
 func TestGate_CoverageThreshold_ParsesCoverageSummaryLine(t *testing.T) {
 	tests := []struct {
-		line    string
-		want    float64
-		wantOK  bool
+		line   string
+		want   float64
+		wantOK bool
 	}{
 		{"coverage: 82.5% of statements", 82.5, true},
 		{"coverage: 100.0% of statements", 100.0, true},

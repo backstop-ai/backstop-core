@@ -4,6 +4,7 @@ import (
 	"context"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -154,5 +155,39 @@ func TestGate_FindVariable_NotFound(t *testing.T) {
 	_, ok := findVariable(fset, f, "NonExistentVar")
 	if ok {
 		t.Error("expected findVariable to return false for missing variable")
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles_Contract(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := StepContractSignatureScopedFunc([]ContractEntry{
+		{File: target, Name: "DoSomething", Kind: "function", Signature: "func DoSomething(ctx context.Context, name string) error"},
+		{File: "unchanged.go", Name: "Missing", Kind: "function", Signature: "func Missing()"},
+	}, newGateScope("", GateScopeModeDiff, []string{target}, nil))(context.Background())
+	if result.Status != "pass" || len(result.Violations) != 0 {
+		t.Fatalf("expected contract step to ignore unchanged missing contract, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+}
+
+func TestGate_ContractSignature_MethodVerified(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "method.go")
+	if err := os.WriteFile(target, []byte(`package methodfixture
+
+import "context"
+
+type Widget struct{}
+
+func (w *Widget) Run(ctx context.Context) error { return nil }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := StepContractSignatureFunc([]ContractEntry{
+		{File: target, Name: "Run", Kind: "method", Signature: "func (w *Widget) Run(ctx context.Context) error"},
+	})(context.Background())
+	if result.Status != "pass" || len(result.Violations) != 0 {
+		t.Fatalf("expected method contract to pass, got status=%s violations=%#v", result.Status, result.Violations)
 	}
 }

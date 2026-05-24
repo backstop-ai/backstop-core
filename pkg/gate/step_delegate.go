@@ -24,10 +24,20 @@ type CodeChecker interface {
 	CheckAll(ctx context.Context) ([]Violation, error)
 }
 
+// ScopedCodeChecker can run code checks using the already-computed gate scope.
+type ScopedCodeChecker interface {
+	CheckScoped(ctx context.Context, scope *GateScope) ([]Violation, error)
+}
+
 // StepArtifactValidationFunc returns a StepFunc that delegates to an
 // ArtifactValidator. Config errors from the validator are signaled via
 // the ConfigErr flag on StepResult.
 func StepArtifactValidationFunc(validator ArtifactValidator) StepFunc {
+	return StepArtifactValidationScopedFunc(validator, nil)
+}
+
+// StepArtifactValidationScopedFunc filters delegated artifact findings to scope.
+func StepArtifactValidationScopedFunc(validator ArtifactValidator, scope *GateScope) StepFunc {
 	return func(ctx context.Context) StepResult {
 		violations, err := validator.ValidateAll(ctx)
 		if err != nil {
@@ -43,6 +53,7 @@ func StepArtifactValidationFunc(validator ArtifactValidator) StepFunc {
 			return result
 		}
 
+		violations = filterViolations(scope, violations)
 		status := "pass"
 		if len(violations) > 0 {
 			status = "fail"
@@ -61,8 +72,22 @@ func StepArtifactValidationFunc(validator ArtifactValidator) StepFunc {
 // StepCodeCheckFunc returns a StepFunc that delegates to a CodeChecker.
 // Config errors from the checker are signaled via the ConfigErr flag.
 func StepCodeCheckFunc(checker CodeChecker) StepFunc {
+	return StepCodeCheckScopedFunc(checker, nil)
+}
+
+// StepCodeCheckScopedFunc filters delegated code findings to scope.
+func StepCodeCheckScopedFunc(checker CodeChecker, scope *GateScope) StepFunc {
 	return func(ctx context.Context) StepResult {
-		violations, err := checker.CheckAll(ctx)
+		if scope.Empty() {
+			return StepResult{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}
+		}
+		var violations []Violation
+		var err error
+		if scoped, ok := checker.(ScopedCodeChecker); ok {
+			violations, err = scoped.CheckScoped(ctx, scope)
+		} else {
+			violations, err = checker.CheckAll(ctx)
+		}
 		if err != nil {
 			result := StepResult{
 				StepName:   StepCodeCheck,
@@ -76,6 +101,7 @@ func StepCodeCheckFunc(checker CodeChecker) StepFunc {
 			return result
 		}
 
+		violations = filterViolations(scope, violations)
 		status := "pass"
 		if len(violations) > 0 {
 			status = "fail"

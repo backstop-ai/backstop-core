@@ -33,6 +33,20 @@ func FormatHuman(result GateResult, noColor bool) string {
 	}
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
+	if result.Scope != nil && result.Scope.Mode != GateScopeModeAll {
+		switch result.Scope.Mode {
+		case GateScopeModeFile:
+			sb.WriteString(fmt.Sprintf("Gate running against %d explicit files.\n", len(result.Scope.Files)))
+		default:
+			if len(result.Scope.Files) == 0 {
+				sb.WriteString("Gate found no changed files; scoped checks have no files to inspect.\n")
+			} else {
+				sb.WriteString(fmt.Sprintf("Gate running against %d changed files (use --all for full sweep).\n", len(result.Scope.Files)))
+			}
+		}
+		sb.WriteString(strings.Repeat("─", 60) + "\n")
+	}
+
 	// Summary table
 	for _, step := range result.Steps {
 		statusStr := formatStatus(step.Status, noColor)

@@ -21,9 +21,15 @@ func (m *mockValidator) ValidateAll(_ context.Context) ([]Violation, error) {
 type mockChecker struct {
 	violations []Violation
 	err        error
+	scopes     []*GateScope
 }
 
 func (m *mockChecker) CheckAll(_ context.Context) ([]Violation, error) {
+	return m.violations, m.err
+}
+
+func (m *mockChecker) CheckScoped(_ context.Context, scope *GateScope) ([]Violation, error) {
+	m.scopes = append(m.scopes, scope)
 	return m.violations, m.err
 }
 
@@ -106,6 +112,51 @@ func TestGate_CodeCheck_PassWhenClean(t *testing.T) {
 	}
 	if len(result.Violations) != 0 {
 		t.Errorf("expected 0 violations, got %d", len(result.Violations))
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles(t *testing.T) {
+	artifactResult := StepArtifactValidationScopedFunc(&mockValidator{violations: []Violation{
+		{Rule: "schema", File: "specs/changed.spec.md", Message: "changed artifact", Severity: "error"},
+		{Rule: "schema", File: "specs/unchanged.spec.md", Message: "unchanged artifact", Severity: "error"},
+	}}, newGateScope("", GateScopeModeDiff, []string{"specs/changed.spec.md"}, nil))(context.Background())
+	if artifactResult.Status != "fail" || len(artifactResult.Violations) != 1 || artifactResult.Violations[0].File != "specs/changed.spec.md" {
+		t.Fatalf("expected only changed artifact violation, got status=%s violations=%#v", artifactResult.Status, artifactResult.Violations)
+	}
+
+	scope := newGateScope("", GateScopeModeDiff, []string{"changed.go"}, nil)
+	c := &mockChecker{
+		violations: []Violation{
+			{Rule: "lint", File: "changed.go", Message: "changed", Severity: "error"},
+			{Rule: "lint", File: "unchanged.go", Message: "unchanged", Severity: "error"},
+		},
+	}
+	result := StepCodeCheckScopedFunc(c, scope)(context.Background())
+	if len(c.scopes) != 1 || c.scopes[0] != scope {
+		t.Fatalf("expected code checker to receive shared scope, got %#v", c.scopes)
+	}
+	if result.Status != "fail" || len(result.Violations) != 1 || result.Violations[0].File != "changed.go" {
+		t.Fatalf("expected only changed-file violation, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+
+	empty := newGateScope("", GateScopeModeDiff, nil, nil)
+	result = StepCodeCheckScopedFunc(c, empty)(context.Background())
+	if result.Status != "pass" || len(result.Violations) != 0 {
+		t.Fatalf("expected empty diff to produce zero scoped violations, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+}
+
+func TestGateSteps_PackLockAlwaysRuns(t *testing.T) {
+	scope := newGateScope("", GateScopeModeDiff, nil, nil)
+	executed := false
+	packLockStep := func(context.Context) StepResult {
+		executed = true
+		return StepResult{StepName: "pack_lock_verification", Status: "pass", Violations: []Violation{}}
+	}
+	g := New(WithScope(scope), WithSteps([]StepFunc{packLockStep, StepCodeCheckScopedFunc(&mockChecker{}, scope)}))
+	result, exitCode := g.Run(context.Background())
+	if exitCode != 0 || !executed || len(result.Steps) != 2 {
+		t.Fatalf("expected pack lock step to run despite empty diff, executed=%v exit=%d steps=%d", executed, exitCode, len(result.Steps))
 	}
 }
 

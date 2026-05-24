@@ -53,6 +53,7 @@ type StepResult struct {
 // GateResult holds the unified gate output including all step results.
 type GateResult struct {
 	SchemaVersion   string       `json:"schema_version"`
+	Scope           *GateScope   `json:"scope,omitempty"`
 	Pass            bool         `json:"pass"`
 	TotalViolations int          `json:"total_violations"`
 	StepsPassed     int          `json:"steps_passed"`
@@ -67,8 +68,14 @@ type StepFunc func(ctx context.Context) StepResult
 // NewGateResult computes summary fields from the given step results.
 // Pass is true if no step has status "fail". SchemaVersion is always "gate/v1".
 func NewGateResult(steps []StepResult) GateResult {
+	return NewGateResultWithScope(steps, nil)
+}
+
+// NewGateResultWithScope computes summary fields and attaches gate scope.
+func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 	r := GateResult{
 		SchemaVersion: "gate/v1",
+		Scope:         scope,
 		Pass:          true,
 		Steps:         steps,
 	}

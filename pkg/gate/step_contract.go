@@ -23,12 +23,20 @@ type ContractEntry struct {
 // StepContractSignatureFunc returns a StepFunc that verifies spec contract
 // declarations match actual code. Uses Go AST parsing.
 func StepContractSignatureFunc(contracts []ContractEntry) StepFunc {
+	return StepContractSignatureScopedFunc(contracts, nil)
+}
+
+// StepContractSignatureScopedFunc verifies contract files in scope.
+func StepContractSignatureScopedFunc(contracts []ContractEntry, scope *GateScope) StepFunc {
 	return func(_ context.Context) StepResult {
 		var violations []Violation
 
 		// Group contracts by file to avoid parsing the same file multiple times.
 		byFile := make(map[string][]ContractEntry)
 		for _, c := range contracts {
+			if scope != nil && scope.Mode != GateScopeModeAll && !scope.Contains(c.File) {
+				continue
+			}
 			byFile[c.File] = append(byFile[c.File], c)
 		}
 

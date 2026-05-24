@@ -188,3 +188,49 @@ func TestGateIntegration_HumanOutputPackPrefix(t *testing.T) {
 		t.Fatalf("expected namespaced pack rule in human output, got: %s", out)
 	}
 }
+
+func TestGateOutput_ScopeSummary(t *testing.T) {
+	diffResult := NewGateResultWithScope([]StepResult{{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}}, newGateScope("", GateScopeModeDiff, []string{"a.go", "b.go"}, nil))
+	diffOut := FormatHuman(diffResult, true)
+	if !strings.Contains(diffOut, "2 changed files") {
+		t.Fatalf("expected diff scope summary, got: %s", diffOut)
+	}
+
+	fileResult := NewGateResultWithScope([]StepResult{{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}}, newGateScope("", GateScopeModeFile, []string{"a.go"}, nil))
+	fileOut := FormatHuman(fileResult, true)
+	if !strings.Contains(fileOut, "1 explicit files") {
+		t.Fatalf("expected file scope summary, got: %s", fileOut)
+	}
+
+	allResult := NewGateResultWithScope([]StepResult{{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}}, newGateScope("", GateScopeModeAll, []string{"a.go"}, nil))
+	allOut := FormatHuman(allResult, true)
+	if strings.Contains(allOut, "Gate running against") {
+		t.Fatalf("expected no all-mode scope summary, got: %s", allOut)
+	}
+
+	emptyResult := NewGateResultWithScope([]StepResult{{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}}, newGateScope("", GateScopeModeDiff, nil, nil))
+	emptyOut := FormatHuman(emptyResult, true)
+	if !strings.Contains(emptyOut, "no changed files") {
+		t.Fatalf("expected empty-diff message, got: %s", emptyOut)
+	}
+}
+
+func TestGateOutput_JSONScopeField(t *testing.T) {
+	result := NewGateResultWithScope([]StepResult{{StepName: StepCodeCheck, Status: "pass", Violations: []Violation{}}}, newGateScope("", GateScopeModeFile, []string{"a.go"}, nil))
+	data, err := FormatJSON(result)
+	if err != nil {
+		t.Fatalf("FormatJSON: %v", err)
+	}
+	var raw struct {
+		Scope struct {
+			Mode  string   `json:"mode"`
+			Files []string `json:"files"`
+		} `json:"scope"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw.Scope.Mode != "file" || len(raw.Scope.Files) != 1 || raw.Scope.Files[0] != "a.go" {
+		t.Fatalf("unexpected JSON scope: %#v", raw.Scope)
+	}
+}

@@ -1,6 +1,9 @@
 package validate_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/artifact"
@@ -19,6 +22,27 @@ func specSchema() *schema.Schema {
 		ExtensionMetadata: []string{"spec_version"},
 		RequiredSections:  []string{"Overview", "Requirements", "Implementation", "Verification"},
 		StatusEnum:        []string{"draft", "ready-for-implementation", "implemented"},
+	}
+}
+
+func TestSpec010Req012Superseded(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	spec010, err := os.ReadFile(filepath.Join(root, "specs", "SPEC-010-gate.spec.md"))
+	if err != nil {
+		t.Fatalf("read SPEC-010: %v", err)
+	}
+	spec018, err := os.ReadFile(filepath.Join(root, "specs", "SPEC-018-gate-diff-scope.spec.md"))
+	if err != nil {
+		t.Fatalf("read SPEC-018: %v", err)
+	}
+
+	spec010Text := string(spec010)
+	spec018Text := string(spec018)
+	if !strings.Contains(spec018Text, "spec: SPEC-010") || !strings.Contains(spec018Text, "requirement: REQ-012") {
+		t.Fatal("SPEC-018 must declare that it supersedes SPEC-010 REQ-012")
+	}
+	if !strings.Contains(spec010Text, "superseded_by: SPEC-018 REQ-008") || !strings.Contains(spec010Text, "Superseded by SPEC-018 REQ-008") {
+		t.Fatal("SPEC-010 REQ-012 must be discoverably annotated as superseded by SPEC-018")
 	}
 }
 

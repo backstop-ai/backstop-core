@@ -68,7 +68,7 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 			continue // skip unparseable specs
 		}
 
-		targetPkg := filepath.Base(fm.Implementation.Package)
+		targetPkg := targetPackageName(fm.Implementation.Package)
 
 		for _, claim := range fm.Claims {
 			for _, testName := range claim.Tests {
@@ -122,6 +122,11 @@ var funcPattern = regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)
 // exist as actual test functions in the codebase. This is a mechanical check —
 // grep for exact function name in *_test.go files.
 func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
+	return StepTestVerificationScopedFunc(specDir, codeDir, nil)
+}
+
+// StepTestVerificationScopedFunc verifies tests only in files allowed by scope.
+func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope) StepFunc {
 	return func(_ context.Context) StepResult {
 		mandated, err := ExtractMandatedTests(specDir)
 		if err != nil {
@@ -140,11 +145,18 @@ func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
 			}
 		}
 
-		// Collect all test function names from *_test.go files
 		found := collectTestFuncNames(codeDir)
+		if scope != nil && scope.Mode != GateScopeModeAll {
+			mandated = ResolveMandatedTestPaths(mandated, codeDir)
+		}
 
 		var violations []Violation
 		for _, mt := range mandated {
+			if scope != nil && scope.Mode != GateScopeModeAll {
+				if mt.FilePath == "" || !scope.Contains(mt.FilePath) {
+					continue
+				}
+			}
 			if _, ok := found[mt.FuncName]; !ok {
 				violations = append(violations, Violation{
 					Rule:     "test_verification",
@@ -172,6 +184,10 @@ func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
 // collectTestFuncNames walks codeDir recursively and finds all test function
 // names in *_test.go files using grep-level line matching.
 func collectTestFuncNames(codeDir string) map[string]string {
+	return collectTestFuncNamesScoped(codeDir, nil)
+}
+
+func collectTestFuncNamesScoped(codeDir string, scope *GateScope) map[string]string {
 	found := make(map[string]string) // funcName → filePath
 
 	_ = filepath.Walk(codeDir, func(path string, info os.FileInfo, err error) error {
@@ -179,6 +195,9 @@ func collectTestFuncNames(codeDir string) map[string]string {
 			return nil
 		}
 		if !strings.HasSuffix(info.Name(), "_test.go") {
+			return nil
+		}
+		if scope != nil && scope.Mode != GateScopeModeAll && !scope.Contains(path) {
 			return nil
 		}
 
@@ -203,12 +222,20 @@ func collectTestFuncNames(codeDir string) map[string]string {
 // StepTestSubstantivenessFunc returns a StepFunc that checks whether mandated
 // test functions are substantive (not hollow). Uses Go AST parsing.
 func StepTestSubstantivenessFunc(tests []MandatedTest) StepFunc {
+	return StepTestSubstantivenessScopedFunc(tests, nil)
+}
+
+// StepTestSubstantivenessScopedFunc checks only mandated tests in scoped files.
+func StepTestSubstantivenessScopedFunc(tests []MandatedTest, scope *GateScope) StepFunc {
 	return func(_ context.Context) StepResult {
 		var violations []Violation
 
 		for _, mt := range tests {
 			if mt.FilePath == "" {
 				continue // skip tests not found (already reported by verification)
+			}
+			if scope != nil && scope.Mode != GateScopeModeAll && !scope.Contains(mt.FilePath) {
+				continue
 			}
 
 			hollow, noTarget := checkSubstantiveness(mt.FilePath, mt.FuncName, mt.TargetPkg)
@@ -278,6 +305,9 @@ func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
 		if samePackage {
 			return !hasAssertion, false
 		}
+		if targetPkg == "" {
+			return !hasAssertion, false
+		}
 
 		callsTarget := callsTargetPackage(fn.Body, targetPkg)
 		return !hasAssertion, !callsTarget
@@ -285,6 +315,13 @@ func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
 
 	// Function not found in file
 	return true, true
+}
+
+func targetPackageName(implementationPackage string) string {
+	if strings.HasPrefix(implementationPackage, "cmd/") {
+		return ""
+	}
+	return filepath.Base(implementationPackage)
 }
 
 // assertionSelectors are method names on *testing.T that count as assertions.
@@ -409,6 +446,7 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 				SpecID:            fm.Number,
 				TestCommand:       fm.Verification.TestCommand,
 				CoverageThreshold: fm.Verification.CoverageThreshold,
+				File:              path,
 			})
 		}
 	}

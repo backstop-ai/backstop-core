@@ -141,6 +141,22 @@ func TestGate_TestVerification_CollectsAllSpecClaims(t *testing.T) {
 	}
 }
 
+func TestGateSteps_FilterToChangedFiles_TestVerification(t *testing.T) {
+	specDir := t.TempDir()
+	codeDir := t.TempDir()
+	changed := filepath.Join(codeDir, "changed_test.go")
+	writeSpecFixture(t, specDir, "test.spec.md", []struct{ id, testName string }{
+		{"CLM-001", "TestGate_ChangedTest"},
+		{"CLM-002", "TestGate_UnchangedMissingTest"},
+	})
+	writeTestFile(t, codeDir, "changed_test.go", []string{"TestGate_ChangedTest"})
+
+	result := StepTestVerificationScopedFunc(specDir, codeDir, newGateScope(codeDir, GateScopeModeDiff, []string{changed}, nil))(context.Background())
+	if result.Status != "pass" || len(result.Violations) != 0 {
+		t.Fatalf("expected scoped verification to ignore missing tests outside changed test files, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+}
+
 // --- ExtractSpecVerifications tests ---
 
 // TestGate_ExtractSpecVerifications_HappyPath verifies that verification
@@ -311,6 +327,49 @@ func TestGate_ResolveMandatedTestPaths_MissingTestUnresolved(t *testing.T) {
 
 	if result[0].FilePath != "" {
 		t.Errorf("expected empty FilePath for missing test, got %q", result[0].FilePath)
+	}
+}
+
+func TestGateSteps_FilterToChangedFiles_TestSubstantiveness(t *testing.T) {
+	codeDir := t.TempDir()
+	changed := filepath.Join(codeDir, "changed_test.go")
+	unchanged := filepath.Join(codeDir, "unchanged_test.go")
+	if err := os.WriteFile(changed, []byte("package gate_test\n\nimport \"testing\"\n\nfunc TestGate_Changed(t *testing.T) { t.Fatal(\"substantive\") }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unchanged, []byte("package gate_test\n\nimport \"testing\"\n\nfunc TestGate_Unchanged(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := StepTestSubstantivenessScopedFunc([]MandatedTest{
+		{FuncName: "TestGate_Changed", FilePath: changed, TargetPkg: "gate"},
+		{FuncName: "TestGate_Unchanged", FilePath: unchanged, TargetPkg: "gate"},
+	}, newGateScope(codeDir, GateScopeModeDiff, []string{changed}, nil))(context.Background())
+	if result.Status != "pass" || len(result.Violations) != 0 {
+		t.Fatalf("expected substantiveness to ignore unchanged hollow test, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+}
+
+func TestGate_HasAssertions_HelperPatterns(t *testing.T) {
+	codeDir := t.TempDir()
+	testFile := filepath.Join(codeDir, "helpers_test.go")
+	if err := os.WriteFile(testFile, []byte(`package gate_test
+
+import "testing"
+
+func requireThing() {}
+func helper(t *testing.T) {}
+
+func TestGate_HelperName(t *testing.T) { requireThing() }
+func TestGate_HelperReceivesT(t *testing.T) { helper(t) }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"TestGate_HelperName", "TestGate_HelperReceivesT"} {
+		hollow, noTarget := checkSubstantiveness(testFile, name, "gate")
+		if hollow || noTarget {
+			t.Fatalf("expected %s to be substantive enough, hollow=%v noTarget=%v", name, hollow, noTarget)
+		}
 	}
 }
 

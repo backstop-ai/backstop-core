@@ -1,0 +1,306 @@
+---
+plan_id: PLAN-SPEC-018
+spec_id: SPEC-018
+created: "2026-05-22"
+status: draft
+coverage_threshold: 80
+test_command: backstop gate --all
+
+risks:
+  - "Scope must be computed once in cmd/backstop/gate.go and shared through pkg/gate/gate.go plus every pkg/gate/step_*.go builder; per-step recomputation would violate REQ-004."
+  - "Pack lock verification and pack validators in cmd/backstop/gate.go must bypass changed-file filtering and always run in diff, file, and all modes per REQ-006."
+  - "Filtering must stay consistent across artifact validation, code checks, test verification, substantiveness, coverage, contract, and deferred gate steps so no step accidentally performs a full sweep in diff mode."
+  - "The --all verification command is a flag form, backstop gate --all; using a positional all argument would not prove full-sweep behavior."
+
+phases:
+  - id: phase-1
+    name: "Setup and TDD coverage"
+    tasks:
+      - id: task-001
+        type: setup
+        title: "Create GateScope scaffold"
+        description: >
+          Add pkg/gate/scope.go with the GateScope struct scaffold, scope mode
+          fields for diff/all/file, a stable file list or set representation,
+          a Contains helper for step filtering, and the ComputeGateScope
+          function signature that will wrap pkg/check/scope.go diff logic.
+        files:
+          - pkg/gate/scope.go
+        claims:
+          - "GateScope scaffold exists for diff, all, and file scope modes"
+          - "ComputeGateScope signature is ready for implementation"
+        depends_on: []
+
+      - id: task-002
+        type: test
+        title: "Test gate CLI scope flags"
+        description: >
+          Add cmd/backstop/gate_test.go coverage for default diff mode,
+          backstop gate --all full-sweep mode, the exact REQ-003 form
+          `backstop gate --file a.go b.go` for explicit file mode, and the
+          --all plus --file mutual-exclusion config error with exit code 2.
+          Tests must prove that one --file flag can consume multiple following
+          file arguments; repeatable --file flags may be supported only in
+          addition to this required form.
+        files:
+          - cmd/backstop/gate_test.go
+        claims:
+          - "TestGate_DefaultsToDiffMode covers REQ-001 and CLM-001"
+          - "TestGate_AllFlagUsesFullSweep covers REQ-002 and CLM-002"
+          - "TestGate_FileFlagScopesExplicitFiles covers REQ-003 and CLM-003"
+          - "TestGate_AllAndFileMutuallyExclusive covers exit 2 conflict behavior"
+        depends_on: []
+
+      - id: task-003
+        type: test
+        title: "Test GateScope computation"
+        description: >
+          Add pkg/gate/scope_test.go coverage that ComputeGateScope includes
+          tracked modifications and untracked files, computes scope once for a
+          gate run, exposes a stable file set to all steps, and represents an
+          empty diff without manufacturing violations.
+        files:
+          - pkg/gate/scope_test.go
+        claims:
+          - "TestGateScope_IncludesUntrackedFiles covers tracked and untracked diff scope"
+          - "TestGateScope_ComputedOnce covers shared one-time scope computation"
+          - "TestGate_EmptyDiff covers empty changed-file set behavior"
+        depends_on: []
+
+      - id: task-004
+        type: test
+        title: "Test per-step scope filtering"
+        description: >
+          Add or update tests in the actual pkg/gate step test files so
+          artifact delegation, code checking, test verification,
+          substantiveness, coverage, contract checks, and deferred steps all
+          prove they filter to GateScope in diff/file modes, while pack lock
+          and pack validators remain always-run structural checks. Coverage
+          tests must prove changed source/test files cause coverage to run for
+          matching packages referenced by spec verification commands, even when
+          the spec artifact file itself is unchanged, while unrelated broad
+          full-sweep coverage commands remain skipped.
+        files:
+          - pkg/gate/gate_test.go
+          - pkg/gate/step_delegate_test.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_contract_test.go
+          - pkg/gate/step_deferred_test.go
+        claims:
+          - "TestGateSteps_FilterToChangedFiles covers every REQ-005 gate step category"
+          - "Coverage tests prove changed package matching for REQ-005(e)"
+          - "TestGateSteps_PackLockAlwaysRuns covers REQ-006 and CLM-006"
+          - "Scoped steps report zero violations when the changed-file set is empty"
+        depends_on: []
+
+      - id: task-005
+        type: test
+        title: "Test scope output"
+        description: >
+          Add pkg/gate/output_test.go coverage for the required human summary
+          line in diff mode, no required summary in --all mode, an empty-diff
+          informational message, and diagnostic-only JSON scope metadata if
+          present.
+        files:
+          - pkg/gate/output_test.go
+        claims:
+          - "TestGateOutput_ScopeSummary covers REQ-007 and CLM-007"
+          - "JSON scope metadata, if present, remains diagnostic only"
+          - "Human output identifies empty diff success"
+        depends_on: []
+
+      - id: task-006
+        type: test
+        title: "Test SPEC-010 REQ-012 supersession"
+        description: >
+          Add TestSpec010Req012Superseded in the spec validation tests. The
+          test must read specs/SPEC-010-gate.spec.md and
+          specs/SPEC-018-gate-diff-scope.spec.md, then assert that SPEC-018
+          supersedes SPEC-010 REQ-012 and that SPEC-010 is annotated or
+          otherwise discoverable as superseded by SPEC-018.
+        files:
+          - pkg/validate/spec_test.go
+        claims:
+          - "TestSpec010Req012Superseded covers REQ-008 and CLM-008"
+          - "Supersession is verified against real SPEC-010 and SPEC-018 artifacts"
+        depends_on: []
+
+  - id: phase-2
+    name: "Gate scope implementation"
+    tasks:
+      - id: task-007
+        type: implementation
+        title: "Implement GateScope computation and CLI flags"
+        description: >
+          Implement ComputeGateScope in pkg/gate/scope.go using the existing
+          ScopeModeDiff four-step merge-base cascade from pkg/check/scope.go.
+          Register --all and --file scope flags in cmd/backstop/gate.go. The
+          --file implementation must accept the exact REQ-003 CLI shape
+          `backstop gate --file a.go b.go` as one flag followed by multiple file
+          arguments; repeatable --file flags may be supported but cannot replace
+          that form. Default to diff mode when neither flag is set, reject --all
+          with --file as an exit 2 config error, and include untracked files in
+          the changed-file set.
+        files:
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+        claims:
+          - "Default gate execution uses diff mode (REQ-001, CLM-001)"
+          - "backstop gate --all restores full-project sweep behavior (REQ-002, CLM-002)"
+          - "backstop gate --file a.go b.go scopes to the explicit file list and conflicts with --all (REQ-003, CLM-003)"
+          - "Changed-file scope includes untracked files and is computed once at gate start (REQ-001, REQ-004)"
+        depends_on:
+          - task-001
+          - task-002
+          - task-003
+
+      - id: task-008
+        type: implementation
+        title: "Thread GateScope through actual gate steps"
+        description: >
+          Thread the single GateScope from cmd/backstop/gate.go into
+          pkg/gate/gate.go and each actual pkg/gate step implementation file.
+          Modify delegated artifact/code checks, test verification,
+          substantiveness, coverage, contract, and deferred step builders to
+          filter against the shared scope in diff and file modes. Coverage
+          filtering must match changed source/test files to the packages named
+          in each spec verification command so changed package files run their
+          relevant coverage checks even when the spec file is unchanged; broad
+          root commands such as go test ./... must not reintroduce unrelated
+          full-sweep coverage failures unless their spec file itself is scoped.
+          Preserve always-run pack lock and pack validator behavior in
+          cmd/backstop/gate.go.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/gate.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_deferred.go
+        claims:
+          - "All REQ-005 gate step categories filter to the changed-file set"
+          - "Coverage runs for changed packages referenced by scoped verification commands (REQ-005(e))"
+          - "Pack lock verification and pack validators always run in every scope mode (REQ-006)"
+          - "Empty diffs yield zero scoped violations while structural checks still run (REQ-009, CLM-009)"
+        depends_on:
+          - task-004
+          - task-007
+
+      - id: task-009
+        type: implementation
+        title: "Implement scope summary and JSON result fields"
+        description: >
+          Update pkg/gate/output.go and result shaping so human output prints
+          the required scope summary before step results in diff mode, omits
+          any required summary in --all mode, prints an informational empty-diff
+          message, and treats any JSON scope metadata as diagnostic-only.
+        files:
+          - pkg/gate/output.go
+          - pkg/gate/result.go
+        claims:
+          - "Human output includes the required diff scope summary (REQ-007, CLM-007)"
+          - "Human output omits scope summary for backstop gate --all"
+          - "JSON scope metadata, if present, is diagnostic only"
+          - "Empty diff output clearly reports no changed files"
+        depends_on:
+          - task-005
+          - task-008
+
+      - id: task-010
+        type: verification
+        title: "Verify gate scope implementation phase"
+        description: >
+          Run backstop gate --all to verify the phase-2 implementation with
+          the full-sweep flag form required by SPEC-018. Confirm the CLI,
+          scope computation, step filtering, output, and empty-diff tests pass
+          and meet the 80 percent coverage threshold.
+        files:
+          - pkg/gate/scope.go
+          - pkg/gate/scope_test.go
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_delegate_test.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_contract_test.go
+          - pkg/gate/step_deferred.go
+          - pkg/gate/step_deferred_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - "backstop gate --all verifies full-sweep behavior and all phase-2 tests"
+          - "Coverage meets the 80 percent threshold for gate scope changes"
+        depends_on:
+          - task-009
+
+  - id: phase-3
+    name: "Supersession implementation and final verification"
+    tasks:
+      - id: task-011
+        type: implementation
+        title: "Annotate SPEC-010 REQ-012 supersession"
+        description: >
+          Update specs/SPEC-010-gate.spec.md so REQ-012, which previously
+          said gate accepts no scope flags, is explicitly superseded by
+          SPEC-018. Keep SPEC-018 supersedes metadata consistent so
+          TestSpec010Req012Superseded can verify the REQ-008 and CLM-008
+          contract against the real spec artifacts.
+        files:
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-018-gate-diff-scope.spec.md
+        claims:
+          - "SPEC-010 REQ-012 is annotated as superseded by SPEC-018 (REQ-008)"
+          - "SPEC-018 supersedes metadata remains consistent with SPEC-010 annotation"
+          - "TestSpec010Req012Superseded has an implementation target for CLM-008"
+        depends_on:
+          - task-006
+
+      - id: task-012
+        type: verification
+        title: "Final verification of SPEC-018"
+        description: >
+          Run backstop gate --all as the final backstop CLI gate. Confirm all
+          SPEC-018 requirements REQ-001 through REQ-009 and claims CLM-001
+          through CLM-009 are covered, including TestSpec010Req012Superseded
+          for REQ-008 / CLM-008, with no regressions in existing gate behavior.
+        files:
+          - pkg/gate/scope.go
+          - pkg/gate/scope_test.go
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_delegate_test.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_contract_test.go
+          - pkg/gate/step_deferred.go
+          - pkg/gate/step_deferred_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+          - pkg/validate/spec_test.go
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-018-gate-diff-scope.spec.md
+        claims:
+          - "Final backstop gate --all covers all SPEC-018 work"
+          - "REQ-001 through REQ-009 are verified"
+          - "CLM-001 through CLM-009 are verified, including TestSpec010Req012Superseded"
+          - "Coverage meets the 80 percent threshold"
+          - "Existing gate behavior has no regressions outside scoped defaults"
+        depends_on:
+          - task-010
+          - task-011
