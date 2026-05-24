@@ -3,8 +3,6 @@
 # See artifacts/directive/v1/backlog-schema.json for format.
 
 directives:
-  - id: DIR-005
-    title: Extract Go Standards Pack
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002

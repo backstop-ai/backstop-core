@@ -5,9 +5,9 @@ created: "2026-05-20"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
   source:
-    - ""
+    - "BUNDLE-008"
 ---
 
 ## Description

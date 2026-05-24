@@ -5,7 +5,7 @@ created: "2026-04-19"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
   source:
     - "SPEC-010"
 ---
