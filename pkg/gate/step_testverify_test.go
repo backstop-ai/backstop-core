@@ -2,6 +2,9 @@ package gate
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +69,55 @@ func writeTestFile(t *testing.T, dir, filename string, funcNames []string) {
 
 	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644); err != nil {
 		t.Fatalf("writing test fixture: %v", err)
+	}
+}
+
+func TestGate_TargetPackageName(t *testing.T) {
+	cases := map[string]string{
+		"pkg/gate":          "gate",
+		"pkg/gate/internal": "internal",
+		"cmd/backstop":      "",
+		"standards/go":      "",
+		"":                  "",
+	}
+	for input, want := range cases {
+		if got := targetPackageName(input); got != want {
+			t.Fatalf("targetPackageName(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestGate_TestBodyHelpers(t *testing.T) {
+	src := `package sample
+func TestSelector() { t.Fatal("boom") }
+func TestHelperPrefix() { requireThing() }
+func TestHelperWithT() { helper(t) }
+func TestCallsTarget() { gate.Run() }
+func TestPlain() { local() }
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "sample_test.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse sample: %v", err)
+	}
+	funcs := map[string]bool{}
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			funcs[fn.Name.Name] = hasAssertions(fn.Body)
+			if fn.Name.Name == "TestCallsTarget" && !callsTargetPackage(fn.Body, "gate") {
+				t.Fatal("expected target package call to be detected")
+			}
+			if fn.Name.Name == "TestPlain" && callsTargetPackage(fn.Body, "gate") {
+				t.Fatal("expected plain local call not to match target package")
+			}
+		}
+	}
+	for _, name := range []string{"TestSelector", "TestHelperPrefix", "TestHelperWithT"} {
+		if !funcs[name] {
+			t.Fatalf("expected %s to have assertions", name)
+		}
+	}
+	if funcs["TestPlain"] {
+		t.Fatal("expected plain local call to have no assertions")
 	}
 }
 

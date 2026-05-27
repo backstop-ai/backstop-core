@@ -32,6 +32,7 @@ type specFrontmatter struct {
 		Package string `yaml:"package"`
 	} `yaml:"implementation"`
 	Verification struct {
+		Level             string `yaml:"level"`
 		TestCommand       string `yaml:"test_command"`
 		CoverageThreshold int    `yaml:"coverage_threshold"`
 	} `yaml:"verification"`
@@ -451,10 +452,11 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 
 		if fm.Verification.TestCommand != "" && fm.Verification.CoverageThreshold > 0 {
 			specs = append(specs, SpecVerification{
-				SpecID:            fm.Number,
-				TestCommand:       fm.Verification.TestCommand,
-				CoverageThreshold: fm.Verification.CoverageThreshold,
-				File:              path,
+				SpecID:                fm.Number,
+				TestCommand:           fm.Verification.TestCommand,
+				CoverageThreshold:     fm.Verification.CoverageThreshold,
+				File:                  path,
+				ImplementationPackage: fm.Implementation.Package,
 			})
 		}
 	}

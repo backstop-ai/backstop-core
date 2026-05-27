@@ -215,3 +215,43 @@ func TestBaselineCompareNilBaselineAndChangedFileSeeding(t *testing.T) {
 		t.Fatalf("expected unchanged violation to be seeded, got %#v", comparison.SeededViolations)
 	}
 }
+
+func TestBaselineCompareReportsFixedViolationsInScope(t *testing.T) {
+	baseline := &BaselineArtifact{Violations: []Violation{
+		{Rule: "code_check/no-eval", File: "changed.ts", Message: "old changed violation"},
+		{Rule: "code_check/no-alert", File: "other.ts", Message: "old other violation"},
+	}}
+
+	comparison := CompareBaseline(nil, baseline, BaselineCompareOptions{Scope: newGateScope("", GateScopeModeDiff, []string{"changed.ts"}, nil)})
+	if len(comparison.FixedViolations) != 1 {
+		t.Fatalf("expected one scoped fixed violation, got %#v", comparison.FixedViolations)
+	}
+	if comparison.FixedViolations[0].File != "changed.ts" {
+		t.Fatalf("expected fixed violation for changed.ts, got %#v", comparison.FixedViolations[0])
+	}
+}
+
+func TestBaselineCompareIgnoresExistingAndOutOfScopeFixedViolations(t *testing.T) {
+	existing := Violation{Rule: "code_check/no-eval", File: "changed.ts", Message: "same violation"}
+	baseline := &BaselineArtifact{Violations: []Violation{
+		existing,
+		{Rule: "code_check/no-file", Message: "fileless old violation"},
+	}}
+
+	comparison := CompareBaseline([]Violation{existing}, baseline, BaselineCompareOptions{Scope: newGateScope("", GateScopeModeDiff, []string{"changed.ts"}, nil)})
+	if len(comparison.NewViolations) != 0 {
+		t.Fatalf("expected existing violation not to be new, got %#v", comparison.NewViolations)
+	}
+	if len(comparison.FixedViolations) != 0 {
+		t.Fatalf("expected fileless out-of-scope fixed violation to be ignored, got %#v", comparison.FixedViolations)
+	}
+}
+
+func TestBaselineExistingCodeViolationRequiresFileWhenChangedFilesProvided(t *testing.T) {
+	if isExistingCodeViolation(Violation{Rule: "code_check/no-file"}, map[string]struct{}{"changed.ts": {}}) {
+		t.Fatal("expected fileless violation not to count as existing code when changed files are provided")
+	}
+	if !isExistingCodeViolation(Violation{Rule: "code_check/no-eval", File: "legacy.ts"}, map[string]struct{}{"changed.ts": {}}) {
+		t.Fatal("expected unchanged file violation to count as existing code")
+	}
+}

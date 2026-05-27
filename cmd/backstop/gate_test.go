@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,6 +88,57 @@ func TestGate_AllAndFileMutuallyExclusive(t *testing.T) {
 	}
 	if !strings.Contains(exitErr.Message, "--all and --file are mutually exclusive") {
 		t.Fatalf("expected conflict message, got %q", exitErr.Message)
+	}
+}
+
+func TestRunGate_UnexpectedArgsReturnConfigExit(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: gate-args\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	cmd := newGateCommand(new(bool))
+	err := runGate(cmd, []string{"unexpected"})
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitCodeError, got %T %v", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Fatalf("expected config exit %d, got %d", ExitConfigError, exitErr.Code)
+	}
+	if !strings.Contains(exitErr.Message, "unexpected gate arguments") {
+		t.Fatalf("unexpected message: %q", exitErr.Message)
+	}
+}
+
+func TestRunGate_InvalidBaselineTTLReturnsConfigExit(t *testing.T) {
+	projectRoot := t.TempDir()
+	configBody := "project: gate-ttl\nlanguage: go\nenforcement:\n  baseline_ttl: nonsense\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	cmd := newGateCommand(new(bool))
+	err := runGate(cmd, nil)
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitCodeError, got %T %v", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Fatalf("expected config exit %d, got %d", ExitConfigError, exitErr.Code)
+	}
+	if !strings.Contains(strings.ToLower(exitErr.Message), "baseline_ttl") {
+		t.Fatalf("expected baseline_ttl message, got %q", exitErr.Message)
 	}
 }
 
@@ -260,5 +312,319 @@ func TestGate_BaselineRatchet_FailsNewAndAllowsReductions_Contract(t *testing.T)
 	_, reductionExit := reductionGate.Run(context.Background())
 	if reductionExit != 0 {
 		t.Fatalf("expected ratchet to allow reductions, got exit=%d", reductionExit)
+	}
+}
+
+func TestChangedFilesAgainstOriginMain_ReturnsDiffedFiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = projectRoot
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+	runGit("init")
+	if err := os.WriteFile(filepath.Join(projectRoot, "tracked.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write tracked.txt: %v", err)
+	}
+	runGit("add", "tracked.txt")
+	runGit("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "base")
+	baseCmd := exec.Command("git", "rev-parse", "HEAD")
+	baseCmd.Dir = projectRoot
+	baseOut, err := baseCmd.Output()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	runGit("update-ref", "refs/remotes/origin/main", strings.TrimSpace(string(baseOut)))
+	if err := os.WriteFile(filepath.Join(projectRoot, "tracked.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("rewrite tracked.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatalf("write new.txt: %v", err)
+	}
+	runGit("add", "new.txt")
+
+	files, err := changedFilesAgainstOriginMain(projectRoot)
+	if err != nil {
+		t.Fatalf("changedFilesAgainstOriginMain: %v", err)
+	}
+	joined := strings.Join(files, "\n")
+	if !strings.Contains(joined, "tracked.txt") || !strings.Contains(joined, "new.txt") {
+		t.Fatalf("expected changed files to include tracked.txt and new.txt, got %v", files)
+	}
+}
+
+func TestRuleSetChangeSeedingContext_OnlyAllScopeAndRuleSetFilesEnableSeeding(t *testing.T) {
+	projectRoot := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = projectRoot
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+	runGit("init")
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	runGit("add", "backstop.yml")
+	runGit("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "base")
+	baseCmd := exec.Command("git", "rev-parse", "HEAD")
+	baseCmd.Dir = projectRoot
+	baseOut, err := baseCmd.Output()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	runGit("update-ref", "refs/remotes/origin/main", strings.TrimSpace(string(baseOut)))
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: updated\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("rewrite backstop.yml: %v", err)
+	}
+
+	allowedAll, changedAll := ruleSetChangeSeedingContext(projectRoot, nil)
+	if allowedAll || changedAll != nil {
+		t.Fatalf("expected nil scope to disable seeding context, got allowed=%v changed=%v", allowedAll, changedAll)
+	}
+
+	allowedDiff, _ := ruleSetChangeSeedingContext(projectRoot, &gate.GateScope{Mode: gate.GateScopeModeDiff})
+	if allowedDiff {
+		t.Fatal("expected diff scope to disable rule-set seeding")
+	}
+
+	allowedAll, changedAll = ruleSetChangeSeedingContext(projectRoot, &gate.GateScope{Mode: gate.GateScopeModeAll})
+	if !allowedAll {
+		t.Fatal("expected all scope with backstop.yml change to enable seeding")
+	}
+	if len(changedAll) == 0 {
+		t.Fatal("expected changed file list to be returned")
+	}
+}
+
+func TestResolveBaselineCache_MissingCacheAndRefreshFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	artifact, warning, modified := resolveBaselineCache(filepath.Join(projectRoot, ".backstop", "baseline.json"), time.Minute)
+	if artifact != nil {
+		t.Fatalf("expected nil artifact when cache missing and refresh fails, got %#v", artifact)
+	}
+	if !strings.Contains(warning, "no cached baseline found") {
+		t.Fatalf("expected missing-cache warning, got %q", warning)
+	}
+	if !modified.IsZero() {
+		t.Fatalf("expected zero modified time, got %s", modified)
+	}
+}
+
+func TestResolveBaselineCache_UnreadableCacheAndRefreshFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	cachePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("not-json"), 0o644); err != nil {
+		t.Fatalf("write broken cache: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	artifact, warning, modified := resolveBaselineCache(cachePath, time.Minute)
+	if artifact != nil {
+		t.Fatalf("expected nil artifact when cache unreadable and refresh fails, got %#v", artifact)
+	}
+	if !strings.Contains(warning, "is unreadable") {
+		t.Fatalf("expected unreadable-cache warning, got %q", warning)
+	}
+	if modified.IsZero() {
+		t.Fatal("expected original cache modtime to be surfaced")
+	}
+}
+
+func TestResolveBaselineCache_StaleCacheFallsBackToLocalOnRefreshFailure(t *testing.T) {
+	projectRoot := t.TempDir()
+	cachePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte(`{"schema_version":"baseline/v1","violations":[]}`), 0o644); err != nil {
+		t.Fatalf("write cache: %v", err)
+	}
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(cachePath, stale, stale); err != nil {
+		t.Fatalf("set stale modtime: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	artifact, warning, modified := resolveBaselineCache(cachePath, time.Minute)
+	if artifact == nil {
+		t.Fatal("expected stale baseline cache to be used when refresh fails")
+	}
+	if !strings.Contains(warning, "using stale cached baseline") {
+		t.Fatalf("expected stale-cache fallback warning, got %q", warning)
+	}
+	if modified.IsZero() {
+		t.Fatal("expected stale cache modtime to be returned")
+	}
+}
+
+func TestResolveBaselineCache_MissingCacheRefreshesFromRemote(t *testing.T) {
+	projectRoot := t.TempDir()
+	setupBaselineRefreshSuccessFixture(t, projectRoot)
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	artifact, warning, modified := resolveBaselineCache(filepath.Join(projectRoot, ".backstop", "baseline.json"), time.Minute)
+	if artifact == nil {
+		t.Fatal("expected artifact refreshed from remote")
+	}
+	if warning != "baseline cache fetched from remote main baseline artifact" {
+		t.Fatalf("unexpected refresh warning: %q", warning)
+	}
+	if modified.IsZero() {
+		t.Fatal("expected non-zero modified time after refresh")
+	}
+}
+
+func TestResolveBaselineCache_UnreadableCacheRefreshesFromRemote(t *testing.T) {
+	projectRoot := t.TempDir()
+	setupBaselineRefreshSuccessFixture(t, projectRoot)
+	cachePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("broken-json"), 0o644); err != nil {
+		t.Fatalf("write broken cache: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	artifact, warning, modified := resolveBaselineCache(cachePath, time.Minute)
+	if artifact == nil {
+		t.Fatal("expected artifact refreshed from remote after unreadable cache")
+	}
+	if warning != "baseline cache was unreadable and refreshed from remote main baseline artifact" {
+		t.Fatalf("unexpected unreadable-cache warning: %q", warning)
+	}
+	if modified.IsZero() {
+		t.Fatal("expected non-zero modified time after refresh")
+	}
+}
+
+func setupBaselineRefreshSuccessFixture(t *testing.T, projectRoot string) {
+	t.Helper()
+	if out, err := exec.Command("git", "init", projectRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, string(out))
+	}
+	cmd := exec.Command("git", "remote", "add", "origin", "git@github.com:owner/repo.git")
+	cmd.Dir = projectRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, string(out))
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: cache-refresh\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+
+	binDir := t.TempDir()
+	zipPath := filepath.Join(t.TempDir(), "artifact.zip")
+	makeBaselineZip(t, zipPath)
+	writeFakeGh(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then
+  exit 0
+fi
+if [ "$1" != "api" ]; then
+  echo "unexpected command: $*" >&2
+  exit 1
+fi
+case "$2" in
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
+    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+    ;;
+  repos/owner/repo/actions/runs/42/artifacts)
+    printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'
+    ;;
+  repos/owner/repo/actions/artifacts/99/zip)
+    cat "`+zipPath+`"
+    ;;
+  *)
+    echo "unexpected endpoint: $2" >&2
+    exit 1
+    ;;
+esac
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestGate_UnexpectedArgsWithoutFileFlag_ReturnsConfigExit(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: arg-validation\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	root := NewRootCommand()
+	_, err := executeCommand(root, "gate", "extra-arg")
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitCodeError, got %T %v", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Fatalf("expected config exit %d, got %d", ExitConfigError, exitErr.Code)
+	}
+	if !strings.Contains(exitErr.Message, "unexpected gate arguments") {
+		t.Fatalf("expected unexpected-args message, got %q", exitErr.Message)
+	}
+}
+
+func TestGate_InvalidBaselineTTLConfig_ReturnsConfigExit(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: bad-ttl\nlanguage: go\nenforcement:\n  baseline_ttl: nonsense\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	root := NewRootCommand()
+	_, err := executeCommand(root, "gate")
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitCodeError, got %T %v", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Fatalf("expected config exit %d, got %d", ExitConfigError, exitErr.Code)
+	}
+	if !strings.Contains(exitErr.Message, "baseline_ttl") {
+		t.Fatalf("expected baseline_ttl parse message, got %q", exitErr.Message)
 	}
 }

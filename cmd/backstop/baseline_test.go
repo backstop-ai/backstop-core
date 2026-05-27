@@ -372,6 +372,154 @@ cat "`+zipPath+`"
 	}
 }
 
+func TestRunBaselinePull_UpdatesCacheFromArtifact(t *testing.T) {
+	projectRoot := t.TempDir()
+	if out, err := exec.Command("git", "init", projectRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, string(out))
+	}
+	cmd := exec.Command("git", "remote", "add", "origin", "git@github.com:owner/repo.git")
+	cmd.Dir = projectRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, string(out))
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: pull-success\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	cachePath := writeBaselineFixture(t, projectRoot)
+
+	binDir := t.TempDir()
+	zipPath := filepath.Join(t.TempDir(), "artifact.zip")
+	makeBaselineZip(t, zipPath)
+	writeFakeGh(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then
+  exit 0
+fi
+if [ "$1" != "api" ]; then
+  echo "unexpected command: $*" >&2
+  exit 1
+fi
+case "$2" in
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
+    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+    ;;
+  repos/owner/repo/actions/runs/42/artifacts)
+    printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'
+    ;;
+  repos/owner/repo/actions/artifacts/99/zip)
+    cat "`+zipPath+`"
+    ;;
+  *)
+    echo "unexpected endpoint: $2" >&2
+    exit 1
+    ;;
+esac
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := runBaselinePull(nil, nil); err != nil {
+		t.Fatalf("run baseline pull: %v", err)
+	}
+	after, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("read updated baseline: %v", err)
+	}
+	if !strings.Contains(string(after), `"schema_version":"baseline/v1"`) {
+		t.Fatalf("expected updated baseline payload, got %s", string(after))
+	}
+}
+
+func TestRunBaselinePull_InvalidBaselinePayloadPreservesExistingCache(t *testing.T) {
+	projectRoot := t.TempDir()
+	if out, err := exec.Command("git", "init", projectRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, string(out))
+	}
+	cmd := exec.Command("git", "remote", "add", "origin", "git@github.com:owner/repo.git")
+	cmd.Dir = projectRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, string(out))
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: pull-invalid\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	cachePath := writeBaselineFixture(t, projectRoot)
+	before, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("read baseline before: %v", err)
+	}
+
+	binDir := t.TempDir()
+	zipPath := filepath.Join(t.TempDir(), "artifact-invalid.zip")
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	entry, err := writer.Create("baseline.json")
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte(`{"schema_version":"baseline/v99","violations":[]}`)); err != nil {
+		t.Fatalf("write invalid payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close invalid zip: %v", err)
+	}
+	if err := os.WriteFile(zipPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write invalid zip: %v", err)
+	}
+	writeFakeGh(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then
+  exit 0
+fi
+case "$2" in
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
+    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+    ;;
+  repos/owner/repo/actions/runs/42/artifacts)
+    printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'
+    ;;
+  repos/owner/repo/actions/artifacts/99/zip)
+    cat "`+zipPath+`"
+    ;;
+esac
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	err = runBaselinePull(nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid baseline payload") {
+		t.Fatalf("expected invalid payload error, got %v", err)
+	}
+	after, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("read baseline after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("expected cache to remain unchanged on invalid payload")
+	}
+}
+
+func TestResolveProjectRootFailsWithoutBackstopConfig(t *testing.T) {
+	orig, _ := os.Getwd()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	_, err := resolveProjectRoot()
+	if err == nil || !strings.Contains(err.Error(), "unable to resolve project") {
+		t.Fatalf("expected project resolution failure, got %v", err)
+	}
+}
+
 func writeFakeGh(t *testing.T, path string, script string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {

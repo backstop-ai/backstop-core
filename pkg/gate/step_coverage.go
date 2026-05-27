@@ -18,11 +18,14 @@ type CommandRunner interface {
 
 // SpecVerification holds the verification block fields from a spec.
 type SpecVerification struct {
-	SpecID            string
-	TestCommand       string
-	CoverageThreshold int
-	File              string
+	SpecID                string
+	TestCommand           string
+	CoverageThreshold     int
+	File                  string
+	ImplementationPackage string
 }
+
+const defaultCodeScopeCoverageFloor = 90
 
 // CoverageTarget is one concrete coverage command selected by the gate. The
 // spec documents thresholds; target selection belongs to the gate so different
@@ -107,7 +110,7 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 		if thresholds.CollapsedCodeScope && coveragePct < float64(thresholds.MaxThreshold) {
 			violations = append(violations, Violation{
 				Rule:     "coverage_threshold",
-				Message:  fmt.Sprintf("changed Go package coverage %.1f%% below maximum declared threshold %d%%", coveragePct, thresholds.MaxThreshold),
+				Message:  fmt.Sprintf("changed Go package coverage %.1f%% below threshold %d%%", coveragePct, thresholds.MaxThreshold),
 				Severity: "error",
 			})
 		}
@@ -138,11 +141,7 @@ func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope) cove
 		return coverageThresholdSelection{Specs: specs}
 	}
 	selected := []SpecVerification{}
-	maxThreshold := 0
 	for _, spec := range specs {
-		if spec.CoverageThreshold > maxThreshold {
-			maxThreshold = spec.CoverageThreshold
-		}
 		if spec.File != "" && scope.Contains(spec.File) {
 			selected = append(selected, spec)
 		}
@@ -150,7 +149,68 @@ func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope) cove
 	if len(selected) > 0 {
 		return coverageThresholdSelection{Specs: selected}
 	}
+	maxThreshold := 0
+	hasSpecific := false
+	for _, spec := range specs {
+		if !coverageSpecRelevantToCodeScope(spec, scope, false) {
+			continue
+		}
+		hasSpecific = true
+		if spec.CoverageThreshold > maxThreshold {
+			maxThreshold = spec.CoverageThreshold
+		}
+	}
+	if !hasSpecific {
+		for _, spec := range specs {
+			if !coverageSpecRelevantToCodeScope(spec, scope, true) {
+				continue
+			}
+			if spec.CoverageThreshold > maxThreshold {
+				maxThreshold = spec.CoverageThreshold
+			}
+		}
+	}
+	if maxThreshold == 0 {
+		maxThreshold = defaultCodeScopeCoverageFloor
+	}
 	return coverageThresholdSelection{CollapsedCodeScope: true, MaxThreshold: maxThreshold}
+}
+
+func coverageSpecRelevantToCodeScope(spec SpecVerification, scope *GateScope, includeRootCommand bool) bool {
+	if scope == nil || scope.Empty() {
+		return false
+	}
+	for _, file := range scope.Files {
+		if coverageSpecRelevantToFile(spec, normalizeScopePath("", file), includeRootCommand) {
+			return true
+		}
+	}
+	return false
+}
+
+func coverageSpecRelevantToFile(spec SpecVerification, file string, includeRootCommand bool) bool {
+	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_testdata.go") {
+		return false
+	}
+	dir := filepath.Dir(file)
+	if dir == "." {
+		dir = ""
+	}
+	if spec.ImplementationPackage != "" && packagePathMatches(dir, spec.ImplementationPackage) {
+		return true
+	}
+	if spec.TestCommand == "" {
+		return false
+	}
+	return includeRootCommand && strings.Contains(spec.TestCommand, "./...") || strings.Contains(spec.TestCommand, "./"+dir)
+}
+
+func packagePathMatches(changedDir string, specPackage string) bool {
+	trimmed := strings.TrimPrefix(strings.Trim(specPackage, "/"), "./")
+	if changedDir == "" || trimmed == "" {
+		return changedDir == trimmed
+	}
+	return changedDir == trimmed || strings.HasPrefix(changedDir, trimmed+"/") || strings.HasPrefix(trimmed, changedDir+"/")
 }
 
 func runCoverageTargets(ctx context.Context, runner CommandRunner, targets []CoverageTarget) (float64, bool, []Violation) {
@@ -196,6 +256,7 @@ func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
 		return nil
 	}
 	packages := map[string]struct{}{}
+	testPackages := map[string]struct{}{}
 	for _, file := range scope.Files {
 		clean := normalizeScopePath("", file)
 		if strings.HasSuffix(clean, ".spec.md") {
@@ -206,11 +267,20 @@ func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
 			continue
 		}
 		dir := filepath.Dir(clean)
+		selected := packages
+		if strings.HasSuffix(clean, "_test.go") {
+			selected = testPackages
+		}
 		if dir == "." {
-			packages["."] = struct{}{}
+			selected["."] = struct{}{}
 			continue
 		}
-		packages["./"+dir] = struct{}{}
+		selected["./"+dir] = struct{}{}
+	}
+	if len(packages) == 0 {
+		for pkg := range testPackages {
+			packages[pkg] = struct{}{}
+		}
 	}
 	result := make([]string, 0, len(packages))
 	for pkg := range packages {

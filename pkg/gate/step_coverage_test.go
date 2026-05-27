@@ -135,17 +135,180 @@ func TestGate_CoverageTargets_DerivedFromScope(t *testing.T) {
 	}
 }
 
-func TestGate_CoverageThreshold_CollapsesCodeScopeThresholds(t *testing.T) {
+func TestGate_CoverageTargets_ProductionFilesTakePrecedenceOverTestFiles(t *testing.T) {
+	targets := coverageTargetsForScope(newGateScope("", GateScopeModeDiff, []string{"cmd/backstop/gate_test.go", "pkg/gate/step_coverage.go"}, nil))
+	if len(targets) != 1 {
+		t.Fatalf("expected only production package target, got %#v", targets)
+	}
+	if targets[0].Label != "./pkg/gate" {
+		t.Fatalf("expected pkg/gate target, got %q", targets[0].Label)
+	}
+}
+
+func TestGate_CoverageTargets_TestOnlyScopeStillRunsPackageCoverage(t *testing.T) {
+	targets := coverageTargetsForScope(newGateScope("", GateScopeModeDiff, []string{"cmd/backstop/gate_test.go"}, nil))
+	if len(targets) != 1 {
+		t.Fatalf("expected test-only package target, got %#v", targets)
+	}
+	if targets[0].Label != "./cmd/backstop" {
+		t.Fatalf("expected cmd/backstop target, got %q", targets[0].Label)
+	}
+}
+
+func TestGate_CoverageThreshold_CodeScopeUsesRelevantSpecThreshold(t *testing.T) {
 	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 75.0% of statements\n")}
 	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
-		{SpecID: "ONE", CoverageThreshold: 80, File: "specs/one.spec.md"},
-		{SpecID: "TWO", CoverageThreshold: 90, File: "specs/two.spec.md"},
+		{SpecID: "RELEVANT", TestCommand: "go test ./pkg/gate/...", CoverageThreshold: 80, File: "specs/relevant.spec.md", ImplementationPackage: "pkg/gate"},
+		{SpecID: "UNRELATED", TestCommand: "semgrep --test standards/go/testdata", CoverageThreshold: 100, File: "specs/unrelated.spec.md", ImplementationPackage: "standards/go"},
 	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
 	if len(result.Violations) != 1 {
 		t.Fatalf("expected one collapsed code-scope violation, got %#v", result.Violations)
 	}
-	if result.Violations[0].Message != "changed Go package coverage 75.0% below maximum declared threshold 90%" {
+	if result.Violations[0].Message != "changed Go package coverage 75.0% below threshold 80%" {
 		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
+	}
+}
+
+func TestGate_CoverageThreshold_CodeScopeUsesUnitFloorWhenNoSpecRelevant(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
+		{SpecID: "UNRELATED", TestCommand: "semgrep --test standards/go/testdata", CoverageThreshold: 100, File: "specs/unrelated.spec.md", ImplementationPackage: "standards/go"},
+	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if len(result.Violations) != 1 {
+		t.Fatalf("expected one default-floor violation, got %#v", result.Violations)
+	}
+	if result.Violations[0].Message != "changed Go package coverage 85.0% below threshold 90%" {
+		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
+	}
+}
+
+func TestGate_CoverageThreshold_CodeScopeUsesRootCommandWhenNoSpecificSpec(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
+		{SpecID: "ROOT", TestCommand: "go test ./...", CoverageThreshold: 80, File: "specs/root.spec.md"},
+		{SpecID: "UNRELATED", TestCommand: "semgrep --test standards/go/testdata", CoverageThreshold: 100, File: "specs/unrelated.spec.md", ImplementationPackage: "standards/go"},
+	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if len(result.Violations) != 0 {
+		t.Fatalf("expected root command threshold 80 to pass, got %#v", result.Violations)
+	}
+}
+
+func TestGate_CoverageThreshold_CodeScopePrefersSpecificSpecOverRootCommand(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")}
+	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
+		{SpecID: "SPECIFIC", TestCommand: "go test ./pkg/gate", CoverageThreshold: 90, File: "specs/specific.spec.md", ImplementationPackage: "pkg/gate"},
+		{SpecID: "ROOT", TestCommand: "go test ./...", CoverageThreshold: 80, File: "specs/root.spec.md"},
+	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if len(result.Violations) != 1 {
+		t.Fatalf("expected specific spec threshold violation, got %#v", result.Violations)
+	}
+	if result.Violations[0].Message != "changed Go package coverage 85.0% below threshold 90%" {
+		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
+	}
+}
+
+func TestGate_CoverageThreshold_RelevanceIgnoresNonGoAndTestdataFiles(t *testing.T) {
+	spec := SpecVerification{SpecID: "GATE", TestCommand: "go test ./pkg/gate", CoverageThreshold: 90, ImplementationPackage: "pkg/gate"}
+	if coverageSpecRelevantToCodeScope(spec, nil, false) {
+		t.Fatal("expected nil scope not to be relevant")
+	}
+	if coverageSpecRelevantToCodeScope(spec, newGateScope("", GateScopeModeDiff, nil, nil), false) {
+		t.Fatal("expected empty scope not to be relevant")
+	}
+	if coverageSpecRelevantToFile(spec, "pkg/gate/foo_testdata.go", false) {
+		t.Fatal("expected _testdata.go file to be ignored")
+	}
+	if coverageSpecRelevantToFile(spec, "pkg/gate/README.md", false) {
+		t.Fatal("expected non-Go file to be ignored")
+	}
+	if !coverageSpecRelevantToFile(SpecVerification{TestCommand: "go test ./pkg/gate", CoverageThreshold: 90}, "pkg/gate/step_coverage.go", false) {
+		t.Fatal("expected test_command package to make spec relevant")
+	}
+	if coverageSpecRelevantToFile(SpecVerification{CoverageThreshold: 90}, "pkg/gate/step_coverage.go", false) {
+		t.Fatal("expected spec without implementation package or test_command not to be relevant")
+	}
+}
+
+func TestGate_CoverageThreshold_PackagePathMatchesNestedPackages(t *testing.T) {
+	if !packagePathMatches("", "") {
+		t.Fatal("expected empty changed package to match empty implementation package")
+	}
+	if packagePathMatches("pkg/gate", "") {
+		t.Fatal("expected non-empty changed package not to match empty implementation package")
+	}
+	if !packagePathMatches("pkg/gate/internal", "pkg/gate") {
+		t.Fatal("expected changed nested package to match parent implementation package")
+	}
+	if !packagePathMatches("pkg/gate", "pkg/gate/internal") {
+		t.Fatal("expected parent changed package to match nested implementation package")
+	}
+	if packagePathMatches("pkg/gate", "pkg/config") {
+		t.Fatal("expected unrelated packages not to match")
+	}
+}
+
+func TestGate_CoverageOutputExcerpt_SelectsFailureLines(t *testing.T) {
+	output := []byte(strings.Join([]string{
+		"ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements",
+		"--- FAIL: TestOne (0.00s)",
+		"step_coverage.go:99: failed",
+		"FAIL",
+		"pkg/gate: error detail",
+		"extra: ignored after cap",
+	}, "\n"))
+	got := coverageOutputExcerpt(output)
+	if !strings.Contains(got, "--- FAIL: TestOne") || !strings.Contains(got, "step_coverage.go:99: failed") {
+		t.Fatalf("expected failure details in excerpt, got %q", got)
+	}
+	if strings.Contains(got, "extra: ignored") {
+		t.Fatalf("expected excerpt to cap selected lines, got %q", got)
+	}
+}
+
+func TestGate_CoverageOutputExcerpt_EmptyWhenNoFailureDetails(t *testing.T) {
+	if got := coverageOutputExcerpt([]byte("ok  \tpkg/gate\t1.234s\tcoverage: 85.0% of statements\n")); got != "" {
+		t.Fatalf("expected empty excerpt, got %q", got)
+	}
+}
+
+func TestGate_CoverageSpecInScope(t *testing.T) {
+	spec := SpecVerification{File: "specs/SPEC-010-gate.spec.md"}
+	if !coverageSpecInScope(spec, nil) {
+		t.Fatal("expected nil scope to include spec")
+	}
+	if !coverageSpecInScope(spec, newGateScope("", GateScopeModeAll, nil, nil)) {
+		t.Fatal("expected all scope to include spec")
+	}
+	if coverageSpecInScope(spec, newGateScope("", GateScopeModeDiff, nil, nil)) {
+		t.Fatal("expected empty diff scope to exclude spec")
+	}
+	if !coverageSpecInScope(spec, newGateScope("", GateScopeModeDiff, []string{"specs/SPEC-010-gate.spec.md"}, nil)) {
+		t.Fatal("expected matching spec file scope to include spec")
+	}
+	if !coverageSpecInScope(spec, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil)) {
+		t.Fatal("expected Go code scope to include coverage spec")
+	}
+}
+
+func TestGate_NormalizeCoveragePackageAndContainsFile(t *testing.T) {
+	cases := map[string]string{
+		"./pkg/gate/...": "pkg/gate",
+		"/pkg/gate/":     "pkg/gate",
+		"...":            "",
+	}
+	for input, want := range cases {
+		if got := normalizeCoveragePackage(input); got != want {
+			t.Fatalf("normalizeCoveragePackage(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if !coveragePackageContainsFile("./pkg/gate/...", "pkg/gate/step_coverage.go") {
+		t.Fatal("expected package to contain file")
+	}
+	if !coveragePackageContainsFile("...", "pkg/anything/file.go") {
+		t.Fatal("expected root wildcard package to contain any file")
+	}
+	if coveragePackageContainsFile("./pkg/gate", "pkg/config/config.go") {
+		t.Fatal("expected unrelated package not to contain file")
 	}
 }
 

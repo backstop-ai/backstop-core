@@ -3,7 +3,9 @@ package gate
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 // makePassStep returns a StepFunc that always returns pass with the given name.
@@ -377,6 +379,45 @@ func TestGate_BaselineComparison_ChangedCodeStillFailsWhenSeedingFlagSet(t *test
 	}
 }
 
+func TestGate_BaselineOptions_ApplyWarningCacheAndChangedFiles(t *testing.T) {
+	now := time.Now().UTC()
+	gate := New(
+		WithBaselineWarning("  stale baseline cache  "),
+		WithBaselineCacheMeta(".backstop/baseline.json", 15*time.Minute, now),
+		WithRuleSetChangeFiles([]string{" changed.ts ", "", "changed.ts", "legacy.ts"}),
+	)
+
+	if !gate.baselineEnabled {
+		t.Fatal("expected baseline to be enabled when warning is set")
+	}
+	if gate.baselineWarning != "stale baseline cache" {
+		t.Fatalf("baseline warning = %q, want trimmed warning", gate.baselineWarning)
+	}
+	if gate.baselinePath != ".backstop/baseline.json" {
+		t.Fatalf("baseline path = %q, want .backstop/baseline.json", gate.baselinePath)
+	}
+	if gate.baselineTTL != 15*time.Minute {
+		t.Fatalf("baseline ttl = %s, want %s", gate.baselineTTL, 15*time.Minute)
+	}
+	if !gate.baselineModified.Equal(now) {
+		t.Fatalf("baseline modified = %s, want %s", gate.baselineModified, now)
+	}
+	if len(gate.ruleSetChangeFiles) != 2 {
+		t.Fatalf("expected 2 deduplicated changed files, got %d", len(gate.ruleSetChangeFiles))
+	}
+	if _, ok := gate.ruleSetChangeFiles["changed.ts"]; !ok {
+		t.Fatal("expected changed.ts in changed-file map")
+	}
+	if _, ok := gate.ruleSetChangeFiles["legacy.ts"]; !ok {
+		t.Fatal("expected legacy.ts in changed-file map")
+	}
+
+	gate = New(WithRuleSetChangeFiles(nil))
+	if gate.ruleSetChangeFiles != nil {
+		t.Fatal("expected nil changed-file map when no files provided")
+	}
+}
+
 // --- Delegated config error halt tests ---
 
 // TestGate_ExitCode2_DelegatedArtifactValidateConfigError verifies that a
@@ -461,5 +502,72 @@ func TestGate_ConfigInvalid_ExitCode2(t *testing.T) {
 
 	if exitCode != 2 {
 		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+}
+
+func TestGate_BaselineComparison_MissingBaselineUsesConfiguredWarning(t *testing.T) {
+	steps := []StepFunc{
+		makePassStep(StepArtifactValidation),
+		makePassStep(StepCodeCheck),
+		makePassStep(StepTestVerification),
+		makePassStep(StepTestSubstantiveness),
+		makePassStep(StepCoverageThreshold),
+		makePassStep(StepContractSignature),
+		StepBaselineComparisonFunc(),
+		StepWaiverResolutionFunc(),
+		StepLedgerIntegrityFunc(),
+	}
+
+	result, exitCode := New(WithSteps(steps), WithBaselineWarning("custom baseline warning")).Run(context.Background())
+	if exitCode != 0 {
+		t.Fatalf("expected skip-path baseline warning to keep gate passing, got exit %d", exitCode)
+	}
+	if result.Steps[6].Reason != "custom baseline warning" {
+		t.Fatalf("expected custom warning reason, got %q", result.Steps[6].Reason)
+	}
+}
+
+func TestGate_BaselineComparison_FailIncludesWarningSuffix(t *testing.T) {
+	steps := []StepFunc{
+		func(_ context.Context) StepResult {
+			return StepResult{StepName: StepArtifactValidation, Status: "pass", Violations: []Violation{{Rule: "code_check/new-rule", File: "changed.ts", Message: "new violation", Severity: "error"}}}
+		},
+		makePassStep(StepCodeCheck),
+		makePassStep(StepTestVerification),
+		makePassStep(StepTestSubstantiveness),
+		makePassStep(StepCoverageThreshold),
+		makePassStep(StepContractSignature),
+		StepBaselineComparisonFunc(),
+		StepWaiverResolutionFunc(),
+		StepLedgerIntegrityFunc(),
+	}
+
+	result, exitCode := New(
+		WithSteps(steps),
+		WithScope(newGateScope("", GateScopeModeAll, nil, nil)),
+		WithBaseline(&BaselineArtifact{SchemaVersion: BaselineSchemaV1, Violations: []Violation{}}),
+		WithBaselineWarning("stale baseline cache"),
+	).Run(context.Background())
+
+	if exitCode != 1 {
+		t.Fatalf("expected new baseline violation to fail gate, got exit %d", exitCode)
+	}
+	if !strings.Contains(result.Steps[6].Reason, "stale baseline cache") {
+		t.Fatalf("expected warning suffix in baseline failure reason, got %q", result.Steps[6].Reason)
+	}
+}
+
+func TestAccumulatedViolations_ExcludesDeferredStepsAndReturnsNonNil(t *testing.T) {
+	violations := accumulatedViolations([]StepResult{
+		{StepName: StepBaselineComparison, Violations: []Violation{{Rule: "baseline/new"}}},
+		{StepName: StepWaiverResolution, Violations: []Violation{{Rule: "waiver/unresolved"}}},
+		{StepName: StepLedgerIntegrity, Violations: []Violation{{Rule: "ledger/missing"}}},
+	})
+
+	if len(violations) != 0 {
+		t.Fatalf("expected deferred-step violations to be excluded, got %#v", violations)
+	}
+	if violations == nil {
+		t.Fatal("expected non-nil empty slice")
 	}
 }
