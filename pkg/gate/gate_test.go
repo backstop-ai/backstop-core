@@ -229,6 +229,154 @@ func TestGate_ExitCode1_StepFailed(t *testing.T) {
 	}
 }
 
+// TestGate_BaselineComparison_WiredAfterAccumulatedChecks verifies the
+// baseline step runs after earlier evaluating steps and can observe accumulated
+// step state without rerunning previous checks.
+func TestGate_BaselineComparison_WiredAfterAccumulatedChecks(t *testing.T) {
+	executed := make([]string, 0, 9)
+	steps := []StepFunc{}
+	for _, stepName := range AllStepNames[:6] {
+		name := stepName
+		steps = append(steps, func(_ context.Context) StepResult {
+			executed = append(executed, name)
+			return StepResult{StepName: name, Status: "pass", Violations: []Violation{}}
+		})
+	}
+	steps = append(steps, func(_ context.Context) StepResult {
+		executed = append(executed, StepBaselineComparison)
+		if len(executed) != 7 {
+			return StepResult{
+				StepName: StepBaselineComparison,
+				Status:   "fail",
+				Violations: []Violation{{
+					Rule:     "baseline/wiring",
+					Message:  "baseline step did not run after accumulated evaluating steps",
+					Severity: "error",
+				}},
+			}
+		}
+		return StepResult{StepName: StepBaselineComparison, Status: "pass", Violations: []Violation{}}
+	})
+	steps = append(steps,
+		makeSkippedStep(StepWaiverResolution, "waivers not implemented"),
+		makeSkippedStep(StepLedgerIntegrity, "ledger not implemented"),
+	)
+
+	g := New(WithSteps(steps))
+	result, exitCode := g.Run(context.Background())
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d with result=%#v", exitCode, result)
+	}
+	if len(result.Steps) != 9 {
+		t.Fatalf("expected 9 steps, got %d", len(result.Steps))
+	}
+	if result.Steps[6].StepName != StepBaselineComparison {
+		t.Fatalf("expected step 7 to be %q, got %q", StepBaselineComparison, result.Steps[6].StepName)
+	}
+}
+
+// TestGate_BaselineComparison_MissingBaselineSkipsWithReason verifies missing
+// baseline behavior currently surfaces as skipped baseline comparison.
+func TestGate_BaselineComparison_MissingBaselineSkipsWithReason(t *testing.T) {
+	steps := []StepFunc{
+		makePassStep(StepArtifactValidation),
+		makePassStep(StepCodeCheck),
+		makePassStep(StepTestVerification),
+		makePassStep(StepTestSubstantiveness),
+		makePassStep(StepCoverageThreshold),
+		makePassStep(StepContractSignature),
+		StepBaselineComparisonFunc(),
+		StepWaiverResolutionFunc(),
+		StepLedgerIntegrityFunc(),
+	}
+
+	result, exitCode := New(WithSteps(steps)).Run(context.Background())
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0 when baseline step is skipped, got %d", exitCode)
+	}
+	if result.Steps[6].Status != "skipped" {
+		t.Fatalf("expected baseline step skipped, got %q", result.Steps[6].Status)
+	}
+	if result.Steps[6].Reason == "" {
+		t.Fatal("expected baseline skipped reason to be populated")
+	}
+}
+
+func TestGate_BaselineComparison_RuleSetChangeSeedingAllowedForAllScope(t *testing.T) {
+	steps := []StepFunc{
+		func(_ context.Context) StepResult {
+			return StepResult{StepName: StepArtifactValidation, Status: "pass", Violations: []Violation{{Rule: "code_check/new-rule", File: "legacy.ts", Message: "legacy violation after rule update", Severity: "error"}}}
+		},
+		makePassStep(StepCodeCheck),
+		makePassStep(StepTestVerification),
+		makePassStep(StepTestSubstantiveness),
+		makePassStep(StepCoverageThreshold),
+		makePassStep(StepContractSignature),
+		StepBaselineComparisonFunc(),
+		StepWaiverResolutionFunc(),
+		StepLedgerIntegrityFunc(),
+	}
+
+	result, exitCode := New(
+		WithSteps(steps),
+		WithScope(newGateScope("", GateScopeModeAll, nil, nil)),
+		WithBaseline(&BaselineArtifact{SchemaVersion: BaselineSchemaV1, Violations: []Violation{}}),
+		WithRuleSetChangeSeedingAllowed(true),
+	).Run(context.Background())
+
+	if exitCode != 0 {
+		t.Fatalf("expected full-scope seeding exception to pass, got exit %d", exitCode)
+	}
+	baselineStep := result.Steps[6]
+	if baselineStep.Status != "pass" {
+		t.Fatalf("expected baseline step pass with allowed seeding, got %q", baselineStep.Status)
+	}
+	if len(baselineStep.SeededViolations) != 1 {
+		t.Fatalf("expected one seeded violation diagnostic, got %d", len(baselineStep.SeededViolations))
+	}
+	if baselineStep.Reason == "" || baselineStep.Reason == "0 new violations beyond baseline" {
+		t.Fatalf("expected explicit seeding reason, got %q", baselineStep.Reason)
+	}
+}
+
+func TestGate_BaselineComparison_ChangedCodeStillFailsWhenSeedingFlagSet(t *testing.T) {
+	steps := []StepFunc{
+		func(_ context.Context) StepResult {
+			return StepResult{StepName: StepArtifactValidation, Status: "pass", Violations: []Violation{{Rule: "code_check/new-rule", File: "changed.ts", Message: "changed file regression", Severity: "error"}}}
+		},
+		makePassStep(StepCodeCheck),
+		makePassStep(StepTestVerification),
+		makePassStep(StepTestSubstantiveness),
+		makePassStep(StepCoverageThreshold),
+		makePassStep(StepContractSignature),
+		StepBaselineComparisonFunc(),
+		StepWaiverResolutionFunc(),
+		StepLedgerIntegrityFunc(),
+	}
+
+	result, exitCode := New(
+		WithSteps(steps),
+		WithScope(newGateScope("", GateScopeModeDiff, []string{"changed.ts"}, nil)),
+		WithBaseline(&BaselineArtifact{SchemaVersion: BaselineSchemaV1, Violations: []Violation{}}),
+		WithRuleSetChangeSeedingAllowed(true),
+	).Run(context.Background())
+
+	if exitCode != 1 {
+		t.Fatalf("expected changed/scoped regression to fail despite seeding flag, got exit %d", exitCode)
+	}
+	baselineStep := result.Steps[6]
+	if baselineStep.Status != "fail" {
+		t.Fatalf("expected baseline step fail for changed-file regression, got %q", baselineStep.Status)
+	}
+	if len(baselineStep.NewViolations) != 1 {
+		t.Fatalf("expected one new violation in diagnostics, got %d", len(baselineStep.NewViolations))
+	}
+	if len(baselineStep.SeededViolations) != 0 {
+		t.Fatalf("expected zero seeded violations for scoped run, got %d", len(baselineStep.SeededViolations))
+	}
+}
+
 // --- Delegated config error halt tests ---
 
 // TestGate_ExitCode2_DelegatedArtifactValidateConfigError verifies that a

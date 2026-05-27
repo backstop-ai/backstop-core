@@ -131,7 +131,7 @@ func TestArtifactNew_Frontmatter_Capability(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	s := string(content)
-	for _, field := range []string{"title:", "number:", "created:", "status:", "schema_version:"} {
+	for _, field := range []string{"capability:", "id:", "title:", "status:", "strictness:"} {
 		if !strings.Contains(s, field) {
 			t.Errorf("capability frontmatter missing %q", field)
 		}
@@ -246,7 +246,7 @@ func TestArtifactNew_Sections_Directive(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	s := string(content)
-	for _, heading := range []string{"## Purpose", "## Scope", "## Rules"} {
+	for _, heading := range []string{"## Description"} {
 		if !strings.Contains(s, heading) {
 			t.Errorf("directive body missing section %q", heading)
 		}
@@ -272,9 +272,9 @@ func TestArtifactNew_Sections_Capability(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	s := string(content)
-	for _, heading := range []string{"## Overview", "## Requirements"} {
-		if !strings.Contains(s, heading) {
-			t.Errorf("capability body missing section %q", heading)
+	for _, field := range []string{"infrastructure_specs:", "quality_gates:"} {
+		if !strings.Contains(s, field) {
+			t.Errorf("capability body missing field %q", field)
 		}
 	}
 }

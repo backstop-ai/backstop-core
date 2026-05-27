@@ -1,0 +1,285 @@
+---
+plan_id: PLAN-SPEC-019
+spec_id: SPEC-019
+created: "2026-05-25"
+status: draft
+coverage_threshold: 80
+test_command: backstop gate --all
+
+risks:
+  - "Baseline identity matching must remain additive in gate/v1 JSON; removing or mutating existing fields would break compatibility."
+  - "Step 7 must consume accumulated step 1-6 results; rerunning checks inside baseline comparison would violate REQ-003 and distort timings."
+  - "Cache freshness and remote fallback behavior must never overwrite a valid stale local baseline on pull or refresh failures."
+  - "CI baseline generation and artifact upload must remain decoupled so future storage backends can replace GitHub Actions without schema changes."
+
+phases:
+  - id: phase-1
+    name: "Baseline TDD coverage"
+    tasks:
+      - id: task-001
+        type: test
+        title: "Add baseline artifact and comparison tests"
+        description: >
+          Add tests in pkg/gate for baseline artifact schema, JSON round-trip,
+          additive violation identity fields, identity hashing, accumulated-step
+          baseline comparison wiring, scoped new violation detection, out-of-scope
+          fixed violation suppression, missing-baseline skipped status, waiver
+          deferral hook behavior, and baseline differential output messaging in
+          both human and gate/v1 JSON output forms.
+        files:
+          - pkg/gate/baseline_test.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/result_test.go
+          - pkg/gate/output_test.go
+        claims:
+          - "CLM-001 and CLM-002 are covered by baseline artifact and additive identity tests"
+          - "CLM-003 and CLM-004 are covered by accumulated-result and scoped diff tests"
+          - "CLM-005, CLM-008, and CLM-012 are covered by skip behavior and output diagnostics tests"
+        depends_on: []
+
+      - id: task-002
+        type: test
+        title: "Add baseline cache, pull, and CLI tests"
+        description: >
+          Add cmd/backstop tests for TTL default and override behavior,
+          fresh-cache no-network behavior, expired-cache refresh, stale-cache
+          offline fallback, baseline pull bypassing TTL, artifact naming and
+          latest successful main-run selection semantics, and actionable failure
+          handling for missing remote, auth, artifact, and workflow/run selection
+          misses while preserving existing cache integrity.
+        files:
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/root_test.go
+        claims:
+          - "CLM-006, CLM-007, and CLM-009 are covered by cache lifecycle and pull semantics tests"
+          - "CLM-014 and CLM-015 are covered by full-scope generation and ratchet failure/reduction tests"
+          - "Error-path tests prove actionable diagnostics without cache corruption"
+        depends_on: []
+
+      - id: task-003
+        type: test
+        title: "Add CI publication and supersession tests"
+        description: >
+          Add tests that verify CI baseline generation uses full scope equivalent
+          to backstop gate --all, generation and publication are separable,
+          .backstop/baseline.json is ignored from source control, and SPEC-010
+          baseline placeholder behavior is superseded by SPEC-019 JSON identity
+          semantics.
+        files:
+          - cmd/backstop/integration_test.go
+          - pkg/validate/spec_test.go
+          - .github/workflows/ci.yml
+          - .gitignore
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-019-baseline-ci-generated-immutable-violation-reference.spec.md
+        claims:
+          - "CLM-010, CLM-013, and CLM-016 are covered by CI publication, ignore-policy, and supersession tests"
+          - "CI contract tests lock artifact workflow expectations for main-branch baseline generation"
+        depends_on: []
+
+      - id: task-010
+        type: test
+        title: "Add rule-set-change exception and changed-code enforcement tests"
+        description: >
+          Add tests that codify REQ-013 semantics: rule-set-change seeding is
+          the only ratchet exception for existing code in the next full
+          baseline, while changed/scoped code regressions still fail the PR gate
+          immediately. Cover both the allowed seeding case and the disallowed
+          changed-code bypass case with explicit assertions and diagnostics.
+        files:
+          - pkg/gate/baseline_test.go
+          - pkg/gate/gate_test.go
+          - cmd/backstop/integration_test.go
+        claims:
+          - "CLM-011 is covered by explicit allowed-seeding and disallowed-bypass tests"
+          - "Verification item 12 coverage is enforced for rule-set-change exception behavior"
+        depends_on:
+          - task-001
+
+  - id: phase-2
+    name: "Baseline subsystem implementation"
+    tasks:
+      - id: task-004
+        type: implementation
+        title: "Implement baseline artifact model and identity comparison"
+        description: >
+          Implement pkg/gate baseline subsystem with a versioned portable
+          BaselineArtifact JSON model, load/write helpers, stable violation
+          identity derivation from rule/file plus region or content hash,
+          per-step counts, full raw violations from steps 1-6, and scoped
+          CompareBaseline differential logic for new and fixed/progress
+          reporting without regressing to rule+file counts.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - pkg/gate/gate.go
+        claims:
+          - "REQ-001, REQ-002, REQ-004, REQ-005, and REQ-015 are implemented through portable artifact and identity diff semantics"
+          - "Step-level differential reporting distinguishes zero new violations from regressions"
+        depends_on:
+          - task-001
+
+      - id: task-005
+        type: implementation
+        title: "Wire baseline step 7 orchestration and local cache lifecycle"
+        description: >
+          Update gate orchestration in cmd/backstop so step 7 remains named
+          baseline_comparison, consumes accumulated step 1-6 results without
+          rerunning checks, reads .backstop/baseline.json cache with configured
+          enforcement.baseline_ttl defaulting to 15 minutes, refreshes expired
+          baseline from remote when available, falls back to stale cache with
+          warning on remote failures, and reports skipped with actionable warning
+          when no baseline is available.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/config/config.go
+          - pkg/gate/gate.go
+          - pkg/gate/output.go
+        claims:
+          - "REQ-003, REQ-006, REQ-007, REQ-009, and REQ-014 are implemented in gate execution and messaging"
+          - "Local runs compare scoped current violations to full baseline without auto-generating local baselines"
+        depends_on:
+          - task-002
+          - task-004
+
+      - id: task-006
+        type: implementation
+        title: "Implement baseline pull command and CI generation/publication"
+        description: >
+          Add baseline CLI command support that fetches the latest successful
+          main-branch baseline artifact, bypasses TTL, writes to
+          .backstop/baseline.json safely, and emits actionable errors for remote,
+          repository resolution, auth, artifact, and workflow/run selection
+          failures. Update CI workflow to run baseline generation on merges to
+          main using full gate scope and publish the generated JSON artifact,
+          while keeping generation and upload responsibilities separable.
+        files:
+          - cmd/backstop/baseline.go
+          - cmd/backstop/root.go
+          - .github/workflows/ci.yml
+          - .gitignore
+        claims:
+          - "REQ-008, REQ-010, REQ-011, REQ-012, and REQ-016 are implemented across CLI and CI flows"
+          - "Baseline remains cache/artifact state and is not committed"
+        depends_on:
+          - task-003
+          - task-005
+
+      - id: task-011
+        type: implementation
+        title: "Implement rule-set-change-only ratchet exception semantics"
+        description: >
+          Implement REQ-013 logic in baseline comparison and gate orchestration
+          so only explicit rule-set changes can seed existing-code violations
+          into the next full baseline, while changed/scoped regressions remain
+          gate-failing in PR runs. Ensure this exception is narrowly scoped to
+          rule-set-change context and does not permit bypassing changed-code
+          enforcement.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/gate.go
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+        claims:
+          - "REQ-013 and CLM-011 are implemented with explicit rule-set-change exception boundaries"
+          - "Changed-code regressions continue to fail immediately under baseline ratchet rules"
+        depends_on:
+          - task-010
+          - task-005
+
+      - id: task-007
+        type: verification
+        title: "Verify baseline subsystem implementation phase"
+        description: >
+          Run backstop gate --all to verify baseline subsystem implementation,
+          including baseline artifact generation, identity comparison,
+          orchestration step-7 behavior, cache TTL refresh/fallback semantics,
+          baseline pull command behavior, CI publication wiring, and ignore-rule
+          enforcement.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/baseline_test.go
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/result.go
+          - pkg/gate/result_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/root.go
+          - cmd/backstop/root_test.go
+          - cmd/backstop/integration_test.go
+          - pkg/config/config.go
+          - .github/workflows/ci.yml
+          - .gitignore
+        claims:
+          - "backstop gate all validates phase-2 baseline behavior end-to-end"
+          - "Coverage remains at or above 80 percent for SPEC-019 touched areas"
+          - "Rule-set-change-only exception behavior is validated alongside changed-code enforcement"
+        depends_on:
+          - task-006
+          - task-011
+
+  - id: phase-3
+    name: "Final supersession and release verification"
+    tasks:
+      - id: task-008
+        type: documentation
+        title: "Finalize supersession and baseline policy documentation"
+        description: >
+          Ensure supersession language in SPEC-010 and SPEC-019 is consistent
+          with shipped behavior, including .backstop/baseline.json path,
+          immutable CI-generated baseline reference model, stable identity
+          matching, and prohibition on developer-generated or committed baseline
+          files.
+        files:
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-019-baseline-ci-generated-immutable-violation-reference.spec.md
+        claims:
+          - "Spec artifacts unambiguously document SPEC-010 REQ-005 supersession by SPEC-019"
+          - "Baseline policy language matches implemented ratchet and ownership model"
+        depends_on:
+          - task-007
+
+      - id: task-009
+        type: verification
+        title: "Run final repository verification gates"
+        description: >
+          Run final verification using backstop gate --all and backstop gate code
+          --scope=working to confirm baseline subsystem behavior, CI/pull wiring,
+          supersession consistency, and no regressions across all touched
+          implementation, test, workflow, config, and spec files.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/baseline_test.go
+          - pkg/gate/gate.go
+          - pkg/gate/gate_test.go
+          - pkg/gate/result.go
+          - pkg/gate/result_test.go
+          - pkg/gate/output.go
+          - pkg/gate/output_test.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/root.go
+          - cmd/backstop/root_test.go
+          - cmd/backstop/integration_test.go
+          - pkg/config/config.go
+          - pkg/validate/spec_test.go
+          - .github/workflows/ci.yml
+          - .gitignore
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-019-baseline-ci-generated-immutable-violation-reference.spec.md
+        claims:
+          - "Final backstop gates confirm SPEC-019 requirements and claims are covered"
+          - "Verification includes baseline comparison, cache semantics, pull behavior, CI generation/publication, rule-set-change exception behavior, and ignore policy"
+        depends_on:
+          - task-006
+          - task-011
+          - task-008

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,18 @@ import (
 
 	"github.com/bmanson/backstop-core/pkg/gate"
 )
+
+func makePassStep(name string) gate.StepFunc {
+	return func(_ context.Context) gate.StepResult {
+		return gate.StepResult{StepName: name, Status: "pass", Violations: []gate.Violation{}}
+	}
+}
+
+func makeSkippedStep(name, reason string) gate.StepFunc {
+	return func(_ context.Context) gate.StepResult {
+		return gate.StepResult{StepName: name, Status: "skipped", Violations: []gate.Violation{}, Reason: reason}
+	}
+}
 
 // TestGate_DefaultsToDiffMode verifies gate defaults to diff scope.
 func TestGate_DefaultsToDiffMode(t *testing.T) {
@@ -144,4 +157,108 @@ func fileModTimes(t *testing.T, files []string) map[string]time.Time {
 		info[file] = stat.ModTime()
 	}
 	return info
+}
+
+func TestGate_BaselineCacheLifecycle_FreshCacheNoNetwork_Contract(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte("project: cache-fresh\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".backstop"), 0o755); err != nil {
+		t.Fatalf("mkdir .backstop: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".backstop", "baseline.json"), []byte(`{"schema_version":"baseline/v1","violations":[]}`), 0o644); err != nil {
+		t.Fatalf("write baseline cache: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	root := NewRootCommand()
+	_, err := executeCommand(root, "gate", "--json")
+	if err == nil {
+		t.Fatalf("expected minimal fixture to fail non-baseline checks with exit code 1")
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprint(err)), "exit code 1") {
+		t.Fatalf("expected normal gate failure (not config/baseline failure), got: %v", err)
+	}
+}
+
+func TestGate_BaselineCacheLifecycle_ExpiredRefreshAndOfflineFallback_Contract(t *testing.T) {
+	projectRoot := t.TempDir()
+	config := "project: cache-expired\nlanguage: go\nenforcement:\n  baseline_ttl: 1m\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cachePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte(`{"schema_version":"baseline/v1","violations":[]}`), 0o644); err != nil {
+		t.Fatalf("write baseline cache: %v", err)
+	}
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(cachePath, stale, stale); err != nil {
+		t.Fatalf("set stale modtime: %v", err)
+	}
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	for _, mode := range []string{"refresh", "offline-fallback"} {
+		t.Run(mode, func(t *testing.T) {
+			root := NewRootCommand()
+			_, err := executeCommand(root, "gate", "--json")
+			if err == nil {
+				t.Fatalf("expected minimal fixture to fail non-baseline checks with exit code 1")
+			}
+			if !strings.Contains(strings.ToLower(fmt.Sprint(err)), "exit code 1") {
+				t.Fatalf("expected normal gate failure semantics for %s, got: %v", mode, err)
+			}
+		})
+	}
+}
+
+func TestGate_BaselineRatchet_FailsNewAndAllowsReductions_Contract(t *testing.T) {
+	newViolationGate := gate.New(gate.WithSteps([]gate.StepFunc{
+		makePassStep(gate.StepArtifactValidation),
+		makePassStep(gate.StepCodeCheck),
+		makePassStep(gate.StepTestVerification),
+		makePassStep(gate.StepTestSubstantiveness),
+		makePassStep(gate.StepCoverageThreshold),
+		makePassStep(gate.StepContractSignature),
+		func(_ context.Context) gate.StepResult {
+			return gate.StepResult{StepName: gate.StepBaselineComparison, Status: "fail", Violations: []gate.Violation{{Rule: "baseline/new", Message: "new scoped violation"}}}
+		},
+		makeSkippedStep(gate.StepWaiverResolution, "waivers not implemented"),
+		makeSkippedStep(gate.StepLedgerIntegrity, "ledger not implemented"),
+	}))
+	_, newExit := newViolationGate.Run(context.Background())
+	if newExit != 1 {
+		t.Fatalf("expected ratchet to fail on new scoped violation, got exit=%d", newExit)
+	}
+
+	reductionGate := gate.New(gate.WithSteps([]gate.StepFunc{
+		makePassStep(gate.StepArtifactValidation),
+		makePassStep(gate.StepCodeCheck),
+		makePassStep(gate.StepTestVerification),
+		makePassStep(gate.StepTestSubstantiveness),
+		makePassStep(gate.StepCoverageThreshold),
+		makePassStep(gate.StepContractSignature),
+		func(_ context.Context) gate.StepResult {
+			return gate.StepResult{StepName: gate.StepBaselineComparison, Status: "pass", Violations: []gate.Violation{}}
+		},
+		makeSkippedStep(gate.StepWaiverResolution, "waivers not implemented"),
+		makeSkippedStep(gate.StepLedgerIntegrity, "ledger not implemented"),
+	}))
+	_, reductionExit := reductionGate.Run(context.Background())
+	if reductionExit != 0 {
+		t.Fatalf("expected ratchet to allow reductions, got exit=%d", reductionExit)
+	}
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -20,6 +22,17 @@ type SpecVerification struct {
 	TestCommand       string
 	CoverageThreshold int
 	File              string
+}
+
+// CoverageTarget is one concrete coverage command selected by the gate. The
+// spec documents thresholds; target selection belongs to the gate so different
+// stacks can plug in their own schedulers without spec-authored commands
+// becoming execution plans.
+type CoverageTarget struct {
+	Stack   string
+	Label   string
+	Command string
+	Args    []string
 }
 
 // coverageRe matches the go test coverage summary line format.
@@ -63,8 +76,19 @@ func StepCoverageThresholdFunc(runner CommandRunner, specs []SpecVerification) S
 func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerification, scope *GateScope) StepFunc {
 	return func(ctx context.Context) StepResult {
 		var violations []Violation
+		targets := coverageTargetsForScope(scope)
+		if len(targets) == 0 {
+			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no Go package coverage targets in scope"}
+		}
 
-		for _, spec := range specs {
+		coveragePct, coverageAvailable, runViolations := runCoverageTargets(ctx, runner, targets)
+		violations = append(violations, runViolations...)
+		if !coverageAvailable {
+			return StepResult{StepName: StepCoverageThreshold, Status: "fail", Violations: violations}
+		}
+
+		thresholds := coverageThresholdsForScope(specs, scope)
+		for _, spec := range thresholds.Specs {
 			if !coverageSpecInScope(spec, scope) {
 				continue
 			}
@@ -72,68 +96,20 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 				continue
 			}
 
-			// Parse the test command
-			parts := commandFields(spec.TestCommand)
-			if len(parts) == 0 {
+			if coveragePct < float64(spec.CoverageThreshold) {
 				violations = append(violations, Violation{
 					Rule:     "coverage_threshold",
-					Message:  fmt.Sprintf("spec %s: empty test command", spec.SpecID),
-					Severity: "error",
-				})
-				continue
-			}
-
-			// Append -coverprofile if not already present
-			args := parts[1:]
-			hasCoverprofile := false
-			for _, arg := range args {
-				if strings.HasPrefix(arg, "-coverprofile") {
-					hasCoverprofile = true
-					break
-				}
-			}
-			if !hasCoverprofile {
-				args = append(args, "-coverprofile=/dev/null")
-			}
-
-			// Execute the test command
-			output, err := runner.Run(ctx, parts[0], args...)
-			if err != nil {
-				violations = append(violations, Violation{
-					Rule:     "coverage_threshold",
-					Message:  fmt.Sprintf("spec %s: test command failed: %v", spec.SpecID, err),
-					Severity: "error",
-				})
-				continue
-			}
-
-			// Parse coverage from output
-			lines := strings.Split(string(output), "\n")
-			var pct float64
-			found := false
-			for _, line := range lines {
-				if p, ok := parseCoverageLine(line); ok {
-					pct = p
-					found = true
-				}
-			}
-
-			if !found {
-				violations = append(violations, Violation{
-					Rule:     "coverage_threshold",
-					Message:  "coverage summary line not found in test output",
-					Severity: "error",
-				})
-				continue
-			}
-
-			if pct < float64(spec.CoverageThreshold) {
-				violations = append(violations, Violation{
-					Rule:     "coverage_threshold",
-					Message:  fmt.Sprintf("spec %s: coverage %.1f%% below threshold %d%%", spec.SpecID, pct, spec.CoverageThreshold),
+					Message:  fmt.Sprintf("spec %s: coverage %.1f%% below threshold %d%%", spec.SpecID, coveragePct, spec.CoverageThreshold),
 					Severity: "error",
 				})
 			}
+		}
+		if thresholds.CollapsedCodeScope && coveragePct < float64(thresholds.MaxThreshold) {
+			violations = append(violations, Violation{
+				Rule:     "coverage_threshold",
+				Message:  fmt.Sprintf("changed Go package coverage %.1f%% below maximum declared threshold %d%%", coveragePct, thresholds.MaxThreshold),
+				Severity: "error",
+			})
 		}
 
 		status := "pass"
@@ -151,6 +127,136 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 	}
 }
 
+type coverageThresholdSelection struct {
+	Specs              []SpecVerification
+	CollapsedCodeScope bool
+	MaxThreshold       int
+}
+
+func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope) coverageThresholdSelection {
+	if scope == nil || scope.Mode == GateScopeModeAll {
+		return coverageThresholdSelection{Specs: specs}
+	}
+	selected := []SpecVerification{}
+	maxThreshold := 0
+	for _, spec := range specs {
+		if spec.CoverageThreshold > maxThreshold {
+			maxThreshold = spec.CoverageThreshold
+		}
+		if spec.File != "" && scope.Contains(spec.File) {
+			selected = append(selected, spec)
+		}
+	}
+	if len(selected) > 0 {
+		return coverageThresholdSelection{Specs: selected}
+	}
+	return coverageThresholdSelection{CollapsedCodeScope: true, MaxThreshold: maxThreshold}
+}
+
+func runCoverageTargets(ctx context.Context, runner CommandRunner, targets []CoverageTarget) (float64, bool, []Violation) {
+	var lowest float64
+	foundAny := false
+	var violations []Violation
+
+	for _, target := range targets {
+		output, err := runner.Run(ctx, target.Command, target.Args...)
+		if err != nil {
+			violations = append(violations, Violation{Rule: "coverage_threshold", Message: fmt.Sprintf("coverage command failed for %s: %v%s", target.Label, err, coverageOutputExcerpt(output)), Severity: "error"})
+		}
+
+		found := false
+		for _, line := range strings.Split(string(output), "\n") {
+			if pct, ok := parseCoverageLine(line); ok {
+				if !foundAny || pct < lowest {
+					lowest = pct
+				}
+				found = true
+				foundAny = true
+			}
+		}
+		if !found && !strings.Contains(string(output), "coverage: [no statements]") {
+			violations = append(violations, Violation{Rule: "coverage_threshold", Message: fmt.Sprintf("coverage summary line not found in test output for %s", target.Label), Severity: "error"})
+		}
+	}
+
+	return lowest, foundAny, violations
+}
+
+func coverageTargetsForScope(scope *GateScope) []CoverageTarget {
+	return goCoverageTargetsForScope(scope)
+}
+
+func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
+	if scope == nil || scope.Mode == GateScopeModeAll {
+		return []CoverageTarget{
+			goCoveragePackagesTarget(". ./cmd/... ./pkg/... ./tests/...", ".", "./cmd/...", "./pkg/...", "./tests/..."),
+		}
+	}
+	if scope.Empty() {
+		return nil
+	}
+	packages := map[string]struct{}{}
+	for _, file := range scope.Files {
+		clean := normalizeScopePath("", file)
+		if strings.HasSuffix(clean, ".spec.md") {
+			packages[". ./cmd/... ./pkg/... ./tests/..."] = struct{}{}
+			continue
+		}
+		if !strings.HasSuffix(clean, ".go") || strings.HasSuffix(clean, "_testdata.go") {
+			continue
+		}
+		dir := filepath.Dir(clean)
+		if dir == "." {
+			packages["."] = struct{}{}
+			continue
+		}
+		packages["./"+dir] = struct{}{}
+	}
+	result := make([]string, 0, len(packages))
+	for pkg := range packages {
+		result = append(result, pkg)
+	}
+	sort.Strings(result)
+	targets := make([]CoverageTarget, 0, len(result))
+	for _, pkg := range result {
+		if pkg == ". ./cmd/... ./pkg/... ./tests/..." {
+			targets = append(targets, goCoveragePackagesTarget(pkg, ".", "./cmd/...", "./pkg/...", "./tests/..."))
+			continue
+		}
+		targets = append(targets, goCoverageTarget(pkg))
+	}
+	return targets
+}
+
+func goCoverageTarget(pkg string) CoverageTarget {
+	return goCoveragePackagesTarget(pkg, pkg)
+}
+
+func goCoveragePackagesTarget(label string, packages ...string) CoverageTarget {
+	return CoverageTarget{Stack: "go", Label: label, Command: "go", Args: append(append([]string{"test"}, packages...), "-coverprofile=/dev/null")}
+}
+
+func coverageOutputExcerpt(output []byte) string {
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	selected := []string{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "--- FAIL:") || strings.HasPrefix(trimmed, "FAIL") || strings.Contains(trimmed, ": ") && !strings.HasPrefix(trimmed, "ok  ") {
+			selected = append(selected, trimmed)
+		}
+		if len(selected) == 4 {
+			break
+		}
+	}
+	if len(selected) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(selected, " | ")
+}
+
 func coverageSpecInScope(spec SpecVerification, scope *GateScope) bool {
 	if scope == nil || scope.Mode == GateScopeModeAll {
 		return true
@@ -161,30 +267,7 @@ func coverageSpecInScope(spec SpecVerification, scope *GateScope) bool {
 	if spec.File != "" && scope.Contains(spec.File) {
 		return true
 	}
-	for _, pkg := range coverageCommandPackages(spec.TestCommand) {
-		if pkg == "" {
-			continue
-		}
-		for _, file := range scope.Files {
-			if coveragePackageContainsFile(pkg, file) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func coverageCommandPackages(command string) []string {
-	var packages []string
-	for _, part := range commandFields(command) {
-		if strings.HasPrefix(part, "-") || strings.Contains(part, "=") {
-			continue
-		}
-		if strings.HasPrefix(part, "./") || strings.HasPrefix(part, "/") {
-			packages = append(packages, normalizeCoveragePackage(part))
-		}
-	}
-	return packages
+	return coverageTargetsForScope(scope) != nil
 }
 
 func commandFields(command string) []string {

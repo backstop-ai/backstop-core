@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -66,8 +67,8 @@ func TestGateSteps_FilterToChangedFiles_CoverageRootPackage(t *testing.T) {
 	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
 		{SpecID: "ROOT", TestCommand: "go test ./...", CoverageThreshold: 80, File: "specs/unchanged-root.spec.md"},
 	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
-	if result.Status != "pass" || runner.runs != 0 {
-		t.Fatalf("expected broad root coverage to stay skipped unless its spec changed, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
+	if result.Status != "pass" || runner.runs != 1 {
+		t.Fatalf("expected coverage to use changed package instead of spec test_command, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
 	}
 }
 
@@ -90,14 +91,12 @@ func TestGate_CoverageThreshold_BelowThreshold(t *testing.T) {
 	}
 }
 
-// TestGate_CoverageThreshold_UsesSpecTestCommand verifies step uses the
-// test_command from the spec verification block.
-func TestGate_CoverageThreshold_UsesSpecTestCommand(t *testing.T) {
+func TestGate_CoverageThreshold_IgnoresSpecTestCommandForScheduling(t *testing.T) {
 	var capturedArgs []string
 	runner := &recordingCommandRunner{
 		output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 90.0% of statements\n"),
 		onRun: func(name string, args ...string) {
-			capturedArgs = append([]string{name}, args...)
+			capturedArgs = append(capturedArgs, append([]string{name}, args...)...)
 		},
 	}
 	specs := []SpecVerification{
@@ -106,13 +105,14 @@ func TestGate_CoverageThreshold_UsesSpecTestCommand(t *testing.T) {
 	step := StepCoverageThresholdFunc(runner, specs)
 	_ = step(context.Background())
 
-	// The test command should have been split and passed to the runner.
-	// We expect "go" as the command name and ["test", "./pkg/gate/...", "-race", "-coverprofile=..."] as args.
 	if len(capturedArgs) == 0 {
 		t.Fatal("expected command to be executed")
 	}
 	if capturedArgs[0] != "go" {
 		t.Errorf("expected command %q, got %q", "go", capturedArgs[0])
+	}
+	if fmt.Sprint(capturedArgs) != "[go test . ./cmd/... ./pkg/... ./tests/... -coverprofile=/dev/null]" {
+		t.Fatalf("expected gate-owned default coverage command, got %#v", capturedArgs)
 	}
 }
 
@@ -120,6 +120,32 @@ func TestGate_CoverageThreshold_StripsQuotedRunPattern(t *testing.T) {
 	parts := commandFields("go test ./cmd/backstop ./pkg/gate/... -run 'TestGate|TestBackstopGate' -v")
 	if len(parts) != 7 || parts[5] != "TestGate|TestBackstopGate" {
 		t.Fatalf("expected quoted run pattern as one unquoted arg, got %#v", parts)
+	}
+}
+
+func TestGate_CoverageTargets_DerivedFromScope(t *testing.T) {
+	targets := coverageTargetsForScope(newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go", "pkg/config/config.go", "README.md"}, nil))
+	got := make([]string, 0, len(targets))
+	for _, target := range targets {
+		got = append(got, fmt.Sprintf("%s %s", target.Command, strings.Join(target.Args, " ")))
+	}
+	want := []string{"go test ./pkg/config -coverprofile=/dev/null", "go test ./pkg/gate -coverprofile=/dev/null"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("unexpected targets: got %#v want %#v", got, want)
+	}
+}
+
+func TestGate_CoverageThreshold_CollapsesCodeScopeThresholds(t *testing.T) {
+	runner := &mockCommandRunner{output: []byte("ok  \tpkg/gate\t1.234s\tcoverage: 75.0% of statements\n")}
+	result := StepCoverageThresholdScopedFunc(runner, []SpecVerification{
+		{SpecID: "ONE", CoverageThreshold: 80, File: "specs/one.spec.md"},
+		{SpecID: "TWO", CoverageThreshold: 90, File: "specs/two.spec.md"},
+	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
+	if len(result.Violations) != 1 {
+		t.Fatalf("expected one collapsed code-scope violation, got %#v", result.Violations)
+	}
+	if result.Violations[0].Message != "changed Go package coverage 75.0% below maximum declared threshold 90%" {
+		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
 	}
 }
 
@@ -142,9 +168,7 @@ func TestGate_CoverageThreshold_TestCommandNotFound(t *testing.T) {
 	runner := &mockCommandRunner{
 		err: fmt.Errorf("exec: \"nonexistent\": executable file not found in $PATH"),
 	}
-	specs := []SpecVerification{
-		{SpecID: "TEST-001", TestCommand: "nonexistent --test", CoverageThreshold: 80},
-	}
+	specs := []SpecVerification{{SpecID: "TEST-001", TestCommand: "go test ./pkg/gate/...", CoverageThreshold: 80}}
 	step := StepCoverageThresholdFunc(runner, specs)
 	result := step(context.Background())
 
@@ -173,12 +197,26 @@ func TestGate_CoverageThreshold_NoCoverageSummaryLine(t *testing.T) {
 	}
 	found := false
 	for _, v := range result.Violations {
-		if v.Message == "coverage summary line not found in test output" {
+		if v.Message == "coverage summary line not found in test output for . ./cmd/... ./pkg/... ./tests/..." {
 			found = true
 		}
 	}
 	if !found {
 		t.Error("expected violation about missing coverage summary line")
+	}
+}
+
+func TestGate_CoverageTargets_AllScopeExcludesPrototypeFixtures(t *testing.T) {
+	targets := coverageTargetsForScope(nil)
+	got := make([]string, 0, len(targets))
+	for _, target := range targets {
+		got = append(got, fmt.Sprintf("%s %s", target.Command, strings.Join(target.Args, " ")))
+	}
+	want := []string{
+		"go test . ./cmd/... ./pkg/... ./tests/... -coverprofile=/dev/null",
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("unexpected targets: got %#v want %#v", got, want)
 	}
 }
 

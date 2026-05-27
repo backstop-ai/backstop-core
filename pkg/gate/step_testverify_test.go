@@ -157,6 +157,29 @@ func TestGateSteps_FilterToChangedFiles_TestVerification(t *testing.T) {
 	}
 }
 
+func TestGateSteps_FilterToChangedSpec_VerifiesMissingMandatedTest(t *testing.T) {
+	root := t.TempDir()
+	specDir := filepath.Join(root, "specs")
+	codeDir := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(codeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSpecFixture(t, specDir, "test.spec.md", []struct{ id, testName string }{
+		{"CLM-001", "TestGate_MissingFromChangedSpec"},
+	})
+
+	result := StepTestVerificationScopedFunc(specDir, codeDir, newGateScope(root, GateScopeModeDiff, []string{"specs/test.spec.md"}, nil))(context.Background())
+	if result.Status != "fail" || len(result.Violations) != 1 {
+		t.Fatalf("expected changed spec to verify missing mandated test, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+	if !strings.Contains(result.Violations[0].Message, "TestGate_MissingFromChangedSpec") {
+		t.Fatalf("expected violation to mention missing test, got %#v", result.Violations[0])
+	}
+}
+
 // --- ExtractSpecVerifications tests ---
 
 // TestGate_ExtractSpecVerifications_HappyPath verifies that verification

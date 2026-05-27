@@ -96,6 +96,9 @@ backstop by shelling out to CLI commands.`,
 	// --- Top-level: gate ---
 	gateCmd := newGateCommand(&jsonFlag)
 
+	// --- Top-level: baseline ---
+	baselineCmd := newBaselineCommand()
+
 	// --- Top-level: version ---
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -145,7 +148,7 @@ backstop by shelling out to CLI commands.`,
 		},
 	}
 
-	rootCmd.AddCommand(artifactCmd, codeCmd, packCmd, gateCmd, versionCmd, commandsCmd)
+	rootCmd.AddCommand(artifactCmd, codeCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd)
 
 	return rootCmd
 }

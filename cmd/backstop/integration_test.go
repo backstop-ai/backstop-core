@@ -204,3 +204,100 @@ func TestIntegration_ArtifactNew_ScaffoldsSpec(t *testing.T) {
 		t.Error("JSON output missing schema_version field")
 	}
 }
+
+func TestBaselineCIContract_GenerationUsesAllScope(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	text := string(workflow)
+	if !strings.Contains(text, "branches: [main]") {
+		t.Fatalf("ci workflow must target main branch baseline generation")
+	}
+	if !strings.Contains(text, "backstop gate --all") {
+		t.Fatalf("ci workflow must run full-scope gate generation equivalent to --all")
+	}
+}
+
+func TestBaselineCIContract_GenerationAndPublicationAreSeparable(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	text := string(workflow)
+	generateIndex := strings.Index(text, "Generate baseline")
+	publishIndex := strings.Index(text, "Publish baseline")
+	if generateIndex < 0 {
+		t.Fatalf("workflow must define explicit baseline generation step")
+	}
+	if publishIndex < 0 {
+		t.Fatalf("workflow must define explicit baseline publication step")
+	}
+	if publishIndex <= generateIndex {
+		t.Fatalf("baseline publication must be ordered after generation")
+	}
+	if !strings.Contains(text, "actions/upload-artifact") {
+		t.Fatalf("workflow must publish baseline through GitHub Actions artifact upload")
+	}
+	if !strings.Contains(text, ".backstop/baseline.json") {
+		t.Fatalf("workflow publication must target .backstop/baseline.json")
+	}
+}
+
+func TestBaselineCIContract_ArtifactNamingAndLatestMainSelectionSemantics(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	text := string(workflow)
+	if !strings.Contains(text, "baseline") {
+		t.Fatalf("workflow must include baseline artifact naming semantics")
+	}
+	if !strings.Contains(strings.ToLower(text), "latest successful") {
+		t.Fatalf("workflow contract docs must mention latest successful main run semantics")
+	}
+}
+
+func TestBaselineCIContract_RuleSetChangeExceptionOnlySeedsOnFullBaseline(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	text := string(workflow)
+	if !strings.Contains(text, "Generate baseline") {
+		t.Fatalf("workflow must define Generate baseline step for rule-set-change seeding")
+	}
+	if !strings.Contains(text, "./backstop gate --all --json") {
+		t.Fatalf("baseline generation must use full-scope --all gate run")
+	}
+	if strings.Contains(text, "Generate baseline\n        run: ./backstop gate --json") {
+		t.Fatalf("baseline generation cannot rely on scoped default mode for seeding semantics")
+	}
+}
+
+func TestBaselineCIContract_PullRequestGateKeepsChangedCodeEnforcement(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	text := string(workflow)
+	if !strings.Contains(text, "pull_request:") {
+		t.Fatalf("workflow must include pull_request trigger for changed-code enforcement")
+	}
+	if !strings.Contains(text, "branches: [main]") {
+		t.Fatalf("pull request gate must target main for immediate regression enforcement")
+	}
+	if !strings.Contains(text, "go test -race -coverprofile=cover.out -covermode=atomic ./...") {
+		t.Fatalf("pull request gate must execute verification checks that fail changed-code regressions")
+	}
+}

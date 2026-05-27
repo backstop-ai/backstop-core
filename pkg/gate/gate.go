@@ -1,12 +1,25 @@
 package gate
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Gate orchestrates the nine-step verification kill chain.
 type Gate struct {
-	steps     []StepFunc
-	configErr error
-	scope     *GateScope
+	steps                       []StepFunc
+	configErr                   error
+	scope                       *GateScope
+	baseline                    *BaselineArtifact
+	baselineEnabled             bool
+	baselineWarning             string
+	baselinePath                string
+	baselineTTL                 time.Duration
+	baselineModified            time.Time
+	ruleSetChangeSeedingAllowed bool
+	ruleSetChangeFiles          map[string]struct{}
 }
 
 // Option is a functional option for configuring a Gate.
@@ -30,6 +43,56 @@ func WithConfigError(err error) Option {
 func WithScope(scope *GateScope) Option {
 	return func(g *Gate) {
 		g.scope = scope
+	}
+}
+
+// WithBaseline attaches a loaded baseline artifact for step 7 comparison.
+func WithBaseline(artifact *BaselineArtifact) Option {
+	return func(g *Gate) {
+		g.baselineEnabled = true
+		g.baseline = artifact
+	}
+}
+
+// WithBaselineWarning sets baseline warning text for diagnostics.
+func WithBaselineWarning(warning string) Option {
+	return func(g *Gate) {
+		g.baselineEnabled = true
+		g.baselineWarning = strings.TrimSpace(warning)
+	}
+}
+
+// WithBaselineCacheMeta sets cache metadata used in output diagnostics.
+func WithBaselineCacheMeta(path string, ttl time.Duration, modified time.Time) Option {
+	return func(g *Gate) {
+		g.baselinePath = path
+		g.baselineTTL = ttl
+		g.baselineModified = modified
+	}
+}
+
+// WithRuleSetChangeSeedingAllowed enables REQ-013's narrow seeding exception.
+func WithRuleSetChangeSeedingAllowed(allowed bool) Option {
+	return func(g *Gate) {
+		g.ruleSetChangeSeedingAllowed = allowed
+	}
+}
+
+// WithRuleSetChangeFiles marks files changed in the seeding context.
+func WithRuleSetChangeFiles(files []string) Option {
+	return func(g *Gate) {
+		if len(files) == 0 {
+			g.ruleSetChangeFiles = nil
+			return
+		}
+		g.ruleSetChangeFiles = map[string]struct{}{}
+		for _, file := range files {
+			trimmed := strings.TrimSpace(file)
+			if trimmed == "" {
+				continue
+			}
+			g.ruleSetChangeFiles[trimmed] = struct{}{}
+		}
 	}
 }
 
@@ -63,7 +126,12 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 	configErrHalt := false
 
 	for _, stepFn := range g.steps {
+		started := time.Now()
 		result := stepFn(ctx)
+		if g.baselineEnabled && result.StepName == StepBaselineComparison {
+			result = g.computeBaselineResult(results)
+		}
+		result.DurationMS = time.Since(started).Milliseconds()
 		results = append(results, result)
 
 		// Check for config error from delegated steps.
@@ -80,6 +148,48 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 	}
 
 	return gateResult, ExitCode(gateResult, nil)
+}
+
+func (g *Gate) computeBaselineResult(accumulated []StepResult) StepResult {
+	if g.baseline == nil {
+		reason := "baseline unavailable: no cached baseline found at .backstop/baseline.json; run CI baseline publication or backstop baseline pull"
+		if g.baselineWarning != "" {
+			reason = g.baselineWarning
+		}
+		return StepResult{StepName: StepBaselineComparison, Status: "skipped", Violations: []Violation{}, NewViolations: []Violation{}, FixedViolations: []Violation{}, Reason: reason}
+	}
+	warningSuffix := ""
+	if g.baselineWarning != "" {
+		warningSuffix = "; " + g.baselineWarning
+	}
+	comparison := CompareBaseline(accumulatedViolations(accumulated), g.baseline, BaselineCompareOptions{
+		Scope:                     g.scope,
+		AllowRuleSetChangeSeeding: g.ruleSetChangeSeedingAllowed,
+		ChangedFiles:              g.ruleSetChangeFiles,
+	})
+	if len(comparison.NewViolations) == 0 {
+		reason := "0 new violations beyond baseline"
+		if len(comparison.SeededViolations) > 0 {
+			reason = fmt.Sprintf("0 new violations beyond baseline; %d violations seeded due to explicit rule-set change", len(comparison.SeededViolations))
+		}
+		reason += warningSuffix
+		return StepResult{StepName: StepBaselineComparison, Status: "pass", Violations: []Violation{}, NewViolations: []Violation{}, FixedViolations: comparison.FixedViolations, SeededViolations: comparison.SeededViolations, Reason: reason}
+	}
+	return StepResult{StepName: StepBaselineComparison, Status: "fail", Violations: comparison.NewViolations, NewViolations: comparison.NewViolations, FixedViolations: comparison.FixedViolations, SeededViolations: comparison.SeededViolations, Reason: fmt.Sprintf("%d new violations beyond baseline%s", len(comparison.NewViolations), warningSuffix)}
+}
+
+func accumulatedViolations(steps []StepResult) []Violation {
+	violations := []Violation{}
+	for _, step := range steps {
+		if step.StepName == StepBaselineComparison || step.StepName == StepWaiverResolution || step.StepName == StepLedgerIntegrity {
+			continue
+		}
+		violations = append(violations, step.Violations...)
+	}
+	if violations == nil {
+		return []Violation{}
+	}
+	return violations
 }
 
 // ExitCode determines the exit code from a GateResult.

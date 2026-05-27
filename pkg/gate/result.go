@@ -34,20 +34,27 @@ var AllStepNames = [9]string{
 
 // Violation represents a single gate violation.
 type Violation struct {
-	Rule       string `json:"rule"`
-	File       string `json:"file,omitempty"`
-	Message    string `json:"message"`
-	Severity   string `json:"severity,omitempty"`
-	SourcePack string `json:"source_pack,omitempty"`
+	Rule         string `json:"rule"`
+	File         string `json:"file,omitempty"`
+	Message      string `json:"message"`
+	Severity     string `json:"severity,omitempty"`
+	SourcePack   string `json:"source_pack,omitempty"`
+	Identity     string `json:"identity"`
+	IdentityHash string `json:"identity_hash"`
+	RegionHash   string `json:"region_hash"`
 }
 
 // StepResult holds the result of a single gate step.
 type StepResult struct {
-	StepName   string      `json:"step_name"`
-	Status     string      `json:"status"` // "pass", "fail", "skipped"
-	Violations []Violation `json:"violations"`
-	Reason     string      `json:"reason,omitempty"`
-	ConfigErr  bool        `json:"-"` // internal flag for config error propagation
+	StepName         string      `json:"step_name"`
+	Status           string      `json:"status"` // "pass", "fail", "skipped"
+	DurationMS       int64       `json:"duration_ms,omitempty"`
+	Violations       []Violation `json:"violations"`
+	NewViolations    []Violation `json:"new_violations"`
+	FixedViolations  []Violation `json:"fixed_violations"`
+	SeededViolations []Violation `json:"seeded_violations"`
+	Reason           string      `json:"reason,omitempty"`
+	ConfigErr        bool        `json:"-"` // internal flag for config error propagation
 }
 
 // GateResult holds the unified gate output including all step results.
@@ -77,13 +84,35 @@ func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 		SchemaVersion: "gate/v1",
 		Scope:         scope,
 		Pass:          true,
-		Steps:         steps,
-	}
-	if r.Steps == nil {
-		r.Steps = []StepResult{}
+		Steps:         []StepResult{},
 	}
 
 	for _, s := range steps {
+		if s.Violations == nil {
+			s.Violations = []Violation{}
+		}
+		for i := range s.Violations {
+			s.Violations[i] = EnrichViolationIdentity(s.Violations[i])
+		}
+		if s.NewViolations == nil {
+			s.NewViolations = []Violation{}
+		}
+		for i := range s.NewViolations {
+			s.NewViolations[i] = EnrichViolationIdentity(s.NewViolations[i])
+		}
+		if s.FixedViolations == nil {
+			s.FixedViolations = []Violation{}
+		}
+		for i := range s.FixedViolations {
+			s.FixedViolations[i] = EnrichViolationIdentity(s.FixedViolations[i])
+		}
+		if s.SeededViolations == nil {
+			s.SeededViolations = []Violation{}
+		}
+		for i := range s.SeededViolations {
+			s.SeededViolations[i] = EnrichViolationIdentity(s.SeededViolations[i])
+		}
+
 		switch s.Status {
 		case "pass":
 			r.StepsPassed++
@@ -94,6 +123,11 @@ func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 			r.StepsSkipped++
 		}
 		r.TotalViolations += len(s.Violations)
+		r.Steps = append(r.Steps, s)
+	}
+
+	if len(steps) == 0 {
+		r.Steps = []StepResult{}
 	}
 
 	return r

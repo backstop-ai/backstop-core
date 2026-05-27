@@ -244,3 +244,49 @@ func TestGateIntegration_JSONSourcePackField(t *testing.T) {
 		t.Fatalf("did not expect source_pack for native violation, got: %s", string(nativeData))
 	}
 }
+
+func TestGateResult_BaselineScopedDiff_FiltersOutOfScopeViolations(t *testing.T) {
+	scope := newGateScope("", GateScopeModeDiff, []string{"changed.go"}, nil)
+	current := []Violation{
+		{Rule: "code_check/new", File: "changed.go", Message: "new changed-file issue", Severity: "error"},
+		{Rule: "code_check/fixed", File: "unchanged.go", Message: "outside scope", Severity: "error"},
+	}
+	filtered := filterViolations(scope, current)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 scoped violation, got %d (%#v)", len(filtered), filtered)
+	}
+	if filtered[0].File != "changed.go" {
+		t.Fatalf("expected changed-file violation to remain, got %#v", filtered[0])
+	}
+}
+
+func TestGateResult_BaselineComparisonStep_AdditiveDiagnosticsContract(t *testing.T) {
+	result := NewGateResult([]StepResult{{
+		StepName: StepBaselineComparison,
+		Status:   "fail",
+		Violations: []Violation{{
+			Rule:     "code_check/new",
+			File:     "changed.go",
+			Message:  "new baseline differential violation",
+			Severity: "error",
+		}},
+	}})
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw struct {
+		Steps []map[string]json.RawMessage `json:"steps"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(raw.Steps) != 1 {
+		t.Fatalf("expected one step, got %d", len(raw.Steps))
+	}
+	if _, ok := raw.Steps[0]["new_violations"]; !ok {
+		t.Errorf("expected additive baseline diagnostics field %q", "new_violations")
+	}
+}

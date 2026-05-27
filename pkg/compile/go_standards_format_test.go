@@ -54,32 +54,53 @@ func hasFixtureForRule(ruleID string, names []string) bool {
 
 func semgrepOutputForFile(t *testing.T, filePath string) semgrepRunResult {
 	t.Helper()
+	return semgrepOutputForPaths(t, filePath)
+}
+
+func semgrepOutputForPath(t *testing.T, targetPath string) semgrepRunResult {
+	t.Helper()
+	return semgrepOutputForPaths(t, targetPath)
+}
+
+func semgrepOutputForPaths(t *testing.T, targetPaths ...string) semgrepRunResult {
+	t.Helper()
 	root := goStandardsRepoRoot(t)
 	if _, err := exec.LookPath("semgrep"); err != nil {
 		t.Skip("semgrep not installed in environment")
 	}
 
-	cmd := exec.Command(
-		"semgrep",
+	args := []string{
 		"--config", filepath.Join(root, "standards", "go", "rules"),
 		"--json",
 		"--quiet",
-		filePath,
-	)
+	}
+	args = append(args, targetPaths...)
+	cmd := exec.Command("semgrep", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("semgrep failed for %s: %v\n%s", filePath, err, string(out))
+		t.Fatalf("semgrep failed for %s: %v\n%s", strings.Join(targetPaths, ", "), err, string(out))
 	}
 
 	var parsed semgrepRunResult
 	jsonStart := strings.IndexByte(string(out), '{')
 	if jsonStart < 0 {
-		t.Fatalf("semgrep output for %s did not contain json: %s", filePath, string(out))
+		t.Fatalf("semgrep output for %s did not contain json: %s", strings.Join(targetPaths, ", "), string(out))
 	}
 	if err := json.Unmarshal(out[jsonStart:], &parsed); err != nil {
-		t.Fatalf("parse semgrep json for %s: %v\n%s", filePath, err, string(out))
+		t.Fatalf("parse semgrep json for %s: %v\n%s", strings.Join(targetPaths, ", "), err, string(out))
 	}
 	return parsed
+}
+
+func semgrepResultPaths(result semgrepRunResult) map[string]struct{} {
+	paths := map[string]struct{}{}
+	for _, finding := range result.Results {
+		path, _ := finding["path"].(string)
+		if path != "" {
+			paths[filepath.Clean(path)] = struct{}{}
+		}
+	}
+	return paths
 }
 
 func TestGoStandard_AllRulesValidYAML(t *testing.T) {
@@ -176,11 +197,15 @@ func TestGoStandard_InvalidFixtureNamingConvention(t *testing.T) {
 
 func TestGoStandard_InvalidFixtureTriggersRule(t *testing.T) {
 	root := goStandardsRepoRoot(t)
+	fixturePaths := make([]string, 0)
 	for _, name := range fixtureNames(t, "invalid") {
-		path := filepath.Join(root, "standards", "go", "testdata", "invalid", name)
-		result := semgrepOutputForFile(t, path)
-		if len(result.Results) == 0 {
-			t.Fatalf("invalid fixture %q produced no semgrep findings", name)
+		fixturePaths = append(fixturePaths, filepath.Join(root, "standards", "go", "testdata", "invalid", name))
+	}
+	result := semgrepOutputForPaths(t, fixturePaths...)
+	paths := semgrepResultPaths(result)
+	for _, path := range fixturePaths {
+		if _, ok := paths[filepath.Clean(path)]; !ok {
+			t.Fatalf("invalid fixture %q produced no semgrep findings", filepath.Base(path))
 		}
 	}
 }
@@ -207,12 +232,13 @@ func TestGoStandard_ValidFixtureNamingConvention(t *testing.T) {
 
 func TestGoStandard_ValidFixturePassesAllRules(t *testing.T) {
 	root := goStandardsRepoRoot(t)
+	fixturePaths := make([]string, 0)
 	for _, name := range fixtureNames(t, "valid") {
-		path := filepath.Join(root, "standards", "go", "testdata", "valid", name)
-		result := semgrepOutputForFile(t, path)
-		if len(result.Results) != 0 {
-			t.Fatalf("valid fixture %q produced findings: %d", name, len(result.Results))
-		}
+		fixturePaths = append(fixturePaths, filepath.Join(root, "standards", "go", "testdata", "valid", name))
+	}
+	result := semgrepOutputForPaths(t, fixturePaths...)
+	if len(result.Results) != 0 {
+		t.Fatalf("valid fixtures produced findings: %d", len(result.Results))
 	}
 }
 

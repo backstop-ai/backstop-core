@@ -18,6 +18,7 @@ import (
 type MandatedTest struct {
 	FuncName  string
 	FilePath  string // path to the file containing the test (set during verification)
+	SpecFile  string // path to the spec that mandates the test
 	TargetPkg string // last component of the spec's implementation.package
 	SpecID    string
 	ClaimID   string
@@ -74,6 +75,7 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 			for _, testName := range claim.Tests {
 				tests = append(tests, MandatedTest{
 					FuncName:  testName,
+					SpecFile:  path,
 					TargetPkg: targetPkg,
 					SpecID:    fm.Number,
 					ClaimID:   claim.ID,
@@ -153,7 +155,10 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope) S
 		var violations []Violation
 		for _, mt := range mandated {
 			if scope != nil && scope.Mode != GateScopeModeAll {
-				if mt.FilePath == "" || !scope.Contains(mt.FilePath) {
+				if mt.FilePath != "" && !scope.Contains(mt.FilePath) && !scope.Contains(mt.SpecFile) {
+					continue
+				}
+				if mt.FilePath == "" && !scope.Contains(mt.SpecFile) {
 					continue
 				}
 			}
@@ -321,6 +326,9 @@ func targetPackageName(implementationPackage string) string {
 	if strings.HasPrefix(implementationPackage, "cmd/") {
 		return ""
 	}
+	if !strings.HasPrefix(implementationPackage, "pkg/") {
+		return ""
+	}
 	return filepath.Base(implementationPackage)
 }
 
@@ -421,8 +429,8 @@ func callsTargetPackage(body *ast.BlockStmt, pkg string) bool {
 }
 
 // ExtractSpecVerifications parses all spec files in specDir and extracts
-// verification blocks (test_command, coverage_threshold) for use by the
-// coverage threshold step.
+// verification metadata for the coverage threshold step. test_command is kept
+// as documentation/compatibility metadata; the gate owns test scheduling.
 func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {

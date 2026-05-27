@@ -87,6 +87,30 @@ func TestCLI_GateCommand_Exists(t *testing.T) {
 	}
 }
 
+func TestCLI_BaselineNamespace_Exists_Contract(t *testing.T) {
+	root := NewRootCommand()
+	cmd, _, err := root.Find([]string{"baseline"})
+	if err != nil {
+		t.Fatalf("find baseline: %v", err)
+	}
+	if cmd.Name() != "baseline" {
+		t.Fatalf("command name = %q, want %q", cmd.Name(), "baseline")
+	}
+}
+
+func TestCLI_BaselinePull_HelpMentionsArtifactAndMainRunSelection_Contract(t *testing.T) {
+	root := NewRootCommand()
+	out, err := executeCommand(root, "baseline", "pull", "--help")
+	if err != nil {
+		t.Fatalf("baseline pull --help error: %v", err)
+	}
+	for _, expected := range []string{"artifact", "main", "latest successful"} {
+		if !strings.Contains(strings.ToLower(out), strings.ToLower(expected)) {
+			t.Fatalf("baseline pull help missing %q semantics, output=%s", expected, out)
+		}
+	}
+}
+
 // TestCLI_ConfigLoader_LoadedBeforeEnforcement invokes an enforcement command
 // without backstop.yml, verifies config error occurs before enforcement. (CLM-012)
 func TestCLI_ConfigLoader_LoadedBeforeEnforcement(t *testing.T) {

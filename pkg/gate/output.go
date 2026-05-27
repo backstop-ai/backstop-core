@@ -51,13 +51,28 @@ func FormatHuman(result GateResult, noColor bool) string {
 	for _, step := range result.Steps {
 		statusStr := formatStatus(step.Status, noColor)
 		violationCount := len(step.Violations)
+		reason := step.Reason
+		if step.StepName == StepBaselineComparison && reason == "" {
+			if len(step.NewViolations) == 0 {
+				if step.Status == "fail" && len(step.Violations) > 0 {
+					reason = fmt.Sprintf("%d new violations beyond baseline", len(step.Violations))
+				} else {
+					reason = "0 new violations beyond baseline"
+				}
+			} else {
+				reason = fmt.Sprintf("%d new violations beyond baseline", len(step.NewViolations))
+			}
+		}
 
 		line := fmt.Sprintf("  %-25s %s", step.StepName, statusStr)
+		if step.DurationMS > 0 {
+			line += fmt.Sprintf("  (%dms)", step.DurationMS)
+		}
 		if violationCount > 0 {
 			line += fmt.Sprintf("  (%d violations)", violationCount)
 		}
-		if step.Status == "skipped" && step.Reason != "" {
-			line += fmt.Sprintf("  (%s)", step.Reason)
+		if reason != "" {
+			line += fmt.Sprintf("  (%s)", reason)
 		}
 		sb.WriteString(line + "\n")
 	}

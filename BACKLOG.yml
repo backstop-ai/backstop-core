@@ -10,4 +10,5 @@ directives:
   - id: DIR-001
     title: Release Workflow
   - id: DIR-008
-    title: CLI Self-Update
+    title: "CLI Self-Update"
+  - id: DIR-012

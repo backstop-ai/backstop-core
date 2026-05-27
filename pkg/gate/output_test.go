@@ -234,3 +234,55 @@ func TestGateOutput_JSONScopeField(t *testing.T) {
 		t.Fatalf("unexpected JSON scope: %#v", raw.Scope)
 	}
 }
+
+func TestGateOutput_BaselineDifferential_HumanMessaging(t *testing.T) {
+	clean := NewGateResult([]StepResult{{
+		StepName:   StepBaselineComparison,
+		Status:     "pass",
+		Violations: []Violation{},
+	}})
+	cleanOut := FormatHuman(clean, true)
+	if !strings.Contains(cleanOut, "0 new violations beyond baseline") {
+		t.Fatalf("expected zero-new baseline message, got: %s", cleanOut)
+	}
+
+	failing := NewGateResult([]StepResult{{
+		StepName: StepBaselineComparison,
+		Status:   "fail",
+		Violations: []Violation{
+			{Rule: "code_check/new", File: "changed.go", Message: "new differential violation", Severity: "error"},
+		},
+	}})
+	failOut := FormatHuman(failing, true)
+	if !strings.Contains(failOut, "1 new violations beyond baseline") {
+		t.Fatalf("expected nonzero-new baseline message, got: %s", failOut)
+	}
+}
+
+func TestGateOutput_BaselineDifferential_JSONDiagnostics(t *testing.T) {
+	result := NewGateResult([]StepResult{{
+		StepName: StepBaselineComparison,
+		Status:   "fail",
+		Violations: []Violation{
+			{Rule: "code_check/new", File: "changed.go", Message: "new differential violation", Severity: "error"},
+		},
+	}})
+
+	data, err := FormatJSON(result)
+	if err != nil {
+		t.Fatalf("FormatJSON: %v", err)
+	}
+
+	var raw struct {
+		Steps []map[string]json.RawMessage `json:"steps"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(raw.Steps) != 1 {
+		t.Fatalf("expected one step, got %d", len(raw.Steps))
+	}
+	if _, ok := raw.Steps[0]["new_violations"]; !ok {
+		t.Fatalf("expected additive baseline diagnostics field %q", "new_violations")
+	}
+}

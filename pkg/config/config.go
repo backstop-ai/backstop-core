@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	backstopcore "github.com/bmanson/backstop-core"
 	"gopkg.in/yaml.v3"
 )
+
+const defaultBaselineTTL = 15 * time.Minute
 
 // Config is the typed representation of backstop.yml.
 type Config struct {
@@ -29,6 +32,7 @@ type Enforcement struct {
 	Security          Security `yaml:"security,omitempty" json:"security,omitempty"`
 	WaiverWarningDays int      `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
 	SemgrepVersion    string   `yaml:"semgrep_version,omitempty" json:"semgrep_version,omitempty"`
+	BaselineTTL       string   `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
 }
 
 // Security holds the security enforcement settings.
@@ -141,6 +145,26 @@ func LoadConfigFromPath(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// BaselineTTLDuration resolves enforcement.baseline_ttl with defaulting.
+// Empty baseline_ttl defaults to 15 minutes.
+func (c *Config) BaselineTTLDuration() (time.Duration, error) {
+	if c == nil {
+		return defaultBaselineTTL, nil
+	}
+	raw := strings.TrimSpace(c.Enforcement.BaselineTTL)
+	if raw == "" {
+		return defaultBaselineTTL, nil
+	}
+	ttl, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid enforcement.baseline_ttl: %w", err)
+	}
+	if ttl <= 0 {
+		return 0, fmt.Errorf("invalid enforcement.baseline_ttl: must be greater than 0")
+	}
+	return ttl, nil
 }
 
 // schemaData is the raw backstop-yml schema loaded from the embedded FS.

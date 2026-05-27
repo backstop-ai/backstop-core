@@ -99,7 +99,7 @@ func TestArtifactNew_Filename_ADR(t *testing.T) {
 
 func TestArtifactNew_Filename_Directive(t *testing.T) {
 	got := Filename("directive", "010", "my-dir", "")
-	expected := "D-010-my-dir.directive.md"
+	expected := "DIR-010-my-dir.directive.md"
 	if got != expected {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}
@@ -115,7 +115,7 @@ func TestArtifactNew_Filename_Bundle(t *testing.T) {
 
 func TestArtifactNew_Filename_Capability(t *testing.T) {
 	got := Filename("capability", "001", "my-cap", "")
-	expected := "CAP-001-my-cap.capability.md"
+	expected := "CAP-001-my-cap.capability.yml"
 	if got != expected {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
@@ -50,7 +52,7 @@ it's green, it ships.`,
 // runGate is the Cobra RunE handler that orchestrates all nine gate steps.
 func runGate(cmd *cobra.Command, args []string) error {
 	// Load config via CLI foundation config loader.
-	_, cfgErr := config.LoadConfig()
+	cfg, cfgErr := config.LoadConfig()
 
 	// If config loading fails, return immediately with exit code 2.
 	if cfgErr != nil {
@@ -97,6 +99,16 @@ func runGate(cmd *cobra.Command, args []string) error {
 	opts = append(opts, gate.WithSteps(steps))
 	opts = append(opts, gate.WithScope(scope))
 
+	baselinePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
+	ttl, ttlErr := cfg.BaselineTTLDuration()
+	if ttlErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %v", ttlErr)}
+	}
+	baselineArtifact, baselineWarning, baselineModTime := resolveBaselineCache(baselinePath, ttl)
+	opts = append(opts, gate.WithBaseline(baselineArtifact), gate.WithBaselineWarning(baselineWarning), gate.WithBaselineCacheMeta(baselinePath, ttl, baselineModTime))
+	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
+	opts = append(opts, gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
+
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
 
@@ -121,6 +133,87 @@ func runGate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+func resolveBaselineCache(path string, ttl time.Duration) (*gate.BaselineArtifact, string, time.Time) {
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		refreshed, refreshErr := refreshBaselineFromRemote(path)
+		if refreshErr == nil {
+			return refreshed, "baseline cache fetched from remote main baseline artifact", time.Now()
+		}
+		return nil, fmt.Sprintf("baseline unavailable: no cached baseline found at .backstop/baseline.json and remote baseline fetch failed (%v); run `backstop baseline pull`", refreshErr), time.Time{}
+	}
+	baseline, loadErr := gate.LoadBaseline(path)
+	if loadErr != nil {
+		refreshed, refreshErr := refreshBaselineFromRemote(path)
+		if refreshErr == nil {
+			return refreshed, "baseline cache was unreadable and refreshed from remote main baseline artifact", time.Now()
+		}
+		return nil, fmt.Sprintf("baseline unavailable: cached baseline at .backstop/baseline.json is unreadable (%v) and remote baseline fetch failed (%v); run `backstop baseline pull`", loadErr, refreshErr), info.ModTime()
+	}
+	if time.Since(info.ModTime()) <= ttl {
+		return baseline, "", info.ModTime()
+	}
+	refreshed, refreshErr := refreshBaselineFromRemote(path)
+	if refreshErr == nil {
+		return refreshed, "baseline cache refreshed from remote main baseline artifact", time.Now()
+	}
+	return baseline, fmt.Sprintf("baseline refresh failed; using stale cached baseline from .backstop/baseline.json (%v)", refreshErr), info.ModTime()
+}
+
+func refreshBaselineFromRemote(path string) (*gate.BaselineArtifact, error) {
+	if err := runBaselinePull(nil, nil); err != nil {
+		return nil, err
+	}
+	artifact, err := gate.LoadBaseline(path)
+	if err != nil {
+		return nil, fmt.Errorf("refreshed baseline cache is unreadable: %w", err)
+	}
+	return artifact, nil
+}
+
+func ruleSetChangeSeedingContext(projectRoot string, scope *gate.GateScope) (bool, []string) {
+	if scope == nil || scope.Mode != gate.GateScopeModeAll {
+		return false, nil
+	}
+	changed, err := changedFilesAgainstOriginMain(projectRoot)
+	if err != nil {
+		return false, nil
+	}
+	for _, file := range changed {
+		if file == "backstop.yml" || file == "backstop.lock" || strings.HasPrefix(file, ".backstop/packs/") || strings.HasPrefix(file, ".backstop/rules/") {
+			return true, changed
+		}
+	}
+	return false, changed
+}
+
+func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
+	baseCmd := exec.Command("git", "merge-base", "HEAD", "origin/main")
+	baseCmd.Dir = projectRoot
+	baseOut, err := baseCmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	base := strings.TrimSpace(string(baseOut))
+	if base == "" {
+		return nil, fmt.Errorf("empty merge-base")
+	}
+	diffCmd := exec.Command("git", "diff", "--name-only", base)
+	diffCmd.Dir = projectRoot
+	out, err := diffCmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	files := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			files = append(files, trimmed)
+		}
+	}
+	return files, nil
 }
 
 // buildGateSteps constructs the nine ordered step functions with concrete

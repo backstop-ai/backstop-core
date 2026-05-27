@@ -110,16 +110,14 @@ requirements:
     supports: cli:REQ-006
 
   - id: REQ-005
+    superseded_by: SPEC-019 REQ-015
     text: >
-      Step 7 (baseline comparison) must compare current violations against
-      the recorded baseline in .backstop/baseline.yml. If the baseline file
-      does not exist, the step must report status "skipped" with reason
-      "no baseline recorded." If the baseline file exists, any new violation
-      (a rule+file combination not present in the baseline, or a count
-      exceeding the baseline count for that rule+file) is a failure. Reduced
-      violations (counts lower than baseline) are not failures. When the
-      baseline subsystem is not yet implemented, this step must report status
-      "skipped" with reason "baseline not implemented."
+      Superseded by SPEC-019 REQ-015. This requirement is retained only as a
+      historical placeholder for traceability. Baseline behavior is now defined
+      by SPEC-019: the reference path is .backstop/baseline.json (not
+      .backstop/baseline.yml), comparisons use stable violation identity (not
+      rule+file counts), and baseline ownership is CI-generated cache/artifact
+      state rather than developer-authored repository content.
     supports: cli:REQ-006
 
   - id: REQ-006
@@ -311,9 +309,9 @@ claims:
 
   - id: CLM-050
     requirement: REQ-016
-    text: Gate uses the test_command from the spec verification block
+    text: Gate owns coverage scheduling rather than executing spec test_command as a plan
     tests:
-      - TestGate_CoverageThreshold_UsesSpecTestCommand
+      - TestGate_CoverageThreshold_IgnoresSpecTestCommandForScheduling
 
   - id: CLM-057
     requirement: REQ-016
@@ -543,15 +541,17 @@ claims:
   # REQ-012: No scope flags
   - id: CLM-039
     requirement: REQ-012
-    text: Gate command accepts no scope flags and runs against full project
+    text: Gate defaults to diff scope when no explicit scope flag is provided
     tests:
-      - TestGate_NoScopeFlags_FullProject
+      - TestGate_DefaultsToDiffMode
 
   - id: CLM-040
     requirement: REQ-012
-    text: Gate does not accept --diff, --file, --spec, --plan, or other scoping flags
+    text: Gate accepts explicit full and file scopes while rejecting conflicting scope flags
     tests:
-      - TestGate_RejectsScopeFlags
+      - TestGate_AllFlagUsesFullSweep
+      - TestGate_FileFlagScopesExplicitFiles
+      - TestGate_AllAndFileMutuallyExclusive
 
   # REQ-013: Human-readable output
   - id: CLM-041
@@ -798,11 +798,11 @@ Verification is defined in frontmatter. Integration-level verification at
   reflects data dependencies. If a future optimization attempts to parallelize
   steps, it must respect these dependencies.
 
-- **Baseline comparison is a ratchet, not a snapshot.** The baseline records
-  violation counts, not violation identity. If a developer fixes one violation
-  but introduces a different one in the same file for the same rule, the count
-  stays the same and baseline comparison passes. The ratchet catches regression
-  in quantity, not quality.
+- **Baseline semantics moved to SPEC-019.** Historical count-based placeholder
+  behavior in this spec is superseded. The shipped model uses immutable
+  CI-generated baseline references, stable identity matching, scoped ratchet
+  enforcement, and explicit prohibition on developer-generated or committed
+  baseline files.
 
 - **Gate is the only command that should be the CI gate.** Teams might be
   tempted to use `backstop artifact validate` or `backstop code check` as
@@ -850,3 +850,4 @@ Verification is defined in frontmatter. Integration-level verification at
 - SPEC-005: CLI Foundation — config loading, output formatting, exit codes
 - SPEC-006: Artifact Validate — step 1 delegation target
 - SPEC-008: Code Check — step 2 delegation target
+- SPEC-019: Baseline — CI-generated immutable violation reference (supersedes REQ-005)

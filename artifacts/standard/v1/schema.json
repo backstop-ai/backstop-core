@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "backstop-standard-v1",
+  "title": "Backstop Standard Schema v1",
+  "description": "Schema for machine-readable coding standards that compile into enforcement packs. Extends backstop-artifact-base-v1.",
+  "version": "1.0.0",
+  "extends": "backstop-artifact-base-v1",
+  "artifact_type": "standard",
+  "filename_pattern": "^STD-[A-Z]+-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.standard\\.md$",
+  "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+  "slug_min_length": 2,
+  "slug_max_length": 64,
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version", "pack", "scope"],
+    "properties": {
+      "number": {
+        "pattern": "^STD-[A-Z]+-[0-9]{3}$"
+      },
+      "status": {
+        "enum": ["draft", "active", "deprecated"]
+      },
+      "schema_version": {
+        "const": "standard/v1"
+      },
+      "pack": {
+        "minLength": 1
+      },
+      "scope": {
+        "enum": ["universal", "language", "framework"]
+      },
+      "language": {
+        "enum": ["go", "typescript", "python", "bash"]
+      }
+    }
+  },
+  "required_sections": ["Overview", "Rules", "Examples"],
+  "optional_sections": ["Sources", "References"]
+}

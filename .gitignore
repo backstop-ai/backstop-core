@@ -36,3 +36,4 @@ prototype/
 .backstop/packs/
 backstop.lock
 .backstop/pack-config-provenance.json
+.backstop/baseline.json

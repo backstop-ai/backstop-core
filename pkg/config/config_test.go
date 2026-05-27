@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bmanson/backstop-core/pkg/config"
 )
@@ -197,6 +198,38 @@ func TestConfig_WaiverWarningDays_Default(t *testing.T) {
 	}
 	if cfg.Enforcement.WaiverWarningDays != 30 {
 		t.Errorf("WaiverWarningDays = %d, want 30 (default)", cfg.Enforcement.WaiverWarningDays)
+	}
+}
+
+func TestConfig_BaselineTTLDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *config.Config
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "nil config", cfg: nil, want: 15 * time.Minute},
+		{name: "empty default", cfg: &config.Config{}, want: 15 * time.Minute},
+		{name: "configured", cfg: &config.Config{Enforcement: config.Enforcement{BaselineTTL: "1h30m"}}, want: 90 * time.Minute},
+		{name: "invalid", cfg: &config.Config{Enforcement: config.Enforcement{BaselineTTL: "nope"}}, wantErr: true},
+		{name: "nonpositive", cfg: &config.Config{Enforcement: config.Enforcement{BaselineTTL: "0s"}}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.cfg.BaselineTTLDuration()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("duration = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }
 

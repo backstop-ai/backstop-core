@@ -46,6 +46,42 @@ func TestSpec010Req012Superseded(t *testing.T) {
 	}
 }
 
+func TestBaselinePathPresentInGitignore(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	ignorePath := filepath.Join(root, ".gitignore")
+	contents, err := os.ReadFile(ignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(contents), ".backstop/baseline.json") {
+		t.Fatalf(".gitignore must include .backstop/baseline.json as cache-only baseline state")
+	}
+}
+
+func TestSpec010BaselinePlaceholderSuperseded(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	spec010, err := os.ReadFile(filepath.Join(root, "specs", "SPEC-010-gate.spec.md"))
+	if err != nil {
+		t.Fatalf("read SPEC-010: %v", err)
+	}
+	spec019, err := os.ReadFile(filepath.Join(root, "specs", "SPEC-019-baseline-ci-generated-immutable-violation-reference.spec.md"))
+	if err != nil {
+		t.Fatalf("read SPEC-019: %v", err)
+	}
+
+	s010 := string(spec010)
+	s019 := string(spec019)
+	if !strings.Contains(s019, "supersedes:") || !strings.Contains(s019, "spec: SPEC-010") || !strings.Contains(s019, "requirement: REQ-005") {
+		t.Fatal("SPEC-019 must explicitly supersede SPEC-010 REQ-005")
+	}
+	if !strings.Contains(s019, ".backstop/baseline.json") || !strings.Contains(s019, "stable violation identity") {
+		t.Fatal("SPEC-019 supersession must declare JSON baseline path and stable identity semantics")
+	}
+	if !strings.Contains(s010, "id: REQ-005") || !strings.Contains(s010, ".backstop/baseline.yml") {
+		t.Fatal("SPEC-010 must preserve discoverable placeholder baseline requirement for supersession traceability")
+	}
+}
+
 func validSpecArtifact() *artifact.ParsedArtifact {
 	return &artifact.ParsedArtifact{
 		Filename: "SPEC-023-backstop-base-validator.spec.md",
