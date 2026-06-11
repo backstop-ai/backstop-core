@@ -37,13 +37,24 @@ type ExitCodeError struct {
 
 func (e *ExitCodeError) Error() string { return e.Message }
 
-// idFieldForType returns the metadata field name used for ID matching
-// per artifact type. Plans use plan_id; all others use number.
-func idFieldForType(artType string) string {
-	if artType == "plan" {
-		return "plan_id"
+// artifactIDValue returns the identifying value used for --<type> ID
+// filtering. Plans use the plan_id metadata key, issues keep their ID
+// nested in the issue frontmatter block, and all other types use the
+// top-level number metadata key.
+func artifactIDValue(art *artifact.ParsedArtifact, artType string) string {
+	switch artType {
+	case "plan":
+		return art.Metadata["plan_id"]
+	case "issue":
+		if block, ok := art.Frontmatter["issue"].(map[string]interface{}); ok {
+			if id, ok := block["id"].(string); ok {
+				return id
+			}
+		}
+		return ""
+	default:
+		return art.Metadata["number"]
 	}
-	return "number"
 }
 
 // loadSchemaFromFS reads schema files from an fs.FS and calls the existing
@@ -121,8 +132,7 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 		// If ID filter is set for this type, match by per-type metadata field
 		if cfg.TypeFilters != nil {
 			if idFilter, hasType := cfg.TypeFilters[da.Type]; hasType && idFilter != "" {
-				field := idFieldForType(da.Type)
-				if art.Metadata[field] != idFilter {
+				if artifactIDValue(art, da.Type) != idFilter {
 					continue // Skip non-matching artifacts
 				}
 			}

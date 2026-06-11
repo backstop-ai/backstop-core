@@ -6,7 +6,7 @@
   "version": "1.1.0",
   "extends": "backstop-artifact-base-v1",
   "artifact_type": "issue",
-  "filename_pattern": "^ISSUE-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.md$",
+  "filename_pattern": "^ISSUE-[0-9]{3}-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.issue\\.md$",
   "slug_pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
   "slug_min_length": 2,
   "slug_max_length": 64,

@@ -1,0 +1,111 @@
+---
+title: "code-check pass executors are stubs — lint/build/test/semgrep never execute"
+schema_version: issue/v1
+
+issue:
+  id: ISSUE-002
+  title: "code-check pass executors are stubs — lint/build/test/semgrep never execute"
+  type: technical-debt
+  status: open
+  created: "2026-06-11"
+
+complexity:
+  scope: contained
+  uncertainty: known
+  risk: moderate
+---
+
+# code-check pass executors are stubs — lint/build/test/semgrep never execute
+
+## Problem
+
+All four default pass executors in `pkg/check/check.go` — `lintExecutor`,
+`buildExecutor`, `testExecutor`, and `semgrepExecutor` — have `Execute()`
+methods that return an empty `&PassResult{Pass: ct}` without invoking any
+tool. The engine dispatches them at `check.go:149` (`executor.Execute`).
+
+```go
+// lintExecutor — lines 321-323
+func (e *lintExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
+    return &PassResult{Pass: CheckTypeLint}, nil
+}
+
+// buildExecutor — lines 337-339
+func (e *buildExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
+    return &PassResult{Pass: CheckTypeBuild}, nil
+}
+
+// testExecutor — lines 350-352
+func (e *testExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
+    return &PassResult{Pass: CheckTypeTest}, nil
+}
+
+// semgrepExecutor — lines 365-367
+func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
+    return &PassResult{Pass: CheckTypeSemgrep}, nil
+}
+```
+
+Consequence: the lint, build, test, and semgrep passes in both `backstop
+check` and `backstop gate` step 2 (`code_check`) always pass vacuously.
+Step 2 is silent non-enforcement.
+
+The supporting machinery is real and currently wasted:
+
+- `EnsureSemgrep` in `pkg/check/semgrep.go` pip-installs a pinned semgrep
+  binary into `.backstop/tools/`.
+- `mergePackRules` in `cmd/backstop/pack_gate.go:97-123` collects installed
+  packs' layer-2 rule files into `check.Options.ExtraSemgrepConfigs`. The
+  stub `semgrepExecutor` stores these in its `extraSemgrepConfigs` field but
+  never passes them to a process.
+- Pack layer-2 semgrep rules are therefore never enforced.
+
+Manifest routing in `pkg/check/manifest.go` is also real and correct: the
+default manifest routes `.go` files to lint/build/test/semgrep and all other
+files to semgrep-only (`routeFileDefaults`, lines 133-141). `ScopeModeAll`
+walks the full project tree, so all language files reach the semgrep pass
+once it is real.
+
+## Impact
+
+This is the primary enforcement step of the gate. A green `backstop gate`
+currently means all lint, build, test, and semgrep passes were skipped
+rather than passed. The TypeScript-pack story is also blocked: a TS pack's
+layer-2 semgrep rules can only be enforced once `semgrepExecutor` shells out.
+
+## Solution
+
+Implement the four executors for real. Existing engine contracts must be
+preserved: timeout/cancellation handled at `check.go:100-180`, skip-with-
+warning when the tool is unavailable (`IsAvailable` already gates dispatch),
+no short-circuiting between passes.
+
+**lintExecutor** — shell out to `golangci-lint` with `--out-format json`,
+parse each finding into `check.Violation{Pass, File, Line, Message, Severity}`.
+`IsAvailable` already calls `findExecutable("golangci-lint")` on PATH.
+
+**buildExecutor** — run `go build ./...` in the project root, parse compiler
+error lines (`file:line:col: message`) into Violations. Go is assumed
+available (`IsAvailable` returns true unconditionally — no change needed).
+
+**testExecutor** — run `go test` against affected packages (or a single file
+in file-mode via the existing `fileMode bool` field), parse test failure
+output into Violations. Go is assumed available.
+
+**semgrepExecutor** — invoke the binary resolved by `EnsureSemgrep` with
+`--config .backstop/rules` plus all paths in `extraSemgrepConfigs`, `--json`
+output, parse findings into Violations. Violations from pack rules should
+set `SourcePack` (the gate `Violation` type at `pkg/gate/result.go:41` has
+this field; rule IDs are pack-namespaced via `pack.NamespacedRuleID`). Note:
+`check.Violation` and `gate.Violation` are distinct types — the gate step
+that bridges them will need to map `SourcePack` attribution across.
+
+## References
+
+- `pkg/check/check.go` — executor stubs at lines 318-371; engine dispatch at line 149
+- `pkg/check/semgrep.go` — `EnsureSemgrep`; real install logic already present
+- `pkg/check/manifest.go` — `routeFileDefaults`; routing is correct and unchanged
+- `cmd/backstop/pack_gate.go:97-123` — `mergePackRules`; populates `ExtraSemgrepConfigs` that stubs ignore
+- `pkg/gate/result.go:41` — gate `Violation.SourcePack` field
+- `pkg/pack/coordinate.go:42` — `pack.NamespacedRuleID`
+- ISSUE-003 (follow-up): stack-keyed toolchain registry + TypeScript toolchain — generalizes the executor binding this issue implements; this issue should be resolved before ISSUE-003 is started

@@ -451,6 +451,78 @@ func TestArtifactValidate_IDScope_PlanMatchesByPlanID(t *testing.T) {
 	}
 }
 
+// TestArtifactValidate_IDScope_IssueMatchesByNestedID verifies that
+// --issue ISSUE-101 matches by the nested issue.id frontmatter field —
+// issues have no top-level number metadata key.
+func TestArtifactValidate_IDScope_IssueMatchesByNestedID(t *testing.T) {
+	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
+		"issues/ISSUE-101-a.issue.md": validIssueContent("ISSUE-101"),
+		"issues/ISSUE-102-b.issue.md": validIssueContent("ISSUE-102"),
+	})
+
+	cfg := ValidateConfig{
+		ProjectRoot: dir,
+		TypeFilters: map[string]string{"issue": "ISSUE-101"},
+		SchemaFS:    SchemaFS,
+	}
+	result, err := ValidateArtifacts(cfg)
+	if err != nil {
+		t.Fatalf("ValidateArtifacts: %v", err)
+	}
+
+	if result.ArtifactsFound != 1 {
+		t.Errorf("expected exactly 1 artifact processed when scoped to ISSUE-101, got %d", result.ArtifactsFound)
+	}
+	for _, v := range result.Violations {
+		if strings.Contains(v.File, "ISSUE-102") {
+			t.Errorf("should not validate ISSUE-102 when scoped to ISSUE-101: %s", v.File)
+		}
+	}
+}
+
+// TestArtifactValidate_IDScope_IssueNotFound_Exit2 verifies that scoping by a
+// nonexistent issue ID produces a config error rather than a vacuous pass.
+func TestArtifactValidate_IDScope_IssueNotFound_Exit2(t *testing.T) {
+	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
+		"issues/ISSUE-101-a.issue.md": validIssueContent("ISSUE-101"),
+	})
+
+	cfg := ValidateConfig{
+		ProjectRoot: dir,
+		TypeFilters: map[string]string{"issue": "ISSUE-999"},
+		SchemaFS:    SchemaFS,
+	}
+	_, err := ValidateArtifacts(cfg)
+	if err == nil {
+		t.Fatal("expected config error for nonexistent issue ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "ISSUE-999") {
+		t.Errorf("error should mention the missing ID: %v", err)
+	}
+}
+
+// validIssueContent returns a minimal open issue with the given nested issue.id.
+func validIssueContent(id string) string {
+	return `---
+title: "Test Issue"
+schema_version: issue/v1
+
+issue:
+  id: ` + id + `
+  title: "Test Issue"
+  type: bug
+  status: open
+  created: "2026-06-11"
+---
+
+# Test Issue
+
+## Problem
+
+Test.
+`
+}
+
 // TestArtifactValidate_IDScope_NotFound_Exit2 verifies that scoping by a
 // nonexistent artifact ID produces a config error (exit 2). (CLM-041)
 func TestArtifactValidate_IDScope_NotFound_Exit2(t *testing.T) {
