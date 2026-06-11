@@ -6,13 +6,57 @@ issue:
   id: ISSUE-004
   title: "pkg/check diff scope misses untracked files — dual scope-resolver drift"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-11"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    Add an UntrackedFiles method to the pkg/check GitExecutor interface
+    (git ls-files --others --exclude-standard) and append its results in
+    resolveScopeDiff at both the merge-base and local-diff return paths,
+    matching the gate resolver's behavior in pkg/gate/scope.go.
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      Diff-mode scope resolution in pkg/check must include untracked files
+      (git ls-files --others --exclude-standard), achieving parity with the
+      gate scope resolver in pkg/gate/scope.go.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: >
+      resolveScopeDiff includes untracked files alongside the merge-base
+      diff result when a remote base is found.
+    tests:
+      - TestCodeCheck_DiffScope_IncludesUntrackedFiles
+  - id: CLM-002
+    requirement: REQ-001
+    text: >
+      resolveScopeDiff includes untracked files alongside the local
+      staged+unstaged fallback when no remote base exists.
+    tests:
+      - TestCodeCheck_DiffScope_LocalFallback_IncludesUntrackedFiles
+
+contracts:
+  - file: pkg/check/scope.go
+    provides:
+      - name: UntrackedFiles
+        kind: method
+        signature: "func (g *DefaultGitExecutor) UntrackedFiles() ([]string, error)"
 ---
 
 # pkg/check diff scope misses untracked files — dual scope-resolver drift

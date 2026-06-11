@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -236,6 +237,122 @@ func TestCodeCheck_ChangedFiles_FallbackLocalStagedUnstaged(t *testing.T) {
 	}
 	if len(warnings) == 0 {
 		t.Error("expected warning about local fallback")
+	}
+}
+
+// TestCodeCheck_DiffScope_IncludesUntrackedFiles verifies the merge-base path
+// appends untracked files (git ls-files --others --exclude-standard) alongside
+// the tracked diff result, matching the gate resolver. (CLM-001)
+func TestCodeCheck_DiffScope_IncludesUntrackedFiles(t *testing.T) {
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "abc123", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			return []string{"tracked.go"}, nil
+		},
+		untrackedFiles: []string{"brand-new.go"},
+	}
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsFile(files, "tracked.go") {
+		t.Errorf("files = %v, want to contain tracked.go", files)
+	}
+	if !containsFile(files, "brand-new.go") {
+		t.Errorf("files = %v, want to contain untracked brand-new.go", files)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none", warnings)
+	}
+}
+
+// TestCodeCheck_DiffScope_MergeBase_UntrackedErrorIsBestEffort verifies that
+// an UntrackedFiles error on the merge-base path does not fail scope
+// resolution: the tracked diff is returned unchanged with no error, mirroring
+// pkg/gate/scope.go:117. (CLM-001)
+func TestCodeCheck_DiffScope_MergeBase_UntrackedErrorIsBestEffort(t *testing.T) {
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "abc123", nil
+		},
+		diffNameOnlyFn: func(base string) ([]string, error) {
+			return []string{"tracked.go"}, nil
+		},
+		untrackedErr: fmt.Errorf("git ls-files exploded"),
+	}
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 1 || files[0] != "tracked.go" {
+		t.Errorf("files = %v, want [tracked.go] (untracked error must not append)", files)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none", warnings)
+	}
+}
+
+// TestCodeCheck_DiffScope_LocalFallback_IncludesUntrackedFiles verifies the
+// local staged+unstaged fallback path (no remote base) appends untracked files
+// and still emits the no-remote warning. (CLM-002)
+func TestCodeCheck_DiffScope_LocalFallback_IncludesUntrackedFiles(t *testing.T) {
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "", errNoRemote
+		},
+		diffLocalFn: func() ([]string, error) {
+			return []string{"staged.go", "unstaged.go"}, nil
+		},
+		untrackedFiles: []string{"brand-new.go"},
+	}
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsFile(files, "staged.go") || !containsFile(files, "unstaged.go") {
+		t.Errorf("files = %v, want to contain staged.go and unstaged.go", files)
+	}
+	if !containsFile(files, "brand-new.go") {
+		t.Errorf("files = %v, want to contain untracked brand-new.go", files)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected no-remote warning, got none")
+	}
+}
+
+// TestCodeCheck_DiffScope_LocalFallback_UntrackedErrorIsBestEffort verifies
+// that an UntrackedFiles error on the local fallback path is ignored: scope
+// still resolves to the local diff and the no-remote warning is still present,
+// mirroring pkg/gate/scope.go:129. (CLM-002)
+func TestCodeCheck_DiffScope_LocalFallback_UntrackedErrorIsBestEffort(t *testing.T) {
+	mock := &mockGitExecutor{
+		isGitRepo: true,
+		mergeBaseFn: func(remote string) (string, error) {
+			return "", errNoRemote
+		},
+		diffLocalFn: func() ([]string, error) {
+			return []string{"staged.go", "unstaged.go"}, nil
+		},
+		untrackedErr: fmt.Errorf("git ls-files exploded"),
+	}
+
+	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 2 || !containsFile(files, "staged.go") || !containsFile(files, "unstaged.go") {
+		t.Errorf("files = %v, want exactly [staged.go unstaged.go] (untracked error must not append)", files)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected no-remote warning even when untracked fetch fails, got none")
 	}
 }
 
@@ -505,6 +622,32 @@ func TestCodeCheck_DefaultGitExecutor_DiffLocal(t *testing.T) {
 	_ = files
 }
 
+// TestCodeCheck_DefaultGitExecutor_UntrackedFiles verifies UntrackedFiles runs
+// without error against a real repo and returns a temp untracked file. (CLM-001)
+func TestCodeCheck_DefaultGitExecutor_UntrackedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	g := &DefaultGitExecutor{Dir: dir}
+	if !g.IsGitRepo() {
+		t.Skip("test requires a working git repo")
+	}
+
+	untrackedPath := filepath.Join(dir, "brand-new.go")
+	if err := os.WriteFile(untrackedPath, []byte("package main"), 0o644); err != nil {
+		t.Fatalf("write untracked file: %v", err)
+	}
+
+	files, err := g.UntrackedFiles()
+	if err != nil {
+		t.Fatalf("UntrackedFiles: %v", err)
+	}
+	if !containsFile(files, "brand-new.go") {
+		t.Errorf("files = %v, want to contain brand-new.go", files)
+	}
+}
+
 // TestCodeCheck_ResolveScope_ScopeModeFile verifies ResolveScope with
 // ScopeModeFile works for an existing file.
 func TestCodeCheck_ResolveScope_ScopeModeFile(t *testing.T) {
@@ -532,6 +675,8 @@ type mockGitExecutor struct {
 	mergeBaseFn    func(remote string) (string, error)
 	diffNameOnlyFn func(base string) ([]string, error)
 	diffLocalFn    func() ([]string, error)
+	untrackedFiles []string
+	untrackedErr   error
 }
 
 func (m *mockGitExecutor) IsGitRepo() bool {
@@ -557,6 +702,22 @@ func (m *mockGitExecutor) DiffLocal() ([]string, error) {
 		return m.diffLocalFn()
 	}
 	return nil, nil
+}
+
+func (m *mockGitExecutor) UntrackedFiles() ([]string, error) {
+	if m.untrackedErr != nil {
+		return nil, m.untrackedErr
+	}
+	return m.untrackedFiles, nil
+}
+
+func containsFile(files []string, target string) bool {
+	for _, f := range files {
+		if f == target {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(s, substr string) bool {

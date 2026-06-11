@@ -31,6 +31,7 @@ type GitExecutor interface {
 	MergeBase(remote string) (string, error)
 	DiffNameOnly(base string) ([]string, error)
 	DiffLocal() ([]string, error)
+	UntrackedFiles() ([]string, error)
 }
 
 // DefaultGitExecutor shells out to git for scope resolution.
@@ -75,6 +76,17 @@ func (g *DefaultGitExecutor) DiffLocal() ([]string, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-only HEAD: %w", err)
+	}
+	return splitLines(string(out)), nil
+}
+
+// UntrackedFiles returns files that are not tracked and not ignored.
+func (g *DefaultGitExecutor) UntrackedFiles() ([]string, error) {
+	cmd := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	cmd.Dir = g.Dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files --others --exclude-standard: %w", err)
 	}
 	return splitLines(string(out)), nil
 }
@@ -176,7 +188,13 @@ func resolveScopeDiff(git GitExecutor, projectDir string) ([]string, []string, e
 	if err == nil {
 		files, diffErr := git.DiffNameOnly(base)
 		if diffErr == nil {
-			return files, nil, nil
+			// Untracked-file inclusion is best-effort: on error return the
+			// tracked diff unchanged (mirrors pkg/gate/scope.go:117).
+			untracked, untrackedErr := git.UntrackedFiles()
+			if untrackedErr != nil {
+				return files, nil, nil
+			}
+			return append(files, untracked...), nil, nil
 		}
 	}
 
@@ -185,7 +203,13 @@ func resolveScopeDiff(git GitExecutor, projectDir string) ([]string, []string, e
 	if err == nil {
 		files, diffErr := git.DiffNameOnly(base)
 		if diffErr == nil {
-			return files, nil, nil
+			// Untracked-file inclusion is best-effort: on error return the
+			// tracked diff unchanged (mirrors pkg/gate/scope.go:117).
+			untracked, untrackedErr := git.UntrackedFiles()
+			if untrackedErr != nil {
+				return files, nil, nil
+			}
+			return append(files, untracked...), nil, nil
 		}
 	}
 
@@ -197,8 +221,10 @@ func resolveScopeDiff(git GitExecutor, projectDir string) ([]string, []string, e
 		warnings = append(warnings, fmt.Sprintf("git diff failed: %v; falling back to full codebase scan", err))
 		return allFiles, warnings, allErr
 	}
+	// Best-effort untracked append; error is ignored (mirrors pkg/gate/scope.go:129).
+	untracked, _ := git.UntrackedFiles()
 	warnings := []string{"no remote branch (origin/main or origin/master) found; using local changes only"}
-	return files, warnings, nil
+	return append(files, untracked...), warnings, nil
 }
 
 // splitLines splits output by newlines, filtering empty lines.

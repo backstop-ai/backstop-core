@@ -1,0 +1,213 @@
+---
+plan_id: PLAN-ISSUE-004
+spec_id: ISSUE-004
+created: "2026-06-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-004 — the standalone `backstop check --scope diff` path
+  (pkg/check/scope.go, resolveScopeDiff) silently drops untracked files,
+  while the gate resolver (pkg/gate/scope.go, resolveGateScopeDiff) correctly
+  appends them via `git ls-files --others --exclude-standard`. A brand-new
+  uncommitted file escapes lint, semgrep, and pack-rule enforcement.
+
+  Minimum parity fix (REQ-001):
+    1. Add UntrackedFiles() ([]string, error) to the pkg/check GitExecutor
+       interface and implement it on DefaultGitExecutor with
+       `git ls-files --others --exclude-standard`.
+    2. In resolveScopeDiff, append untracked results at both the merge-base
+       return path (CLM-001) and the local-diff fallback return path (CLM-002),
+       mirroring resolveGateScopeDiff semantics.
+
+  Untracked-fetch failure must NOT fail scope resolution. Mirror gate behavior:
+    - merge-base path: on untracked error, return the tracked diff unchanged
+      (gate returns tracked, nil, nil at pkg/gate/scope.go:117).
+    - local-fallback path: best-effort append, error ignored
+      (gate at pkg/gate/scope.go:129).
+
+  All test doubles implementing GitExecutor (mockGitExecutor in
+  pkg/check/scope_test.go, referenced from check_test.go and output_test.go)
+  must gain the new UntrackedFiles method or the package will not compile.
+
+  Out of scope (per issue): consolidating the two resolvers into a single
+  shared resolver. This plan ships the minimum parity correctness fix only.
+
+  Structure:
+    Phase 1: TDD red — failing tests for untracked-file inclusion + fake update
+    Phase 2: TDD green — interface method, DefaultGitExecutor impl, resolver wiring
+    Phase 3: Comprehensive verification — full gate kill chain
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — Failing Tests for Untracked-File Inclusion
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Tests for Untracked-File Inclusion in Diff Scope"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing tests for untracked-file inclusion in resolveScopeDiff"
+        description: |
+          Add failing tests to pkg/check/scope_test.go that pin the two
+          return paths of resolveScopeDiff and assert untracked files appear
+          in the resolved scope. These tests fail until the implementation
+          lands because the GitExecutor interface has no UntrackedFiles method
+          and resolveScopeDiff never appends untracked output.
+
+          Mandated test names (exact, from issue claims):
+
+            - TestCodeCheck_DiffScope_IncludesUntrackedFiles (CLM-001):
+              merge-base path. Configure the mock so MergeBase("origin/main")
+              succeeds and DiffNameOnly returns tracked files; the mock's
+              UntrackedFiles returns one or more untracked paths. Assert the
+              resolved scope contains BOTH the tracked diff files AND the
+              untracked files.
+
+            - TestCodeCheck_DiffScope_LocalFallback_IncludesUntrackedFiles
+              (CLM-002): local fallback path. Configure the mock so both
+              MergeBase calls fail (no remote), DiffLocal returns staged+
+              unstaged tracked files, and UntrackedFiles returns untracked
+              paths. Assert the resolved scope contains BOTH the local diff
+              files AND the untracked files, and that the no-remote warning is
+              still emitted.
+
+          Sharp-edge coverage: add assertions covering best-effort failure
+          semantics so an UntrackedFiles error never fails scope resolution —
+            * merge-base path with UntrackedFiles returning an error: scope
+              still resolves and equals the tracked diff (no untracked appended,
+              no error returned), mirroring pkg/gate/scope.go:117.
+            * local-fallback path with UntrackedFiles returning an error: scope
+              still resolves to the local diff and the no-remote warning is
+              still present, mirroring pkg/gate/scope.go:129.
+
+          This task also updates the mockGitExecutor test double (defined in
+          pkg/check/scope_test.go, also used by check_test.go and
+          output_test.go) to add an UntrackedFiles method backed by configurable
+          fields (e.g. untrackedFiles []string, untrackedErr error) so the
+          package continues to compile once the interface gains the method.
+        files:
+          - pkg/check/scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — Interface Method and Resolver Wiring
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — UntrackedFiles Method and resolveScopeDiff Wiring"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add UntrackedFiles to GitExecutor and append untracked files in resolveScopeDiff"
+        description: |
+          Make the Phase 1 tests pass with the minimum parity fix in
+          pkg/check/scope.go, mirroring pkg/gate/scope.go (resolveGateScopeDiff,
+          lines ~104–131).
+
+          1. GitExecutor interface (currently lines 29–34): add the method
+                 UntrackedFiles() ([]string, error)
+
+          2. DefaultGitExecutor: implement the contract method exactly as
+             specified in the issue's contracts block:
+                 func (g *DefaultGitExecutor) UntrackedFiles() ([]string, error)
+             Shell out to `git ls-files --others --exclude-standard` with
+             cmd.Dir = g.Dir, returning splitLines(output) on success and a
+             wrapped error on failure (consistent with the other executor
+             methods in this file).
+
+          3. resolveScopeDiff: append untracked files at the two tracked-only
+             return paths, preserving best-effort failure semantics.
+
+             * Merge-base return path (currently `return files, nil, nil` at
+               lines ~179 and ~188): after a successful DiffNameOnly, call
+               git.UntrackedFiles(). On error, return the tracked diff unchanged
+               (files, nil, nil) — mirroring pkg/gate/scope.go:117. On success,
+               return append(files, untracked...), nil, nil. (CLM-001)
+
+             * Local-diff fallback return path (currently `return files,
+               warnings, nil` at lines ~200–201): after a successful DiffLocal,
+               best-effort call git.UntrackedFiles(), ignore the error, and
+               return append(files, untracked...) with the existing no-remote
+               warning — mirroring pkg/gate/scope.go:129. (CLM-002)
+
+          Do NOT change the non-git fallback path, the all-scope path, or the
+          DiffLocal-failure fallback (those return no tracked diff to augment).
+          Do NOT consolidate the gate and check resolvers — out of scope per the
+          issue.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/scope.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Run backstop code check on the diff-scope parity fix"
+        description: |
+          Fast inner-loop verification of the implementation. Run:
+
+              backstop code check
+
+          to confirm the changed files (pkg/check/scope.go, pkg/check/scope_test.go)
+          pass lint, build, test, and semgrep with no violations, and that the
+          two mandated tests now pass:
+            - TestCodeCheck_DiffScope_IncludesUntrackedFiles
+            - TestCodeCheck_DiffScope_LocalFallback_IncludesUntrackedFiles
+
+          Confirm the whole pkg/check package still compiles (all GitExecutor
+          test doubles updated) and the existing scope tests remain green.
+        files:
+          - pkg/check/scope.go
+          - pkg/check/scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive Verification — Full Gate Kill Chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — Full Gate"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run full backstop gate over the parity fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files
+          (pkg/check/scope.go, pkg/check/scope_test.go), so the full kill chain
+          runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold), and
+          contract verification — confirming the contracted method
+          `func (g *DefaultGitExecutor) UntrackedFiles() ([]string, error)`
+          is present and that REQ-001 (untracked-file parity with the gate
+          resolver) is satisfied across both resolveScopeDiff return paths.
+
+          No artifact files (.spec.md / .plan.yml / etc.) are modified by the
+          implementation work, so no separate `backstop artifact validate` step
+          is required beyond what the gate runs.
+        files:
+          - pkg/check/scope.go
+          - pkg/check/scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+          - TASK-003
