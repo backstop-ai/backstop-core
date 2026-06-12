@@ -499,17 +499,36 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 		return nil, &gate.ConfigError{Err: runErr}
 	}
 
-	// Convert check.Violation to gate.Violation.
+	return checkViolationsToGate(result.AllViolations()), nil
+}
+
+// checkViolationsToGate converts check.Violations to gate.Violations, carrying
+// the structured rule ID across the bridge. A pack-namespaced semgrep check_id
+// (pack.NamespacedRuleID format "org/pack/rule-id") is preserved on gate
+// Violation.Rule; SourcePack is derived as everything before the LAST "/" —
+// the two-segment pack NormalizedName "org/pack" — matching the layer-3
+// convention at pack_gate.go (SourcePack = manifest.NormalizedName). When a
+// violation carries no Rule (built-in lint/build/test passes), Rule falls back
+// to the pass name and SourcePack is empty.
+func checkViolationsToGate(cvs []check.Violation) []gate.Violation {
 	var violations []gate.Violation
-	for _, cv := range result.AllViolations() {
+	for _, cv := range cvs {
+		rule := cv.Rule
+		sourcePack := ""
+		if rule == "" {
+			rule = cv.Pass.String()
+		} else if idx := strings.LastIndex(rule, "/"); idx >= 0 {
+			sourcePack = rule[:idx]
+		}
 		violations = append(violations, gate.Violation{
-			Rule:     cv.Pass.String(),
-			File:     cv.File,
-			Message:  cv.Message,
-			Severity: cv.Severity,
+			Rule:       rule,
+			File:       cv.File,
+			Message:    cv.Message,
+			Severity:   cv.Severity,
+			SourcePack: sourcePack,
 		})
 	}
-	return violations, nil
+	return violations
 }
 
 // Verify that specDir exists before building steps — avoid confusing

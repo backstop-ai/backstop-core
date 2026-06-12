@@ -39,6 +39,48 @@ func TestCodeCheck_Output_JSONWithSchemaVersion(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_Output_JSONIncludesRule verifies that a semgrep Violation
+// carrying a pack-namespaced Rule survives the JSON output bridge: the
+// JSONViolation carries the rule in a `rule` field so the namespaced ID is no
+// longer dropped from `backstop code check` output. (CLM-006)
+func TestCodeCheck_Output_JSONIncludesRule(t *testing.T) {
+	result := &Result{
+		PassResults: []PassResult{
+			{Pass: CheckTypeSemgrep, Violations: []Violation{
+				{
+					Pass:     CheckTypeSemgrep,
+					File:     "pkg/server/handler.go",
+					Line:     31,
+					Message:  "panic() is disallowed",
+					Severity: "error",
+					Rule:     "slotly/go-standards/no-panic",
+				},
+			}},
+		},
+	}
+
+	out, err := FormatResult(result, OutputModeJSON)
+	if err != nil {
+		t.Fatalf("FormatResult: %v", err)
+	}
+
+	var parsed JSONOutput
+	if jsonErr := json.Unmarshal([]byte(out), &parsed); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v", jsonErr)
+	}
+	if len(parsed.Violations) != 1 {
+		t.Fatalf("got %d violations, want 1", len(parsed.Violations))
+	}
+	if got := parsed.Violations[0].Rule; got != "slotly/go-standards/no-panic" {
+		t.Errorf("JSONViolation.Rule = %q, want the pack-namespaced ID", got)
+	}
+
+	// The raw JSON must use the `rule` key.
+	if !strings.Contains(out, `"rule": "slotly/go-standards/no-panic"`) {
+		t.Errorf("JSON output missing `rule` field for the namespaced ID:\n%s", out)
+	}
+}
+
 // TestCodeCheck_Output_IdenticalViolationData verifies JSON and human output
 // contain identical violation data. (CLM-023)
 func TestCodeCheck_Output_IdenticalViolationData(t *testing.T) {

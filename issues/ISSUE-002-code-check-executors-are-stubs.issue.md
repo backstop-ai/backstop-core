@@ -6,13 +6,107 @@ issue:
   id: ISSUE-002
   title: "code-check pass executors are stubs — lint/build/test/semgrep never execute"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-11"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    Implement the four pass executors in pkg/check for real: golangci-lint
+    (JSON output), go build (compiler errors), go test (failures), and
+    semgrep (ensured binary, compiled project rules plus pack layer-2
+    ExtraSemgrepConfigs, JSON output with pack-namespaced violations).
+    Preserve engine semantics: timeout/cancellation, skip-with-warning on
+    unavailable tools, no short-circuiting between passes. Executors take
+    an injectable command runner so unit tests run against fixture output,
+    not live tools.
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      The lint pass must execute golangci-lint against scoped files and
+      convert its JSON findings into check violations with file, line,
+      message, and severity.
+  - id: REQ-002
+    text: >
+      The build pass must execute go build and convert compiler errors
+      into check violations.
+  - id: REQ-003
+    text: >
+      The test pass must execute go test and convert test failures into
+      check violations, honoring file-mode scoping.
+  - id: REQ-004
+    text: >
+      The semgrep pass must execute the EnsureSemgrep-resolved binary with
+      the compiled project rules and all pack-provided ExtraSemgrepConfigs,
+      convert JSON findings into violations, and preserve pack-namespaced
+      rule IDs so violations are attributable to their source pack.
+  - id: REQ-005
+    text: >
+      Real executors must preserve existing engine semantics: context
+      cancellation surfaces as a timeout violation, an unavailable tool
+      skips its pass with a warning, and a failing pass does not
+      short-circuit later passes.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: lintExecutor parses golangci-lint JSON output into violations with correct file, line, message, and severity.
+    tests:
+      - TestCodeCheck_LintExecutor_ParsesGolangciJSON
+  - id: CLM-002
+    requirement: REQ-001
+    text: lintExecutor returns a passing result with zero violations on clean lint output.
+    tests:
+      - TestCodeCheck_LintExecutor_CleanOutputNoViolations
+  - id: CLM-003
+    requirement: REQ-002
+    text: buildExecutor parses go build compiler errors into violations.
+    tests:
+      - TestCodeCheck_BuildExecutor_ParsesCompileErrors
+  - id: CLM-004
+    requirement: REQ-003
+    text: testExecutor parses go test failures into violations and scopes to a single file's package in file mode.
+    tests:
+      - TestCodeCheck_TestExecutor_ParsesTestFailures
+      - TestCodeCheck_TestExecutor_FileModeScopesToPackage
+  - id: CLM-005
+    requirement: REQ-004
+    text: semgrepExecutor invokes the ensured binary with project rules plus all ExtraSemgrepConfigs and parses JSON findings into violations.
+    tests:
+      - TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs
+  - id: CLM-006
+    requirement: REQ-004
+    text: semgrep violations originating from pack rules carry their pack-namespaced rule IDs.
+    tests:
+      - TestCodeCheck_SemgrepExecutor_PreservesPackNamespacedRuleIDs
+  - id: CLM-007
+    requirement: REQ-005
+    text: a cancelled context surfaces as a timeout violation and an unavailable tool skips its pass with a warning, unchanged from stub-era engine behavior.
+    tests:
+      - TestCodeCheck_Executors_ContextCancellationSurfacesTimeout
+      - TestCodeCheck_Executors_UnavailableToolSkipsWithWarning
+
+contracts:
+  - file: pkg/check/check.go
+    consumes:
+      - source: pkg/check/semgrep.go
+        name: EnsureSemgrep
+        kind: function
+      - source: pkg/check/manifest.go
+        name: RouteFile
+        kind: method
 ---
 
 # code-check pass executors are stubs — lint/build/test/semgrep never execute

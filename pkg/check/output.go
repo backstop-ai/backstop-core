@@ -34,6 +34,9 @@ type JSONViolation struct {
 	Line     int    `json:"line,omitempty"`
 	Message  string `json:"message"`
 	Severity string `json:"severity,omitempty"`
+	// Rule carries the structured rule identifier (e.g. a pack-namespaced
+	// semgrep check_id) so the namespaced ID is not dropped from output.
+	Rule string `json:"rule,omitempty"`
 }
 
 // JSONPassInfo summarizes a pass result for JSON output.
@@ -84,6 +87,7 @@ func formatJSON(result *Result) (string, error) {
 				Line:     v.Line,
 				Message:  v.Message,
 				Severity: v.Severity,
+				Rule:     v.Rule,
 			})
 		}
 	}
@@ -125,6 +129,11 @@ func formatHuman(result *Result) string {
 			}
 			for _, v := range byFile[file] {
 				prefix := fmt.Sprintf("  [%s]", v.Pass)
+				if v.Rule != "" {
+					// Surface the structured rule ID (e.g. a pack-namespaced
+					// semgrep check_id) alongside the pass prefix.
+					prefix = fmt.Sprintf("  [%s:%s]", v.Pass, v.Rule)
+				}
 				if useColor && v.Severity == "error" {
 					sb.WriteString(fmt.Sprintf("\033[31m%s %s\033[0m\n", prefix, v.Message))
 				} else {

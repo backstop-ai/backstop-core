@@ -727,34 +727,49 @@ func TestCodeCheck_DefaultExecutors_IsAvailable(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_DefaultExecutors_Execute verifies Execute for default executors
-// returns correct pass types.
+// TestCodeCheck_DefaultExecutors_Execute verifies that each default executor,
+// driven by a fake CommandRunner returning CLEAN (no-finding) tool output,
+// produces a passing PassResult tagged with its own CheckType and zero
+// violations. It is deliberately hermetic: the moment the executor Execute
+// bodies are real, constructing them and calling Execute() directly would
+// shell out to live golangci-lint / go build / go test / semgrep. Injecting a
+// fake runner (and a fake SemgrepEnsurer for semgrep) keeps it offline while
+// still exercising the real Execute code path.
 func TestCodeCheck_DefaultExecutors_Execute(t *testing.T) {
 	ctx := context.Background()
 	files := []string{"main.go"}
 
-	be := &buildExecutor{}
+	// clean runner: golangci-lint emits {"Issues":null}, go build/test emit
+	// nothing, semgrep emits {"results":[]} — none of which yield violations.
+	cleanRunner := &fakeRunner{outputs: map[string][]byte{
+		"golangci-lint": []byte(`{"Issues":[]}`),
+		"go":            []byte(""),
+		"semgrep":       []byte(`{"results":[]}`),
+	}}
+	ensurer := &mockSemgrepEnsurer{}
+
+	be := &buildExecutor{runner: cleanRunner}
 	r, err := be.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeBuild {
-		t.Errorf("buildExecutor: pass=%v err=%v", r.Pass, err)
+	if err != nil || r.Pass != CheckTypeBuild || len(r.Violations) != 0 {
+		t.Errorf("buildExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 
-	te := &testExecutor{}
+	te := &testExecutor{runner: cleanRunner}
 	r, err = te.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeTest {
-		t.Errorf("testExecutor: pass=%v err=%v", r.Pass, err)
+	if err != nil || r.Pass != CheckTypeTest || len(r.Violations) != 0 {
+		t.Errorf("testExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 
-	se := &semgrepExecutor{}
+	se := &semgrepExecutor{runner: cleanRunner, ensurer: ensurer}
 	r, err = se.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeSemgrep {
-		t.Errorf("semgrepExecutor: pass=%v err=%v", r.Pass, err)
+	if err != nil || r.Pass != CheckTypeSemgrep || len(r.Violations) != 0 {
+		t.Errorf("semgrepExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 
-	le := &lintExecutor{}
+	le := &lintExecutor{runner: cleanRunner}
 	r, err = le.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeLint {
-		t.Errorf("lintExecutor: pass=%v err=%v", r.Pass, err)
+	if err != nil || r.Pass != CheckTypeLint || len(r.Violations) != 0 {
+		t.Errorf("lintExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 }
 
@@ -791,6 +806,43 @@ func findPassResult(result *Result, ct CheckType) *PassResult {
 		}
 	}
 	return nil
+}
+
+// fakeRunner is a test double for CommandRunner. It returns canned output keyed
+// by command name (the first arg to Run), records the most recent invocation's
+// name and args for assertion, and optionally returns a canned error so tests
+// can simulate a non-zero tool exit. It never shells out to a live tool.
+type fakeRunner struct {
+	// outputs maps a command name (e.g. "golangci-lint", "go", "semgrep") to
+	// the bytes Run should return for it.
+	outputs map[string][]byte
+	// err, if set, is returned alongside the output (tools like golangci-lint
+	// and go build exit non-zero when they find problems).
+	err error
+
+	// recorded invocations, most recent last.
+	calls []runnerCall
+}
+
+type runnerCall struct {
+	name string
+	args []string
+}
+
+func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, runnerCall{name: name, args: append([]string(nil), args...)})
+	if f.outputs == nil {
+		return nil, f.err
+	}
+	return f.outputs[name], f.err
+}
+
+// lastCall returns the most recent invocation recorded by the fake runner.
+func (f *fakeRunner) lastCall() runnerCall {
+	if len(f.calls) == 0 {
+		return runnerCall{}
+	}
+	return f.calls[len(f.calls)-1]
 }
 
 // mockSemgrepEnsurer is a test double for SemgrepEnsurer.
@@ -1013,7 +1065,10 @@ func TestCodeCheck_RunWith_ScopeError(t *testing.T) {
 }
 
 // TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors verifies degraded
-// semgrep mode with nil executors map doesn't panic.
+// semgrep mode with nil executors map doesn't panic. The nil Executors path
+// constructs the default executors, so a fake Runner is injected to keep the
+// test hermetic — without it the real executors would shell out to live
+// go build / go test.
 func TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors(t *testing.T) {
 	dir := t.TempDir()
 	goFile := filepath.Join(dir, "main.go")
@@ -1035,6 +1090,7 @@ func TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors(t *testing.T) {
 		},
 		Executors:      nil, // nil executors — will use buildDefaultExecutors
 		SemgrepEnsurer: ensurer,
+		Runner:         &fakeRunner{outputs: map[string][]byte{"go": []byte("ok\n")}},
 	}
 
 	result, err := RunWith(context.Background(), opts)

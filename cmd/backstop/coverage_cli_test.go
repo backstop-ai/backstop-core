@@ -181,11 +181,22 @@ func TestCLI_SpecsExist_FileNotDir(t *testing.T) {
 }
 
 func TestCLI_CheckAll_NoBackstop(t *testing.T) {
+	// TASK-002 hardening: runCheck calls config.DiscoverConfigPath, which walks
+	// UP from cwd and would otherwise find backstop-core's own backstop.yml
+	// (tests run inside the repo). That would make pRoot the real repo root,
+	// pass ValidateBackstopDir, and — now that executors are real — shell out to
+	// live golangci-lint / go build / go test / semgrep. Point BACKSTOP_CONFIG
+	// at a non-existent path so discovery fails, pRoot stays the empty temp dir,
+	// and ValidateBackstopDir returns its error before reaching check.Run. This
+	// keeps the test hermetic and asserts the missing-.backstop error path.
 	dir := t.TempDir()
+	t.Setenv("BACKSTOP_CONFIG", filepath.Join(dir, "does-not-exist.yml"))
+
 	checker := &realCodeChecker{projectRoot: dir}
 	_, err := checker.CheckAll(t.Context())
-	// Will fail because no .backstop dir — that's fine, exercises the path
-	_ = err
+	if err == nil {
+		t.Error("expected an error when .backstop is missing")
+	}
 }
 
 func boolPtr(b bool) *bool { return &b }

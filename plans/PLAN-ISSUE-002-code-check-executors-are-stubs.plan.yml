@@ -1,0 +1,723 @@
+---
+plan_id: PLAN-ISSUE-002
+spec_id: ISSUE-002
+created: "2026-06-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-002 — the four default pass executors in pkg/check/check.go
+  (lintExecutor, buildExecutor, testExecutor, semgrepExecutor) are stubs that
+  return an empty &PassResult{Pass: ct} without invoking any tool. The lint,
+  build, test, and semgrep passes in both `backstop check` and `backstop gate`
+  step 2 therefore pass vacuously — silent non-enforcement.
+
+  This plan makes all four executors real while preserving the engine
+  semantics already exercised by existing tests (REQ-005): the engine at
+  Engine.RunPasses (check.go ~92-184) handles context cancellation → timeout
+  violation, IsAvailable false → skip-with-warning, and no short-circuit
+  between passes. None of that engine logic changes; only the Execute()
+  bodies gain real behavior.
+
+  Injectable command runner (design constraint):
+    pkg/check must NOT depend on pkg/gate. pkg/gate/step_coverage.go defines a
+    CommandRunner interface (Run(ctx, name, args...) ([]byte, error)) and an
+    ExecCommandRunner — this plan defines a LOCAL equivalent in pkg/check
+    (e.g. pkg/check/runner.go) so every executor takes an injectable runner.
+    All executor unit tests drive a fake runner returning FIXTURE tool output
+    (golangci-lint JSON, go build stderr, go test output, semgrep JSON) and
+    NEVER shell out to live tools. buildDefaultExecutors wires the real
+    ExecCommandRunner (cmd.Dir = ProjectDir); tests wire the fake.
+
+  Output formats parsed:
+    - golangci-lint `--out-format json`: Issues[].Pos.Filename/.Pos.Line,
+      .Text, .Severity, .FromLinter.
+    - go build stderr: `file:line:col: message` lines.
+    - go test output: `--- FAIL: TestName` plus file:line from failure output.
+    - semgrep `--json`: results[].check_id, .path, .start.line,
+      .extra.message, .extra.severity (ERROR→error, WARNING→warning).
+
+  Semgrep config wiring (REQ-004): semgrepExecutor invokes the
+  EnsureSemgrep-resolved binary with `--config <project rules>` plus every
+  path in extraSemgrepConfigs (pack layer-2 rules merged by mergePackRules in
+  cmd/backstop/pack_gate.go), `--json` output. Pack-namespaced rule IDs
+  (pack.NamespacedRuleID format, e.g. "slotly/go-standards/rule-id") arrive
+  as semgrep check_id values and MUST be preserved verbatim in
+  Violation.Rule-equivalent attribution (CLM-006).
+
+  Design decisions resolved while planning (see final report):
+    - Project semgrep rules location: the standards compiler (SPEC-001) emits
+      compiled semgrep YAML under the rules dir; the executor passes that dir
+      as a `--config` alongside ExtraSemgrepConfigs. TASK-001 investigates the
+      exact emitted path/shape and TASK-008 wires it. check.Violation has no
+      Rule/SourcePack field today (fields: Pass, File, Line, Message,
+      Severity); preserving the namespaced rule ID therefore requires either
+      threading it through Message or adding a Rule field — TASK-007 pins the
+      contract via the mandated test and TASK-008 implements whichever the
+      test asserts (chosen: add a Rule field on check.Violation so attribution
+      is structured, not string-embedded).
+
+  Sequencing risk (hermetic tests): the moment executors are real, any test
+  that calls check.Run / RunPasses with DEFAULT executors may start shelling
+  out to live tools (slow, environment-dependent, flaky). TASK-002 audits all
+  pkg/check and cmd/backstop tests that traverse check.Run / RunPasses with
+  default executors and keeps them hermetic (inject fake runners or fixture
+  executors via RunOptions.Executors) BEFORE the real executors land.
+
+  Structure:
+    Phase 1: Setup — local CommandRunner seam + hermetic-test audit + fixtures
+    Phase 2: TDD lint + build executors
+    Phase 3: TDD test executor (failure parse + file-mode scoping)
+    Phase 4: TDD semgrep executor (configs + pack-namespaced IDs)
+    Phase 5: TDD engine-semantics preservation (cancellation + skip-with-warning)
+    Phase 6: Comprehensive verification (full gate) + dogfood reckoning report
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — CommandRunner seam, hermetic-test audit, fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Local CommandRunner Seam, Hermetic-Test Audit, Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Define a local injectable CommandRunner seam in pkg/check"
+        description: |
+          Add a local command-runner abstraction to pkg/check so executors are
+          unit-testable against fixture output without shelling out. pkg/check
+          MUST NOT import pkg/gate, so this is a local equivalent of the
+          CommandRunner / ExecCommandRunner pair in pkg/gate/step_coverage.go.
+
+          Deliverables in pkg/check/runner.go:
+            - CommandRunner interface: Run(ctx context.Context, name string,
+              args ...string) ([]byte, error).
+            - ExecCommandRunner implementing it via exec.CommandContext with a
+              configurable Dir (set to Options.ProjectDir by callers), mirroring
+              pkg/gate/step_coverage.go:58-70 but with no gate dependency.
+
+          Also, as part of resolving the semgrep config wiring, investigate
+          where the standards compiler (SPEC-001) emits compiled PROJECT
+          semgrep rules (the rules dir referenced by Options.ManifestDir /
+          .backstop/rules) and record the concrete `--config` path/shape the
+          semgrepExecutor must pass alongside ExtraSemgrepConfigs. No executor
+          behavior changes in this task — it only introduces the seam and the
+          investigated wiring target.
+
+          This task underpins every executor implementation that follows
+          (CLM-001..CLM-007), which is why it carries all seven claims.
+        files:
+          - pkg/check/runner.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Audit existing check.Run/RunPasses tests and keep them hermetic"
+        description: |
+          Audit every test in pkg/check and cmd/backstop that traverses
+          check.Run / RunWith / Engine.RunPasses with DEFAULT executors (or
+          constructs the default executors and calls Execute directly). The
+          moment the executors are real (Phases 2–5), these would shell out to
+          live golangci-lint / go build / go test / semgrep — slow,
+          environment-dependent, and flaky.
+
+          MUST-CONVERT tests (explicitly identified — these go non-hermetic the
+          instant the executors are real):
+
+            - pkg/check/check_test.go:732 TestCodeCheck_DefaultExecutors_Execute
+              — constructs all four default executors and calls Execute()
+              directly, so it would invoke every live tool. Convert it to drive
+              a fake CommandRunner (from TASK-001) fed by the TASK-003 fixtures,
+              or to assert against fixture executors, without weakening its
+              assertions.
+            - cmd/backstop/coverage_cli_test.go:183 TestCLI_CheckAll_NoBackstop
+              — traverses realCodeChecker.CheckAll → check.Run →
+              buildDefaultExecutors. It currently exits early when .backstop is
+              missing (so it may not actually reach live tools today); either
+              acknowledge that early-exit keeps it hermetic, or harden it (a
+              temp project + injected runner) so it cannot regress into shelling
+              out once executors are real.
+            - cmd/backstop/code_check_test.go — any case reaching CheckAll /
+              check.Run with default executors gets the same fixture/runner
+              injection treatment.
+
+          Already hermetic — NOT in this task's file scope (verified against the
+          reviewer's note): pkg/check/concurrent_test.go and
+          pkg/check/output_test.go already inject doubles and do not reach live
+          tools; output_test.go is additionally owned by TASK-010 (new
+          JSON-rule bridge test) and is left to that task to keep file scopes
+          disjoint under D-081.
+
+          Convert each in-scope test to inject hermetic doubles: a fake
+          CommandRunner (from TASK-001) or fixture PassExecutors via
+          RunOptions.Executors, so no test invokes a live tool. This is a
+          test-double / harness change only — production behavior is unchanged,
+          so it is setup rather than test/implementation. It MUST land before
+          the real executors to avoid a window of flaky CI.
+
+          Do not weaken assertions; only swap the execution backend to fixtures.
+          Carries all seven executor claims because every executor pass is
+          reachable through these default-executor entry points.
+        files:
+          - pkg/check/check_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/coverage_cli_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: setup
+        title: "Add tool-output fixtures for executor unit tests"
+        description: |
+          Create testdata fixtures capturing real tool output shapes so every
+          executor test parses canned bytes rather than invoking a tool:
+            - golangci-lint `--out-format json` with findings AND a clean run
+              (Issues[].Pos.Filename/.Pos.Line, .Text, .Severity, .FromLinter).
+            - go build stderr with `file:line:col: message` compiler errors.
+            - go test output containing `--- FAIL: TestName` and a file:line
+              from the failure body.
+            - semgrep `--json` output with results[].check_id (including one
+              pack-namespaced check_id), .path, .start.line, .extra.message,
+              .extra.severity (ERROR and WARNING).
+
+          These fixtures feed the fake CommandRunner in Phases 2–5. Disjoint
+          from all other Phase-1 file sets so this task is parallel-eligible
+          with TASK-002.
+        files:
+          - pkg/check/testdata/golangci-lint-findings.json
+          - pkg/check/testdata/golangci-lint-clean.json
+          - pkg/check/testdata/go-build-errors.txt
+          - pkg/check/testdata/go-test-failures.txt
+          - pkg/check/testdata/semgrep-findings.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD — lint and build executors
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — lintExecutor and buildExecutor"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write failing tests for lint and build executor parsing"
+        description: |
+          Add failing tests to pkg/check/executor_test.go driving the lint and
+          build executors through a fake CommandRunner fed by the Phase-1
+          fixtures. Mandated test names (exact, from issue claims):
+
+            - TestCodeCheck_LintExecutor_ParsesGolangciJSON (CLM-001): feed the
+              golangci-lint findings fixture; assert each Issue maps to a
+              Violation with correct File (.Pos.Filename), Line (.Pos.Line),
+              Message (.Text), and Severity.
+            - TestCodeCheck_LintExecutor_CleanOutputNoViolations (CLM-002):
+              feed the clean golangci-lint fixture; assert a passing PassResult
+              with zero violations.
+            - TestCodeCheck_BuildExecutor_ParsesCompileErrors (CLM-003): feed
+              the go-build stderr fixture; assert `file:line:col: message`
+              lines become Violations with correct File/Line/Message.
+
+          Tests fail until TASK-005 because the stub Execute() ignores the
+          runner and returns an empty result.
+        files:
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement lintExecutor and buildExecutor for real"
+        description: |
+          Make the TASK-004 tests pass. In pkg/check/check.go:
+            - Give lintExecutor and buildExecutor an injectable CommandRunner
+              field (defaulting to ExecCommandRunner in buildDefaultExecutors).
+            - lintExecutor.Execute: run golangci-lint with `--out-format json`
+              over the scoped files, unmarshal Issues[], map each to a
+              check.Violation{Pass: CheckTypeLint, File, Line, Message,
+              Severity}. Empty/clean output → passing result, zero violations.
+              IsAvailable already gates on findExecutable("golangci-lint").
+            - buildExecutor.Execute: run `go build ./...` (cmd.Dir =
+              ProjectDir), parse `file:line:col: message` stderr lines into
+              check.Violation{Pass: CheckTypeBuild, ...}. Go assumed available.
+
+          Do NOT touch Engine.RunPasses or the skip/cancellation logic.
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Run backstop code check on lint/build executors"
+        description: |
+          Fast inner-loop verification of the lint and build executor work.
+          Run:
+
+              backstop code check
+
+          Confirm pkg/check compiles, the three mandated tests
+          (TestCodeCheck_LintExecutor_ParsesGolangciJSON,
+          TestCodeCheck_LintExecutor_CleanOutputNoViolations,
+          TestCodeCheck_BuildExecutor_ParsesCompileErrors) pass against
+          fixtures, and the hermetic default-executor tests from TASK-002
+          remain green.
+        files:
+          - pkg/check/check.go
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD — test executor (failure parse + file-mode scoping)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — testExecutor (Failures and File-Mode Scoping)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write failing tests for test-executor failure parsing and file-mode scoping"
+        description: |
+          Add failing tests to pkg/check/executor_test.go for the test
+          executor, driven by a fake CommandRunner and the go-test fixture.
+          Mandated test names (exact, from issue claims, CLM-004):
+
+            - TestCodeCheck_TestExecutor_ParsesTestFailures: feed the go-test
+              failures fixture; assert `--- FAIL: TestName` plus the file:line
+              from the failure body become Violations with
+              Pass: CheckTypeTest, correct File/Line/Message.
+            - TestCodeCheck_TestExecutor_FileModeScopesToPackage: with
+              fileMode true and a single scoped .go file, assert the executor
+              targets that file's PACKAGE (not `./...`) — capture the args the
+              fake runner receives and assert the package selector, exercising
+              the existing fileMode bool field set by buildDefaultExecutors
+              (opts.Mode == ScopeModeFile).
+
+          Fails until TASK-008 because the stub ignores the runner.
+        files:
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-003
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Implement testExecutor failure parsing and file-mode package scoping"
+        description: |
+          Make the TASK-007 tests pass. In pkg/check/check.go give testExecutor
+          an injectable CommandRunner and implement Execute:
+            - Run `go test` against affected packages; when fileMode is true,
+              resolve the single scoped file's package and run `go test` for
+              that package only (honoring REQ-003 file-mode scoping).
+            - Parse `--- FAIL: TestName` plus file:line from the failure body
+              into check.Violation{Pass: CheckTypeTest, File, Line, Message,
+              Severity: "error"}. Clean output → passing result.
+
+          Depends on TASK-006 only for ordering after Phase 2 (TASK-005 already
+          added the runner field pattern); this task does not modify lint/build
+          behavior. Do NOT alter Engine.RunPasses semantics.
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Run backstop code check on the test executor"
+        description: |
+          Fast inner-loop verification. Run:
+
+              backstop code check
+
+          Confirm the two mandated tests
+          (TestCodeCheck_TestExecutor_ParsesTestFailures,
+          TestCodeCheck_TestExecutor_FileModeScopesToPackage) pass against
+          fixtures and that lint/build executor tests and the hermetic
+          default-executor tests remain green.
+        files:
+          - pkg/check/check.go
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: TDD — semgrep executor (configs + pack-namespaced IDs)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: TDD — semgrepExecutor (Project + Pack Configs, Namespaced IDs)"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Write failing tests for semgrep config wiring and pack-namespaced rule IDs"
+        description: |
+          Add failing tests to pkg/check/semgrep_executor_test.go for the
+          semgrep executor, driven by a fake CommandRunner and the semgrep
+          fixture, plus a fake SemgrepEnsurer returning a stub binary path.
+          Mandated test names (exact, from issue claims):
+
+            - TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs (CLM-005):
+              configure extraSemgrepConfigs with two pack rule paths and a
+              project rules dir; assert the runner is invoked with the
+              EnsureSemgrep-resolved binary, `--json`, AND a `--config` for the
+              project rules dir plus a `--config` for EVERY extraSemgrepConfigs
+              path. Assert results[] map to Violations with correct File
+              (.path), Line (.start.line), Message (.extra.message), and
+              Severity (.extra.severity ERROR→error, WARNING→warning).
+            - TestCodeCheck_SemgrepExecutor_PreservesPackNamespacedRuleIDs
+              (CLM-006): feed a fixture finding whose check_id is
+              pack-namespaced (pack.NamespacedRuleID format, e.g.
+              "slotly/go-standards/rule-id"); assert the resulting Violation
+              preserves that exact rule ID for source-pack attribution.
+
+          These tests pin the contract that check.Violation must carry the
+          rule ID (a Rule field is added in TASK-011 — chosen over embedding it
+          in Message so attribution is structured). Fails until TASK-011.
+
+          DOWNSTREAM BRIDGE TESTS (the Rule field is useless unless it survives
+          the two bridges that consume check.Violation). Add these so TASK-011
+          must wire them end-to-end:
+
+            - In pkg/check/output_test.go — TestCodeCheck_Output_JSONIncludesRule:
+              build a Result whose semgrep Violation carries a pack-namespaced
+              Rule (e.g. "slotly/go-standards/rule-id"); marshal via
+              FormatResult(OutputModeJSON) and assert the JSONViolation carries
+              the rule (new `rule` field), confirming the namespaced ID is no
+              longer dropped from `backstop code check` output
+              (pkg/check/output.go:30-37,80-88). (CLM-006)
+
+            - In a new cmd/backstop/gate_bridge_test.go —
+              TestCLI_GateBridge_PreservesRuleAndSourcePack: drive
+              realCodeChecker.runCheck's check.Violation → gate.Violation
+              conversion (cmd/backstop/gate.go:504-511) with a pack-namespaced
+              check.Violation and assert the resulting gate.Violation carries
+              BOTH Rule (the namespaced ID, not "semgrep") and SourcePack equal
+              to the full org/pack NormalizedName. Use a realistic THREE-segment
+              fixture ID ("org/pack/rule-id") and assert SourcePack ==
+              "org/pack" — NOT "org" — since pack.NamespacedRuleID prefixes
+              with the two-segment NormalizedName (pkg/pack/manifest.go:287-290
+              enforces exactly one slash in pack names). Also assert a non-pack
+              violation with an empty Rule falls back to Pass.String(). A NEW
+              file (not coverage_cli_test.go) to stay disjoint from TASK-002's
+              audited set under D-081. (CLM-006)
+        files:
+          - pkg/check/semgrep_executor_test.go
+          - pkg/check/output_test.go
+          - cmd/backstop/gate_bridge_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-003
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "Implement semgrepExecutor with project + pack configs and namespaced-ID preservation"
+        description: |
+          Make the TASK-010 tests pass.
+            - In pkg/check/check.go: add a Rule field to check.Violation so the
+              pack-namespaced rule ID is carried structurally (CLM-006).
+            - Give semgrepExecutor an injectable CommandRunner and (already
+              present) backstopDir/pinnedVersion/extraSemgrepConfigs. Implement
+              Execute: invoke the EnsureSemgrep-resolved binary (via the
+              injected SemgrepEnsurer in tests, DefaultSemgrepEnsurer in prod)
+              with `--json`, `--config <project rules dir>` (the
+              SPEC-001-compiled rules location investigated in TASK-001), and a
+              `--config` for every path in extraSemgrepConfigs.
+            - Parse results[]: check_id → Violation.Rule (preserved verbatim,
+              including pack-namespaced IDs), .path → File, .start.line → Line,
+              .extra.message → Message, .extra.severity → Severity (ERROR→error,
+              WARNING→warning).
+
+          Preserve the existing Run-level EnsureSemgrep / DegradedError
+          skip-with-warning flow (check.go ~262-282) unchanged. Do NOT alter
+          Engine.RunPasses semantics. This is the only implementation task that
+          modifies check.Violation, and it directly depends on the TASK-010
+          tests.
+
+          WIRE THE TWO DOWNSTREAM BRIDGES so the new Rule field is not dropped
+          (without this, pack-rule violations reach the gate labeled "semgrep"
+          and the namespaced ID never reaches `backstop code check` output):
+
+            - pkg/check/output.go: add a `Rule string `json:"rule,omitempty"``
+              field to JSONViolation (lines 30-37); copy v.Rule in the marshal
+              loop (lines 80-88); and surface the rule in the human formatter
+              (line ~127, e.g. include the rule alongside the `[pass]` prefix
+              when non-empty). (CLM-006)
+
+            - cmd/backstop/gate.go: in realCodeChecker.runCheck's
+              check.Violation → gate.Violation conversion (lines 504-511), set
+              gate.Violation.Rule = cv.Rule with a fallback to cv.Pass.String()
+              when cv.Rule is empty (gate.Violation has both Rule and SourcePack
+              — pkg/gate/result.go:37,41), and derive SourcePack as everything
+              before the LAST "/" in the namespaced rule ID. Rationale:
+              pack.NamespacedRuleID is packName+"/"+ruleID where packName
+              (NormalizedName) is itself always two segments ("org/pack" —
+              pkg/pack/manifest.go:287-290 enforces exactly one slash), so a
+              full ID is "org/pack/rule-id" and SourcePack must be "org/pack"
+              to match the layer-3 convention at cmd/backstop/pack_gate.go:174
+              (SourcePack = manifest.NormalizedName). Empty SourcePack for
+              non-pack rules (no "/" in the rule ID). (CLM-006)
+
+          This makes the TestCodeCheck_Output_JSONIncludesRule and
+          TestCLI_GateBridge_PreservesRuleAndSourcePack tests from TASK-010
+          pass alongside the two mandated semgrep tests.
+        files:
+          - pkg/check/check.go
+          - pkg/check/output.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Run backstop code check on the semgrep executor"
+        description: |
+          Fast inner-loop verification. Run:
+
+              backstop code check
+
+          Confirm the two mandated semgrep tests
+          (TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs,
+          TestCodeCheck_SemgrepExecutor_PreservesPackNamespacedRuleIDs) pass
+          against fixtures, that the new check.Violation.Rule field does not
+          break existing consumers, and that all prior executor tests and the
+          hermetic default-executor tests remain green. Also confirm the two
+          downstream-bridge tests pass — TestCodeCheck_Output_JSONIncludesRule
+          (pkg/check JSON carries the rule) and
+          TestCLI_GateBridge_PreservesRuleAndSourcePack (gate.Violation carries
+          Rule + SourcePack) — so the namespaced ID survives both bridges.
+        files:
+          - pkg/check/check.go
+          - pkg/check/output.go
+          - cmd/backstop/gate.go
+          - pkg/check/semgrep_executor_test.go
+          - pkg/check/output_test.go
+          - cmd/backstop/gate_bridge_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: TDD — engine-semantics preservation with real executors
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: TDD — Preserve Engine Semantics (Cancellation, Skip-With-Warning)"
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Write failing tests asserting cancellation and skip-with-warning survive real executors"
+        description: |
+          Add failing tests to pkg/check/engine_semantics_test.go that run the
+          real executors (backed by fake CommandRunners) through
+          Engine.RunPasses / check.Run and assert REQ-005 behavior is
+          unchanged. Mandated test names (exact, from issue claims, CLM-007):
+
+            - TestCodeCheck_Executors_ContextCancellationSurfacesTimeout: with
+              a cancelled/expired context, assert the pass surfaces a timeout
+              Violation ("timeout: <pass> pass cancelled") and the
+              "execution timed out during <pass> pass" warning — matching
+              check.go ~100-180 — even with real Execute bodies.
+            - TestCodeCheck_Executors_UnavailableToolSkipsWithWarning: with a
+              lintExecutor whose IsAvailable reports golangci-lint missing,
+              assert the lint pass is Skipped with the skip reason and a
+              "<pass> skipped: <msg>" warning, and that later passes still run
+              (no short-circuit).
+
+          These guard against regressions where a real Execute swallows
+          ctx.Err() or bypasses the IsAvailable gate. Written after the
+          executors exist (depends on Phase 4) so they exercise real bodies;
+          they fail first if any executor mishandles cancellation/availability.
+        files:
+          - pkg/check/engine_semantics_test.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-001
+          - TASK-012
+
+      - id: TASK-014
+        type: implementation
+        title: "Reconcile real executors with engine cancellation and availability semantics"
+        description: |
+          Make the TASK-013 tests pass. Ensure each real Execute body honors
+          ctx (return promptly on ctx.Err() / use exec.CommandContext so a
+          cancelled context aborts the tool) so the engine's timeout-violation
+          path (check.go ~150-173) fires, and ensure no executor's Execute
+          masks an unavailable tool (availability stays gated by IsAvailable at
+          check.go ~136-146). If the Phase 2–4 implementations already satisfy
+          this (they should, via exec.CommandContext and unchanged IsAvailable),
+          this task is the minimal reconciliation that turns TASK-013 red→green
+          without weakening Engine.RunPasses.
+
+          Do NOT change the engine's pass-ordering, skip, or no-short-circuit
+          logic — only the executor Execute bodies and their context handling.
+          Directly depends on the TASK-013 tests (TDD).
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Run backstop code check on engine-semantics preservation"
+        description: |
+          Fast inner-loop verification. Run:
+
+              backstop code check
+
+          Confirm the two mandated semantics tests
+          (TestCodeCheck_Executors_ContextCancellationSurfacesTimeout,
+          TestCodeCheck_Executors_UnavailableToolSkipsWithWarning) pass and
+          that the full pkg/check executor and hermetic default-executor suites
+          remain green with real executors in place.
+        files:
+          - pkg/check/check.go
+          - pkg/check/engine_semantics_test.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-014
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Comprehensive verification + dogfood reckoning
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Comprehensive Verification — Full Gate and Dogfood Reckoning"
+    tasks:
+      - id: TASK-016
+        type: verification
+        title: "Run the full backstop gate over the real executors"
+        description: |
+          Final comprehensive verification. The plan touches only .go files in
+          pkg/check (no .spec.md / .plan.yml artifact files are modified by the
+          implementation work), so the full kill chain runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold on pkg/check),
+          and contract verification — confirming the issue's contract that
+          pkg/check/check.go consumes EnsureSemgrep (pkg/check/semgrep.go) and
+          RouteFile (pkg/check/manifest.go) holds, and that REQ-001..REQ-005
+          are satisfied across all four real executors.
+        files:
+          - pkg/check/check.go
+          - pkg/check/output.go
+          - cmd/backstop/gate.go
+          - pkg/check/runner.go
+          - pkg/check/executor_test.go
+          - pkg/check/semgrep_executor_test.go
+          - pkg/check/engine_semantics_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-005
+          - TASK-008
+          - TASK-011
+          - TASK-014
+          - TASK-006
+          - TASK-009
+          - TASK-012
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Dogfood reckoning — run real code check against this repo and report (no fixes)"
+        description: |
+          The dogfood reckoning. Build the CLI from the working tree and run
+          the now-real executors against backstop-core itself:
+
+              go run ./cmd/backstop code check --all
+
+          and exercise the gate's step-2 (code_check) path the same way. This
+          is the first time the real lint/build/test/semgrep passes execute
+          against this repo.
+
+          Environment caveats are EXPECTED and correct behavior, not failures:
+            - golangci-lint may be absent from PATH → the lint pass
+              skips-with-warning (the correct REQ-005 behavior).
+            - semgrep is pip-installed on demand by EnsureSemgrep.
+
+          Deliverable is an HONEST report of what surfaces: which passes ran vs
+          skipped (and why), violation counts per pass, and rough runtime.
+          This task explicitly does NOT fix any surfaced violations — those
+          become follow-up scope decisions for the user. Report findings in the
+          agent's final message; do NOT write a report file into the repo.
+
+          Depends on TASK-016 so the gate has confirmed the executors are
+          correct before they are pointed at the live repo.
+        files:
+          - pkg/check/check.go
+          - pkg/check/runner.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-014
+          - TASK-016
