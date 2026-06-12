@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,4 +289,63 @@ func chdirTemp(t *testing.T, dir string) func() {
 			t.Fatalf("restore cwd: %v", err)
 		}
 	}
+}
+
+// TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit pins the
+// fail-loud boundary for REQ-002 on the standalone path: a zero-routable
+// manifest dir must surface from LoadManifest through check.Run and the
+// code-check command as an exit-2 config error — not a green skip. The
+// checkRunFn stub delegates to the real check.RunWith (real LoadManifest,
+// real error path) with a hermetic ensurer so no tool is installed or run.
+func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: zero-routable\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// Rules present but no matchers and no compiled-schema discriminator:
+	// zero routable rules.
+	zeroRoutable := `{"rules": [{"check_types": []}]}`
+	if err := os.WriteFile(filepath.Join(rulesDir, "broken.manifest.json"), []byte(zeroRoutable), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	origRun := checkRunFn
+	defer func() { checkRunFn = origRun }()
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return check.RunWith(ctx, check.RunOptions{
+			Options:        opts,
+			SemgrepEnsurer: stubEnsurer{},
+		})
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("code check --all returned nil error for a zero-routable manifest dir; want exit-2 config error")
+	}
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
+	}
+	if exitErr.Code != ExitConfigError {
+		t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
+	}
+	if !strings.Contains(exitErr.Message, "routable") {
+		t.Errorf("message %q should name the zero-routable condition", exitErr.Message)
+	}
+}
+
+// stubEnsurer satisfies check.SemgrepEnsurer without installing anything.
+type stubEnsurer struct{}
+
+func (stubEnsurer) EnsureSemgrep(backstopDir, pinnedVersion string) (string, error) {
+	return "/usr/bin/true", nil
 }

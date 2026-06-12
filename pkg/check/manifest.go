@@ -67,6 +67,100 @@ type manifestFile struct {
 	Rules []ManifestRule `json:"rules"`
 }
 
+// languageExtensions maps a compiled-manifest language to the file extension
+// its native toolchain passes (lint/build/test) apply to. Deliberately minimal
+// (go → .go); extension-mapping breadth is out of scope for this fix.
+var languageExtensions = map[string]string{
+	"go": ".go",
+}
+
+// combinedRule decodes a single entry of the top-level "rules" array, capturing
+// BOTH the legacy routing fields (extensions/path_patterns/check_types) and the
+// compiled-schema enforcement field. Which fields are populated depends on the
+// file's schema; the discriminator is the top-level standard/language, not the
+// rule shape.
+type combinedRule struct {
+	ManifestRule
+	Enforcement string `json:"enforcement"`
+}
+
+// compiledManifestFile captures BOTH the compiled standards schema and the
+// legacy routing schema so a single decode can discriminate between them. A
+// file is the compiled schema when it carries a non-empty top-level Standard
+// AND Language; otherwise its Rules are interpreted as legacy routing rules.
+type compiledManifestFile struct {
+	// Compiled-schema fields.
+	Standard      string `json:"standard"`
+	Language      string `json:"language"`
+	SemgrepConfig string `json:"semgrep_config"`
+
+	// Rules decodes the shared "rules" array. For a compiled file each entry's
+	// Enforcement drives semgrep derivation; for a legacy file each entry's
+	// embedded ManifestRule carries the routing fields.
+	Rules []combinedRule `json:"rules"`
+}
+
+// isCompiled reports whether the file carries the compiled standards schema:
+// a non-empty top-level standard AND language. The legacy routing schema has
+// neither.
+func (f *compiledManifestFile) isCompiled() bool {
+	return f.Standard != "" && f.Language != ""
+}
+
+// hasSemgrepSignal reports whether a compiled manifest should route semgrep:
+// any rule has enforcement "semgrep", or a semgrep_config is set.
+func (f *compiledManifestFile) hasSemgrepSignal() bool {
+	if f.SemgrepConfig != "" {
+		return true
+	}
+	for _, r := range f.Rules {
+		if r.Enforcement == "semgrep" {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyRules returns the routing-schema rules carried by a non-compiled
+// manifest, with their check types parsed.
+func (f *compiledManifestFile) legacyRules() []ManifestRule {
+	rules := make([]ManifestRule, 0, len(f.Rules))
+	for _, r := range f.Rules {
+		rule := r.ManifestRule
+		rule.parsed = parseCheckTypes(rule.CheckTypes)
+		rules = append(rules, rule)
+	}
+	return rules
+}
+
+// deriveRules turns a compiled manifest into routing rules. A known language
+// (go) routes its extension to lint/build/test, plus semgrep when a semgrep
+// signal is present. An unknown language with a semgrep signal routes any file
+// to semgrep-only via the "**" path pattern; an unknown language with no
+// semgrep signal derives nothing.
+func (f *compiledManifestFile) deriveRules() []ManifestRule {
+	ext, known := languageExtensions[f.Language]
+	if known {
+		checks := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest}
+		if f.hasSemgrepSignal() {
+			checks = append(checks, CheckTypeSemgrep)
+		}
+		return []ManifestRule{{
+			Extensions: []string{ext},
+			parsed:     checks,
+		}}
+	}
+
+	if f.hasSemgrepSignal() {
+		return []ManifestRule{{
+			PathPatterns: []string{"**"},
+			parsed:       []CheckType{CheckTypeSemgrep},
+		}}
+	}
+
+	return nil
+}
+
 // Manifest holds compiled enforcement rules for file-type routing.
 type Manifest struct {
 	rules      []ManifestRule
@@ -83,6 +177,7 @@ func LoadManifest(dir string) (*Manifest, error) {
 	}
 
 	var allRules []ManifestRule
+	manifestFilesPresent := false
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -90,27 +185,51 @@ func LoadManifest(dir string) (*Manifest, error) {
 		if !strings.HasSuffix(entry.Name(), ".manifest.json") {
 			continue
 		}
+		manifestFilesPresent = true
 		data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if readErr != nil {
 			return nil, fmt.Errorf("reading manifest %s: %w", entry.Name(), readErr)
 		}
-		var mf manifestFile
+		var mf compiledManifestFile
 		if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
 			return nil, fmt.Errorf("parsing manifest %s: %w", entry.Name(), jsonErr)
 		}
-		allRules = append(allRules, mf.Rules...)
+		if mf.isCompiled() {
+			// Compiled standards manifest: derive routing from language +
+			// enforcement; its rule entries carry no routing fields.
+			allRules = append(allRules, mf.deriveRules()...)
+		} else {
+			// Legacy routing-schema manifest: use its routing rules directly.
+			allRules = append(allRules, mf.legacyRules()...)
+		}
 	}
 
-	if len(allRules) == 0 {
+	// No manifest files in the dir → built-in defaults (unchanged).
+	if !manifestFilesPresent {
 		return defaultManifest(), nil
 	}
 
-	// Parse check types for all rules
-	for i := range allRules {
-		allRules[i].parsed = parseCheckTypes(allRules[i].CheckTypes)
+	// Manifest files present but nothing routable is a config error, never a
+	// silently empty route table — an empty table skips every pass and renders
+	// as a green result.
+	if !hasRoutableRule(allRules) {
+		return nil, &ConfigError{Message: fmt.Sprintf(
+			"manifest files in %s yield no routable rules: declare extensions or path_patterns with valid check_types, or use a compiled standards manifest with a derivable language or semgrep signal", dir)}
 	}
 
 	return &Manifest{rules: allRules}, nil
+}
+
+// hasRoutableRule reports whether any rule can actually route a file: at
+// least one matcher (extension or path pattern) and at least one parsed
+// check type.
+func hasRoutableRule(rules []ManifestRule) bool {
+	for _, r := range rules {
+		if (len(r.Extensions) > 0 || len(r.PathPatterns) > 0) && len(r.parsed) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // RouteFile returns the applicable check types for a given file path.

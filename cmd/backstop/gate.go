@@ -465,10 +465,16 @@ func (c *realCodeChecker) CheckScoped(ctx context.Context, scope *gate.GateScope
 }
 
 func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, filePath string) ([]gate.Violation, error) {
-	cfgPath, cfgErr := config.DiscoverConfigPath()
+	// The checker is bound to the project root it was constructed with;
+	// CWD-based discovery is only a fallback for an unset root. Re-discovering
+	// from CWD here would silently retarget the check at whatever repo the
+	// process happens to run inside (and lets gate tests recurse into the
+	// host repo's own test suite).
 	pRoot := c.projectRoot
-	if cfgErr == nil {
-		pRoot = filepath.Dir(cfgPath)
+	if pRoot == "" || pRoot == "." {
+		if cfgPath, cfgErr := config.DiscoverConfigPath(); cfgErr == nil {
+			pRoot = filepath.Dir(cfgPath)
+		}
 	}
 
 	backstopDir := filepath.Join(pRoot, ".backstop")

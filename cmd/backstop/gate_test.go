@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/gate"
 )
 
@@ -626,5 +627,44 @@ func TestGate_InvalidBaselineTTLConfig_ReturnsConfigExit(t *testing.T) {
 	}
 	if !strings.Contains(exitErr.Message, "baseline_ttl") {
 		t.Fatalf("expected baseline_ttl parse message, got %q", exitErr.Message)
+	}
+}
+
+// zeroRoutableChecker is a CodeChecker double standing in for realCodeChecker
+// when check.Run surfaces a zero-routable LoadManifest config error: runCheck
+// wraps it in gate.ConfigError (gate.go), which step_delegate must map to a
+// ConfigErr step result and the gate to exit 2.
+type zeroRoutableChecker struct{}
+
+func (zeroRoutableChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
+	return nil, &gate.ConfigError{Err: &check.ConfigError{Message: "manifest files in .backstop/rules yield no routable rules"}}
+}
+
+// TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit pins the
+// fail-loud boundary for REQ-002 on the gate path: a zero-routable
+// LoadManifest error wrapped in gate.ConfigError must surface as an exit-2
+// config error from gate.Run — a config-error step, not a violations result
+// and not a green pass.
+func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit(t *testing.T) {
+	scope := &gate.GateScope{Mode: gate.GateScopeModeAll}
+	step := gate.StepCodeCheckScopedFunc(zeroRoutableChecker{}, scope)
+	g := gate.New(gate.WithSteps([]gate.StepFunc{step}), gate.WithScope(scope))
+
+	result, exitCode := g.Run(context.Background())
+	if exitCode != 2 {
+		t.Fatalf("gate exit code = %d, want 2 (config error)", exitCode)
+	}
+	if len(result.Steps) != 1 {
+		t.Fatalf("got %d steps, want 1", len(result.Steps))
+	}
+	stepResult := result.Steps[0]
+	if !stepResult.ConfigErr {
+		t.Error("step ConfigErr = false, want true")
+	}
+	if stepResult.Status == "pass" {
+		t.Error("step status is pass; a zero-routable manifest must never read as green")
+	}
+	if result.Pass {
+		t.Error("gate result Pass = true, want false")
 	}
 }

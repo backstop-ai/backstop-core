@@ -1,0 +1,119 @@
+{
+  "standard": "STD-GO-001",
+  "language": "go",
+  "compiled_from": "STD-GO-001-go-code-standards.standard.md",
+  "semgrep_config": "STD-GO-001.semgrep.yml",
+  "native_checks_file": "STD-GO-001.native.json",
+  "rules": [
+    {
+      "id": "GO-001",
+      "name": "max-file-length",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "native"
+    },
+    {
+      "id": "GO-002",
+      "name": "max-function-length",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "native"
+    },
+    {
+      "id": "GO-003",
+      "name": "no-global-mutable-state",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-010",
+      "name": "no-ignored-errors",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-011",
+      "name": "error-wrapping-required",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-012",
+      "name": "no-naked-returns",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-013",
+      "name": "no-panic-in-library-code",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-020",
+      "name": "no-stuttering-exports",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "delegated",
+      "delegated_to": {
+        "tool": "golangci-lint",
+        "rule": "revive/exported"
+      }
+    },
+    {
+      "id": "GO-021",
+      "name": "error-type-suffix",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-030",
+      "name": "test-file-required",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "native"
+    },
+    {
+      "id": "GO-032",
+      "name": "no-time-sleep-in-tests",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-040",
+      "name": "import-ordering",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "delegated",
+      "delegated_to": {
+        "tool": "golangci-lint",
+        "rule": "goimports"
+      }
+    },
+    {
+      "id": "GO-050",
+      "name": "no-goroutine-leak",
+      "severity": "error",
+      "compliance_tier": "strict",
+      "enforcement": "semgrep"
+    },
+    {
+      "id": "GO-051",
+      "name": "race-detector-required",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "delegated",
+      "delegated_to": {
+        "tool": "makefile",
+        "rule": "test-race-flag"
+      }
+    }
+  ]
+}

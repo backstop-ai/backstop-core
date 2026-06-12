@@ -6,13 +6,80 @@ issue:
   id: ISSUE-005
   title: "routing manifest schema mismatch — compiled standards disable all check passes"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-11"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    Teach check.LoadManifest to recognize compiled standards manifests
+    (the SPEC-001 output schema with standard/language/rules[].enforcement)
+    and derive routing from them: files of the standard's language route to
+    the native toolchain passes (lint/build/test) plus semgrep when the
+    manifest carries semgrep-enforced rules. Keep the existing routing
+    format (extensions/path_patterns/check_types) working. Manifests
+    present but yielding zero routable rules become a config error rather
+    than an empty route table. Add a cross-package contract test that
+    round-trips real compiler output through LoadManifest.
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      LoadManifest must derive file routing from compiled standards
+      manifests: a manifest declaring language go routes .go files to
+      lint, build, test, and (when any rule has enforcement semgrep)
+      semgrep — equivalent to the built-in defaults for that language.
+  - id: REQ-002
+    text: >
+      Manifest files that parse but yield zero routable rules must produce
+      a config error (exit 2), never a silently empty route table that
+      skips every pass as a green result.
+  - id: REQ-003
+    text: >
+      A contract test must pin the producer-consumer boundary: the
+      compiler-emitted manifest schema in .backstop/rules must round-trip
+      through LoadManifest and produce non-empty routing for the
+      standard's language.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: LoadManifest recognizes a compiled standards manifest and derives language-based routing from it.
+    tests:
+      - TestCodeCheck_LoadManifest_DerivesRoutingFromCompiledManifest
+  - id: CLM-002
+    requirement: REQ-001
+    text: RouteFile routes .go files to lint/build/test/semgrep under a compiled go-language manifest with semgrep rules.
+    tests:
+      - TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles
+  - id: CLM-003
+    requirement: REQ-002
+    text: manifest files yielding zero routable rules surface a config error instead of routing nothing.
+    tests:
+      - TestCodeCheck_LoadManifest_NoRoutableRulesIsConfigError
+  - id: CLM-004
+    requirement: REQ-003
+    text: the real compiler-emitted manifest fixture round-trips through LoadManifest into non-empty routing.
+    tests:
+      - TestCodeCheck_LoadManifest_CompilerOutputContractRoundTrip
+
+contracts:
+  - file: pkg/check/manifest.go
+    provides:
+      - name: LoadManifest
+        kind: function
+        signature: "func LoadManifest(dir string) (*Manifest, error)"
 ---
 
 # routing manifest schema mismatch — compiled standards disable all check passes

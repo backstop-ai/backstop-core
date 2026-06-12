@@ -1,0 +1,559 @@
+---
+plan_id: PLAN-ISSUE-005
+spec_id: ISSUE-005
+created: "2026-06-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-005 — two incompatible schemas occupy
+  .backstop/rules/*.manifest.json. check.LoadManifest (pkg/check/manifest.go
+  ~76-114) expects the routing schema {rules:[{extensions, path_patterns,
+  check_types}]}, but the standards compiler (pkg/compile, SPEC-001) emits the
+  compiled schema {standard, language, semgrep_config, native_checks_file,
+  rules:[{id, name, severity, compliance_tier, enforcement}]}. LoadManifest
+  parses the compiled file (both have a `rules` array), derives zero matchers,
+  finds allRules non-empty so it does NOT fall back to defaults, and RouteFile
+  then matches nothing — every pass skips as "not applicable", rendered green.
+  Verified live: `backstop code check --all` on this repo skips everything.
+
+  Pinned design (do NOT re-open — fixed in the issue):
+    1. Teach LoadManifest to DETECT the compiled schema. Discriminator: presence
+       of the top-level `standard` AND `language` fields (the routing schema has
+       neither). A file carrying both is compiled; otherwise it is treated as the
+       existing routing schema and keeps working unchanged. Both formats may
+       coexist in one dir.
+    2. DERIVE routing from a compiled manifest via a small language→extension
+       table (go → .go). A go-language manifest routes .go files to
+       [lint, build, test], plus semgrep when any rule has enforcement==semgrep
+       OR semgrep_config is set — equivalent to the built-in defaults for go.
+    3. ZERO-ROUTABLE-RULES is a CONFIG ERROR, never an empty route table.
+       Manifests present (routing-schema rules with no extensions/path_patterns
+       AND no compiled manifest yields a derivable matcher) → return a
+       *check.ConfigError (pkg/check/semgrep.go:13) so the path exits 2, instead
+       of producing a silent skip-everything green result.
+
+  Micro-decisions resolved while planning (called out per the prompt):
+    - UNKNOWN-LANGUAGE handling: a compiled manifest whose `language` is not in
+      the extension table contributes semgrep-only routing via a `**` path
+      pattern WHEN it carries semgrep rules (or semgrep_config), so semgrep still
+      runs for that standard's files; an unknown-language manifest with NO
+      semgrep signal contributes nothing. If, across all manifests in the dir,
+      nothing is derivable, that is the zero-routable-rules config error (REQ-002).
+      The language table is deliberately minimal (go → .go) — extension-mapping
+      breadth is out of scope.
+    - FIXTURE sourcing for the contract round-trip (CLM-004): EMBED a copy of the
+      real compiler-emitted STD-GO-001.manifest.json into pkg/check/testdata/
+      rather than reading from .backstop/rules at test time. Rationale: .backstop
+      may not exist in all checkouts, and the fixture IS the pinned producer
+      artifact the contract test asserts against. The producer is
+      pkg/compile.EnforcementManifest (pkg/compile/types.go:104, written by
+      pkg/compile/compile.go); pkg/check does NOT import pkg/compile — the
+      embedded JSON fixture spans the boundary, keeping the test hermetic.
+
+  Consumption-path safety (review caution from this issue family):
+    Once LoadManifest can return errors for zero-routable manifests, EVERY caller
+    must render that as an exit-2 config error, not a crash or a swallowed error.
+    Two callers of check.Run exist:
+      - cmd/backstop/code_check.go:126 type-asserts *check.ConfigError from the
+        run error → ExitConfigError (2).
+      - cmd/backstop/gate.go:499 wraps ANY run error in gate.ConfigError{Err:...}
+        → gate step-2 (pkg/gate/step_delegate.go:49) maps to exit 2.
+    check.Run already propagates the LoadManifest error verbatim
+    (pkg/check/check.go:273-276), so returning *check.ConfigError flows correctly
+    through BOTH paths. A dedicated task traces and verifies this boundary so the
+    config error surfaces as exit 2 (not panic / swallow) on both the standalone
+    `code check` path and the `gate` step-2 path.
+
+  Hermeticity: all LoadManifest/RouteFile unit tests are pure file-fixture tests
+  (testdata manifests + tmpdirs), no tool execution. Only the final dogfood
+  acceptance task runs real tools against this repo.
+
+  Structure:
+    Phase 1: Setup — embed real compiled-manifest fixture + routing-schema and
+             zero-routable fixtures (no production change).
+    Phase 2: TDD — detect+derive routing from compiled manifests (CLM-001/002).
+    Phase 3: TDD — zero-routable-rules config error + contract round-trip
+             (CLM-003/004), then verify exit-2 propagation across both callers.
+    Phase 4: Comprehensive verification (full gate) + dogfood acceptance
+             (`code check --all` against this repo, report-only, no fixes).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures (real compiled manifest + routing + zero-routable)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Manifest Fixtures (Compiled, Routing-Schema, Zero-Routable)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Embed real compiled-manifest and schema fixtures for LoadManifest tests"
+        description: |
+          Create the testdata fixtures every LoadManifest/RouteFile test in this
+          plan consumes. All are static files — no production code changes here.
+
+          Deliverables under pkg/check/testdata/:
+            - compiled-std-go-001.manifest.json: a VERBATIM copy of the real
+              compiler-emitted .backstop/rules/STD-GO-001.manifest.json from this
+              repo (the {standard:"STD-GO-001", language:"go",
+              semgrep_config:"STD-GO-001.semgrep.yml", native_checks_file:...,
+              rules:[{id,name,severity,compliance_tier,enforcement}]} schema,
+              including native/semgrep/delegated enforcement values). This is the
+              pinned producer artifact for the CLM-004 contract round-trip; copy
+              it exactly so the test asserts against real compiler output. The
+              producer is pkg/compile.EnforcementManifest (pkg/compile/types.go).
+            - routing-schema.manifest.json: an existing-format manifest
+              {rules:[{extensions:[".go"], check_types:["lint","build","test",
+              "semgrep"]}]} proving the legacy routing schema still loads and
+              routes after the change (no regression).
+            - compiled-go-no-semgrep.manifest.json: a compiled go-language
+              manifest whose rules carry ONLY native/delegated enforcement and no
+              semgrep_config — exercises the "semgrep added only when a semgrep
+              signal is present" derivation branch.
+            - zero-routable.manifest.json: a manifest that parses but yields zero
+              routable rules — a routing-schema file whose single rule has no
+              extensions, no path_patterns, and no check_types (the exact silent
+              skip-everything shape from the issue) — for the config-error test.
+
+          These fixtures back CLM-001 through CLM-004; later tests load them from
+          tmpdirs. Disjoint from all other file scopes in this plan.
+        files:
+          - pkg/check/testdata/compiled-std-go-001.manifest.json
+          - pkg/check/testdata/routing-schema.manifest.json
+          - pkg/check/testdata/compiled-go-no-semgrep.manifest.json
+          - pkg/check/testdata/zero-routable.manifest.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD — detect compiled schema and derive language-based routing
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Detect Compiled Manifests and Derive Routing"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing tests for compiled-manifest detection and go-file routing"
+        description: |
+          Add failing tests to pkg/check/manifest_test.go that pin compiled-schema
+          detection and language-based routing derivation. They fail until TASK-003
+          because today LoadManifest parses the compiled file, derives zero
+          matchers, and (allRules non-empty) RouteFile returns nothing.
+
+          Mandated test names (exact, from issue claims — character-for-character):
+
+            - TestCodeCheck_LoadManifest_DerivesRoutingFromCompiledManifest
+              (CLM-001): write the compiled-std-go-001.manifest.json fixture into
+              a tmpdir and call LoadManifest(dir). Assert it succeeds (no error)
+              and produces a manifest that is NOT the empty-route degenerate state
+              — i.e. it has derived routing from the compiled
+              {standard, language:"go", rules[].enforcement} fields rather than
+              treating the compiled rules as zero routing rules. Assert that a
+              routing-schema fixture in the SAME dir continues to coexist and load
+              (both formats together).
+
+            - TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles (CLM-002):
+              load the compiled go-language fixture (which carries semgrep-enforced
+              rules / semgrep_config) and call RouteFile("pkg/foo/bar.go"). Assert
+              the returned check types equal the go default set
+              {CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}.
+              Add a sub-assertion with the compiled-go-no-semgrep fixture: a
+              go-language manifest with NO semgrep signal routes .go files to
+              {lint, build, test} WITHOUT semgrep — pinning the "semgrep only when
+              a semgrep rule or semgrep_config is present" derivation rule.
+
+          Sharp-edge coverage (unknown-language micro-decision): add an assertion
+          that a compiled manifest with a non-go `language` carrying semgrep rules
+          routes a file of any extension to semgrep-only via the `**` path
+          pattern, while an unknown-language manifest with no semgrep signal
+          contributes no routing. Keep the fixture for the unknown-language case
+          inline in the test (a small JSON literal) so Phase-1 file scope is
+          unchanged.
+
+          Tests only — no production edits in this task.
+        files:
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Teach LoadManifest to detect compiled manifests and derive routing"
+        description: |
+          Make the TASK-002 tests pass in pkg/check/manifest.go. Preserve the
+          contracted signature exactly: func LoadManifest(dir string) (*Manifest, error).
+
+          1. Parse each *.manifest.json into a struct that captures BOTH schemas:
+             extend the parsed shape with the compiled fields
+             (standard, language, semgrep_config, native_checks_file, and per-rule
+             enforcement), keeping the existing routing fields
+             (extensions/path_patterns/check_types).
+
+          2. DETECT the compiled schema per file: a file is compiled when it
+             carries a non-empty top-level `standard` AND `language`
+             (the routing schema has neither). Files without both are handled by
+             the existing routing-schema path UNCHANGED.
+
+          3. For each compiled manifest, DERIVE ManifestRule(s) via a small
+             language→extension table (go → ".go"):
+               - language "go": emit a rule routing the language's extension to
+                 [CheckTypeLint, CheckTypeBuild, CheckTypeTest], and append
+                 CheckTypeSemgrep when ANY rule has enforcement=="semgrep" OR
+                 semgrep_config is non-empty.
+               - unknown language WITH a semgrep signal (any enforcement=="semgrep"
+                 or semgrep_config set): emit a semgrep-only rule with path pattern
+                 "**" so semgrep still runs for that standard's files.
+               - unknown language with NO semgrep signal: derive nothing.
+
+          4. Merge derived rules with any routing-schema rules from non-compiled
+             files; both formats coexist. Parse CheckTypes for routing-schema
+             rules as today.
+
+          Do NOT change RouteFile's matching logic, the default-manifest fallback
+          for the no-manifests case, or matchesRule/glob handling beyond what the
+          `**` derived pattern already supports. Zero-routable-rules handling
+          (returning a config error) is added in TASK-005, not here — this task
+          keeps returning a populated manifest for the fixtures under test.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run backstop code check on compiled-manifest routing derivation"
+        description: |
+          Fast inner-loop verification of the detection/derivation work. Run:
+
+              backstop code check
+
+          Confirm pkg/check compiles and the two mandated Phase-2 tests
+          (TestCodeCheck_LoadManifest_DerivesRoutingFromCompiledManifest,
+          TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles) pass against
+          the fixtures, the no-semgrep and unknown-language sub-assertions hold,
+          and the existing manifest/routing tests remain green (routing-schema
+          manifests still load and route). No new violations introduced.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD — zero-routable config error + contract round-trip + exit-2 trace
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Zero-Routable Config Error, Contract Round-Trip, Exit-2 Propagation"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing tests for zero-routable config error and the compiler-output contract round-trip"
+        description: |
+          Add failing tests to pkg/check/manifest_test.go pinning the fail-loud
+          behavior and the cross-package contract. Both fail until TASK-006:
+          today zero-routable manifests yield a silent empty route table, and the
+          real compiled fixture derives nothing.
+
+          Mandated test names (exact, from issue claims — character-for-character):
+
+            - TestCodeCheck_LoadManifest_NoRoutableRulesIsConfigError (CLM-003):
+              write the zero-routable.manifest.json fixture (a manifest that
+              parses but yields no extensions/path_patterns/check_types and is not
+              a derivable compiled manifest) into a tmpdir, call LoadManifest(dir),
+              and assert it returns a non-nil error that is a *check.ConfigError
+              (use errors.As). Assert the error is NOT the defaults fallback and
+              NOT a nil-error empty route table — manifests-present-but-nothing-
+              routable must fail loud, never skip-everything green. Also assert the
+              no-manifests case (empty dir) STILL returns the defaults manifest
+              with nil error (the fail-loud rule only fires when files exist but
+              nothing routes).
+
+            - TestCodeCheck_LoadManifest_CompilerOutputContractRoundTrip (CLM-004):
+              load the embedded VERBATIM compiled-std-go-001.manifest.json fixture
+              (real compiler output) via LoadManifest and assert it round-trips to
+              NON-EMPTY routing for the standard's language: RouteFile on a `.go`
+              path returns a non-empty check-type set including at least
+              CheckTypeSemgrep (the fixture carries semgrep-enforced rules) plus
+              lint/build/test. This is the producer→consumer contract that would
+              have caught the original schema drift.
+
+          Tests only — no production edits in this task.
+        files:
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Make zero-routable manifests a config error and satisfy the contract round-trip"
+        description: |
+          Make the TASK-005 tests pass in pkg/check/manifest.go.
+
+          1. After parsing all *.manifest.json files and deriving routing from any
+             compiled manifests (TASK-003), distinguish three states:
+               - NO manifest files in the dir → return defaultManifest(), nil
+                 (unchanged — the no-manifests defaults path stays intact).
+               - manifest files present AND at least one routable rule derived or
+                 declared → return the populated &Manifest{rules: ...}.
+               - manifest files present but ZERO routable rules (no routing-schema
+                 rules with matchers AND no compiled manifest produced a derivable
+                 rule) → return nil, &ConfigError{Message: ...} describing the
+                 schema mismatch (name the offending dir / that manifests parsed
+                 but produced no routing). This replaces the current silent
+                 `return defaultManifest(), nil` / empty-route behavior so
+                 skip-everything is unrepresentable (REQ-002).
+
+          2. Confirm the real compiled fixture (CLM-004) lands in the populated
+             branch and RouteFile yields non-empty go routing — this is satisfied
+             by the TASK-003 derivation; this task only adds the zero-routable
+             guard without breaking it.
+
+          Use the existing *check.ConfigError type (pkg/check/semgrep.go:13), which
+          callers already map to exit 2. Do NOT introduce a new error type and do
+          NOT change the contracted LoadManifest signature.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/manifest.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Run backstop code check on the zero-routable config error and contract round-trip"
+        description: |
+          Fast inner-loop verification of the LoadManifest config-error and
+          contract work (TASK-006), gating the boundary tests that follow. Run:
+
+              backstop code check
+
+          Confirm the two mandated Phase-3a tests pass:
+            - TestCodeCheck_LoadManifest_NoRoutableRulesIsConfigError
+            - TestCodeCheck_LoadManifest_CompilerOutputContractRoundTrip
+          and that the no-manifests defaults path still returns nil error, the
+          real compiled fixture round-trips to non-empty go routing, and all
+          Phase-2 manifest/routing tests remain green. No new violations. This
+          verification confirms LoadManifest now returns *check.ConfigError for
+          zero-routable manifests before the boundary tests (TASK-008) assert how
+          that error surfaces at the CLI.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: test
+        title: "Write failing tests pinning exit-2 config-error propagation across both check.Run callers"
+        description: |
+          Add failing tests at the consumption boundary so a zero-routable
+          LoadManifest error renders as an exit-2 CONFIG error (not a panic, not a
+          swallowed error, not a green skip) on BOTH paths that reach check.Run.
+          These guard the review-history caution for this issue family.
+
+          Mandated test names (exact, from issue claims — character-for-character):
+
+            - TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit
+              (CLM-003): drive the standalone code-check path
+              (cmd/backstop/code_check.go) against a project whose ManifestDir
+              contains the zero-routable fixture, and assert the command returns an
+              *ExitCodeError with Code == ExitConfigError (2). This exercises the
+              `if cfgErr, ok := runErr.(*check.ConfigError)` branch at
+              code_check.go:126 carrying the LoadManifest error through
+              check.Run (check.go:273-276) unchanged.
+
+            - TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit (CLM-003):
+              drive the gate step-2 path: realCodeChecker.runCheck
+              (cmd/backstop/gate.go:497-499) wraps the LoadManifest error in
+              gate.ConfigError{Err:...}; assert the gate code-check step maps it to
+              exit 2 via pkg/gate/step_delegate.go (errors.As *gate.ConfigError).
+              Assert the failure is a config error, NOT a violations result and NOT
+              a green pass.
+
+          Place these in cmd/backstop test files (the existing code_check / gate
+          test files for these paths). Tests only; fail until the boundary is
+          confirmed in TASK-009. These reference CLM-003 because they pin the same
+          fail-loud requirement (REQ-002) at the CLI boundary.
+        files:
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Confirm and, if needed, wire exit-2 config-error propagation across both callers"
+        description: |
+          Make the TASK-008 boundary tests pass. Trace the LoadManifest error
+          across EVERY caller and ensure each renders exit 2:
+
+            - Standalone path: check.Run returns the LoadManifest error verbatim
+              (check.go:273-276); cmd/backstop/code_check.go:126 type-asserts
+              *check.ConfigError → ExitConfigError. Verify this holds for the
+              LoadManifest-origin error; if the assertion path does not catch a
+              LoadManifest config error (e.g. it is wrapped before reaching the
+              assert), adjust the cmd/backstop wiring so the *check.ConfigError is
+              recognized and mapped to exit 2.
+
+            - Gate step-2 path: cmd/backstop/gate.go:499 wraps any run error in
+              gate.ConfigError{Err: runErr}; pkg/gate/step_delegate.go:49 maps
+              *gate.ConfigError to exit 2. Verify the LoadManifest error flows
+              through unwrapped enough for this mapping; adjust only if the trace
+              shows it is swallowed or mis-mapped.
+
+          Expectation: with *check.ConfigError already returned by LoadManifest
+          (TASK-006) and propagated verbatim by check.Run, BOTH callers should
+          already exit 2 — making this the minimal reconciliation that turns
+          TASK-008 red→green. Do NOT broaden error handling beyond mapping the
+          LoadManifest config error to exit 2; do NOT change check.Run's
+          error-return contract.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Run backstop code check on the exit-2 propagation boundary work"
+        description: |
+          Fast inner-loop verification of Phase-3 boundary implementation. Run:
+
+              backstop code check
+
+          Confirm the two mandated boundary tests pass:
+            - TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit
+            - TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit
+          confirming a zero-routable LoadManifest config error exits 2 on BOTH the
+          standalone `code check` path and the gate step-2 path (not a panic, not
+          swallowed, not a green skip), and that the cmd/backstop check/gate suites
+          plus all earlier pkg/check tests remain green. No new violations.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification (full gate) + dogfood acceptance
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Full Gate and Dogfood Acceptance"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Run the full backstop gate over the routing fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files and
+          .json testdata fixtures (no .spec.md / .plan.yml artifact files are
+          modified by the implementation work), so the full kill chain runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold on pkg/check),
+          and contract verification — confirming the issue's contract that
+          pkg/check/manifest.go provides
+          `func LoadManifest(dir string) (*Manifest, error)` and that
+          REQ-001 (compiled-manifest routing derivation), REQ-002 (zero-routable
+          → config error), and REQ-003 (compiler-output contract round-trip) are
+          satisfied. No separate `backstop artifact validate` step is required
+          beyond what the gate runs, since no artifact files change.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate.go
+          - pkg/check/testdata/compiled-std-go-001.manifest.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-004
+          - TASK-007
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Dogfood acceptance — run real code check --all against this repo and report (no fixes)"
+        description: |
+          The dogfood acceptance. Build the CLI from the working tree and run the
+          now-routed passes against backstop-core itself, whose .backstop/rules
+          holds the real compiled STD-GO-001 manifest:
+
+              go run ./cmd/backstop code check --all
+
+          With routing fixed, the engine must now DISPATCH passes against this repo
+          instead of skipping everything as "not applicable". Report honestly which
+          passes ran vs skipped and why:
+            - lint may LEGITIMATELY skip if golangci-lint is absent from PATH —
+              that is correct skip-with-warning behavior, not a failure.
+            - semgrep should RUN (EnsureSemgrep installs on demand).
+            - build and test should RUN against the real repo.
+
+          Because build/test/semgrep now execute REAL tools against this repo,
+          violations may surface. This task REPORTS them (which passes ran,
+          violation counts per pass, rough runtime, and confirmation that routing
+          no longer skip-everythings) and explicitly does NOT fix any surfaced
+          violation — those become follow-up scope decisions for the user. Report
+          findings in the agent's final message; do NOT write a report file into
+          the repo.
+
+          Depends on TASK-011 so the gate has confirmed the routing fix is correct
+          before it is pointed at the live repo.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/testdata/compiled-std-go-001.manifest.json
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-006
+          - TASK-011

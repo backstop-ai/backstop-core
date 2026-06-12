@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "extensions": [".go"],
+      "check_types": ["lint", "build", "test", "semgrep"]
+    }
+  ]
+}

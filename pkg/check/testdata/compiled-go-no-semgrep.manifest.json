@@ -1,0 +1,26 @@
+{
+  "standard": "STD-GO-NATIVE-ONLY",
+  "language": "go",
+  "compiled_from": "STD-GO-NATIVE-ONLY.standard.md",
+  "native_checks_file": "STD-GO-NATIVE-ONLY.native.json",
+  "rules": [
+    {
+      "id": "GN-001",
+      "name": "max-file-length",
+      "severity": "error",
+      "compliance_tier": "baseline",
+      "enforcement": "native"
+    },
+    {
+      "id": "GN-002",
+      "name": "import-ordering",
+      "severity": "warning",
+      "compliance_tier": "standard",
+      "enforcement": "delegated",
+      "delegated_to": {
+        "tool": "golangci-lint",
+        "rule": "goimports"
+      }
+    }
+  ]
+}
