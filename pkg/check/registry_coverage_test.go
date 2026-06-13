@@ -3,6 +3,7 @@ package check
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -185,8 +186,14 @@ enforcement:
 	}
 }
 
-// TestCodeCheck_Registry_UnknownPassNameSkipped covers declaredEntries skipping
-// an unrecognized pass name without crashing.
+// TestCodeCheck_Registry_UnknownPassNameSkipped covers the post-ISSUE-008
+// contract: an unrecognized enforcement.toolchain pass name is no longer
+// silently skipped — it is a fail-loud *ConfigError (REQ-001). Previously this
+// test asserted the bogus key was skipped while the recognized pass still bound;
+// that silent-skip is exactly the bug ISSUE-008 closed, so the guard must now
+// reject the whole config rather than build a partial executor map. The
+// behavior is pinned authoritatively in
+// TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError (registry_test.go).
 func TestCodeCheck_Registry_UnknownPassNameSkipped(t *testing.T) {
 	yaml := `project: x
 language: rust
@@ -202,10 +209,17 @@ enforcement:
 `
 	cfg := loadConfigFromYAML(t, yaml)
 	execs, err := buildExecutorsForConfigErr(Options{Language: "rust", Config: cfg}, &fakeRunner{})
-	if err != nil {
-		t.Fatalf("buildExecutorsForConfigErr: %v", err)
+	if err == nil {
+		t.Fatalf("buildExecutorsForConfigErr returned nil error for the bogus pass key; want a fail-loud *ConfigError (silent skip is the ISSUE-008 bug). execs=%v", execs)
 	}
-	if _, ok := execs[CheckTypeLint]; !ok {
-		t.Error("lint executor missing; the recognized pass must still bind despite the bogus pass name")
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("error %T (%v) is not a *ConfigError", err, err)
+	}
+	if !strings.Contains(cfgErr.Message, "boguspass") {
+		t.Errorf("message %q must name the offending key %q", cfgErr.Message, "boguspass")
+	}
+	if len(execs) != 0 {
+		t.Errorf("on a config error the executor map must be empty, got %d entries", len(execs))
 	}
 }

@@ -1,0 +1,303 @@
+---
+plan_id: PLAN-ISSUE-008
+spec_id: ISSUE-008
+created: "2026-06-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... ./cmd/backstop/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-008 — declaredEntries (pkg/check/registry.go:301-319)
+  silently `continue`s over any enforcement.toolchain key that does not parse
+  as a known pass name (parseCheckType, pkg/check/manifest.go:42). A typo
+  (`lnit:`) or out-of-vocabulary key (`typecheck:`) produces no executor, no
+  error, and no warning — that pass simply never enforces. Neither validation
+  layer catches it: Enforcement.Toolchain is a map[string]ToolchainPass and
+  KnownFields(true) rejects unknown struct fields but not unknown map keys.
+
+  Fix: an unrecognized enforcement.toolchain pass key becomes a *check.ConfigError
+  (exit 2) naming the offending key and the allowed vocabulary, consistent with
+  the missing-toolchain (ISSUE-003) and zero-routable (ISSUE-005) fail-loud
+  precedents. Skip-everything for a typo'd key becomes unrepresentable.
+
+  Pinned design decisions (resolved while planning — do NOT re-open):
+
+    1. SEMGREP IS A VALID KEY (accept, do not reject). parseCheckType's
+       vocabulary is lint/build/test/semgrep, and the issue's REQ-001 names that
+       exact allowed set. So the validation only rejects keys OUTSIDE that
+       vocabulary. A declared `semgrep:` entry is accepted as in-vocabulary but
+       has NO toolchain effect today: buildExecutorsForConfigErr's executor loop
+       only iterates {lint, build, test} (registry.go:214), and semgrep stays the
+       shared executor (registry.go:234). Rejecting semgrep would contradict the
+       parser's own vocabulary and the issue's stated allowed set, and would be a
+       surprising special-case. The chosen behavior — accept the key, document it
+       is currently inert for toolchain overlay — is the smaller, more honest
+       change. The error message enumerates lint/build/test/semgrep as the allowed
+       vocabulary so an author who typed `semgrip:` sees the correct spelling.
+
+    2. GO-PATH KEY VALIDATION LIVES IN buildExecutorsForConfigErr, BEFORE the
+       go/empty-language early-return (registry.go:204). Consumption subtlety:
+       resolveToolchain (and therefore declaredEntries) only runs for non-go
+       languages — buildExecutorsForConfigErr returns goBuiltinExecutors and
+       short-circuits for language=="go"/"" at registry.go:204-206. A GO project
+       with a typo'd enforcement.toolchain key never reaches declaredEntries, so
+       fixing declaredEntries alone would leave silent non-enforcement intact on
+       the dominant go path. Therefore the key-vocabulary check is hoisted into a
+       single guard (validateToolchainKeys(cfg)) called at the TOP of
+       buildExecutorsForConfigErr, before the language branch — so a go-language
+       project with a typo'd key gets the SAME *check.ConfigError as a non-go one.
+       declaredEntries can then keep its existing behavior (it is only reached
+       once keys are validated), OR validateToolchainKeys becomes the single
+       source of truth and declaredEntries' silent `continue` is left only as a
+       defensive no-op over an already-validated map — the implementer picks the
+       minimal wiring, but the load-bearing guarantee is: every code path that
+       consumes enforcement.toolchain validates its keys regardless of language.
+
+  Consumption-path safety (issue-family caution):
+    Once buildExecutorsForConfigErr can return a *check.ConfigError for a bad key,
+    every caller must render exit 2, not a crash or a swallowed error. The error
+    flows through the same two callers as ISSUE-005:
+      - standalone: cmd/backstop/code_check.go type-asserts *check.ConfigError →
+        ExitConfigError (2).
+      - gate step-2: cmd/backstop/gate.go wraps run errors → gate.ConfigError →
+        exit 2 (pkg/gate/step_delegate.go).
+    The boundary test TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo pins
+    the standalone path, reusing the harness from
+    TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit
+    (cmd/backstop/code_check_test.go:300 — temp project, chdir, checkRunFn →
+    check.RunWith with stubEnsurer).
+
+  Regression guard (CLM-003): TestCodeCheck_Registry_CustomToolchainFromConfig
+  ALREADY EXISTS (pkg/check/registry_test.go:84). It is NOT re-created — it is
+  referenced as must-stay-green: a valid all-in-vocabulary declared stack must
+  continue to build working executors unchanged after the new key guard lands.
+
+  Hermeticity: registry-level tests are pure config-fixture tests (loadConfigFromYAML
+  + tmpdirs), no tool execution. The CLI boundary test uses stubEnsurer so no tool
+  is installed or run.
+
+  Structure (small plan, 2 phases):
+    Phase 1: TDD — unknown-key ConfigError at the registry (CLM-001), language-
+             agnostic key validation (go-path coverage), plus the CLI boundary
+             exit-2 test (CLM-002); regression guard (CLM-003) stays green; then
+             fast inner-loop `backstop code check` verification.
+    Phase 2: Comprehensive verification — full `backstop gate` (.go-only change).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD — unknown enforcement.toolchain key is a fail-loud ConfigError
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Unknown Toolchain Pass Key Is a Config Error (Registry + CLI Boundary)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing registry tests for the unknown-key ConfigError, language-agnostic, with semgrep accepted"
+        description: |
+          Add failing tests to pkg/check/registry_test.go pinning that an
+          unrecognized enforcement.toolchain pass key is a *check.ConfigError —
+          not a silent skip — and that the guard fires regardless of language.
+          These fail today because declaredEntries `continue`s over the bad key
+          (registry.go:308) and the go path never reaches declaredEntries at all.
+
+          Mandated test name (exact, from the issue — character-for-character):
+
+            - TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError
+              (CLM-001): load a backstop.yml whose enforcement.toolchain declares
+              an out-of-vocabulary key (e.g. `typecheck:` or the typo `lnit:`)
+              alongside valid entries, for a NON-GO language (e.g. rust), via
+              loadConfigFromYAML. Call buildExecutorsForConfig / the registry entry
+              point and assert it returns a non-nil error that errors.As a
+              *check.ConfigError. Assert the message NAMES the offending key
+              ("typecheck"/"lnit") AND enumerates the allowed vocabulary
+              (lint/build/test/semgrep) so the author can self-correct. Assert it
+              is NOT a partial executor map silently missing that pass.
+
+          Sharp-edge coverage (the go-path consumption subtlety — REQ-001 says the
+          guard must hold regardless of language). Add, in the SAME test file, an
+          assertion that a GO-language project with a typo'd enforcement.toolchain
+          key ALSO returns the *check.ConfigError — proving the guard runs before
+          the go/empty-language early-return at registry.go:204 and not only on the
+          non-go resolveToolchain path. (This is the silent-non-enforcement hole
+          for the dominant go path; pin it here.)
+
+          Semgrep decision coverage: add an assertion that a backstop.yml declaring
+          `semgrep:` under enforcement.toolchain (a key inside parseCheckType's
+          vocabulary) is ACCEPTED — it does NOT produce a ConfigError — even though
+          it currently has no toolchain-overlay effect (semgrep stays the shared
+          executor). This pins the "accept semgrep as a valid key" decision so a
+          future tightening that wrongly rejects it would fail loud.
+
+          Config fixtures live as Go literals (loadConfigFromYAML), matching the
+          existing CustomToolchainFromConfig pattern — the implementer cannot write
+          testdata/ config files in this environment (see fixtures_toolchain_test.go).
+          Tests only — no production edits in this task.
+        files:
+          - pkg/check/registry_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write a failing CLI boundary test pinning exit-2 for an unknown toolchain pass key"
+        description: |
+          Add a failing test at the consumption boundary so an unknown
+          enforcement.toolchain key surfaces from the registry through check.Run
+          and the standalone code-check command as an exit-2 CONFIG error — not a
+          panic, not a swallowed error, not a green skip. This is the second
+          red-phase test; it pairs with TASK-001 (registry unit) so the single
+          implementation in TASK-003 makes both green.
+
+          Mandated test name (exact, from the issue — character-for-character):
+
+            - TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo (CLM-002):
+              reuse the harness from
+              TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit
+              (cmd/backstop/code_check_test.go:300). Scaffold a temp project whose
+              backstop.yml declares a language with an enforcement.toolchain block
+              containing an out-of-vocabulary key, plus a routable compiled/routing
+              manifest under .backstop/rules so manifest routing is NOT the blocker
+              — the only failure must be the bad toolchain key. chdir into the temp
+              project (chdirTemp), stub checkRunFn to delegate to check.RunWith with
+              stubEnsurer (hermetic — no tool installed/run), execute
+              `code check --all` via NewRootCommand, and assert the returned error
+              errors.As an *ExitCodeError with Code == ExitConfigError (2). Assert
+              the message names the offending key (carried through from the
+              registry *check.ConfigError). Optionally assert the same for a
+              go-language project to confirm the boundary holds on the go path too.
+
+          Place this in cmd/backstop/code_check_test.go beside the existing
+          ConfigError-propagation boundary test. This test FAILS today: the
+          unknown key is silently skipped, so the command exits 0/green instead of
+          exit 2. It pins the END-TO-END exit-2 contract that TASK-003's registry
+          guard satisfies. Tests only — no production edits in this task.
+        files:
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Make an unknown enforcement.toolchain pass key a fail-loud ConfigError for every language"
+        description: |
+          Make the TASK-001 registry tests AND the TASK-002 CLI boundary test pass
+          in pkg/check/registry.go, without breaking the existing
+          TestCodeCheck_Registry_CustomToolchainFromConfig regression guard
+          (registry_test.go:84).
+
+          1. Add a key-vocabulary guard, validateToolchainKeys(cfg *config.Config) error,
+             that iterates cfg.Enforcement.Toolchain keys and returns a
+             *ConfigError (pkg/check/semgrep.go:13) for the FIRST key that
+             parseCheckType (pkg/check/manifest.go:42) does not recognize. The
+             message must name the offending key and enumerate the allowed
+             vocabulary — lint/build/test/semgrep — matching the missing-toolchain
+             / zero-routable fail-loud precedents. A nil cfg or empty toolchain map
+             returns nil. parseCheckType already accepts "semgrep", so a `semgrep:`
+             key passes the guard (accept-semgrep decision); only out-of-vocabulary
+             keys error.
+
+          2. Call validateToolchainKeys at the TOP of buildExecutorsForConfigErr
+             (registry.go:193), BEFORE the language defaulting and BEFORE the
+             go/empty-language early-return at registry.go:204. Returning its error
+             as (map[CheckType]PassExecutor{}, err) ensures a GO project with a
+             typo'd key fails loud identically to a non-go one — closing the
+             dominant-path silent-non-enforcement hole. This is the single source
+             of truth for key validity; declaredEntries (registry.go:301) is now
+             only reached over an already-validated map, so its existing `continue`
+             becomes a defensive no-op — leave it or drop it, but do NOT let it be
+             the only guard.
+
+          Use the existing *check.ConfigError type; do NOT introduce a new error
+          type and do NOT change buildExecutorsForConfigErr's signature
+          (the (map[CheckType]PassExecutor, error) contract callers depend on).
+          Valid declarations must still construct executors unchanged — the
+          CustomToolchainFromConfig regression guard must stay green. The error
+          flows through check.Run verbatim to the standalone code-check caller,
+          satisfying the TASK-002 exit-2 boundary test with no CLI-layer change.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/registry.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run backstop code check on the unknown-key ConfigError and exit-2 boundary"
+        description: |
+          Fast inner-loop verification of the registry guard and CLI boundary. Run:
+
+              backstop code check
+
+          Confirm pkg/check and cmd/backstop compile and that:
+            - TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError passes,
+              including the go-language sharp-edge assertion and the
+              accept-semgrep assertion;
+            - TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo passes
+              (unknown key → exit 2 on the standalone code-check path);
+            - the existing TestCodeCheck_Registry_CustomToolchainFromConfig
+              regression guard remains GREEN (valid declared stacks still build
+              executors unchanged);
+            - no other pkg/check or cmd/backstop tests regress and no new lint /
+              build / semgrep violations are introduced.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/registry_test.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Comprehensive verification — full gate (.go-only change)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Comprehensive Verification — Full Gate"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Run the full backstop gate over the toolchain-key fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files
+          (pkg/check/registry.go + registry_test.go and cmd/backstop/code_check_test.go);
+          no artifact files (.spec.md / .plan.yml / .issue.md) are modified by the
+          implementation work, so no separate `backstop artifact validate` step is
+          required beyond what the gate runs. Run the full kill chain via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold on the changed
+          pkg/check surface), and contract verification — confirming the issue's
+          contract that pkg/check/registry.go consumes config.ToolchainPass and
+          that REQ-001 is satisfied: an unrecognized enforcement.toolchain pass key
+          is a config error (exit 2) naming the key and the allowed vocabulary,
+          never a silent skip, for every language; valid declarations construct
+          executors unchanged (regression guard green); and the error reaches the
+          standalone code-check CLI as exit 2.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/registry_test.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-003
+          - TASK-004

@@ -176,9 +176,17 @@ func (e *commandExecutor) IsAvailable() (bool, string) {
 // buildExecutorsForConfig selects the toolchain by language and builds the
 // executor map, panicking only on programmer error. Construction errors (a
 // missing toolchain for a declared language, an unknown format, a TS stack with
-// no test command) are surfaced via buildExecutorsForConfigErr; this variant
-// returns an empty map on such errors so the caller's Run path can re-derive
-// and propagate the ConfigError through its normal channel.
+// no test command, an unrecognized enforcement.toolchain pass key) are surfaced
+// via buildExecutorsForConfigErr; this variant returns an empty map on such
+// errors so the caller's Run path can re-derive and propagate the ConfigError
+// through its normal channel.
+//
+// GUARD: this variant DISCARDS the ConfigError. It (and its check.go twin
+// buildDefaultExecutors/buildDefaultExecutorsWithRunner) must NEVER be wired
+// into a production Executors assignment — doing so would re-open the
+// silent-non-enforcement hole this package fails loud on (e.g. ISSUE-008's
+// typo'd toolchain key would build a partial/empty map with no exit-2). The
+// real Run path uses buildExecutorsForConfigErr and propagates its error.
 func buildExecutorsForConfig(opts Options, runner CommandRunner) map[CheckType]PassExecutor {
 	execs, _ := buildExecutorsForConfigErr(opts, runner)
 	return execs
@@ -193,6 +201,15 @@ func buildExecutorsForConfig(opts Options, runner CommandRunner) map[CheckType]P
 func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckType]PassExecutor, error) {
 	if runner == nil {
 		runner = &ExecCommandRunner{Dir: opts.ProjectDir}
+	}
+
+	// Single source of truth for enforcement.toolchain key validity. This runs
+	// BEFORE the language defaulting and BEFORE the go/empty-language
+	// early-return below, so a go-language project with a typo'd key fails loud
+	// identically to a non-go one (ISSUE-008): an out-of-vocabulary pass key is a
+	// *ConfigError (exit 2), never a silent skip that disables a pass.
+	if err := validateToolchainKeys(opts.Config); err != nil {
+		return map[CheckType]PassExecutor{}, err
 	}
 
 	language := opts.Language
@@ -296,8 +313,31 @@ func resolveToolchain(language string, cfg *config.Config) (Toolchain, error) {
 	return toolchain, nil
 }
 
+// validateToolchainKeys is the single source of truth for enforcement.toolchain
+// key validity (ISSUE-008 / REQ-001). It returns a *ConfigError for the FIRST
+// key that parseCheckType does not recognize, naming the offending key and
+// enumerating the allowed vocabulary (lint/build/test/semgrep) so the author
+// can self-correct a typo. A `semgrep:` key is accepted as in-vocabulary even
+// though it has no toolchain-overlay effect today (semgrep stays the shared
+// executor). A nil cfg or empty toolchain map is valid (returns nil).
+func validateToolchainKeys(cfg *config.Config) error {
+	if cfg == nil {
+		return nil
+	}
+	for pass := range cfg.Enforcement.Toolchain {
+		if _, ok := parseCheckType(pass); !ok {
+			return &ConfigError{Message: fmt.Sprintf(
+				"unknown enforcement.toolchain pass key %q in backstop.yml: allowed keys are lint, build, test, semgrep", pass)}
+		}
+	}
+	return nil
+}
+
 // declaredEntries maps config.Enforcement.Toolchain (string-keyed by pass name)
-// to CheckType-keyed ToolchainEntry values, skipping unrecognized pass names.
+// to CheckType-keyed ToolchainEntry values. By the time this runs the keys have
+// already been validated by validateToolchainKeys (the single source of truth),
+// so the unrecognized-name branch is a defensive no-op over an already-validated
+// map rather than the silent-skip hole ISSUE-008 closed.
 func declaredEntries(cfg *config.Config) map[CheckType]ToolchainEntry {
 	entries := map[CheckType]ToolchainEntry{}
 	if cfg == nil {

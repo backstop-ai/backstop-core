@@ -2,11 +2,58 @@ package check
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/config"
 )
+
+// unknownKeyRustBackstopYML is a non-go declared stack (language: rust) with an
+// out-of-vocabulary enforcement.toolchain key (`typecheck:`) alongside a valid
+// `lint:` entry. The typo path is the silent-skip bug ISSUE-008 closes.
+const unknownKeyRustBackstopYML = `project: rust-example
+language: rust
+enforcement:
+  toolchain:
+    lint:
+      command: "cargo clippy --message-format short"
+      format: regex-lines
+      extensions: [".rs"]
+    typecheck:
+      command: "cargo check"
+      format: regex-lines
+      extensions: [".rs"]
+`
+
+// unknownKeyGoBackstopYML is a GO-language project carrying a typo'd
+// enforcement.toolchain key (`lnit:`). The go early-return must NOT bypass the
+// key-vocabulary guard — this is the dominant-path silent-skip hole.
+const unknownKeyGoBackstopYML = `project: go-example
+language: go
+enforcement:
+  toolchain:
+    lnit:
+      command: "golangci-lint run"
+      format: regex-lines
+`
+
+// semgrepKeyRustBackstopYML declares an in-vocabulary `semgrep:` key alongside a
+// valid `lint:` entry for a non-go language. parseCheckType accepts "semgrep",
+// so the guard must accept it (accept-semgrep decision) even though it has no
+// toolchain-overlay effect today.
+const semgrepKeyRustBackstopYML = `project: rust-example
+language: rust
+enforcement:
+  toolchain:
+    lint:
+      command: "cargo clippy --message-format short"
+      format: regex-lines
+      extensions: [".rs"]
+    semgrep:
+      command: "semgrep --config auto"
+      format: regex-lines
+`
 
 // TestCodeCheck_Registry_SelectsToolchainByLanguage pins CLM-001: the registry
 // selects the toolchain by Config.Language; "go" and an absent language bind
@@ -123,6 +170,87 @@ func TestCodeCheck_Registry_CustomToolchainFromConfig(t *testing.T) {
 	if !sawCargo {
 		t.Error("fakeRunner never received the declared 'cargo' command")
 	}
+}
+
+// TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError pins CLM-001 /
+// REQ-001: an out-of-vocabulary enforcement.toolchain pass key is a fail-loud
+// *check.ConfigError naming the offending key AND enumerating the allowed
+// vocabulary (lint/build/test/semgrep) — never a silent skip that disables a
+// pass. The guard must hold REGARDLESS of language (the go-path early-return
+// must not bypass it), and an in-vocabulary `semgrep:` key must be ACCEPTED.
+func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
+	runner := &fakeRunner{}
+
+	// --- Non-go language with a typo'd key alongside valid entries. ---
+	t.Run("non_go_typo_key_is_config_error", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, unknownKeyRustBackstopYML)
+
+		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		if err == nil {
+			t.Fatalf("buildExecutorsForConfigErr returned nil error for an out-of-vocabulary key; got executors %v (silent skip is the bug)", execs)
+		}
+		var cfgErr *ConfigError
+		if !errors.As(err, &cfgErr) {
+			t.Fatalf("error %T (%v) is not a *check.ConfigError", err, err)
+		}
+		// Must name the offending key so the author can self-correct.
+		if !strings.Contains(cfgErr.Message, "typecheck") {
+			t.Errorf("message %q must name the offending key %q", cfgErr.Message, "typecheck")
+		}
+		// Must enumerate the allowed vocabulary.
+		for _, allowed := range []string{"lint", "build", "test", "semgrep"} {
+			if !strings.Contains(cfgErr.Message, allowed) {
+				t.Errorf("message %q must enumerate allowed vocabulary value %q", cfgErr.Message, allowed)
+			}
+		}
+		// It must NOT be a partial executor map silently missing the bad pass.
+		if len(execs) != 0 {
+			t.Errorf("on a config error the executor map must be empty, got %d entries (partial map masks the silent-skip bug)", len(execs))
+		}
+	})
+
+	// --- Sharp edge: a GO-language project with a typo'd key ALSO errors. ---
+	// This proves the guard runs BEFORE the go/empty-language early-return at
+	// registry.go's language branch, closing the dominant-path silent-skip hole.
+	t.Run("go_language_typo_key_is_config_error", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, unknownKeyGoBackstopYML)
+
+		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		if err == nil {
+			t.Fatalf("go-language project with a typo'd toolchain key returned nil error; the guard must run before the go early-return (silent non-enforcement on the dominant path)")
+		}
+		var cfgErr *ConfigError
+		if !errors.As(err, &cfgErr) {
+			t.Fatalf("go-path error %T (%v) is not a *check.ConfigError", err, err)
+		}
+		if !strings.Contains(cfgErr.Message, "lnit") {
+			t.Errorf("go-path message %q must name the offending key %q", cfgErr.Message, "lnit")
+		}
+		if len(execs) != 0 {
+			t.Errorf("go-path config error must yield an empty executor map, got %d entries", len(execs))
+		}
+	})
+
+	// --- Accept-semgrep decision: `semgrep:` is in parseCheckType's vocabulary
+	// and must NOT be rejected, even though it has no toolchain-overlay effect
+	// today (semgrep stays the shared executor). Pins the decision so a future
+	// tightening that wrongly rejects it fails loud here. ---
+	t.Run("semgrep_key_is_accepted", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, semgrepKeyRustBackstopYML)
+
+		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		if err != nil {
+			t.Fatalf("a `semgrep:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
+		}
+		// semgrep stays the shared executor (no toolchain overlay effect today).
+		if _, ok := execs[CheckTypeSemgrep].(*semgrepExecutor); !ok {
+			t.Errorf("semgrep executor = %T, want shared *semgrepExecutor", execs[CheckTypeSemgrep])
+		}
+		// The valid lint entry alongside it still builds.
+		if _, ok := execs[CheckTypeLint].(*commandExecutor); !ok {
+			t.Errorf("lint executor = %T, want *commandExecutor (valid entry must still build)", execs[CheckTypeLint])
+		}
+	})
 }
 
 // loadConfigFromYAML writes the given YAML to a temp backstop.yml and loads it

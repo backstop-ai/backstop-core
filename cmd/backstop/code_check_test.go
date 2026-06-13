@@ -446,6 +446,97 @@ func TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError(t *testing.T) 
 	})
 }
 
+// unknownToolchainKeyProject scaffolds a temp project whose backstop.yml
+// declares an enforcement.toolchain block containing an out-of-vocabulary pass
+// key. A routable compiled manifest is written so manifest routing is NOT the
+// blocker — the only failure must be the bad toolchain key. The language and
+// the offending key are caller-supplied so the same harness covers both the
+// non-go and go boundary paths.
+func unknownToolchainKeyProject(t *testing.T, language, badKey string) string {
+	t.Helper()
+	dir := t.TempDir()
+	backstopYML := "project: bad-toolchain-key\nlanguage: " + language + `
+enforcement:
+  toolchain:
+    lint:
+      command: "lint-tool run"
+      format: regex-lines
+    ` + badKey + `:
+      command: "bogus run"
+      format: regex-lines
+`
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(backstopYML), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// A routable manifest so LoadManifest does NOT fail first — the only failure
+	// must be the bad toolchain key.
+	manifest := `{"rules": [{"extensions": [".go", ".rs"], "check_types": ["lint", "build", "test"]}]}`
+	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	// A source file so the scope is non-empty.
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	return dir
+}
+
+// TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo pins CLM-002 / REQ-001
+// at the consumption boundary: an out-of-vocabulary enforcement.toolchain key
+// surfaces from the registry through check.Run and the standalone code-check
+// command as an exit-2 CONFIG error — not a panic, not a swallowed error, not a
+// green skip. Reuses the chdirTemp + checkRunFn → check.RunWith(stubEnsurer)
+// harness so the path is hermetic (no tool installed or run). Confirms the
+// boundary holds on BOTH the non-go and go paths.
+func TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo(t *testing.T) {
+	cases := []struct {
+		name     string
+		language string
+		badKey   string
+	}{
+		{name: "non_go_path", language: "rust", badKey: "typecheck"},
+		{name: "go_path", language: "go", badKey: "lnit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := unknownToolchainKeyProject(t, tc.language, tc.badKey)
+			restore := chdirTemp(t, dir)
+			defer restore()
+
+			origRun := checkRunFn
+			defer func() { checkRunFn = origRun }()
+			checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+				return check.RunWith(ctx, check.RunOptions{
+					Options:        opts,
+					SemgrepEnsurer: stubEnsurer{},
+				})
+			}
+
+			root := NewRootCommand()
+			root.SetArgs([]string{"code", "check", "--all"})
+			err := root.Execute()
+			if err == nil {
+				t.Fatal("code check --all returned nil for an unknown toolchain key; want exit-2 config error (silent skip is the bug)")
+			}
+			var exitErr *ExitCodeError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
+			}
+			if exitErr.Code != ExitConfigError {
+				t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
+			}
+			// The offending key carries through from the registry *check.ConfigError.
+			if !strings.Contains(exitErr.Message, tc.badKey) {
+				t.Errorf("message %q should name the offending key %q", exitErr.Message, tc.badKey)
+			}
+		})
+	}
+}
+
 // TestCLI_TSDeclaredStack_SmokeEndToEnd is the ISSUE-003 acceptance smoke: a
 // TypeScript project with a declared fake toolchain proves the data-driven
 // stack path end-to-end — registry selection by language, declared command

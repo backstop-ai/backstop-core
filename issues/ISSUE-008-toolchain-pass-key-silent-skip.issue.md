@@ -6,13 +6,58 @@ issue:
   id: ISSUE-008
   title: "typo'd enforcement.toolchain pass keys are silently skipped"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-12"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    declaredEntries returns a *ConfigError for any enforcement.toolchain
+    key that is not a recognized pass name (lint/build/test/semgrep),
+    naming the bad key and the allowed vocabulary, consistent with the
+    missing-toolchain and zero-routable fail-loud precedents.
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      An unrecognized pass key under enforcement.toolchain must be a
+      config error (exit 2) naming the offending key and the allowed
+      vocabulary — never a silent skip that disables a pass.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: declaredEntries surfaces a ConfigError for an unrecognized toolchain pass key, naming the key and allowed values.
+    tests:
+      - TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError
+  - id: CLM-002
+    requirement: REQ-001
+    text: the error reaches the standalone code check CLI as exit 2.
+    tests:
+      - TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo
+  - id: CLM-003
+    requirement: REQ-001
+    text: valid declarations continue to construct executors unchanged (regression guard).
+    tests:
+      - TestCodeCheck_Registry_CustomToolchainFromConfig
+
+contracts:
+  - file: pkg/check/registry.go
+    consumes:
+      - source: pkg/config/config.go
+        name: ToolchainPass
+        kind: type
 ---
 
 # typo'd enforcement.toolchain pass keys are silently skipped
