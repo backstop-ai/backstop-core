@@ -185,6 +185,16 @@ func filterViolations(scope *GateScope, violations []Violation) []Violation {
 	}
 	filtered := make([]Violation, 0, len(violations))
 	for _, violation := range violations {
+		// Project-wide (build/typecheck) violations are NEVER scope-filtered:
+		// they may legitimately reference out-of-scope files and must still
+		// fail a diff-scoped gate (Ratified Design Constraint 3). This is a
+		// structural exemption on the ProjectWide field, not a Rule string
+		// match — the tsc/sarif parsers populate Rule (e.g. "TS2304"), so a
+		// Rule=="build" match would miss them.
+		if violation.ProjectWide {
+			filtered = append(filtered, violation)
+			continue
+		}
 		if violation.File != "" && scope.Contains(violation.File) {
 			filtered = append(filtered, violation)
 		}

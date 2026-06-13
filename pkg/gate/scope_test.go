@@ -105,3 +105,61 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+// TestGate_FilterViolations_BuildPassExemptFromScopeFilter pins CLM-008's
+// gate-layer half (Ratified Design Constraint 3): a project-wide build/typecheck
+// violation must NEVER be scope-filtered, even when it references an
+// out-of-scope file. Using a NON-EMPTY parser-populated Rule (e.g. "TS2304") is
+// load-bearing — a Rule=="build" string-match exemption would PASS against the
+// broken impl, so the test pins the STRUCTURAL ProjectWide field, not the Rule
+// string. A lint/semgrep violation (ProjectWide==false) on an out-of-scope file
+// IS still filtered.
+func TestGate_FilterViolations_BuildPassExemptFromScopeFilter(t *testing.T) {
+	scope := newGateScope("/repo", GateScopeModeDiff, []string{"a.ts"}, nil)
+
+	buildViolation := Violation{
+		Rule:        "TS2304", // non-empty, parser-populated — NOT "build"
+		File:        "b.ts",   // OUT of scope (only a.ts is in scope)
+		Message:     "Cannot find name 'foo'.",
+		Severity:    "error",
+		ProjectWide: true,
+	}
+	lintViolation := Violation{
+		Rule:        "no-undef",
+		File:        "c.ts", // OUT of scope
+		Message:     "'x' is not defined.",
+		Severity:    "error",
+		ProjectWide: false,
+	}
+	inScopeLint := Violation{
+		Rule:        "no-undef",
+		File:        "a.ts", // IN scope
+		Message:     "'y' is not defined.",
+		Severity:    "error",
+		ProjectWide: false,
+	}
+
+	filtered := filterViolations(scope, []Violation{buildViolation, lintViolation, inScopeLint})
+
+	var sawBuild, sawOutOfScopeLint, sawInScopeLint bool
+	for _, v := range filtered {
+		switch {
+		case v.Rule == "TS2304":
+			sawBuild = true
+		case v.Rule == "no-undef" && v.File == "c.ts":
+			sawOutOfScopeLint = true
+		case v.Rule == "no-undef" && v.File == "a.ts":
+			sawInScopeLint = true
+		}
+	}
+
+	if !sawBuild {
+		t.Error("project-wide build violation (Rule=TS2304, out-of-scope b.ts) was filtered out; it must be exempt via the structural ProjectWide field")
+	}
+	if sawOutOfScopeLint {
+		t.Error("out-of-scope lint violation (ProjectWide=false) survived the filter; it must be filtered")
+	}
+	if !sawInScopeLint {
+		t.Error("in-scope lint violation was filtered out; in-scope violations must be retained")
+	}
+}

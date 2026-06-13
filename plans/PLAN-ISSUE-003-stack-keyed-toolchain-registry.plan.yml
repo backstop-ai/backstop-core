@@ -1,0 +1,1059 @@
+---
+plan_id: PLAN-ISSUE-003
+spec_id: ISSUE-003
+created: "2026-06-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... ./pkg/config/... ./pkg/gate/... ./cmd/backstop/... -run \"TestCodeCheck|TestConfig\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-003 — replace the hardwired pass→tool bindings (the flat
+  map[CheckType]PassExecutor returned by buildDefaultExecutorsWithRunner at
+  pkg/check/check.go:334-351) with a stack-keyed registry where a stack is
+  DATA: per pass a {command, format} plus routing extensions and a test
+  dependency-mapping knob. Go and TypeScript ship as built-in entries; any
+  other stack is declarable in backstop.yml. Selected by Config.Language,
+  Go-default when language absent. Builds on ISSUE-002 (real Go executors)
+  and ISSUE-005 (compiled-manifest routing + languageExtensions table +
+  zero-routable ConfigError exit-2 boundary) — both landed on main.
+
+  The six Ratified Design Constraints in the issue body are SETTLED. Do not
+  re-open: (1) TS test command is explicitly declared, no package.json
+  detection; (2) scope semantics are per-pass invocation concern; (3)
+  build/typecheck violations are NEVER scope-filtered; (4) missing toolchain
+  for declared language is exit-2 config error; (5) pack ToolConfig execution
+  out of scope; (6) traceability steps stay Go-only.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN DECISIONS made while planning (called out per the prompt):
+
+  1. EXECUTOR GENERALIZATION — preserve-the-four, add-a-generic (hybrid).
+     The four existing Go executors (lintExecutor, buildExecutor,
+     testExecutor, semgrepExecutor in check.go) carry bespoke behaviors worth
+     preserving verbatim: golangci JSON parsing + IsAvailable PATH probe,
+     go-build crash-vs-findings guard, testExecutor fileMode package mapping
+     (goPackageSelector), semgrep ensurer/config assembly. They REMAIN as the
+     `go` stack's registry implementation — zero behavioral change, they just
+     move from hardwired defaults to named registry slots. A NEW generic
+     commandExecutor (parameterized by command string, parser/format, and a
+     per-pass ScopeKind: lint=file-args, build=project-wide, test=dependency-
+     mapped-with-fallback) backs the typescript built-in AND every declared
+     stack. This is the minimal-churn reading of the issue's "planner picks"
+     latitude: bespoke Go behavior is not re-derived through a generic path
+     (no regression risk on the landed ISSUE-002 work), while the abstraction
+     is still REAL because TS + declared stacks exercise it end-to-end.
+
+  2. CONFIG SCHEMA SHAPE — two new keys under enforcement.
+     enforcement.toolchain: map keyed by pass name (lint|build|test) → object
+       {command: string (required), format: string (required, one of the
+       named parser formats), extensions: []string (optional; declares the
+       stack's routable extensions), test_dependency_command: string
+       (optional; the per-toolchain dependency-mapping knob for the test
+       pass — e.g. "vitest --related", full-suite `command` is the fallback)}.
+     enforcement.test_command: string — the explicitly-declared TS/declared-
+       stack test command (constraint 1; no package.json detection). Both
+       added to artifacts/backstop-yml/v1/schema.json (additionalProperties
+       stays false; the strict YAML decode in config.go KnownFields(true) also
+       enforced) and to the Enforcement struct in pkg/config/config.go.
+     A declared toolchain whose `format` is not a known parser format, or a TS
+     stack with no test_command, is a config error (exit 2) — fail-loud, never
+     silent skip.
+
+  3. CheckScoped RECONCILIATION — per-pass scope is an invocation concern,
+     build/typecheck run project-wide exactly ONCE, and build/typecheck
+     violations are exempted from gate scope-filtering via a STRUCTURAL field
+     (not string matching).
+     TRAP (the integration trap for this plan, traced):
+       - cmd/backstop/gate.go realCodeChecker.CheckScoped (gate.go:449-465)
+         LOOPS over scope.Files calling runCheck(ScopeModeFile, file) ONCE PER
+         FILE. This is wrong under per-pass semantics on BOTH axes: lint runs N
+         invocations of 1 file (constraint says ONE invocation with N file
+         args) and build/tsc runs project-wide N times. ScopeKind alone cannot
+         fix this from INSIDE a single Run — the OUTER per-file loop must go.
+         RESOLUTION (UNCONDITIONAL, TASK-016 step 3): replace the per-file loop
+         with a SINGLE runCheck carrying the whole scope file list; per-pass
+         ScopeKind then decides arg shape — lint: all scoped files as args in
+         ONE invocation; build/typecheck: ONE project-wide invocation ignoring
+         the list; test: dependency-mapped once with full-suite fallback (Go:
+         existing fileMode package mapping; TS: declared test_dependency_command
+         with `command` fallback). check.Run/ScopeMode must accept a multi-file
+         scope list for this path (carry the explicit file set through Options),
+         so a single Run covers all scoped files rather than the gate looping.
+       - pkg/gate/step_delegate.go:104 filterViolations(scope, violations)
+         filters EVERY code-check violation to in-scope files
+         (scope.Contains(violation.File)). Constraint 3 says build/typecheck
+         violations must NEVER be scope-filtered: a change to a.ts that breaks
+         a type in unchanged b.ts must fail a diff-scoped gate, and that
+         violation references out-of-scope b.ts.
+         WHY STRING MATCHING ON Rule IS WRONG: the bridge fallback
+         (checkViolationsToGate, gate.go:524) only yields Rule=="build" when
+         cv.Rule is EMPTY. But the tsc parser (TASK-003) and sarif parser
+         POPULATE Rule (e.g. "TS2304", a SARIF ruleId), so a TS typecheck
+         violation on an out-of-scope file carries Rule=="TS2304"; a Rule=="build"
+         exemption would NOT match it, filterViolations would drop it, and the
+         gate would go GREEN on a broken typecheck — the exact silent
+         non-enforcement constraint 3 forbids.
+         RESOLUTION (STRUCTURAL): add a field to gate.Violation
+         (pkg/gate/result.go) — ProjectWide bool, set from the originating
+         CheckType (cv.Pass==CheckTypeBuild → ProjectWide=true) — populated in
+         checkViolationsToGate (gate.go:519) from cv.Pass, INDEPENDENT of the
+         parser-populated Rule. filterViolations (pkg/gate/scope.go:182) exempts
+         violations whose ProjectWide is true; lint/test/semgrep keep filtering.
+         Build-pass violations are likewise exempt from any scoped-files
+         assertion logic in tests (they may legitimately reference out-of-scope
+         files). The baseline-comparison step (gate step 7) remains the
+         suppression mechanism for pre-existing project-wide violations.
+
+  ─────────────────────────────────────────────────────────────────────────
+  HERMETICITY (this repo learned via a literal fork bomb — NO live tool
+  invocation in unit tests): all registry/parser/executor unit tests inject
+  the CommandRunner seam (RunOptions.Runner / fakeRunner from
+  check_test.go:815) and feed fixture tool output; semgrep uses stubEnsurer.
+  parseSemgrep/golangci/build/test reuse existing fixtures. New parser tests
+  (sarif/regex-lines/eslint-json/tsc) feed static byte fixtures. The TS smoke
+  task constructs a temp TS project whose declared toolchain points at a fake
+  shell script echoing fixture eslint JSON — proving the declared-stack path
+  end-to-end WITHOUT requiring node/eslint/tsc installed, still bounded.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ADJACENT ISSUES — design compatibly, do NOT fix:
+    - ISSUE-006 (semgrep preamble parsing, golangci exit-3 diagnostics): the
+      existing crash-vs-findings guards stay as-is; the known baseline of
+      violations the dogfood task expects stems partly from here.
+    - ISSUE-007 (exclusion config): the ToolchainEntry / enforcement.toolchain
+      object shape leaves room for a future stack-generic `exclude_paths` knob
+      to slot in without reshaping the registry — keep the entry an extensible
+      object, not a positional tuple.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FILE CONTENTION (D-081): pkg/check/check.go is the contention point — the
+  registry, generic executor, and parser library all land there (or in
+  sibling files in pkg/check). Tasks touching check.go / the registry file are
+  SERIALIZED through dependency chains; parser-library and config-schema work
+  live in disjoint files and run in parallel phases.
+
+  STRUCTURE:
+    Phase 1: Setup — parser/registry/TS/declared/eslint fixtures (disjoint).
+    Phase 2: TDD — parser library: sarif + regex-lines generic formats and
+             the named-format registry (CLM-005). Disjoint file (parsers.go).
+    Phase 3: TDD — registry + go entries + language selection (CLM-001),
+             declared-stack-from-config (CLM-002). Serialized on check.go.
+    Phase 4: TDD — config schema: enforcement.toolchain + test_command +
+             TS test-command-required config error (CLM-004). Parallel to
+             Phase 2 file-wise (config + schema), but TS test pass needs the
+             registry so it chains after Phase 3.
+    Phase 5: TDD — TS executors (eslint-json + tsc parse) (CLM-003) and
+             routing (.ts/.tsx + declared extensions) (CLM-006), missing-
+             toolchain config error exit-2 across BOTH CLI paths (CLM-007).
+    Phase 6: TDD — per-pass scope semantics: lint file-args / build project-
+             wide-unfiltered, CheckScoped + filterViolations reconciliation
+             (CLM-008).
+    Phase 7: Comprehensive verification (full gate, coverage >=90 on
+             pkg/check) + dogfood (code check --all, report-only, expect the
+             known ~7-violation baseline, flag NEW) + TS-fixture smoke.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures for parsers, registry, TS, declared stacks
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Parser, Registry, TS, and Declared-Stack Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create parser-format and toolchain test fixtures (sarif, regex-lines, eslint-json, tsc, TS config)"
+        description: |
+          Create the static test fixtures every parser/registry/TS test in this
+          plan consumes. No production code changes here — fixtures only.
+
+          Under pkg/check/testdata/ (or as fixture literals in a new
+          pkg/check/fixtures_toolchain_test.go helper — prefer testdata files
+          for the JSON blobs, helpers for tiny strings):
+            - sarif-sample.json: a SARIF log with runs[].results[] carrying
+              ruleId, level (error AND warning to cover both), message.text,
+              and locations[0].physicalLocation.artifactLocation.uri +
+              region.startLine — exercising the sarif format parser (CLM-005).
+            - eslint-sample.json: an eslint JSON array of
+              {filePath, messages:[{ruleId, severity (1 AND 2), message, line}]}
+              — for the eslint-json format / TS lint parse (CLM-003, CLM-005).
+            - tsc-sample.txt: tsc --noEmit stderr lines of the shape
+              `file(line,col): error TSxxxx: message` (and at least one
+              multi-line / non-matching line to prove robustness) — for the
+              tsc format parse (CLM-003).
+            - regex-lines-sample.txt: generic `file:line:col message` lines for
+              the regex-lines configurable parser, including a line the default
+              pattern should and should not match (CLM-005).
+          And TS/declared-stack backstop.yml fixtures under
+          pkg/check/testdata/ (or pkg/config/testdata/ for the schema tests —
+          keep config-schema fixtures in pkg/config/testdata):
+            - declared-stack-backstop.yml: language: rust with
+              enforcement.toolchain.{lint,build,test} {command, format:
+              regex-lines, extensions} — the declared-stack-as-data shape.
+            - ts-backstop.yml: language: typescript with
+              enforcement.test_command declared (the explicit TS test command).
+            - ts-no-test-command-backstop.yml: language: typescript WITHOUT
+              enforcement.test_command — the config-error fixture (CLM-004).
+
+          These fixtures back CLM-002 through CLM-006. Disjoint from every
+          other file scope in this plan.
+        files:
+          - pkg/check/testdata/sarif-sample.json
+          - pkg/check/testdata/eslint-sample.json
+          - pkg/check/testdata/tsc-sample.txt
+          - pkg/check/testdata/regex-lines-sample.txt
+          - pkg/check/testdata/declared-stack-backstop.yml
+          - pkg/config/testdata/ts-backstop.yml
+          - pkg/config/testdata/ts-no-test-command-backstop.yml
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD — parser library (named formats + generic sarif/regex-lines)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Output Parser Library (Named Formats + Generic Sarif/Regex-Lines)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing tests for the sarif and regex-lines generic parser formats"
+        description: |
+          Add failing tests to a new pkg/check/parsers_test.go pinning the
+          named-format parser library and the two generic formats. They fail
+          until TASK-003 (the parsers and the format registry do not yet exist).
+
+          Mandated test names (exact, character-for-character from CLM-005):
+
+            - TestCodeCheck_Parsers_SarifFormat: load sarif-sample.json and
+              assert the sarif parser returns violations whose File comes from
+              locations[0].physicalLocation.artifactLocation.uri, Line from
+              region.startLine, Message from message.text, Rule from ruleId,
+              and Severity mapped error/warning from the SARIF `level`
+              (default error when level absent). Assert both the error and
+              warning fixture rows map correctly.
+
+            - TestCodeCheck_Parsers_RegexLinesFormat: drive the regex-lines
+              parser with a configurable named-group pattern (groups
+              file/line/col/message) against regex-lines-sample.txt; assert the
+              matching line yields a violation with the captured file/line/
+              message and severity defaulting to "error", and the non-matching
+              line yields nothing.
+
+          Also add a table assertion that the format REGISTRY resolves each
+          named format string (golangci-json, go-build, go-test, eslint-json,
+          tsc, sarif, regex-lines) to a parser, and an unknown format name
+          resolves to an error (fail-loud — feeds the config-error path in
+          Phase 4). Tests only; no production edits.
+        files:
+          - pkg/check/parsers_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Implement the named-format parser library with sarif and regex-lines"
+        description: |
+          Make the TASK-002 tests pass in a new pkg/check/parsers.go.
+
+          1. Define a Parser function type that takes raw tool output ([]byte)
+             plus a target CheckType and returns ([]Violation, error), matching
+             the existing parse* signatures.
+          2. Provide a format registry mapping each named format to a Parser:
+               - golangci-json → wraps the existing parseGolangciJSON
+               - go-build      → wraps the existing parseGoBuildErrors
+               - go-test       → wraps the existing parseGoTestFailures
+               - eslint-json   → NEW: array of {filePath, messages:[{ruleId,
+                 severity 1|2, message, line}]}; map severity 2→error, 1→
+                 warning; File=filePath, Rule=ruleId.
+               - tsc           → NEW: `file(line,col): error TSxxxx: message`
+                 line parse; Rule=TSxxxx, Severity from error/warning keyword.
+               - sarif         → NEW: runs[].results[] (ruleId, locations[0].
+                 physicalLocation.artifactLocation.uri + region.startLine,
+                 message.text, level error/warning, default error).
+               - regex-lines   → NEW: configurable pattern with named groups
+                 file/line/col/message, severity default error.
+          3. Provide a lookup func that resolves a format-name string to a
+             Parser or returns an error for an unknown name (fail-loud).
+
+          Keep the existing parse* funcs in check.go UNCHANGED — the registry
+          wraps them so there is no behavioral drift on the landed Go parsers.
+          The eslint-json/tsc/sarif/regex-lines parsers are new pure functions
+          with no tool invocation.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - pkg/check/parsers.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run backstop code check on the parser library"
+        description: |
+          Fast inner-loop verification of the parser work. Run:
+
+              backstop code check
+
+          Confirm pkg/check compiles and the mandated parser tests pass
+          (TestCodeCheck_Parsers_SarifFormat,
+          TestCodeCheck_Parsers_RegexLinesFormat), the format-registry table
+          assertions hold (all seven named formats resolve; unknown name
+          errors), and the existing Go parser tests remain green (no behavioral
+          drift from wrapping parseGolangciJSON/parseGoBuildErrors/
+          parseGoTestFailures). No new violations introduced.
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD — stack-keyed registry, go entries, language selection,
+  #          declared-stack-from-config
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Toolchain Registry, Go Built-in Entries, Language Selection, Declared Stacks"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing tests for registry language selection and declared-stack-from-config executors"
+        description: |
+          Add failing tests to pkg/check/registry_test.go pinning the stack-
+          keyed registry. They fail until TASK-006 (the registry and the
+          language-selected executor construction do not yet exist).
+
+          Mandated test names (exact, character-for-character):
+
+            - TestCodeCheck_Registry_SelectsToolchainByLanguage (CLM-001):
+              construct executors for Config.Language=="go" and assert the
+              resulting map[CheckType]PassExecutor binds the GO built-in entries
+              (lint=golangci, build=go build, test=go test, semgrep), and that
+              an ABSENT language defaults to the Go stack (preserving current
+              behavior). Assert language=="typescript" selects the TS built-in
+              entries (eslint/tsc/declared-test/semgrep) — distinct commands
+              from the Go stack. Use the CommandRunner seam; assert on the
+              constructed executors' identity/binding, NOT on live execution.
+
+            - TestCodeCheck_Registry_CustomToolchainFromConfig (CLM-002): load
+              declared-stack-backstop.yml (language: rust, enforcement.toolchain
+              per pass with command+format) and assert the registry produces
+              working executors for lint/build/test with NO code changes —
+              drive each through a fakeRunner returning fixture output and
+              confirm the declared format parses it into violations. Assert the
+              declared command string is the one passed to the runner.
+
+          Tests only; no production edits.
+        files:
+          - pkg/check/registry_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement the stack-keyed toolchain registry with Go built-in entries and a generic command executor"
+        description: |
+          Make the TASK-005 tests pass. Land the registry in a new
+          pkg/check/registry.go and rewire construction in pkg/check/check.go.
+
+          1. Define ToolchainEntry: per pass a {Command string, Format string,
+             Extensions []string, TestDependencyCommand string}, an EXTENSIBLE
+             object (leave room for ISSUE-007's future exclude_paths — do not
+             make it a positional tuple). A Toolchain is a map CheckType →
+             ToolchainEntry plus the stack's routable extensions and an
+             explicit test command (for TS/declared stacks).
+          2. Built-in registry: predefined `go` and `typescript` Toolchains of
+             exactly the declared shape. The GO entries' executors REMAIN the
+             existing bespoke lintExecutor/buildExecutor/testExecutor/
+             semgrepExecutor (DESIGN DECISION 1 — preserve fileMode mapping,
+             crash guards, IsAvailable PATH probe verbatim; no behavioral
+             change). The TS entries use the NEW generic commandExecutor
+             (TASK-006 also introduces it): eslint (eslint-json format, lint
+             ScopeKind=file-args), tsc --noEmit (tsc format, build ScopeKind=
+             project-wide), and the declared test_command (test ScopeKind=
+             dependency-mapped-with-fallback). Semgrep stays the shared
+             semgrepExecutor for all stacks.
+          3. Generic commandExecutor: parameterized by (command, parser-from-
+             format, ScopeKind, runner). Execute splits the command, applies
+             ScopeKind (file-args appends scoped files; project-wide ignores
+             the scoped list; dependency-mapped uses TestDependencyCommand with
+             full-suite `command` fallback), runs via the CommandRunner seam,
+             and parses output via the named format. Reuse the existing crash-
+             vs-findings guard pattern for project-wide passes.
+          4. Replace buildDefaultExecutorsWithRunner's flat map with a
+             language-selecting constructor: select the Toolchain by
+             Config.Language (Go-default when empty), merge any
+             enforcement.toolchain overrides/declarations from config, and build
+             the executor map. Plumb Config.Language + enforcement toolchain
+             into Options/RunOptions (a Language field and the toolchain config)
+             so Run/RunWith can select the stack at invocation time. Keep the
+             contracted consumption of pkg/config.Config (the issue's contract:
+             pkg/check consumes config.Config) — pass the relevant fields in via
+             Options to avoid a hard import cycle if one exists; mirror how
+             PinnedSemgrepVersion is already threaded.
+
+          Do NOT change the four Go executors' bodies, the manifest routing
+          from ISSUE-005, or the parser funcs. Missing-toolchain config error
+          and TS-test-command-required error are added in later phases; this
+          task keeps the happy paths green.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Run backstop code check on the registry and language selection"
+        description: |
+          Fast inner-loop verification of the registry work. Run:
+
+              backstop code check
+
+          Confirm the two mandated registry tests pass
+          (TestCodeCheck_Registry_SelectsToolchainByLanguage,
+          TestCodeCheck_Registry_CustomToolchainFromConfig), the Go-default and
+          typescript selection branches hold, the declared-stack path produces
+          working executors with no code changes, and ALL pre-existing pkg/check
+          tests (engine semantics, executor, semgrep, manifest from ISSUE-005)
+          remain green — the four Go executors are unchanged in behavior. No new
+          violations.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+          - pkg/check/registry_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: TDD — config schema: enforcement.toolchain + test_command,
+  #          TS test-command-required config error
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: TDD — Config Schema (enforcement.toolchain + test_command) and TS Test-Command Requirement"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write failing tests for enforcement.toolchain / test_command schema and the TS test-command config error"
+        description: |
+          Add failing tests pinning the backstop.yml schema extension and the
+          TS test-command requirement. They fail until TASK-009/TASK-010.
+
+          In pkg/config/config_test.go (schema + struct decode):
+            - Extend a config-struct test to load a backstop.yml carrying
+              enforcement.toolchain (per-pass {command, format, extensions,
+              test_dependency_command}) and enforcement.test_command, asserting
+              both decode into the Enforcement struct (the strict KnownFields
+              decoder must ACCEPT the new keys, and the JSON schema must allow
+              them under additionalProperties:false). Assert an UNKNOWN key
+              under enforcement.toolchain entry is still rejected (schema
+              additionalProperties stays false) — guarding TestConfig_Struct_
+              RejectsUnknownKeys's invariant for the new objects.
+
+          Mandated test name (exact, character-for-character from CLM-004),
+          placed in pkg/check (the registry/executor layer enforces it):
+            - TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired: load
+              ts-no-test-command-backstop.yml (language: typescript, NO
+              enforcement.test_command) and assert constructing the TS toolchain
+              / running the test pass yields a *check.ConfigError (errors.As),
+              NOT a silent skip — the TS test pass REQUIRES an explicitly
+              declared command (constraint 1, no package.json detection). Add a
+              positive case: ts-backstop.yml WITH test_command constructs the
+              test executor successfully.
+
+          Tests only; no production edits.
+        files:
+          - pkg/config/config_test.go
+          - pkg/check/ts_executor_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Extend backstop.yml schema and Enforcement struct for toolchain + test_command"
+        description: |
+          Make the schema/struct half of TASK-008 pass.
+
+          1. artifacts/backstop-yml/v1/schema.json: add under
+             enforcement.properties:
+               - test_command: {type: string}
+               - toolchain: {type: object, additionalProperties: an object with
+                 properties command(string,required), format(string,required),
+                 extensions(array of string), test_dependency_command(string),
+                 additionalProperties:false}.
+             Keep enforcement.additionalProperties:false and the existing keys
+             intact. (Note: config.go validateAgainstSchema only enforces top-
+             level required + additionalProperties + the tier enum; the nested
+             toolchain object shape is primarily enforced by the strict YAML
+             KnownFields decode against the struct — so the struct fields below
+             are the load-bearing validation. Add the schema entries anyway for
+             documentation/artifact-validate parity.)
+          2. pkg/config/config.go Enforcement struct: add
+               TestCommand string `yaml:"test_command,omitempty" json:"test_command,omitempty"`
+               Toolchain map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`
+             and a ToolchainPass struct {Command, Format string; Extensions
+             []string; TestDependencyCommand string} with yaml/json tags. The
+             KnownFields(true) decoder then accepts the new keys and rejects
+             unknown ones inside them.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/config/config.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Enforce TS test-command requirement as an exit-2 config error in the registry"
+        description: |
+          Make the mandated TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired
+          test pass. In the registry layer (pkg/check/registry.go), when the
+          selected stack is typescript (or any declared stack whose test entry
+          relies on an explicit command) and enforcement.test_command is empty,
+          constructing/running the test pass must return a *check.ConfigError
+          (the existing type at pkg/check/semgrep.go:13) so the path exits 2 —
+          NEVER a silent skip-with-warning. The positive case (test_command
+          present) constructs the test executor normally.
+
+          This depends on TASK-009 (the Enforcement.TestCommand field must
+          exist to read) AND TASK-008's test. It is a SEPARATE task from
+          TASK-009 to preserve a clean split (TASK-009 is the schema/struct
+          implementation that satisfies the schema half; this task satisfies
+          the config-error half). This task touches a DISJOINT file
+          (registry.go vs TASK-009's schema+config.go) but depends_on TASK-009
+          (it reads the Enforcement.TestCommand field TASK-009 adds), so the two
+          run SERIALLY — TASK-009 then TASK-010 — not in parallel.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - pkg/check/registry.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-008
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Run backstop code check on the config schema and TS test-command requirement"
+        description: |
+          Fast inner-loop verification of the config + TS-test-command work.
+          Run:
+
+              backstop code check
+
+          Confirm the config-struct schema tests pass (enforcement.toolchain +
+          test_command decode; unknown nested keys rejected; TestConfig_Struct_
+          RejectsUnknownKeys still green), the mandated
+          TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired passes (TS
+          with no test_command → *check.ConfigError; with test_command → ok),
+          and no pre-existing config or check tests regressed. No new
+          violations.
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/config/config.go
+          - pkg/check/registry.go
+          - pkg/config/config_test.go
+          - pkg/check/ts_executor_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: TDD — TS executors (eslint/tsc parse), routing, missing-toolchain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: TDD — TS Executors, .ts/.tsx + Declared-Extension Routing, Missing-Toolchain Config Error"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write failing tests for TS eslint/tsc parsing and the missing-toolchain config error across both CLI paths"
+        description: |
+          Add failing tests pinning the TS executors and the missing-toolchain
+          config error. They fail until TASK-013.
+
+          Mandated test names (exact, character-for-character):
+
+            - TestCodeCheck_TSExecutors_ParseESLintJSON (CLM-003): drive the TS
+              lint executor through a fakeRunner returning eslint-sample.json;
+              assert the eslint-json format yields violations with correct
+              File(filePath)/Line/Message/Severity (2→error, 1→warning) and
+              Rule(ruleId).
+            - TestCodeCheck_TSExecutors_ParseTscOutput (CLM-003): drive the TS
+              build executor through a fakeRunner returning tsc-sample.txt;
+              assert `file(line,col): error TSxxxx: message` lines parse into
+              build violations with the right File/Line/Message and Rule=TSxxxx.
+            - TestCodeCheck_Routing_TSFilesRouteAllPasses (CLM-006): with a
+              typescript-language manifest/config, assert RouteFile on a `.ts`
+              AND a `.tsx` path returns {lint, build, test, semgrep} — matching
+              the treatment `.go` receives today.
+            - TestCodeCheck_Routing_DeclaredStackExtensionsRoute (CLM-006): with
+              a declared stack (declared-stack-backstop.yml) whose toolchain
+              declares extensions, assert files of those extensions route to the
+              declared passes equivalently.
+            - TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError
+              (CLM-007): with Config.Language declaring a stack that has NO
+              built-in toolchain AND no enforcement.toolchain declaration,
+              assert the standalone code-check path
+              (cmd/backstop/code_check.go) returns an *ExitCodeError with
+              Code==ExitConfigError (2), AND the gate step-2 path
+              (realCodeChecker.runCheck → gate.ConfigError → step_delegate maps
+              to exit 2) also exits 2 — NOT skip-with-warning, NOT a green pass.
+              Boundary test on BOTH CLI paths, mirroring ISSUE-005's
+              ConfigErrorPropagatesTo{CodeCheck,Gate}Exit pattern.
+
+          Routing additions to languageExtensions / routeFileDefaults are
+          REQUIRED for the routing tests; the .ts/.tsx multi-extension case
+          (note: languageExtensions is currently map[string]string 1:1 — it must
+          become map[string][]string to hold typescript → .ts/.tsx) is asserted
+          here and implemented in TASK-013.
+
+          Place the routing/parse tests in pkg/check; the missing-toolchain
+          boundary tests in cmd/backstop test files (code_check_test.go,
+          gate_test.go). Tests only; no production edits.
+        files:
+          - pkg/check/ts_routing_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+          - TASK-011
+
+      - id: TASK-013
+        type: implementation
+        title: "Wire TS executors, extend routing for .ts/.tsx + declared extensions, and the missing-toolchain config error"
+        description: |
+          Make the TASK-012 tests pass across registry.go, manifest.go, and the
+          cmd/backstop boundary.
+
+          1. TS executors: the typescript built-in Toolchain (TASK-006) binds
+             eslint (eslint-json, file-args lint) and tsc --noEmit (tsc format,
+             project-wide build) via the generic commandExecutor. Confirm the
+             eslint-json and tsc parsers (TASK-003) feed these executors so
+             TestCodeCheck_TSExecutors_ParseESLintJSON / ParseTscOutput pass.
+          2. Routing (pkg/check/manifest.go): generalize languageExtensions from
+             map[string]string to map[string][]string and add
+             typescript → [".ts", ".tsx"]; extend routeFileDefaults so .ts/.tsx
+             route to {lint, build, test, semgrep} like .go. A declared stack's
+             enforcement.toolchain extensions must route equivalently — derive
+             routing for declared extensions through the same mechanism the
+             compiled-manifest derivation uses (ISSUE-005's deriveRules), or via
+             config-declared extensions feeding the routable rule set. Preserve
+             the ISSUE-005 compiled-manifest detection and zero-routable
+             ConfigError path unchanged.
+          3. Missing-toolchain config error: when Config.Language names a stack
+             with no built-in entry and no enforcement.toolchain declaration,
+             registry construction returns a *check.ConfigError. Trace it across
+             BOTH callers exactly as ISSUE-005 did: check.Run propagates it
+             verbatim (check.go:273-276 pattern); cmd/backstop/code_check.go:126
+             type-asserts *check.ConfigError → ExitConfigError; gate.go:505
+             wraps any run error in gate.ConfigError → step_delegate.go:98 maps
+             to exit 2. Adjust cmd/backstop wiring ONLY if the trace shows the
+             config error is swallowed or mis-mapped; do not broaden error
+             handling.
+
+          Keep the four Go executors and the ISSUE-005 manifest logic behavior-
+          stable. The languageExtensions type change ripples to its existing
+          go → .go entry and deriveRules — update both to the []string shape.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/manifest.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Run backstop code check on TS executors, routing, and the missing-toolchain config error"
+        description: |
+          Fast inner-loop verification of the TS/routing/missing-toolchain work.
+          Run:
+
+              backstop code check
+
+          Confirm the five mandated Phase-5 tests pass
+          (TestCodeCheck_TSExecutors_ParseESLintJSON,
+          TestCodeCheck_TSExecutors_ParseTscOutput,
+          TestCodeCheck_Routing_TSFilesRouteAllPasses,
+          TestCodeCheck_Routing_DeclaredStackExtensionsRoute,
+          TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError),
+          that the languageExtensions []string migration did not regress
+          ISSUE-005's go-routing / compiled-manifest / zero-routable tests, and
+          that the missing-toolchain error exits 2 on BOTH the standalone and
+          gate step-2 paths. No new violations.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/manifest.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate.go
+          - pkg/check/ts_routing_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: TDD — per-pass scope semantics + CheckScoped/filterViolations
+  #          reconciliation (the integration trap)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: TDD — Per-Pass Scope Semantics and CheckScoped/filterViolations Reconciliation"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write failing tests for per-pass scope: lint file-args vs build project-wide, build violations never scope-filtered"
+        description: |
+          Add failing tests pinning the per-pass scope semantics and the gate-
+          layer exemption for build/typecheck violations. They fail until
+          TASK-016.
+
+          Mandated test name (exact, character-for-character from CLM-008),
+          placed in cmd/backstop (it must drive the GATE CheckScoped path so it
+          catches the per-file loop, which an in-process check.Run cannot):
+            - TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide: drive
+              realCodeChecker.CheckScoped (cmd/backstop/gate.go) with a
+              MULTI-FILE diff scope (>=2 scoped files) through an injected
+              fakeRunner / call log, and assert: (a) the LINT command was
+              invoked EXACTLY ONCE with ALL scoped files as arguments — NOT once
+              per file; (b) the BUILD command was invoked EXACTLY ONCE
+              PROJECT-WIDE (e.g. `go build ./...` / `tsc --noEmit`) with the
+              scoped files NOT appended; (c) neither pass was re-invoked per
+              file. Asserting against the GATE path (not a single in-process
+              Run) is load-bearing: it is what fails against the current
+              per-file loop and passes only after the loop is removed (TASK-016
+              step 3). Record runner calls per command to assert invocation
+              count and argument shape.
+
+          Add a gate-layer test (in pkg/gate, the filterViolations owner) — name
+          it descriptively, e.g.
+          TestGate_FilterViolations_BuildPassExemptFromScopeFilter — asserting
+          that a build-pass violation with a NON-EMPTY parser-populated Rule
+          (e.g. Rule=="TS2304", File an OUT-OF-scope path) and ProjectWide==true
+          is NOT filtered out by filterViolations under a diff scope, while a
+          lint/semgrep violation on an out-of-scope file (ProjectWide==false) IS
+          filtered. Using a NON-EMPTY Rule is load-bearing: a Rule=="build"
+          string-match exemption would PASS against the broken impl, so the test
+          must pin the structural ProjectWide field, not the Rule string. This
+          encodes constraint 3 (a change to a.ts breaking b.ts must fail a
+          diff-scoped gate even though the violation references out-of-scope
+          b.ts). Reference CLM-008.
+
+          Tests only; no production edits.
+        files:
+          - cmd/backstop/gate_scope_test.go
+          - pkg/gate/scope_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+          - TASK-014
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement per-pass scope semantics and exempt build/typecheck violations from gate scope-filtering"
+        description: |
+          Make the TASK-015 tests pass.
+
+          1. pkg/check/registry.go (commandExecutor + the go testExecutor
+             wiring): ScopeKind drives argument assembly — lint passes append
+             the scoped file list as tool args; build/typecheck passes run
+             project-wide and IGNORE the scoped list (invoked once); test passes
+             use the dependency-mapping knob with full-suite fallback (Go: the
+             existing fileMode goPackageSelector behavior; TS: the declared
+             test_dependency_command with `command` fallback). The four Go
+             executors already embody this (lint scoped via ResolveScope, build
+             `go build ./...`, test fileMode package) — confirm the generic
+             executor matches it for declared/TS stacks.
+          2. STRUCTURAL scope-filter exemption (NOT string matching):
+             - pkg/gate/result.go: add a field to gate.Violation — ProjectWide
+               bool — marking a violation as originating from a project-wide
+               pass (build/typecheck), independent of its Rule string.
+             - cmd/backstop/gate.go checkViolationsToGate (gate.go:519): set
+               ProjectWide=true when cv.Pass==check.CheckTypeBuild (the build
+               CheckType also carries TS tsc/typecheck), populated from cv.Pass
+               so it is correct even when the parser populated Rule (e.g.
+               "TS2304", a SARIF ruleId). Do NOT key off the Rule string.
+             - pkg/gate/scope.go filterViolations (scope.go:182): exempt
+               violations whose ProjectWide==true from the file-scope filter —
+               always retained; lint/test/semgrep (ProjectWide==false) keep
+               filtering on scope.Contains. Keep the GateScopeModeAll and
+               nil-scope short-circuits intact. This is the constraint-3 fix:
+               a build/typecheck violation referencing an out-of-scope file
+               (Rule populated) must still fail a diff-scoped gate, so it cannot
+               be matched by a Rule=="build" string and MUST be matched by the
+               structural ProjectWide field.
+          3. cmd/backstop/gate.go realCodeChecker.CheckScoped (gate.go:449-465):
+             UNCONDITIONALLY remove the per-file loop. Replace it with a SINGLE
+             runCheck carrying the ENTIRE scope file list via a NEW
+             check.Options.Files []string field with its own resolution branch
+             in pkg/check/scope.go — do NOT overload ScopeModeFile, whose
+             single-file semantics drive the standalone --file path and its 2s
+             timeout (code_check.go:117); those must be provably untouched.
+             Per-pass ScopeKind (step 1) then
+             produces the right arg shape from that one invocation: lint gets
+             all scoped files as args ONCE; build/typecheck runs project-wide
+             ONCE ignoring the list; test is dependency-mapped ONCE with
+             full-suite fallback. This is required, not optional — the existing
+             loop runs lint N×(1 file) and build N× project-wide, which
+             TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide
+             (driving CheckScoped with multiple files) asserts against. Do NOT
+             change CheckScoped's return type contract ([]gate.Violation, error).
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task
+          check.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+          - pkg/check/scope.go
+          - pkg/gate/result.go
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Run backstop code check on per-pass scope semantics and the build-violation exemption"
+        description: |
+          Fast inner-loop verification of the scope-semantics work. Run:
+
+              backstop code check
+
+          Confirm the mandated
+          TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide passes
+          (driving CheckScoped with multiple files: lint invoked ONCE with all
+          scoped file args; build invoked ONCE project-wide; no per-file loop),
+          the gate-layer build-exemption test passes (a build violation with a
+          NON-EMPTY parser Rule and ProjectWide==true survives diff-scope
+          filtering while lint/semgrep do not), and that the existing gate scope
+          tests (step_delegate, scope) and the earlier pkg/check suites remain
+          green. No new violations.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+          - pkg/gate/result.go
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_scope_test.go
+          - pkg/gate/scope_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Comprehensive verification — full gate + artifact validate +
+  #          dogfood + TS-fixture smoke
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification — Full Gate, Artifact Validate, Dogfood, TS Smoke"
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run the full backstop gate and artifact validate over the toolchain registry"
+        description: |
+          Final comprehensive verification — the full kill chain. The plan
+          touches .go files AND an artifact file
+          (artifacts/backstop-yml/v1/schema.json), so run BOTH:
+
+              backstop gate
+              backstop artifact validate --plan PLAN-ISSUE-003
+
+          The gate covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold on pkg/check),
+          and contract verification — confirming the issue's contract that
+          pkg/check/check.go consumes pkg/config.Config, and that REQ-001
+          (registry keyed by stack/pass selected by language, Go-default),
+          REQ-002 (declarable stack as data), REQ-003 (TS built-in toolchain),
+          REQ-004 (parser library incl. sarif + regex-lines), REQ-005 (.ts/.tsx
+          + declared-extension routing), and REQ-006 (missing-toolchain config
+          error + per-pass scope semantics) are satisfied. The explicit
+          `artifact validate` run confirms the extended backstop.yml schema is
+          itself valid. Verifies the whole registry — depends on every
+          implementation task.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/parsers.go
+          - pkg/check/check.go
+          - pkg/check/manifest.go
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+          - cmd/backstop/gate.go
+          - pkg/gate/scope.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-006
+          - TASK-009
+          - TASK-010
+          - TASK-013
+          - TASK-016
+          - TASK-004
+          - TASK-007
+          - TASK-011
+          - TASK-014
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Dogfood acceptance — run real code check --all against this repo and report (no fixes)"
+        description: |
+          Dogfood acceptance. Build the CLI from the working tree and run the
+          now-registry-driven passes against backstop-core itself (a go-language
+          project — selects the Go built-in toolchain):
+
+              go run ./cmd/backstop code check --all
+
+          With the registry in place, the Go stack must behave IDENTICALLY to
+          before (no behavioral change to the four Go executors). Report which
+          passes ran vs skipped and why:
+            - lint may LEGITIMATELY skip if golangci-lint is absent from PATH —
+              correct skip-with-warning, not a failure.
+            - semgrep should RUN (EnsureSemgrep installs on demand).
+            - build and test should RUN against the real repo.
+
+          EXPECT the known ~7-violation baseline that stems from the adjacent
+          ISSUE-006/007 realities (semgrep preamble parsing, golangci exit-3
+          diagnostics, exclusion config). REPORT the per-pass violation counts
+          and explicitly FLAG anything NEW beyond that known baseline as a
+          potential regression from this change. Do NOT fix any surfaced
+          violation — those are follow-up scope decisions for the user. Report
+          findings in the agent's final message; do NOT write a report file into
+          the repo.
+
+          Depends on TASK-018 so the gate has confirmed correctness before
+          pointing the CLI at the live repo.
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-006
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "TS-fixture smoke — prove the declared-stack path end-to-end against fake commands"
+        description: |
+          End-to-end smoke of the declared-stack / TS path WITHOUT requiring
+          node/eslint/tsc installed AND without any network install (hermetic,
+          bounded — this repo learned the fork-bomb lesson). In a temp dir,
+          construct a tiny TypeScript project fixture: a backstop.yml declaring
+          language: typescript with ALL invocation surfaces pinned to local fake
+          scripts so nothing reaches a real toolchain or the network:
+            - enforcement.toolchain.lint.command → a SHELL SCRIPT that ECHOES a
+              fixed eslint JSON blob (eslint-json format).
+            - enforcement.toolchain.build.command (the tsc/typecheck pass) →
+              EITHER a fake SHELL SCRIPT echoing a fixed tsc-format line (and
+              assert it parsed), OR — if the build pass is configured to probe
+              availability — assert a clean IsAvailable skip-with-warning. Do
+              NOT leave the build surface unpinned (no real `tsc`).
+            - enforcement.test_command → a script that exits 0.
+            - SEMGREP: stub or skip the semgrep pass so NO EnsureSemgrep network
+              install can fire — e.g. point the manifest/config so the semgrep
+              pass is not applicable for this fixture, or inject the
+              SemgrepEnsurer/PinnedSemgrepVersion so EnsureSemgrep resolves
+              without downloading. The smoke must complete with zero network
+              calls and zero real-tool execution beyond the local fake scripts.
+          Plus a `.ts` source file and a minimal compiled manifest so routing
+          applies. Build the CLI from the working tree and run:
+
+              go run ./cmd/backstop code check --all   (with BACKSTOP_CONFIG
+              pointed at the temp project)
+
+          Assert: the declared lint command (fake script) RAN and its echoed
+          eslint JSON parsed into violations via eslint-json; the build/tsc
+          surface behaved as pinned above (fake-script parse OR clean
+          IsAvailable skip); the test command (fake script) RAN; semgrep did NOT
+          trigger a network install; the `.ts` file routed through
+          lint/build/test/semgrep; and the run did NOT require a real
+          node/eslint/tsc binary. This proves the declared-stack-as-data path
+          (REQ-002/CLM-002) and the TS routing (CLM-006) end-to-end. REPORT the
+          observed pass dispatch and violation counts in the agent's final
+          message; do NOT write a report file into the repo. If the environment
+          cannot execute the fake shell scripts (e.g. sandbox restriction),
+          report that explicitly rather than silently passing.
+
+          Depends on TASK-018 (correctness confirmed), TASK-013 (TS/declared
+          routing + executors landed), and TASK-019 (serialized after the Go
+          dogfood — they share read relevance to registry.go and run as
+          sequential report-only acceptance steps).
+        files:
+          - pkg/check/registry.go
+          - pkg/check/manifest.go
+        claims:
+          - CLM-002
+          - CLM-006
+        depends_on:
+          - TASK-013
+          - TASK-018
+          - TASK-019

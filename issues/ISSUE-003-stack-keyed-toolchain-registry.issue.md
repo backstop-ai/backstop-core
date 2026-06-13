@@ -1,21 +1,128 @@
 ---
-title: "Stack-keyed toolchain registry + TypeScript native toolchain"
+title: "Data-driven toolchain registry — native enforcement for all stacks"
 schema_version: issue/v1
 
 issue:
   id: ISSUE-003
-  title: "Stack-keyed toolchain registry + TypeScript native toolchain"
+  title: "Data-driven toolchain registry — native enforcement for all stacks"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-11"
 
 complexity:
   scope: cross-cutting
   uncertainty: known
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    Replace the hardwired pass→tool bindings with a registry where a stack
+    is data, not code: per pass, a command plus a named output format from
+    a small parser library. Go and TypeScript ship as built-in registry
+    entries; any other stack is declarable in backstop.yml with the same
+    shape. Stack selected by language; missing toolchain for the declared
+    language is a config error. Scope semantics are per-pass (lint via
+    file args, build/typecheck project-wide and never scope-filtered,
+    tests dependency-mapped with full-suite fallback).
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      Executor bindings must be a registry keyed by (stack, pass),
+      selected by the backstop.yml language field, with Go as the default
+      when language is absent. Built-in stacks are predefined registry
+      entries with the same shape as declared ones.
+  - id: REQ-002
+    text: >
+      A stack must be declarable as data in backstop.yml: per pass, a
+      command and a named output format. A declared stack gets full
+      lint/build/test enforcement without any backstop code changes.
+  - id: REQ-003
+    text: >
+      A TypeScript built-in toolchain must ship: eslint (JSON output),
+      tsc --noEmit, and a test command explicitly declared in
+      backstop.yml — no package.json detection.
+  - id: REQ-004
+    text: >
+      A parser library must translate tool output to violations via named
+      formats: the built-in tool formats (golangci-json, go-build,
+      go-test, eslint-json, tsc) plus two generic formats — sarif and
+      regex-lines — so arbitrary tools are consumable without new code.
+  - id: REQ-005
+    text: >
+      Manifest routing must route a stack's declared extensions to
+      lint/build/test/semgrep the way .go routes today; built-in TS
+      covers .ts/.tsx, declared stacks declare their extensions.
+  - id: REQ-006
+    text: >
+      A missing toolchain for the project's declared language must be a
+      config error (exit 2), not skip-with-warning. Scope semantics are
+      per-pass: lint passes scoped files as arguments; build/typecheck
+      runs project-wide with violations never scope-filtered (baseline
+      comparison is the suppression mechanism); tests use dependency
+      mapping with full-suite fallback.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: the registry selects the toolchain by backstop.yml language, defaulting to Go.
+    tests:
+      - TestCodeCheck_Registry_SelectsToolchainByLanguage
+  - id: CLM-002
+    requirement: REQ-002
+    text: a custom stack declared in backstop.yml (command + format per pass) produces working executors with no code changes.
+    tests:
+      - TestCodeCheck_Registry_CustomToolchainFromConfig
+  - id: CLM-003
+    requirement: REQ-003
+    text: TS executors parse eslint JSON and tsc output into violations with correct file/line/message/severity.
+    tests:
+      - TestCodeCheck_TSExecutors_ParseESLintJSON
+      - TestCodeCheck_TSExecutors_ParseTscOutput
+  - id: CLM-004
+    requirement: REQ-003
+    text: the TS test pass requires an explicitly declared test command and config-errors without one.
+    tests:
+      - TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired
+  - id: CLM-005
+    requirement: REQ-004
+    text: the sarif and regex-lines generic formats parse arbitrary tool output into violations.
+    tests:
+      - TestCodeCheck_Parsers_SarifFormat
+      - TestCodeCheck_Parsers_RegexLinesFormat
+  - id: CLM-006
+    requirement: REQ-005
+    text: .ts/.tsx files route to lint/build/test/semgrep; a declared stack's extensions route equivalently.
+    tests:
+      - TestCodeCheck_Routing_TSFilesRouteAllPasses
+      - TestCodeCheck_Routing_DeclaredStackExtensionsRoute
+  - id: CLM-007
+    requirement: REQ-006
+    text: a missing toolchain for the declared language is an exit-2 config error.
+    tests:
+      - TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError
+  - id: CLM-008
+    requirement: REQ-006
+    text: lint passes receive scoped file args while build/typecheck always runs project-wide with unfiltered reporting.
+    tests:
+      - TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide
+
+contracts:
+  - file: pkg/check/check.go
+    consumes:
+      - source: pkg/config/config.go
+        name: Config
+        kind: type
 ---
 
-# Stack-keyed toolchain registry + TypeScript native toolchain
+# Data-driven toolchain registry — native enforcement for all stacks
 
 ## Problem
 
@@ -43,17 +150,38 @@ language.
 
 ## Solution
 
-### 1. Toolchain registry
+### 1. Toolchain registry — a stack is data, not code
 
 Replace the flat `map[CheckType]PassExecutor` returned by `buildDefaultExecutors` with a
-registry keyed by `(stack, pass)` → executor. The pass vocabulary
-(lint / build / test / semgrep) remains as the semantic layer; the registry maps each
-combination to the concrete command and output parser for that stack.
+registry keyed by `(stack, pass)`. The pass vocabulary
+(lint / build / test / semgrep) remains as the semantic layer; a registry entry is
+**data**: a command plus a named output format. Built-in stacks (go, typescript) are
+predefined entries of exactly the same shape; any other stack is declarable in
+`backstop.yml`:
 
-Stack is selected by `language:` in `backstop.yml` at `Check` invocation time.
-`buildDefaultExecutors` (or its replacement) reads `cfg.Language` and returns only the
-executor bindings appropriate for that stack, falling back to the Go stack when `language:`
-is absent (preserving current behavior).
+```yaml
+language: rust
+enforcement:
+  toolchain:
+    lint:  {command: "cargo clippy --message-format json", format: regex-lines}
+    build: {command: "cargo build", format: regex-lines}
+    test:  {command: "cargo test", format: regex-lines}
+```
+
+The goal is all stacks, not a per-language whitelist: TypeScript is the second
+built-in because it forces the abstraction to be real, not because it is the target.
+A declared stack gets full native enforcement with zero backstop code changes.
+
+Stack is selected by `language:` in `backstop.yml` at `Check` invocation time, falling
+back to the Go stack when `language:` is absent (preserving current behavior).
+
+### 1b. Output parser library
+
+The only stack-specific code anywhere is output parsing, so parsers are a small named
+library selectable per pass declaration: built-in tool formats (`golangci-json`,
+`go-build`, `go-test`, `eslint-json`, `tsc`) plus two generic formats that unlock
+arbitrary tools — `sarif` (the static-analysis interchange format most modern tools
+can emit) and `regex-lines` (configurable `file:line:col message` line matching).
 
 ### 2. TypeScript toolchain
 

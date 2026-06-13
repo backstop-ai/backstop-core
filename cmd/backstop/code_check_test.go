@@ -349,3 +349,221 @@ type stubEnsurer struct{}
 func (stubEnsurer) EnsureSemgrep(backstopDir, pinnedVersion string) (string, error) {
 	return "/usr/bin/true", nil
 }
+
+// missingToolchainProject scaffolds a temp project whose backstop.yml declares a
+// language with no built-in toolchain and no enforcement.toolchain declaration.
+// A valid go-routable compiled manifest is written so routing is NOT the
+// blocker — the registry's missing-toolchain config error is. Returns the
+// project dir.
+func missingToolchainProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	// language: rust with no enforcement.toolchain → no toolchain available.
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: no-toolchain\nlanguage: rust\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// A routable manifest so LoadManifest does NOT fail first — the only failure
+	// must be the missing toolchain.
+	manifest := `{"rules": [{"extensions": [".rs"], "check_types": ["lint", "build", "test"]}]}`
+	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	// A source file so the scope is non-empty.
+	if err := os.WriteFile(filepath.Join(dir, "lib.rs"), []byte("fn main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write lib.rs: %v", err)
+	}
+	return dir
+}
+
+// TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError pins CLM-007: a
+// language declared in backstop.yml that has NO built-in toolchain AND no
+// enforcement.toolchain declaration is an exit-2 config error on BOTH CLI
+// paths — the standalone code-check command and the gate step-2 path — never a
+// skip-with-warning and never a green pass. Mirrors ISSUE-005's
+// ConfigErrorPropagatesTo{CodeCheck,Gate}Exit boundary tests.
+func TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError(t *testing.T) {
+	// ---- Standalone path: backstop code check --all exits 2. ----
+	t.Run("standalone_code_check", func(t *testing.T) {
+		dir := missingToolchainProject(t)
+		restore := chdirTemp(t, dir)
+		defer restore()
+
+		origRun := checkRunFn
+		defer func() { checkRunFn = origRun }()
+		checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+			return check.RunWith(ctx, check.RunOptions{
+				Options:        opts,
+				SemgrepEnsurer: stubEnsurer{},
+			})
+		}
+
+		root := NewRootCommand()
+		root.SetArgs([]string{"code", "check", "--all"})
+		err := root.Execute()
+		if err == nil {
+			t.Fatal("code check --all returned nil for a declared language with no toolchain; want exit-2 config error")
+		}
+		var exitErr *ExitCodeError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
+		}
+		if exitErr.Code != ExitConfigError {
+			t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
+		}
+		if !strings.Contains(exitErr.Message, "toolchain") {
+			t.Errorf("message %q should name the missing toolchain", exitErr.Message)
+		}
+	})
+
+	// ---- Gate path: step 2 (code check) yields a config-error step, exit 2. ----
+	t.Run("gate_step_code_check", func(t *testing.T) {
+		dir := missingToolchainProject(t)
+		restore := chdirTemp(t, dir)
+		defer restore()
+
+		checker := &realCodeChecker{projectRoot: dir}
+		scope := &gate.GateScope{Mode: gate.GateScopeModeAll}
+		step := gate.StepCodeCheckScopedFunc(checker, scope)
+		g := gate.New(gate.WithSteps([]gate.StepFunc{step}), gate.WithScope(scope))
+
+		result, exitCode := g.Run(context.Background())
+		if exitCode != 2 {
+			t.Fatalf("gate exit code = %d, want 2 (config error)", exitCode)
+		}
+		if len(result.Steps) != 1 {
+			t.Fatalf("got %d steps, want 1", len(result.Steps))
+		}
+		if !result.Steps[0].ConfigErr {
+			t.Error("step ConfigErr = false, want true (missing toolchain is a config error)")
+		}
+		if result.Pass {
+			t.Error("gate Pass = true; a missing toolchain must never read as green")
+		}
+	})
+}
+
+// TestCLI_TSDeclaredStack_SmokeEndToEnd is the ISSUE-003 acceptance smoke: a
+// TypeScript project with a declared fake toolchain proves the data-driven
+// stack path end-to-end — registry selection by language, declared command
+// execution, named-format parsing, and violation reporting — with zero network
+// access and zero real tools. The "eslint" and "tsc" are local shell scripts
+// echoing fixture output; semgrep never fires because the project's compiled
+// manifest carries no semgrep signal, so .ts routes [lint build test] only.
+func TestCLI_TSDeclaredStack_SmokeEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+
+	fakeESLint := filepath.Join(dir, "fake-eslint.sh")
+	eslintJSON := `[{"filePath":"src/app.ts","messages":[{"ruleId":"no-unused-vars","severity":2,"message":"'x' is defined but never used.","line":4}]}]`
+	if err := os.WriteFile(fakeESLint, []byte("#!/bin/sh\necho '"+eslintJSON+"'\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write fake eslint: %v", err)
+	}
+	fakeTsc := filepath.Join(dir, "fake-tsc.sh")
+	if err := os.WriteFile(fakeTsc, []byte("#!/bin/sh\necho \"src/other.ts(9,5): error TS2304: Cannot find name 'y'.\"\nexit 2\n"), 0o755); err != nil {
+		t.Fatalf("write fake tsc: %v", err)
+	}
+	fakeTest := filepath.Join(dir, "fake-test.sh")
+	if err := os.WriteFile(fakeTest, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake test: %v", err)
+	}
+
+	backstopYML := `project: ts-smoke
+language: typescript
+enforcement:
+  test_command: "` + fakeTest + `"
+  toolchain:
+    lint:
+      command: "` + fakeESLint + `"
+      format: eslint-json
+    build:
+      command: "` + fakeTsc + `"
+      format: tsc
+`
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(backstopYML), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// Compiled manifest, language typescript, NO semgrep signal: .ts routes
+	// lint/build/test only — the semgrep pass (and EnsureSemgrep's network
+	// install) can never fire in this smoke.
+	manifest := `{"standard":"STD-TS-001","language":"typescript","rules":[{"id":"TS-001","enforcement":"native"}]}`
+	if err := os.WriteFile(filepath.Join(rulesDir, "STD-TS-001.manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "app.ts"), []byte("const x = 1\n"), 0o644); err != nil {
+		t.Fatalf("write app.ts: %v", err)
+	}
+
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	origRun := checkRunFn
+	defer func() { checkRunFn = origRun }()
+	var captured *check.Result
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		result, err := check.RunWith(ctx, check.RunOptions{
+			Options:        opts,
+			SemgrepEnsurer: stubEnsurer{},
+		})
+		captured = result
+		return result, err
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected violations exit, got nil error")
+	}
+
+	if captured == nil {
+		t.Fatal("check.RunWith was never invoked")
+	}
+	all := captured.AllViolations()
+
+	var lintV, buildV *check.Violation
+	for i := range all {
+		switch all[i].Pass {
+		case check.CheckTypeLint:
+			lintV = &all[i]
+		case check.CheckTypeBuild:
+			buildV = &all[i]
+		}
+	}
+
+	if lintV == nil {
+		t.Fatal("declared-stack lint violation missing: fake eslint output was not executed or parsed")
+	}
+	if lintV.File != "src/app.ts" || lintV.Line != 4 || lintV.Rule != "no-unused-vars" {
+		t.Errorf("lint violation = %+v, want src/app.ts:4 no-unused-vars", *lintV)
+	}
+	if buildV == nil {
+		t.Fatal("declared-stack build violation missing: fake tsc output was not executed or parsed")
+	}
+	if buildV.File != "src/other.ts" || buildV.Line != 9 || buildV.Rule != "TS2304" {
+		t.Errorf("build violation = %+v, want src/other.ts:9 TS2304", *buildV)
+	}
+
+	// Semgrep must not have produced a pass result that executed: it is either
+	// absent or skipped (not routed). Test pass ran the exit-0 fake: no violations.
+	for _, pr := range captured.PassResults {
+		if pr.Pass == check.CheckTypeSemgrep && !pr.Skipped && len(pr.Violations) > 0 {
+			t.Errorf("semgrep unexpectedly executed with violations: %+v", pr.Violations)
+		}
+		if pr.Pass == check.CheckTypeTest && len(pr.Violations) > 0 {
+			t.Errorf("test pass should be clean (exit-0 fake), got %+v", pr.Violations)
+		}
+	}
+}

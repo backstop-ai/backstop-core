@@ -440,31 +440,32 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 type realCodeChecker struct {
 	projectRoot         string
 	extraSemgrepConfigs []string
+	// runnerForTest / ensurerForTest are test-only injection seams: when set,
+	// runCheck routes through check.RunWith with these hermetic dependencies so
+	// gate-layer scope-semantics tests can drive CheckScoped without shelling
+	// out to live tools or installing semgrep. Nil in production (check.Run).
+	runnerForTest  check.CommandRunner
+	ensurerForTest check.SemgrepEnsurer
 }
 
 func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
-	return c.runCheck(context.Background(), check.ScopeModeAll, "")
+	return c.runCheck(context.Background(), check.ScopeModeAll, nil)
 }
 
 func (c *realCodeChecker) CheckScoped(ctx context.Context, scope *gate.GateScope) ([]gate.Violation, error) {
 	if scope == nil || scope.Mode == gate.GateScopeModeAll {
-		return c.runCheck(ctx, check.ScopeModeAll, "")
+		return c.runCheck(ctx, check.ScopeModeAll, nil)
 	}
-	var violations []gate.Violation
-	for _, file := range scope.Files {
-		fileViolations, err := c.runCheck(ctx, check.ScopeModeFile, filepath.Join(c.projectRoot, file))
-		if err != nil {
-			return nil, err
-		}
-		violations = append(violations, fileViolations...)
-	}
-	if violations == nil {
-		return []gate.Violation{}, nil
-	}
-	return violations, nil
+	// Carry the ENTIRE scoped file list through ONE runCheck — no per-file loop.
+	// Per-pass ScopeKind then shapes the arg list: lint gets all scoped files in
+	// one invocation; build/typecheck runs project-wide once ignoring the list;
+	// test is dependency-mapped once with full-suite fallback. The old per-file
+	// loop invoked lint N×(1 file) and build N× project-wide, which both
+	// violated the per-pass scope semantics (Constraint 2/3, CLM-008).
+	return c.runCheck(ctx, check.ScopeModeDiff, scope.Files)
 }
 
-func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, filePath string) ([]gate.Violation, error) {
+func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, files []string) ([]gate.Violation, error) {
 	// The checker is bound to the project root it was constructed with;
 	// CWD-based discovery is only a fallback for an unset root. Re-discovering
 	// from CWD here would silently retarget the check at whatever repo the
@@ -487,25 +488,52 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 
 	opts := check.Options{
 		Mode:                mode,
-		FilePath:            filePath,
 		ManifestDir:         filepath.Join(backstopDir, "rules"),
 		BackstopDir:         backstopDir,
 		ProjectDir:          pRoot,
 		ExtraSemgrepConfigs: c.extraSemgrepConfigs,
 	}
-
-	// Load config to extract semgrep version pin.
-	cfg, err := config.LoadConfig()
-	if err == nil && cfg.Enforcement.SemgrepVersion != "" {
-		opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
+	// An explicit scoped file list (diff/file gate scope) is carried via the
+	// Files branch — a SINGLE Run covering all scoped files, not a per-file
+	// loop. Paths are project-relative as they arrive from the gate scope.
+	if len(files) > 0 {
+		opts.Files = files
 	}
 
-	result, runErr := check.Run(ctx, opts)
+	// Load config to select the toolchain stack (language) and extract the
+	// semgrep version pin. The Language/Config fields drive registry selection;
+	// a declared language with no toolchain surfaces as a *check.ConfigError
+	// from check.Run, wrapped below into gate.ConfigError for exit 2.
+	cfg, err := config.LoadConfig()
+	if err == nil {
+		opts.Language = cfg.Language
+		opts.Config = cfg
+		if cfg.Enforcement.SemgrepVersion != "" {
+			opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
+		}
+	}
+
+	result, runErr := c.runWithOpts(ctx, opts)
 	if runErr != nil {
 		return nil, &gate.ConfigError{Err: runErr}
 	}
 
 	return checkViolationsToGate(result.AllViolations()), nil
+}
+
+// runWithOpts dispatches to check.Run in production, or to check.RunWith with
+// the injected hermetic runner/ensurer when the test seams are set. This keeps
+// the gate's scope-semantics tests bounded (no live tool, no semgrep install)
+// while production keeps the exact check.Run path.
+func (c *realCodeChecker) runWithOpts(ctx context.Context, opts check.Options) (*check.Result, error) {
+	if c.runnerForTest != nil || c.ensurerForTest != nil {
+		return check.RunWith(ctx, check.RunOptions{
+			Options:        opts,
+			Runner:         c.runnerForTest,
+			SemgrepEnsurer: c.ensurerForTest,
+		})
+	}
+	return check.Run(ctx, opts)
 }
 
 // checkViolationsToGate converts check.Violations to gate.Violations, carrying
@@ -527,11 +555,18 @@ func checkViolationsToGate(cvs []check.Violation) []gate.Violation {
 			sourcePack = rule[:idx]
 		}
 		violations = append(violations, gate.Violation{
-			Rule:       rule,
-			File:       cv.File,
-			Message:    cv.Message,
-			Severity:   cv.Severity,
-			SourcePack: sourcePack,
+			Rule:     rule,
+			File:     cv.File,
+			Message:  cv.Message,
+			Severity: cv.Severity,
+			// ProjectWide is set from the originating CheckType, INDEPENDENT of
+			// the parser-populated Rule: the build pass (Go go-build and TS tsc/
+			// typecheck) runs project-wide, so its violations are exempt from
+			// gate scope-filtering even when Rule is non-empty (e.g. "TS2304").
+			// Keying off cv.Pass — not the Rule string — is what makes the
+			// exemption correct for the tsc/sarif parsers (Constraint 3).
+			ProjectWide: cv.Pass == check.CheckTypeBuild,
+			SourcePack:  sourcePack,
 		})
 	}
 	return violations

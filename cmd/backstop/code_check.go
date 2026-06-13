@@ -106,6 +106,8 @@ dispatch with a 2-second execution budget.`,
 				BackstopDir:         filepath.Join(projectRoot, ".backstop"),
 				ProjectDir:          projectRoot,
 				ExtraSemgrepConfigs: extraSemgrepConfigs,
+				Language:            cfg.Language,
+				Config:              cfg,
 			}
 
 			// Extract semgrep version pin from config

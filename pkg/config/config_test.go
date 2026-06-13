@@ -393,3 +393,84 @@ func TestConfig_BackstopConfig_RelativePath_ResolvesFromCWD(t *testing.T) {
 		t.Fatalf("resolved path does not exist: %s (%v)", path, err)
 	}
 }
+
+// writeTempConfig writes content to a temp backstop.yml and returns its path.
+func writeTempConfig(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.yml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write temp backstop.yml: %v", err)
+	}
+	return path
+}
+
+// TestConfig_Enforcement_ToolchainAndTestCommand verifies enforcement.toolchain
+// (per-pass {command, format, extensions, test_dependency_command}) and
+// enforcement.test_command decode into the Enforcement struct: the strict
+// KnownFields decoder accepts the new keys and the JSON schema allows them under
+// additionalProperties:false. (ISSUE-003 schema extension; CLM-004)
+func TestConfig_Enforcement_ToolchainAndTestCommand(t *testing.T) {
+	content := `project: ts-example
+language: typescript
+enforcement:
+  test_command: "vitest run"
+  toolchain:
+    lint:
+      command: "eslint --format json"
+      format: eslint-json
+      extensions: [".ts", ".tsx"]
+    build:
+      command: "tsc --noEmit"
+      format: tsc
+    test:
+      command: "vitest run"
+      format: regex-lines
+      test_dependency_command: "vitest related"
+`
+	path := writeTempConfig(t, content)
+	cfg, err := config.LoadConfigFromPath(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromPath: %v", err)
+	}
+	if cfg.Enforcement.TestCommand != "vitest run" {
+		t.Errorf("TestCommand = %q, want 'vitest run'", cfg.Enforcement.TestCommand)
+	}
+	if len(cfg.Enforcement.Toolchain) != 3 {
+		t.Fatalf("Toolchain has %d passes, want 3", len(cfg.Enforcement.Toolchain))
+	}
+	lint := cfg.Enforcement.Toolchain["lint"]
+	if lint.Command != "eslint --format json" || lint.Format != "eslint-json" {
+		t.Errorf("lint pass = %+v, want eslint command/format", lint)
+	}
+	if len(lint.Extensions) != 2 || lint.Extensions[0] != ".ts" {
+		t.Errorf("lint extensions = %v, want [.ts .tsx]", lint.Extensions)
+	}
+	test := cfg.Enforcement.Toolchain["test"]
+	if test.TestDependencyCommand != "vitest related" {
+		t.Errorf("test test_dependency_command = %q, want 'vitest related'", test.TestDependencyCommand)
+	}
+}
+
+// TestConfig_Enforcement_ToolchainRejectsUnknownNestedKey guards the
+// additionalProperties:false invariant for the new toolchain-pass objects: an
+// unknown key under a toolchain entry must be rejected by the strict
+// KnownFields decoder, preserving the TestConfig_Struct_RejectsUnknownKeys
+// invariant for the new nested objects.
+func TestConfig_Enforcement_ToolchainRejectsUnknownNestedKey(t *testing.T) {
+	content := `project: ts-example
+language: typescript
+enforcement:
+  test_command: "vitest run"
+  toolchain:
+    lint:
+      command: "eslint --format json"
+      format: eslint-json
+      bogus_key: "should be rejected"
+`
+	path := writeTempConfig(t, content)
+	_, err := config.LoadConfigFromPath(path)
+	if err == nil {
+		t.Fatal("expected error for unknown nested toolchain key, got nil")
+	}
+}

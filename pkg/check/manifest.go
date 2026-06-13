@@ -67,11 +67,14 @@ type manifestFile struct {
 	Rules []ManifestRule `json:"rules"`
 }
 
-// languageExtensions maps a compiled-manifest language to the file extension
-// its native toolchain passes (lint/build/test) apply to. Deliberately minimal
-// (go → .go); extension-mapping breadth is out of scope for this fix.
-var languageExtensions = map[string]string{
-	"go": ".go",
+// languageExtensions maps a compiled-manifest language to the file extensions
+// its native toolchain passes (lint/build/test) apply to. Built-in stacks list
+// their extensions here (go → .go, typescript → .ts/.tsx); declared stacks
+// supply their extensions via the compiled manifest's top-level "extensions"
+// field (see compiledManifestFile.routableExtensions).
+var languageExtensions = map[string][]string{
+	"go":         {".go"},
+	"typescript": {".ts", ".tsx"},
 }
 
 // combinedRule decodes a single entry of the top-level "rules" array, capturing
@@ -90,14 +93,26 @@ type combinedRule struct {
 // AND Language; otherwise its Rules are interpreted as legacy routing rules.
 type compiledManifestFile struct {
 	// Compiled-schema fields.
-	Standard      string `json:"standard"`
-	Language      string `json:"language"`
-	SemgrepConfig string `json:"semgrep_config"`
+	Standard      string   `json:"standard"`
+	Language      string   `json:"language"`
+	SemgrepConfig string   `json:"semgrep_config"`
+	Extensions    []string `json:"extensions"`
 
 	// Rules decodes the shared "rules" array. For a compiled file each entry's
 	// Enforcement drives semgrep derivation; for a legacy file each entry's
 	// embedded ManifestRule carries the routing fields.
 	Rules []combinedRule `json:"rules"`
+}
+
+// routableExtensions returns the file extensions a compiled manifest's native
+// passes (lint/build/test) route. A built-in language uses its predefined
+// languageExtensions entry; a declared stack supplies its extensions via the
+// manifest's top-level "extensions" field. Returns nil when neither is present.
+func (f *compiledManifestFile) routableExtensions() []string {
+	if exts, known := languageExtensions[f.Language]; known {
+		return exts
+	}
+	return f.Extensions
 }
 
 // isCompiled reports whether the file carries the compiled standards schema:
@@ -133,20 +148,22 @@ func (f *compiledManifestFile) legacyRules() []ManifestRule {
 	return rules
 }
 
-// deriveRules turns a compiled manifest into routing rules. A known language
-// (go) routes its extension to lint/build/test, plus semgrep when a semgrep
-// signal is present. An unknown language with a semgrep signal routes any file
-// to semgrep-only via the "**" path pattern; an unknown language with no
-// semgrep signal derives nothing.
+// deriveRules turns a compiled manifest into routing rules. A language with
+// routable extensions — a built-in stack (go → .go, typescript → .ts/.tsx) or a
+// declared stack carrying a top-level "extensions" field — routes those
+// extensions to lint/build/test, plus semgrep when a semgrep signal is present.
+// An unknown language with no declared extensions but a semgrep signal routes
+// any file to semgrep-only via the "**" path pattern; with no extensions and no
+// semgrep signal it derives nothing.
 func (f *compiledManifestFile) deriveRules() []ManifestRule {
-	ext, known := languageExtensions[f.Language]
-	if known {
+	exts := f.routableExtensions()
+	if len(exts) > 0 {
 		checks := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest}
 		if f.hasSemgrepSignal() {
 			checks = append(checks, CheckTypeSemgrep)
 		}
 		return []ManifestRule{{
-			Extensions: []string{ext},
+			Extensions: append([]string(nil), exts...),
 			parsed:     checks,
 		}}
 	}
@@ -249,14 +266,17 @@ func (m *Manifest) RouteFile(path string) []CheckType {
 	return nil
 }
 
-// routeFileDefaults applies built-in default routing.
+// routeFileDefaults applies built-in default routing. Built-in stack
+// extensions (.go, and TypeScript's .ts/.tsx) route to all four passes; every
+// other file gets semgrep only.
 func (m *Manifest) routeFileDefaults(path string) []CheckType {
-	ext := filepath.Ext(path)
-	if ext == ".go" {
+	switch filepath.Ext(path) {
+	case ".go", ".ts", ".tsx":
 		return []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	default:
+		// All other files get semgrep only
+		return []CheckType{CheckTypeSemgrep}
 	}
-	// All other files get semgrep only
-	return []CheckType{CheckTypeSemgrep}
 }
 
 // matchesRule checks if a file path matches a manifest rule by extension or

@@ -34,11 +34,22 @@ var AllStepNames = [9]string{
 
 // Violation represents a single gate violation.
 type Violation struct {
-	Rule         string `json:"rule"`
-	File         string `json:"file,omitempty"`
-	Message      string `json:"message"`
-	Severity     string `json:"severity,omitempty"`
-	SourcePack   string `json:"source_pack,omitempty"`
+	Rule       string `json:"rule"`
+	File       string `json:"file,omitempty"`
+	Message    string `json:"message"`
+	Severity   string `json:"severity,omitempty"`
+	SourcePack string `json:"source_pack,omitempty"`
+	// ProjectWide marks a violation as originating from a project-wide pass
+	// (build/typecheck), independent of its Rule string. Project-wide
+	// violations are NEVER scope-filtered (Ratified Design Constraint 3): a
+	// change to a.ts that breaks a type in unchanged b.ts must fail a
+	// diff-scoped gate even though the violation references out-of-scope b.ts.
+	// Baseline comparison (gate step 7) remains the suppression mechanism for
+	// pre-existing project-wide violations. The field is intentionally NOT
+	// serialized (json:"-"): baseline identity hashing ignores it and
+	// LoadBaseline is a non-strict unmarshal, so omitting it keeps baseline
+	// identity stable across this change.
+	ProjectWide  bool   `json:"-"`
 	Identity     string `json:"identity"`
 	IdentityHash string `json:"identity_hash"`
 	RegionHash   string `json:"region_hash"`

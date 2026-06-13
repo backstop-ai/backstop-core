@@ -145,6 +145,21 @@ func resolveScopeFile(filePath string) ([]string, []string, error) {
 	return []string{filePath}, nil, nil
 }
 
+// resolveExplicitFiles resolves an explicit multi-file scope list passed via
+// Options.Files. It is a DISTINCT branch from ScopeModeFile: it carries a whole
+// diff-scope file set (the gate's CheckScoped path) through a single Run without
+// per-file looping, leaving existence checks to the executors so a deleted file
+// in a diff does not abort the whole run. Empty/blank entries are dropped.
+func resolveExplicitFiles(files []string) ([]string, []string, error) {
+	cleaned := make([]string, 0, len(files))
+	for _, f := range files {
+		if trimmed := strings.TrimSpace(f); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return cleaned, nil, nil
+}
+
 // resolveScopeAll walks the project directory for all relevant files.
 func resolveScopeAll(projectDir string) ([]string, []string, error) {
 	if projectDir == "" {

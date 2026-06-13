@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // passOrder defines the fixed execution order for validation passes.
@@ -26,6 +28,23 @@ type Options struct {
 	ProjectDir            string
 	GolangciLintAvailable bool
 	ExtraSemgrepConfigs   []string // Additional --config paths from installed packs
+	// Language selects the toolchain stack (go, typescript, or a declared
+	// stack). Empty defaults to the Go stack, preserving prior behavior.
+	Language string
+	// Config carries the loaded backstop.yml so the registry can read
+	// enforcement.toolchain declarations and enforcement.test_command. The
+	// contract (pkg/check consumes pkg/config.Config) is satisfied here; the
+	// relevant fields are read in registry construction. Nil is treated as an
+	// empty config (Go-default stack with no declarations).
+	Config *config.Config
+	// Files, when non-empty, is an EXPLICIT scoped file list resolved directly
+	// (its own branch in resolveExplicitFiles), bypassing git scope resolution.
+	// It carries a whole diff-scope file set through a SINGLE Run so the gate
+	// does not loop per file — per-pass ScopeKind then shapes args (lint: all
+	// files in one invocation; build/typecheck: project-wide ignoring the list;
+	// test: dependency-mapped). This is DISTINCT from ScopeModeFile, whose
+	// single-file semantics and 2s standalone-hook timeout must stay untouched.
+	Files []string
 }
 
 // Violation represents a single validation finding.
@@ -252,9 +271,15 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 	var scopeWarnings []string
 	var err error
 
-	if opts.Git != nil {
+	switch {
+	case len(opts.Files) > 0:
+		// Explicit multi-file scope: a whole diff-scope file set carried through
+		// ONE Run (its own branch — never overloads ScopeModeFile). Per-pass
+		// ScopeKind shapes the arg list downstream.
+		files, scopeWarnings, err = resolveExplicitFiles(opts.Files)
+	case opts.Git != nil:
 		files, scopeWarnings, err = resolveScopeWithGit(opts.Mode, opts.FilePath, opts.Git, withProjectDir(opts.ProjectDir))
-	} else {
+	default:
 		files, scopeWarnings, err = ResolveScope(opts.Mode, opts.FilePath)
 	}
 	if err != nil {
@@ -299,10 +324,18 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 		}
 	}
 
-	// Build engine
+	// Build engine. Registry construction selects the toolchain by language; a
+	// declared language with no built-in stack and no enforcement.toolchain
+	// declaration (or an unknown format, or a TS stack missing its test command)
+	// is a *ConfigError that must propagate verbatim — exit 2, never a silent
+	// skip or green pass (CLM-004, CLM-007).
 	executors := opts.Executors
 	if executors == nil {
-		executors = buildDefaultExecutorsWithRunner(opts.Options, opts.Runner)
+		built, buildErr := buildExecutorsForConfigErr(opts.Options, opts.Runner)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		executors = built
 	}
 
 	engine := &Engine{
@@ -330,11 +363,20 @@ func buildDefaultExecutors(opts Options) map[CheckType]PassExecutor {
 }
 
 // buildDefaultExecutorsWithRunner is buildDefaultExecutors with an optional
-// runner override for hermetic tests of the default-construction path.
+// runner override for hermetic tests of the default-construction path. It
+// delegates to the stack-keyed registry, which selects the toolchain by
+// Options.Language (Go-default when empty).
 func buildDefaultExecutorsWithRunner(opts Options, runner CommandRunner) map[CheckType]PassExecutor {
-	if runner == nil {
-		runner = &ExecCommandRunner{Dir: opts.ProjectDir}
-	}
+	execs, _ := buildExecutorsForConfigErr(opts, runner)
+	return execs
+}
+
+// goBuiltinExecutors constructs the four bespoke Go-stack executors, preserved
+// verbatim from ISSUE-002: golangci JSON parsing + IsAvailable PATH probe,
+// go-build crash-vs-findings guard, testExecutor fileMode package mapping, and
+// the semgrep ensurer/config assembly. These remain the `go` stack's registry
+// implementation with zero behavioral change.
+func goBuiltinExecutors(opts Options, runner CommandRunner) map[CheckType]PassExecutor {
 	return map[CheckType]PassExecutor{
 		CheckTypeLint:  &lintExecutor{runner: runner},
 		CheckTypeBuild: &buildExecutor{runner: runner},

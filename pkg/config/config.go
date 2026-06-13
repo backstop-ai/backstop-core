@@ -29,10 +29,25 @@ type Config struct {
 
 // Enforcement holds the enforcement configuration block.
 type Enforcement struct {
-	Security          Security `yaml:"security,omitempty" json:"security,omitempty"`
-	WaiverWarningDays int      `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
-	SemgrepVersion    string   `yaml:"semgrep_version,omitempty" json:"semgrep_version,omitempty"`
-	BaselineTTL       string   `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
+	Security          Security                  `yaml:"security,omitempty" json:"security,omitempty"`
+	WaiverWarningDays int                       `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
+	SemgrepVersion    string                    `yaml:"semgrep_version,omitempty" json:"semgrep_version,omitempty"`
+	BaselineTTL       string                    `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
+	TestCommand       string                    `yaml:"test_command,omitempty" json:"test_command,omitempty"`
+	Toolchain         map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`
+}
+
+// ToolchainPass is a single declared pass binding in enforcement.toolchain: the
+// command to run, the named output format that parses its output, the file
+// extensions the stack routes, and an optional per-toolchain test
+// dependency-mapping command for the test pass. It is an extensible object (not
+// a positional tuple) so future stack-generic knobs (e.g. ISSUE-007's
+// exclude_paths) can slot in without reshaping the registry.
+type ToolchainPass struct {
+	Command               string   `yaml:"command" json:"command"`
+	Format                string   `yaml:"format" json:"format"`
+	Extensions            []string `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	TestDependencyCommand string   `yaml:"test_dependency_command,omitempty" json:"test_dependency_command,omitempty"`
 }
 
 // Security holds the security enforcement settings.

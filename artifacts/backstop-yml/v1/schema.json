@@ -4,7 +4,10 @@
   "title": "Backstop Project Manifest Schema v1",
   "description": "Schema for backstop.yml project configuration. Defines required and optional fields for project manifests.",
   "type": "object",
-  "required": ["project", "language"],
+  "required": [
+    "project",
+    "language"
+  ],
   "additionalProperties": false,
   "properties": {
     "project": {
@@ -35,7 +38,11 @@
           "properties": {
             "tier": {
               "type": "string",
-              "enum": ["baseline", "standard", "compliance"],
+              "enum": [
+                "baseline",
+                "standard",
+                "compliance"
+              ],
               "description": "Security enforcement tier"
             }
           }
@@ -48,6 +55,108 @@
         "semgrep_version": {
           "type": "string",
           "description": "Pinned semgrep version for reproducible scans"
+        },
+        "baseline_ttl": {
+          "type": "string",
+          "description": "Baseline cache time-to-live (Go duration string)"
+        },
+        "test_command": {
+          "type": "string",
+          "description": "Explicitly declared test command for typescript/declared stacks (no package.json detection)"
+        },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Declared toolchain bindings: pass name (lint/build/test) to command + output format. Makes a stack data, not code.",
+          "properties": {
+            "lint": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command",
+                "format"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Tool command for this pass"
+                },
+                "format": {
+                  "type": "string",
+                  "description": "Named output format parsing the tool's output (e.g. eslint-json, tsc, sarif, regex-lines)"
+                },
+                "extensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "File extensions this stack routes"
+                },
+                "test_dependency_command": {
+                  "type": "string",
+                  "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                }
+              }
+            },
+            "build": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command",
+                "format"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Tool command for this pass"
+                },
+                "format": {
+                  "type": "string",
+                  "description": "Named output format parsing the tool's output (e.g. eslint-json, tsc, sarif, regex-lines)"
+                },
+                "extensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "File extensions this stack routes"
+                },
+                "test_dependency_command": {
+                  "type": "string",
+                  "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                }
+              }
+            },
+            "test": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command",
+                "format"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Tool command for this pass"
+                },
+                "format": {
+                  "type": "string",
+                  "description": "Named output format parsing the tool's output (e.g. eslint-json, tsc, sarif, regex-lines)"
+                },
+                "extensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "File extensions this stack routes"
+                },
+                "test_dependency_command": {
+                  "type": "string",
+                  "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                }
+              }
+            }
+          }
         }
       }
     },
