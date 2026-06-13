@@ -1,0 +1,491 @@
+---
+plan_id: PLAN-ISSUE-006
+spec_id: ISSUE-006
+created: "2026-06-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... -run \"TestCodeCheck\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-006 — the first live `backstop code check --all` run (post
+  ISSUE-002/ISSUE-005) surfaced two executor robustness failures against real
+  tools, both in pkg/check/check.go:
+
+    1. semgrepExecutor (check.go ~516-554) invokes the EnsureSemgrep-resolved
+       binary with --json and feeds CombinedOutput straight to parseSemgrepJSON.
+       Real semgrep emits a UTF-8 banner/progress preamble around the JSON
+       document → observed live failure:
+       `parsing semgrep output: invalid character 'â' looking for beginning of
+       value`. The parse fails and the whole pass errors on every healthy
+       semgrep install.
+    2. lintExecutor (check.go ~395-433) runs golangci-lint with v1's
+       `--out-format json` and on ANY run error with unparseable output surfaces
+       a bare "golangci-lint: exit status 3" (check.go:419). golangci-lint exit
+       semantics: 1 = issues found, >=2 = tool failure. Observed live: exit 3 —
+       a v2 installation rejecting the v1 `--out-format` flag (v2 removed it).
+
+  Pinned design (from the issue — do NOT re-open):
+
+    REQ-001 / CLM-001 / CLM-002 — semgrep robustness (belt and suspenders):
+      (a) Add --quiet to the semgrep invocation (suppresses non-JSON banner/
+          progress output).
+      (b) ALSO extract the JSON document from combined output before
+          unmarshaling — keep it simple: locate the first '{' and slice from
+          there before handing bytes to parseSemgrepJSON. Both, so a future
+          semgrep that ignores --quiet or emits a stray byte still parses.
+      Implement the extraction as a small helper (e.g. extractJSONDocument)
+      operating on the bytes parseSemgrepJSON already trims; do not change
+      parseSemgrepJSON's existing trim/empty-input contract.
+
+    REQ-002 / CLM-003 — lint failure-exit diagnostics:
+      Distinguish golangci-lint findings exits (1) from failure exits (>=2). On
+      a failure exit with unparseable output, surface an error that INCLUDES a
+      tool-output excerpt naming the cause, via the existing firstOutputLine
+      helper (check.go:729). Today the bare `fmt.Errorf("golangci-lint: %w",
+      runErr)` at check.go:419 hides the output. The exit-1 (findings) path must
+      stay unchanged — it already parses stdout and returns violations.
+
+    REQ-003 / CLM-004 — version-aware output-flag selection:
+      Probe `golangci-lint version` once (in Execute, before the run) and pick
+      output flags by major version:
+        - v1: `run --out-format json <files...>` (current behavior, unchanged).
+        - v2: `run --output.json.path stdout --show-stats=false <files...>`.
+      VERIFIED v2 flag syntax (golangci-lint v2 migration guide / CLI docs,
+      June 2026): v1 `--out-format json` was REMOVED in v2; the v2 equivalent
+      for JSON-to-stdout is `--output.json.path stdout`, with
+      `--show-stats=false` to suppress the stats footer so stdout stays pure
+      JSON. The implementer must still confirm this against the installed
+      binary's `golangci-lint run --help` before wiring, and fall back to the
+      documented migration guide if the local binary disagrees:
+      https://golangci-lint.run/docs/product/migration-guide/
+
+  Test-double extension (called out per the prompt):
+    fakeRunner (check_test.go:815) keys canned output by command NAME only, and
+    records calls sequentially. Version-aware lint makes TWO calls to the SAME
+    binary "golangci-lint" within one Execute: first `version`, then `run`. The
+    name-keyed outputs map cannot return different bytes for the probe call vs
+    the run call. TASK-001 extends fakeRunner with the MINIMAL per-call support
+    needed — a queued-responses mechanism (e.g. an optional `queued map[string]
+    [][]byte` consumed in order per command name, or a per-call hook) that
+    coexists with the existing `outputs`/`err` fields so every current test
+    compiles unchanged. The probe response is the `golangci-lint version`
+    banner string the version detector parses. Scope: check_test.go only.
+
+  Existing-test audit (called out per the prompt):
+    - executor_test.go TestCodeCheck_LintExecutor_ParsesGolangciJSON /
+      _CleanOutputNoViolations / _MalformedJSONErrors and the default-selector
+      test drive lintExecutor with a name-keyed fakeRunner and NO version
+      probe. Adding a version probe means these now make a `version` call first;
+      with the current name-keyed map a `version` lookup returns the same JSON
+      bytes (or nil) — the version detector must DEFAULT to v1 when the probe
+      output is empty/unrecognized, so these tests keep passing. TASK-005
+      updates exactly those lint tests to feed a v1 version banner (or rely on
+      the v1 default) so they assert the unchanged v1 path; this is planned, not
+      incidental.
+    - semgrep_executor_test.go / executor_test.go TestCodeCheck_SemgrepExecutor_
+      RunsProjectAndPackConfigs asserts args via containsArg / containsConfigFor
+      (SUBSET checks, not exact-slice equality), so adding --quiet does NOT
+      break it. The audit confirms this; if any assertion turns out to be
+      exact-order, TASK-002 updates it. No semgrep test asserts an exact arg
+      slice today, so adding --quiet is expected to be additive-safe.
+
+  Hermeticity: all executor unit tests run through fakeRunner + mockSemgrepEnsurer
+  with canned fixture bytes — no live tool. Only the final dogfood acceptance
+  task (TASK-013, report-only) runs real tools against this repo.
+
+  Fixture sourcing: per the ISSUE-002 deviation, pkg/check fixtures live as
+  package constants in fixtures_test.go (testdata writes are blocked in this
+  environment). New fixtures (semgrep-with-preamble bytes, golangci v1/v2
+  version banners, a golangci failure-exit unparseable-output sample) are added
+  as constants in fixtures_test.go, keeping the load-bearing contract — executor
+  tests parse canned bytes, never shell out.
+
+  Structure:
+    Phase 1: Setup — fixtures + fakeRunner per-call extension (no production change).
+    Phase 2: TDD — semgrep robustness (--quiet + JSON-document extraction),
+             CLM-001/002.
+    Phase 3: TDD — lint failure diagnostics + version-aware output flags,
+             CLM-003/004.
+    Phase 4: Comprehensive verification (full gate) + dogfood acceptance
+             (`code check --all`, report-only, fix nothing).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures + fakeRunner per-call extension
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Tool-Output Fixtures and fakeRunner Per-Call Extension"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add executor robustness fixtures and extend fakeRunner for per-call (probe+run) outputs"
+        description: |
+          Lay down the test scaffolding every later test in this plan consumes.
+          No production code changes here. Two files:
+
+          A) pkg/check/fixtures_test.go — add package-level constants (the
+             ISSUE-002 deviation keeps pkg/check fixtures as constants, not
+             testdata files):
+               - fixtureSemgrepFindingsWithPreamble: real-shaped semgrep
+                 combined output that carries NON-JSON preamble bytes before the
+                 JSON document — include a UTF-8 banner/progress line containing
+                 the exact byte class from the live failure (e.g. a line with
+                 'â'-class multibyte punctuation / a progress glyph) followed by
+                 the SAME findings JSON as fixtureSemgrepFindings. This is the
+                 fixture CLM-001 asserts parses cleanly.
+               - fixtureGolangciVersionV1: a `golangci-lint version` banner
+                 string identifying a v1.x binary (e.g. contains "version 1.")
+                 as the version detector will parse it.
+               - fixtureGolangciVersionV2: a `golangci-lint version` banner
+                 identifying a v2.x binary (e.g. contains "version 2.").
+               - fixtureGolangciFailureOutput: non-JSON tool output a failure
+                 exit (>=2) would emit (e.g. an "unknown flag: --out-format" or
+                 config-error line) — the excerpt CLM-003 asserts surfaces.
+
+          B) pkg/check/check_test.go — extend fakeRunner MINIMALLY so a single
+             command NAME ("golangci-lint") can return DIFFERENT bytes across
+             sequential calls (the version probe call then the run call). Add an
+             optional queued-responses field (e.g. `queued map[string][][]byte`)
+             consumed in FIFO order per name, falling back to the existing
+             `outputs[name]` when the queue for that name is empty. Keep the
+             existing `outputs`, `err`, `calls`, lastCall() behavior intact so
+             every current test compiles and passes unchanged. Optionally allow
+             a per-call error so a probe can succeed while a run returns a
+             non-zero exit; keep it backward compatible with the single `err`
+             field.
+
+          These back CLM-001 through CLM-004. File scope is disjoint from all
+          other tasks' production scope (check.go); the fixtures_test.go and
+          check_test.go edits here are claimed exclusively by Phase 1.
+        files:
+          - pkg/check/fixtures_test.go
+          - pkg/check/check_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD — semgrep robustness (--quiet + JSON-document extraction)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Semgrep Invocation Robustness"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing tests for semgrep --quiet flag and non-JSON-preamble tolerance"
+        description: |
+          Add failing tests to pkg/check/semgrep_executor_test.go pinning the two
+          semgrep-robustness claims. Both fail until TASK-003: today the executor
+          omits --quiet and feeds combined output (preamble included) straight to
+          parseSemgrepJSON, which errors on the multibyte preamble.
+
+          Mandated test names (exact, from issue claims — character-for-character):
+
+            - TestCodeCheck_SemgrepExecutor_ToleratesNonJSONPreamble (CLM-001):
+              drive semgrepExecutor with a fakeRunner returning
+              fixtureSemgrepFindingsWithPreamble (JSON document wrapped in
+              non-JSON UTF-8 banner/progress bytes). Assert Execute returns NO
+              error and parses the SAME findings the clean fixture yields (assert
+              the expected violation count and at least one File/Line/Message),
+              proving the JSON document is extracted from the preamble before
+              unmarshaling. This reproduces the live
+              `invalid character 'â'` failure and pins its fix.
+
+            - TestCodeCheck_SemgrepExecutor_QuietFlagPassed (CLM-002): drive
+              semgrepExecutor with the normal findings fixture and assert the
+              recorded invocation args (runner.lastCall().args) contain "--quiet"
+              (via containsArg), alongside the existing --json and --config args.
+
+          Also AUDIT the existing semgrep assertions: confirm
+          TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs uses
+          containsArg/containsConfigFor (subset checks) so adding --quiet does
+          not break it; only adjust an assertion if it turns out to be exact-slice
+          equality (none is expected). Tests only — no production edits.
+        files:
+          - pkg/check/semgrep_executor_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Add --quiet and JSON-document extraction to the semgrep executor"
+        description: |
+          Make the TASK-002 tests pass in pkg/check/check.go (semgrepExecutor.Execute,
+          ~516-554, plus a small helper near parseSemgrepJSON).
+
+          1. Add "--quiet" to the args assembled in Execute (alongside the
+             existing "--json"), so semgrep suppresses non-JSON banner/progress
+             output (CLM-002).
+
+          2. Before calling parseSemgrepJSON, EXTRACT the JSON document from the
+             combined output (CLM-001). Add a small helper
+             (e.g. extractJSONDocument([]byte) []byte) that returns the slice
+             from the first top-level '{' to the end (keep it simple per the
+             issue: index of the first '{'); if no '{' is present, return the
+             input unchanged so the existing empty/parse-error paths still fire.
+             Apply it to the runner output in Execute before parseSemgrepJSON.
+             Do NOT change parseSemgrepJSON's trim/empty-input contract — the
+             extraction happens in Execute (or as a wrapper), leaving the parser
+             reusable by other callers.
+
+          Keep both fixes (belt and suspenders): --quiet is the primary
+          suppression, extraction is the safety net for any stray preamble byte.
+          The malformed-JSON path (TestCodeCheck_SemgrepExecutor_MalformedJSONErrors,
+          "{not json") must still surface a parse error — extraction of "{not
+          json" yields "{not json", which still fails to unmarshal.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run backstop code check on the semgrep robustness work"
+        description: |
+          Fast inner-loop verification of the semgrep fixes (TASK-003). Run:
+
+              backstop code check
+
+          Confirm pkg/check compiles and the two mandated Phase-2 tests pass:
+            - TestCodeCheck_SemgrepExecutor_ToleratesNonJSONPreamble
+            - TestCodeCheck_SemgrepExecutor_QuietFlagPassed
+          and that the existing semgrep tests remain green
+          (TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs still passes
+          with --quiet added, _PreservesPackNamespacedRuleIDs, and
+          _MalformedJSONErrors still surfaces a parse error). No new violations
+          introduced.
+        files:
+          - pkg/check/check.go
+          - pkg/check/semgrep_executor_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD — lint failure diagnostics + version-aware output flags
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Lint Failure Diagnostics and Version-Aware Output Flags"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing tests for lint failure-exit diagnostics and version-aware output flags"
+        description: |
+          Add failing tests to pkg/check/executor_test.go pinning the two
+          lint-robustness claims, and update the existing lint tests for the
+          new version-probe call. All drive lintExecutor through the extended
+          fakeRunner (TASK-001).
+
+          Mandated test names (exact, from issue claims — character-for-character):
+
+            - TestCodeCheck_LintExecutor_FailureExitIncludesDiagnostics (CLM-003):
+              drive lintExecutor with a fakeRunner whose `run` call returns
+              fixtureGolangciFailureOutput (non-JSON) plus a non-nil error with
+              exit code >=2 (exitError{code: 3}); the `version` probe returns a
+              recognizable banner. Assert Execute returns a non-nil error whose
+              message INCLUDES a tool-output excerpt from
+              fixtureGolangciFailureOutput (assert via strings.Contains on the
+              firstOutputLine excerpt — e.g. the "unknown flag" / config-error
+              text), NOT a bare "golangci-lint: exit status 3". Add a
+              sub-assertion that an exit-CODE-1 (findings) run with parseable
+              JSON still returns violations and NO error — preserving the
+              findings-vs-failure distinction.
+
+            - TestCodeCheck_LintExecutor_VersionAwareOutputFlag (CLM-004): two
+              sub-cases driven by the queued fakeRunner:
+                * v1: version probe returns fixtureGolangciVersionV1; assert the
+                  recorded `run` invocation args contain "--out-format" and
+                  "json" (the v1 flag pair) and NOT "--output.json.path".
+                * v2: version probe returns fixtureGolangciVersionV2; assert the
+                  `run` args contain "--output.json.path" and "stdout" (and
+                  "--show-stats=false") and NOT "--out-format". Assert the run
+                  still parses the findings fixture into violations in both
+                  cases.
+
+          Also UPDATE the existing lint tests in this file for the new probe call
+          (planned, per the audit): TestCodeCheck_LintExecutor_ParsesGolangciJSON,
+          _CleanOutputNoViolations, _MalformedJSONErrors, and the default-selector
+          test now trigger a `version` probe before `run`. Either feed a v1
+          version banner via the queued runner or rely on the v1-default branch
+          so they assert the unchanged v1 behavior. Tests only — no production
+          edits.
+        files:
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Add failure-exit diagnostics and version-aware output-flag selection to the lint executor"
+        description: |
+          Make the TASK-005 tests pass in pkg/check/check.go (lintExecutor.Execute,
+          ~395-433, plus a small version-detection helper).
+
+          1. VERSION PROBE + FLAG SELECTION (CLM-004): in Execute, before the run,
+             invoke `golangci-lint version` once via the runner and parse the
+             major version from the banner. Pick run args by major version:
+               - v1 (or UNRECOGNIZED/empty probe output → DEFAULT to v1, so
+                 existing tests and v1 installs keep working):
+                   run --out-format json <files...>
+               - v2:
+                   run --output.json.path stdout --show-stats=false <files...>
+             VERIFIED v2 syntax: v1 `--out-format json` was removed in v2; the v2
+             JSON-to-stdout equivalent is `--output.json.path stdout` with
+             `--show-stats=false` to keep stdout pure JSON. Before wiring, the
+             implementer MUST confirm against the installed binary
+             (`golangci-lint run --help`); if it disagrees, follow the migration
+             guide https://golangci-lint.run/docs/product/migration-guide/ — do
+             not silently emit an unknown flag. Implement the parse as a small
+             helper (e.g. golangciMajorVersion([]byte) int) returning 1 on any
+             unparseable banner.
+
+          2. FAILURE-EXIT DIAGNOSTICS (CLM-003): keep the exit-1 (findings) path
+             unchanged — parse stdout JSON and return violations even on a
+             non-nil run error. When the run errors AND the output does not parse
+             (the failure-exit / >=2 case), replace the bare
+             `fmt.Errorf("golangci-lint: %w", runErr)` (check.go:419) with an
+             error that includes a tool-output excerpt via the existing
+             firstOutputLine helper, e.g.:
+             `fmt.Errorf("golangci-lint failed: %v: %s", runErr,
+             firstOutputLine(out))`. The parse-error-without-run-error path
+             (malformed JSON, exit 0) keeps its existing
+             "parsing golangci-lint output" message.
+
+          Do not change lintExecutor.IsAvailable or the golangciJSON shape. The
+          v2 `--output.json.path stdout` path emits the same JSON schema
+          parseGolangciJSON already consumes (Issues[]), so no parser change.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/check/check.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Run backstop code check on the lint diagnostics and version-aware work"
+        description: |
+          Fast inner-loop verification of the lint fixes (TASK-006). Run:
+
+              backstop code check
+
+          Confirm the two mandated Phase-3 tests pass:
+            - TestCodeCheck_LintExecutor_FailureExitIncludesDiagnostics
+            - TestCodeCheck_LintExecutor_VersionAwareOutputFlag
+          and that the updated existing lint tests remain green
+          (_ParsesGolangciJSON, _CleanOutputNoViolations, _MalformedJSONErrors,
+          default-selector) under the new version-probe path, the v1-default
+          branch holds for unrecognized banners, and the v2 path emits
+          --output.json.path. No new violations introduced.
+        files:
+          - pkg/check/check.go
+          - pkg/check/executor_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification (full gate) + dogfood acceptance
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Full Gate and Dogfood Acceptance"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Run the full backstop gate over the executor robustness fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files (no
+          .spec.md / .plan.yml artifact files are modified by the implementation
+          work), so the full kill chain runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold on pkg/check),
+          and contract verification — confirming the issue's contract that
+          pkg/check/check.go consumes EnsureSemgrep from pkg/check/semgrep.go and
+          that REQ-001 (semgrep --quiet + JSON extraction), REQ-002 (lint
+          failure-exit diagnostics), and REQ-003 (version-aware output flags) are
+          satisfied. No separate `backstop artifact validate` step is required
+          beyond what the gate runs, since no artifact files change.
+        files:
+          - pkg/check/check.go
+          - pkg/check/executor_test.go
+          - pkg/check/semgrep_executor_test.go
+          - pkg/check/check_test.go
+          - pkg/check/fixtures_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-004
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Dogfood acceptance — run real code check --all against this repo and report (no fixes)"
+        description: |
+          The dogfood acceptance. Build the CLI from the working tree and run the
+          now-hardened lint + semgrep passes against backstop-core itself:
+
+              go run ./cmd/backstop code check --all
+
+          Current baseline is 3 violations (lint exit 3, semgrep parse error,
+          smoke-test failure). With this fix the expected change is:
+            - lint: either reports REAL findings (the version probe selects the
+              flags the installed golangci-lint accepts), or skips-with-warning
+              if the version probe / binary is unavailable (correct degraded
+              behavior, not a failure) — NO MORE bare "exit status 3" with an
+              actionable excerpt if a failure exit still occurs.
+            - semgrep: reports REAL findings or a clean pass — NO MORE
+              `parsing semgrep output: invalid character 'â'`.
+
+          REPORT exactly what changed versus the 3-violation baseline: which
+          passes now run vs skip and why, violation counts per pass, and whether
+          the two original executor errors are gone. This task REPORTS only and
+          explicitly FIXES NOTHING — any surfaced code violation (including the
+          pre-existing smoke-test failure) is a follow-up scope decision for the
+          user. Report findings in the agent's final message; do NOT write a
+          report file into the repo.
+
+          Depends on TASK-008 so the gate has confirmed the fix is correct before
+          it is pointed at the live repo.
+        files:
+          - pkg/check/check.go
+          - pkg/check/fixtures_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on:
+          - TASK-006
+          - TASK-008

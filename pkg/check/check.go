@@ -403,11 +403,22 @@ func (e *lintExecutor) Execute(ctx context.Context, files []string) (*PassResult
 		return nil, err
 	}
 
-	// golangci-lint run --out-format json <files...>. golangci-lint exits
-	// non-zero when it finds issues, so a non-nil error is not fatal — we still
-	// parse stdout. Only treat the error as fatal when there is no parseable
-	// output (e.g. the binary failed to start), which the engine then records.
-	args := append([]string{"run", "--out-format", "json"}, files...)
+	// Probe the installed golangci-lint major version ONCE so the run uses
+	// output flags the binary accepts. v2 removed the v1 `--out-format json`
+	// flag, so a fixed v1 invocation fails with an unknown-flag error on a v2
+	// install (the observed ISSUE-006 exit 3). An unparseable/missing banner
+	// defaults to v1.
+	versionOut, _ := e.runner.Run(ctx, "golangci-lint", "version")
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	// golangci-lint exits non-zero when it finds issues, so a non-nil run error
+	// is not fatal — we still parse stdout. Only treat the error as fatal when
+	// there is no parseable output (a failure exit >=2, e.g. the binary
+	// rejecting a flag), and surface a tool-output excerpt so the cause is
+	// actionable rather than a bare exit status.
+	args := append(golangciOutputArgs(golangciMajorVersion(versionOut)), files...)
 	out, runErr := e.runner.Run(ctx, "golangci-lint", args...)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
@@ -416,12 +427,44 @@ func (e *lintExecutor) Execute(ctx context.Context, files []string) (*PassResult
 	violations, parseErr := parseGolangciJSON(out)
 	if parseErr != nil {
 		if runErr != nil {
-			return nil, fmt.Errorf("golangci-lint: %w", runErr)
+			return nil, fmt.Errorf("golangci-lint failed: %v: %s", runErr, firstOutputLine(out))
 		}
 		return nil, fmt.Errorf("parsing golangci-lint output: %w", parseErr)
 	}
 
 	return &PassResult{Pass: CheckTypeLint, Violations: violations}, nil
+}
+
+// golangciOutputArgs returns the `run ... ` args that emit JSON to stdout for
+// the given golangci-lint major version. v1 uses `--out-format json`; v2
+// removed that flag and uses `--output.json.path stdout` with
+// `--show-stats=false` to keep stdout pure JSON (golangci-lint v2 migration
+// guide, https://golangci-lint.run/docs/product/migration-guide/). Both emit
+// the same Issues[] schema parseGolangciJSON consumes.
+func golangciOutputArgs(major int) []string {
+	if major >= 2 {
+		return []string{"run", "--output.json.path", "stdout", "--show-stats=false"}
+	}
+	return []string{"run", "--out-format", "json"}
+}
+
+// golangciVersionRe captures the major version from a `golangci-lint version`
+// banner, e.g. "golangci-lint has version 1.59.1 ..." or "... version 2.1.6 ...".
+var golangciVersionRe = regexp.MustCompile(`version\s+v?(\d+)\.`)
+
+// golangciMajorVersion parses the major version from a `golangci-lint version`
+// banner, returning 1 on any unparseable or empty banner so v1 installs and
+// version-less test paths keep working.
+func golangciMajorVersion(banner []byte) int {
+	m := golangciVersionRe.FindSubmatch(banner)
+	if m == nil {
+		return 1
+	}
+	major, err := strconv.Atoi(string(m[1]))
+	if err != nil || major < 1 {
+		return 1
+	}
+	return major
 }
 
 func (e *lintExecutor) IsAvailable() (bool, string) {
@@ -532,7 +575,11 @@ func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassRes
 	// Assemble --config flags: the compiled project rules dir (where the
 	// standards compiler emits <number>.semgrep.yml — semgrep accepts a
 	// directory) plus every pack-provided ExtraSemgrepConfigs path.
-	args := []string{"--json"}
+	// --quiet suppresses semgrep's non-JSON banner/progress output (the primary
+	// fix for the live `invalid character 'â'` parse failure). JSON-document
+	// extraction below is the belt-and-suspenders safety net for any stray
+	// preamble byte a future semgrep emits despite --quiet (ISSUE-006).
+	args := []string{"--json", "--quiet"}
 	if e.manifestDir != "" {
 		args = append(args, "--config", e.manifestDir)
 	}
@@ -546,7 +593,7 @@ func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassRes
 		return nil, ctxErr
 	}
 
-	violations, parseErr := parseSemgrepJSON(out)
+	violations, parseErr := parseSemgrepJSON(extractJSONDocument(out))
 	if parseErr != nil {
 		return nil, fmt.Errorf("parsing semgrep output: %w", parseErr)
 	}
@@ -619,6 +666,19 @@ type semgrepJSON struct {
 			Severity string `json:"severity"`
 		} `json:"extra"`
 	} `json:"results"`
+}
+
+// extractJSONDocument returns the slice of out from the first '{' to the end,
+// stripping any non-JSON preamble (banner/progress bytes) real semgrep emits
+// before the top-level results object. If no '{' is present it returns out
+// unchanged, so the existing empty-input and parse-error paths still fire
+// (e.g. "{not json" slices to itself and still fails to unmarshal). Keep it
+// simple per ISSUE-006: first '{', not balanced-brace scanning.
+func extractJSONDocument(out []byte) []byte {
+	if i := bytes.IndexByte(out, '{'); i >= 0 {
+		return out[i:]
+	}
+	return out
 }
 
 // parseSemgrepJSON unmarshals semgrep JSON output into semgrep violations,

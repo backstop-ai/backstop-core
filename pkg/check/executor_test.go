@@ -278,21 +278,144 @@ func TestCodeCheck_TestExecutor_DefaultModeRunsAllPackages(t *testing.T) {
 // TestCodeCheck_LintExecutor_MalformedJSONErrors verifies that unparseable
 // golangci-lint output surfaces an error (the run error when the tool exited
 // non-zero, otherwise the parse error) rather than a silent clean pass.
+//
+// Updated for ISSUE-006: the executor now probes `golangci-lint version`
+// before the run. These cases leave queued nil and rely on the v1-default
+// branch — the version probe falls back to outputs["golangci-lint"] (the
+// malformed bytes), which the version detector does not recognize as a banner,
+// so it defaults to v1 and the run still surfaces the same error.
 func TestCodeCheck_LintExecutor_MalformedJSONErrors(t *testing.T) {
 	runner := &fakeRunner{
-		outputs: map[string][]byte{"golangci-lint": []byte("not json")},
-		err:     &exitError{code: 3},
+		queued: map[string][]queuedResponse{"golangci-lint": {
+			{out: []byte(fixtureGolangciVersionV1)},
+			{out: []byte("not json"), err: &exitError{code: 3}},
+		}},
 	}
 	e := &lintExecutor{runner: runner}
 	if _, err := e.Execute(context.Background(), []string{"a.go"}); err == nil {
 		t.Error("expected an error for malformed output with a non-zero exit")
 	}
 
-	runner2 := &fakeRunner{outputs: map[string][]byte{"golangci-lint": []byte("{not json")}}
+	runner2 := &fakeRunner{
+		queued: map[string][]queuedResponse{"golangci-lint": {
+			{out: []byte(fixtureGolangciVersionV1)},
+			{out: []byte("{not json")},
+		}},
+	}
 	e2 := &lintExecutor{runner: runner2}
 	if _, err := e2.Execute(context.Background(), []string{"a.go"}); err == nil {
 		t.Error("expected a parse error for malformed output")
 	}
+}
+
+// TestCodeCheck_LintExecutor_FailureExitIncludesDiagnostics verifies that a
+// golangci-lint failure exit (>=2) with unparseable output surfaces an error
+// whose message INCLUDES a tool-output excerpt naming the cause (via
+// firstOutputLine), rather than the bare "golangci-lint: exit status 3" the
+// pre-ISSUE-006 executor emitted. It also confirms the findings-vs-failure
+// distinction: an exit-1 (findings) run with parseable JSON still returns
+// violations and no error. (CLM-003)
+func TestCodeCheck_LintExecutor_FailureExitIncludesDiagnostics(t *testing.T) {
+	// Failure exit (code 3) with non-JSON output: error must carry the excerpt.
+	runner := &fakeRunner{
+		queued: map[string][]queuedResponse{"golangci-lint": {
+			{out: []byte(fixtureGolangciVersionV2)},
+			{out: []byte(fixtureGolangciFailureOutput), err: &exitError{code: 3}},
+		}},
+	}
+	e := &lintExecutor{runner: runner}
+	_, err := e.Execute(context.Background(), []string{"a.go"})
+	if err == nil {
+		t.Fatal("expected an error for a failure exit with unparseable output")
+	}
+	if !strings.Contains(err.Error(), "unknown flag: --out-format") {
+		t.Errorf("error %q must include the tool-output excerpt naming the cause", err)
+	}
+	if strings.Contains(err.Error(), "exit status non-zero") && !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("error %q is a bare exit status without a diagnostic excerpt", err)
+	}
+
+	// Findings exit (code 1) with parseable JSON: still returns violations, no error.
+	runner2 := &fakeRunner{
+		queued: map[string][]queuedResponse{"golangci-lint": {
+			{out: []byte(fixtureGolangciVersionV1)},
+			{out: []byte(fixtureGolangciLintFindings), err: &exitError{code: 1}},
+		}},
+	}
+	e2 := &lintExecutor{runner: runner2}
+	res, err := e2.Execute(context.Background(), []string{"pkg/server/handler.go"})
+	if err != nil {
+		t.Fatalf("findings exit (code 1) with parseable JSON must not error: %v", err)
+	}
+	if len(res.Violations) != 3 {
+		t.Errorf("got %d violations, want 3 — findings path must still parse", len(res.Violations))
+	}
+}
+
+// TestCodeCheck_LintExecutor_VersionAwareOutputFlag verifies that the lint
+// executor probes `golangci-lint version` and selects output flags by major
+// version: v1 uses `--out-format json`, v2 uses
+// `--output.json.path stdout --show-stats=false`. Both paths still parse the
+// findings fixture into violations. (CLM-004)
+func TestCodeCheck_LintExecutor_VersionAwareOutputFlag(t *testing.T) {
+	t.Run("v1", func(t *testing.T) {
+		runner := &fakeRunner{
+			queued: map[string][]queuedResponse{"golangci-lint": {
+				{out: []byte(fixtureGolangciVersionV1)},
+				{out: []byte(fixtureGolangciLintFindings), err: &exitError{code: 1}},
+			}},
+		}
+		e := &lintExecutor{runner: runner}
+		res, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"})
+		if err != nil {
+			t.Fatalf("Execute returned error: %v", err)
+		}
+		// The run call is the most recent; the version probe is calls[0].
+		run := runner.lastCall()
+		if run.name != "golangci-lint" {
+			t.Fatalf("last call %q, want golangci-lint run", run.name)
+		}
+		if !containsArg(run.args, "--out-format") || !containsArg(run.args, "json") {
+			t.Errorf("v1 run args %v must contain --out-format json", run.args)
+		}
+		if containsArg(run.args, "--output.json.path") {
+			t.Errorf("v1 run args %v must NOT contain the v2 --output.json.path flag", run.args)
+		}
+		if len(res.Violations) != 3 {
+			t.Errorf("got %d violations, want 3", len(res.Violations))
+		}
+		// The version probe must actually have run first.
+		if len(runner.calls) < 2 || !containsArg(runner.calls[0].args, "version") {
+			t.Errorf("first call %v must be the version probe", runner.calls)
+		}
+	})
+
+	t.Run("v2", func(t *testing.T) {
+		runner := &fakeRunner{
+			queued: map[string][]queuedResponse{"golangci-lint": {
+				{out: []byte(fixtureGolangciVersionV2)},
+				{out: []byte(fixtureGolangciLintFindings), err: &exitError{code: 1}},
+			}},
+		}
+		e := &lintExecutor{runner: runner}
+		res, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"})
+		if err != nil {
+			t.Fatalf("Execute returned error: %v", err)
+		}
+		run := runner.lastCall()
+		if !containsArg(run.args, "--output.json.path") || !containsArg(run.args, "stdout") {
+			t.Errorf("v2 run args %v must contain --output.json.path stdout", run.args)
+		}
+		if !containsArg(run.args, "--show-stats=false") {
+			t.Errorf("v2 run args %v must contain --show-stats=false", run.args)
+		}
+		if containsArg(run.args, "--out-format") {
+			t.Errorf("v2 run args %v must NOT contain the removed v1 --out-format flag", run.args)
+		}
+		if len(res.Violations) != 3 {
+			t.Errorf("got %d violations, want 3 — v2 emits the same JSON schema", len(res.Violations))
+		}
+	})
 }
 
 // TestCodeCheck_Executors_EntryContextCancelled verifies that each executor

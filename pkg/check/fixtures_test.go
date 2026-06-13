@@ -122,3 +122,29 @@ const fixtureSemgrepFindings = `{
 
 // fixtureSemgrepClean is semgrep `--json` output with no findings.
 const fixtureSemgrepClean = `{"results": [], "errors": [], "paths": {"scanned": []}}`
+
+// fixtureSemgrepFindingsWithPreamble reproduces the live ISSUE-006 failure:
+// real semgrep emits non-JSON banner/progress bytes (UTF-8 multibyte
+// punctuation — the exact 'â'-class byte from the observed
+// `invalid character 'â' looking for beginning of value` error) BEFORE the
+// JSON document. The JSON payload itself is byte-identical to
+// fixtureSemgrepFindings, so a correct extraction yields the same three
+// findings. CLM-001 asserts this parses cleanly.
+const fixtureSemgrepFindingsWithPreamble = "┌──── semgrep ────┐\n" +
+	"Scanning 3 files with 12 rules… ✔\nâ progress: 100%\n" +
+	fixtureSemgrepFindings
+
+// fixtureGolangciVersionV1 is a `golangci-lint version` banner identifying a
+// v1.x binary, as the version detector parses it.
+const fixtureGolangciVersionV1 = `golangci-lint has version 1.59.1 built with go1.22.3 from abc1234 on 2024-06-01`
+
+// fixtureGolangciVersionV2 is a `golangci-lint version` banner identifying a
+// v2.x binary.
+const fixtureGolangciVersionV2 = `golangci-lint has version 2.1.6 built with go1.24.0 from def5678 on 2025-04-01`
+
+// fixtureGolangciFailureOutput is the non-JSON output a golangci-lint failure
+// exit (>=2) emits — here an unknown-flag rejection of a flag the installed
+// version does not accept. CLM-003 asserts this excerpt surfaces in the error.
+const fixtureGolangciFailureOutput = `Error: unknown flag: --out-format
+Usage:
+  golangci-lint run [flags]`

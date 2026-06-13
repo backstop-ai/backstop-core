@@ -820,8 +820,22 @@ type fakeRunner struct {
 	// and go build exit non-zero when they find problems).
 	err error
 
+	// queued holds per-call responses keyed by command name, consumed in FIFO
+	// order each time that name is invoked. This lets a single binary (e.g.
+	// "golangci-lint") return DIFFERENT bytes/error across sequential calls —
+	// the version-probe call then the run call (ISSUE-006). When the queue for
+	// a name is empty (or nil), Run falls back to outputs[name]/err, so every
+	// test that leaves queued nil behaves exactly as before.
+	queued map[string][]queuedResponse
+
 	// recorded invocations, most recent last.
 	calls []runnerCall
+}
+
+// queuedResponse is one canned (output, error) pair for a single Run call.
+type queuedResponse struct {
+	out []byte
+	err error
 }
 
 type runnerCall struct {
@@ -831,6 +845,11 @@ type runnerCall struct {
 
 func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, runnerCall{name: name, args: append([]string(nil), args...)})
+	if q := f.queued[name]; len(q) > 0 {
+		resp := q[0]
+		f.queued[name] = q[1:]
+		return resp.out, resp.err
+	}
 	if f.outputs == nil {
 		return nil, f.err
 	}

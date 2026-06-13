@@ -77,13 +77,22 @@ func TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide(t *testing.T) {
 		t.Fatalf("CheckScoped: %v", err)
 	}
 
-	// (a) lint invoked EXACTLY ONCE with ALL scoped files as args.
-	lintCalls := runner.callsFor("golangci-lint")
-	if len(lintCalls) != 1 {
-		t.Fatalf("golangci-lint invoked %d times, want exactly 1 (not once per file)", len(lintCalls))
+	// (a) lint RUN invoked EXACTLY ONCE with ALL scoped files as args. The
+	// executor also issues a `golangci-lint version` probe (ISSUE-006
+	// version-aware flag selection); filter to the `run` subcommand so this
+	// assertion still pins the scope semantics (one run, all files, not
+	// once-per-file) the way the build assertion below filters to `build`.
+	var lintRuns []recordedCall
+	for _, c := range runner.callsFor("golangci-lint") {
+		if len(c.args) > 0 && c.args[0] == "run" {
+			lintRuns = append(lintRuns, c)
+		}
+	}
+	if len(lintRuns) != 1 {
+		t.Fatalf("golangci-lint run invoked %d times, want exactly 1 (not once per file)", len(lintRuns))
 	}
 	gotA, gotB := false, false
-	for _, a := range lintCalls[0].args {
+	for _, a := range lintRuns[0].args {
 		if a == "a.go" || filepath.Base(a) == "a.go" {
 			gotA = true
 		}
@@ -92,7 +101,7 @@ func TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide(t *testing.T) {
 		}
 	}
 	if !gotA || !gotB {
-		t.Errorf("lint args %v must include BOTH scoped files a.go and b.go in one invocation", lintCalls[0].args)
+		t.Errorf("lint args %v must include BOTH scoped files a.go and b.go in one invocation", lintRuns[0].args)
 	}
 
 	// (b) build invoked EXACTLY ONCE project-wide; scoped files NOT appended.

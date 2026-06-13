@@ -6,13 +6,77 @@ issue:
   id: ISSUE-006
   title: "lint and semgrep executors fail on real tool output — invocation robustness"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-11"
+  closed: "2026-06-12"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/..."
+
+implementation:
+  summary: >
+    Harden the semgrep and lint executors against real tool behavior:
+    semgrep gets --quiet plus robust JSON-document extraction from
+    combined output (real semgrep emits non-JSON preamble bytes);
+    golangci-lint gets version-aware output-flag selection (v1
+    --out-format json vs v2 output flags) and failure exits (>=2) surface
+    an actionable error including a tool-output excerpt instead of a bare
+    exit status.
+  package: pkg/check
+
+requirements:
+  - id: REQ-001
+    text: >
+      The semgrep executor must parse findings from real semgrep output
+      that includes non-JSON preamble or progress bytes, invoking semgrep
+      with --quiet and extracting the JSON document from combined output.
+  - id: REQ-002
+    text: >
+      The lint executor must distinguish golangci-lint findings exits
+      (1) from failure exits (>=2): failure exits surface an error that
+      includes a tool-output excerpt naming the cause.
+  - id: REQ-003
+    text: >
+      The lint executor must select output flags compatible with the
+      installed golangci-lint major version, probed via golangci-lint
+      version, so a v2 installation does not fail with unknown-flag
+      errors.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: semgrep findings parse from output carrying non-JSON preamble bytes around the JSON document.
+    tests:
+      - TestCodeCheck_SemgrepExecutor_ToleratesNonJSONPreamble
+  - id: CLM-002
+    requirement: REQ-001
+    text: the semgrep invocation includes --quiet.
+    tests:
+      - TestCodeCheck_SemgrepExecutor_QuietFlagPassed
+  - id: CLM-003
+    requirement: REQ-002
+    text: a golangci-lint failure exit with unparseable output surfaces an error containing a tool-output excerpt.
+    tests:
+      - TestCodeCheck_LintExecutor_FailureExitIncludesDiagnostics
+  - id: CLM-004
+    requirement: REQ-003
+    text: the lint executor selects v1 or v2 output flags based on the probed golangci-lint major version.
+    tests:
+      - TestCodeCheck_LintExecutor_VersionAwareOutputFlag
+
+contracts:
+  - file: pkg/check/check.go
+    consumes:
+      - source: pkg/check/semgrep.go
+        name: EnsureSemgrep
+        kind: function
 ---
 
 # lint and semgrep executors fail on real tool output — invocation robustness
