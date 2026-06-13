@@ -35,6 +35,14 @@ These are true positives from the tool's perspective and permanent noise
 from the project's perspective — the gate can never go green while they
 gate the build.
 
+**Update 2026-06-12:** the motivating case is gone — `prototype/` was
+deleted (it was git-ignored scratch, never tracked), dropping the dogfood
+baseline from 7 violations to 3 and making `go build ./...` clean
+module-wide. This issue is now demoted to the generic mechanism: any
+backstop-adopting repo with fixture trees, generated code, or vendored
+exceptions will eventually need `exclude_paths`, but nothing in this repo
+requires it today. Defer until a real consumer does.
+
 ## Fix sketch
 
 Add an exclusion surface for the build/test passes — likely
