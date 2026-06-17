@@ -138,6 +138,17 @@ requirements:
       reference table is a pure docs deliverable and is deferred — it is not part of
       this spec's executable scope and is tracked as a documentation task to be
       assigned separately. This omission is intentional, not a coverage gap.
+      Because ast-grep's converter is the one transform backstop's ecosystem owns
+      (the lone genuine gap, DD-7), its correctness must be proven directly, not
+      assumed: the ast-grep converter script must be tested against a checked-in
+      sample of REAL ast-grep JSON output (the `ast-grep scan --json` shape) and
+      shown to emit SARIF that `parseSarif` accepts and that carries the sample's
+      finding(s). This converter-correctness test runs the actual converter script on
+      real ast-grep JSON — it must not substitute a stub emitting canned SARIF (the
+      stub is a deterministic dispatch-plumbing fixture for REQ-010 only and does not
+      exercise the transform). Without this, "ast-grep wired end-to-end" (REQ-010)
+      would be satisfiable by canned output rather than by a working JSON→SARIF
+      transform.
     supports: pluggable-pack-engines:REQ-008
 
   - id: REQ-009
@@ -506,6 +517,11 @@ claims:
     text: The ast-grep pack supplies its own stdin-to-SARIF convert script referenced by the convert field
     tests:
       - TestAstGrepPack_ShipsOwnConverter
+  - id: CLM-068
+    requirement: REQ-008
+    text: The real ast-grep converter script (not a stub) transforms a checked-in sample of real ast-grep scan --json output into valid SARIF that parseSarif accepts and that carries the sample's finding(s)
+    tests:
+      - TestAstGrepConverter_RealJSONToValidSarif
 
   # REQ-009 — clean stdout capture
   - id: CLM-028
@@ -862,13 +878,21 @@ The sandbox engine (`input_mode: none`) is the exit-code/pass-fail edge and does
 
 ### 9. ast-grep wired end-to-end + proof rule (REQ-010)
 
-ast-grep is registered as `{Command: "ast-grep scan", InputMode: rule-dir, InputFlag: "--rule", Convert: "<pack>/ast-grep/to-sarif.sh", Provision: <pinned>}`. A test pack carries a trivial ast-grep proof rule and the converter script; an integration test drives the full path (declaration → group → gather rule-dir → run → convert → parseSarif → namespaced violation).
+ast-grep is registered as `{Command: "ast-grep scan", InputMode: rule-dir, InputFlag: "--rule", Convert: "<pack>/ast-grep/to-sarif.sh", Provision: <pinned>}`. A test pack carries a trivial ast-grep proof rule and the converter script.
+
+Two distinct tests, with distinct purposes, are mandated here — conflating them would let canned output masquerade as a working transform:
+
+- **Dispatch-plumbing proof (CLM-030).** An integration test drives the full path (declaration → group → gather rule-dir → run → convert → parseSarif → namespaced violation). Because CI has no live ast-grep binary, this test uses a *stub* converter that emits canned SARIF on stdout. The stub makes the plumbing deterministic; it deliberately does **not** exercise the JSON→SARIF transform, so on its own it does **not** prove ast-grep is genuinely wired.
+
+- **Converter-correctness proof (CLM-068).** The ast-grep converter script that the pack actually ships is the one transform backstop's ecosystem owns (DD-7), so its correctness is proven directly: a checked-in fixture of **real** `ast-grep scan --json` output is piped through the **real** converter script, and the test asserts the script's stdout is SARIF that `parseSarif` accepts and that carries the sample's finding(s) (rule id and location). This is what makes REQ-010's "wired end-to-end" claim genuine rather than faked by canned output. The real converter must not be replaced by the stub in this test.
 
 ## Verification
 
 Verification is defined in frontmatter. Integration-level testing at 80% coverage across `cmd/backstop` (dispatch), `pkg/check` (runner, parser lookup), `pkg/pack` (manifest, engine-fit validation), and the new `pkg/pack/engine` (binding, input_mode).
 
-Tests use temporary project directories with pre-installed test packs (testdata fixtures), a fake `CommandRunner` returning canned engine stdout/stderr, and a stub `convert` script so the SARIF pipe is exercised without a live ast-grep binary. The ast-grep end-to-end proof rule (CLM-030) uses a fixture pack plus a stub converter to avoid a live-tool dependency in CI.
+Tests use temporary project directories with pre-installed test packs (testdata fixtures), a fake `CommandRunner` returning canned engine stdout/stderr, and a stub `convert` script so the SARIF pipe is exercised without a live ast-grep binary. The ast-grep dispatch-plumbing proof (CLM-030) uses a fixture pack plus a stub converter to avoid a live-tool dependency in CI.
+
+The stub is scoped to the *dispatch* proof only. The ast-grep converter's own correctness (CLM-068) is verified separately and directly: a checked-in fixture of real `ast-grep scan --json` output is piped through the **real** converter script the pack ships, and the test asserts the output is `parseSarif`-valid SARIF carrying the sample's finding(s). This converter-correctness test must not substitute the stub — substituting it would re-introduce exactly the canned-output gap this split is meant to close. The real ast-grep JSON sample is checked in as a testdata fixture (no live ast-grep run needed), so the transform is proven without a live-tool dependency while still exercising the actual converter.
 
 ## Sharp Edges
 
@@ -882,9 +906,11 @@ Tests use temporary project directories with pre-installed test packs (testdata 
 
 5. **A converter emitting non-SARIF still fails — but late, and the harness must not be the cause.** Because there is no `format` selector, a buggy `convert` script that emits genuine garbage on stdout is only caught when `parseSarif` rejects it. That is intentional (the parser is the contract), and the error must attribute the failure to the engine/pack and its convert step, not surface as an opaque SARIF parse error with no provenance. But there is a sharper trap: the convert executable's stdout is the *final* SARIF, so capturing it via `SandboxedRun`'s `CombinedOutput()` would merge any stderr banner/warning from an otherwise-clean converter into the parsed bytes and corrupt them — the harness itself contaminating a correct converter. REQ-007/REQ-009 close this by mandating a clean-stdout sandbox capture (`SandboxedRunStdout`) for the convert step; the legacy `CombinedOutput` `SandboxedRun` is retained only for the exit-code sandbox-validator path (REQ-014), where merged stderr is a legitimate message body, not parsed SARIF.
 
-6. **`scope_kind` on the engine vs the existing pass `ScopeKind`.** The EngineBinding carries a `scope_kind` analogous to `pkg/check`'s `ScopeKind`, but engine dispatch and the native pass executor are different call paths. The two must not be conflated into one shared mutable value; the EngineBinding's `scope_kind` governs how the engine attaches scoped files, mirroring but not importing the pass-level concept (to keep `pkg/pack/engine` a leaf).
+6. **A stub converter can fake "end-to-end" — the real ast-grep transform must be proven on its own.** The dispatch proof (CLM-030) necessarily uses a stub converter that emits canned SARIF, because CI has no live ast-grep binary. That stub makes the *plumbing* deterministic but transforms nothing — if it were the only ast-grep test, "ast-grep wired end-to-end" (REQ-010) would be satisfied by canned bytes while the actual `ast-grep scan --json` → SARIF converter (the one transform backstop's ecosystem owns, DD-7) stayed entirely unexercised, and a broken converter would ship green. CLM-068 closes this by running the **real** converter script against a checked-in sample of real ast-grep JSON and asserting `parseSarif`-valid SARIF carrying the sample's finding(s). The two tests must stay distinct: the stub must never be substituted into the converter-correctness test, and the real converter must never be quietly swapped for the stub.
 
-7. **Sandbox/`none` engines must not enter `parseSarif`, and the layer-3 branch must move, not break.** The dispatch's terminal step branches on output shape: findings engines parse SARIF, but the sandbox (`input_mode: none`) engine is exit-code/pass-fail and takes a separate terminal branch (REQ-014). The existing gate-time sandbox path (`runPackValidators`, keyed on `rule.Layer != 3`) breaks the moment REQ-002 deletes `rule.Layer`; this spec re-keys that branch to `engine == sandbox` and folds it into `dispatchPackEngines` rather than leaving it stranded against a removed field. Failing to relocate it would either dangle a dead `rule.Layer` reference (compile break) or silently drop layer-3 enforcement (vacuous green).
+7. **`scope_kind` on the engine vs the existing pass `ScopeKind`.** The EngineBinding carries a `scope_kind` analogous to `pkg/check`'s `ScopeKind`, but engine dispatch and the native pass executor are different call paths. The two must not be conflated into one shared mutable value; the EngineBinding's `scope_kind` governs how the engine attaches scoped files, mirroring but not importing the pass-level concept (to keep `pkg/pack/engine` a leaf).
+
+8. **Sandbox/`none` engines must not enter `parseSarif`, and the layer-3 branch must move, not break.** The dispatch's terminal step branches on output shape: findings engines parse SARIF, but the sandbox (`input_mode: none`) engine is exit-code/pass-fail and takes a separate terminal branch (REQ-014). The existing gate-time sandbox path (`runPackValidators`, keyed on `rule.Layer != 3`) breaks the moment REQ-002 deletes `rule.Layer`; this spec re-keys that branch to `engine == sandbox` and folds it into `dispatchPackEngines` rather than leaving it stranded against a removed field. Failing to relocate it would either dangle a dead `rule.Layer` reference (compile break) or silently drop layer-3 enforcement (vacuous green).
 
 ## Review Questions
 
@@ -903,6 +929,8 @@ Tests use temporary project directories with pre-installed test packs (testdata 
 7. Does the convert step capture the convert executable's stdout via the clean-stdout sandbox variant (`SandboxedRunStdout`), or does it call `SandboxedRun` (`CombinedOutput`)? The latter would merge a converter's stderr into the final SARIF and corrupt parsing — confirm the convert capture is stdout-only and that the `CombinedOutput` `SandboxedRun` remains used only by the exit-code sandbox-validator branch.
 
 8. Does the sandbox/`none` engine reach `parseSarif` or `convert` at all? It must take the exit-code terminal branch only — confirm no code path routes a `none`-mode engine's output into the SARIF parser, and that the folded-in layer-3 logic (single-file/multi-file fan-out, non-zero-exit-to-violation) is preserved.
+
+9. Is the ast-grep converter's correctness proven against **real** ast-grep JSON, or only via the stub that emits canned SARIF? Confirm CLM-068's test (`TestAstGrepConverter_RealJSONToValidSarif`) pipes a checked-in `ast-grep scan --json` sample through the **actual** converter script the pack ships (not the stub) and asserts the output is `parseSarif`-valid SARIF carrying the sample's finding(s). The stub may back the dispatch-plumbing proof (CLM-030) but must not stand in for the converter-correctness proof — if the only ast-grep evidence is canned SARIF, REQ-010 is unproven and a broken JSON→SARIF transform would ship green.
 
 ## References
 

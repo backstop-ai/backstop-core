@@ -143,7 +143,18 @@ requirements:
       (REQ-015) and is NOT in scope here, so dogfood consumption does not
       depend on the pillar-1 engine work landing. This re-routes backstop-core's
       own enforcement from compiled standards to a consumed pack without adding
-      any new loading machinery.
+      any new loading machinery. Enforcement must demonstrably TRANSFER, not
+      merely relocate: with `backstop/go-standards` consumed as a pack, a Go
+      source file that violates one of the pack's rules (e.g. GO-003
+      global-mutable-state via `var $X = ...`, or GO-060 hardcoded-credentials)
+      must be FLAGGED by the backstop code-check / gate semgrep pass — it must
+      produce at least one semgrep `Violation` whose rule maps to the offending
+      pack rule. A green gate after removal is only correct if a known-bad Go
+      file is still CAUGHT; the pack-install / lock-verify checks alone (CLM-016,
+      CLM-017) prove the pack is present, not that it enforces, and a passing
+      gate over clean code cannot distinguish "rules enforced, code clean" from
+      "rules silently dropped" (the vacuous-green failure this bundle exists to
+      kill).
     supports: pluggable-pack-engines:REQ-016
   - id: REQ-008
     text: >
@@ -378,6 +389,26 @@ claims:
     tests:
       - TestDogfood_GoStandardsLockVerifies
       - TestDogfood_StaleSlotlyLockEntryRemoved
+  - id: CLM-025
+    requirement: REQ-007
+    text: >
+      POSITIVE enforcement-transfer proof: with backstop/go-standards consumed
+      as a pack (declared, installed, locked), a code-check / gate run over a
+      known-bad Go fixture that violates a pack rule (a global-mutable
+      package-level `var $X = ...` for GO-003, or a hardcoded credential such as
+      `password := "hunter2"` for GO-060) produces at least one semgrep
+      Violation referencing that pack rule. The fixture is a self-contained
+      known-bad Go file authored or re-created for this test (NOT obtained by
+      deleting the pack's own invalid fixtures), so the test proves enforcement
+      actually TRANSFERRED to the consumed pack and a violating file is still
+      CAUGHT after native-standards removal — closing the vacuous-green gap that
+      CLM-016/017 (pack present) and CLM-015 (gate succeeds on clean code) leave
+      open. A negative control accompanies it: the same run over a clean Go file
+      (e.g. the pack's go-003 dependency-injection valid form) produces no
+      Violation for that rule, so the test fails if semgrep flags everything
+      (mis-wired config) as surely as if it flags nothing (dropped rules).
+    tests:
+      - TestDogfoodPack_FlagsKnownGoViolation
 
   # REQ-008 — flag-day, no alias / fallback
   - id: CLM-018
@@ -701,6 +732,19 @@ that the pack is installed under `.backstop/packs/backstop/go-standards/`, that
 compiled-artifact-absence and source-standard-absence claims (CLM-013, CLM-014)
 assert on the repository tree itself.
 
+The load-bearing positive proof is the **enforcement-transfer** test
+(CLM-025 / `TestDogfoodPack_FlagsKnownGoViolation`): with
+`backstop/go-standards` consumed as a pack, a code-check / gate run over a
+known-bad Go fixture (a package-level mutable `var $X = ...` for GO-003, or a
+hardcoded credential for GO-060) must yield at least one semgrep `Violation`
+referencing the offending pack rule, while the same run over a clean Go file
+yields none. The fixture is authored/re-created for this test — it is NOT
+obtained by deleting the pack's own invalid fixtures — so the test proves the
+removed compiled-standards enforcement actually TRANSFERRED to the consumed pack
+rather than being silently dropped. Without this, the suite would prove only
+that the pack INSTALLS and the gate exits GREEN on clean code, which cannot
+distinguish "rules enforced" from "rules vanished".
+
 ## Sharp Edges
 
 1. **`.backstop/rules/` is used for two distinct purposes — only one is being
@@ -795,6 +839,24 @@ assert on the repository tree itself.
    executor's existing JSON-parse path already yields zero violations on empty
    output.
 
+7. **Vacuous green: install ≠ enforce.** The most dangerous failure of this
+   spec is the one it exists to prevent — passing all of CLM-016/017 (pack
+   declared, installed, locked) and CLM-015 (gate succeeds on clean code) while
+   the pack's rules are never actually applied (e.g. `mergePackRules` collects
+   the wrong path, the rule files don't reach `--config`, or the executor is
+   handed an empty config set). Every one of those checks stays GREEN whether
+   enforcement transferred or silently evaporated. The compiled-standards arm
+   being deleted in the SAME change means there is no second source to mask the
+   gap. CLM-025 / `TestDogfoodPack_FlagsKnownGoViolation` is the only check that
+   distinguishes "rules enforced" from "rules dropped": it requires a known-bad
+   Go file to still be CAUGHT. Two anti-patterns must be avoided when satisfying
+   it: (a) do NOT prove enforcement by *deleting* the pack's own invalid
+   fixtures — absence of a fixture proves nothing about the rule engine; use a
+   self-contained known-bad Go file the rule targets; and (b) pair the positive
+   assertion with a clean-file negative control, or a mis-wired config that
+   flags everything would pass just as falsely as a dropped config that flags
+   nothing.
+
 ## Review Questions
 
 1. Does any production code path other than the four edit sites read
@@ -832,6 +894,16 @@ assert on the repository tree itself.
    leaving the package would turn `go test ./...` red. Confirm CLM-021 (package
    directory absent) holds and that a full-module `go test ./...` is green after
    removal — not merely that no production code imports the package (CLM-012).
+
+6. Does a known-bad Go file actually get FLAGGED once enforcement is on the
+   consumed pack (CLM-025), or does the suite only prove the pack installs and
+   the gate is green on clean code? Confirm `TestDogfoodPack_FlagsKnownGoViolation`
+   asserts a real semgrep `Violation` on a violating fixture (GO-003 or GO-060)
+   AND no violation of that rule on a clean control file. Confirm the known-bad
+   fixture is a self-contained file authored for the test — not the absence of a
+   pack invalid-fixture — so a mis-wired or empty `--config` cannot pass it. This
+   is the single check that distinguishes "native enforcement transferred to the
+   pack" from the vacuous-green failure where the rules silently stopped running.
 
 ## References
 

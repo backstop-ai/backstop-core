@@ -486,6 +486,49 @@ phases:
           - CLM-017
         depends_on: []
 
+      - id: TASK-015
+        type: test
+        title: "Write positive enforcement-transfer test with known-bad Go fixture"
+        description: |
+          Add the load-bearing enforcement-transfer test that proves the deleted
+          native-standards enforcement actually TRANSFERRED to the consumed
+          backstop/go-standards pack — closing the vacuous-green gap that the
+          pack-present (CLM-016/017) and gate-green-on-clean-code (CLM-015,
+          TASK-014) checks leave open. A green gate over clean code cannot
+          distinguish "rules enforced, code clean" from "rules silently
+          dropped"; this test forces a known-bad Go file to still be CAUGHT.
+
+          In cmd/backstop/dogfood_enforcement_test.go:
+            - TestDogfoodPack_FlagsKnownGoViolation: with backstop/go-standards
+              consumed as a pack (declared, installed, locked), run a code-check
+              / gate semgrep pass over a self-contained known-bad Go fixture that
+              violates a pack rule (a package-level global-mutable
+              `var $X = ...` for GO-003, or a hardcoded credential such as
+              `password := "hunter2"` for GO-060) and assert the run produces at
+              least one semgrep Violation whose rule maps to the offending pack
+              rule. Pair it with a NEGATIVE CONTROL: the same run over a clean Go
+              fixture (e.g. the GO-003 dependency-injection valid form) must
+              produce no Violation for that rule, so the test fails if semgrep
+              flags everything (mis-wired config) as surely as if it flags
+              nothing (dropped rules).
+
+          The known-bad and clean fixtures are self-contained .go files authored
+          for this test under cmd/backstop/testdata/dogfood_enforcement/ — NOT
+          obtained by deleting the pack's own invalid fixtures (absence of a
+          fixture proves nothing about the rule engine). They live under
+          testdata/ so the Go toolchain ignores them and they are not part of the
+          module's own compile/lint surface. This test depends only on the
+          dogfood-pack test task for ordering; the pack-install implementation
+          (TASK-012) is what turns it green.
+        files:
+          - cmd/backstop/dogfood_enforcement_test.go
+          - cmd/backstop/testdata/dogfood_enforcement/known_bad.go
+          - cmd/backstop/testdata/dogfood_enforcement/clean.go
+        claims:
+          - CLM-025
+        depends_on:
+          - TASK-011
+
       - id: TASK-012
         type: implementation
         title: "Declare, install, and lock backstop/go-standards; remove stale slotly entry"
@@ -501,10 +544,13 @@ phases:
               entry and record the backstop/go-standards content hash so the
               declared/installed/locked sets agree exactly and VerifyLock
               passes.
+          Installing the pack and its rule tree is what makes both the
+          pack-present tests (TASK-011) and the positive enforcement-transfer
+          test (TASK-015 / CLM-025) green: the GO-003 / GO-060 rule files now
+          reach the semgrep --config set so the known-bad fixture is flagged.
           Do NOT churn the synthetic slotly/go-standards string literals in
           pkg/check test fixtures — those are self-contained check_id formatting
-          assertions, not reads of the deleted lock entry. Make TASK-011 tests
-          pass.
+          assertions, not reads of the deleted lock entry.
         files:
           - backstop.yml
           - backstop.lock
@@ -512,16 +558,23 @@ phases:
         claims:
           - CLM-016
           - CLM-017
+          - CLM-025
         depends_on:
           - TASK-011
+          - TASK-015
 
       - id: TASK-013
         type: verification
-        title: "Verify dogfood pack install and lock verification"
+        title: "Verify dogfood pack install, lock, and enforcement transfer"
         description: |
           Run the diff-scoped backstop code check to confirm the dogfood pack is
-          declared, installed, and locked and that VerifyLock passes with the
-          stale slotly/go-standards entry removed.
+          declared, installed, and locked, that VerifyLock passes with the stale
+          slotly/go-standards entry removed, AND that the positive
+          enforcement-transfer test passes — proving a known-bad Go fixture is
+          still flagged by the consumed pack while a clean control file is not.
+          This verification is what guards against the vacuous-green failure: it
+          must confirm enforcement TRANSFERRED, not merely that the pack is
+          present and the gate is green on clean code.
 
           Commands:
             - backstop code check
@@ -531,6 +584,7 @@ phases:
         claims:
           - CLM-016
           - CLM-017
+          - CLM-025
         depends_on:
           - TASK-012
 
@@ -546,9 +600,13 @@ phases:
           routing fallback, retired pkg/compile, deleted STD-GO-001 and compiled
           artifacts, and the dogfood backstop/go-standards pack. Confirm a
           full-module go test ./... is green (no pkg/compile, no STD-GO-001) and
-          that VerifyLock passes for the reconciled lockfile. Because this plan
-          touches both .go files and artifact files (backstop.yml/.lock,
-          standards, plan), run both the code gate and artifact validation.
+          that VerifyLock passes for the reconciled lockfile. The full gate must
+          include the positive enforcement-transfer test
+          (TestDogfoodPack_FlagsKnownGoViolation / CLM-025): a clean gate is only
+          correct if a known-bad Go fixture is still CAUGHT by the consumed pack.
+          Because this plan touches both .go files and artifact files
+          (backstop.yml/.lock, standards, plan), run both the code gate and
+          artifact validation.
 
           Commands:
             - backstop gate
@@ -563,6 +621,7 @@ phases:
           - standards/go/STD-GO-001-go-code-standards.standard.md
           - cmd/backstop/standards_removal_test.go
           - cmd/backstop/dogfood_pack_test.go
+          - cmd/backstop/dogfood_enforcement_test.go
         claims:
           - CLM-001
           - CLM-002
@@ -588,6 +647,7 @@ phases:
           - CLM-022
           - CLM-023
           - CLM-024
+          - CLM-025
         depends_on:
           - TASK-003
           - TASK-006

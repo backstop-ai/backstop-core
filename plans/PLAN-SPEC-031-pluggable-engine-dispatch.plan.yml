@@ -23,9 +23,25 @@ notes: |
     3. Group-by-engine dispatch (dispatchPackEngines) consumes all of the above:
        input gathering by input_mode, the sandboxed convert pipe, the sandbox/none
        exit-code terminal branch re-keyed from rule.Layer==3, split provisioning.
-    4. ast-grep wired end-to-end with a fixture proof rule + stub converter, and the
-       flag-day go-pack migration (engine: semgrep, retain standard, no grandfather)
-       proven against the migrated reader via fixtures.
+    4. ast-grep wired end-to-end with a fixture proof rule + stub converter, the REAL
+       ast-grep converter proven directly against a checked-in real `ast-grep scan
+       --json` sample (REQ-008/CLM-068), and the flag-day go-pack migration
+       (engine: semgrep, retain standard, no grandfather) proven against the migrated
+       reader via fixtures.
+
+  Converter-correctness vs dispatch-plumbing (REQ-008/REQ-010, Sharp Edge 6):
+    The ast-grep JSON->SARIF converter is the one transform backstop's ecosystem
+    owns (DD-7), so two DISTINCT ast-grep tests are mandated and kept separate:
+      - CLM-030 (TestGateDispatch_AstGrepProofRuleEndToEnd) proves the dispatch
+        PLUMBING using a STUB converter (ast-grep/to-sarif-stub.sh) that emits canned
+        SARIF — deterministic in CI, transforms nothing.
+      - CLM-068 (TestAstGrepConverter_RealJSONToValidSarif) proves the TRANSFORM by
+        piping a checked-in sample of real `ast-grep scan --json` (ast-grep/real-scan
+        .json) through the REAL converter the pack ships (ast-grep/to-sarif.sh) and
+        asserting parseSarif-valid SARIF carrying the sample's finding(s).
+    The stub must never be substituted into the converter-correctness test, and the
+    real converter must never be swapped for the stub — otherwise "ast-grep wired
+    end-to-end" is satisfiable by canned bytes and a broken converter ships green.
 
   Sharp edges addressed by task ordering:
     - Flag-day migration (no safety net, N=1): the manifest reader change (engine
@@ -55,24 +71,45 @@ phases:
           full engine dispatch path without a live ast-grep/semgrep binary:
             - an engine-organized pack with per-engine dirs (semgrep/, ast-grep/,
               linter/, scripts/) and rules declaring `engine` (no `layer`);
-            - a trivial ast-grep proof rule plus a stub stdin->SARIF converter
-              script (ast-grep/to-sarif.sh) that emits canned SARIF on stdout and a
-              banner on stderr (to prove clean-stdout capture);
+            - a trivial ast-grep proof rule plus a STUB stdin->SARIF converter
+              script (ast-grep/to-sarif-stub.sh) that emits canned SARIF on stdout
+              and a banner on stderr (to make the dispatch-plumbing proof
+              deterministic and to prove clean-stdout capture). The stub transforms
+              nothing — it backs the dispatch-plumbing proof (CLM-030) ONLY and must
+              never stand in for the converter-correctness proof (CLM-068);
+            - the REAL ast-grep stdin->SARIF converter script the ast-grep pack
+              actually ships (ast-grep/to-sarif.sh) — the one transform backstop's
+              ecosystem owns (DD-7 / REQ-008). This is a genuine JSON->SARIF
+              transform, NOT canned output: it reads `ast-grep scan --json` shape on
+              stdin and emits SARIF on stdout. It is the script referenced by the
+              ast-grep EngineBinding's `convert` field (TASK-003) and the script the
+              converter-correctness test (CLM-068, TASK-016) runs;
+            - a checked-in sample of REAL `ast-grep scan --json` output
+              (ast-grep/real-scan.json) carrying at least one finding with a rule id
+              and a file/line location, so the real converter's transform can be
+              proven against authentic tool output with no live ast-grep run needed;
             - a mixed-engine pack (semgrep + ast-grep rules) for cross-feed checks;
             - a pack with a missing declared input path (broken-pack fixture);
             - a legacy `layer: 2`-only rule fixture (no `engine`) for the
               no-grandfather migration proof.
-          These fixtures back the dispatch, convert, input_mode, layout, and
-          migration claims and are consumed by tests in later phases.
+          These fixtures back the dispatch, convert, input_mode, layout, converter-
+          correctness, and migration claims and are consumed by tests in later
+          phases. The split is deliberate: to-sarif-stub.sh keeps the dispatch proof
+          deterministic in CI; to-sarif.sh + real-scan.json keep the real transform
+          honestly tested (REQ-008 / CLM-068) without requiring a live ast-grep
+          binary.
         files:
           - cmd/backstop/testdata/engine-dispatch/backstop.yml
           - cmd/backstop/testdata/engine-dispatch/backstop.lock
           - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/to-sarif-stub.sh
           - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/to-sarif.sh
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/real-scan.json
           - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/scripts/check.sh
         claims:
-          - "CLM-030: ast-grep proof rule fixture for end-to-end dispatch"
-          - "CLM-027: ast-grep pack ships its own stdin->SARIF converter script"
+          - "CLM-030: ast-grep proof rule fixture + stub converter for end-to-end dispatch plumbing"
+          - "CLM-027: ast-grep pack ships its own (real) stdin->SARIF converter script"
+          - "CLM-068: real ast-grep scan --json sample + real converter script fixtures for the converter-correctness proof"
           - "CLM-032: mixed semgrep+ast-grep pack fixture for cross-feed checks"
           - "CLM-038: legacy layer-2-only rule fixture for no-grandfather proof"
           - "CLM-050: missing declared input path broken-pack fixture"
@@ -791,24 +828,52 @@ phases:
     tasks:
       - id: TASK-016
         type: test
-        title: "Write tests for ast-grep end-to-end, cross-feed isolation, and the flag-day migration"
+        title: "Write tests for ast-grep end-to-end, real converter correctness, cross-feed isolation, and the flag-day migration"
         description: |
-          Write failing integration tests covering: a trivial ast-grep proof rule
-          producing a namespaced violation through the full path (declaration ->
-          group-by-engine -> gather rule-dir -> run ast-grep -> convert -> parseSarif ->
-          namespaced violation), driven by the fixture pack + stub converter; the
-          ast-grep pack shipping its own stdin->SARIF converter referenced by the convert
-          field; mixed semgrep+ast-grep rules each dispatching to their own engine and
-          never cross-fed; the migrated go-pack rules carrying engine: semgrep and each
-          retaining a non-empty standard so they satisfy the semgrep field-contract under
-          the migrated reader; and a legacy layer-2-only rule reaching the migrated reader
-          failing loud with no grandfather alias.
+          Write failing integration tests covering five distinct concerns. The first
+          two are deliberately kept SEPARATE so canned output can never masquerade as
+          a working transform (Sharp Edge 6 / Review Question 9):
+
+            1. Dispatch-plumbing proof (CLM-030),
+               TestGateDispatch_AstGrepProofRuleEndToEnd: a trivial ast-grep proof
+               rule producing a namespaced violation through the full path
+               (declaration -> group-by-engine -> gather rule-dir -> run ast-grep ->
+               convert -> parseSarif -> namespaced violation), driven by the fixture
+               pack + the STUB converter (ast-grep/to-sarif-stub.sh) so the plumbing
+               is deterministic in CI without a live ast-grep binary. This test
+               exercises the plumbing only; it deliberately does NOT prove the
+               JSON->SARIF transform and MUST NOT be the sole ast-grep evidence.
+
+            2. Converter-correctness proof (CLM-068, REQ-008),
+               TestAstGrepConverter_RealJSONToValidSarif: pipe the checked-in sample
+               of REAL `ast-grep scan --json` output (ast-grep/real-scan.json,
+               TASK-001) through the REAL converter script the pack ships
+               (ast-grep/to-sarif.sh, TASK-001 — NOT the stub), and assert the
+               script's stdout is SARIF that the gate's SARIF parser accepts (via the
+               same lookupParser/parseSarif path dispatch uses) AND that the emitted
+               SARIF carries the sample's finding(s): the rule id and the file/line
+               location from the real ast-grep JSON survive the transform. This test
+               runs the actual converter on real tool output — it must not substitute
+               the stub emitting canned SARIF, and the real converter must not be
+               quietly swapped for the stub. Without it, REQ-010's "wired end-to-end"
+               would be satisfiable by canned bytes while the real transform stays
+               unexercised and a broken converter would ship green.
+
+          The remaining three: the ast-grep pack shipping its own (real) stdin->SARIF
+          converter referenced by the convert field (CLM-027); mixed semgrep+ast-grep
+          rules each dispatching to their own engine and never cross-fed (CLM-032); the
+          migrated go-pack rules carrying engine: semgrep and each retaining a non-empty
+          standard so they satisfy the semgrep field-contract under the migrated reader
+          (CLM-037); and a legacy layer-2-only rule reaching the migrated reader failing
+          loud with no grandfather alias (CLM-038).
         files:
           - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/dispatch_astgrep_converter_test.go
           - cmd/backstop/dispatch_migration_test.go
         claims:
-          - "CLM-030: ast-grep proof rule produces a namespaced violation through the full dispatch path"
-          - "CLM-027: ast-grep pack supplies its own stdin->SARIF converter referenced by the convert field"
+          - "CLM-030: ast-grep proof rule produces a namespaced violation through the full dispatch path (stub converter, plumbing only)"
+          - "CLM-068: the REAL converter script transforms a checked-in real ast-grep scan --json sample into parseSarif-valid SARIF carrying the sample's finding(s) — not the stub, not canned output"
+          - "CLM-027: ast-grep pack supplies its own (real) stdin->SARIF converter referenced by the convert field"
           - "CLM-032: mixed semgrep+ast-grep rules each dispatch to their own engine, never cross-fed"
           - "CLM-037: go-pack rules carry engine semgrep and retain a non-empty standard under the migrated reader"
           - "CLM-038: a legacy layer-2-only rule reaching the migrated reader fails loud with no grandfather"
@@ -820,18 +885,24 @@ phases:
         title: "Verify ast-grep end-to-end and migration via backstop code check"
         description: |
           Run `backstop code check` over cmd/backstop to confirm the ast-grep
-          end-to-end proof path (declaration -> group -> gather rule-dir -> run ->
-          convert -> parseSarif -> namespaced violation), the mixed-engine cross-feed
+          end-to-end plumbing proof (declaration -> group -> gather rule-dir -> run ->
+          convert -> parseSarif -> namespaced violation, stub converter), the
+          converter-correctness proof (the REAL to-sarif.sh transforming the checked-in
+          real ast-grep scan --json sample into parseSarif-valid SARIF carrying the
+          sample's finding(s) — CLM-068, REQ-008), the mixed-engine cross-feed
           isolation, and the flag-day migration semantics (engine: semgrep rules with a
           retained non-empty standard valid; a layer-2-only rule a blocking ConfigError
           with no grandfather) build and pass against the implementation landed in the
           engine registry (TASK-003), manifest migration (TASK-006), and dispatch /
-          convert / sandbox branch (TASK-013, TASK-014).
+          convert / sandbox branch (TASK-013, TASK-014). Confirm the converter-
+          correctness test runs the real converter (not the stub) so a broken
+          JSON->SARIF transform cannot ship green.
         files:
           - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/dispatch_astgrep_converter_test.go
           - cmd/backstop/dispatch_migration_test.go
         claims:
-          - "Verifies CLM-030, CLM-027, CLM-032, CLM-037, CLM-038 for the ast-grep e2e and migration"
+          - "Verifies CLM-030, CLM-068, CLM-027, CLM-032, CLM-037, CLM-038 for the ast-grep e2e, converter correctness, and migration"
         depends_on:
           - TASK-016
           - TASK-013
@@ -863,7 +934,7 @@ phases:
           - pkg/check/runner.go
           - pkg/packval/sandbox.go
         claims:
-          - "Full-gate verification of all SPEC-031 claims CLM-001 through CLM-067 across the engine dispatch implementation"
+          - "Full-gate verification of all SPEC-031 claims CLM-001 through CLM-068 (incl. the CLM-068 real-converter correctness proof) across the engine dispatch implementation"
         depends_on:
           - TASK-003
           - TASK-006
