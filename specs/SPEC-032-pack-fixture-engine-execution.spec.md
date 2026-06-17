@@ -9,14 +9,20 @@ spec_version: 1.0.0
 implementation:
   summary: >
     Generalize the validation-time fixture-execution path (locus B, pkg/packval,
-    the `pack test` / phase-3 path) onto the same shared engine model that the
+    the `pack test` / phase-3 path) onto the same shared engine data model that the
     gate-time path (SPEC-031, locus A) uses. Today phase 3 dispatches fixtures
     through a bespoke FixtureExecutor whose arms are hardcoded one-per-tool:
     RunSemgrep (semgrep, `--config rule fixture`) and RunToolConfig (a one-arm
-    `switch tool` on golangci-lint). This spec replaces those two findings arms
-    with a single engine-dispatched arm driven by the rule's declared `engine`
+    `switch tool` on golangci-lint). This spec replaces those two findings arms —
+    and folds the ToolConfigEntry (golangci-lint config-file) loop — into a single
+    engine-dispatched arm driven by the rule's declared `engine`
     field and its EngineBinding ({command, input_mode, input_flag, convert?}),
-    resolved through the same engine table SPEC-031 builds. A fixture run becomes:
+    resolved by Registry map lookup against the same pkg/pack/engine data model
+    SPEC-031 builds. Because SPEC-031 places only that data model in an importable
+    leaf package (the gate's gather/convert/parseSarif execution lives in cmd/backstop
+    and unexported pkg/check), this spec re-implements the gather/convert/SARIF-parse
+    execution in pkg/packval and asserts invocation parity with the gate by test.
+    A fixture run becomes:
     resolve the rule's EngineBinding, gather the rule's inputs per input_mode,
     invoke the command capturing stdout cleanly (not CombinedOutput), pipe through
     the pack-declared `convert` step when present, parse the resulting SARIF to
@@ -58,9 +64,17 @@ requirements:
       `rule-flags` passes each rule file as a repeated `input_flag` occurrence
       (e.g. `--config X`); `rule-dir` collects the engine's rule files into a
       directory passed via `input_flag`; `none` injects no rules/config and runs the
-      command as-is. The dispatch must be table-driven over `input_mode`, identical
-      in behavior to the gate-time gather step, so a single fixture and a single
-      gate run of the same rule assemble the same invocation.
+      command as-is. The dispatch must be table-driven over `input_mode`. The same
+      gather must serve config-file linter entries: a `tool_config` ToolConfigEntry
+      (golangci-lint) resolves its `config-file` EngineBinding and routes through the
+      same `config-file` gather and RunEngine dispatch as any findings rule, replacing
+      the retired RunToolConfig arm; the bespoke `switch tool` arm is prohibited.
+      Because the gate's execution path (cmd/backstop) is not importable from
+      pkg/packval, the gather logic is re-implemented here; it must assemble, for any
+      given rule and binding, the identical invocation the gate-time gather would —
+      enforced by an explicit parity test asserting the assembled invocation equals the
+      gate's for the same binding inputs (REQ-002 parity is asserted, not guaranteed by
+      shared execution code).
     supports: pluggable-pack-engines:REQ-012
   - id: REQ-003
     text: >
@@ -70,9 +84,11 @@ requirements:
       which merges stderr into stdout and corrupts SARIF), pipe stdout through the
       EngineBinding's pack-declared `convert` executable when present (`tool stdout →
       convert stdin → SARIF`, run in-process with no shell), and parse the resulting
-      SARIF to decide whether the engine flagged the fixture. A non-empty SARIF
-      results set for the rule's ID means the engine flagged the fixture; an empty
-      set means it did not.
+      SARIF to decide whether the engine flagged the fixture. SARIF parsing is a
+      packval-local parse (the gate's `parseSarif` lives unexported in pkg/check and is
+      not importable here); it must apply the same SARIF results-for-rule-ID contract.
+      A non-empty SARIF results set for the rule's ID means the engine flagged the
+      fixture; an empty set means it did not.
     supports: pluggable-pack-engines:REQ-012
   - id: REQ-004
     text: >
@@ -116,11 +132,18 @@ requirements:
   - id: REQ-008
     text: >
       The existing pre-execution rule-ID-match precheck must be retained and re-keyed
-      to the engine. For an engine whose rule files carry rule IDs (semgrep-shaped),
-      phase 3 must still verify the pack rule ID is present in the referenced rule
-      file before running fixtures. For engines whose input_mode carries no
-      per-rule-file ID (`none`, and `config-file` where the tool runs its own rules),
-      the precheck must be skipped rather than spuriously failing.
+      to the engine. The precheck is ENFORCED only for the `rule-flags` (semgrep) input
+      mode, whose rule files are semgrep-shaped YAML carrying an `id` field the existing
+      `semgrepFileContainsRuleID` parser already extracts: phase 3 must still verify the
+      pack rule ID is present in the referenced rule file before running fixtures. The
+      precheck is SKIPPED for every other input mode — `none` and `config-file` carry no
+      per-rule-file ID, and `rule-dir` (ast-grep) rule files are not semgrep-shaped and
+      have no defined ID-extraction here. ast-grep rule-ID prechecking is explicitly OUT
+      OF SCOPE for this spec (rationale: ast-grep rule files use a different schema, and
+      defining a per-engine ID extractor is engine-model surface owned by SPEC-031's
+      EngineBinding, not this fixture-path spec); a `rule-dir` rule skips the precheck
+      rather than spuriously failing. The precheck must never run-and-fail for a mode it
+      does not cover.
     supports: pluggable-pack-engines:REQ-012
   - id: REQ-009
     text: >
@@ -129,6 +152,16 @@ requirements:
       pkg/packval, and cmd/backstop. pkg/packval must import that shared type rather
       than redefining an EngineBinding or an engine enum locally. No second,
       packval-local copy of the engine model may exist.
+    supports: pluggable-pack-engines:REQ-012
+  - id: REQ-010
+    text: >
+      The `go mod tidy` pre-check (`goModTidyTempCopy`), today run unconditionally
+      before every ToolConfigEntry, must be conditioned on the Go config-file engine
+      and run only for it. Under engine dispatch this pre-check is Go-specific
+      environment setup, not engine dispatch: it must run only when the resolved engine
+      is the Go `config-file` engine (golangci-lint) and must NOT run for any other
+      engine (semgrep, ast-grep, or a non-Go config-file linter). Attaching the
+      go-mod-tidy pre-check to a non-Go engine run is prohibited.
     supports: pluggable-pack-engines:REQ-012
 
 claims:
@@ -177,9 +210,14 @@ claims:
       - TestPackVal_EngineGather_None
   - id: CLM-009
     requirement: REQ-002
-    text: The fixture gather step produces the identical invocation the gate-time gather step produces for the same rule
+    text: A parity test asserts the packval gather assembles the identical invocation the gate-time gather assembles for the same binding inputs (asserted parity, not shared execution code)
     tests:
-      - TestPackVal_EngineGather_MatchesGateInvocation
+      - TestPackVal_EngineGather_ParityWithGateInvocation
+  - id: CLM-036
+    requirement: REQ-002
+    text: A tool_config ToolConfigEntry (golangci-lint) routes through the config-file gather and RunEngine dispatch, not the retired RunToolConfig arm
+    tests:
+      - TestPackVal_EngineGather_ToolConfigEntryRoutesThroughRunEngine
 
   # --- REQ-003: SARIF determines pass/fail; clean stdout capture; convert pipe ---
   - id: CLM-010
@@ -294,14 +332,14 @@ claims:
   # --- REQ-008: rule-ID-match precheck re-keyed to engine ---
   - id: CLM-030
     requirement: REQ-008
-    text: For a rule-file-ID-bearing engine, the pack rule ID must be present in the referenced rule file or phase 3 fails before running fixtures
+    text: For the rule-flags (semgrep) input mode, the pack rule ID must be present in the referenced rule file or phase 3 fails before running fixtures
     tests:
-      - TestPackVal_EnginePrecheck_RuleIDMatchEnforced
+      - TestPackVal_EnginePrecheck_RuleFlagsRuleIDEnforced
   - id: CLM-031
     requirement: REQ-008
-    text: For a rule-file-ID-bearing engine, a matching rule ID passes the precheck
+    text: For the rule-flags (semgrep) input mode, a matching rule ID passes the precheck
     tests:
-      - TestPackVal_EnginePrecheck_RuleIDMatchPasses
+      - TestPackVal_EnginePrecheck_RuleFlagsRuleIDPasses
   - id: CLM-032
     requirement: REQ-008
     text: For an input_mode none engine, the rule-ID-match precheck is skipped rather than failing
@@ -312,6 +350,11 @@ claims:
     text: For an input_mode config-file engine running its own rules, the rule-ID-match precheck is skipped rather than failing
     tests:
       - TestPackVal_EnginePrecheck_ConfigFileSkipsPrecheck
+  - id: CLM-037
+    requirement: REQ-008
+    text: For the rule-dir (ast-grep) input mode, the rule-ID-match precheck is skipped (ast-grep precheck out of scope) rather than run against semgrep-shaped extraction and failing
+    tests:
+      - TestPackVal_EnginePrecheck_RuleDirSkipsPrecheck
 
   # --- REQ-009: shared EngineBinding, no local copy ---
   - id: CLM-034
@@ -325,6 +368,23 @@ claims:
     tests:
       - TestPackVal_EngineShared_SameTableAsGate
 
+  # --- REQ-010: go-mod-tidy pre-check conditioned on the Go config-file engine ---
+  - id: CLM-038
+    requirement: REQ-010
+    text: The go-mod-tidy pre-check runs for the Go config-file engine (golangci-lint) run before its fixtures
+    tests:
+      - TestPackVal_EngineGoModTidy_RunsForGoConfigFileEngine
+  - id: CLM-039
+    requirement: REQ-010
+    text: The go-mod-tidy pre-check does NOT run for a semgrep (rule-flags) engine run
+    tests:
+      - TestPackVal_EngineGoModTidy_SkippedForSemgrep
+  - id: CLM-040
+    requirement: REQ-010
+    text: The go-mod-tidy pre-check does NOT run for an ast-grep (rule-dir) engine run
+    tests:
+      - TestPackVal_EngineGoModTidy_SkippedForAstGrep
+
 contracts:
   - file: pkg/packval/executor.go
     provides:
@@ -336,18 +396,25 @@ contracts:
           two findings arms RunSemgrep and RunToolConfig are replaced by a single
           engine-dispatched method RunEngine(packDir string, binding engine.EngineBinding,
           ruleID string, ruleFiles []string, fixturePath string) (ExecutionResult, error).
+          The ToolConfigEntry (config-file linter) loop also folds into RunEngine: a
+          ToolConfigEntry resolves the `config-file` EngineBinding for its `tool` and
+          dispatches through RunEngine like any other findings rule, replacing the bespoke
+          RunToolConfig arm.
       - name: RunEngine
         kind: method
         signature: "RunEngine(packDir string, binding engine.EngineBinding, ruleID string, ruleFiles []string, fixturePath string) (ExecutionResult, error)"
         notes: >
-          Gathers inputs per binding.InputMode, runs binding.Command capturing stdout
-          cleanly, pipes through binding.Convert when present, parses SARIF, and sets
-          ExecutionResult.Passed = engine flagged the fixture (Flagged), with a distinct
-          error return for command/convert/parse failure.
+          Gathers inputs per binding.InputMode (the same data-driven gather the gate's
+          dispatchPackEngines performs, re-implemented in pkg/packval since the gate's
+          execution lives in cmd/backstop and is not importable here), runs binding.Command
+          capturing stdout cleanly, pipes through binding.Convert when present, parses the
+          normalized SARIF via a packval-local parse, and sets ExecutionResult.Passed =
+          engine flagged the fixture (Flagged), with a distinct error return for
+          command/convert/parse failure.
       - name: DefaultExecutor
         kind: type
         signature: "type DefaultExecutor struct"
-        notes: "Implements RunEngine using real OS commands and the shared SARIF parse."
+        notes: "Implements RunEngine using real OS commands and a packval-local SARIF parse (the gate's parseSarif is unexported in pkg/check)."
       - name: MockExecutor
         kind: type
         signature: "type MockExecutor struct"
@@ -357,11 +424,14 @@ contracts:
         signature: "type ExecutionResult struct"
         notes: "Passed reflects whether the engine flagged the fixture; ExitCode/Output/Diagnostics retained for exit-code arms."
     consumes:
-      - source: pkg/engine
+      - source: pkg/pack/engine
         name: EngineBinding
         kind: type
-      - source: pkg/engine
-        name: ResolveBinding
+      - source: pkg/pack/engine
+        name: InputMode
+        kind: type
+      - source: pkg/pack/engine
+        name: ParseInputMode
         kind: function
   - file: pkg/packval/phase3.go
     provides:
@@ -371,15 +441,17 @@ contracts:
         notes: >
           Findings rules now dispatch through executor.RunEngine via the rule's
           resolved EngineBinding; the per-tool RunSemgrep/RunToolConfig loops are
-          replaced. Validator/scaffold/SDK arms and the negative-fixture engine-limitation
-          fix hint are preserved.
+          replaced; the ToolConfigEntry/RunToolConfig loop folds into the same
+          RunEngine dispatch via each entry's resolved `config-file` EngineBinding.
+          Validator/scaffold/SDK arms and the negative-fixture engine-limitation fix
+          hint are preserved.
     consumes:
-      - source: pkg/engine
+      - source: pkg/pack/engine
         name: EngineBinding
         kind: type
-      - source: pkg/engine
-        name: ResolveBinding
-        kind: function
+      - source: pkg/pack/engine
+        name: Registry
+        kind: type
   - file: pkg/packval/manifest.go
     provides:
       - name: Rule
@@ -388,7 +460,20 @@ contracts:
         notes: >
           Gains the `engine` field (string) consumed by phase-3 dispatch; `layer`
           retires as the execution selector per SPEC-031's schema cutover.
-    consumes: []
+      - name: ToolConfigEntry
+        kind: type
+        signature: "type ToolConfigEntry struct"
+        notes: >
+          Gains an `engine` field (string) so config-file linter entries (golangci-lint)
+          resolve a `config-file` EngineBinding and route through RunEngine instead of the
+          retired RunToolConfig arm. When `engine` is empty it defaults to the `config-file`
+          binding keyed by the entry's existing `tool` field; ToolConfigEntry remains a
+          separate top-level container from Content.Ruleset.Rules (the containers are not
+          merged, mirroring SPEC-031's REQ-013 separation).
+    consumes:
+      - source: pkg/pack/engine
+        name: EngineBinding
+        kind: type
 ---
 
 # SPEC-032: Pack Fixture Engine Execution
@@ -400,11 +485,11 @@ BUNDLE-010 first-classes the execution engine of a pack rule and dispatches it t
 - **Locus A — gate-time engine dispatch** (`pkg/check`, `cmd/backstop`). Replaces the semgrep-only gate executor with group-by-engine dispatch. Owned by **SPEC-031** (Seed 2).
 - **Locus B — validation-time fixture execution** (`pkg/packval`, the `pack test` / phase-3 path). The genuinely separate path that runs a rule against its positive/negative fixtures to prove the rule works. **This spec (Seed 3) owns locus B.**
 
-This spec applies the same engine generalization to locus B. Today `pkg/packval` phase 3 runs findings fixtures through a `FixtureExecutor` whose findings arms are hardcoded per tool: `RunSemgrep` invokes `semgrep --config rule fixture`, and `RunToolConfig` is a one-arm `switch tool` on `golangci-lint`. This spec replaces those two arms with a single engine-dispatched arm (`RunEngine`) driven by the rule's declared `engine` field and the shared `EngineBinding` resolved from the same engine table SPEC-031 builds. The result: a pack author can fixture-test an ast-grep rule (or any declared engine's rule) against positive/negative fixtures **identically to how the gate-time path runs them**, and adding a new engine never touches the fixture executor.
+This spec applies the same engine generalization to locus B. Today `pkg/packval` phase 3 runs findings fixtures through a `FixtureExecutor` whose findings arms are hardcoded per tool: `RunSemgrep` invokes `semgrep --config rule fixture`, and `RunToolConfig` is a one-arm `switch tool` on `golangci-lint`. This spec replaces those two arms with a single engine-dispatched arm (`RunEngine`) driven by the rule's declared `engine` field and the shared `EngineBinding` resolved by `Registry` map lookup from the same `pkg/pack/engine` data model SPEC-031 builds. The `ToolConfigEntry` (golangci-lint) loop folds into the same `RunEngine` dispatch via its `config-file` binding. The result: a pack author can fixture-test an ast-grep rule (or any declared engine's rule) against positive/negative fixtures with the **same invocation the gate-time path assembles** (asserted by a parity test), and adding a new engine never touches the fixture executor.
 
 The convergence is deliberately scoped to **findings engines** (semgrep, ast-grep, lint). The bundle's DD-2/DD-8 carve-out is preserved: layer-3 sandbox validators and scaffold tests are **exit-code edges, not located findings**, so they keep their current `RunValidator`/`RunScaffoldTest` exit-code semantics and must not ride SARIF. The positive/negative fixture contract, the `PhaseResult`/`ValidationError` shape, the negative-fixture engine-limitation fix hint, and the rule-ID-match precheck are all preserved — only the per-tool dispatch is replaced.
 
-This spec **depends on SPEC-031** for the shared `EngineBinding` type, the engine table, the `input_mode` gather semantics, and the `convert`-pipe + clean-stdout-capture mechanics. It is authored from the bundle independently and re-specifies none of locus A's gate-time dispatch.
+This spec **depends on SPEC-031** for the shared `EngineBinding`/`InputMode`/`Registry` data model in the `pkg/pack/engine` leaf package. SPEC-031 places only that data model in an importable package; the gather/convert/SARIF-parse **execution** is not importable from `pkg/packval` (it lives in `cmd/backstop` and unexported `pkg/check`), so this spec re-implements that execution in `pkg/packval` and asserts parity with the gate. It is authored from the bundle independently and re-specifies none of locus A's gate-time dispatch.
 
 ## Requirements
 
@@ -422,13 +507,13 @@ Every phase-3 fixture arm is exactly one of two kinds. The convergence applies o
 
 ### input_mode gather matrix (findings dispatch)
 
-The fixture gather step is table-driven over the binding's `input_mode`, with no per-engine Go branch, and must produce the identical invocation the gate-time gather step produces for the same rule (REQ-002).
+The fixture gather step is table-driven over the binding's `input_mode`, with no per-engine Go branch. It is re-implemented in `pkg/packval` and asserted equal to the gate-time gather for the same binding inputs by an explicit parity test (REQ-002, CLM-009). The same gather serves `ToolConfigEntry` (config-file linter) entries.
 
 | input_mode | Rule/config injection | input_flag use | Representative engine | Rule-ID precheck (REQ-008) |
 |------------|----------------------|----------------|-----------------------|----------------------------|
 | `config-file` | single optional pack-supplied config; tool runs its OWN rules | one flag, the config path | golangci-lint / eslint / tsc | Skipped (no per-rule-file ID) |
 | `rule-flags` | each rule file → repeated flag | repeated, once per rule file | semgrep | Enforced (rule file carries IDs) |
-| `rule-dir` | rule files collected into a dir | one flag, the dir path | ast-grep | Enforced (rule files carry IDs) |
+| `rule-dir` | rule files collected into a dir | one flag, the dir path | ast-grep | Skipped (ast-grep precheck out of scope; rule files not semgrep-shaped) |
 | `none` | no injection; the executable is the logic | unused | sandbox custom script | Skipped (no rule file) |
 
 ### Engine pass/fail (findings)
@@ -443,21 +528,24 @@ The fixture gather step is table-driven over the binding's `input_mode`, with no
 
 ### Scope boundary against SPEC-031
 
-SPEC-031 (locus A) defines and places the shared `EngineBinding` type, the `engine → binding` resolution table, the `input_mode` gather logic, the `convert`-pipe execution, the clean stdout/stderr capture, and the shared SARIF parse. This spec **consumes** those from their shared home (`pkg/engine`, the import-cycle-safe placement SPEC-031 owns per `pluggable-pack-engines:REQ-013`) and applies them to the `pkg/packval` fixture path. This spec does not re-specify gate-time dispatch.
+SPEC-031 (locus A) defines and places the shared **data model** — the `EngineBinding` type, the `InputMode` enum + `ParseInputMode`, the `Provision` descriptor, and the `Registry` (`engine name → EngineBinding`) — in a leaf package, `pkg/pack/engine`, importable by `pkg/check`, `pkg/packval`, and `cmd/backstop` without an import cycle (`pluggable-pack-engines:REQ-013`). This spec **consumes that data model** from `pkg/pack/engine` and resolves a rule's binding by `Registry` map lookup keyed on the rule's declared `engine` (there is no `ResolveBinding` function — lookup is the map plus a fail-loud miss).
+
+What SPEC-031 does **not** place in an importable package is the **gather / convert / SARIF-parse execution**: the gate's gather-convert-parse lives in `cmd/backstop/dispatchPackEngines` (not importable from `pkg/packval`), and the gate's SARIF parser `parseSarif` is unexported in `pkg/check`. So no shared importable execution exists. This spec therefore **re-implements** the input-mode gather, the clean-stdout `convert` pipe, and a packval-local SARIF parse inside `pkg/packval`, and **asserts parity** with the gate's gather via an explicit parity test (CLM-009) rather than claiming a shared-code guarantee. This spec does not re-specify gate-time dispatch.
 
 ### Phase-3 findings dispatch (replaces RunSemgrep + RunToolConfig)
 
-The current phase-3 loops over `pack.Content.Ruleset.Rules` (calling `RunSemgrep`) and `pack.ToolConfig` (calling `RunToolConfig`) collapse into a single findings dispatch:
+The current phase-3 loops over `pack.Content.Ruleset.Rules` (calling `RunSemgrep`) and `pack.ToolConfig` (calling `RunToolConfig`) collapse into a single findings dispatch. Both `Content.Ruleset.Rules` (findings rules) and `ToolConfig` entries (config-file linters, e.g. golangci-lint) feed the same dispatch; the two remain separate top-level containers (not merged), but both resolve an `EngineBinding` and run through `RunEngine`. A `ToolConfigEntry` resolves the `config-file` binding for its `tool`/`engine` and gathers via the `config-file` input mode.
 
-1. **Resolve the binding.** For each findings rule, resolve its `EngineBinding` from the shared engine table via the rule's declared `engine`. If no binding resolves, emit a hard, blocking `ValidationError` identifying the rule and the unresolved engine (REQ-007) — no silent skip, no semgrep fallback.
-2. **Rule-ID precheck (engine-keyed).** For rule-file-ID-bearing input modes (`rule-flags`, `rule-dir`), verify the pack rule ID is present in the referenced rule file(s) before running fixtures, retaining today's `semgrepFileContainsRuleID` check generalized by engine. For `none` and `config-file`, skip the precheck (REQ-008).
-3. **Gather inputs by input_mode.** Assemble the invocation per the input_mode gather matrix above (REQ-002), identical to the gate-time gather.
-4. **Run + normalize to SARIF.** Invoke `binding.Command` capturing stdout cleanly and separately from stderr (replacing `CombinedOutput`), pipe through `binding.Convert` when present (`tool stdout → convert stdin → SARIF`, in-process, no shell), and parse the SARIF. A command, convert, or parse failure is a hard fixture error distinct from a clean run (REQ-003, REQ-004).
-5. **Apply the fixture contract.** `Flagged` = non-empty SARIF results for the rule ID. Positive fixtures pass iff NOT flagged; negative fixtures pass iff flagged (REQ-004). On a negative fixture that is not flagged, emit the existing engine-limitation fix hint on the `ValidationError`, for every engine (REQ-005).
+1. **Resolve the binding.** For each findings rule (and each `ToolConfigEntry`), resolve its `EngineBinding` from the shared `Registry` (`pkg/pack/engine`) by `Registry` map lookup keyed on the declared `engine`. If the lookup misses, emit a hard, blocking `ValidationError` identifying the rule and the unresolved engine (REQ-007) — no silent skip, no semgrep fallback.
+2. **Rule-ID precheck (engine-keyed).** ENFORCED only for the `rule-flags` (semgrep) input mode: verify the pack rule ID is present in the referenced rule file before running fixtures, retaining today's `semgrepFileContainsRuleID` check. SKIPPED for `none`, `config-file`, and `rule-dir` (ast-grep) — ast-grep ID prechecking is out of scope (REQ-008).
+3. **Go-mod-tidy pre-check (conditioned).** Run the `goModTidyTempCopy` pre-check only when the resolved engine is the Go `config-file` engine (golangci-lint); do not run it for semgrep, ast-grep, or any non-Go engine (REQ-010).
+4. **Gather inputs by input_mode.** Assemble the invocation per the input_mode gather matrix above (REQ-002). The gather is re-implemented in `pkg/packval` (the gate's gather in `cmd/backstop` is not importable) and is asserted equal to the gate-time gather by an explicit parity test (CLM-009).
+5. **Run + normalize to SARIF.** Invoke `binding.Command` capturing stdout cleanly and separately from stderr (replacing `CombinedOutput`), pipe through `binding.Convert` when present (`tool stdout → convert stdin → SARIF`, in-process, no shell), and parse the SARIF via a packval-local parse (the gate's `parseSarif` is unexported). A command, convert, or parse failure is a hard fixture error distinct from a clean run (REQ-003, REQ-004).
+6. **Apply the fixture contract.** `Flagged` = non-empty SARIF results for the rule ID. Positive fixtures pass iff NOT flagged; negative fixtures pass iff flagged (REQ-004). On a negative fixture that is not flagged, emit the existing engine-limitation fix hint on the `ValidationError`, for every engine (REQ-005).
 
 ### Non-findings arms (unchanged)
 
-The layer-3 sandbox validator arm (`RunValidator` → `SandboxedRun`, including multi-file `input_scope` aggregation) and the scaffold `test_command` arm (`RunScaffoldTest`) keep their exit-code semantics verbatim. SARIF normalization is not applied to them (REQ-006). The SDK `provides` check and the `go mod tidy` pre-check for Go packs are likewise untouched.
+The layer-3 sandbox validator arm (`RunValidator` → `SandboxedRun`, including multi-file `input_scope` aggregation) and the scaffold `test_command` arm (`RunScaffoldTest`) keep their exit-code semantics verbatim. SARIF normalization is not applied to them (REQ-006). The SDK `provides` check is likewise untouched. The `go mod tidy` pre-check (`goModTidyTempCopy`) is preserved but is now **conditioned on the Go config-file engine** — it runs only for that engine, not unconditionally per `ToolConfigEntry`, and never for semgrep or ast-grep (REQ-010).
 
 ### FixtureExecutor surface change
 
@@ -465,7 +553,7 @@ The layer-3 sandbox validator arm (`RunValidator` → `SandboxedRun`, including 
 
 ### Manifest field
 
-`Rule` gains the `engine` field consumed by dispatch. `layer` retires as the execution selector under SPEC-031's schema cutover; this spec reads `engine`. (The schema-validation re-key from layer→engine field-contracts is SPEC-031's; this spec only consumes the resolved `engine`.)
+`Rule` gains the `engine` field consumed by dispatch. `ToolConfigEntry` gains an `engine` field too, so config-file linter entries (golangci-lint) resolve a `config-file` binding and route through `RunEngine`; when empty it defaults to the `config-file` binding keyed by the entry's existing `tool`. `ToolConfigEntry` stays a separate top-level container from `Content.Ruleset.Rules` (not merged). `layer` retires as the execution selector under SPEC-031's schema cutover; this spec reads `engine`. (The schema-validation re-key from layer→engine field-contracts is SPEC-031's; this spec only consumes the resolved `engine`.)
 
 ## Verification
 
@@ -474,30 +562,31 @@ Verification config is defined in frontmatter. Claims are defined in frontmatter
 ### Test strategy
 
 - **Engine dispatch** — assert findings rules route through `RunEngine` with the resolved binding, and that `RunSemgrep`/`RunToolConfig` are gone from the executor surface.
-- **input_mode gather matrix** — one test per mode (`config-file`, `rule-flags`, `rule-dir`, `none`) asserting the assembled invocation, plus a test asserting parity with the gate-time gather.
+- **input_mode gather matrix** — one test per mode (`config-file`, `rule-flags`, `rule-dir`, `none`) asserting the assembled invocation, a test asserting a `ToolConfigEntry` routes through the `config-file` gather + `RunEngine`, plus a parity test asserting the packval gather equals the gate-time gather for the same binding inputs.
 - **SARIF decision** — flagged/not-flagged from parsed SARIF, clean stdout capture, and the convert-vs-native split, using a `MockExecutor` / canned SARIF.
 - **Fixture contract** — the four positive/negative cells plus the command-error-is-hard-error cell.
 - **Engine-limitation hint** — preserved for semgrep and a non-semgrep findings engine.
 - **Non-findings arms** — validator (single + multi-file) and scaffold exit-code behavior unchanged; SARIF not applied.
 - **Unresolved engine** — hard error, no silent skip, no semgrep fallback.
-- **Precheck re-key** — enforced for rule-file-ID engines, skipped for `none`/`config-file`.
-- **Shared type** — packval consumes the shared `EngineBinding` and the same table as the gate.
+- **Precheck re-key** — enforced for the `rule-flags` (semgrep) mode, skipped for `none`, `config-file`, and `rule-dir` (ast-grep precheck out of scope).
+- **Go-mod-tidy conditioning** — runs for the Go config-file engine, skipped for semgrep and ast-grep.
+- **Shared type** — packval consumes the shared `EngineBinding`/`Registry` from `pkg/pack/engine` and the same registry the gate uses.
 
 ## Sharp Edges
 
-1. **Hard dependency on SPEC-031's shared `EngineBinding` placement.** This spec consumes `EngineBinding`, the engine table/resolver, the `input_mode` gather, the `convert` pipe, the clean-stdout capture, and the SARIF parse from a shared home (`pkg/engine`). That package and those symbols do not exist on `main` yet — SPEC-031 creates them and owns the import-cycle-safe placement (`pluggable-pack-engines:REQ-013`). If SPEC-031 places the type elsewhere or names the resolver differently, the `consumes` contracts here must follow it. Implementing Seed 3 before Seed 2 is not possible; the plan must sequence SPEC-031 first.
+1. **Hard dependency on SPEC-031's shared data model — but NOT its execution.** This spec consumes the `EngineBinding` type, the `InputMode` enum + `ParseInputMode`, and the `Registry` (map lookup, no `ResolveBinding` function) from `pkg/pack/engine`. That leaf package and those symbols do not exist on `main` yet — SPEC-031 creates them and owns the import-cycle-safe placement (`pluggable-pack-engines:REQ-013`). The trap: SPEC-031 places only the **data model** in that importable package; the gate's gather/convert/parse **execution** lives in `cmd/backstop/dispatchPackEngines` and unexported `pkg/check.parseSarif`, neither importable from `pkg/packval`. This spec must therefore re-implement that execution locally and prove parity by test — it must NOT assume a shared `RunEngine`-equivalent exists to import, and must NOT expand SPEC-031 to export one (that is sibling-spec scope). If SPEC-031 re-keys the package path or the `Registry`/`ParseInputMode` symbols, the `consumes` contracts here must follow. Implementing Seed 3 before Seed 2 is not possible; the plan must sequence SPEC-031 first.
 
 2. **"Flagged" is the inverse of the old `Passed`.** Today `RunSemgrep`/`RunToolConfig` return `Passed=true` when the *command exited 0* (tool found nothing), and phase 3 treats positive-fixture "Passed" as good and negative-fixture "Passed" as a failure. Under engine dispatch the decision is "did the engine flag the fixture," derived from SARIF, not exit code. The semantic of `ExecutionResult.Passed` shifts for the findings arm; mixing the two interpretations (e.g., a findings engine that exits non-zero merely because it found something) is exactly the bug clean-stdout + SARIF parsing exists to prevent. Reviewers must confirm exit code is not consulted for findings pass/fail.
 
 3. **Command error vs not-flagged collapse.** The most dangerous failure mode is silently treating an engine that failed to run (missing binary, bad convert, malformed SARIF) as "produced no findings," which would make a negative fixture spuriously fail and a positive fixture spuriously pass. REQ-004 mandates a distinct hard-error path; an implementation that folds command failure into the empty-results branch passes naive tests but is wrong.
 
-4. **Precheck over-application.** The existing `semgrepFileContainsRuleID` precheck assumes a rule file carrying the pack rule ID. Re-keying it to the engine must skip it for `none` and `config-file` modes, not run it and fail. Applying the precheck uniformly would block every config-driven linter rule and every sandbox rule from ever fixture-testing.
+4. **Precheck over-application — including ast-grep.** The existing `semgrepFileContainsRuleID` precheck assumes a *semgrep-shaped* rule file carrying the pack rule ID in a YAML `id` field. Re-keying it to the engine must ENFORCE it only for `rule-flags` (semgrep) and SKIP it for `none`, `config-file`, **and `rule-dir` (ast-grep)** — ast-grep rule files are not semgrep-shaped, so running `semgrepFileContainsRuleID` against them would always fail to find the ID and spuriously block every ast-grep rule. ast-grep ID prechecking is out of scope (REQ-008); a per-engine ID extractor is engine-model surface owned by SPEC-031, not this spec. Applying the precheck uniformly would block config-driven linter rules, sandbox rules, and ast-grep rules from ever fixture-testing.
 
 5. **Carve-out leakage.** It is tempting to "unify everything" and route layer-3 validators and scaffold tests through the engine/SARIF path too. That is prohibited (REQ-006): those arms are exit-code edges with no located findings. Converging them would force a fake SARIF shape onto pass/fail signals that are not findings-shaped.
 
 6. **Two mock surfaces during migration.** Removing `RunSemgrep`/`RunToolConfig` from `FixtureExecutor` and adding `RunEngine` is a breaking interface change. Existing phase-3 tests built on `MockExecutor.SemgrepFn`/`ToolConfigFn` must migrate to `RunEngineFn` in lockstep; a half-migrated executor that keeps both old and new methods invites callers to drift back onto the per-tool arms — the exact integration-gap drift the convergence exists to remove.
 
-7. **`go mod tidy` pre-check is tool-config-era coupling.** The current `RunToolConfig` loop runs `goModTidyTempCopy` before tool execution. Under engine dispatch this pre-check is Go-specific environment setup, not engine dispatch; it must be preserved for Go config-file engines but must not be assumed for every engine (an ast-grep or semgrep rule does not need a tidied Go module). Misattaching it to all engines would break non-Go fixture runs.
+7. **`go mod tidy` pre-check is tool-config-era coupling.** The current `ToolConfig` loop runs `goModTidyTempCopy` **unconditionally before every `ToolConfigEntry`**. Under engine dispatch this pre-check is Go-specific environment setup, not engine dispatch; REQ-010 mandates conditioning it on the Go config-file engine — preserved for that engine, never run for semgrep or ast-grep (which do not need a tidied Go module), and never run for a non-Go config-file linter. The conditioning is testable: CLM-038/039/040 assert it runs for the Go config-file engine and not for semgrep or ast-grep. Misattaching it to all engines would break non-Go fixture runs.
 
 ## Review Questions
 
@@ -509,7 +598,7 @@ Verification config is defined in frontmatter. Claims are defined in frontmatter
 
 4. Do the layer-3 sandbox-validator arm (including multi-file `input_scope` aggregation) and the scaffold `test_command` arm execute with **unchanged exit-code semantics**, with no SARIF parsing applied to either?
 
-5. Does `pkg/packval` import the **shared** `EngineBinding`/engine table (the SPEC-031 placement) rather than defining a packval-local binding or engine enum, and does the same resolver the gate path uses back fixture-time resolution?
+5. Does `pkg/packval` import the **shared** `EngineBinding`/`Registry` from `pkg/pack/engine` (the SPEC-031 placement) and resolve via `Registry` map lookup rather than defining a packval-local binding or engine enum, and is it the same `Registry` the gate path uses?
 
 6. For a given rule, does the fixture-time gather assemble the **same invocation** the gate-time gather assembles (same command, same per-mode flag layout), so a rule that passes fixtures behaves identically at the gate?
 
@@ -517,10 +606,14 @@ Verification config is defined in frontmatter. Claims are defined in frontmatter
 
 8. Are the now-dead `RunSemgrep` / `RunToolConfig` methods and their `MockExecutor` fields fully **removed** (not left beside `RunEngine`), so callers cannot drift back onto per-tool dispatch?
 
+9. Does a `tool_config` `ToolConfigEntry` (golangci-lint) resolve a `config-file` `EngineBinding` and dispatch through `RunEngine` via the `config-file` gather, with **no surviving `switch tool` arm**, while `ToolConfigEntry` stays a separate container from `Content.Ruleset.Rules`?
+
+10. Is the `goModTidyTempCopy` pre-check **conditioned on the Go config-file engine** — running for it but provably not for semgrep or ast-grep runs — rather than unconditionally per `ToolConfigEntry`?
+
 ## References
 
 - **BUNDLE-010** — Pluggable Pack Engines (source bundle; this spec is Seed 3, covering REQ-012; DD-3 two-loci decomposition, DD-2 SARIF carve-out, DD-8 ladder, DD-9 input_mode).
-- **SPEC-031** — Pluggable Engine Dispatch (Seed 2, locus A). Owns the shared `EngineBinding`, the engine table, `input_mode` gather, the `convert` pipe, clean stdout capture, and the SARIF parse this spec consumes. **Hard dependency.**
+- **SPEC-031** — Pluggable Engine Dispatch (Seed 2, locus A). Owns the shared **data model** this spec consumes from `pkg/pack/engine`: the `EngineBinding` type, the `InputMode` enum + `ParseInputMode`, the `Provision` descriptor, and the `Registry` map. SPEC-031's gather/`convert`/SARIF-parse **execution** lives in `cmd/backstop` and unexported `pkg/check` and is NOT importable here; this spec re-implements that execution in `pkg/packval` and asserts parity. **Hard dependency (on the data model).**
 - **SPEC-014** — Pack Validation Pipeline. Defines the phase-3 fixture execution this spec generalizes (the FixtureExecutor interface, positive/negative contract, engine-limitation fix hint, layer-3 sandbox, scaffold validation).
 - **SPEC-030** — Packs-only / native-standards removal (Seed 1). Collapses locus A's input to a single source (packs); sequenced before Seed 2.
 - **ISSUE-003** — Data-driven toolchain registry. Precedent for the declared `{command, format}` + named-parser substrate the engine model converges onto.

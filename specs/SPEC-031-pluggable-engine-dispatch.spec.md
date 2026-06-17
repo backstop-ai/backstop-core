@@ -61,14 +61,26 @@ requirements:
   - id: REQ-003
     text: >
       Each engine carries a field-contract — `requires[]` and `forbids[]` lists of
-      Rule field names — re-keyed from the retired per-layer requirements. semgrep
-      requires `rule_path` and `standard` and forbids `input_scope`; ast-grep
-      requires `rule_path` and forbids `input_scope`; sandbox requires `validator`,
-      `input_scope`, and `category` and forbids `rule_path`; a config-file engine
-      forbids `rule_path`. Validation must verify a rule's populated fields satisfy
-      its declared engine's field-contract, returning a ValidationError naming the
-      offending field and engine when they do not. The layer-keyed `validateLayer`
-      and `validateLayerFields` are replaced by engine-keyed equivalents.
+      Rule field names — re-keyed faithfully from the retired per-layer requirements
+      in the live `validateLayerFields` (no forbid is dropped). semgrep (ex-layer-2)
+      requires `rule_path` and `standard` and forbids `category`, `input_scope`, and
+      `validator`. The `standard` rule field is an authoring field independent of the
+      standards compiler that SPEC-030 (Seed 1) removes; the migrated
+      `backstop-go-pack` semgrep rules must each carry a non-empty `standard` so they
+      satisfy this re-keyed semgrep field-contract after SPEC-030 lands (SPEC-030
+      lands first per the ordering in References). ast-grep requires `rule_path` and forbids `category`,
+      `input_scope`, and `validator` (it is rule-fed like semgrep, so it inherits
+      semgrep's forbids minus the `standard` requirement, which ast-grep does not
+      need). The config-file engine (ex-layer-1 native linter) forbids `rule_path`,
+      `category`, `input_scope`, and `validator` and requires nothing. sandbox
+      (ex-layer-3) requires `validator`, `input_scope`, and `category` and forbids
+      `rule_path`; its `category` must be one of `presence`, `structural`, or
+      `other` (with `other` requiring a non-empty `justification`), and its
+      `input_scope` must be `single-file` or `multi-file`. Validation must verify a
+      rule's populated fields satisfy its declared engine's field-contract,
+      returning a ValidationError naming the offending field and engine when they do
+      not. The layer-keyed `validateLayer` and `validateLayerFields` are replaced by
+      engine-keyed equivalents that preserve every existing per-layer check.
     supports: pluggable-pack-engines:REQ-003
     follows: STD-GO-001:GO-010
 
@@ -107,8 +119,10 @@ requirements:
       two-process pipe in Go (no shell): engine stdout is fed to the `convert`
       executable's stdin, and the convert executable's stdout is the SARIF passed
       to `parseSarif`. The convert executable must be resolved relative to the pack
-      directory and run via the same `SandboxedRun` layer used by sandbox
-      validators — no new trust model. When `convert` is empty, engine stdout goes
+      directory and run inside the same sandbox trust model used by sandbox
+      validators — no new trust model — but via a clean-stdout capture (per REQ-009),
+      not `SandboxedRun`'s `CombinedOutput()`, so a converter's stderr cannot
+      interleave into the SARIF bytes. When `convert` is empty, engine stdout goes
       directly to `parseSarif` with no pipe.
     supports: pluggable-pack-engines:REQ-007
     follows: STD-GO-001:GO-010
@@ -119,16 +133,30 @@ requirements:
       engines and engines whose converter is a pack-declared script are the only two
       shapes. ast-grep, the lone genuine gap, ships its own stdin→SARIF converter
       script inside its pack directory referenced by the `convert` field; backstop
-      embeds no transform engine.
+      embeds no transform engine. The bundle's companion obligation (DD-7) to point
+      pack authors at existing per-known-tool converters via a documented pack.yml
+      reference table is a pure docs deliverable and is deferred — it is not part of
+      this spec's executable scope and is tracked as a documentation task to be
+      assigned separately. This omission is intentional, not a coverage gap.
     supports: pluggable-pack-engines:REQ-008
 
   - id: REQ-009
     text: >
-      The command runner used by the gate's engine dispatch must capture stdout
-      cleanly and separately from stderr, replacing `CombinedOutput()` which merges
-      stderr into stdout and corrupts SARIF parsing. A runner method must return
-      stdout bytes uncontaminated by stderr so an engine that writes a banner or
-      progress to stderr still yields parseable SARIF on stdout.
+      Every command capture on the dispatch SARIF path must capture stdout cleanly
+      and separately from stderr, replacing `CombinedOutput()` which merges stderr
+      into stdout and corrupts SARIF parsing. This covers both capture points: (a)
+      the engine command runner in `pkg/check/runner.go` gains a stdout-only method
+      (`RunStdout`) returning stdout bytes uncontaminated by stderr; and (b) the
+      sandboxed `convert` execution — whose stdout is the FINAL SARIF fed to
+      `parseSarif` — must likewise capture stdout cleanly, not via
+      `SandboxedRun`'s `CombinedOutput()`. A convert-capable sandbox capture
+      (a clean-stdout variant of `SandboxedRun`, e.g. `SandboxedRunStdout`, used by
+      the convert step) must return only the convert executable's stdout so that a
+      converter writing a banner/warning to stderr still yields parseable SARIF on
+      stdout. The existing `CombinedOutput`-based `SandboxedRun` is left in place for
+      the non-SARIF sandbox-validator path (REQ-014), whose message body is allowed
+      to include stderr; only the convert capture on the SARIF path switches to clean
+      stdout.
     supports: pluggable-pack-engines:REQ-009
     follows: STD-GO-001:GO-010
 
@@ -160,20 +188,45 @@ requirements:
       `pkg/pack/engine` leaf package, importing none of those three). The
       EngineBinding shape is `{command, input_mode, input_flag, scope_kind,
       convert?, provision?}` with `format` fixed to sarif and absent from the
-      struct. Native toolchain and pack declarations both emit records of this
-      shape; the containers (per-stack registry vs `pack.yml`) must not be merged.
+      struct. `scope_kind` is the engine package's own int type that *mirrors but
+      does not import* `pkg/check.ScopeKind` — reusing the `pkg/check` type would
+      reintroduce the import cycle this leaf-package placement exists to prevent, so
+      the planner must declare a parallel type, not alias the shared one. The pack-side declaration (`pack.yml` → EngineBinding) is what this
+      spec emits and consumes; the native toolchain container (per-stack
+      `ToolchainEntry` registry) is a separate container that must not be merged
+      into the EngineBinding registry. Converting the native `ToolchainEntry` into
+      an EngineBinding is out of scope here (native code-check is owned elsewhere);
+      this requirement asserts only the shared leaf-package placement, the absence
+      of an import cycle, the EngineBinding field shape, and the do-not-merge
+      boundary between the two containers.
     supports: pluggable-pack-engines:REQ-013
     follows: STD-GO-001:GO-010
 
   - id: REQ-014
     text: >
-      Build and test passes plus the sandbox engine are non-SARIF edges (exit-code
-      / pass-fail, not located findings) and must not ride `parseSarif`. ISSUE-003's
-      `ToolchainEntry.Format` survives for build/test (`go-build`, `go-test`,
-      `regex-lines` retained). Only lint/findings engines converge to SARIF. The
-      per-tool lint JSON parsers `golangci-json` and `eslint-json` are retired from
-      the engine dispatch path (those tools emit SARIF natively); they are removed,
-      not extracted into the EngineBinding model.
+      Build and test passes plus the sandbox engine (the `input_mode: none` shape)
+      are non-SARIF edges (exit-code / pass-fail, not located findings) and must not
+      ride `parseSarif`. Within `dispatchPackEngines`, an engine whose binding output
+      shape is exit-code/pass-fail — i.e. the sandbox/`none` engine — is dispatched on
+      a branch that interprets the executable's exit code: a non-zero exit is a
+      violation whose message is the captured output, and the path never enters
+      `parseSarif`. This branch is the relocation of the existing gate-time layer-3
+      sandbox path (cmd/backstop/pack_gate.go `runPackValidators`, currently keyed on
+      `rule.Layer != 3`): because REQ-002 removes `rule.Layer`, that branch is re-keyed
+      from `rule.Layer == 3` to `engine == sandbox` (input_mode `none`) and folded into
+      the engine dispatch as the exit-code terminal step; its `input_scope`
+      single-file/multi-file fan-out and `SandboxedRun` (CombinedOutput) capture are
+      preserved unchanged. ISSUE-003's `ToolchainEntry.Format` survives for build/test
+      (`go-build`, `go-test`, `regex-lines` retained). Only findings engines on the
+      dispatch path parse findings, and they parse them exclusively via `parseSarif`;
+      the per-tool lint JSON parsers `golangci-json` and `eslint-json` are not
+      introduced into and never reachable from the pack engine dispatch path —
+      pack-rule findings converge to SARIF only. Note: those two parsers live today
+      only in the native toolchain registry (pkg/check/registry.go, the ISSUE-003
+      TS/code-check path), which this spec disclaims as out of scope; retiring them
+      from that native path is owned by SPEC-030, not this spec. This requirement is
+      therefore scoped to asserting their absence from pack engine dispatch, not to
+      removing them from pkg/check.
     supports: pluggable-pack-engines:REQ-014
 
   - id: REQ-015
@@ -288,9 +341,19 @@ claims:
     text: semgrep rule that defines input_scope fails the field-contract (forbidden)
     tests:
       - TestEngineFit_SemgrepForbidsInputScope
+  - id: CLM-051
+    requirement: REQ-003
+    text: semgrep rule that defines category fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_SemgrepForbidsCategory
+  - id: CLM-052
+    requirement: REQ-003
+    text: semgrep rule that defines validator fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_SemgrepForbidsValidator
   - id: CLM-010
     requirement: REQ-003
-    text: ast-grep rule with rule_path and no input_scope passes the field-contract
+    text: ast-grep rule with rule_path and no forbidden fields passes the field-contract
     tests:
       - TestEngineFit_AstGrepValidFields
   - id: CLM-011
@@ -298,6 +361,21 @@ claims:
     text: ast-grep rule missing rule_path fails the field-contract
     tests:
       - TestEngineFit_AstGrepMissingRulePathFails
+  - id: CLM-053
+    requirement: REQ-003
+    text: ast-grep rule that defines input_scope fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_AstGrepForbidsInputScope
+  - id: CLM-054
+    requirement: REQ-003
+    text: ast-grep rule that defines category fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_AstGrepForbidsCategory
+  - id: CLM-055
+    requirement: REQ-003
+    text: ast-grep rule that defines validator fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_AstGrepForbidsValidator
   - id: CLM-012
     requirement: REQ-003
     text: sandbox rule with validator, input_scope, and category passes the field-contract
@@ -313,11 +391,51 @@ claims:
     text: sandbox rule that defines rule_path fails the field-contract (forbidden)
     tests:
       - TestEngineFit_SandboxForbidsRulePath
+  - id: CLM-056
+    requirement: REQ-003
+    text: sandbox rule missing validator fails the field-contract
+    tests:
+      - TestEngineFit_SandboxMissingValidatorFails
+  - id: CLM-057
+    requirement: REQ-003
+    text: sandbox rule missing category fails the field-contract
+    tests:
+      - TestEngineFit_SandboxMissingCategoryFails
+  - id: CLM-058
+    requirement: REQ-003
+    text: sandbox rule with an out-of-enum category (not presence/structural/other) fails the field-contract
+    tests:
+      - TestEngineFit_SandboxCategoryEnumEnforced
+  - id: CLM-059
+    requirement: REQ-003
+    text: sandbox rule with category other and empty justification fails the field-contract
+    tests:
+      - TestEngineFit_SandboxOtherCategoryRequiresJustification
+  - id: CLM-060
+    requirement: REQ-003
+    text: sandbox rule with an out-of-enum input_scope (not single-file/multi-file) fails the field-contract
+    tests:
+      - TestEngineFit_SandboxInputScopeEnumEnforced
   - id: CLM-015
     requirement: REQ-003
     text: config-file engine rule that defines rule_path fails the field-contract (forbidden)
     tests:
       - TestEngineFit_ConfigFileForbidsRulePath
+  - id: CLM-061
+    requirement: REQ-003
+    text: config-file engine rule that defines category fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_ConfigFileForbidsCategory
+  - id: CLM-062
+    requirement: REQ-003
+    text: config-file engine rule that defines input_scope fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_ConfigFileForbidsInputScope
+  - id: CLM-063
+    requirement: REQ-003
+    text: config-file engine rule that defines validator fails the field-contract (forbidden)
+    tests:
+      - TestEngineFit_ConfigFileForbidsValidator
   - id: CLM-016
     requirement: REQ-003
     text: validateLayer and validateLayerFields are replaced by engine-keyed validation
@@ -400,6 +518,16 @@ claims:
     text: An engine writing a banner to stderr still yields parseable SARIF on stdout
     tests:
       - TestGateDispatch_StderrBannerDoesNotCorruptSarif
+  - id: CLM-064
+    requirement: REQ-009
+    text: A convert script writing a banner to stderr still yields parseable SARIF on its stdout via the clean-stdout sandbox capture
+    tests:
+      - TestGateDispatch_ConvertStderrBannerDoesNotCorruptSarif
+  - id: CLM-065
+    requirement: REQ-009
+    text: The convert step captures stdout via the clean-stdout sandbox variant, never SandboxedRun's CombinedOutput
+    tests:
+      - TestGateDispatch_ConvertUsesCleanStdoutSandbox
 
   # REQ-010 — ast-grep end-to-end
   - id: CLM-030
@@ -440,16 +568,27 @@ claims:
       - TestEngineDispatch_BuildTestKeepFormatParsers
   - id: CLM-036
     requirement: REQ-014
-    text: The golangci-json and eslint-json lint parsers are removed from the engine dispatch path
+    text: Pack engine dispatch resolves only the SARIF parser and never references golangci-json or eslint-json
     tests:
-      - TestEngineDispatch_LintJSONParsersRetired
+      - TestEngineDispatch_PackFindingsParseSarifOnly
+  - id: CLM-066
+    requirement: REQ-014
+    text: A sandbox/none engine producing a non-zero exit yields a violation via exit-code semantics without entering parseSarif
+    tests:
+      - TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif
+  - id: CLM-067
+    requirement: REQ-014
+    text: The retired layer-3 sandbox branch is re-keyed to engine sandbox (input_mode none) with no remaining rule.Layer reference
+    tests:
+      - TestEngineDispatch_SandboxBranchReKeyedFromLayer3
 
   # REQ-015 — flag-day migration
   - id: CLM-037
     requirement: REQ-015
-    text: backstop-go-pack's rules carry engine semgrep and parse cleanly under the migrated reader
+    text: backstop-go-pack's rules carry engine semgrep and each retain a non-empty standard, satisfying the semgrep field-contract under the migrated reader
     tests:
       - TestMigration_GoPackEngineSemgrep
+      - TestMigration_GoPackRulesRetainStandard
   - id: CLM-038
     requirement: REQ-015
     text: A legacy layer-2-only rule reaching the migrated reader fails loud with no grandfather alias
@@ -530,7 +669,7 @@ contracts:
       - name: EngineBinding
         kind: type
         signature: "type EngineBinding struct"
-        notes: "Fields: Command string, InputMode InputMode, InputFlag string, ScopeKind check.ScopeKind-equivalent int, Convert string (optional), Provision *Provision (optional). No Format field — output is always SARIF."
+        notes: "Fields: Command string, InputMode InputMode, InputFlag string, ScopeKind an engine-package int type mirroring (NOT importing) pkg/check.ScopeKind — importing it would reintroduce the cycle this leaf package avoids, Convert string (optional), Provision *Provision (optional). No Format field — output is always SARIF."
       - name: InputMode
         kind: type
         signature: "type InputMode string"
@@ -575,13 +714,16 @@ contracts:
       - name: dispatchPackEngines
         kind: function
         signature: "func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, runner check.CommandRunner) ([]gate.Violation, error)"
-        notes: "Replaces mergePackRules feeder: groups rules by engine, gathers inputs by input_mode, runs each engine, pipes through convert when declared, parses via parseSarif, namespaces violations."
+        notes: "Replaces mergePackRules feeder AND folds in runPackValidators' layer-3 sandbox branch (re-keyed to engine==sandbox): groups rules by engine, gathers inputs by input_mode, runs each engine; findings engines pipe through convert when declared and parse via parseSarif; the sandbox/none engine takes the exit-code terminal branch (non-zero exit ⇒ violation, no parseSarif). Namespaces violations."
     consumes:
       - source: pkg/pack/engine/binding.go
         name: Registry
         kind: type
       - source: pkg/check/parsers.go
         name: lookupParser
+        kind: function
+      - source: pkg/packval/sandbox.go
+        name: SandboxedRunStdout
         kind: function
       - source: pkg/packval/sandbox.go
         name: SandboxedRun
@@ -596,6 +738,14 @@ contracts:
         kind: interface
         signature: "type CommandRunner interface { RunStdout(ctx context.Context, name string, args ...string) ([]byte, error) }"
         notes: "Adds a stdout-only capture method; ExecCommandRunner implements it via cmd.Output() / explicit stdout buffer rather than CombinedOutput()."
+    consumes: []
+
+  - file: pkg/packval/sandbox.go
+    provides:
+      - name: SandboxedRunStdout
+        kind: function
+        signature: "func SandboxedRunStdout(cmd string, args []string, packDir string) (stdout []byte, err error)"
+        notes: "Clean-stdout variant of SandboxedRun for the convert step (REQ-007/REQ-009): same sandbox trust model, but captures only stdout (explicit stdout buffer, not CombinedOutput) so a converter's stderr cannot interleave into the SARIF bytes. SandboxedRun (CombinedOutput) is retained unchanged for the sandbox-validator exit-code path (REQ-014)."
     consumes: []
 ---
 
@@ -627,12 +777,14 @@ Each engine's field-contract re-keys the retired per-layer requirements. Validat
 
 | Engine | `requires` | `forbids` |
 |---|---|---|
-| semgrep | `rule_path`, `standard` | `input_scope` |
-| ast-grep | `rule_path` | `input_scope` |
+| semgrep | `rule_path`, `standard` | `category`, `input_scope`, `validator` |
+| ast-grep | `rule_path` | `category`, `input_scope`, `validator` |
 | sandbox | `validator`, `input_scope`, `category` | `rule_path` |
-| config-file (native linter) | — | `rule_path` |
+| config-file (native linter) | — | `rule_path`, `category`, `input_scope`, `validator` |
 
-Claims cover, per engine: a valid-fields pass, a missing-required fail, and (where a `forbids` entry exists) a forbidden-field fail (CLM-007 … CLM-015).
+These `requires`/`forbids` lists are transcribed faithfully from the live `validateLayerFields` (pkg/pack/validate_manifest.go): semgrep ← layer-2, sandbox ← layer-3, config-file ← layer-1. Every forbid present today is preserved — no per-layer check is dropped in the re-key. ast-grep is rule-fed like semgrep and inherits semgrep's forbids; it differs only in not requiring `standard`. The sandbox engine additionally enforces the existing value-enum rules: `category` ∈ {`presence`, `structural`, `other`} with `other` requiring a non-empty `justification`, and `input_scope` ∈ {`single-file`, `multi-file`}.
+
+Claims cover, per engine, every cell: each required-field pass, each missing-required fail, and each forbidden-field fail, plus the sandbox value-enum and justification checks. The claims are enumerated in frontmatter; no forbidden-field cell is left untested.
 
 ### Input-mode enum matrix (REQ-020)
 
@@ -658,7 +810,7 @@ The gate-time engine path is a thin deterministic harness: **discover declaratio
 
 ### 2. The `EngineBinding` table in a leaf package (REQ-005, REQ-006, REQ-013)
 
-A new `pkg/pack/engine` package holds `EngineBinding {Command, InputMode, InputFlag, ScopeKind, Convert?, Provision?}` (no `Format` — output is always SARIF), the `InputMode` enum + `ParseInputMode`, the `Provision` descriptor, and a `Registry` (`map[string]EngineBinding`). This package imports none of `pkg/check`, `pkg/packval`, `cmd/backstop`, so all three import it without a cycle. The built-in registry seeds `semgrep`, `ast-grep`, `sandbox`, and config-file linters; packs may contribute additional bindings. `Registry` lookup of an unknown engine returns a fail-loud config error (REQ-005). The sole findings parser is `parseSarif`, resolved via `pkg/check`'s `lookupParser` (REQ-005/REQ-006); build/test keep their `ToolchainEntry.Format` parsers and never enter this path (REQ-014).
+A new `pkg/pack/engine` package holds `EngineBinding {Command, InputMode, InputFlag, ScopeKind, Convert?, Provision?}` (no `Format` — output is always SARIF), the `InputMode` enum + `ParseInputMode`, the `Provision` descriptor, and a `Registry` (`map[string]EngineBinding`). This package imports none of `pkg/check`, `pkg/packval`, `cmd/backstop`, so all three import it without a cycle. The built-in registry seeds `semgrep`, `ast-grep`, `sandbox`, and config-file linters; packs may contribute additional bindings. `Registry` lookup of an unknown engine returns a fail-loud config error (REQ-005). The sole findings parser **in the pack engine dispatch path** is `parseSarif`, resolved via `pkg/check`'s `lookupParser` (REQ-005/REQ-006); the per-tool lint parsers `golangci-json`/`eslint-json` are never referenced from dispatch. Build/test keep their `ToolchainEntry.Format` parsers and never enter this path (REQ-014). Those two lint parsers continue to live only in the native toolchain registry (pkg/check/registry.go); removing them from that native path is out of scope here and is owned by SPEC-030.
 
 ### 3. Engine-keyed field-contract validation (REQ-003, REQ-004)
 
@@ -672,8 +824,13 @@ A new `pkg/pack/engine` package holds `EngineBinding {Command, InputMode, InputF
 3. gathers inputs per `input_mode` (stage 5);
 4. provisions the engine (stage 6);
 5. runs the engine command via the clean-stdout runner (stage 7);
-6. pipes through `convert` when declared (stage 8);
-7. parses normalized output via `parseSarif` and namespaces violations (`pack-name/rule-id`).
+6. **branches on the engine's output shape:**
+   - **findings engines** (semgrep, ast-grep, config-file linters): pipe through
+     `convert` when declared (stage 8), then parse normalized output via `parseSarif`
+     and namespace violations (`pack-name/rule-id`);
+   - **exit-code engines** (the sandbox / `input_mode: none` engine): take the
+     exit-code terminal branch (stage 10), which never enters `convert` or
+     `parseSarif`.
 
 Mixed-engine packs dispatch each engine independently; ast-grep rules are never fed into a semgrep invocation and vice versa (REQ-011).
 
@@ -697,7 +854,11 @@ A binding with an **empty** `Provision` is a Layer-0 assumed-present engine: a m
 
 ### 8. Sandboxed `convert` pipe (REQ-006, REQ-007, REQ-008)
 
-When a binding declares a non-empty `Convert`, dispatch runs a two-process pipe **in Go** (no shell): engine stdout → `convert` stdin → `convert` stdout (SARIF) → `parseSarif`. The convert executable resolves relative to the pack directory and runs via `SandboxedRun` (pkg/packval/sandbox.go) — the same trust model as sandbox validators. An empty `Convert` sends engine stdout directly to `parseSarif`. Backstop hosts no converters; ast-grep ships its own stdin→SARIF script inside its pack (REQ-008).
+When a binding declares a non-empty `Convert`, dispatch runs a two-process pipe **in Go** (no shell): engine stdout → `convert` stdin → `convert` stdout (SARIF) → `parseSarif`. The convert executable resolves relative to the pack directory and runs inside the same sandbox trust model as sandbox validators, but through a **clean-stdout sandbox capture** (a `SandboxedRunStdout`-style variant, REQ-009) rather than `SandboxedRun`'s `CombinedOutput()` — so a converter's stderr banner/warning cannot interleave into the SARIF bytes. An empty `Convert` sends engine stdout directly to `parseSarif`. Backstop hosts no converters; ast-grep ships its own stdin→SARIF script inside its pack (REQ-008).
+
+### 10. Exit-code / sandbox (`none`) terminal branch (REQ-014)
+
+The sandbox engine (`input_mode: none`) is the exit-code/pass-fail edge and does **not** ride `convert` or `parseSarif`. This branch is the relocation of the existing gate-time layer-3 validator path (`runPackValidators`, cmd/backstop/pack_gate.go, currently `if rule.Layer != 3 { continue }` → `sandboxedRun` → exit-code-to-violation). Because REQ-002 removes `rule.Layer`, the branch is re-keyed from `rule.Layer == 3` to `engine == sandbox` and folded into `dispatchPackEngines` as the exit-code terminal step. Its existing behavior is preserved unchanged: the `input_scope` single-file/multi-file target fan-out, the `SandboxedRun` (CombinedOutput) capture — whose merged stderr is legitimately allowed to form the violation message body — and the namespaced-violation emission on non-zero exit. The clean-stdout capture (§7, §8) applies only to the SARIF findings path, not here.
 
 ### 9. ast-grep wired end-to-end + proof rule (REQ-010)
 
@@ -719,9 +880,11 @@ Tests use temporary project directories with pre-installed test packs (testdata 
 
 4. **Empty `config-file` config is legitimate, missing rule-fed input is not.** Under `config-file`, a pack supplying no config is valid (the tool runs its own defaults). Under `rule-flags`/`rule-dir`, a missing declared rule path is a broken-pack error. The gather step must distinguish "no config offered" (fine) from "declared path absent" (fail) and not collapse them.
 
-5. **A converter emitting non-SARIF still fails — but late.** Because there is no `format` selector, a buggy `convert` script that emits garbage is only caught when `parseSarif` rejects it. That is intentional (the parser is the contract), but the error must attribute the failure to the engine/pack and its convert step, not surface as an opaque SARIF parse error with no provenance.
+5. **A converter emitting non-SARIF still fails — but late, and the harness must not be the cause.** Because there is no `format` selector, a buggy `convert` script that emits genuine garbage on stdout is only caught when `parseSarif` rejects it. That is intentional (the parser is the contract), and the error must attribute the failure to the engine/pack and its convert step, not surface as an opaque SARIF parse error with no provenance. But there is a sharper trap: the convert executable's stdout is the *final* SARIF, so capturing it via `SandboxedRun`'s `CombinedOutput()` would merge any stderr banner/warning from an otherwise-clean converter into the parsed bytes and corrupt them — the harness itself contaminating a correct converter. REQ-007/REQ-009 close this by mandating a clean-stdout sandbox capture (`SandboxedRunStdout`) for the convert step; the legacy `CombinedOutput` `SandboxedRun` is retained only for the exit-code sandbox-validator path (REQ-014), where merged stderr is a legitimate message body, not parsed SARIF.
 
 6. **`scope_kind` on the engine vs the existing pass `ScopeKind`.** The EngineBinding carries a `scope_kind` analogous to `pkg/check`'s `ScopeKind`, but engine dispatch and the native pass executor are different call paths. The two must not be conflated into one shared mutable value; the EngineBinding's `scope_kind` governs how the engine attaches scoped files, mirroring but not importing the pass-level concept (to keep `pkg/pack/engine` a leaf).
+
+7. **Sandbox/`none` engines must not enter `parseSarif`, and the layer-3 branch must move, not break.** The dispatch's terminal step branches on output shape: findings engines parse SARIF, but the sandbox (`input_mode: none`) engine is exit-code/pass-fail and takes a separate terminal branch (REQ-014). The existing gate-time sandbox path (`runPackValidators`, keyed on `rule.Layer != 3`) breaks the moment REQ-002 deletes `rule.Layer`; this spec re-keys that branch to `engine == sandbox` and folds it into `dispatchPackEngines` rather than leaving it stranded against a removed field. Failing to relocate it would either dangle a dead `rule.Layer` reference (compile break) or silently drop layer-3 enforcement (vacuous green).
 
 ## Review Questions
 
@@ -731,11 +894,15 @@ Tests use temporary project directories with pre-installed test packs (testdata 
 
 3. After removal, does any code path still read a `layer` YAML key, default it, or branch on `rule.Layer`? Grep must show zero remaining `Layer` references in the dispatch and validation paths.
 
-4. Are `golangci-json` and `eslint-json` removed from the **engine dispatch** path while still permitted (if at all) only where build/test/native `ToolchainEntry.Format` legitimately uses them? Confirm the lint parsers are not silently retained as an engine fallback.
+4. Does the pack engine dispatch path reference `golangci-json` or `eslint-json` anywhere, or does it resolve only `parseSarif`? Those two parsers must remain confined to the native toolchain registry (out of scope here, owned by SPEC-030); confirm dispatch neither imports nor falls back to them, rather than confirming they were "removed" (this spec does not touch pkg/check/registry.go).
 
 5. Does the clean-stdout runner change (`RunStdout`) leave the existing `Run`/`CombinedOutput` callers (build/test executors) untouched, or does it regress their behavior? The change must be additive for the engine path, not a global swap.
 
 6. For a backstop-introduced engine, is provisioning genuinely routed through `VerifyLock`/`backstop.lock` (pinned + verified), or does it shell out to an installer outside the lock path the way `EnsureSemgrep` did? The trust surface must equal the `convert` step's.
+
+7. Does the convert step capture the convert executable's stdout via the clean-stdout sandbox variant (`SandboxedRunStdout`), or does it call `SandboxedRun` (`CombinedOutput`)? The latter would merge a converter's stderr into the final SARIF and corrupt parsing — confirm the convert capture is stdout-only and that the `CombinedOutput` `SandboxedRun` remains used only by the exit-code sandbox-validator branch.
+
+8. Does the sandbox/`none` engine reach `parseSarif` or `convert` at all? It must take the exit-code terminal branch only — confirm no code path routes a `none`-mode engine's output into the SARIF parser, and that the folded-in layer-3 logic (single-file/multi-file fan-out, non-zero-exit-to-violation) is preserved.
 
 ## References
 
@@ -745,4 +912,4 @@ Tests use temporary project directories with pre-installed test packs (testdata 
 - **SPEC-033** — Seed 4, BUNDLE-009 contract seam.
 - **ISSUE-003** — data-driven toolchain registry: `ToolchainEntry`/`ScopeKind`, `formatParsers`, `lookupParser` fail-loud, the generic `commandExecutor` (the substrate this spec converges onto).
 - **SPEC-017** — pack gate integration: `mergePackRules`, `loadInstalledPacks`, `NamespacedRuleID`, `VerifyLock` (the path this spec generalizes).
-- Code: pkg/pack/manifest.go (`Rule`, `validateLayer`); pkg/pack/validate_manifest.go (`validateLayerFields`); cmd/backstop/pack_gate.go (`mergePackRules`); cmd/backstop/gate.go + code_check.go (`ExtraSemgrepConfigs` consumers); pkg/check/check.go (`semgrepExecutor`, `EnsureSemgrep`); pkg/check/parsers.go (`parseSarif`, `lookupParser`, `formatParsers`); pkg/check/runner.go (`CommandRunner`, `CombinedOutput`); pkg/packval/sandbox.go (`SandboxedRun`); pkg/pack/distribution/verify.go (`VerifyLock`).
+- Code: pkg/pack/manifest.go (`Rule`, `validateLayer`); pkg/pack/validate_manifest.go (`validateLayerFields`); cmd/backstop/pack_gate.go (`mergePackRules`, and `runPackValidators` — the existing `rule.Layer != 3` sandbox branch this spec re-keys to `engine == sandbox`); cmd/backstop/gate.go + code_check.go (`ExtraSemgrepConfigs` consumers); pkg/check/check.go (`semgrepExecutor`, `EnsureSemgrep`); pkg/check/parsers.go (`parseSarif`, `lookupParser`, `formatParsers`); pkg/check/runner.go (`CommandRunner`, `CombinedOutput`); pkg/packval/sandbox.go (`SandboxedRun` — gains a clean-stdout variant for the convert step); pkg/pack/distribution/verify.go (`VerifyLock`).

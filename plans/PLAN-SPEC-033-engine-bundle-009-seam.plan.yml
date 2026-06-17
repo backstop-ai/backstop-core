@@ -1,0 +1,449 @@
+---
+plan_id: PLAN-SPEC-033
+spec_id: SPEC-033
+spec_version: 1.0.0
+created: "2026-06-16"
+status: draft
+test_command: "go run ./tools/seam-check ./specs/SPEC-033-engine-bundle-009-seam.spec.md"
+coverage_threshold: 90
+
+notes: |
+  SPEC-033 is a contract-lock / boundary-definition deliverable: it ships no
+  package code that implements an engine. The implementable artifact is the
+  static seam checker `tools/seam-check`, whose job is to parse SPEC-033's
+  frontmatter (requirements + claims) and Seam Ledger table and assert the seam
+  is internally consistent and frozen. The spec's verification.test_command is
+  exactly this tool, so the tool both backs the spec's static verification and is
+  the unit under test here.
+
+  The checker validates five seam invariants, one per requirement:
+    - REQ-001 (CLM-001..006): the delivered hand-off artifact set is enumerated
+      and closed — exactly the five named artifacts cross as "Delivered", and no
+      artifact outside the enumerated list is claimed delivered.
+    - REQ-002 (CLM-007..009): exactly one trivial proof rule, labeled a wiring
+      witness; a second proof rule or a proof rule promoted to a real rule is a
+      violation.
+    - REQ-003 (CLM-010..014): the not-delivered set (substantiveness packs,
+      contract packs, traceability-step wiring, go/parser migration) is assigned
+      to BUNDLE-009; a real substantiveness/contract rule in any BUNDLE-010 spec
+      is a violation.
+    - REQ-004 (CLM-015..017): the ast-grep→SARIF converter is author-once by
+      BUNDLE-010 and reused unmodified; a re-authored converter is a violation.
+    - REQ-005 (CLM-018..020): the producer→consumer edge is one-way
+      (BUNDLE-010 → BUNDLE-009); a reciprocal BUNDLE-010→BUNDLE-009 dependency is
+      a violation.
+
+  Sharp edges drive the negative tests: each "RejectsXxx"/"IsViolation" claim has
+  a dedicated negative-case test name mandated by the spec, asserted against
+  malformed-seam fixtures rather than the canonical spec.
+
+  Ordering: a single shared model/validator lives in tools/seam-check/seam.go, so
+  the five validation areas cannot author disjoint files in parallel. They are
+  sequenced TDD test→implementation per area against the shared validator, each
+  implementation directly preceded by its test task, with a verification gate per
+  phase and a final full `backstop gate` over both the spec artifact and the new
+  Go tool.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Seam-check scaffold and ledger-parse fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold seam-check tool package and CLI entrypoint"
+        description: |
+          Create the tools/seam-check Go package skeleton: a main.go that accepts
+          a single spec-path argument, reads it, and delegates to a CheckSeam
+          entry function that will live in seam.go. Stub CheckSeam to return an
+          empty result so the package compiles and `go run ./tools/seam-check`
+          exits cleanly before the validators are implemented. This is the shared
+          surface every later validation area builds on; no seam logic yet.
+        files:
+          - tools/seam-check/main.go
+          - tools/seam-check/seam.go
+        claims:
+          - CLM-001
+          - CLM-007
+          - CLM-010
+          - CLM-015
+          - CLM-018
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Create canonical and malformed seam fixtures for checker tests"
+        description: |
+          Create testdata fixtures the seam-check tests assert against: a copy of
+          the canonical SPEC-033 seam (valid) plus malformed variants exercising
+          each negative case — an extra delivered artifact outside the enumerated
+          set, a second/promoted proof rule, a real substantiveness rule placed in
+          a BUNDLE-010 spec, a re-authored ast-grep converter, and a reciprocal
+          BUNDLE-010→BUNDLE-009 dependency. These fixtures back the pass and
+          negative TestSeam_* cases across all five validation areas.
+        files:
+          - tools/seam-check/testdata/seam-valid.spec.md
+          - tools/seam-check/testdata/seam-extra-delivered.spec.md
+          - tools/seam-check/testdata/seam-extra-proof-rule.spec.md
+          - tools/seam-check/testdata/seam-real-rule-in-bundle010.spec.md
+          - tools/seam-check/testdata/seam-reauthored-converter.spec.md
+          - tools/seam-check/testdata/seam-reciprocal-dependency.spec.md
+        claims:
+          - CLM-006
+          - CLM-009
+          - CLM-014
+          - CLM-017
+          - CLM-020
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Delivered hand-off artifact set (REQ-001)"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Write failing tests for the delivered seam artifact set and its closure"
+        description: |
+          Add failing tests asserting the checker recognizes each enumerated
+          delivered hand-off artifact and treats the delivered set as closed.
+          Mandated test names:
+            - TestSeam_Delivers_EngineFieldAndDispatchTable (CLM-001)
+            - TestSeam_Delivers_AstGrepWired (CLM-002)
+            - TestSeam_Delivers_AstGrepConverter (CLM-003)
+            - TestSeam_Delivers_ParseSarifContract (CLM-004)
+            - TestSeam_Delivers_InputModeAndLayout (CLM-005)
+            - TestSeam_DeliveredSet_IsClosed (CLM-006) — asserts the
+              seam-extra-delivered fixture is flagged because an artifact outside
+              the enumerated list is claimed delivered.
+        files:
+          - tools/seam-check/seam_delivered_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-002
+          # Phases 2-5 share tools/seam-check/seam.go and are serialized via the
+          # test tasks chaining on the prior phase's verification (REQ-010) so they
+          # are never parallel-eligible (D-081). Phase 2 is the chain head.
+
+      - id: TASK-004
+        type: implementation
+        title: "Implement delivered-set parsing and closure validation"
+        description: |
+          Parse the spec's Seam Ledger and frontmatter to extract the "Delivered"
+          rows, expose each enumerated artifact (engine field + dispatch table,
+          ast-grep wired, ast-grep convert executable, parseSarif contract,
+          input_mode/input_flag seam + pack layout), and assert the delivered set
+          is closed: any artifact claimed delivered that is outside the enumerated
+          allowlist is reported as a violation. Make the TestSeam_Delivers_* and
+          TestSeam_DeliveredSet_IsClosed tests pass.
+        files:
+          - tools/seam-check/seam.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify delivered-set checker via backstop code check"
+        description: |
+          Run the diff-scoped fast inner-loop check over the seam-check tool and
+          its delivered-set tests.
+
+          Commands:
+            - backstop code check
+        files:
+          - tools/seam-check/seam.go
+          - tools/seam-check/seam_delivered_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Proof-rule wiring witness (REQ-002)"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write failing tests for exactly-one labeled proof rule"
+        description: |
+          Add failing tests asserting the proof-rule invariants.
+          Mandated test names:
+            - TestSeam_ProofRule_ExactlyOne (CLM-007) — exactly one trivial proof
+              rule is declared as the wiring witness.
+            - TestSeam_ProofRule_LabeledNonDomain (CLM-008) — the proof rule is
+              labeled a wiring witness, not a substantiveness/contract rule.
+            - TestSeam_ProofRule_RejectsExtraOrPromoted (CLM-009) — the
+              seam-extra-proof-rule fixture (a second proof rule, or a proof rule
+              promoted to a real rule) is flagged as a violation.
+        files:
+          - tools/seam-check/seam_proofrule_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-001
+          - TASK-002
+          # Serializes phase 3 after phase 2 (shared seam.go; REQ-010 allows
+          # test→verification deps) to keep the phases non-parallel under D-081.
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement proof-rule cardinality and labeling validation"
+        description: |
+          Extend the checker to find proof-rule declarations in the seam, assert
+          exactly one exists, assert it is labeled a non-domain wiring witness, and
+          flag a second proof rule or any proof rule presented/extended as a real
+          substantiveness or contract rule. Make the TestSeam_ProofRule_* tests
+          pass. Covers Sharp Edge 1 (proof rule masquerading as a real rule).
+        files:
+          - tools/seam-check/seam.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify proof-rule checker via backstop code check"
+        description: |
+          Run the diff-scoped fast inner-loop check over the proof-rule validator
+          and its tests.
+
+          Commands:
+            - backstop code check
+        files:
+          - tools/seam-check/seam.go
+          - tools/seam-check/seam_proofrule_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-007
+
+  - id: phase-4
+    name: "Phase 4: Not-delivered allowlist assigned to BUNDLE-009 (REQ-003)"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write failing tests for the not-delivered set and the real-rule guard"
+        description: |
+          Add failing tests asserting each not-delivered artifact is assigned to
+          BUNDLE-009 and that a real rule in a BUNDLE-010 spec is a violation.
+          Mandated test names:
+            - TestSeam_NotDelivered_SubstantivenessPacks (CLM-010)
+            - TestSeam_NotDelivered_ContractPacks (CLM-011)
+            - TestSeam_NotDelivered_TraceabilityStepWiring (CLM-012)
+            - TestSeam_NotDelivered_GoParserMigration (CLM-013)
+            - TestSeam_RealRuleInBundle010_IsViolation (CLM-014) — asserts the
+              seam-real-rule-in-bundle010 fixture is flagged.
+        files:
+          - tools/seam-check/seam_notdelivered_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-001
+          - TASK-002
+          # Serializes phase 4 after phase 3 (shared seam.go) under D-081.
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement not-delivered assignment and real-rule violation detection"
+        description: |
+          Extend the checker to extract the "NOT delivered" ledger rows, assert
+          each (real substantiveness packs, real contract/traceability packs,
+          traceability-step wiring, go/parser substantiveness analyzer migration)
+          is owned by BUNDLE-009 and absent from BUNDLE-010's delivered scope, and
+          flag a real substantiveness/contract rule appearing in any BUNDLE-010
+          spec as a seam violation. Make the TestSeam_NotDelivered_* and
+          TestSeam_RealRuleInBundle010_IsViolation tests pass. Covers Sharp Edges
+          3 (scope osmosis) and 5 (go/parser mis-assignment).
+        files:
+          - tools/seam-check/seam.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify not-delivered checker via backstop code check"
+        description: |
+          Run the diff-scoped fast inner-loop check over the not-delivered
+          validator and its tests.
+
+          Commands:
+            - backstop code check
+        files:
+          - tools/seam-check/seam.go
+          - tools/seam-check/seam_notdelivered_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-010
+
+  - id: phase-5
+    name: "Phase 5: Converter author-once and one-way dependency edge (REQ-004, REQ-005)"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write failing tests for converter author-once and producer→consumer direction"
+        description: |
+          Add failing tests for the converter-ownership and directionality
+          invariants.
+          Mandated test names:
+            - TestSeam_Converter_AuthoredOnceByBundle010 (CLM-015)
+            - TestSeam_Converter_ReusedUnmodified (CLM-016)
+            - TestSeam_Converter_RejectsReauthoring (CLM-017) — asserts the
+              seam-reauthored-converter fixture is flagged.
+            - TestSeam_Direction_ProducerConsumerDeclared (CLM-018)
+            - TestSeam_Direction_ConsumerBlockedOnAstGrep (CLM-019)
+            - TestSeam_Direction_RejectsReciprocalDependency (CLM-020) — asserts
+              the seam-reciprocal-dependency fixture is flagged.
+        files:
+          - tools/seam-check/seam_converter_direction_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-001
+          - TASK-002
+          # Serializes phase 5 after phase 4 (shared seam.go) under D-081.
+          - TASK-011
+
+      - id: TASK-013
+        type: implementation
+        title: "Implement converter author-once and one-way dependency-edge validation"
+        description: |
+          Extend the checker to assert the ast-grep→SARIF converter is declared
+          author-once by BUNDLE-010 and marked reuse-many/unmodified, flag a
+          second or BUNDLE-009-authored converter, declare BUNDLE-010 producer /
+          BUNDLE-009 consumer with BUNDLE-009's query-pack layer blocked on
+          ast-grep wired here, and flag a reciprocal BUNDLE-010→BUNDLE-009
+          dependency. Make the TestSeam_Converter_* and TestSeam_Direction_* tests
+          pass. Covers Sharp Edges 2 (converter re-authoring) and 4 (bidirectional
+          dependency drift).
+        files:
+          - tools/seam-check/seam.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify converter and direction checker via backstop code check"
+        description: |
+          Run the diff-scoped fast inner-loop check over the converter and
+          directionality validators and their tests.
+
+          Commands:
+            - backstop code check
+        files:
+          - tools/seam-check/seam.go
+          - tools/seam-check/seam_converter_direction_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-013
+
+  - id: phase-6
+    name: "Phase 6: Full gate — seam spec artifact and seam-check tool"
+    tasks:
+      - id: TASK-015
+        type: verification
+        title: "Run full backstop gate over the seam spec and seam-check tool"
+        description: |
+          Run the complete kill chain over the SPEC-033 contract-lock artifact and
+          the new Go seam-check tool: artifact validation of the spec, code check,
+          test verification, substantiveness, coverage, and contracts. This is the
+          only phase that runs the full gate. Because the plan touches both an
+          artifact file (.spec.md) and .go files, the gate covers code verification
+          and `backstop artifact validate` covers the spec. Confirms the spec's own
+          static verification command (go run ./tools/seam-check on SPEC-033) passes
+          green end-to-end.
+
+          Commands:
+            - backstop gate
+            - backstop artifact validate
+        files:
+          - specs/SPEC-033-engine-bundle-009-seam.spec.md
+          - tools/seam-check/main.go
+          - tools/seam-check/seam.go
+          - tools/seam-check/seam_delivered_test.go
+          - tools/seam-check/seam_proofrule_test.go
+          - tools/seam-check/seam_notdelivered_test.go
+          - tools/seam-check/seam_converter_direction_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-013
+          - TASK-005
+          - TASK-008
+          - TASK-011
+          - TASK-014

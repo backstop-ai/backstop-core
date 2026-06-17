@@ -1,0 +1,877 @@
+---
+plan_id: PLAN-SPEC-031
+spec_id: SPEC-031
+spec_version: 1.0.0
+created: "2026-06-16"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/check/ ./pkg/pack/ ./pkg/pack/engine/ ./pkg/packval/ -race -coverprofile=cover.out -v"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-031 (BUNDLE-010 pillar 1, Spec Seed 2): first-class `engine`
+  field + EngineBinding table dispatch replacing the implicit layer==2 ⇒ semgrep
+  routing. Gate-time locus (locus A) only; fixture-time (pkg/packval) is SPEC-032,
+  packs-only removal is SPEC-030, BUNDLE-009 seam is SPEC-033.
+
+  Build order is dictated by the import graph and the flag-day migration sharp edge:
+    1. The leaf `pkg/pack/engine` package (EngineBinding/InputMode/Provision/Registry)
+       lands first because pkg/pack, pkg/check, and cmd/backstop all import it.
+    2. Manifest `engine` field + `layer` retirement + engine-keyed field-contract
+       validation, and the clean-stdout capture (runner + SandboxedRunStdout), are
+       independent of each other and run as disjoint parallel phases.
+    3. Group-by-engine dispatch (dispatchPackEngines) consumes all of the above:
+       input gathering by input_mode, the sandboxed convert pipe, the sandbox/none
+       exit-code terminal branch re-keyed from rule.Layer==3, split provisioning.
+    4. ast-grep wired end-to-end with a fixture proof rule + stub converter, and the
+       flag-day go-pack migration (engine: semgrep, retain standard, no grandfather)
+       proven against the migrated reader via fixtures.
+
+  Sharp edges addressed by task ordering:
+    - Flag-day migration (no safety net, N=1): the manifest reader change (engine
+      required, layer key removed, no layer:2→semgrep alias) and the migration
+      proof land together; a layer-only rule reaching the migrated reader is a
+      blocking ConfigError (TASK in phase 3 + proof in phase 6).
+    - layer-3 sandbox branch must move, not break: dispatchPackEngines folds in
+      runPackValidators' branch re-keyed from rule.Layer==3 to engine==sandbox,
+      preserving single-file/multi-file fan-out and SandboxedRun (CombinedOutput).
+    - convert capture corruption: the convert step uses SandboxedRunStdout
+      (clean stdout) so a converter's stderr banner cannot interleave into SARIF;
+      legacy CombinedOutput SandboxedRun is retained only for the exit-code branch.
+    - leaf-package cycle: pkg/pack/engine imports none of check/packval/cmd, and
+      ScopeKind is a parallel int type mirroring (not importing) pkg/check.ScopeKind.
+    - sandbox/none must never enter parseSarif; unknown engine / unknown input_mode
+      are fail-loud config errors, never silent skips or inferred fallbacks.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Engine dispatch test fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold engine-organized pack fixtures and stub converter scripts"
+        description: |
+          Create testdata fixtures under cmd/backstop/testdata that exercise the
+          full engine dispatch path without a live ast-grep/semgrep binary:
+            - an engine-organized pack with per-engine dirs (semgrep/, ast-grep/,
+              linter/, scripts/) and rules declaring `engine` (no `layer`);
+            - a trivial ast-grep proof rule plus a stub stdin->SARIF converter
+              script (ast-grep/to-sarif.sh) that emits canned SARIF on stdout and a
+              banner on stderr (to prove clean-stdout capture);
+            - a mixed-engine pack (semgrep + ast-grep rules) for cross-feed checks;
+            - a pack with a missing declared input path (broken-pack fixture);
+            - a legacy `layer: 2`-only rule fixture (no `engine`) for the
+              no-grandfather migration proof.
+          These fixtures back the dispatch, convert, input_mode, layout, and
+          migration claims and are consumed by tests in later phases.
+        files:
+          - cmd/backstop/testdata/engine-dispatch/backstop.yml
+          - cmd/backstop/testdata/engine-dispatch/backstop.lock
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/to-sarif.sh
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/scripts/check.sh
+        claims:
+          - "CLM-030: ast-grep proof rule fixture for end-to-end dispatch"
+          - "CLM-027: ast-grep pack ships its own stdin->SARIF converter script"
+          - "CLM-032: mixed semgrep+ast-grep pack fixture for cross-feed checks"
+          - "CLM-038: legacy layer-2-only rule fixture for no-grandfather proof"
+          - "CLM-050: missing declared input path broken-pack fixture"
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: EngineBinding leaf package"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write tests for EngineBinding, InputMode, Provision, Registry, and no-import-cycle"
+        description: |
+          Write failing tests for the new leaf package pkg/pack/engine covering:
+          the EngineBinding shape (Command, InputMode, InputFlag, ScopeKind, optional
+          Convert, optional Provision, and explicitly NO Format field); the InputMode
+          enum's four values and ParseInputMode's fail-loud on an unknown value; the
+          Provision descriptor (empty for assumed-present, pinned for introduced);
+          the Registry seeding semgrep/ast-grep/sandbox/config-file and fail-loud
+          lookup of an unknown engine; ScopeKind being the engine package's own int
+          type that mirrors but does not import pkg/check.ScopeKind; and a guard that
+          the package imports none of pkg/check, pkg/packval, or cmd/backstop.
+        files:
+          - pkg/pack/engine/binding_test.go
+        claims:
+          - "CLM-033: EngineBinding lives in pkg/pack/engine importable without an import cycle"
+          - "CLM-034: EngineBinding carries command/input_mode/input_flag/scope_kind/optional convert+provision and no format"
+          - "CLM-021: EngineBinding has no format field; findings output always parsed as SARIF"
+          - "CLM-044: input_mode config-file value"
+          - "CLM-045: input_mode rule-flags value"
+          - "CLM-046: input_mode rule-dir value"
+          - "CLM-047: input_mode none value"
+          - "CLM-048: unrecognized input_mode value is a blocking config error"
+          - "CLM-020: unknown engine name is a fail-loud config error, not a silent skip"
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: implementation
+        title: "Implement pkg/pack/engine binding, InputMode enum, Provision, and Registry"
+        description: |
+          Create pkg/pack/engine/binding.go implementing EngineBinding
+          {Command, InputMode, InputFlag, ScopeKind, Convert?, Provision?} with no
+          Format field; the InputMode string enum (config-file, rule-flags, rule-dir,
+          none) plus ParseInputMode returning a fail-loud error on unknown input;
+          the Provision struct (pinned install descriptor, empty for assumed-present);
+          a parallel ScopeKind int type mirroring pkg/check.ScopeKind without importing
+          it; and the Registry (map[string]EngineBinding) seeding the built-in
+          semgrep/ast-grep/sandbox/config-file bindings with fail-loud lookup of an
+          unknown engine. The ast-grep binding is seeded here as a first-class built-in
+          ({Command: ast-grep scan, InputMode: rule-dir, InputFlag: --rule, Convert:
+          ast-grep/to-sarif.sh, Provision: pinned}) so registering a new engine is a
+          declaration, not an executor edit. The package must import none of pkg/check,
+          pkg/packval, or cmd/backstop so all three can import it without a cycle.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/registry.go
+        claims:
+          - "CLM-033: EngineBinding lives in pkg/pack/engine importable without an import cycle"
+          - "CLM-034: EngineBinding field shape with optional convert+provision and no format"
+          - "CLM-021: no format selector on EngineBinding"
+          - "CLM-044: input_mode config-file value"
+          - "CLM-045: input_mode rule-flags value"
+          - "CLM-046: input_mode rule-dir value"
+          - "CLM-047: input_mode none value"
+          - "CLM-048: unrecognized input_mode value is a blocking config error"
+          - "CLM-020: unknown engine name fail-loud lookup"
+        depends_on:
+          - TASK-002
+      - id: TASK-004
+        type: verification
+        title: "Verify EngineBinding leaf package via backstop code check"
+        description: |
+          Run `backstop code check` over the new pkg/pack/engine package to confirm
+          lint, build, and the binding/input_mode/registry tests pass.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/registry.go
+          - pkg/pack/engine/binding_test.go
+        claims:
+          - "Verifies CLM-033, CLM-034, CLM-021, CLM-020, CLM-044..CLM-048 for the engine leaf package"
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Manifest engine field, layer retirement, and engine-keyed field-contract validation"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write tests for the engine field, layer retirement, and engine field-contract matrix"
+        description: |
+          Write failing tests in pkg/pack covering: the Rule struct exposing a
+          first-class `engine` string parsed from pack.yml; a rule with engine and no
+          layer parsing/validating cleanly; a layer-without-engine rule failing loud
+          as a ConfigError after cutover; the Rule struct no longer reading a `layer`
+          YAML key into an execution selector; and the full engine field-contract
+          matrix re-keyed from validateLayerFields — for each of semgrep, ast-grep,
+          sandbox, and config-file engines, the required-field pass, each
+          missing-required fail, and each forbidden-field fail, plus the sandbox
+          category enum (presence/structural/other), the `other`-requires-
+          justification rule, and the input_scope enum (single-file/multi-file).
+          Also assert validateLayer/validateLayerFields are replaced by engine-keyed
+          validation and that field-fit only verifies (never inspects content,
+          recommends, or reclassifies an engine).
+        files:
+          - pkg/pack/manifest_engine_test.go
+          - pkg/pack/validate_engine_fields_test.go
+        claims:
+          - "CLM-001: Rule exposes first-class engine string parsed from pack.yml"
+          - "CLM-004: rule with engine and no layer parses and validates cleanly"
+          - "CLM-005: layer without engine is a blocking ConfigError after cutover"
+          - "CLM-006: Rule no longer reads a layer YAML key into an execution selector"
+          - "CLM-007: semgrep valid fields pass"
+          - "CLM-008: semgrep missing rule_path fails"
+          - "CLM-009: semgrep forbids input_scope"
+          - "CLM-051: semgrep forbids category"
+          - "CLM-052: semgrep forbids validator"
+          - "CLM-010: ast-grep valid fields pass"
+          - "CLM-011: ast-grep missing rule_path fails"
+          - "CLM-053: ast-grep forbids input_scope"
+          - "CLM-054: ast-grep forbids category"
+          - "CLM-055: ast-grep forbids validator"
+          - "CLM-012: sandbox valid fields pass"
+          - "CLM-013: sandbox missing input_scope fails"
+          - "CLM-014: sandbox forbids rule_path"
+          - "CLM-056: sandbox missing validator fails"
+          - "CLM-057: sandbox missing category fails"
+          - "CLM-058: sandbox category enum enforced"
+          - "CLM-059: sandbox other category requires justification"
+          - "CLM-060: sandbox input_scope enum enforced"
+          - "CLM-015: config-file forbids rule_path"
+          - "CLM-061: config-file forbids category"
+          - "CLM-062: config-file forbids input_scope"
+          - "CLM-063: config-file forbids validator"
+          - "CLM-016: validateLayer/validateLayerFields replaced by engine-keyed validation"
+          - "CLM-017: engine-fit verifies without inspecting rule content"
+          - "CLM-018: engine-fit never reclassifies a rule onto a different engine"
+        depends_on:
+          - TASK-002
+      - id: TASK-006
+        type: implementation
+        title: "Add engine field, remove layer, and implement validateEngineFields"
+        description: |
+          In pkg/pack/manifest.go add Engine string (yaml:"engine") to Rule and
+          remove the Layer int field and its yaml key; make manifest parse/validation
+          return a ConfigError for any rule whose engine is empty (a layer-only rule
+          under the migrated reader) with no layer:2->engine:semgrep aliasing. In
+          pkg/pack/validate_manifest.go replace validateLayer/validateLayerFields with
+          validateEngineFields, which reads each engine's requires[]/forbids[] from the
+          pkg/pack/engine field-contract and emits a ValidationError naming the
+          offending field and engine, faithfully re-keying every existing per-layer
+          check (semgrep<-layer2, ast-grep adds, sandbox<-layer3 incl. category enum +
+          other-justification + input_scope enum, config-file<-layer1). Validation is
+          verify-only and must not inspect content, recommend, or reclassify.
+
+          Flag-day collateral within pkg/pack (no grandfather; the reader and every
+          in-repo pkg/pack rule/fixture flip together): removing pkg/pack.Rule.Layer,
+          its yaml key, AND the validateLayer/validateLayerFields functions
+          compile-breaks the existing layer-keyed tests (both the .Layer struct-field
+          users and the direct validateLayer() callers) and turns the existing
+          layer:-only testdata fixtures into hard ConfigErrors under the migrated
+          reader. Migrate every affected test by name in this same change so pkg/pack
+          stays green — file-scope alone is insufficient, each test below is named with
+          its migration:
+            - validate_layer2_test.go — re-key the five .Layer = N assignments across
+              its layer-2 field-fit cases to engine: semgrep (and the layer:1/layer:3
+              negative cases to engine: config-file / engine: sandbox), asserting
+              against validateEngineFields instead of the removed validateLayerFields;
+            - validate_layer3_fields_test.go — re-key its two .Layer assignments
+              (TestValidateLayer3Fields_* sandbox cases) to engine: sandbox, preserving
+              the validator/input_scope field-fit assertions against
+              validateEngineFields;
+            - validate_layer3_cat_test.go — re-key its three .Layer assignments
+              (category-enum / other-justification cases) to engine: sandbox, with the
+              layer:1/layer:2 negatives re-keyed to engine: config-file / engine:
+              semgrep;
+            - validate_manifest_test.go — re-key the inline Layer: 1 rule literal and
+              the .Layer = 2 assignment to engine: config-file / engine: semgrep so the
+              manifest-level validation cases parse under the migrated reader;
+            - validate_layout_test.go — re-key its two .Layer assignments
+              (layer:2/layer:3 layout cases) to engine: semgrep / engine: sandbox;
+            - validate_proof_test.go — re-key its single .Layer = 3 assignment to
+              engine: sandbox;
+            - manifest_test.go — this file is BOTH a .Layer/layer:-yaml user AND the
+              sole direct caller of the removed validateLayer() function. Migrate it by
+              name: DELETE the six direct-caller unit tests TestValidateLayer_One,
+              TestValidateLayer_Two, TestValidateLayer_Three, TestValidateLayer_Zero,
+              TestValidateLayer_Four, and TestValidateLayer_Missing (they pin the
+              integer-layer validator that no longer exists; their successor coverage is
+              the engine field-contract matrix in TASK-005's
+              validate_engine_fields_test.go and the engine-required/ConfigError tests
+              in manifest_engine_test.go), and re-key every `layer: 1` YAML literal in
+              its inline pack.yml fixtures (lines ~32, ~219, ~443, ~663, ~859, ~869,
+              ~946) to `engine: config-file` so the manifest-parse fixtures load cleanly
+              under the migrated reader. After this edit no validateLayer reference
+              remains anywhere in pkg/pack;
+            - (the new field-contract tests in TASK-005 are the source of truth for the
+              re-keyed matrix; delete any layer-fit assertion fully superseded by them);
+            - migrate the existing layer:-only testdata pack fixtures
+              (valid-code-pack.yml layer:1 -> the appropriate engine, e.g.
+              config-file; valid-enforcement-pack.yml layer:2 -> engine: semgrep with
+              a retained non-empty standard) so they parse cleanly under the migrated
+              reader.
+          Do NOT touch pkg/packval — it carries its own separate Rule struct (no
+          import of pkg/pack) and is the SPEC-032 fixture-time locus, out of scope here.
+          After the cutover a repo-wide grep must show zero .Layer / layer: references
+          inside pkg/pack outside the intentional no-grandfather migration fixture.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/validate_layer2_test.go
+          - pkg/pack/validate_layer3_fields_test.go
+          - pkg/pack/validate_layer3_cat_test.go
+          - pkg/pack/validate_manifest_test.go
+          - pkg/pack/validate_layout_test.go
+          - pkg/pack/validate_proof_test.go
+          - pkg/pack/manifest_test.go
+          - pkg/pack/testdata/valid-code-pack.yml
+          - pkg/pack/testdata/valid-enforcement-pack.yml
+        claims:
+          - "CLM-001: Rule exposes first-class engine string"
+          - "CLM-004: engine set, no layer parses and validates cleanly"
+          - "CLM-005: layer without engine is a blocking ConfigError"
+          - "CLM-006: layer yaml key no longer read as selector"
+          - "CLM-007: semgrep valid fields pass"
+          - "CLM-008: semgrep missing rule_path fails"
+          - "CLM-009: semgrep forbids input_scope"
+          - "CLM-051: semgrep forbids category"
+          - "CLM-052: semgrep forbids validator"
+          - "CLM-010: ast-grep valid fields pass"
+          - "CLM-011: ast-grep missing rule_path fails"
+          - "CLM-053: ast-grep forbids input_scope"
+          - "CLM-054: ast-grep forbids category"
+          - "CLM-055: ast-grep forbids validator"
+          - "CLM-012: sandbox valid fields pass"
+          - "CLM-013: sandbox missing input_scope fails"
+          - "CLM-014: sandbox forbids rule_path"
+          - "CLM-056: sandbox missing validator fails"
+          - "CLM-057: sandbox missing category fails"
+          - "CLM-058: sandbox category enum enforced"
+          - "CLM-059: sandbox other category requires justification"
+          - "CLM-060: sandbox input_scope enum enforced"
+          - "CLM-015: config-file forbids rule_path"
+          - "CLM-061: config-file forbids category"
+          - "CLM-062: config-file forbids input_scope"
+          - "CLM-063: config-file forbids validator"
+          - "CLM-016: validateLayer/validateLayerFields replaced by engine-keyed validation"
+          - "CLM-017: engine-fit verifies without inspecting content"
+          - "CLM-018: engine-fit never reclassifies"
+        depends_on:
+          - TASK-005
+      - id: TASK-007
+        type: verification
+        title: "Verify manifest engine field and field-contract validation via backstop code check"
+        description: |
+          Run `backstop code check` over pkg/pack to confirm the engine field,
+          layer retirement, and engine-keyed field-contract validation build and pass,
+          and that the migrated existing layer-keyed test files and testdata fixtures
+          (TASK-006) compile and parse cleanly under the migrated reader with no
+          remaining pkg/pack .Layer / layer: reference outside the no-grandfather
+          migration fixture.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/manifest_engine_test.go
+          - pkg/pack/validate_engine_fields_test.go
+          - pkg/pack/validate_layer2_test.go
+          - pkg/pack/validate_layer3_fields_test.go
+          - pkg/pack/validate_layer3_cat_test.go
+          - pkg/pack/validate_manifest_test.go
+          - pkg/pack/validate_layout_test.go
+          - pkg/pack/validate_proof_test.go
+          - pkg/pack/manifest_test.go
+          - pkg/pack/testdata/valid-code-pack.yml
+          - pkg/pack/testdata/valid-enforcement-pack.yml
+        claims:
+          - "Verifies CLM-001, CLM-004..CLM-018, CLM-051..CLM-063 for manifest + field-contract validation"
+        depends_on:
+          - TASK-006
+
+  - id: phase-4
+    name: "Phase 4: Clean stdout capture (runner + sandbox)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write tests for RunStdout and SandboxedRunStdout clean-stdout capture"
+        description: |
+          Write failing tests covering: the CommandRunner gaining a stdout-only
+          RunStdout method whose returned bytes are uncontaminated by stderr (a
+          command writing a banner to stderr yields clean stdout); and a clean-stdout
+          sandbox capture variant (SandboxedRunStdout) that returns only the
+          executable's stdout so a converter writing a banner/warning to stderr still
+          yields parseable bytes on stdout. Assert the existing CombinedOutput-based
+          Run / SandboxedRun remain present and unchanged for the build/test and
+          exit-code sandbox-validator paths (additive, not a global swap).
+        files:
+          - pkg/check/runner_stdout_test.go
+          - pkg/packval/sandbox_stdout_test.go
+        claims:
+          - "CLM-028: dispatch runner returns stdout uncontaminated by stderr"
+          - "CLM-065: convert step uses the clean-stdout sandbox variant, never CombinedOutput"
+        depends_on:
+          - TASK-001
+      - id: TASK-009
+        type: implementation
+        title: "Implement RunStdout and SandboxedRunStdout"
+        description: |
+          Add a stdout-only RunStdout method to the CommandRunner interface in
+          pkg/check/runner.go, implemented on ExecCommandRunner via cmd.Output() / an
+          explicit stdout buffer rather than CombinedOutput(); leave the existing Run
+          (CombinedOutput) method untouched so build/test executors do not regress.
+          Add SandboxedRunStdout to pkg/packval/sandbox.go: a clean-stdout variant of
+          SandboxedRun using the same sandbox trust model but capturing only stdout via
+          an explicit stdout buffer, leaving the CombinedOutput-based SandboxedRun in
+          place for the exit-code sandbox-validator path.
+        files:
+          - pkg/check/runner.go
+          - pkg/packval/sandbox.go
+        claims:
+          - "CLM-028: RunStdout returns stdout uncontaminated by stderr"
+          - "CLM-065: SandboxedRunStdout clean-stdout variant for the convert step"
+        depends_on:
+          - TASK-008
+      - id: TASK-010
+        type: verification
+        title: "Verify clean-stdout capture additions via backstop code check"
+        description: |
+          Run `backstop code check` over pkg/check and pkg/packval to confirm
+          RunStdout and SandboxedRunStdout build and pass and that existing
+          CombinedOutput callers remain green.
+        files:
+          - pkg/check/runner.go
+          - pkg/packval/sandbox.go
+          - pkg/check/runner_stdout_test.go
+          - pkg/packval/sandbox_stdout_test.go
+        claims:
+          - "Verifies CLM-028 and CLM-065 for the clean-stdout capture additions"
+        depends_on:
+          - TASK-009
+
+  - id: phase-5
+    name: "Phase 5: Group-by-engine gate dispatch"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write tests for dispatchPackEngines: grouping, input_mode gathering, provisioning, parser resolution"
+        description: |
+          Write failing tests for the new dispatchPackEngines path covering: grouping
+          a pack's rules by declared engine and running each engine once via the
+          EngineBinding table; a newly registered binding dispatching without editing
+          the executor switch; input gathering per input_mode (config-file appends
+          the single optional pack config or nothing; rule-flags repeats input_flag
+          per rule file; rule-dir collects files into one dir passed once; none injects
+          nothing) resolved relative to the per-engine pack dir; a missing declared
+          input path failing loud naming pack and path; the parser resolving only
+          parseSarif via lookupParser with no golangci-json/eslint-json reference; an
+          unknown engine failing loud; split provisioning (empty Provision Layer-0 fails
+          loud when binary absent and is never installed; pinned Provision routed
+          through VerifyLock/backstop.lock; EnsureSemgrep's bespoke install retired);
+          and dispatch replacing the mergePackRules/ExtraSemgrepConfigs feeder.
+          The retirement assertion lives in pkg/check (provision_retired_test.go):
+          assert EnsureSemgrep's bespoke installer in pkg/check/semgrep.go is removed
+          (or reduced to routing through the declared provision mechanism) and that the
+          semgrepExecutor/SemgrepEnsurer install wiring in pkg/check/check.go and
+          pkg/check/registry.go no longer performs a bespoke install, so an executing
+          agent cannot satisfy CLM-043 by merely not calling EnsureSemgrep from the new
+          gate path while leaving the installer intact.
+        files:
+          - cmd/backstop/dispatch_engines_test.go
+          - cmd/backstop/dispatch_inputmode_test.go
+          - cmd/backstop/dispatch_provision_test.go
+          - pkg/check/provision_retired_test.go
+        claims:
+          - "CLM-002: gate groups rules by declared engine and runs each engine once"
+          - "CLM-003: a newly registered EngineBinding dispatches without editing the executor switch"
+          - "CLM-019: dispatch resolves the SARIF parser via lookupParser and owns no engine enumeration"
+          - "CLM-031: dispatch replaces mergePackRules/ExtraSemgrepConfigs with group-by-engine execution"
+          - "CLM-035: build/test passes retain ToolchainEntry.Format and do not route through parseSarif"
+          - "CLM-036: pack engine dispatch resolves only parseSarif, never golangci-json/eslint-json"
+          - "CLM-039: config-file engine runs the tool's own rules tuned by an optional pack config"
+          - "CLM-040: adding a config-driven linter is a declaration with no new dispatch Go"
+          - "CLM-041: Layer-0 engine with empty provision fails loud when binary absent, never auto-installed"
+          - "CLM-042: backstop-introduced engine with pinned provision is provisioned/verified via the lock path"
+          - "CLM-043: EnsureSemgrep's bespoke install logic retired into the declared provision mechanism"
+          - "CLM-044: input_mode config-file gathering"
+          - "CLM-045: input_mode rule-flags gathering"
+          - "CLM-046: input_mode rule-dir gathering"
+          - "CLM-047: input_mode none gathering"
+          - "CLM-049: engine inputs resolved relative to the per-engine pack directory"
+          - "CLM-050: missing declared input path is a blocking broken-pack error naming pack and path"
+        depends_on:
+          - TASK-001
+          - TASK-002
+      - id: TASK-012
+        type: test
+        title: "Write tests for the convert pipe and the sandbox/none exit-code terminal branch"
+        description: |
+          Write failing tests for the SARIF convert pipe and the exit-code branch:
+          engine stdout piped to the convert executable's stdin with its stdout becoming
+          the SARIF input; the convert executable resolved relative to the pack dir and
+          run sandboxed via the clean-stdout SandboxedRunStdout (not CombinedOutput); an
+          empty convert sending engine stdout directly to parseSarif with no pipe; a
+          SARIF-native engine parsing directly with empty convert; non-SARIF output
+          reaching parseSarif without conversion failing loud with engine/pack
+          provenance; an engine stderr banner not corrupting SARIF on stdout; a convert
+          script stderr banner not corrupting SARIF on its stdout; and the sandbox /
+          input_mode:none engine taking the exit-code terminal branch (non-zero exit ->
+          violation message from captured output) without entering convert or parseSarif,
+          re-keyed from rule.Layer==3 to engine==sandbox with single-file/multi-file
+          fan-out and SandboxedRun (CombinedOutput) capture preserved, and no remaining
+          rule.Layer reference.
+        files:
+          - cmd/backstop/dispatch_convert_test.go
+          - cmd/backstop/dispatch_sandbox_test.go
+        claims:
+          - "CLM-022: SARIF-native engine output parses directly with empty convert"
+          - "CLM-023: non-SARIF output reaching parseSarif without conversion fails loud"
+          - "CLM-024: engine stdout piped to convert stdin and its stdout becomes the SARIF input"
+          - "CLM-025: convert executable resolved relative to the pack dir and run sandboxed"
+          - "CLM-026: empty convert sends engine stdout directly to parseSarif with no pipe"
+          - "CLM-029: engine stderr banner does not corrupt SARIF on stdout"
+          - "CLM-064: convert script stderr banner does not corrupt SARIF on its stdout"
+          - "CLM-066: sandbox/none non-zero exit yields a violation via exit-code semantics, skipping parseSarif"
+          - "CLM-067: retired layer-3 branch re-keyed to engine sandbox with no remaining rule.Layer reference"
+        depends_on:
+          - TASK-001
+          - TASK-002
+      - id: TASK-013
+        type: implementation
+        title: "Implement dispatchPackEngines: grouping, input gathering, provisioning, parser resolution"
+        description: |
+          Replace BOTH symmetric pack-feeder families with dispatchPackEngines in
+          cmd/backstop/pack_gate.go — the findings feeder (mergePackRules ->
+          ExtraSemgrepConfigs -> semgrepExecutor pack-config invocation) AND its
+          parallel twin the layer-3 validator feeder (runPackValidators, the
+          rule.Layer==3 sandbox branch). Per REQ-014 / TASK-014 the validator branch is
+          FOLDED INTO dispatchPackEngines as the engine==sandbox exit-code terminal step,
+          so runPackValidators does NOT survive as a wrapper: every production caller of
+          BOTH feeders migrates onto dispatchPackEngines exactly like mergePackRules.
+          Rewire, BY NAME, every production call site of BOTH feeder families onto the
+          consolidated dispatchPackEngines path (not just the ExtraSemgrepConfigs feeder):
+            - findings feeder: gate.go:246 (the mergePackRules ExtraSemgrepConfigs merge)
+              and code_check.go:83 (the mergePackRulesFn step) -> dispatchPackEngines;
+            - validator feeder (the symmetric twin): code_check.go:142 (the
+              runPackValidatorsFn step-9 validator call) and gate.go:320 (the
+              packValidatorStep closure calling runPackValidators at gate.go:322, appended
+              as a gate step at gate.go:344) -> the consolidated dispatchPackEngines
+              engine==sandbox exit-code branch. After this rewiring neither
+              runPackValidatorsFn nor runPackValidators is referenced from any production
+              path, and the package-level mergePackRulesFn / runPackValidatorsFn seam vars
+              at code_check.go:18-19 are removed.
+          NOTE: the pkg/check semgrepExecutor TYPE is
+          NOT removed — it survives for the native project-rules path; only its
+          pack-feeder coupling (the extraSemgrepConfigs field and the ExtraSemgrepConfigs
+          option that fed it) is retired (see the pkg/check collateral paragraph below).
+          Dispatch: group installed-pack rules by
+          declared engine, look up each EngineBinding, gather inputs per input_mode
+          (config-file/rule-flags/rule-dir/none) resolved relative to the per-engine
+          pack dir with a missing declared path failing loud naming pack+path, provision
+          the engine (empty Provision Layer-0 assumed-present fails loud on missing
+          binary and never installs; pinned Provision routed through VerifyLock /
+          backstop.lock; EnsureSemgrep retired into the declared mechanism), run the
+          engine via the clean-stdout RunStdout, and for findings engines resolve only
+          parseSarif via lookupParser (never golangci-json/eslint-json) and namespace
+          violations via NamespacedRuleID. Build/test passes keep ToolchainEntry.Format
+          and never enter this path.
+
+          Flag-day collateral within cmd/backstop: removing BOTH symmetric feeders
+          (mergePackRules + its mergePackRulesFn seam, AND runPackValidators + its
+          runPackValidatorsFn seam) and reading packs through the migrated
+          (engine-required) reader compile-breaks and ConfigError-breaks the existing
+          layer-keyed helper tests and fixtures. Migrate them in this same change so
+          cmd/backstop stays green:
+            - migrate every affected test in pack_gate_helpers_test.go BY NAME (this
+              file directly calls the removed mergePackRules AND the removed
+              runPackValidators AND sets removed .Layer literals; file-scope alone is
+              insufficient — and TestRunPackValidators_NoPacks carries NO .Layer literal,
+              so field-removal alone does not flag it: it must be named explicitly):
+                * TestMergePackRules_NoPacks (calls mergePackRules(nil, ...)) — re-key
+                  to the no-packs dispatchPackEngines path (dispatch over zero packs
+                  yields zero violations and no error), dropping the mergePackRules call;
+                * TestRunPackValidators_NoPacks (calls runPackValidators(nil, ...) with
+                  NO .Layer literal — the symmetric twin of TestMergePackRules_NoPacks;
+                  if runPackValidators is folded/removed this compile-breaks, and because
+                  it has no .Layer field its breakage is invisible to field-removal alone)
+                  — re-key to the no-packs dispatchPackEngines path (dispatch over zero
+                  packs yields zero violations and no error), dropping the
+                  runPackValidators call, mirroring the TestMergePackRules_NoPacks
+                  treatment;
+                * TestMergePackRules_CollectsLayer2Paths (calls mergePackRules and sets
+                  Layer: 2/2/3 rule literals) — re-key to assert dispatchPackEngines
+                  group-by-engine input gathering for engine: semgrep rules (the
+                  ex-layer-2 rule-flags path) with the engine: sandbox rule excluded
+                  from the findings group, dropping the mergePackRules call and the
+                  Layer: N literals;
+                * TestRunPackValidators_SkipsNonLayer3 (calls runPackValidators and sets
+                  Layer: 1 and Layer: 2 rule literals to assert non-sandbox rules are
+                  skipped by the validator path) — re-key the Layer: 1/Layer: 2 literals
+                  to engine: config-file / engine: semgrep and assert the re-keyed
+                  engine==sandbox exit-code branch skips them, dropping the
+                  runPackValidators call, preserving the "non-sandbox rules emit no
+                  validator violation" coverage;
+              deleting any assertion tied to the removed mergePackRules OR
+              runPackValidators feeder, with no remaining mergePackRules /
+              runPackValidators reference in pack_gate_helpers_test.go;
+            - remove the package-level mergePackRulesFn AND runPackValidatorsFn test
+              seam usage in code_check_test.go: removing BOTH feeders (and their seam vars
+              at code_check.go:18-19) compile-breaks the three integration tests, each of
+              which overrides BOTH mergePackRulesFn AND runPackValidatorsFn (with an
+              origMerge/origValidators save + deferred restore). Migrate each BY NAME,
+              dropping the mergePackRulesFn override AND the runPackValidatorsFn override
+              (and BOTH origMerge/origValidators saves and their restore-in-defer lines),
+              re-keyed onto the single dispatchPackEngines seam:
+                * TestGateIntegration_CodeCheckLoadsPacks (mergePackRulesFn override
+                  ~line 152, runPackValidatorsFn override ~line 159) — drop both overrides
+                  and the origValidators save/restore; replace the calledMerge assertion
+                  with an assertion that the group-by-engine dispatchPackEngines path is
+                  invoked, preserving the load-packs coverage;
+                * TestGateIntegration_CodeCheckAllLoadsPacks (mergePackRulesFn override
+                  ~line 196, runPackValidatorsFn override ~line 203) — drop both overrides
+                  and the origValidators save/restore; re-key onto the dispatchPackEngines
+                  seam, preserving the --all ScopeModeAll coverage;
+                * TestGateIntegration_CodeCheckLayer3FullProject (mergePackRulesFn override
+                  ~line 236, runPackValidatorsFn override ~line 244 capturing validatorRoot)
+                  — drop both overrides and the origValidators save/restore; re-key the
+                  validatorRoot full-project-root capture onto the engine: sandbox
+                  exit-code branch of dispatchPackEngines (this test's whole point is the
+                  validator/sandbox feeder, so the runPackValidatorsFn override is its
+                  load-bearing seam — its removal MUST be named), renaming the Layer3
+                  framing to the engine: sandbox dispatch it now exercises;
+              so the load-packs / --all-scope / full-project-sandbox-root coverage these
+              tests carry survives against dispatchPackEngines with no remaining
+              mergePackRulesFn OR runPackValidatorsFn reference;
+            - migrate the existing layer:-keyed gate testdata fixtures to engine: keys
+              (semgrep rules retain a non-empty standard; the broken-pack fixture keeps
+              its missing-input shape) so they parse cleanly under the migrated reader:
+              packgate, packgate-multi (test-pack + other-pack), packgate-broken,
+              packgate-hash-mismatch.
+          Flag-day collateral within pkg/check: removing the extraSemgrepConfigs feeder
+          field from semgrepExecutor (and the ExtraSemgrepConfigs option that fed it)
+          compile-breaks semgrep_executor_test.go, whose
+          TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs constructs
+          &semgrepExecutor{... extraSemgrepConfigs: ...}. Migrate it in this same change:
+          drop the extraSemgrepConfigs struct literal and its two pack-config --config
+          assertions (containsConfigFor packConfigA/packConfigB), retaining the
+          project-rules --config / --json / results-to-Violations mapping coverage so the
+          executor's surviving SARIF behavior stays green with no remaining
+          extraSemgrepConfigs reference; the now-retired pack-feeder coverage moves to the
+          dispatchPackEngines tests in TASK-011/TASK-012.
+          The full pack_gate_test.go migration (both its mergePackRules direct callers —
+          TestGateIntegration_SemgrepRulesMerged / _BrokenPackRuleFile / _ToolConfigApplied /
+          _MultiplePacksEnforced — and its rule.Layer==3 sandbox-branch tests) is owned
+          by TASK-014, which lands after this task removes the mergePackRules feeder and
+          re-keys the validate path; this task does NOT edit pack_gate_test.go. Do NOT
+          touch pkg/packval (separate Rule struct, SPEC-032 locus).
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/pack_gate_helpers_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/testdata/packgate/.backstop/packs/test-org/test-pack/pack.yml
+          - cmd/backstop/testdata/packgate-multi/.backstop/packs/test-org/test-pack/pack.yml
+          - cmd/backstop/testdata/packgate-multi/.backstop/packs/test-org/other-pack/pack.yml
+          - cmd/backstop/testdata/packgate-broken/.backstop/packs/test-org/broken-pack/pack.yml
+          - cmd/backstop/testdata/packgate-hash-mismatch/.backstop/packs/test-org/test-pack/pack.yml
+          - pkg/check/semgrep.go
+          - pkg/check/check.go
+          - pkg/check/registry.go
+          - pkg/check/semgrep_executor_test.go
+        claims:
+          - "CLM-002: groups rules by declared engine and runs each engine once"
+          - "CLM-003: a newly registered binding dispatches without editing the executor switch"
+          - "CLM-019: resolves the SARIF parser via lookupParser; owns no engine enumeration"
+          - "CLM-031: replaces mergePackRules/ExtraSemgrepConfigs with group-by-engine execution"
+          - "CLM-035: build/test passes retain ToolchainEntry.Format and skip parseSarif"
+          - "CLM-036: dispatch resolves only parseSarif, never golangci-json/eslint-json"
+          - "CLM-039: config-file engine runs the tool's own rules tuned by an optional pack config"
+          - "CLM-040: adding a config-driven linter is a declaration with no new dispatch Go"
+          - "CLM-041: Layer-0 empty provision fails loud when binary absent, never auto-installed"
+          - "CLM-042: pinned provision provisioned/verified via the lock path"
+          - "CLM-043: EnsureSemgrep retired into the declared provision mechanism"
+          - "CLM-044: input_mode config-file gathering"
+          - "CLM-045: input_mode rule-flags gathering"
+          - "CLM-046: input_mode rule-dir gathering"
+          - "CLM-047: input_mode none gathering"
+          - "CLM-049: inputs resolved relative to the per-engine pack directory"
+          - "CLM-050: missing declared input path fails loud naming pack and path"
+          - "CLM-066: validator-feeder production call sites (code_check.go:142, gate.go:320) and TestRunPackValidators_NoPacks/_SkipsNonLayer3 re-keyed onto the engine==sandbox exit-code branch that skips parseSarif"
+          - "CLM-067: runPackValidators/runPackValidatorsFn retired (no surviving wrapper); the layer-3 validator feeder re-keyed to engine==sandbox with no remaining rule.Layer reference on the migrated production + helper paths"
+        depends_on:
+          - TASK-011
+          - TASK-003
+          - TASK-006
+          - TASK-009
+      - id: TASK-014
+        type: implementation
+        title: "Implement the convert pipe and the sandbox/none exit-code terminal branch"
+        description: |
+          Within dispatchPackEngines (cmd/backstop/pack_gate.go), implement the
+          findings-vs-exit-code output-shape branch. Findings engines: when the binding
+          declares a non-empty Convert, run a two-process pipe in Go (no shell) — engine
+          stdout -> convert stdin, convert stdout (resolved relative to the pack dir, run
+          via the clean-stdout SandboxedRunStdout, NOT CombinedOutput) -> parseSarif;
+          an empty Convert sends engine stdout directly to parseSarif; non-SARIF input
+          fails loud attributing the failure to the engine/pack and its convert step.
+          Exit-code engines: the sandbox / input_mode:none engine takes the terminal
+          branch relocating runPackValidators' rule.Layer==3 logic re-keyed to
+          engine==sandbox — preserving the input_scope single-file/multi-file target
+          fan-out, the SandboxedRun (CombinedOutput) capture as the violation message
+          body, and the namespaced non-zero-exit-to-violation emission — and never
+          enters convert or parseSarif. Remove the dangling rule.Layer references.
+
+          Flag-day collateral within cmd/backstop: TASK-014 owns the COMPLETE
+          pack_gate_test.go migration (TASK-013 has already removed the mergePackRules
+          feeder and re-keyed the validate path; by this task both mergePackRules and
+          rule.Layer are gone, so every pack_gate_test.go test that referenced either
+          must be migrated here by name — file-scope alone is insufficient, the reviewer
+          treats an un-named direct-caller as a gap). Migrate each of the following
+          named tests in this same change:
+            - mergePackRules direct callers (removed in TASK-013; their gate-integration
+              coverage relocates onto dispatchPackEngines here):
+                * TestGateIntegration_SemgrepRulesMerged (calls mergePackRules,
+                  asserts one absolute rules/no-eval.yml path) — re-key to assert
+                  dispatchPackEngines gathers the engine: semgrep rule-flags input as one
+                  absolute rule path resolved relative to the per-engine pack dir;
+                * TestGateIntegration_BrokenPackRuleFile (calls mergePackRules on the
+                  packgate-broken fixture, expects a "does-not-exist.yml" missing-path
+                  error) — re-key to assert dispatchPackEngines fails loud naming the
+                  pack and the missing declared input path (preserving CLM-050 coverage);
+                * TestGateIntegration_ToolConfigApplied (calls mergePackRules, asserts
+                  tool_config does not force a runtime merge) — re-key to assert
+                  dispatchPackEngines gathers the engine: semgrep rule input while
+                  ignoring tool_config runtime merge;
+                * TestGateIntegration_MultiplePacksEnforced (calls mergePackRules AND
+                  exercises the sandbox/validator branch via sandboxedRun) — re-key the
+                  mergePackRules assertion to dispatchPackEngines engine: semgrep input
+                  gathering for the first pack, and re-key the second pack's Layer: 3
+                  validator expectation to the engine: sandbox exit-code branch;
+            - rule.Layer==3 sandbox-branch tests (re-keyed from rule.Layer==3 to
+              engine==sandbox):
+                * TestGateIntegration_Layer3ValidatorExecuted — re-key its Layer: 3
+                  fixture rule to engine: sandbox (retaining validator/input_scope),
+                  asserting the engine==sandbox exit-code branch invokes the validator on
+                  the full project root;
+                * TestGateIntegration_Layer3NamespacedIDs — re-key to engine: sandbox,
+                  asserting the namespaced violation id survives the re-keyed branch;
+                * TestGateIntegration_Layer3SingleFileScope — re-key the inline
+                  pack.Rule{Layer: 3, InputScope: "single-file"} literal to
+                  engine: sandbox, preserving the per-file single-file fan-out assertion;
+                * TestGateIntegration_MultiPackAttribution — re-key its synthetic
+                  pack.Rule{Layer: 3, Validator: ...} literal to engine: sandbox,
+                  preserving the per-pack attribution assertion across the re-keyed
+                  exit-code branch;
+          rename the "Layer3" test identifiers to their engine: sandbox framing as part
+          of the re-key, and assert no remaining mergePackRules or rule.Layer reference
+          survives in pack_gate_test.go. Do NOT touch pkg/packval (separate Rule struct,
+          SPEC-032 locus).
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - "CLM-022: SARIF-native engine parses directly with empty convert"
+          - "CLM-023: non-SARIF output reaching parseSarif without conversion fails loud"
+          - "CLM-024: engine stdout piped to convert stdin; its stdout becomes the SARIF input"
+          - "CLM-025: convert executable resolved relative to the pack dir and run sandboxed"
+          - "CLM-026: empty convert sends engine stdout directly to parseSarif with no pipe"
+          - "CLM-029: engine stderr banner does not corrupt SARIF on stdout"
+          - "CLM-064: convert script stderr banner does not corrupt SARIF on its stdout"
+          - "CLM-066: sandbox/none non-zero exit yields a violation via exit-code semantics, skipping parseSarif"
+          - "CLM-067: layer-3 branch re-keyed to engine sandbox with no remaining rule.Layer reference"
+          - "CLM-002: migrated pack_gate_test.go SemgrepRulesMerged/MultiplePacksEnforced assert group-by-engine input gathering replacing mergePackRules"
+          - "CLM-031: migrated pack_gate_test.go mergePackRules direct callers re-keyed onto dispatchPackEngines"
+          - "CLM-050: migrated pack_gate_test.go BrokenPackRuleFile asserts the missing declared input path fails loud naming pack and path"
+        depends_on:
+          - TASK-012
+          - TASK-013
+          - TASK-009
+      - id: TASK-015
+        type: verification
+        title: "Verify group-by-engine dispatch, convert pipe, and sandbox branch via backstop code check"
+        description: |
+          Run `backstop code check` over cmd/backstop to confirm dispatchPackEngines,
+          input_mode gathering, provisioning, the convert pipe, and the re-keyed
+          sandbox/none branch build and pass with no remaining rule.Layer references,
+          and that the migrated existing gate helper/integration tests
+          (pack_gate_helpers_test.go, pack_gate_test.go, the mergePackRulesFn-seam tests
+          in code_check_test.go, and the extraSemgrepConfigs literal in
+          pkg/check/semgrep_executor_test.go) and the migrated layer:-keyed gate testdata
+          fixtures (TASK-013, TASK-014) compile and parse cleanly under the migrated
+          reader with no remaining mergePackRulesFn or extraSemgrepConfigs reference.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/pack_check.go
+          - cmd/backstop/dispatch_engines_test.go
+          - cmd/backstop/dispatch_inputmode_test.go
+          - cmd/backstop/dispatch_provision_test.go
+          - cmd/backstop/dispatch_convert_test.go
+          - cmd/backstop/dispatch_sandbox_test.go
+          - cmd/backstop/pack_gate_helpers_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/pack_gate_test.go
+          - pkg/check/semgrep_executor_test.go
+          - cmd/backstop/testdata/packgate/.backstop/packs/test-org/test-pack/pack.yml
+          - cmd/backstop/testdata/packgate-multi/.backstop/packs/test-org/test-pack/pack.yml
+          - cmd/backstop/testdata/packgate-multi/.backstop/packs/test-org/other-pack/pack.yml
+          - cmd/backstop/testdata/packgate-broken/.backstop/packs/test-org/broken-pack/pack.yml
+          - cmd/backstop/testdata/packgate-hash-mismatch/.backstop/packs/test-org/test-pack/pack.yml
+        claims:
+          - "Verifies CLM-002, CLM-003, CLM-019, CLM-022..CLM-026, CLM-029, CLM-031, CLM-035, CLM-036, CLM-039..CLM-050, CLM-064, CLM-066, CLM-067 for the dispatch path"
+        depends_on:
+          - TASK-014
+
+  - id: phase-6
+    name: "Phase 6: ast-grep end-to-end and flag-day go-pack migration"
+    tasks:
+      - id: TASK-016
+        type: test
+        title: "Write tests for ast-grep end-to-end, cross-feed isolation, and the flag-day migration"
+        description: |
+          Write failing integration tests covering: a trivial ast-grep proof rule
+          producing a namespaced violation through the full path (declaration ->
+          group-by-engine -> gather rule-dir -> run ast-grep -> convert -> parseSarif ->
+          namespaced violation), driven by the fixture pack + stub converter; the
+          ast-grep pack shipping its own stdin->SARIF converter referenced by the convert
+          field; mixed semgrep+ast-grep rules each dispatching to their own engine and
+          never cross-fed; the migrated go-pack rules carrying engine: semgrep and each
+          retaining a non-empty standard so they satisfy the semgrep field-contract under
+          the migrated reader; and a legacy layer-2-only rule reaching the migrated reader
+          failing loud with no grandfather alias.
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/dispatch_migration_test.go
+        claims:
+          - "CLM-030: ast-grep proof rule produces a namespaced violation through the full dispatch path"
+          - "CLM-027: ast-grep pack supplies its own stdin->SARIF converter referenced by the convert field"
+          - "CLM-032: mixed semgrep+ast-grep rules each dispatch to their own engine, never cross-fed"
+          - "CLM-037: go-pack rules carry engine semgrep and retain a non-empty standard under the migrated reader"
+          - "CLM-038: a legacy layer-2-only rule reaching the migrated reader fails loud with no grandfather"
+        depends_on:
+          - TASK-001
+          - TASK-002
+      - id: TASK-017
+        type: verification
+        title: "Verify ast-grep end-to-end and migration via backstop code check"
+        description: |
+          Run `backstop code check` over cmd/backstop to confirm the ast-grep
+          end-to-end proof path (declaration -> group -> gather rule-dir -> run ->
+          convert -> parseSarif -> namespaced violation), the mixed-engine cross-feed
+          isolation, and the flag-day migration semantics (engine: semgrep rules with a
+          retained non-empty standard valid; a layer-2-only rule a blocking ConfigError
+          with no grandfather) build and pass against the implementation landed in the
+          engine registry (TASK-003), manifest migration (TASK-006), and dispatch /
+          convert / sandbox branch (TASK-013, TASK-014).
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/dispatch_migration_test.go
+        claims:
+          - "Verifies CLM-030, CLM-027, CLM-032, CLM-037, CLM-038 for the ast-grep e2e and migration"
+        depends_on:
+          - TASK-016
+          - TASK-013
+          - TASK-014
+          - TASK-003
+          - TASK-006
+
+  - id: phase-7
+    name: "Phase 7: Final full-gate verification"
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run the full backstop gate across the engine dispatch implementation"
+        description: |
+          Run the full kill chain `backstop gate` across cmd/backstop, pkg/check,
+          pkg/pack, and pkg/pack/engine to validate the complete engine dispatch
+          implementation: artifact validation, code check (lint/build/test/semgrep),
+          test verification, substantiveness, per-package coverage at the 80% threshold,
+          and contracts. Confirm the SPEC-031 contracts (EngineBinding leaf package,
+          engine field + field-contract validation, RunStdout/SandboxedRunStdout,
+          dispatchPackEngines) are satisfied and no rule.Layer reference remains in the
+          dispatch or validation paths.
+        files:
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/registry.go
+          - pkg/pack/manifest.go
+          - pkg/pack/validate_manifest.go
+          - pkg/check/runner.go
+          - pkg/packval/sandbox.go
+        claims:
+          - "Full-gate verification of all SPEC-031 claims CLM-001 through CLM-067 across the engine dispatch implementation"
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-013
+          - TASK-014
+          - TASK-004
+          - TASK-007
+          - TASK-010
+          - TASK-015
+          - TASK-017

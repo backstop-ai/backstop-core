@@ -1,0 +1,599 @@
+---
+plan_id: PLAN-SPEC-030
+spec_id: SPEC-030
+spec_version: 1.0.0
+created: "2026-06-16"
+status: draft
+target_repo: backstop-core
+target_module: pkg/check
+test_command: "go test ./pkg/check/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-030: collapse locus A (gate-time semgrep rule config) to a
+  single source — installed packs. Four coordinated edits:
+    1. Delete the manifestDir --config arm from semgrepExecutor (pkg/check).
+    2. Remove Options.ManifestDir and every caller that wired the compiled
+       standards directory into the semgrep pass (pkg/check + cmd/backstop).
+    3. Retire pkg/compile and delete the STD-GO-001 source standard and its
+       compiled .backstop/rules/ artifacts in the SAME change (its tests read
+       the deleted source standard, so the package must be deleted too).
+    4. Dogfood-consume the published backstop/go-standards pack: declare it in
+       backstop.yml, install under .backstop/packs/backstop/go-standards/, and
+       reconcile backstop.lock (remove stale slotly/go-standards, add the
+       matching entry so VerifyLock passes).
+
+  Sharp edges addressed by the task ordering:
+    - .backstop/rules/ serves two purposes (routing + rule-config); only the
+      rule-config read is removed. Routing must keep reading the BackstopDir
+      directory and fall back to defaultManifest() — CLM-008/009/020/022 pin
+      both halves so routing is not vacuously emptied.
+    - The in-package pkg/check tests that construct semgrepExecutor.manifestDir
+      and assert a standards-dir --config must be deleted/rewritten in the same
+      change as the field removal (CLM-023), or the build goes red.
+    - pkg/compile cannot be left as dead code: its tests open the deleted
+      STD-GO-001 source standard, so the whole package is deleted (CLM-021).
+    - Lock reconciliation is replace-not-append: remove stale
+      slotly/go-standards, add backstop/go-standards so VerifyLock passes.
+    - Flag-day removal with no alias: a leftover STD-*.semgrep.yml in
+      .backstop/rules/ is never a semgrep --config source (CLM-018/019).
+
+phases:
+  - id: phase-1
+    name: "Phase 1: semgrepExecutor packs-only --config (REQ-001)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write packs-only semgrepExecutor argv tests and rewrite manifestDir-dependent tests"
+        description: |
+          In pkg/check/semgrep_executor_test.go, write the failing tests that
+          pin the packs-only --config behavior and remove every dependency on
+          the manifestDir field. Add:
+            - TestSemgrepExecutor_ConfigArgsFromPacksOnly: construct
+              semgrepExecutor with pack-supplied extraSemgrepConfigs and assert
+              the recorded runner argv contains exactly one --config per pack
+              path and no standards-dir (.backstop/rules) --config.
+            - TestSemgrepExecutor_NoConfigWhenNoPacks: with zero
+              extraSemgrepConfigs, assert the argv carries no --config flag at
+              all.
+            - TestSemgrepExecutor_StructHasNoManifestDir: construct the struct
+              with an UNKEYED (positional) composite literal of exactly five
+              field values (runner, ensurer, backstopDir, pinnedVersion,
+              extraSemgrepConfigs) so the test fails to compile if manifestDir
+              (or any field) is added/removed.
+            - TestNoTestRequiresManifestDirOrStandardsConfig: a source
+              self-check over pkg/check test files asserting neither a
+              "manifestDir:" token in a semgrepExecutor literal nor a
+              containsConfigFor(..., ".../rules") standards-dir assertion
+              survives.
+          Delete or rewrite TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs
+          to packs-only behavior, and drop the manifestDir: field and the
+          standards-dir --config assertions from the other existing cases
+          (ToleratesNonJSONPreamble, QuietFlagPassed, PreservesPackNamespacedRuleIDs).
+        files:
+          - pkg/check/semgrep_executor_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-023
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Delete manifestDir arm, Options.ManifestDir, and pkg/check callers (REQ-001, REQ-002, REQ-003, REQ-008)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write Options/executor/routing/no-fallback tests in pkg/check"
+        description: |
+          Add failing tests covering the field removal, executor construction,
+          routing fallback, and the no-fallback guard. This task also performs
+          the symmetric check_test.go coupling rewrite (REQ-002 / CLM-024),
+          congruent with TASK-001's semgrep_executor_test.go rewrite.
+          In pkg/check/check_test.go (or registry_test.go as appropriate):
+            - TestOptions_NoManifestDirField: construct check.Options with the
+              post-removal field set; confirms ManifestDir is gone and the
+              package compiles.
+            - TestBuildExecutors_SemgrepHasNoManifestDir: goBuiltinExecutors
+              and the registry shared-semgrep construction build a
+              semgrepExecutor referencing no compiled-standards directory.
+            - TestNoTestRequiresOptionsManifestDir: a source self-check over
+              pkg/check test files asserting the token "ManifestDir:" does not
+              survive in any check.Options literal, so the green go-test
+              guarantee (REQ-005, CLM-021) is enforced rather than assumed.
+          Rewrite the 11 keyed `Options{ManifestDir: dir}` literals in
+          pkg/check/check_test.go (across TestCodeCheck_RunWith_Integration,
+          _Timeout, _FileMode, _AllMode, TestCodeCheck_FileFlag_RoutesByType,
+          _SemgrepConfigError, _SemgrepDegradedMode,
+          TestCodeCheck_Run_DelegatesToRunWith, _NoBackstopDir,
+          _SemgrepDegradedWithNilExecutors; lines ~305, 382, 416, 446, 493, 540,
+          595, 659, 890, 1039, 1106) so each drops the ManifestDir: field and
+          re-routes routing through BackstopDir: each literal that relied on
+          ManifestDir: dir to exercise routing sets BackstopDir: dir instead, so
+          the re-pointed LoadManifest(filepath.Join(opts.BackstopDir, "rules"))
+          resolves to an absent/empty dir/rules and falls back to the default
+          manifest — preserving the .go->four-pass routing those tests exercise.
+          The literals that already set BackstopDir: filepath.Join(dir,
+          ".backstop") (_SemgrepConfigError, _SemgrepDegradedMode,
+          _SemgrepDegradedWithNilExecutors) keep their existing BackstopDir and
+          only drop ManifestDir:. After this rewrite no pkg/check test
+          constructs check.Options with a ManifestDir field.
+          In pkg/check/manifest_test.go:
+            - TestRouting_DefaultManifestWhenNoStandards: with an empty
+              .backstop/rules/, LoadManifest returns the built-in default
+              manifest and RouteFile routes a .go file to the default types.
+            - TestRouting_GoFileUnchangedAfterStandardsRemoval: a .go file
+              routes to the same four passes (lint/build/test/semgrep).
+            - TestRouting_NonGoFileRoutesToSemgrepAfterRemoval: a .md or .yml
+              file routes to [semgrep] via the default manifest (additive delta).
+            - TestRouting_ReadsBackstopDirManifestWhenPresent: a non-empty
+              routing .manifest.json in BackstopDir/rules is loaded (its custom
+              route entries returned), proving routing reads the BackstopDir
+              directory and does not always fall back to default.
+          In pkg/check/semgrep_executor_test.go:
+            - TestNoFallback_LeftoverCompiledRulesIgnored: a planted
+              STD-*.semgrep.yml in .backstop/rules/ is NOT collected as a
+              --config path (recorded argv contains no path under
+              .backstop/rules/).
+            - TestNoFallback_PopulatedRulesDirNotASource: with zero packs,
+              semgrep still runs with no --config even when .backstop/rules/
+              contains files.
+        files:
+          - pkg/check/check_test.go
+          - pkg/check/registry_test.go
+          - pkg/check/manifest_test.go
+          - pkg/check/semgrep_executor_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-008
+          - CLM-009
+          - CLM-022
+          - CLM-020
+          - CLM-018
+          - CLM-019
+          - CLM-024
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Remove manifestDir field/arm, Options.ManifestDir, and re-point routing read"
+        description: |
+          In pkg/check/check.go:
+            - Remove the manifestDir string field from the semgrepExecutor
+              struct and delete the `if e.manifestDir != "" { args = append(...,
+              "--config", e.manifestDir) }` block in Execute, so --config is
+              assembled solely from the loop over e.extraSemgrepConfigs. Empty
+              slice => semgrep invoked with no --config.
+            - Remove the ManifestDir string field from check.Options.
+            - Remove the `manifestDir: opts.ManifestDir` assignment in
+              goBuiltinExecutors.
+            - Replace LoadManifest(opts.ManifestDir) with
+              LoadManifest(filepath.Join(opts.BackstopDir, "rules")) so routing
+              still reads .backstop/rules/ for any routing-schema
+              .manifest.json while no compiled-standards .semgrep.yml is a
+              rule-config source.
+          In pkg/check/registry.go:
+            - Remove the `manifestDir: opts.ManifestDir` assignment in the
+              shared semgrep executor construction.
+          Removing Options.ManifestDir and re-pointing the routing read makes
+          the rewritten check_test.go literals and the
+          TestNoTestRequiresOptionsManifestDir self-check (CLM-024) green.
+          Make all in-package tests green (depends on TASK-002 and TASK-001).
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-008
+          - CLM-009
+          - CLM-022
+          - CLM-020
+          - CLM-018
+          - CLM-019
+          - CLM-024
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify pkg/check packs-only and routing behavior"
+        description: |
+          Run the diff-scoped backstop code check over the pkg/check changes to
+          confirm the manifestDir arm is gone, Options compiles without
+          ManifestDir, routing falls back correctly, and the no-fallback guard
+          holds.
+
+          Commands:
+            - backstop code check
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-008
+          - CLM-009
+          - CLM-022
+          - CLM-020
+          - CLM-018
+          - CLM-019
+          - CLM-024
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Remove ManifestDir wiring from gate and code-check Options (REQ-002, REQ-004)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write cmd/backstop Options + locus-A single-source tests"
+        description: |
+          Add failing tests proving the gate/code-check Options no longer wire a
+          compiled-standards manifest directory and that semgrep's rule config
+          collapses to packs only.
+          In cmd/backstop/gate_test.go:
+            - TestRunCheckOptions_NoManifestDir: exercise the
+              (*realCodeChecker).runCheck Options path and assert the constructed
+              check.Options carries no compiled-standards manifest directory.
+          In cmd/backstop/code_check_test.go:
+            - TestCodeCheckOptions_NoManifestDir: the code-check Options
+              construction produces Options with no manifest directory wired in.
+            - TestCodeCheck_NoPacks_NoSemgrepConfig: a code-check run with zero
+              installed packs invokes semgrep with zero rule --config paths
+              (recorded runner argv contains no --config).
+            - TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly: a code-check
+              run with one installed pack invokes semgrep with exactly the
+              pack's rule paths as --config and nothing from a standards
+              directory.
+          Use a fake CommandRunner to capture the exact semgrep argv and
+          temporary project dirs with/without installed packs.
+        files:
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Delete ManifestDir assignments in gate.go and code_check.go Options construction"
+        description: |
+          In cmd/backstop/gate.go: delete the
+          `ManifestDir: filepath.Join(backstopDir, "rules")` assignment in the
+          (*realCodeChecker).runCheck check.Options construction. Semgrep rule
+          config comes only from ExtraSemgrepConfigs (carried via
+          c.extraSemgrepConfigs, populated by mergePackRules in buildGateSteps).
+          In cmd/backstop/code_check.go: delete the corresponding
+          `ManifestDir: filepath.Join(..., "rules")` assignment in the
+          code-check Options construction. Remove any now-unused filepath import
+          only if it becomes unused. Make TASK-005 tests pass.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify cmd/backstop locus-A single source"
+        description: |
+          Run the diff-scoped backstop code check over the gate/code-check
+          changes to confirm Options no longer wire ManifestDir and semgrep's
+          rule config is packs-only.
+
+          Commands:
+            - backstop code check
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-006
+
+  - id: phase-4
+    name: "Phase 4: Retire pkg/compile and delete STD-GO-001 source + compiled artifacts (REQ-005, REQ-006)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write repository-tree absence and gate-without-standards tests"
+        description: |
+          Add failing tests that assert the compiler and its artifacts are gone
+          and that runs succeed without them. Place these in a new package-level
+          test file under cmd/backstop so they survive pkg/compile deletion.
+          In cmd/backstop/standards_removal_test.go:
+            - TestNoProductionImportOfCompile: assert no non-test file under
+              cmd/backstop or pkg/check imports
+              github.com/bmanson/backstop-core/pkg/compile (scan source via
+              go/parser or token grep over .go files excluding _test.go).
+            - TestCompiledStandardsArtifactsAbsent: STD-GO-001.manifest.json,
+              STD-GO-001.native.json, STD-GO-001.semgrep.yml are absent from
+              .backstop/rules/ in the repository tree.
+            - TestPkgCompileDirectoryAbsent: the pkg/compile/ directory is
+              absent from the repository tree.
+            - TestStdGo001SourceAbsent: the
+              standards/go/STD-GO-001-go-code-standards.standard.md file is
+              absent from standards/go/.
+            - TestGate_SucceedsWithoutStandards: a gate/code-check run succeeds
+              (no config error, no missing-standard error) on a project with no
+              STD-GO-001 artifact and no compiled standards directory.
+          These tests resolve repository-root paths relative to the test working
+          directory.
+        files:
+          - cmd/backstop/standards_removal_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-021
+          - CLM-014
+          - CLM-015
+        depends_on: []
+
+      - id: TASK-009
+        type: implementation
+        title: "Delete pkg/compile package, STD-GO-001 source standard, rule tree, and compiled artifacts"
+        description: |
+          Coupled deletion that must land together:
+            - Delete the entire pkg/compile/ package directory (compile.go,
+              native.go, semgrep.go, types.go and all *_test.go) since its tests
+              open the STD-GO-001 source standard this change removes.
+            - Delete the compiled artifacts
+              .backstop/rules/STD-GO-001.manifest.json,
+              .backstop/rules/STD-GO-001.native.json,
+              .backstop/rules/STD-GO-001.semgrep.yml.
+            - Delete the source standard
+              standards/go/STD-GO-001-go-code-standards.standard.md and its
+              entire now-orphaned source tree (standards/go/README.md,
+              standards/go/rules/*, standards/go/testdata/*) that existed only
+              to feed the compiler and is read by the deleted go_standards_*
+              tests. The whole standards/go/ tree goes in this same change.
+          Confirm no production cmd/backstop or pkg/check code imports
+          pkg/compile (it is already unreferenced outside its own tests); add no
+          new import. Make the TASK-008 absence/success tests pass.
+        files:
+          - pkg/compile/compile.go
+          - pkg/compile/native.go
+          - pkg/compile/semgrep.go
+          - pkg/compile/types.go
+          - pkg/compile/compile_test.go
+          - pkg/compile/native_test.go
+          - pkg/compile/semgrep_test.go
+          - pkg/compile/types_test.go
+          - pkg/compile/helpers_test.go
+          - pkg/compile/integration_test.go
+          - pkg/compile/go_standards_core_test.go
+          - pkg/compile/go_standards_format_test.go
+          - pkg/compile/go_standards_helpers_test.go
+          - pkg/compile/go_standards_integration_test.go
+          - pkg/compile/go_standards_security_test.go
+          - pkg/compile/go_standards_std_test.go
+          - pkg/compile/go_standards_test_rules_test.go
+          - standards/go/STD-GO-001-go-code-standards.standard.md
+          - standards/go/README.md
+          - standards/go/rules/core/go-core.yml
+          - standards/go/rules/security/go-security.yml
+          - standards/go/rules/test/go-test.yml
+          - standards/go/testdata/invalid/go-003-global-mutable-state.go
+          - standards/go/testdata/invalid/go-004-init-function.go
+          - standards/go/testdata/invalid/go-005-direct-struct-creation.go
+          - standards/go/testdata/invalid/go-006-stdlib-log.go
+          - standards/go/testdata/invalid/go-010-ignored-error.go
+          - standards/go/testdata/invalid/go-011-unwrapped-error.go
+          - standards/go/testdata/invalid/go-012-naked-return.go
+          - standards/go/testdata/invalid/go-013-panic-in-library.go
+          - standards/go/testdata/invalid/go-021-error-type-no-suffix.go
+          - standards/go/testdata/invalid/go-032-time-sleep-in-test_test.go
+          - standards/go/testdata/invalid/go-060-hardcoded-password.go
+          - standards/go/testdata/invalid/go-061-md5-password-hash.go
+          - standards/go/testdata/invalid/go-062-sql-concatenation.go
+          - standards/go/testdata/invalid/go-063-log-sensitive-data.go
+          - standards/go/testdata/valid/go-003-dependency-injection.go
+          - standards/go/testdata/valid/go-004-no-init.go
+          - standards/go/testdata/valid/go-005-constructor-injection.go
+          - standards/go/testdata/valid/go-006-structured-logging.go
+          - standards/go/testdata/valid/go-010-error-handled.go
+          - standards/go/testdata/valid/go-011-error-wrapped.go
+          - standards/go/testdata/valid/go-012-explicit-return.go
+          - standards/go/testdata/valid/go-013-error-return.go
+          - standards/go/testdata/valid/go-021-error-type-suffix.go
+          - standards/go/testdata/valid/go-032-no-sleep-in-test.go
+          - standards/go/testdata/valid/go-060-env-credentials.go
+          - standards/go/testdata/valid/go-061-bcrypt-hash.go
+          - standards/go/testdata/valid/go-062-parameterized-query.go
+          - standards/go/testdata/valid/go-063-sanitized-log.go
+          - .backstop/rules/STD-GO-001.manifest.json
+          - .backstop/rules/STD-GO-001.native.json
+          - .backstop/rules/STD-GO-001.semgrep.yml
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-021
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify compiler retirement and green build without standards"
+        description: |
+          Run the diff-scoped backstop code check to confirm the module builds
+          and the absence/success tests pass with pkg/compile and STD-GO-001
+          gone.
+
+          Commands:
+            - backstop code check
+        files:
+          - pkg/compile/compile.go
+          - cmd/backstop/standards_removal_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-021
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-009
+
+  - id: phase-5
+    name: "Phase 5: Dogfood-consume backstop/go-standards pack (REQ-007)"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write dogfood pack declaration and lock-reconciliation tests"
+        description: |
+          Add failing repository self-check tests proving backstop-core
+          dogfood-consumes the backstop/go-standards pack and the lockfile is
+          reconciled. In cmd/backstop/dogfood_pack_test.go:
+            - TestDogfood_BackstopYmlDeclaresGoStandardsPack: backstop.yml
+              declares the pack keyed "backstop/go-standards" in its packs map,
+              the pack is installed under
+              .backstop/packs/backstop/go-standards/ with a pack.yml whose name
+              is backstop/go-standards, and the declaration resolves through
+              loadInstalledPacks to a parseable manifest.
+            - TestDogfood_GoStandardsLockVerifies: backstop.lock contains
+              exactly the matching backstop/go-standards entry and VerifyLock
+              passes.
+            - TestDogfood_StaleSlotlyLockEntryRemoved: the stale
+              slotly/go-standards entry is absent from backstop.lock (no
+              declared-but-unlocked and no orphaned lock entry remains).
+        files:
+          - cmd/backstop/dogfood_pack_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+        depends_on: []
+
+      - id: TASK-012
+        type: implementation
+        title: "Declare, install, and lock backstop/go-standards; remove stale slotly entry"
+        description: |
+          Reconcile the repository to a consistent dogfood state via the
+          existing pack-add / lock machinery (SPEC-015/SPEC-017), no new loading
+          code:
+            - Add backstop/go-standards to backstop.yml's packs: map keyed by
+              the manifest name backstop/go-standards.
+            - Install the pack under .backstop/packs/backstop/go-standards/
+              (its pack.yml and rule tree) in its current layer: 2 form.
+            - Reconcile backstop.lock: remove the stale slotly/go-standards
+              entry and record the backstop/go-standards content hash so the
+              declared/installed/locked sets agree exactly and VerifyLock
+              passes.
+          Do NOT churn the synthetic slotly/go-standards string literals in
+          pkg/check test fixtures — those are self-contained check_id formatting
+          assertions, not reads of the deleted lock entry. Make TASK-011 tests
+          pass.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - .backstop/packs/backstop/go-standards/pack.yml
+        claims:
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify dogfood pack install and lock verification"
+        description: |
+          Run the diff-scoped backstop code check to confirm the dogfood pack is
+          declared, installed, and locked and that VerifyLock passes with the
+          stale slotly/go-standards entry removed.
+
+          Commands:
+            - backstop code check
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+  - id: phase-6
+    name: "Phase 6: Final full-gate verification"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Run full backstop gate and validate artifacts for SPEC-030"
+        description: |
+          Run the comprehensive kill chain over all SPEC-030 work: the
+          packs-only semgrepExecutor, removed Options.ManifestDir and callers,
+          routing fallback, retired pkg/compile, deleted STD-GO-001 and compiled
+          artifacts, and the dogfood backstop/go-standards pack. Confirm a
+          full-module go test ./... is green (no pkg/compile, no STD-GO-001) and
+          that VerifyLock passes for the reconciled lockfile. Because this plan
+          touches both .go files and artifact files (backstop.yml/.lock,
+          standards, plan), run both the code gate and artifact validation.
+
+          Commands:
+            - backstop gate
+            - backstop artifact validate
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - backstop.yml
+          - backstop.lock
+          - standards/go/STD-GO-001-go-code-standards.standard.md
+          - cmd/backstop/standards_removal_test.go
+          - cmd/backstop/dogfood_pack_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-012
+          - TASK-004
+          - TASK-007
+          - TASK-010
+          - TASK-013

@@ -1,0 +1,772 @@
+---
+plan_id: PLAN-SPEC-032
+spec_id: SPEC-032
+spec_version: 1.0.0
+created: "2026-06-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/packval/... -run 'TestPackVal_(Engine|NonFindings)' -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Generalizes locus B (validation-time fixture execution, pkg/packval phase 3)
+  onto the shared engine data model SPEC-031 places in pkg/pack/engine. The
+  bespoke per-tool findings arms RunSemgrep and RunToolConfig collapse into a
+  single engine-dispatched RunEngine method driven by the rule's declared
+  `engine` field and its resolved EngineBinding ({command, input_mode,
+  input_flag, convert?}). The ToolConfigEntry (golangci-lint config-file) loop
+  folds into the same RunEngine dispatch via its config-file binding.
+
+  HARD DEPENDENCY: this plan consumes pkg/pack/engine (EngineBinding, InputMode,
+  ParseInputMode, Registry map) which SPEC-031 (PLAN-SPEC-031) creates and
+  places import-cycle-safe. SPEC-031 must be implemented and merged first; the
+  symbols do not exist on main yet (sharp edge 1). SPEC-031 places only the DATA
+  MODEL there — the gate's gather/convert/parseSarif EXECUTION lives in
+  cmd/backstop and unexported pkg/check and is NOT importable from pkg/packval.
+  This plan therefore re-implements that execution locally in pkg/packval and
+  asserts invocation parity with the gate by an explicit parity test (CLM-009),
+  rather than importing a shared RunEngine.
+
+  Decomposition:
+    Phase 1 — testdata fixtures: canned SARIF (native + convert-piped), semgrep
+              rule-flags rule files (ID match / mismatch), ast-grep rule-dir
+              files, config-file linter config, positive/negative fixtures, an
+              unresolved-engine manifest.
+    Phase 2 — manifest field additions: Rule.Engine and ToolConfigEntry.Engine
+              (test → impl → verify).
+    Phase 3 — executor surface change: RunEngine (gather matrix, clean stdout
+              capture, convert pipe, packval-local SARIF parse), MockExecutor
+              RunEngineFn, removal of RunSemgrep/RunToolConfig and their mock
+              fields, shared-type consumption (test → impl → verify).
+    Phase 4 — phase-3 dispatch wiring: RunFixtures rewrite — binding resolve via
+              Registry map lookup, unresolved hard error, engine-keyed rule-ID
+              precheck, go-mod-tidy conditioning, fixture contract, engine-limit
+              hint, non-findings arms preserved (test → impl → verify).
+    Phase 5 — comprehensive verification (backstop gate + artifact validate).
+
+  Sharp edges addressed by test tasks (task IDs are this plan's actual tasks,
+  TASK-001..TASK-012):
+    - SE2 — "Flagged" is the inverse of old Passed; exit code never consulted
+      for findings pass/fail: SARIF-decision tests in TASK-005 (CLM-010) and
+      dispatch contract tests in TASK-008 (CLM-020).
+    - SE3 — Command/convert/parse failure is a distinct hard error, never
+      coerced to "not flagged": TASK-005/TASK-006 SARIF arms (CLM-010) plus
+      TASK-008/TASK-009 contract arms (CLM-020).
+    - SE4 — Precheck over-application: enforced only for rule-flags, skipped
+      for none, config-file, and rule-dir/ast-grep: TASK-008
+      (CLM-030..033, CLM-037).
+    - SE5 — Carve-out leakage: validators/scaffolds keep exit-code semantics,
+      no SARIF: TASK-008 (CLM-023..026). NOTE: these four carve-out tests are
+      spec-mandated as TestPackVal_NonFindings_* (not the TestPackVal_Engine
+      prefix), so the test_command run filter is broadened to
+      'TestPackVal_(Engine|NonFindings)' to keep them executed and counted
+      toward coverage.
+    - SE6 — Two mock surfaces during migration: RunSemgrep/RunToolConfig and
+      their mock fields fully removed, not left beside RunEngine: TASK-005
+      (TestPackVal_EngineMock_RunEngineFn) and TASK-006 (mock-field removal).
+    - SE7 — go-mod-tidy conditioned on the Go config-file engine only: TASK-008
+      (CLM-038..040).
+
+  Spec/plan congruence note for the spec author: SPEC-032 frontmatter
+  test_command (spec line 41) is `-run TestPackVal_Engine`, but the four
+  REQ-006 carve-out tests it mandates are named TestPackVal_NonFindings_*
+  (spec lines 298-313). A bare `-run TestPackVal_Engine` is an unanchored
+  regex that does not match those names, silently skipping CLM-023..026. This
+  plan compensates with a broadened run filter; the spec's own test_command
+  should be reconciled to the same regex (or the carve-out tests renamed under
+  the TestPackVal_Engine umbrella) so spec and plan stay congruent.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Test fixtures for engine-dispatched fixture execution
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Engine-Dispatch Test Fixtures"
+    description: |
+      Scaffold the testdata fixtures every subsequent phase consumes: canned
+      SARIF documents (native and convert-piped), a semgrep-shaped rule file
+      with a matching id and one with a mismatched id (rule-flags precheck),
+      an ast-grep-shaped rule file (rule-dir, not semgrep-shaped so the
+      precheck must skip it), a config-file linter config, positive/negative
+      target fixtures, and a manifest declaring an unresolvable engine. These
+      fixtures back the gather matrix, SARIF decision, precheck re-key, and
+      unresolved-engine tests. Fixtures only — no Go code.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold engine-dispatch test fixtures and canned SARIF"
+        description: |
+          Create pkg/packval/testdata fixtures for engine-dispatched phase-3
+          execution. These are consumed by the executor tests (Phase 3) and the
+          dispatch tests (Phase 4).
+
+          Create:
+            - testdata/engine/sarif/native-flagged.sarif: a SARIF document with
+              a non-empty results set carrying the rule's ID (engine flagged the
+              fixture). Used by the SARIF-native, no-convert path.
+            - testdata/engine/sarif/native-empty.sarif: a SARIF document with an
+              empty results set (engine did not flag).
+            - testdata/engine/sarif/convert-input.json: a non-SARIF tool stdout
+              blob that the convert step transforms into SARIF, used to exercise
+              the stdout -> convert stdin -> SARIF pipe.
+            - testdata/engine/rules/semgrep-rule-match.yml: a semgrep-shaped YAML
+              rule file whose `rules[].id` matches the pack rule ID (rule-flags
+              precheck passes).
+            - testdata/engine/rules/semgrep-rule-mismatch.yml: a semgrep-shaped
+              rule file whose id does NOT match the pack rule ID (rule-flags
+              precheck must fail before fixtures run).
+            - testdata/engine/rules/astgrep-rule.yml: an ast-grep-shaped rule
+              file (NOT semgrep-shaped; no extractable semgrep `id`) used to
+              prove the rule-dir precheck is skipped rather than spuriously
+              failing.
+            - testdata/engine/config/golangci.yml: a config-file linter config
+              (golangci-lint) used by the config-file gather and the
+              ToolConfigEntry routing test.
+            - testdata/engine/fixtures/positive.go: a clean positive target
+              fixture.
+            - testdata/engine/fixtures/negative.go: a violating negative target
+              fixture.
+            - testdata/engine/unresolved-pack/pack.yml: a manifest with a
+              findings rule declaring an `engine` that has no EngineBinding in
+              the shared Registry (drives the unresolved hard-error test).
+        files:
+          - pkg/packval/testdata/engine/sarif/native-flagged.sarif
+          - pkg/packval/testdata/engine/sarif/native-empty.sarif
+          - pkg/packval/testdata/engine/sarif/convert-input.json
+          - pkg/packval/testdata/engine/rules/semgrep-rule-match.yml
+          - pkg/packval/testdata/engine/rules/semgrep-rule-mismatch.yml
+          - pkg/packval/testdata/engine/rules/astgrep-rule.yml
+          - pkg/packval/testdata/engine/config/golangci.yml
+          - pkg/packval/testdata/engine/fixtures/positive.go
+          - pkg/packval/testdata/engine/fixtures/negative.go
+          - pkg/packval/testdata/engine/unresolved-pack/pack.yml
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-014
+          - CLM-015
+          - CLM-027
+          - CLM-030
+          - CLM-031
+          - CLM-037
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Manifest engine fields (Rule.Engine, ToolConfigEntry.Engine)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Manifest Engine Fields"
+    description: |
+      Add the `engine` field to Rule and ToolConfigEntry in the manifest parser
+      so phase-3 dispatch can resolve a binding from the declared engine. Rule
+      gains `engine` (the execution selector replacing the retired `layer`
+      selector); ToolConfigEntry gains `engine` defaulting to the config-file
+      binding keyed by its existing `tool`. ToolConfigEntry stays a separate
+      top-level container from Content.Ruleset.Rules (not merged).
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write manifest engine-field parse tests"
+        description: |
+          Add to pkg/packval/manifest_engine_test.go (package packval_test).
+
+          Test functions:
+            - TestPackVal_EngineManifest_RuleEngineParsed: parse a manifest with
+              a rule declaring `engine: semgrep`, assert Rule.Engine == "semgrep".
+            - TestPackVal_EngineManifest_ToolConfigEngineParsed: parse a manifest
+              with a tool_config entry declaring `engine: golangci-lint`, assert
+              ToolConfigEntry.Engine populated.
+            - TestPackVal_EngineManifest_ToolConfigEngineDefaultsToTool: parse a
+              tool_config entry with no explicit `engine`, assert the dispatch
+              defaults to the config-file binding keyed by the entry's `tool`.
+            - TestPackVal_EngineManifest_ContainersStaySeparate: assert
+              Content.Ruleset.Rules and ToolConfig remain distinct top-level
+              containers (not merged) after parse.
+
+          Tests parse inline/temp YAML; no engine binaries required.
+        files:
+          - pkg/packval/manifest_engine_test.go
+        claims:
+          - CLM-034
+          - CLM-036
+        depends_on: [TASK-001]
+
+      - id: TASK-003
+        type: implementation
+        title: "Add engine field to Rule and ToolConfigEntry"
+        description: |
+          Modify pkg/packval/manifest.go.
+
+          Changes:
+            - Add `Engine string` (yaml:"engine") to the Rule struct; consumed
+              by phase-3 dispatch as the execution selector. `layer` is retired
+              as the execution selector per SPEC-031's schema cutover — this
+              plan reads `engine`; do NOT remove `layer` parsing used by other
+              phases, only stop using it to select fixture execution.
+            - Add `Engine string` (yaml:"engine") to the ToolConfigEntry struct;
+              when empty, dispatch defaults to the config-file binding keyed by
+              the entry's existing `Tool` field.
+            - Keep ToolConfig a separate top-level container from
+              Content.Ruleset.Rules (do not merge the containers).
+
+          Make TASK-002 tests pass.
+        files:
+          - pkg/packval/manifest.go
+        claims:
+          - CLM-034
+          - CLM-036
+        depends_on: [TASK-002]
+
+      - id: TASK-004
+        type: verification
+        title: "Verify manifest engine fields"
+        description: |
+          Run the diff-scoped fast inner loop over the manifest changes.
+
+          Command:
+              backstop code check
+
+          Verify build, lint, and the TASK-002 manifest tests pass for the
+          engine-field additions.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/manifest_engine_test.go
+        claims:
+          - CLM-034
+          - CLM-036
+        depends_on: [TASK-003]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Executor surface — RunEngine, gather, SARIF, convert, mock
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: RunEngine Executor Surface"
+    description: |
+      Replace the bespoke findings arms (RunSemgrep, RunToolConfig) on the
+      FixtureExecutor interface with a single engine-dispatched RunEngine
+      method, and re-implement the gather/convert/SARIF-parse execution locally
+      in pkg/packval (the gate's execution is not importable). RunEngine gathers
+      inputs per binding.InputMode (config-file / rule-flags / rule-dir / none),
+      runs binding.Command capturing stdout cleanly and separately from stderr,
+      pipes through binding.Convert when present, parses the resulting SARIF via
+      a packval-local parse, and sets ExecutionResult.Passed = "engine flagged
+      the fixture". The packval gather is asserted equal to the gate-time gather
+      by a parity test. MockExecutor gains RunEngineFn; RunSemgrep/RunToolConfig
+      and their mock fields are removed (not left beside RunEngine).
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write RunEngine gather, SARIF, and convert tests"
+        description: |
+          Add to pkg/packval/executor_engine_test.go (package packval_test).
+
+          input_mode gather matrix (assert assembled invocation) — REQ-002:
+            - TestPackVal_EngineGather_ConfigFile (CLM-005): config-file passes a
+              single pack-supplied config via input_flag and injects NO rule
+              files; the tool runs its own built-in rules.
+            - TestPackVal_EngineGather_RuleFlags (CLM-006): rule-flags passes
+              each rule file as a repeated input_flag occurrence (e.g. --config
+              X --config Y).
+            - TestPackVal_EngineGather_RuleDir (CLM-007): rule-dir collects the
+              engine's rule files into a directory passed once via input_flag.
+            - TestPackVal_EngineGather_None (CLM-008): none injects no rules or
+              config and runs binding.Command as-is.
+            - TestPackVal_EngineGather_ParityWithGateInvocation (CLM-009): assert
+              the packval gather assembles the IDENTICAL invocation the gate-time
+              gather assembles for the same binding inputs (asserted parity, not
+              shared execution code). Reference the gate's expected per-mode flag
+              layout; the assertion is that command + flag layout match.
+            - TestPackVal_EngineGather_ToolConfigEntryRoutesThroughRunEngine
+              (CLM-036): a tool_config ToolConfigEntry (golangci-lint) resolves
+              its config-file EngineBinding and routes through the config-file
+              gather + RunEngine, NOT the retired RunToolConfig arm.
+
+          SARIF decision + stdout capture + convert (REQ-003):
+            - TestPackVal_EngineSarif_PassFailFromSarif (CLM-010): pass/fail is
+              derived from parsed SARIF, not the raw exit code (feed a binding
+              whose command exits non-zero merely for finding something; result
+              must still be driven by SARIF).
+            - TestPackVal_EngineSarif_NonEmptyMeansFlagged (CLM-011): a non-empty
+              SARIF result set for the rule's ID counts as flagged.
+            - TestPackVal_EngineSarif_EmptyMeansNotFlagged (CLM-012): an empty
+              SARIF result set counts as not flagged.
+            - TestPackVal_EngineSarif_StdoutSeparateFromStderr (CLM-013): stdout
+              is captured separately from stderr so stderr noise does not corrupt
+              SARIF parsing (a binding whose command writes noise to stderr still
+              parses clean stdout SARIF).
+            - TestPackVal_EngineConvert_NativeSarifNoConvert (CLM-014): a
+              SARIF-native binding with no convert step parses stdout directly.
+            - TestPackVal_EngineConvert_NonSarifPipesThroughConvert (CLM-015): a
+              non-SARIF binding pipes stdout through the declared convert
+              executable (in-process, no shell) before SARIF parsing.
+
+          Shared-type consumption (REQ-009):
+            - TestPackVal_EngineShared_UsesSharedBindingType (CLM-034): RunEngine
+              accepts the shared engine.EngineBinding from pkg/pack/engine; assert
+              no packval-local EngineBinding/engine-enum type is declared.
+
+          Mock surface migration (sharp edge 6):
+            - TestPackVal_EngineMock_RunEngineFn: MockExecutor.RunEngineFn drives
+              phase-3 dispatch without real engine binaries, and the dead
+              RunSemgrep/RunToolConfig methods and SemgrepFn/ToolConfigFn fields
+              are absent from the executor surface (compile-asserted by using
+              only RunEngine/RunValidator/RunScaffoldTest).
+
+          Tests use canned SARIF from testdata/engine/sarif and small fake
+          command/convert stand-ins; no real semgrep/golangci-lint/ast-grep
+          binaries required.
+        files:
+          - pkg/packval/executor_engine_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-034
+          - CLM-036
+        depends_on: [TASK-001]
+
+      - id: TASK-006
+        type: implementation
+        title: "Implement RunEngine, gather matrix, SARIF parse, convert pipe; migrate dead executor tests"
+        description: |
+          Modify pkg/packval/executor.go (and add pkg/packval/engine_exec.go for
+          the gather/convert/SARIF-parse helpers).
+
+          ATOMIC COMPILE BOUNDARY (sharp edge 6): removing RunSemgrep,
+          RunToolConfig, SemgrepFn, and ToolConfigFn from the FixtureExecutor
+          interface and MockExecutor breaks four existing test files that still
+          reference those symbols. go test compiles every test file in the
+          package regardless of any -run filter, so the entire pkg/packval
+          package fails to build until those references are migrated in the SAME
+          unit of work as the removal. This task therefore owns both the
+          surface change AND the migration of those four files so the package
+          compiles atomically. Do NOT leave the old surfaces beside RunEngine.
+
+          Existing test files to migrate off the removed surfaces (in this
+          task's scope):
+            - pkg/packval/packval_phase3_exec_test.go (package packval_test):
+              migrate the SemgrepFn/ToolConfigFn closures and m.RunSemgrep/
+              m.RunToolConfig calls to RunEngineFn / RunEngine; delete or
+              rewrite the mock-surface tests TestPackVal_MockExecutorSemgrep and
+              TestPackVal_MockExecutorToolConfig (their replacement is
+              TestPackVal_EngineMock_RunEngineFn in executor_engine_test.go,
+              TASK-005).
+            - pkg/packval/packval_phase456_pipeline_test.go (package
+              packval_test): migrate the SemgrepFn closure to RunEngineFn.
+            - pkg/packval/coverage_boost_test.go (package packval): delete the
+              three DefaultExecutor direct-call tests that exercise the removed
+              methods — TestPackVal_DefaultExecutor_RunToolConfig_GolangciLint,
+              TestPackVal_DefaultExecutor_RunToolConfig_UnsupportedTool,
+              TestPackVal_DefaultExecutor_RunSemgrep_MissingBinary — and the
+              nil-fn mock fallthrough assertions (RunSemgrep/RunToolConfig on a
+              MockExecutor with nil fns). Replacement coverage for the
+              DefaultExecutor execution paths (gather, missing-binary, convert,
+              SARIF parse) is provided by the RunEngine tests in
+              executor_engine_test.go (TASK-005, CLM-005..015), so the deletions
+              do not regress the 90% coverage gate (TASK-011).
+            - pkg/packval/coverage_error_paths_test.go (package packval):
+              migrate the SemgrepFn/ToolConfigFn closures to RunEngineFn.
+
+          Interface change:
+            - Remove RunSemgrep and RunToolConfig from the FixtureExecutor
+              interface; add:
+                RunEngine(packDir string, binding engine.EngineBinding,
+                          ruleID string, ruleFiles []string, fixturePath string)
+                          (ExecutionResult, error)
+            - Keep RunValidator and RunScaffoldTest unchanged.
+            - Import the shared engine model from pkg/pack/engine (EngineBinding,
+              InputMode, ParseInputMode). Do NOT declare a packval-local
+              EngineBinding or engine enum (REQ-009).
+
+          DefaultExecutor.RunEngine:
+            1. Gather inputs per binding.InputMode, table-driven over the mode
+               (no per-engine Go branch):
+                 - config-file: append input_flag + the single pack-supplied
+                   config; inject no rule files.
+                 - rule-flags: append input_flag once per rule file.
+                 - rule-dir: collect rule files into a dir, append input_flag +
+                   dir path.
+                 - none: append nothing; run binding.Command as-is.
+               The assembled invocation must match the gate-time gather for the
+               same binding inputs (proven by the parity test, CLM-009).
+            2. Run binding.Command capturing stdout cleanly and SEPARATELY from
+               stderr (use cmd.Stdout/cmd.Stderr buffers, NOT CombinedOutput).
+            3. If binding.Convert is present, pipe stdout -> convert stdin ->
+               SARIF in-process (no shell).
+            4. Parse the resulting SARIF via a packval-local parse (the gate's
+               parseSarif is unexported in pkg/check). Apply the same
+               results-for-rule-ID contract: non-empty results for ruleID =>
+               Flagged.
+            5. Set ExecutionResult.Passed = Flagged. A command / convert / parse
+               failure returns a non-nil error (a hard fixture error), distinct
+               from a clean run — it must NEVER be coerced to "not flagged".
+
+          MockExecutor:
+            - Remove SemgrepFn and ToolConfigFn fields and their methods.
+            - Add RunEngineFn func(packDir string, binding engine.EngineBinding,
+              ruleID string, ruleFiles []string, fixturePath string)
+              (ExecutionResult, error) and the RunEngine method delegating to it.
+
+          Make TASK-005 tests pass and keep the whole pkg/packval package
+          building after the surface removal.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/engine_exec.go
+          - pkg/packval/packval_phase3_exec_test.go
+          - pkg/packval/packval_phase456_pipeline_test.go
+          - pkg/packval/coverage_boost_test.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-034
+          - CLM-036
+        depends_on: [TASK-005]
+
+      - id: TASK-007
+        type: verification
+        title: "Verify RunEngine executor surface"
+        description: |
+          Run the diff-scoped fast inner loop over the executor changes.
+
+          Command:
+              backstop code check
+
+          Verify build, lint, and the TASK-005 executor tests pass, and that
+          RunSemgrep/RunToolConfig no longer appear on the FixtureExecutor
+          surface.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/engine_exec.go
+          - pkg/packval/executor_engine_test.go
+        claims:
+          - CLM-005
+          - CLM-010
+          - CLM-034
+        depends_on: [TASK-006]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Phase-3 dispatch wiring (RunFixtures rewrite)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Engine-Dispatched RunFixtures"
+    description: |
+      Rewrite RunFixtures so findings rules and ToolConfigEntry entries both
+      dispatch through executor.RunEngine via the rule's resolved EngineBinding
+      (Registry map lookup keyed on the declared engine). Replace the per-tool
+      RunSemgrep/RunToolConfig loops. Preserve the positive/negative fixture
+      contract, the negative-fixture engine-limitation hint (for every engine),
+      the non-findings validator/scaffold/SDK arms (exit-code semantics, no
+      SARIF), and re-key the rule-ID precheck and go-mod-tidy pre-check to the
+      engine. An unresolved engine is a loud, blocking hard error.
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write engine-dispatch, contract, precheck, and carve-out tests"
+        description: |
+          Add to pkg/packval/phase3_engine_test.go (package packval_test). All
+          tests use MockExecutor with RunEngineFn; no real engine binaries.
+
+          Engine dispatch (REQ-001):
+            - TestPackVal_EngineDispatch_ResolvesBindingForDeclaredEngine
+              (CLM-001): phase 3 resolves a findings rule's EngineBinding from
+              the shared Registry by map lookup keyed on the declared engine,
+              not by calling a per-tool arm.
+            - TestPackVal_EngineDispatch_SemgrepRuleUsesBinding (CLM-002): a
+              semgrep-engine rule executes the semgrep binding and assembles the
+              same invocation the gate path would.
+            - TestPackVal_EngineDispatch_AstGrepRuleUsesBinding (CLM-003): an
+              ast-grep-engine rule dispatches via engine dispatch with no new
+              fixture-executor arm.
+            - TestPackVal_EngineDispatch_NewEngineNoExecutorArm (CLM-004): a rule
+              declaring a newly registered findings engine dispatches purely from
+              its declaration with no packval code change.
+
+          Fixture contract + command-error distinction (REQ-004):
+            - TestPackVal_EngineContract_PositiveCleanPasses (CLM-016)
+            - TestPackVal_EngineContract_PositiveFlaggedFails (CLM-017)
+            - TestPackVal_EngineContract_NegativeFlaggedPasses (CLM-018)
+            - TestPackVal_EngineContract_NegativeNotFlaggedFails (CLM-019)
+            - TestPackVal_EngineContract_CommandErrorIsHardError (CLM-020): a
+              command/convert/parse failure is a hard fixture error, distinct
+              from a clean run, NEVER treated as not-flagged.
+
+          Engine-limitation hint, every engine (REQ-005):
+            - TestPackVal_EngineHint_SemgrepNegativeNotFlaggedHint (CLM-021)
+            - TestPackVal_EngineHint_AstGrepNegativeNotFlaggedHint (CLM-022)
+
+          Non-findings arms unchanged, no SARIF (REQ-006):
+            - TestPackVal_NonFindings_ValidatorExitCodeUnchanged (CLM-023)
+            - TestPackVal_NonFindings_ValidatorMultiFileUnchanged (CLM-024)
+            - TestPackVal_NonFindings_ScaffoldExitCodeUnchanged (CLM-025)
+            - TestPackVal_NonFindings_NoSarifAppliedToExitCodeArms (CLM-026)
+
+          Unresolved engine is loud + blocking (REQ-007):
+            - TestPackVal_EngineUnresolved_HardError (CLM-027): a findings rule
+              declaring an engine with no resolvable binding produces a hard
+              phase-3 ValidationError identifying the rule and the engine.
+            - TestPackVal_EngineUnresolved_NoSilentSkip (CLM-028)
+            - TestPackVal_EngineUnresolved_NoSemgrepFallback (CLM-029)
+
+          Rule-ID precheck re-keyed to engine (REQ-008):
+            - TestPackVal_EnginePrecheck_RuleFlagsRuleIDEnforced (CLM-030)
+            - TestPackVal_EnginePrecheck_RuleFlagsRuleIDPasses (CLM-031)
+            - TestPackVal_EnginePrecheck_NoneModeSkipsPrecheck (CLM-032)
+            - TestPackVal_EnginePrecheck_ConfigFileSkipsPrecheck (CLM-033)
+            - TestPackVal_EnginePrecheck_RuleDirSkipsPrecheck (CLM-037): ast-grep
+              rule-dir skips the precheck (ast-grep precheck out of scope) rather
+              than running semgrep-shaped extraction and spuriously failing.
+
+          Shared registry (REQ-009):
+            - TestPackVal_EngineShared_SameTableAsGate (CLM-035): the same engine
+              table the gate uses resolves bindings for fixture-time dispatch.
+
+          Go-mod-tidy conditioning (REQ-010):
+            - TestPackVal_EngineGoModTidy_RunsForGoConfigFileEngine (CLM-038)
+            - TestPackVal_EngineGoModTidy_SkippedForSemgrep (CLM-039)
+            - TestPackVal_EngineGoModTidy_SkippedForAstGrep (CLM-040)
+        files:
+          - pkg/packval/phase3_engine_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-035
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on: [TASK-001, TASK-007]
+
+      - id: TASK-009
+        type: implementation
+        title: "Rewrite RunFixtures onto engine dispatch"
+        description: |
+          Modify pkg/packval/phase3.go.
+
+          Replace the per-tool RunSemgrep/RunToolConfig loops with a single
+          findings dispatch over both Content.Ruleset.Rules and ToolConfig
+          entries (containers stay separate; both resolve a binding and run
+          through RunEngine):
+
+          1. Resolve the binding. For each findings rule and each
+             ToolConfigEntry, resolve its EngineBinding from the shared Registry
+             (pkg/pack/engine) by map lookup keyed on the declared engine
+             (ToolConfigEntry defaults to the config-file binding keyed by
+             `tool` when engine is empty). On a miss, append a hard, blocking
+             ValidationError naming the rule and the unresolved engine — no
+             silent skip, no semgrep fallback (REQ-007, CLM-027/028/029).
+          2. Rule-ID precheck (engine-keyed). ENFORCE the existing
+             semgrepFileContainsRuleID check ONLY for the rule-flags input mode;
+             SKIP it for none, config-file, and rule-dir (ast-grep out of scope)
+             — never run-and-fail for a mode it does not cover (REQ-008,
+             CLM-030..033, CLM-037).
+          3. Go-mod-tidy pre-check (conditioned). Run goModTidyTempCopy ONLY when
+             the resolved engine is the Go config-file engine (golangci-lint);
+             never for semgrep, ast-grep, or a non-Go config-file linter
+             (REQ-010, CLM-038/039/040).
+          4. Gather + run via executor.RunEngine, passing the resolved binding,
+             rule ID, rule files, and fixture path.
+          5. Apply the fixture contract on Flagged (ExecutionResult.Passed):
+             positive passes iff NOT flagged; negative passes iff flagged. A
+             RunEngine error is a hard fixture error (REQ-004, CLM-016..020).
+          6. On a negative fixture that is not flagged, emit the existing
+             engine-limitation fix hint on the ValidationError, for EVERY
+             findings engine (REQ-005, CLM-021/022).
+
+          Preserve unchanged: the layer-3 RunValidator arm (single + multi-file
+          input_scope aggregation), the RunScaffoldTest arm, and the SDK
+          provides check — all exit-code semantics, no SARIF applied (REQ-006,
+          CLM-023..026). Preserve PhaseResult/ValidationError shape.
+
+          Make TASK-008 tests pass.
+        files:
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-035
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on: [TASK-008]
+
+      - id: TASK-010
+        type: verification
+        title: "Verify engine-dispatched RunFixtures"
+        description: |
+          Run the diff-scoped fast inner loop over the phase-3 dispatch rewrite.
+
+          Command:
+              backstop code check
+
+          Verify build, lint, and the TASK-008 dispatch/contract/precheck/
+          carve-out tests pass. The pre-engine phase-3 tests that referenced the
+          removed RunSemgrep/RunToolConfig surfaces were already migrated atomically
+          with the surface removal in TASK-006; this task only confirms the
+          dispatch rewrite is green, it does not edit those test files.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_engine_test.go
+        claims:
+          - CLM-001
+          - CLM-020
+          - CLM-027
+          - CLM-038
+        depends_on: [TASK-009]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification"
+    description: |
+      Final verification covering all code and artifact work: the full kill
+      chain via backstop gate (code check, test verification, substantiveness,
+      coverage at the 90% threshold, contracts) and artifact validation of this
+      plan. This phase runs the comprehensive gate, not the fast inner loop.
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Run full gate kill chain"
+        description: |
+          Run the comprehensive gate over the engine-dispatch convergence.
+
+          Command:
+              backstop gate
+
+          Verify:
+            - All pkg/packval tests pass under -race
+            (go test ./pkg/packval/... -run 'TestPackVal_(Engine|NonFindings)'
+            -race). The run filter MUST match both prefixes: the four
+            spec-mandated carve-out tests are named TestPackVal_NonFindings_*
+            (spec lines 298-313) and would be silently skipped by a bare
+            -run TestPackVal_Engine, dropping CLM-023..026 from execution and
+            the coverage gate.
+            - Coverage >= 90% (spec threshold).
+            - Substantiveness, contracts, and code check all clean.
+            - The bespoke RunSemgrep/RunToolConfig findings arms and their mock
+              fields are fully removed (no surviving per-tool dispatch).
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/engine_exec.go
+          - pkg/packval/phase3.go
+          - pkg/packval/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-010
+          - CLM-016
+          - CLM-020
+          - CLM-026
+          - CLM-027
+          - CLM-038
+        depends_on: [TASK-003, TASK-006, TASK-009, TASK-004, TASK-007, TASK-010]
+
+      - id: TASK-012
+        type: verification
+        title: "Validate plan artifact"
+        description: |
+          Validate this plan artifact for structural correctness.
+
+          Command:
+              ./bin/backstop artifact validate plans/PLAN-SPEC-032-pack-fixture-engine-execution.plan.yml
+
+          Verify the plan passes schema validation, TDD ordering, gate cadence,
+          and file-exclusivity checks.
+        files:
+          - plans/PLAN-SPEC-032-pack-fixture-engine-execution.plan.yml
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-039
+          - CLM-040
+        depends_on: [TASK-003, TASK-006, TASK-009, TASK-004, TASK-007, TASK-010]

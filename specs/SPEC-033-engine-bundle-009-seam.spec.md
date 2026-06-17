@@ -52,7 +52,10 @@ requirements:
       assign that work to BUNDLE-009: (a) the real substantiveness rule packs;
       (b) the real contract/traceability rule packs; (c) wiring those packs into
       the gate's traceability steps; (d) migrating the baked-in Go `go/parser`
-      substantiveness analyzer onto the pack model. BUNDLE-010 ships none of these.
+      substantiveness analyzer onto the pack model — BUNDLE-009-assigned but
+      explicitly deferrable ("later," per the bundle's Non-Goal #3 / DD-6 dogfood
+      note), i.e. owned by BUNDLE-009 but not a near-term commitment.
+      BUNDLE-010 ships none of these.
       A finding that this spec or any sibling BUNDLE-010 spec contains a real
       substantiveness/contract rule is a seam violation.
     supports: pluggable-pack-engines:REQ-017
@@ -196,18 +199,41 @@ contracts:
           BUNDLE-010 (producer) and BUNDLE-009 (consumer). It declares no
           package symbols; its "provides" is the frozen seam ledger itself.
     consumes:
+      # Each name below resolves to a real provides.name in the cited source
+      # (SPEC-031/032 provides blocks) or a concrete symbol/file. The seam cites
+      # the symbols that actually carry the hand-off, not aspirational labels.
       - source: specs/SPEC-031-pluggable-engine-dispatch.spec.md
-        name: engine-dispatch-table
-        kind: constant
+        name: dispatchPackEngines
+        kind: function
+        notes: >
+          The engine dispatch path (group-by-engine → gather inputs → run →
+          convert → parseSarif → namespace). This is the "first-class engine
+          field + dispatch table" hand-off artifact; BUNDLE-009 rules ride it by
+          declaring `engine:`.
       - source: specs/SPEC-031-pluggable-engine-dispatch.spec.md
-        name: ast-grep-engine
-        kind: constant
+        name: Registry
+        kind: type
+        notes: >
+          The engine binding registry that seeds ast-grep (REQ-010). "ast-grep
+          wired end-to-end" is delivered as the ast-grep entry in this Registry
+          plus its dispatch through dispatchPackEngines; there is no separate
+          named ast-grep symbol to cite.
       - source: specs/SPEC-031-pluggable-engine-dispatch.spec.md
-        name: ast-grep-sarif-converter
-        kind: constant
+        name: EngineBinding
+        kind: type
+        notes: >
+          The per-engine binding ({command, input_mode, input_flag, convert?,
+          provision?}). The ast-grep stdin→SARIF converter is carried by this
+          binding's `Convert` field (a pack-resident script per REQ-008, DD-7),
+          not a separately exported symbol — SPEC-031 declares the converter in
+          prose, so the seam cites the binding field that references it.
       - source: specs/SPEC-032-pack-fixture-engine-execution.spec.md
-        name: fixture-engine-execution
-        kind: constant
+        name: RunEngine
+        kind: method
+        notes: >
+          The fixture-time engine execution method (FixtureExecutor.RunEngine).
+          This is the "fixture-engine-execution" hand-off; it normalizes to the
+          same parseSarif contract as the gate path.
       - source: pkg/check/parsers.go
         name: parseSarif
         kind: function
@@ -277,7 +303,7 @@ column — no artifact is ambiguous, none is shared-by-omission.
 | Real substantiveness rule packs | NOT delivered | BUNDLE-009 |
 | Real contract/traceability rule packs | NOT delivered | BUNDLE-009 |
 | Wiring rule packs into the gate's traceability steps | NOT delivered | BUNDLE-009 |
-| Migrating the Go `go/parser` substantiveness analyzer to packs | NOT delivered | BUNDLE-009 |
+| Migrating the Go `go/parser` substantiveness analyzer to packs | NOT delivered | BUNDLE-009 (deferrable / "later") |
 | A second / BUNDLE-009-authored ast-grep converter | NOT delivered | (forbidden — reuse BUNDLE-010's) |
 
 This table is the authoritative expression of the allowlist. The frontmatter
@@ -333,7 +359,9 @@ violation:
 - the real contract/traceability rule packs;
 - wiring those packs into the gate's traceability steps;
 - migrating the baked-in Go `go/parser` substantiveness analyzer
-  (step_testverify.go) onto the pack model.
+  (step_testverify.go) onto the pack model — BUNDLE-009-owned but deferrable
+  ("later," per the bundle's Non-Goal #3 / DD-6 dogfood note); the seam fixes
+  ownership, not timing, so this is not a near-term BUNDLE-009 commitment.
 
 ### Directional ownership
 
