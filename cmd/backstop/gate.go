@@ -248,7 +248,11 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// rule findings no longer feed the in-process semgrepExecutor via
 	// ExtraSemgrepConfigs; they are dispatched group-by-engine in the pack
 	// engine step below (SPEC-031 REQ-011).
-	codeChecker := &realCodeChecker{projectRoot: projectRoot}
+	// One shared runner so the whole-module `go test ./...` executes ONCE and
+	// feeds both code_check (test FAILs) and coverage_threshold (per-package
+	// coverage), instead of running the suite twice (~94s of duplicate work).
+	sharedTest := newSharedTestRunner(projectRoot)
+	codeChecker := &realCodeChecker{projectRoot: projectRoot, sharedRunner: sharedTest}
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
@@ -259,7 +263,9 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, activeScope)
 
 	// Step 5: Coverage threshold needs spec verifications and a command runner.
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope)
+	// It shares sharedTest so its whole-module coverage read reuses code_check's
+	// already-executed `go test ./...` instead of running the suite again.
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, sharedTest)
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
@@ -356,7 +362,7 @@ func buildTestSubstantivenessStep(specDir, codeDir string, scope *gate.GateScope
 
 // buildCoverageStep creates a StepFunc that extracts spec verifications
 // and runs coverage checks using a real command runner.
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runner gate.CommandRunner) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -367,7 +373,9 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope) gate.
 			}
 		}
 
-		runner := &gate.ExecCommandRunner{Dir: projectRoot}
+		if runner == nil {
+			runner = &gate.ExecCommandRunner{Dir: projectRoot}
+		}
 		step := gate.StepCoverageThresholdScopedFunc(runner, specs, scope)
 		return step(ctx)
 	}
@@ -431,6 +439,11 @@ type realCodeChecker struct {
 	// out to live tools or installing semgrep. Nil in production (check.Run).
 	runnerForTest  check.CommandRunner
 	ensurerForTest check.SemgrepEnsurer
+	// sharedRunner, if set, is a PRODUCTION runner injected so the whole-module
+	// `go test ./...` pass is shared with the coverage step (run once, not
+	// twice). Non-go-test commands delegate to a plain exec, so lint/build/
+	// semgrep behave exactly as the default check.Run path.
+	sharedRunner check.CommandRunner
 }
 
 func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
@@ -515,6 +528,12 @@ func (c *realCodeChecker) runWithOpts(ctx context.Context, opts check.Options) (
 			Runner:         c.runnerForTest,
 			SemgrepEnsurer: c.ensurerForTest,
 		})
+	}
+	// Production with a shared runner: route through RunWith so the whole-module
+	// go test pass goes through sharedRunner (deduped with coverage). Ensurer is
+	// left nil so RunWith defaults to the real DefaultSemgrepEnsurer.
+	if c.sharedRunner != nil {
+		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: c.sharedRunner})
 	}
 	return check.Run(ctx, opts)
 }

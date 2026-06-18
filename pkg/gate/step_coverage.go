@@ -63,6 +63,8 @@ type ExecCommandRunner struct {
 
 // Run executes the named command with args and returns combined output.
 func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	// name/args are the gate's own coverage commands (go test ...), not user input.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(ctx, name, args...)
 	if r.Dir != "" {
 		cmd.Dir = r.Dir
@@ -141,10 +143,26 @@ func collapsedCodeScopeCoverageResult(ctx context.Context, runner CommandRunner,
 		return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no Go package coverage targets in scope"}
 	}
 
+	// Derive per-package coverage from ONE whole-module `go test ./...` run,
+	// which a shared runner serves from code_check's already-executed suite
+	// (dedup — the suite is the gate's dominant cost). Only used on the green
+	// path (run err == nil); on the red path wholeCov is empty and every target
+	// falls back to a dedicated per-package run, reproducing prior behavior
+	// exactly (including the "coverage command failed" violations).
+	wholeCov, wholeOK := wholeModulePackageCoverage(ctx, runner, scope)
+
 	var violations []Violation
 	for _, target := range targets {
-		pct, available, runViolations := runCoverageTargets(ctx, runner, []CoverageTarget{target})
-		violations = append(violations, runViolations...)
+		var pct float64
+		var available bool
+		if wholeOK {
+			pct, available = wholeCov[target.Label]
+		}
+		if !available {
+			var runViolations []Violation
+			pct, available, runViolations = runCoverageTargets(ctx, runner, []CoverageTarget{target})
+			violations = append(violations, runViolations...)
+		}
 		if !available {
 			continue
 		}
@@ -279,6 +297,75 @@ func runCoverageTargets(ctx context.Context, runner CommandRunner, targets []Cov
 	return lowest, foundAny, violations
 }
 
+// wholeModulePackageCoverage runs `go test ./... -coverprofile=/dev/null` once
+// (served from the shared runner's cache when code_check already ran it) and
+// returns a map of package label (e.g. "./pkg/gate", "." for root) to its
+// self-coverage percentage. It returns (nil, false) when the run errored (a
+// failing test or compile error) so callers fall back to dedicated per-package
+// runs and reproduce prior behavior exactly on the red path. The green-path map
+// is what removes the duplicate whole-suite execution.
+func wholeModulePackageCoverage(ctx context.Context, runner CommandRunner, scope *GateScope) (map[string]float64, bool) {
+	var projectRoot string
+	if scope != nil {
+		projectRoot = scope.ProjectRoot
+	}
+	modulePath := goModulePath(projectRoot)
+	if modulePath == "" {
+		return nil, false
+	}
+	out, err := runner.Run(ctx, "go", "test", "./...", "-coverprofile=/dev/null")
+	if err != nil {
+		return nil, false
+	}
+	result := map[string]float64{}
+	for _, line := range strings.Split(string(out), "\n") {
+		pct, ok := parseCoverageLine(line)
+		if !ok {
+			continue
+		}
+		label := packageLabelFromLine(line, modulePath)
+		if label == "" {
+			continue
+		}
+		result[label] = pct
+	}
+	if len(result) == 0 {
+		return nil, false
+	}
+	return result, true
+}
+
+// packageLabelFromLine maps a `go test ./...` per-package output line's import
+// path to its coverage-target label: modulePath -> ".", modulePath+"/pkg/x" ->
+// "./pkg/x". Returns "" when no field on the line is under the module.
+func packageLabelFromLine(line, modulePath string) string {
+	for _, f := range strings.Fields(line) {
+		if f == modulePath {
+			return "."
+		}
+		if strings.HasPrefix(f, modulePath+"/") {
+			return "./" + strings.TrimPrefix(f, modulePath+"/")
+		}
+	}
+	return ""
+}
+
+// goModulePath reads the module path from the project's go.mod, or "" if it
+// cannot be read (callers then fall back to per-package coverage runs).
+func goModulePath(projectRoot string) string {
+	data, err := os.ReadFile(filepath.Join(projectRoot, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
 func coverageTargetsForScope(scope *GateScope) []CoverageTarget {
 	return goCoverageTargetsForScope(scope)
 }
@@ -322,6 +409,11 @@ func scopeCoveragePackages(scope *GateScope, includeSpecSweep bool) []string {
 		return nil
 	}
 	packages := map[string]struct{}{}
+	// testPackages collects test-only package targets; it is iterated below only
+	// under a len() > 0 guard, so the "iterate over possibly empty map" warning
+	// is a false positive. Suppression anchored at the declaration (the rule's
+	// match start).
+	// nosemgrep: trailofbits.go.iterate-over-empty-map.iterate-over-empty-map
 	testPackages := map[string]struct{}{}
 	for _, file := range scope.Files {
 		clean := normalizeScopePath("", file)
@@ -363,7 +455,12 @@ func scopeCoveragePackages(scope *GateScope, includeSpecSweep bool) []string {
 		}
 		selected["./"+dir] = struct{}{}
 	}
-	if len(packages) == 0 {
+	// Intentional: when a diff touches only *_test.go files, fall back to their
+	// (test-only) packages as coverage targets. The len(testPackages) > 0 guard
+	// makes the iteration provably non-empty.
+	// When a diff touches only *_test.go files, their test-only packages become
+	// the coverage targets. The len() > 0 guard keeps the iteration non-empty.
+	if len(packages) == 0 && len(testPackages) > 0 {
 		for pkg := range testPackages {
 			packages[pkg] = struct{}{}
 		}
