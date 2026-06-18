@@ -3,6 +3,9 @@ package gate
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -69,6 +72,165 @@ func TestGateSteps_FilterToChangedFiles_CoverageRootPackage(t *testing.T) {
 	}, newGateScope("", GateScopeModeDiff, []string{"pkg/gate/step_coverage.go"}, nil))(context.Background())
 	if result.Status != "pass" || runner.runs != 1 {
 		t.Fatalf("expected coverage to use changed package instead of spec test_command, status=%s runs=%d violations=%#v", result.Status, runner.runs, result.Violations)
+	}
+}
+
+// perPackageCommandRunner returns a distinct coverage output for each changed
+// package, keyed by the package label that appears in the `go test <pkg>` args.
+// It lets per-changed-package coverage tests assert that each package is checked
+// against the threshold independently rather than as a single aggregate.
+type perPackageCommandRunner struct {
+	coverageByPkg map[string]float64 // pkg label -> coverage percent
+	runs          int
+	ranPkgs       []string
+}
+
+func (r *perPackageCommandRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	r.runs++
+	pkg := ""
+	for _, arg := range args {
+		if arg == "test" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		pkg = arg
+		break
+	}
+	r.ranPkgs = append(r.ranPkgs, pkg)
+	pct, ok := r.coverageByPkg[pkg]
+	if !ok {
+		return nil, fmt.Errorf("no Go files in %s", pkg)
+	}
+	return []byte(fmt.Sprintf("ok  \t%s\t1.0s\tcoverage: %.1f%% of statements\n", pkg, pct)), nil
+}
+
+// TestGate_CoverageThreshold_CollapsedScope_PerChangedPackage verifies that the
+// collapsed-code-scope path checks EACH changed Go package against the threshold
+// independently — not as a whole-repo aggregate — and that a deleted package is
+// excluded from measurement rather than failing on a missing directory.
+func TestGate_CoverageThreshold_CollapsedScope_PerChangedPackage(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"pkg/alpha", "pkg/beta"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// pkg/gone is intentionally NOT created on disk: it models a deleted package
+	// whose .go file still appears in the diff.
+
+	// Spec is unrelated to the changed Go packages, so the collapsed path uses
+	// the default unit floor (90%).
+	specs := []SpecVerification{
+		{SpecID: "UNRELATED", TestCommand: "semgrep --test standards", CoverageThreshold: 100, File: "specs/unrelated.spec.md", ImplementationPackage: "standards/go"},
+	}
+
+	cases := []struct {
+		name           string
+		coverageByPkg  map[string]float64
+		wantStatus     string
+		wantViolations []string
+		wantRanPkgs    []string
+	}{
+		{
+			name:          "all changed packages above floor",
+			coverageByPkg: map[string]float64{"./pkg/alpha": 95.0, "./pkg/beta": 91.0},
+			wantStatus:    "pass",
+			wantRanPkgs:   []string{"./pkg/alpha", "./pkg/beta"},
+		},
+		{
+			name:          "one changed package below floor",
+			coverageByPkg: map[string]float64{"./pkg/alpha": 95.0, "./pkg/beta": 80.0},
+			wantStatus:    "fail",
+			wantViolations: []string{
+				"changed Go package ./pkg/beta coverage 80.0% below threshold 90%",
+			},
+			wantRanPkgs: []string{"./pkg/alpha", "./pkg/beta"},
+		},
+		{
+			name:          "both changed packages below floor each reported",
+			coverageByPkg: map[string]float64{"./pkg/alpha": 70.0, "./pkg/beta": 80.0},
+			wantStatus:    "fail",
+			wantViolations: []string{
+				"changed Go package ./pkg/alpha coverage 70.0% below threshold 90%",
+				"changed Go package ./pkg/beta coverage 80.0% below threshold 90%",
+			},
+			wantRanPkgs: []string{"./pkg/alpha", "./pkg/beta"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &perPackageCommandRunner{coverageByPkg: tc.coverageByPkg}
+			scope := newGateScope(root, GateScopeModeDiff, []string{
+				"pkg/alpha/a.go",
+				"pkg/beta/b.go",
+				"pkg/gone/gone.go", // deleted package: excluded, never measured
+			}, nil)
+			result := StepCoverageThresholdScopedFunc(runner, specs, scope)(context.Background())
+
+			if result.Status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q; violations=%#v", result.Status, tc.wantStatus, result.Violations)
+			}
+			if !slices.Equal(runner.ranPkgs, tc.wantRanPkgs) {
+				t.Fatalf("measured packages = %v, want %v (deleted pkg/gone must be excluded)", runner.ranPkgs, tc.wantRanPkgs)
+			}
+			gotMsgs := make([]string, 0, len(result.Violations))
+			for _, v := range result.Violations {
+				gotMsgs = append(gotMsgs, v.Message)
+			}
+			if len(tc.wantViolations) == 0 {
+				if len(gotMsgs) != 0 {
+					t.Fatalf("expected no violations, got %v", gotMsgs)
+				}
+				return
+			}
+			for _, want := range tc.wantViolations {
+				if !slices.Contains(gotMsgs, want) {
+					t.Fatalf("missing expected violation %q in %v", want, gotMsgs)
+				}
+			}
+			if len(gotMsgs) != len(tc.wantViolations) {
+				t.Fatalf("violation count = %d (%v), want %d (%v)", len(gotMsgs), gotMsgs, len(tc.wantViolations), tc.wantViolations)
+			}
+		})
+	}
+}
+
+// TestGate_CoverageThreshold_CollapsedScope_NotAggregateAcrossPackages proves the
+// fix: a changed package over the floor must NOT be failed by an unrelated low
+// package via averaging. Under the old whole-repo aggregate this would have
+// measured one combined number; per-package, the high package passes on its own.
+func TestGate_CoverageThreshold_CollapsedScope_NotAggregateAcrossPackages(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"pkg/high", "pkg/alsohigh"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &perPackageCommandRunner{coverageByPkg: map[string]float64{
+		"./pkg/high":     90.2,
+		"./pkg/alsohigh": 91.1,
+	}}
+	specs := []SpecVerification{
+		{SpecID: "UNRELATED", TestCommand: "semgrep --test standards", CoverageThreshold: 100, File: "specs/unrelated.spec.md", ImplementationPackage: "standards/go"},
+	}
+	scope := newGateScope(root, GateScopeModeDiff, []string{
+		"pkg/high/h.go",
+		"pkg/alsohigh/a.go",
+		"specs/some.spec.md", // must NOT trigger a whole-repo sweep in this path
+	}, nil)
+
+	result := StepCoverageThresholdScopedFunc(runner, specs, scope)(context.Background())
+
+	if result.Status != "pass" {
+		t.Fatalf("expected pass when every changed package is over the floor, got %q: %#v", result.Status, result.Violations)
+	}
+	for _, pkg := range runner.ranPkgs {
+		if strings.Contains(pkg, "...") {
+			t.Fatalf("collapsed per-package path must not run a whole-repo sweep, ran %v", runner.ranPkgs)
+		}
+	}
+	if !slices.Equal(runner.ranPkgs, []string{"./pkg/alsohigh", "./pkg/high"}) {
+		t.Fatalf("expected exactly the two changed packages measured, got %v", runner.ranPkgs)
 	}
 }
 
@@ -164,7 +326,7 @@ func TestGate_CoverageThreshold_CodeScopeUsesRelevantSpecThreshold(t *testing.T)
 	if len(result.Violations) != 1 {
 		t.Fatalf("expected one collapsed code-scope violation, got %#v", result.Violations)
 	}
-	if result.Violations[0].Message != "changed Go package coverage 75.0% below threshold 80%" {
+	if result.Violations[0].Message != "changed Go package ./pkg/gate coverage 75.0% below threshold 80%" {
 		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
 	}
 }
@@ -177,7 +339,7 @@ func TestGate_CoverageThreshold_CodeScopeUsesUnitFloorWhenNoSpecRelevant(t *test
 	if len(result.Violations) != 1 {
 		t.Fatalf("expected one default-floor violation, got %#v", result.Violations)
 	}
-	if result.Violations[0].Message != "changed Go package coverage 85.0% below threshold 90%" {
+	if result.Violations[0].Message != "changed Go package ./pkg/gate coverage 85.0% below threshold 90%" {
 		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
 	}
 }
@@ -202,7 +364,7 @@ func TestGate_CoverageThreshold_CodeScopePrefersSpecificSpecOverRootCommand(t *t
 	if len(result.Violations) != 1 {
 		t.Fatalf("expected specific spec threshold violation, got %#v", result.Violations)
 	}
-	if result.Violations[0].Message != "changed Go package coverage 85.0% below threshold 90%" {
+	if result.Violations[0].Message != "changed Go package ./pkg/gate coverage 85.0% below threshold 90%" {
 		t.Fatalf("unexpected violation message: %q", result.Violations[0].Message)
 	}
 }
@@ -406,5 +568,175 @@ func TestGate_CoverageThreshold_ParsesCoverageSummaryLine(t *testing.T) {
 		if ok && pct != tt.want {
 			t.Errorf("parseCoverageLine(%q): got pct=%v, want %v", tt.line, pct, tt.want)
 		}
+	}
+}
+
+// TestGate_RepoSweepCoverageTarget_UnknownRoot verifies that an empty
+// projectRoot yields the full canonical sweep across all four package roots
+// unchanged, since nothing can be pruned without a root to stat against.
+func TestGate_RepoSweepCoverageTarget_UnknownRoot(t *testing.T) {
+	target := repoSweepCoverageTarget("")
+
+	if target.Stack != "go" {
+		t.Errorf("expected stack %q, got %q", "go", target.Stack)
+	}
+	wantArgs := []string{"test", ".", "./cmd/...", "./pkg/...", "./tests/...", "-coverprofile=/dev/null"}
+	if !slices.Equal(target.Args, wantArgs) {
+		t.Errorf("expected args %v, got %v", wantArgs, target.Args)
+	}
+}
+
+// TestGate_RepoSweepCoverageTarget_PrunesMissingRoots verifies that top-level
+// roots absent on disk are pruned, while present ones are kept, and that a
+// module root holding buildable .go files contributes the "." package.
+func TestGate_RepoSweepCoverageTarget_PrunesMissingRoots(t *testing.T) {
+	root := t.TempDir()
+	// Module root has a buildable .go file -> "." included.
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Only ./pkg exists; cmd and tests are absent and must be pruned.
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	target := repoSweepCoverageTarget(root)
+
+	wantArgs := []string{"test", ".", "./pkg/...", "-coverprofile=/dev/null"}
+	if !slices.Equal(target.Args, wantArgs) {
+		t.Errorf("expected args %v, got %v", wantArgs, target.Args)
+	}
+}
+
+// TestGate_RepoSweepCoverageTarget_NoModuleGoFiles verifies that a module root
+// that nests packages but holds no buildable .go files of its own omits the "."
+// package, keeping only the present top-level roots.
+func TestGate_RepoSweepCoverageTarget_NoModuleGoFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	target := repoSweepCoverageTarget(root)
+
+	wantArgs := []string{"test", "./cmd/...", "./pkg/...", "-coverprofile=/dev/null"}
+	if !slices.Equal(target.Args, wantArgs) {
+		t.Errorf("expected args %v, got %v", wantArgs, target.Args)
+	}
+}
+
+// TestGate_RepoSweepCoverageTarget_NothingResolvesFallsBack verifies that when
+// no buildable package root resolves under projectRoot the function falls back
+// to the canonical sweep so the step surfaces a real failure instead of
+// silently measuring nothing.
+func TestGate_RepoSweepCoverageTarget_NothingResolvesFallsBack(t *testing.T) {
+	root := t.TempDir() // empty: no .go at root, no cmd/pkg/tests dirs.
+
+	target := repoSweepCoverageTarget(root)
+
+	wantArgs := []string{"test", ".", "./cmd/...", "./pkg/...", "./tests/...", "-coverprofile=/dev/null"}
+	if !slices.Equal(target.Args, wantArgs) {
+		t.Errorf("expected canonical fallback args %v, got %v", wantArgs, target.Args)
+	}
+}
+
+// TestGate_DirHasGoFiles verifies detection of a directly-contained .go source
+// file, ignoring subdirectories (even .go-suffixed ones) and missing dirs.
+func TestGate_DirHasGoFiles(t *testing.T) {
+	t.Run("with go file", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if !dirHasGoFiles(dir) {
+			t.Error("expected dirHasGoFiles to report true when a .go file is present")
+		}
+	})
+
+	t.Run("only non-go files", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if dirHasGoFiles(dir) {
+			t.Error("expected dirHasGoFiles to report false with no .go file present")
+		}
+	})
+
+	t.Run("go-suffixed subdir ignored", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "nested.go"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if dirHasGoFiles(dir) {
+			t.Error("expected dirHasGoFiles to ignore directories named like .go files")
+		}
+	})
+
+	t.Run("missing directory", func(t *testing.T) {
+		if dirHasGoFiles(filepath.Join(t.TempDir(), "does-not-exist")) {
+			t.Error("expected dirHasGoFiles to report false for a missing directory")
+		}
+	})
+}
+
+// TestGate_IsTestdataPath verifies that paths under a testdata directory at any
+// depth are recognized, while unrelated paths and testdata substrings within a
+// segment name are not.
+func TestGate_IsTestdataPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"testdata/fixture.go", true},
+		{"pkg/gate/testdata/contract-target.go", true},
+		{"testdata", true},
+		{"pkg/gate/step_coverage.go", false},
+		{"pkg/mytestdata/file.go", false},
+		{"pkg/testdataish/file.go", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isTestdataPath(tc.path); got != tc.want {
+			t.Errorf("isTestdataPath(%q): got %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestGate_CoveragePackageDirMissing verifies the package-directory existence
+// probe: unknown roots and the module root are never missing, an absent scoped
+// dir is missing, a present dir is not, and a path that is a file (not a dir) is
+// treated as missing.
+func TestGate_CoveragePackageDirMissing(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg", "present"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "afile"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name        string
+		projectRoot string
+		dir         string
+		want        bool
+	}{
+		{name: "unknown root", projectRoot: "", dir: "pkg/present", want: false},
+		{name: "empty dir", projectRoot: root, dir: "", want: false},
+		{name: "module root dot", projectRoot: root, dir: ".", want: false},
+		{name: "present dir", projectRoot: root, dir: "pkg/present", want: false},
+		{name: "absent dir", projectRoot: root, dir: "pkg/gone", want: true},
+		{name: "path is a file not a dir", projectRoot: root, dir: "pkg/afile", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := coveragePackageDirMissing(tc.projectRoot, tc.dir); got != tc.want {
+				t.Errorf("coveragePackageDirMissing(%q, %q): got %v, want %v", tc.projectRoot, tc.dir, got, tc.want)
+			}
+		})
 	}
 }

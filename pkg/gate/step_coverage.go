@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -78,6 +79,11 @@ func StepCoverageThresholdFunc(runner CommandRunner, specs []SpecVerification) S
 // StepCoverageThresholdScopedFunc runs coverage only for scoped specs or changed packages.
 func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerification, scope *GateScope) StepFunc {
 	return func(ctx context.Context) StepResult {
+		thresholds := coverageThresholdsForScope(specs, scope)
+		if thresholds.CollapsedCodeScope {
+			return collapsedCodeScopeCoverageResult(ctx, runner, scope, thresholds.MaxThreshold)
+		}
+
 		var violations []Violation
 		targets := coverageTargetsForScope(scope)
 		if len(targets) == 0 {
@@ -90,7 +96,6 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 			return StepResult{StepName: StepCoverageThreshold, Status: "fail", Violations: violations}
 		}
 
-		thresholds := coverageThresholdsForScope(specs, scope)
 		for _, spec := range thresholds.Specs {
 			if !coverageSpecInScope(spec, scope) {
 				continue
@@ -107,13 +112,6 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 				})
 			}
 		}
-		if thresholds.CollapsedCodeScope && coveragePct < float64(thresholds.MaxThreshold) {
-			violations = append(violations, Violation{
-				Rule:     "coverage_threshold",
-				Message:  fmt.Sprintf("changed Go package coverage %.1f%% below threshold %d%%", coveragePct, thresholds.MaxThreshold),
-				Severity: "error",
-			})
-		}
 
 		status := "pass"
 		if len(violations) > 0 {
@@ -128,6 +126,45 @@ func StepCoverageThresholdScopedFunc(runner CommandRunner, specs []SpecVerificat
 			Violations: violations,
 		}
 	}
+}
+
+// collapsedCodeScopeCoverageResult measures coverage PER CHANGED Go PACKAGE and
+// checks each package against the threshold independently, rather than folding
+// the changed packages into a single whole-repo aggregate. This is a correction
+// of over-broad scoping: the diff touches a known set of packages, and the gate
+// invariant is "coverage per-changed-package, not aggregate". A whole-repo sweep
+// would let an over-the-floor changed package fail because unrelated, untouched
+// packages drag the average down (the 87.9% vs. per-package >90% case).
+func collapsedCodeScopeCoverageResult(ctx context.Context, runner CommandRunner, scope *GateScope, threshold int) StepResult {
+	targets := changedGoCoverageTargets(scope)
+	if len(targets) == 0 {
+		return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no Go package coverage targets in scope"}
+	}
+
+	var violations []Violation
+	for _, target := range targets {
+		pct, available, runViolations := runCoverageTargets(ctx, runner, []CoverageTarget{target})
+		violations = append(violations, runViolations...)
+		if !available {
+			continue
+		}
+		if threshold > 0 && pct < float64(threshold) {
+			violations = append(violations, Violation{
+				Rule:     "coverage_threshold",
+				Message:  fmt.Sprintf("changed Go package %s coverage %.1f%% below threshold %d%%", target.Label, pct, threshold),
+				Severity: "error",
+			})
+		}
+	}
+
+	status := "pass"
+	if len(violations) > 0 {
+		status = "fail"
+	}
+	if violations == nil {
+		violations = []Violation{}
+	}
+	return StepResult{StepName: StepCoverageThreshold, Status: status, Violations: violations}
 }
 
 type coverageThresholdSelection struct {
@@ -247,12 +284,41 @@ func coverageTargetsForScope(scope *GateScope) []CoverageTarget {
 }
 
 func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
+	var projectRoot string
+	if scope != nil {
+		projectRoot = scope.ProjectRoot
+	}
 	if scope == nil || scope.Mode == GateScopeModeAll {
-		return []CoverageTarget{
-			goCoveragePackagesTarget(". ./cmd/... ./pkg/... ./tests/...", ".", "./cmd/...", "./pkg/...", "./tests/..."),
-		}
+		return []CoverageTarget{repoSweepCoverageTarget(projectRoot)}
 	}
 	if scope.Empty() {
+		return nil
+	}
+	result := scopeCoveragePackages(scope, true)
+	targets := make([]CoverageTarget, 0, len(result))
+	for _, pkg := range result {
+		if pkg == ". ./cmd/... ./pkg/... ./tests/..." {
+			targets = append(targets, repoSweepCoverageTarget(projectRoot))
+			continue
+		}
+		targets = append(targets, goCoverageTarget(pkg))
+	}
+	return targets
+}
+
+// scopeCoveragePackages derives the sorted set of Go coverage package labels
+// (e.g. "./pkg/gate", "." or the whole-repo sweep label) from the scope's
+// changed files. Each derived label corresponds to a single changed Go package;
+// deleted directories and testdata fixtures are excluded so they never become
+// spurious 0%-coverage targets.
+//
+// When includeSpecSweep is true a changed *.spec.md file contributes the
+// whole-repo sweep label, matching the all-scope sweep semantics. When it is
+// false (the per-changed-package coverage path) the sweep is omitted: that path
+// checks each changed Go package against the threshold independently rather than
+// folding everything into one aggregate whole-repo measurement.
+func scopeCoveragePackages(scope *GateScope, includeSpecSweep bool) []string {
+	if scope == nil || scope.Empty() {
 		return nil
 	}
 	packages := map[string]struct{}{}
@@ -260,13 +326,33 @@ func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
 	for _, file := range scope.Files {
 		clean := normalizeScopePath("", file)
 		if strings.HasSuffix(clean, ".spec.md") {
-			packages[". ./cmd/... ./pkg/... ./tests/..."] = struct{}{}
+			if includeSpecSweep {
+				packages[". ./cmd/... ./pkg/... ./tests/..."] = struct{}{}
+			}
 			continue
 		}
 		if !strings.HasSuffix(clean, ".go") || strings.HasSuffix(clean, "_testdata.go") {
 			continue
 		}
+		// Skip .go files that live under a testdata/ directory. The Go toolchain
+		// excludes testdata from `./...` expansion, so the all-scope sweep never
+		// measures these fixture packages; the diff-scoped builder must match that
+		// convention. A testdata fixture (e.g. cmd/.../testdata/dogfood_enforcement)
+		// has source but no tests, so measuring it yields 0.0% coverage and — since
+		// runCoverageTargets takes the lowest across targets — would sink the whole
+		// step to a spurious failure.
+		if isTestdataPath(clean) {
+			continue
+		}
 		dir := filepath.Dir(clean)
+		// Skip a derived package whose directory no longer exists on disk: a
+		// DELETED .go file still appears in `git diff --name-only`, but its
+		// package can't be coverage-measured (`go test ./pkg/gone` errors on a
+		// missing dir). Without this guard, any change that removes a package
+		// makes the coverage step fail spuriously.
+		if coveragePackageDirMissing(scope.ProjectRoot, dir) {
+			continue
+		}
 		selected := packages
 		if strings.HasSuffix(clean, "_test.go") {
 			selected = testPackages
@@ -287,15 +373,104 @@ func goCoverageTargetsForScope(scope *GateScope) []CoverageTarget {
 		result = append(result, pkg)
 	}
 	sort.Strings(result)
-	targets := make([]CoverageTarget, 0, len(result))
-	for _, pkg := range result {
-		if pkg == ". ./cmd/... ./pkg/... ./tests/..." {
-			targets = append(targets, goCoveragePackagesTarget(pkg, ".", "./cmd/...", "./pkg/...", "./tests/..."))
-			continue
-		}
+	return result
+}
+
+// changedGoCoverageTargets builds one coverage target per changed Go package in
+// scope, excluding the whole-repo spec.md sweep. It is the scheduling input for
+// the per-changed-package coverage check in the collapsed-code-scope path, where
+// each changed package must clear the threshold on its own rather than being
+// averaged into a single whole-repo aggregate.
+func changedGoCoverageTargets(scope *GateScope) []CoverageTarget {
+	pkgs := scopeCoveragePackages(scope, false)
+	targets := make([]CoverageTarget, 0, len(pkgs))
+	for _, pkg := range pkgs {
 		targets = append(targets, goCoverageTarget(pkg))
 	}
 	return targets
+}
+
+// repoSweepCoverageTarget builds the whole-repo coverage sweep target, pruning
+// package roots that would make `go test` setup-fail under projectRoot:
+//   - the module root "." is pruned when it holds no buildable .go files, since
+//     `go test .` errors with "no Go files in <dir>" for a root that only nests
+//     packages under ./pkg etc. (the common case for a minimal project).
+//   - the top-level roots ./cmd/..., ./pkg/..., ./tests/... are pruned when the
+//     corresponding directory does not exist, since `go test ./cmd/...` errors
+//     with "no such file or directory".
+//
+// This keeps the sweep correct for projects that lack one of those directories
+// (e.g. a minimal project with sources only under ./pkg). When projectRoot is
+// unknown the full canonical sweep is returned unchanged.
+func repoSweepCoverageTarget(projectRoot string) CoverageTarget {
+	const label = ". ./cmd/... ./pkg/... ./tests/..."
+	if projectRoot == "" {
+		return goCoveragePackagesTarget(label, ".", "./cmd/...", "./pkg/...", "./tests/...")
+	}
+	var packages []string
+	if dirHasGoFiles(projectRoot) {
+		packages = append(packages, ".")
+	}
+	for _, root := range []string{"cmd", "pkg", "tests"} {
+		info, err := os.Stat(filepath.Join(projectRoot, root))
+		if err == nil && info.IsDir() {
+			packages = append(packages, "./"+root+"/...")
+		}
+	}
+	if len(packages) == 0 {
+		// Nothing buildable resolved; fall back to the canonical sweep so the
+		// step surfaces a real failure rather than silently measuring nothing.
+		return goCoveragePackagesTarget(label, ".", "./cmd/...", "./pkg/...", "./tests/...")
+	}
+	return goCoveragePackagesTarget(label, packages...)
+}
+
+// isTestdataPath reports whether the slash-separated path lies under a
+// "testdata" directory at any depth. The Go toolchain treats testdata as a
+// reserved fixture directory and excludes it from `./...` package expansion, so
+// such paths must not be turned into coverage targets.
+func isTestdataPath(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "testdata" {
+			return true
+		}
+	}
+	return false
+}
+
+// dirHasGoFiles reports whether dir directly contains at least one .go source
+// file (test files included). It is used to decide whether `go test .` on the
+// module root would build, vs. setup-fail with "no Go files in <dir>".
+func dirHasGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
+// coveragePackageDirMissing reports whether the package directory dir is known
+// to be absent on disk under projectRoot — i.e. the scoped .go file was deleted.
+// It returns false when projectRoot is unknown (so callers without a resolved
+// root, e.g. unit tests, keep their prior behavior) or when dir is the module
+// root ("."), which always exists.
+func coveragePackageDirMissing(projectRoot, dir string) bool {
+	if projectRoot == "" || dir == "" || dir == "." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(projectRoot, dir))
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return !info.IsDir()
 }
 
 func goCoverageTarget(pkg string) CoverageTarget {

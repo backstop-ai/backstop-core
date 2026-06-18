@@ -19,6 +19,11 @@ var (
 	runPackValidatorsFn  = runPackValidators
 )
 
+// codeCheckCmd is the top-level Cobra command for backstop code check,
+// registered under the code namespace. It mirrors gateCmd so the command is
+// addressable as a package-level symbol (SPEC-008 contract).
+var codeCheckCmd *cobra.Command
+
 // newCodeCheckCommand creates the Cobra command for backstop code check.
 // This is a thin adapter — all enforcement logic lives in pkg/check.
 func newCodeCheckCommand(jsonFlag *bool) *cobra.Command {
@@ -102,7 +107,6 @@ dispatch with a 2-second execution budget.`,
 			opts := check.Options{
 				Mode:                mode,
 				FilePath:            fileFlag,
-				ManifestDir:         filepath.Join(projectRoot, ".backstop", "rules"),
 				BackstopDir:         filepath.Join(projectRoot, ".backstop"),
 				ProjectDir:          projectRoot,
 				ExtraSemgrepConfigs: extraSemgrepConfigs,
@@ -182,6 +186,7 @@ dispatch with a 2-second execution budget.`,
 	cmd.Flags().BoolVar(&allFlag, "all", false, "Check all files in the codebase")
 	cmd.Flags().StringVar(&fileFlag, "file", "", "Check a single file (for hook dispatch)")
 
+	codeCheckCmd = cmd
 	return cmd
 }
 

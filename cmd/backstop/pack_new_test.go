@@ -149,6 +149,31 @@ func TestPackNew_ExitCode_2_MissingFlags(t *testing.T) {
 	}
 }
 
+// TestPackNew_ExitCode_2_MissingLanguage verifies that providing --type but
+// omitting --language is rejected with exit 2, exercising the missing-language
+// branch distinct from missing-type.
+func TestPackNew_ExitCode_2_MissingLanguage(t *testing.T) {
+	// --type present, --slug present, --language omitted: must reach and fail at
+	// the missing-language branch (a later branch than missing-type).
+	code, _ := runPackNewTest(t, packNewTestCase{
+		args: []string{"--type", "rule", "--slug", "error-handling"},
+	})
+	if code != 2 {
+		t.Fatalf("expected exit 2 for missing --language, got %d", code)
+	}
+}
+
+// TestPackNew_ExitCode_2_MissingSlug verifies that providing --type and
+// --language but omitting --slug is rejected with exit 2.
+func TestPackNew_ExitCode_2_MissingSlug(t *testing.T) {
+	code, _ := runPackNewTest(t, packNewTestCase{
+		args: []string{"--type", "rule", "--language", "go"},
+	})
+	if code != 2 {
+		t.Fatalf("expected exit 2 for missing --slug, got %d", code)
+	}
+}
+
 // --- JSON output test from command level ---
 
 func TestPackNew_Command_JSONOutput(t *testing.T) {

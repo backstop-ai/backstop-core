@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -169,6 +170,114 @@ func TestGateSteps_FilterToChangedFiles_Contract(t *testing.T) {
 	}, newGateScope("", GateScopeModeDiff, []string{target}, nil))(context.Background())
 	if result.Status != "pass" || len(result.Violations) != 0 {
 		t.Fatalf("expected contract step to ignore unchanged missing contract, got status=%s violations=%#v", result.Status, result.Violations)
+	}
+}
+
+// TestGate_SplitReceiverQualifiedName parses every supported form of a method
+// contract name: bare names, pointer- and value-receiver qualified names, and
+// malformed inputs that must fall back to treating the whole string as a bare
+// method name.
+func TestGate_SplitReceiverQualifiedName(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantRecv   string
+		wantMethod string
+	}{
+		{name: "bare method name", input: "RouteFile", wantRecv: "", wantMethod: "RouteFile"},
+		{name: "pointer receiver", input: "(*realCodeChecker).Check", wantRecv: "realCodeChecker", wantMethod: "Check"},
+		{name: "value receiver", input: "(Widget).Run", wantRecv: "Widget", wantMethod: "Run"},
+		{name: "value receiver with inner spaces trimmed", input: "( Widget ).Run", wantRecv: "Widget", wantMethod: "Run"},
+		{name: "no dot after close paren falls back", input: "(*Type)method", wantRecv: "", wantMethod: "(*Type)method"},
+		{name: "missing close paren falls back", input: "(*Type.method", wantRecv: "", wantMethod: "(*Type.method"},
+		{name: "open paren with immediate dot yields empty recv", input: "().Run", wantRecv: "", wantMethod: "Run"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recv, method := splitReceiverQualifiedName(tc.input)
+			if recv != tc.wantRecv {
+				t.Errorf("recv: expected %q, got %q", tc.wantRecv, recv)
+			}
+			if method != tc.wantMethod {
+				t.Errorf("method: expected %q, got %q", tc.wantMethod, method)
+			}
+		})
+	}
+}
+
+// TestGate_ReceiverTypeName extracts the bare receiver type name from real
+// receiver field lists parsed out of Go source, covering pointer receivers,
+// value receivers, an empty receiver list, and a nil receiver.
+func TestGate_ReceiverTypeName(t *testing.T) {
+	src := `package fixture
+
+type Widget struct{}
+
+func (w *Widget) Pointer() {}
+func (w Widget) Value() {}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "recv.go", src, 0)
+	if err != nil {
+		t.Fatalf("parsing source: %v", err)
+	}
+
+	recvByMethod := map[string]*ast.FieldList{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil {
+			continue
+		}
+		recvByMethod[fn.Name.Name] = fn.Recv
+	}
+
+	if got := receiverTypeName(recvByMethod["Pointer"]); got != "Widget" {
+		t.Errorf("pointer receiver: expected %q, got %q", "Widget", got)
+	}
+	if got := receiverTypeName(recvByMethod["Value"]); got != "Widget" {
+		t.Errorf("value receiver: expected %q, got %q", "Widget", got)
+	}
+	if got := receiverTypeName(nil); got != "" {
+		t.Errorf("nil receiver: expected empty, got %q", got)
+	}
+	if got := receiverTypeName(&ast.FieldList{}); got != "" {
+		t.Errorf("empty receiver list: expected empty, got %q", got)
+	}
+}
+
+// TestGate_ContractSignature_ReceiverQualifiedDisambiguates verifies that a
+// receiver-qualified method contract name selects the correct method when two
+// types in the same file declare a same-named method.
+func TestGate_ContractSignature_ReceiverQualifiedDisambiguates(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "ambiguous.go")
+	if err := os.WriteFile(target, []byte(`package ambiguous
+
+import "context"
+
+type Alpha struct{}
+type Beta struct{}
+
+func (a *Alpha) Run(ctx context.Context) error { return nil }
+func (b *Beta) Run(ctx context.Context) string { return "" }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pass := StepContractSignatureFunc([]ContractEntry{
+		{File: target, Name: "(*Beta).Run", Kind: "method", Signature: "func (b *Beta) Run(ctx context.Context) string"},
+	})(context.Background())
+	if pass.Status != "pass" || len(pass.Violations) != 0 {
+		t.Fatalf("expected receiver-qualified method to match Beta.Run, got status=%s violations=%#v", pass.Status, pass.Violations)
+	}
+
+	// Asking for Beta's name but Alpha's signature must fail — proving the
+	// receiver qualifier really disambiguated rather than matching the first
+	// same-named method.
+	fail := StepContractSignatureFunc([]ContractEntry{
+		{File: target, Name: "(*Beta).Run", Kind: "method", Signature: "func (b *Beta) Run(ctx context.Context) error"},
+	})(context.Background())
+	if fail.Status != "fail" {
+		t.Fatalf("expected mismatched signature on Beta.Run to fail, got status=%s", fail.Status)
 	}
 }
 

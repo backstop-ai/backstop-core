@@ -658,3 +658,247 @@ enforcement:
 		}
 	}
 }
+
+// configCount returns the number of --config flags in args.
+func configCount(args []string) int {
+	n := 0
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--config" {
+			n++
+		}
+	}
+	return n
+}
+
+// configValues returns every value following a --config flag in args.
+func configValues(args []string) []string {
+	var out []string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--config" {
+			out = append(out, args[i+1])
+		}
+	}
+	return out
+}
+
+// semgrepCalls returns every recorded invocation whose argv carries the
+// semgrepExecutor signature (--json and --quiet), regardless of which binary
+// path EnsureSemgrep resolved. The executor uses its own DefaultSemgrepEnsurer,
+// so the recorded binary is the real semgrep path, not the injected stub; the
+// argv signature is the stable way to identify the semgrep pass.
+func semgrepCalls(r *recordingRunner) []recordedCall {
+	var out []recordedCall
+	for _, c := range r.calls {
+		hasJSON, hasQuiet := false, false
+		for _, a := range c.args {
+			if a == "--json" {
+				hasJSON = true
+			}
+			if a == "--quiet" {
+				hasQuiet = true
+			}
+		}
+		if hasJSON && hasQuiet {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestCodeCheckOptions_NoManifestDir verifies the code-check Options
+// construction produces Options with no compiled-standards manifest directory
+// wired in. The Options reach check.Run via the checkRunFn seam; the captured
+// Options' only semgrep rule source is ExtraSemgrepConfigs (empty with no
+// packs), and no field carries a .backstop/rules standards directory. (CLM-007)
+func TestCodeCheckOptions_NoManifestDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-opts\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	origRun := checkRunFn
+	defer func() { checkRunFn = origRun }()
+	var captured check.Options
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		captured = opts
+		return &check.Result{}, nil
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("code check: %v", err)
+	}
+
+	if len(captured.ExtraSemgrepConfigs) != 0 {
+		t.Errorf("ExtraSemgrepConfigs = %v, want empty (no packs)", captured.ExtraSemgrepConfigs)
+	}
+	// BackstopDir is the only directory the Options carry; it drives routing, not
+	// rule config. Confirm it points at .backstop (not a rules-as-config wiring).
+	if filepath.Base(captured.BackstopDir) != ".backstop" {
+		t.Errorf("BackstopDir = %q, want the project .backstop directory", captured.BackstopDir)
+	}
+
+	// End-to-end confirmation at the check-package level: feeding the captured
+	// Options through check.RunWith with a recording runner must invoke semgrep
+	// with no --config (no manifest/standards directory wired in). This exercises
+	// pkg/check directly, proving the Options carry no rule-config source.
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	captured.Mode = check.ScopeModeFile
+	captured.FilePath = filepath.Join(dir, "main.go")
+	runner := &recordingRunner{}
+	if _, err := check.RunWith(context.Background(), check.RunOptions{
+		Options:        captured,
+		Runner:         runner,
+		SemgrepEnsurer: stubEnsurer{},
+	}); err != nil {
+		t.Fatalf("check.RunWith with captured Options: %v", err)
+	}
+	for _, c := range semgrepCalls(runner) {
+		if configCount(c.args) != 0 {
+			t.Errorf("semgrep invoked with --config %v from captured Options; expected none", configValues(c.args))
+		}
+	}
+}
+
+// TestCodeCheck_NoPacks_NoSemgrepConfig verifies a code-check run with zero
+// installed packs invokes semgrep with zero rule --config paths (the recorded
+// runner argv contains no --config), even with a populated .backstop/rules/.
+// (CLM-010)
+func TestCodeCheck_NoPacks_NoSemgrepConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-nopacks\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write leftover: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	runner := &recordingRunner{}
+	origRun := checkRunFn
+	defer func() { checkRunFn = origRun }()
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: runner, SemgrepEnsurer: stubEnsurer{}})
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	_ = root.Execute()
+
+	calls := semgrepCalls(runner)
+	if len(calls) == 0 {
+		t.Fatal("semgrep was never invoked; expected one finding-free invocation with no --config")
+	}
+	for _, c := range calls {
+		if n := configCount(c.args); n != 0 {
+			t.Errorf("semgrep invoked with %d --config paths, want 0 (no packs): %v", n, c.args)
+		}
+	}
+}
+
+// TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly verifies a code-check run
+// with one installed pack invokes semgrep with exactly the pack's rule paths as
+// --config and nothing from a standards directory. (CLM-011)
+func TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// A leftover compiled-standards file that must NOT become a --config.
+	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write leftover: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+
+	// Install one pack on disk with a single layer-2 rule file.
+	packRoot := filepath.Join(dir, ".backstop", "packs", "acme", "go-standards")
+	if err := os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755); err != nil {
+		t.Fatalf("mkdir pack rules: %v", err)
+	}
+	ruleFile := filepath.Join(packRoot, "rules", "no-panic.yml")
+	if err := os.WriteFile(ruleFile, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write rule: %v", err)
+	}
+	packYml := `name: acme/go-standards
+version: "1.0.0"
+language: go
+archetype: enforcement
+description: "test pack"
+content:
+  ruleset:
+    version: "1.0.0"
+    rules:
+      - id: no-panic
+        standard: "no panic"
+        rule_path: rules/no-panic.yml
+        risk_class: correctness
+        layer: 2
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "pack.yml"), []byte(packYml), 0o644); err != nil {
+		t.Fatalf("write pack.yml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-pack\nlanguage: go\npacks:\n  acme/go-standards: \"1.0.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	runner := &recordingRunner{}
+	origRun := checkRunFn
+	origValidators := runPackValidatorsFn
+	defer func() { checkRunFn = origRun; runPackValidatorsFn = origValidators }()
+	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+		return nil, nil
+	}
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: runner, SemgrepEnsurer: stubEnsurer{}})
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	_ = root.Execute()
+
+	absRule, _ := filepath.Abs(ruleFile)
+	if resolved, evalErr := filepath.EvalSymlinks(absRule); evalErr == nil {
+		absRule = resolved
+	}
+	calls := semgrepCalls(runner)
+	if len(calls) == 0 {
+		t.Fatal("semgrep was never invoked; expected one invocation with the pack rule --config")
+	}
+	for _, c := range calls {
+		vals := configValues(c.args)
+		if len(vals) != 1 {
+			t.Fatalf("semgrep --config paths = %v, want exactly 1 (the pack rule)", vals)
+		}
+		got, _ := filepath.Abs(vals[0])
+		if resolved, evalErr := filepath.EvalSymlinks(got); evalErr == nil {
+			got = resolved
+		}
+		if got != absRule {
+			t.Errorf("semgrep --config = %q, want the pack rule path %q", got, absRule)
+		}
+		if strings.Contains(filepath.ToSlash(vals[0]), ".backstop/rules") {
+			t.Errorf("semgrep --config %q points under .backstop/rules (a standards dir), want only the pack path", vals[0])
+		}
+	}
+}

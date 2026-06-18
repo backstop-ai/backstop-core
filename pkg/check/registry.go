@@ -253,7 +253,6 @@ func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckTy
 		ensurer:             &DefaultSemgrepEnsurer{},
 		backstopDir:         opts.BackstopDir,
 		pinnedVersion:       opts.PinnedSemgrepVersion,
-		manifestDir:         opts.ManifestDir,
 		extraSemgrepConfigs: opts.ExtraSemgrepConfigs,
 	}
 

@@ -1,2 +1,4 @@
 project: backstop-core
 language: go
+packs:
+    backstop/go-standards: local

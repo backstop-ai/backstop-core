@@ -647,3 +647,132 @@ func TestCodeCheck_Routing_NoExtension(t *testing.T) {
 		t.Errorf("Makefile: got %v, want [semgrep]", checks)
 	}
 }
+
+// routeContains reports whether checks contains the given check type.
+func routeContains(checks []CheckType, want CheckType) bool {
+	for _, c := range checks {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRouting_DefaultManifestWhenNoStandards verifies that with an empty
+// .backstop/rules/ (no .manifest.json), LoadManifest returns the built-in
+// default manifest and RouteFile routes a .go file to the default check types.
+// (CLM-008)
+func TestRouting_DefaultManifestWhenNoStandards(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+
+	m, err := LoadManifest(rulesDir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+
+	checks := m.RouteFile("pkg/server/handler.go")
+	want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	if len(checks) != len(want) {
+		t.Fatalf(".go routed to %v, want %v", checks, want)
+	}
+	for _, ct := range want {
+		if !routeContains(checks, ct) {
+			t.Errorf(".go route missing %v: got %v", ct, checks)
+		}
+	}
+}
+
+// TestRouting_GoFileUnchangedAfterStandardsRemoval verifies that a .go file
+// routes to the same four passes (lint/build/test/semgrep) after the
+// standards-compiler manifest is removed as it did via the deleted STD-GO-001
+// manifest's deriveRules — the .go route is unchanged and no pass is dropped.
+// (CLM-009)
+func TestRouting_GoFileUnchangedAfterStandardsRemoval(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+
+	m, err := LoadManifest(rulesDir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+
+	checks := m.RouteFile("cmd/backstop/main.go")
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+		if !routeContains(checks, ct) {
+			t.Errorf(".go route dropped %v after standards removal: got %v", ct, checks)
+		}
+	}
+}
+
+// TestRouting_NonGoFileRoutesToSemgrepAfterRemoval verifies that a non-Go file
+// (e.g. a .md or .yml file) routes to [semgrep] via the default manifest after
+// removal — the additive delta versus the deleted STD-GO-001 manifest, whose
+// deriveRules routed non-.go files to no pass when routableExtensions was
+// non-empty. (CLM-022)
+func TestRouting_NonGoFileRoutesToSemgrepAfterRemoval(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+
+	m, err := LoadManifest(rulesDir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+
+	for _, f := range []string{"README.md", "config.yml"} {
+		checks := m.RouteFile(f)
+		if len(checks) != 1 || checks[0] != CheckTypeSemgrep {
+			t.Errorf("%s routed to %v, want [semgrep] (additive default)", f, checks)
+		}
+	}
+}
+
+// TestRouting_ReadsBackstopDirManifestWhenPresent verifies that a non-empty
+// routing .manifest.json present in BackstopDir/rules is loaded (its custom
+// route entries returned), proving routing reads the BackstopDir directory and
+// does not always fall back to the default manifest. (CLM-020)
+func TestRouting_ReadsBackstopDirManifestWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+
+	// A legacy routing-schema manifest (no top-level standard/language): route
+	// .custom files to lint-only, a route the default manifest would never give.
+	routing := manifestFile{Rules: []ManifestRule{{
+		Extensions: []string{".custom"},
+		CheckTypes: []string{"lint"},
+	}}}
+	data, err := json.Marshal(routing)
+	if err != nil {
+		t.Fatalf("marshal routing manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), data, 0o644); err != nil {
+		t.Fatalf("write routing manifest: %v", err)
+	}
+
+	m, err := LoadManifest(rulesDir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+
+	checks := m.RouteFile("thing.custom")
+	if len(checks) != 1 || checks[0] != CheckTypeLint {
+		t.Fatalf(".custom routed to %v, want [lint] from the loaded routing manifest (not the default)", checks)
+	}
+	// A file the custom manifest does not match returns no route — confirming the
+	// custom manifest (not the catch-all default) is in force.
+	if got := m.RouteFile("other.go"); len(got) != 0 {
+		t.Errorf("unmatched .go routed to %v, want empty (custom manifest in force, not default)", got)
+	}
+}

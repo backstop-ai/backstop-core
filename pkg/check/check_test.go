@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // TestCodeCheck_AllPassesRun verifies all four validation passes (lint, build,
@@ -302,7 +305,7 @@ func TestCodeCheck_RunWith_Integration(t *testing.T) {
 	opts := RunOptions{
 		Options: Options{
 			Mode:        ScopeModeDiff,
-			ManifestDir: dir, // empty dir, uses defaults
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
 		Git:       git,
@@ -379,7 +382,7 @@ func TestCodeCheck_RunWith_Timeout(t *testing.T) {
 	opts := RunOptions{
 		Options: Options{
 			Mode:        ScopeModeDiff,
-			ManifestDir: dir,
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 			Timeout:     100 * time.Millisecond,
 		},
@@ -413,7 +416,7 @@ func TestCodeCheck_RunWith_FileMode(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    f,
-			ManifestDir: dir,
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
 		Executors: executors,
@@ -443,7 +446,7 @@ func TestCodeCheck_RunWith_AllMode(t *testing.T) {
 	opts := RunOptions{
 		Options: Options{
 			Mode:        ScopeModeAll,
-			ManifestDir: dir,
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
 		Executors: executors,
@@ -490,7 +493,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    goFile,
-			ManifestDir: dir, // empty dir, uses defaults
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
 		Executors:      executors,
@@ -537,7 +540,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    txtFile,
-			ManifestDir: dir,
+			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
 		Executors:      executors2,
@@ -592,7 +595,6 @@ func TestCodeCheck_RunWith_SemgrepConfigError(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    goFile,
-			ManifestDir: dir,
 			ProjectDir:  dir,
 			BackstopDir: filepath.Join(dir, ".backstop"),
 		},
@@ -656,7 +658,6 @@ func TestCodeCheck_RunWith_SemgrepDegradedMode(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    goFile,
-			ManifestDir: dir,
 			ProjectDir:  dir,
 			BackstopDir: filepath.Join(dir, ".backstop"),
 		},
@@ -887,7 +888,7 @@ func TestCodeCheck_Run_DelegatesToRunWith(t *testing.T) {
 	result, err := Run(context.Background(), Options{
 		Mode:        ScopeModeFile,
 		FilePath:    f,
-		ManifestDir: dir,
+		BackstopDir: dir, // empty dir/rules, routing uses defaults
 		ProjectDir:  dir,
 	})
 	// May fail due to semgrep not being available, but should not panic
@@ -1036,7 +1037,6 @@ func TestCodeCheck_RunWith_NoBackstopDir(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    goFile,
-			ManifestDir: dir,
 			ProjectDir:  dir,
 			BackstopDir: "", // empty — skip semgrep ensure
 		},
@@ -1103,7 +1103,6 @@ func TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors(t *testing.T) {
 		Options: Options{
 			Mode:        ScopeModeFile,
 			FilePath:    goFile,
-			ManifestDir: dir,
 			ProjectDir:  dir,
 			BackstopDir: filepath.Join(dir, ".backstop"),
 		},
@@ -1165,6 +1164,109 @@ func TestCodeCheck_Result_Methods(t *testing.T) {
 	all := r2.AllViolations()
 	if len(all) != 3 {
 		t.Errorf("AllViolations = %d, want 3", len(all))
+	}
+}
+
+// TestOptions_NoManifestDirField constructs check.Options with the post-removal
+// field set (no ManifestDir) to confirm the field is gone and the package still
+// compiles. If a ManifestDir field were re-added, this keyed literal would still
+// compile, so the companion source self-check TestNoTestRequiresOptionsManifestDir
+// guards the token's absence across the test corpus. (CLM-004)
+func TestOptions_NoManifestDirField(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{
+		Mode:                 ScopeModeAll,
+		FilePath:             "",
+		BackstopDir:          dir,
+		PinnedSemgrepVersion: "",
+		Timeout:              0,
+		ProjectDir:           dir,
+		ExtraSemgrepConfigs:  []string{},
+		Language:             "",
+		Config:               nil,
+		Files:                nil,
+	}
+	if opts.BackstopDir != dir {
+		t.Fatalf("BackstopDir = %q, want %q", opts.BackstopDir, dir)
+	}
+}
+
+// TestBuildExecutors_SemgrepHasNoManifestDir verifies that both the
+// goBuiltinExecutors construction and the registry shared-semgrep construction
+// build a semgrepExecutor that references no compiled-standards directory: with
+// an empty ExtraSemgrepConfigs and a populated .backstop/rules/ on disk, the
+// semgrep pass invokes the tool with NO --config at all. (CLM-005)
+func TestBuildExecutors_SemgrepHasNoManifestDir(t *testing.T) {
+	dir := t.TempDir()
+	backstopDir := filepath.Join(dir, ".backstop")
+	rulesDir := filepath.Join(backstopDir, "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// Plant a leftover compiled-standards file to prove it is never sourced.
+	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write leftover: %v", err)
+	}
+
+	const binPath = "/fake/tools/semgrep"
+	opts := Options{
+		Mode:                ScopeModeAll,
+		BackstopDir:         backstopDir,
+		ProjectDir:          dir,
+		ExtraSemgrepConfigs: []string{},
+	}
+
+	assertNoConfig := func(label string, execs map[CheckType]PassExecutor) {
+		runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(`{"results":[]}`)}}
+		se, ok := execs[CheckTypeSemgrep].(*semgrepExecutor)
+		if !ok {
+			t.Fatalf("%s: semgrep executor is not *semgrepExecutor", label)
+		}
+		se.runner = runner
+		se.ensurer = &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
+		if _, err := se.Execute(context.Background(), []string{"main.go"}); err != nil {
+			t.Fatalf("%s: Execute: %v", label, err)
+		}
+		if containsArg(runner.lastCall().args, "--config") {
+			t.Errorf("%s: semgrep invoked with a --config despite zero packs: %v", label, runner.lastCall().args)
+		}
+	}
+
+	assertNoConfig("goBuiltinExecutors", goBuiltinExecutors(opts, &fakeRunner{}))
+
+	tsOpts := opts
+	tsOpts.Language = "typescript"
+	tsOpts.Config = &config.Config{Enforcement: config.Enforcement{TestCommand: "npm test"}}
+	registryExecs, regErr := buildExecutorsForConfigErr(tsOpts, &fakeRunner{})
+	if regErr != nil {
+		t.Fatalf("buildExecutorsForConfigErr: %v", regErr)
+	}
+	assertNoConfig("registry shared semgrep", registryExecs)
+}
+
+// TestNoTestRequiresOptionsManifestDir is a source self-check over the pkg/check
+// test files asserting the removed Options field token does not survive in any
+// check.Options literal, so the green go-test guarantee (REQ-005, CLM-021) is
+// enforced rather than assumed. (CLM-024)
+func TestNoTestRequiresOptionsManifestDir(t *testing.T) {
+	// Build the token from parts so this self-check file does not match itself.
+	token := "Manifest" + "Dir:"
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading pkg/check dir: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, readErr := os.ReadFile(name)
+		if readErr != nil {
+			t.Fatalf("reading %s: %v", name, readErr)
+		}
+		if strings.Contains(string(data), token) {
+			t.Errorf("%s still references a %s field; check.Options has no ManifestDir", name, token)
+		}
 	}
 }
 

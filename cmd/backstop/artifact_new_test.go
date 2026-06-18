@@ -306,6 +306,21 @@ func TestArtifactNew_ExitCode_2_MissingSourceForPlan(t *testing.T) {
 	}
 }
 
+// TestArtifactNew_ExitCode_2_InvalidSourceForPlan verifies that a plan whose
+// --source is present but malformed (not SPEC-NNN / ISSUE-NNN) is rejected with
+// exit 2, exercising the ValidateSource failure branch distinct from the
+// missing-source branch.
+func TestArtifactNew_ExitCode_2_InvalidSourceForPlan(t *testing.T) {
+	code, _ := runArtifactNewTest(t, artifactNewTestCase{
+		args:     []string{"plan", "--slug", "my-plan", "--source", "not-a-valid-source"},
+		executor: &noopGitExecutor{},
+		wantExit: 2,
+	})
+	if code != 2 {
+		t.Fatalf("expected exit 2 for malformed --source, got %d", code)
+	}
+}
+
 func TestArtifactNew_ExitCode_2_PrecedesOne(t *testing.T) {
 	// Both invalid slug (exit 2) and existing file (exit 1) conditions.
 	// Exit 2 should take precedence.

@@ -668,3 +668,76 @@ func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit(t *testing.T) {
 		t.Error("gate result Pass = true, want false")
 	}
 }
+
+// TestRunCheckOptions_NoManifestDir exercises (*realCodeChecker).runCheck — the
+// gate's check.Options construction site that previously set
+// ManifestDir: filepath.Join(backstopDir, "rules"). After SPEC-030 the
+// constructed Options carries no compiled-standards manifest directory: with
+// zero installed packs and a populated .backstop/rules/ (a leftover compiled
+// STD file), the semgrep pass invokes the tool with NO --config at all. (CLM-006)
+func TestRunCheckOptions_NoManifestDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: gate-opts\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatalf("write backstop.yml: %v", err)
+	}
+	rulesDir := filepath.Join(dir, ".backstop", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	// Plant a leftover compiled-standards file to prove it is never a --config.
+	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write leftover: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	restore := chdirTemp(t, dir)
+	defer restore()
+
+	runner := &recordingRunner{}
+	checker := &realCodeChecker{
+		projectRoot:    dir,
+		runnerForTest:  runner,
+		ensurerForTest: stubEnsurer{},
+	}
+
+	// Precondition: the project's .backstop directory is valid, so runCheck's
+	// Options construction (the subject under test) is exercised rather than
+	// short-circuited by a missing-.backstop error.
+	if err := check.ValidateBackstopDir(dir); err != nil {
+		t.Fatalf("check.ValidateBackstopDir: %v", err)
+	}
+
+	if _, err := checker.runCheck(context.Background(), check.ScopeModeFile, []string{filepath.Join(dir, "main.go")}); err != nil {
+		t.Fatalf("runCheck: %v", err)
+	}
+
+	// The semgrep pass is identified by its --json/--quiet argv signature
+	// (EnsureSemgrep resolves a real binary path inside the executor). It must
+	// carry no --config (no packs), and in particular nothing under
+	// .backstop/rules/.
+	var sawSemgrep bool
+	for _, c := range runner.calls {
+		hasJSON, hasQuiet := false, false
+		for _, a := range c.args {
+			if a == "--json" {
+				hasJSON = true
+			}
+			if a == "--quiet" {
+				hasQuiet = true
+			}
+		}
+		if !hasJSON || !hasQuiet {
+			continue
+		}
+		sawSemgrep = true
+		for i := 0; i+1 < len(c.args); i++ {
+			if c.args[i] == "--config" {
+				t.Errorf("semgrep invoked with --config %q; runCheck Options must wire no manifest/standards directory", c.args[i+1])
+			}
+		}
+	}
+	if !sawSemgrep {
+		t.Fatal("semgrep pass was never invoked; expected one finding-free invocation with no --config")
+	}
+}

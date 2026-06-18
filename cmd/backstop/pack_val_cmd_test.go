@@ -117,6 +117,54 @@ func TestPackVal_PackTestCommand_TextFormat(t *testing.T) {
 	}
 }
 
+// TestPackVal_PackCheckCommand_GlobalJSONFlag verifies that the persistent
+// --json flag (parsed before the subcommand) drives the pack check format to
+// JSON via the shared jsonFlag pointer.
+func TestPackVal_PackCheckCommand_GlobalJSONFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeFileForTest(t, dir, "pack.yml", `
+name: acme/example
+version: 1.0.0
+language: go
+archetype: enforcement
+content:
+  ruleset:
+    rules:
+      - id: R1
+        risk_class: style
+`)
+	defer chdirForTest(t, dir)()
+
+	root := NewRootCommand()
+	out, _ := executeCommand(root, "--json", "pack", "check")
+	if !strings.Contains(out, "{") {
+		t.Fatalf("expected JSON output under global --json, got: %s", out)
+	}
+}
+
+// TestPackVal_PackTestCommand_GlobalJSONFlag verifies the same for pack test.
+func TestPackVal_PackTestCommand_GlobalJSONFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeFileForTest(t, dir, "pack.yml", `
+name: acme/example
+version: 1.0.0
+language: go
+archetype: enforcement
+content:
+  ruleset:
+    rules:
+      - id: R1
+        risk_class: style
+`)
+	defer chdirForTest(t, dir)()
+
+	root := NewRootCommand()
+	out, _ := executeCommand(root, "--json", "pack", "test")
+	if !strings.Contains(out, "{") {
+		t.Fatalf("expected JSON output under global --json, got: %s", out)
+	}
+}
+
 func writeFileForTest(t *testing.T, dir, rel, content string) {
 	t.Helper()
 	full := filepath.Join(dir, rel)

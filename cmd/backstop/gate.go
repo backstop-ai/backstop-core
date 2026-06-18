@@ -488,7 +488,6 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 
 	opts := check.Options{
 		Mode:                mode,
-		ManifestDir:         filepath.Join(backstopDir, "rules"),
 		BackstopDir:         backstopDir,
 		ProjectDir:          pRoot,
 		ExtraSemgrepConfigs: c.extraSemgrepConfigs,

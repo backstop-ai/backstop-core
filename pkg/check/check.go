@@ -21,7 +21,6 @@ var passOrder = []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckT
 type Options struct {
 	Mode                  ScopeMode
 	FilePath              string
-	ManifestDir           string
 	BackstopDir           string
 	PinnedSemgrepVersion  string
 	Timeout               time.Duration
@@ -294,8 +293,13 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 		return result, nil
 	}
 
-	// Load manifest
-	manifest, err := LoadManifest(opts.ManifestDir)
+	// Load manifest for file-type ROUTING only. The directory is derived from
+	// BackstopDir (.backstop/rules); a routing-schema .manifest.json there is
+	// honored, and an absent/empty dir falls back to defaultManifest(). The
+	// compiled-standards *.semgrep.yml files in that directory are NOT a semgrep
+	// rule-config source after SPEC-030 — routing and rule-config were always
+	// distinct uses of the same directory.
+	manifest, err := LoadManifest(filepath.Join(opts.BackstopDir, "rules"))
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +390,6 @@ func goBuiltinExecutors(opts Options, runner CommandRunner) map[CheckType]PassEx
 			ensurer:             &DefaultSemgrepEnsurer{},
 			backstopDir:         opts.BackstopDir,
 			pinnedVersion:       opts.PinnedSemgrepVersion,
-			manifestDir:         opts.ManifestDir,
 			extraSemgrepConfigs: opts.ExtraSemgrepConfigs,
 		},
 	}
@@ -545,14 +548,15 @@ func (e *testExecutor) IsAvailable() (bool, string) {
 	return true, "" // go is assumed available
 }
 
-// semgrepExecutor runs semgrep rules against the compiled project rules plus
-// every pack-provided ExtraSemgrepConfigs path.
+// semgrepExecutor runs semgrep rules against every pack-provided
+// ExtraSemgrepConfigs path — the SOLE rule-config source after SPEC-030. The
+// compiled-standards manifestDir arm has been removed; an empty
+// extraSemgrepConfigs yields a semgrep invocation with no --config.
 type semgrepExecutor struct {
 	runner              CommandRunner
 	ensurer             SemgrepEnsurer
 	backstopDir         string
 	pinnedVersion       string
-	manifestDir         string
 	extraSemgrepConfigs []string
 }
 
@@ -572,17 +576,15 @@ func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassRes
 		return nil, ensureErr
 	}
 
-	// Assemble --config flags: the compiled project rules dir (where the
-	// standards compiler emits <number>.semgrep.yml — semgrep accepts a
-	// directory) plus every pack-provided ExtraSemgrepConfigs path.
+	// Assemble --config flags solely from the pack-provided ExtraSemgrepConfigs
+	// paths (SPEC-030: installed packs are the single rule-config source). When
+	// that slice is empty, semgrep is invoked with --json --quiet <files...> and
+	// NO --config — there is no compiled-standards directory arm.
 	// --quiet suppresses semgrep's non-JSON banner/progress output (the primary
 	// fix for the live `invalid character 'â'` parse failure). JSON-document
 	// extraction below is the belt-and-suspenders safety net for any stray
 	// preamble byte a future semgrep emits despite --quiet (ISSUE-006).
 	args := []string{"--json", "--quiet"}
-	if e.manifestDir != "" {
-		args = append(args, "--config", e.manifestDir)
-	}
 	for _, cfg := range e.extraSemgrepConfigs {
 		args = append(args, "--config", cfg)
 	}

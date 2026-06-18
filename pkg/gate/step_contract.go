@@ -148,18 +148,60 @@ func findFunction(fset *token.FileSet, file *ast.File, name string) (string, boo
 
 // findMethod finds a method declaration (function with receiver) by name and returns its signature.
 func findMethod(fset *token.FileSet, file *ast.File, name string) (string, bool) {
+	// A method contract name may be the bare method name (e.g. "RouteFile") or
+	// the receiver-qualified form "(*Type).method" / "(Type).method" used to
+	// disambiguate a method from a same-named function or another type's method.
+	wantRecv, wantMethod := splitReceiverQualifiedName(name)
+
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != name {
+		if !ok || fn.Name.Name != wantMethod {
 			continue
 		}
 		if fn.Recv == nil {
+			continue
+		}
+		if wantRecv != "" && receiverTypeName(fn.Recv) != wantRecv {
 			continue
 		}
 		sig := formatMethodSignature(fset, fn)
 		return sig, true
 	}
 	return "", false
+}
+
+// splitReceiverQualifiedName parses a method contract name. For the
+// receiver-qualified form "(*Type).method" or "(Type).method" it returns the
+// receiver type ("Type", pointer star stripped) and the method name. For a bare
+// method name it returns an empty receiver and the name unchanged.
+func splitReceiverQualifiedName(name string) (recv, method string) {
+	if !strings.HasPrefix(name, "(") {
+		return "", name
+	}
+	close := strings.Index(name, ")")
+	if close < 0 || !strings.HasPrefix(name[close:], ").") {
+		return "", name
+	}
+	recv = strings.TrimSpace(name[1:close])
+	recv = strings.TrimPrefix(recv, "*")
+	method = name[close+2:]
+	return recv, method
+}
+
+// receiverTypeName returns the bare type name of a method receiver, stripping a
+// leading pointer star (e.g. "*realCodeChecker" -> "realCodeChecker").
+func receiverTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+	expr := recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name
+	}
+	return ""
 }
 
 // findType finds a type declaration by name and returns "type Name struct"

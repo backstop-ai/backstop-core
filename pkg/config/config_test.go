@@ -474,3 +474,143 @@ enforcement:
 		t.Fatal("expected error for unknown nested toolchain key, got nil")
 	}
 }
+
+// TestConfig_LoadConfig_DiscoversFromCWD verifies the zero-arg LoadConfig path:
+// it discovers backstop.yml relative to the process working directory and
+// returns a populated config.
+func TestConfig_LoadConfig_DiscoversFromCWD(t *testing.T) {
+	dir := t.TempDir()
+	content := "project: cwd-loaded\nlanguage: go\n"
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Project != "cwd-loaded" {
+		t.Errorf("project = %q, want %q", cfg.Project, "cwd-loaded")
+	}
+}
+
+// TestConfig_LoadConfig_PropagatesDiscoveryError verifies that LoadConfig
+// surfaces the discovery error when no backstop.yml exists anywhere up the tree
+// from the working directory.
+func TestConfig_LoadConfig_PropagatesDiscoveryError(t *testing.T) {
+	dir := t.TempDir()
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	// BACKSTOP_CONFIG must be unset so discovery walks up and fails at root.
+	t.Setenv("BACKSTOP_CONFIG", "")
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := config.LoadConfig(); err == nil {
+		t.Fatal("expected discovery error from LoadConfig, got nil")
+	}
+}
+
+// TestConfig_LoadConfigFromDir_PropagatesDiscoveryError verifies that
+// LoadConfigFromDir returns the discovery error (rather than a load error) when
+// the starting directory has no backstop.yml in its ancestry.
+func TestConfig_LoadConfigFromDir_PropagatesDiscoveryError(t *testing.T) {
+	t.Setenv("BACKSTOP_CONFIG", "")
+	if _, err := config.LoadConfigFromDir(t.TempDir()); err == nil {
+		t.Fatal("expected discovery error from LoadConfigFromDir, got nil")
+	}
+}
+
+// TestConfig_LoadConfigFromPath_ReadError verifies that a path pointing at a
+// nonexistent file produces a read error mentioning the path.
+func TestConfig_LoadConfigFromPath_ReadError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.yml")
+	_, err := config.LoadConfigFromPath(missing)
+	if err == nil {
+		t.Fatal("expected read error for missing config file, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading config") {
+		t.Errorf("expected error to mention reading config, got %q", err.Error())
+	}
+}
+
+// TestConfig_LoadConfigFromPath_ParseError verifies that malformed YAML
+// produces a parse error from the strict decoder.
+func TestConfig_LoadConfigFromPath_ParseError(t *testing.T) {
+	path := writeTempConfig(t, "project: [this is: not valid scalar\n")
+	_, err := config.LoadConfigFromPath(path)
+	if err == nil {
+		t.Fatal("expected parse error for malformed YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), "parsing backstop.yml") {
+		t.Errorf("expected error to mention parsing backstop.yml, got %q", err.Error())
+	}
+}
+
+// TestConfig_Validate_NonMappingDocumentRejected verifies that a top-level YAML
+// document that is a sequence rather than a mapping is rejected by schema
+// validation. The strict struct decoder rejects it first; in both cases a
+// non-mapping document must not load.
+func TestConfig_Validate_NonMappingDocumentRejected(t *testing.T) {
+	path := writeTempConfig(t, "- project: svc\n- language: go\n")
+	if _, err := config.LoadConfigFromPath(path); err == nil {
+		t.Fatal("expected error for non-mapping top-level document, got nil")
+	}
+}
+
+// TestConfig_Validate_RejectsUnknownTopLevelField verifies the
+// additionalProperties:false schema branch: an unknown top-level key must be
+// rejected with a message naming the offending field.
+func TestConfig_Validate_RejectsUnknownTopLevelField(t *testing.T) {
+	// Use a key the strict struct decoder would also reject; assert the schema
+	// validator's message specifically by validating through LoadConfigFromPath.
+	path := writeTempConfig(t, "project: svc\nlanguage: go\nmystery_field: nope\n")
+	_, err := config.LoadConfigFromPath(path)
+	if err == nil {
+		t.Fatal("expected error for unknown top-level field, got nil")
+	}
+	if !strings.Contains(err.Error(), "mystery_field") {
+		t.Errorf("expected error to name the unknown field, got %q", err.Error())
+	}
+}
+
+// TestConfig_Validate_AcceptsNestedMapsAndSequences verifies that a config with
+// nested mappings and sequences (packs map, registries map) validates cleanly,
+// exercising the recursive map/slice conversion of YAML values into
+// JSON-compatible structures during schema validation.
+func TestConfig_Validate_AcceptsNestedMapsAndSequences(t *testing.T) {
+	content := `project: nested
+language: go
+runtimes:
+  - go
+  - node
+packs:
+  go-core: "1.2.3"
+  ts-core: "local"
+registries:
+  "@acme": "https://packs.acme.example/registry"
+`
+	path := writeTempConfig(t, content)
+	cfg, err := config.LoadConfigFromPath(path)
+	if err != nil {
+		t.Fatalf("expected nested maps and sequences to validate, got %v", err)
+	}
+	if cfg.Packs["go-core"] != "1.2.3" {
+		t.Errorf("packs[go-core] = %q, want %q", cfg.Packs["go-core"], "1.2.3")
+	}
+	if len(cfg.Runtimes) != 2 {
+		t.Errorf("expected 2 runtimes, got %d", len(cfg.Runtimes))
+	}
+}
