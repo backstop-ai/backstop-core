@@ -45,6 +45,20 @@ func lookupParser(format string) (Parser, error) {
 	return parser, nil
 }
 
+// ParsePackFindings parses a findings engine's normalized output for the pack
+// engine dispatch path (SPEC-031 REQ-005/REQ-006/CLM-019/CLM-036). It resolves
+// the parser exclusively through lookupParser("sarif") — the dispatch path owns
+// no engine enumeration and never references golangci-json/eslint-json. The
+// returned violations are stamped with CheckTypeSemgrep, the pack-findings pass.
+// A non-SARIF input fails loud via parseSarif's JSON rejection.
+func ParsePackFindings(out []byte) ([]Violation, error) {
+	parser, err := lookupParser("sarif")
+	if err != nil {
+		return nil, err
+	}
+	return parser(out, CheckTypeSemgrep)
+}
+
 // retarget stamps each violation's Pass with the target check type. The
 // generic command executor binds a format to a pass at execution time, so the
 // parser's violations must carry the pass they were produced for.

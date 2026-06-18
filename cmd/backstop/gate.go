@@ -241,29 +241,14 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		}
 	}
 
-	extraSemgrepConfigs := []string{}
-	if len(packs) > 0 {
-		merged, mergeErr := mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
-		if mergeErr != nil {
-			return []gate.StepFunc{
-				func(context.Context) gate.StepResult {
-					return gate.StepResult{
-						StepName:   "pack_rule_merge",
-						Status:     "fail",
-						ConfigErr:  true,
-						Violations: []gate.Violation{{Rule: "pack_rule_merge", Message: mergeErr.Error(), Severity: "error"}},
-					}
-				},
-			}
-		}
-		extraSemgrepConfigs = merged
-	}
-
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
-	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll.
-	codeChecker := &realCodeChecker{projectRoot: projectRoot, extraSemgrepConfigs: extraSemgrepConfigs}
+	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll. Pack
+	// rule findings no longer feed the in-process semgrepExecutor via
+	// ExtraSemgrepConfigs; they are dispatched group-by-engine in the pack
+	// engine step below (SPEC-031 REQ-011).
+	codeChecker := &realCodeChecker{projectRoot: projectRoot}
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
@@ -319,13 +304,14 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	}
 
 	packValidatorStep := func(context.Context) gate.StepResult {
-		violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+		runner := &check.ExecCommandRunner{Dir: projectRoot}
+		violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
 		if err != nil {
 			return gate.StepResult{
-				StepName:   "pack_validators",
+				StepName:   "pack_engines",
 				Status:     "fail",
 				ConfigErr:  true,
-				Violations: []gate.Violation{{Rule: "pack_validators", Message: err.Error(), Severity: "error"}},
+				Violations: []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
 			}
 		}
 		status := "pass"
@@ -333,7 +319,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 			status = "fail"
 		}
 		return gate.StepResult{
-			StepName:   "pack_validators",
+			StepName:   "pack_engines",
 			Status:     status,
 			Violations: violations,
 		}
@@ -438,8 +424,7 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 
 // realCodeChecker implements gate.CodeChecker by calling pkg/check.Run.
 type realCodeChecker struct {
-	projectRoot         string
-	extraSemgrepConfigs []string
+	projectRoot string
 	// runnerForTest / ensurerForTest are test-only injection seams: when set,
 	// runCheck routes through check.RunWith with these hermetic dependencies so
 	// gate-layer scope-semantics tests can drive CheckScoped without shelling
@@ -487,10 +472,9 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 	}
 
 	opts := check.Options{
-		Mode:                mode,
-		BackstopDir:         backstopDir,
-		ProjectDir:          pRoot,
-		ExtraSemgrepConfigs: c.extraSemgrepConfigs,
+		Mode:        mode,
+		BackstopDir: backstopDir,
+		ProjectDir:  pRoot,
 	}
 	// An explicit scoped file list (diff/file gate scope) is carried via the
 	// Files branch — a SINGLE Run covering all scoped files, not a per-file

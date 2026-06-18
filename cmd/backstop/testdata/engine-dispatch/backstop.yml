@@ -1,0 +1,4 @@
+project: engine-dispatch-fixture
+language: go
+packs:
+  test-org/engine-pack: "1.0.0"

@@ -38,7 +38,7 @@ func TestValidateFixtureProof_RuleNoClaims(t *testing.T) {
 
 func TestValidateConstraint_Layer3MissingIsolationFields(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 3
+	m.Content.Ruleset.Rules[0].Engine = "sandbox"
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = ""
 	m.Content.Ruleset.Rules[0].Validator = ""

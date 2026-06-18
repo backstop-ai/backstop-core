@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,14 +35,18 @@ type Ruleset struct {
 	Rules   []Rule `yaml:"rules"`
 }
 
-// Rule defines a single rule entry.
+// Rule defines a single rule entry. The execution engine is declared via the
+// first-class Engine field (SPEC-031 REQ-001); the retired Layer field and its
+// yaml key are gone (REQ-002). A rule whose engine is empty is a blocking
+// ConfigError at the migrated reader — there is no layer:2 -> engine:semgrep
+// aliasing (REQ-002/REQ-015).
 type Rule struct {
 	ID            string    `yaml:"id"`
 	NamespacedID  string    `yaml:"-"`
+	Engine        string    `yaml:"engine"`
 	Standard      string    `yaml:"standard"`
 	RulePath      string    `yaml:"rule_path"`
 	RiskClass     string    `yaml:"risk_class"`
-	Layer         int       `yaml:"layer"`
 	Claims        []Claim   `yaml:"claims"`
 	Category      string    `yaml:"category"`
 	Justification string    `yaml:"justification"`
@@ -199,8 +204,8 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		if err := validateRiskClass(rule.RiskClass); err != nil {
 			return nil, err
 		}
-		if err := validateLayer(rule.Layer); err != nil {
-			return nil, err
+		if err := validateEngine(rule.Engine); err != nil {
+			return nil, fmt.Errorf("rule %q: %w", rule.ID, err)
 		}
 		for j := range rule.Claims {
 			for k := range rule.Claims[j].Fixtures.Positive {
@@ -321,13 +326,18 @@ func validateRiskClass(rc string) error {
 	}
 }
 
-func validateLayer(l int) error {
-	switch l {
-	case 1, 2, 3:
-		return nil
-	default:
-		return fmt.Errorf("layer must be one of 1,2,3")
+// validateEngine fail-louds on a rule whose engine is empty (a layer-only rule
+// under the migrated reader) or unknown to the built-in registry. There is no
+// layer:2 -> engine:semgrep aliasing: a layer-only rule is a blocking config
+// error (REQ-002/REQ-015).
+func validateEngine(name string) error {
+	if name == "" {
+		return fmt.Errorf("engine is required (the retired layer field is no longer read; declare engine explicitly)")
 	}
+	if _, err := engine.DefaultRegistry().Lookup(name); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateSemver(v string) error {

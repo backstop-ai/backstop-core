@@ -97,6 +97,128 @@ func TestGate_ContractSignature_TypeAndInterfaceVerified(t *testing.T) {
 	}
 }
 
+// TestGate_ContractSignature_DefinedTypeUnderlyingRendered verifies that a
+// defined type over a concrete underlying type (a primitive like string or a
+// composite like map[K]V) is rendered with its underlying type so a spec
+// contract can pin it (e.g. "type Mode string", "type BindingTable
+// map[string]Widget"). Before this, findType collapsed such types to
+// "type Mode", making the spec-declared signature unsatisfiable.
+func TestGate_ContractSignature_DefinedTypeUnderlyingRendered(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contracts := []ContractEntry{
+		{File: target, Name: "Mode", Kind: "type", Signature: "type Mode string"},
+		{File: target, Name: "BindingTable", Kind: "type", Signature: "type BindingTable map[string]Widget"},
+	}
+	step := StepContractSignatureFunc(contracts)
+	result := step(context.Background())
+
+	if result.Status != "pass" {
+		t.Errorf("expected pass for defined-type contracts, got %q; violations: %v", result.Status, result.Violations)
+	}
+}
+
+// TestGate_ContractSignature_DefinedTypeWrongUnderlyingFails verifies that a
+// defined type whose underlying type differs from the spec contract is reported
+// as a signature mismatch — the rendering must be precise enough to FAIL a
+// wrong declaration, not merely loose enough to pass a right one.
+func TestGate_ContractSignature_DefinedTypeWrongUnderlyingFails(t *testing.T) {
+	target, err := filepath.Abs("testdata/contract-target.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contracts := []ContractEntry{
+		{File: target, Name: "Mode", Kind: "type", Signature: "type Mode int"},
+	}
+	step := StepContractSignatureFunc(contracts)
+	result := step(context.Background())
+
+	if result.Status != "fail" {
+		t.Fatalf("expected fail for wrong underlying type, got %q", result.Status)
+	}
+	found := false
+	for _, v := range result.Violations {
+		if v.Rule == "contract_signature" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a contract_signature violation, got %v", result.Violations)
+	}
+}
+
+// TestGate_UnderlyingTypeString covers the underlying-type renderer across the
+// expression shapes a defined type's underlying type can take — primitive,
+// qualified selector, pointer, slice, map — and the unrenderable shapes that
+// fall back to "" (channel, fixed-size array, func).
+func TestGate_UnderlyingTypeString(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"primitive", "type T string", "string"},
+		{"selector", "type T pkg.Inner", "pkg.Inner"},
+		{"pointer", "type T *Inner", "*Inner"},
+		{"pointer-selector", "type T *pkg.Inner", "*pkg.Inner"},
+		{"slice", "type T []byte", "[]byte"},
+		{"slice-pointer", "type T []*Inner", "[]*Inner"},
+		{"map", "type T map[string]Inner", "map[string]Inner"},
+		{"map-nested", "type T map[string]*pkg.Inner", "map[string]*pkg.Inner"},
+		{"fixed-array-unrenderable", "type T [4]byte", ""},
+		{"chan-unrenderable", "type T chan int", ""},
+		{"func-unrenderable", "type T func() error", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\n" + tc.src + "\n"
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "x.go", src, 0)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			var ts *ast.TypeSpec
+			for _, decl := range file.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.TYPE {
+					continue
+				}
+				ts = gen.Specs[0].(*ast.TypeSpec)
+			}
+			if ts == nil {
+				t.Fatal("no type spec parsed")
+			}
+			got := underlyingTypeString(ts.Type)
+			if got != tc.want {
+				t.Errorf("underlyingTypeString(%s) = %q, want %q", tc.src, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGate_FindType_UnrenderableFallsBackToBareName verifies that a defined type
+// whose underlying type cannot be rendered (e.g. a func type) falls back to the
+// bare "type Name" form rather than producing a broken signature.
+func TestGate_FindType_UnrenderableFallsBackToBareName(t *testing.T) {
+	src := "package p\ntype Handler func(int) error\n"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "x.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sig, found := findType(file, "Handler")
+	if !found {
+		t.Fatal("Handler type not found")
+	}
+	if sig != "type Handler" {
+		t.Errorf("unrenderable underlying type must fall back to bare name, got %q", sig)
+	}
+}
+
 // TestGate_ContractSignature_VariableVerified verifies that contract variable
 // declarations are verified by the contract signature step.
 func TestGate_ContractSignature_VariableVerified(t *testing.T) {

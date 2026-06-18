@@ -10,7 +10,7 @@ content:
       - id: no-debug-prints
         standard: inline standard text
         risk_class: style
-        layer: 1
+        engine: config-file
         claims:
           - id: no-debug-prints-claim
             text: Debug prints should not ship.

@@ -10,7 +10,7 @@ content:
         standard: standards/go/transport.standard.md
         rule_path: rules/insecure-transport.yml
         risk_class: security
-        layer: 2
+        engine: semgrep
         claims:
           - id: insecure-transport-claim
             text: Transport must use TLS.

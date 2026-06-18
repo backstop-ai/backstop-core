@@ -1,0 +1,4 @@
+project: engine-dispatch-legacy
+language: go
+packs:
+  test-org/legacy-pack: "1.0.0"

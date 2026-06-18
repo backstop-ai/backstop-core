@@ -204,8 +204,13 @@ func receiverTypeName(recv *ast.FieldList) string {
 	return ""
 }
 
-// findType finds a type declaration by name and returns "type Name struct"
-// or "type Name interface".
+// findType finds a type declaration by name and returns "type Name struct",
+// "type Name interface", or — for a defined type over a concrete underlying
+// type (e.g. "type InputMode string", "type Registry map[string]EngineBinding")
+// — "type Name <underlying>" so a spec contract can pin the underlying type. A
+// struct/interface body is summarized as the bare keyword (the spec convention),
+// while a named/primitive underlying type is rendered so the contract signature
+// matches what the spec author declared rather than collapsing to "type Name".
 func findType(file *ast.File, name string) (string, bool) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -223,11 +228,55 @@ func findType(file *ast.File, name string) (string, bool) {
 			case *ast.InterfaceType:
 				return "type " + name + " interface", true
 			default:
+				if underlying := underlyingTypeString(ts.Type); underlying != "" {
+					return "type " + name + " " + underlying, true
+				}
 				return "type " + name, true
 			}
 		}
 	}
 	return "", false
+}
+
+// underlyingTypeString renders the underlying type expression of a defined type
+// (the right-hand side of a `type Name = expr`-free `type Name expr`) into the
+// source-level string a spec contract would declare, e.g. "string",
+// "map[string]EngineBinding", "[]byte", "*Provision", "pkg.Type". It returns ""
+// for an expression shape it cannot render, in which case findType falls back to
+// the bare "type Name" form.
+func underlyingTypeString(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		if x := underlyingTypeString(t.X); x != "" {
+			return x + "." + t.Sel.Name
+		}
+		return ""
+	case *ast.StarExpr:
+		if x := underlyingTypeString(t.X); x != "" {
+			return "*" + x
+		}
+		return ""
+	case *ast.ArrayType:
+		elem := underlyingTypeString(t.Elt)
+		if elem == "" {
+			return ""
+		}
+		if t.Len == nil {
+			return "[]" + elem
+		}
+		return ""
+	case *ast.MapType:
+		k := underlyingTypeString(t.Key)
+		v := underlyingTypeString(t.Value)
+		if k == "" || v == "" {
+			return ""
+		}
+		return "map[" + k + "]" + v
+	default:
+		return ""
+	}
 }
 
 // findVariable finds a var declaration by name and returns its signature.

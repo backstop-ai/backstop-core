@@ -29,7 +29,7 @@ content:
       - id: sample-rule
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-1
             text: sample claim
@@ -216,7 +216,7 @@ content:
       - id: sample-rule
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-1
             text: sample
@@ -252,6 +252,8 @@ func TestScaffoldType_HasPathNoUpdate(t *testing.T) {
 func TestSDKType_ModuleVersionProvides(t *testing.T) {
 	typ := reflect.TypeOf(SDK{})
 	for _, field := range []string{"Module", "Version", "Provides"} {
+		// field ranges over a fixed in-test literal slice, not external input.
+		// nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
 		if _, ok := typ.FieldByName(field); !ok {
 			t.Fatalf("expected SDK.%s field", field)
 		}
@@ -318,42 +320,6 @@ func TestValidateRiskClass_Invalid(t *testing.T) {
 func TestValidateRiskClass_Missing(t *testing.T) {
 	if err := validateRiskClass(""); err == nil {
 		t.Fatal("expected missing risk_class to fail")
-	}
-}
-
-func TestValidateLayer_One(t *testing.T) {
-	if err := validateLayer(1); err != nil {
-		t.Fatalf("expected layer=1 valid, got: %v", err)
-	}
-}
-
-func TestValidateLayer_Two(t *testing.T) {
-	if err := validateLayer(2); err != nil {
-		t.Fatalf("expected layer=2 valid, got: %v", err)
-	}
-}
-
-func TestValidateLayer_Three(t *testing.T) {
-	if err := validateLayer(3); err != nil {
-		t.Fatalf("expected layer=3 valid, got: %v", err)
-	}
-}
-
-func TestValidateLayer_Zero(t *testing.T) {
-	if err := validateLayer(0); err == nil {
-		t.Fatal("expected layer=0 to fail")
-	}
-}
-
-func TestValidateLayer_Four(t *testing.T) {
-	if err := validateLayer(4); err == nil {
-		t.Fatal("expected layer=4 to fail")
-	}
-}
-
-func TestValidateLayer_Missing(t *testing.T) {
-	if err := validateLayer(0); err == nil {
-		t.Fatal("expected missing/zero layer to fail")
 	}
 }
 
@@ -440,7 +406,7 @@ content:
       - id: sample-rule
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-1
             text: sample
@@ -660,7 +626,7 @@ content:
       - id: sample-rule
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-1
             text: sample
@@ -856,7 +822,7 @@ content:
       - id: rule-one
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-dup
             text: first
@@ -866,7 +832,7 @@ content:
       - id: rule-two
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-dup
             text: second
@@ -943,7 +909,7 @@ content:
       - id: sample-rule
         standard: standards/go/sample.standard.md
         risk_class: security
-        layer: 1
+        engine: config-file
         claims:
           - id: c-1
             text: sample

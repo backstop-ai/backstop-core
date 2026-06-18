@@ -37,6 +37,12 @@ func (r *cancelingRunner) Run(_ context.Context, _ string, _ ...string) ([]byte,
 	return r.output, nil
 }
 
+// RunStdout shares the cancellation behavior with Run so the fake satisfies the
+// CommandRunner interface.
+func (r *cancelingRunner) RunStdout(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return r.Run(ctx, name, args...)
+}
+
 // TestCodeCheck_Executors_ContextCancellationSurfacesTimeout verifies that when
 // the context is cancelled, running the real executors through
 // Engine.RunPasses surfaces a timeout Violation ("timeout: <pass> pass

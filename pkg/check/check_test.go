@@ -857,6 +857,14 @@ func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	return f.outputs[name], f.err
 }
 
+// RunStdout shares the canned-output mechanism with Run; the fake does not
+// model the stdout/stderr split (real separation is covered by
+// TestRunner_StdoutSeparateFromStderr against ExecCommandRunner), it only needs
+// to satisfy the CommandRunner interface for executors that call RunStdout.
+func (f *fakeRunner) RunStdout(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return f.Run(ctx, name, args...)
+}
+
 // lastCall returns the most recent invocation recorded by the fake runner.
 func (f *fakeRunner) lastCall() runnerCall {
 	if len(f.calls) == 0 {
@@ -1181,7 +1189,6 @@ func TestOptions_NoManifestDirField(t *testing.T) {
 		PinnedSemgrepVersion: "",
 		Timeout:              0,
 		ProjectDir:           dir,
-		ExtraSemgrepConfigs:  []string{},
 		Language:             "",
 		Config:               nil,
 		Files:                nil,
@@ -1210,10 +1217,9 @@ func TestBuildExecutors_SemgrepHasNoManifestDir(t *testing.T) {
 
 	const binPath = "/fake/tools/semgrep"
 	opts := Options{
-		Mode:                ScopeModeAll,
-		BackstopDir:         backstopDir,
-		ProjectDir:          dir,
-		ExtraSemgrepConfigs: []string{},
+		Mode:        ScopeModeAll,
+		BackstopDir: backstopDir,
+		ProjectDir:  dir,
 	}
 
 	assertNoConfig := func(label string, execs map[CheckType]PassExecutor) {

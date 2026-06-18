@@ -1,0 +1,50 @@
+name: test-org/engine-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Engine-organized fixture pack exercising ast-grep, semgrep, and sandbox dispatch
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: ast-grep-proof
+        engine: ast-grep
+        rule_path: ast-grep/proof-rule.yml
+        risk_class: correctness
+        claims:
+          - id: ep-ast-grep-proof
+            text: Proof ast-grep rule fires through the dispatch path.
+            fixtures:
+              positive:
+                - fixtures/rules/ast-grep-proof/positive.go
+              negative:
+                - fixtures/rules/ast-grep-proof/negative.go
+      - id: semgrep-no-eval
+        engine: semgrep
+        standard: "No eval — direct dynamic execution is forbidden"
+        rule_path: semgrep/no-eval.yml
+        risk_class: security
+        claims:
+          - id: ep-semgrep-no-eval
+            text: Prevent eval usage via semgrep.
+            fixtures:
+              positive:
+                - path: fixtures/rules/semgrep-no-eval/positive.go
+                  bypass_attempt: true
+                - fixtures/rules/semgrep-no-eval/positive.go
+              negative:
+                - fixtures/rules/semgrep-no-eval/negative.go
+      - id: sandbox-presence
+        engine: sandbox
+        validator: scripts/check-presence.sh
+        input_scope: multi-file
+        category: presence
+        risk_class: correctness
+        claims:
+          - id: ep-sandbox-presence
+            text: Required marker file must be present.
+            fixtures:
+              positive:
+                - fixtures/rules/sandbox-presence/positive.go
+              negative:
+                - fixtures/rules/sandbox-presence/negative.go

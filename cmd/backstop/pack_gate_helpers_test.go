@@ -95,72 +95,110 @@ func TestVerifyPackLock_NoPacks(t *testing.T) {
 	}
 }
 
-func TestMergePackRules_NoPacks(t *testing.T) {
-	rules, err := mergePackRules(nil, t.TempDir())
+// TestDispatchPackEngines_NoPacks: dispatch over zero packs yields zero
+// violations and no error. Re-keyed from TestMergePackRules_NoPacks (the
+// findings-feeder no-packs case).
+func TestDispatchPackEngines_NoPacks(t *testing.T) {
+	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nilRunner{})
 	if err != nil {
-		t.Fatalf("mergePackRules: %v", err)
-	}
-	if len(rules) != 0 {
-		t.Errorf("expected 0 rules, got %d", len(rules))
-	}
-}
-
-func TestRunPackValidators_NoPacks(t *testing.T) {
-	violations, err := runPackValidators(nil, t.TempDir(), t.TempDir())
-	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) != 0 {
 		t.Errorf("expected 0 violations, got %d", len(violations))
 	}
 }
 
-func TestRunPackValidators_SkipsNonLayer3(t *testing.T) {
+// TestDispatchPackEngines_NoPacksValidators is the symmetric twin of
+// TestDispatchPackEngines_NoPacks, re-keyed from the retired
+// TestRunPackValidators_NoPacks (which carried no .Layer literal): dispatch over
+// zero packs yields zero violations through the consolidated path that now folds
+// in the sandbox validator branch.
+func TestDispatchPackEngines_NoPacksValidators(t *testing.T) {
+	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nilRunner{})
+	if err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Errorf("expected 0 violations, got %d", len(violations))
+	}
+}
+
+// TestDispatchSandbox_SkipsNonSandboxEngines verifies the engine==sandbox
+// exit-code branch does not emit validator violations for non-sandbox
+// (config-file / semgrep) rules. Re-keyed from TestRunPackValidators_SkipsNonLayer3:
+// the layer:1/layer:2 rules become engine: config-file / engine: semgrep, and
+// the assertion is that the sandbox branch skips them (no validator violation).
+func TestDispatchSandbox_SkipsNonSandboxEngines(t *testing.T) {
+	packDir := t.TempDir()
+	packRoot := filepath.Join(packDir, "test/pack")
+	os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755)
+	os.WriteFile(filepath.Join(packRoot, "rules", "r2.yml"), []byte("rules: []"), 0o644)
+
+	// Stub the semgrep engine runner so the engine: semgrep rule produces empty
+	// SARIF (no findings) and the config-file rule injects nothing; neither
+	// should reach the sandbox exit-code branch.
 	manifests := []*pack.Manifest{{
 		NormalizedName: "test/pack",
 		Content: pack.Content{
 			Ruleset: pack.Ruleset{
 				Rules: []pack.Rule{
-					{ID: "r1", Layer: 1},
-					{ID: "r2", Layer: 2},
+					{ID: "r1", Engine: "config-file"},
+					{ID: "r2", Engine: "semgrep", RulePath: "rules/r2.yml", Standard: "x"},
 				},
 			},
 		},
 	}}
-	violations, err := runPackValidators(manifests, t.TempDir(), t.TempDir())
+	violations, err := dispatchPackEngines(manifests, packDir, t.TempDir(), emptySarifRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) != 0 {
-		t.Errorf("expected 0 violations for non-layer-3 rules, got %d", len(violations))
+		t.Errorf("expected 0 violations for non-sandbox engines, got %d: %v", len(violations), violations)
 	}
 }
 
-func TestMergePackRules_CollectsLayer2Paths(t *testing.T) {
+// TestDispatchSemgrep_GathersRuleFlagsInputs verifies the group-by-engine input
+// gathering for engine: semgrep rules (the ex-layer-2 rule-flags path), with the
+// engine: sandbox rule excluded from the findings group. Re-keyed from
+// TestMergePackRules_CollectsLayer2Paths: it asserts the semgrep command is
+// invoked with exactly the two rule files as repeated --config inputs while the
+// sandbox rule is not fed to semgrep.
+func TestDispatchSemgrep_GathersRuleFlagsInputs(t *testing.T) {
 	packDir := t.TempDir()
 	packRoot := filepath.Join(packDir, "test/pack")
 	os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755)
 	os.WriteFile(filepath.Join(packRoot, "rules", "r1.yml"), []byte("rules: []"), 0o644)
 	os.WriteFile(filepath.Join(packRoot, "rules", "r2.yml"), []byte("rules: []"), 0o644)
+	os.WriteFile(filepath.Join(packRoot, "v.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
 
+	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
 	manifests := []*pack.Manifest{{
 		NormalizedName: "test/pack",
 		Content: pack.Content{
 			Ruleset: pack.Ruleset{
 				Rules: []pack.Rule{
-					{ID: "r1", Layer: 2, RulePath: "rules/r1.yml"},
-					{ID: "r2", Layer: 2, RulePath: "rules/r2.yml"},
-					{ID: "r3", Layer: 3, Validator: "v.sh"}, // should be skipped
+					{ID: "r1", Engine: "semgrep", RulePath: "rules/r1.yml", Standard: "x"},
+					{ID: "r2", Engine: "semgrep", RulePath: "rules/r2.yml", Standard: "x"},
+					{ID: "r3", Engine: "sandbox", Validator: "v.sh", InputScope: "multi-file", Category: "presence"},
 				},
 			},
 		},
 	}}
-	paths, err := mergePackRules(manifests, packDir)
-	if err != nil {
-		t.Fatalf("mergePackRules: %v", err)
+	orig := sandboxedRun
+	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { sandboxedRun = orig })
+
+	if _, err := dispatchPackEngines(manifests, packDir, t.TempDir(), rec); err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
-	if len(paths) != 2 {
-		t.Errorf("expected 2 rule paths, got %d: %v", len(paths), paths)
+	configs := 0
+	for i := 0; i+1 < len(rec.lastArgs); i++ {
+		if rec.lastArgs[i] == "--config" {
+			configs++
+		}
+	}
+	if configs != 2 {
+		t.Errorf("expected 2 --config rule-flags inputs for semgrep, got %d: %v", configs, rec.lastArgs)
 	}
 }
 

@@ -26,6 +26,13 @@ func (r *recordingRunner) Run(_ context.Context, name string, args ...string) ([
 	return nil, nil
 }
 
+// RunStdout records the call like Run; the recordingRunner only needs to
+// satisfy the CommandRunner interface for executors that call RunStdout.
+func (r *recordingRunner) RunStdout(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
+	return nil, nil
+}
+
 func (r *recordingRunner) callsFor(name string) []recordedCall {
 	var out []recordedCall
 	for _, c := range r.calls {

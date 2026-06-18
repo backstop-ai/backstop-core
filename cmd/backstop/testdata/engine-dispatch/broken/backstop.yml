@@ -1,0 +1,4 @@
+project: engine-dispatch-broken
+language: go
+packs:
+  test-org/broken-pack: "1.0.0"

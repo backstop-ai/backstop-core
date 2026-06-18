@@ -8,7 +8,7 @@ import (
 
 func TestValidateLayer2_BothFields(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo-rule.rego"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 
@@ -19,7 +19,7 @@ func TestValidateLayer2_BothFields(t *testing.T) {
 
 func TestValidateLayer2_MissingRuleField(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 
 	errs := pack.ValidateManifest(m)
@@ -29,7 +29,7 @@ func TestValidateLayer2_MissingRuleField(t *testing.T) {
 
 func TestValidateLayer2_MissingStandard(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo-rule.rego"
 
 	errs := pack.ValidateManifest(m)
@@ -39,7 +39,7 @@ func TestValidateLayer2_MissingStandard(t *testing.T) {
 
 func TestValidateLayer1_WithRuleField(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 1
+	m.Content.Ruleset.Rules[0].Engine = "config-file"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo-rule.rego"
 
 	errs := pack.ValidateManifest(m)
@@ -49,7 +49,7 @@ func TestValidateLayer1_WithRuleField(t *testing.T) {
 
 func TestValidateLayer3_WithRuleField(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 3
+	m.Content.Ruleset.Rules[0].Engine = "sandbox"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo-rule.rego"
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"

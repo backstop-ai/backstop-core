@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
+
+// nilRunner is a CommandRunner returning empty output; used where dispatch
+// fails before (or independently of) running the engine command.
+type nilRunner struct{}
+
+func (nilRunner) Run(context.Context, string, ...string) ([]byte, error)       { return nil, nil }
+func (nilRunner) RunStdout(context.Context, string, ...string) ([]byte, error) { return nil, nil }
 
 // TestLoadInstalledPacks_MissingConfig verifies that a missing backstop.yml
 // surfaces a wrapped "loading backstop.yml" error.
@@ -40,49 +48,53 @@ func TestLoadInstalledPacks_DeclaredPackMissingFromDisk(t *testing.T) {
 	}
 }
 
-// TestMergePackRules_BrokenRuleFile verifies that a layer-2 rule whose file is
-// absent on disk yields a "broken pack" error.
-func TestMergePackRules_BrokenRuleFile(t *testing.T) {
+// TestDispatchPackEngines_BrokenSemgrepRuleFile verifies that an engine:semgrep
+// rule whose file is absent on disk yields a "broken pack" error. Re-keyed from
+// TestMergePackRules_BrokenRuleFile onto dispatchPackEngines.
+func TestDispatchPackEngines_BrokenSemgrepRuleFile(t *testing.T) {
 	packDir := t.TempDir()
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "r1", Layer: 2, RulePath: "rules/absent.yml"},
+			{ID: "r1", Engine: "semgrep", RulePath: "rules/absent.yml"},
 		}}},
 	}}
-	_, err := mergePackRules(manifests, packDir)
+	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nilRunner{})
 	if err == nil {
-		t.Fatal("expected error for missing layer-2 rule file")
+		t.Fatal("expected error for missing semgrep rule file")
 	}
 	if !strings.Contains(err.Error(), "broken pack") {
 		t.Errorf("error = %q, want it to mention broken pack", err.Error())
 	}
 }
 
-// TestRunPackValidators_BrokenValidatorMissingFile verifies that a layer-3 rule
-// whose validator script is absent yields a "broken pack" error naming the
-// missing validator.
-func TestRunPackValidators_BrokenValidatorMissingFile(t *testing.T) {
+// TestDispatchPackEngines_BrokenValidatorMissingFile verifies that an
+// engine:sandbox rule whose validator script is absent yields a "broken pack"
+// error naming the missing validator. Re-keyed from
+// TestRunPackValidators_BrokenValidatorMissingFile onto the engine==sandbox
+// exit-code branch.
+func TestDispatchPackEngines_BrokenValidatorMissingFile(t *testing.T) {
 	packDir := t.TempDir()
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "v1", Layer: 3, Validator: "missing.sh"},
+			{ID: "v1", Engine: "sandbox", Validator: "missing.sh"},
 		}}},
 	}}
-	_, err := runPackValidators(manifests, packDir, t.TempDir())
+	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nilRunner{})
 	if err == nil {
-		t.Fatal("expected error for missing layer-3 validator")
+		t.Fatal("expected error for missing sandbox validator")
 	}
 	if !strings.Contains(err.Error(), "broken pack") {
 		t.Errorf("error = %q, want it to mention broken pack", err.Error())
 	}
 }
 
-// TestRunPackValidators_EmptyOutputFallsBackToErrString verifies that when a
-// failing validator produces no stdout/stderr, the violation message falls back
-// to the runner error string rather than being empty.
-func TestRunPackValidators_EmptyOutputFallsBackToErrString(t *testing.T) {
+// TestDispatchSandbox_EmptyOutputFallsBackToErrString verifies that when a
+// failing sandbox validator produces no stdout/stderr, the violation message
+// falls back to the runner error string rather than being empty. Re-keyed from
+// TestRunPackValidators_EmptyOutputFallsBackToErrString.
+func TestDispatchSandbox_EmptyOutputFallsBackToErrString(t *testing.T) {
 	projectRoot := t.TempDir()
 	packRootRel := filepath.Join("org", "pack")
 	packsDir := filepath.Join(projectRoot, ".backstop", "packs")
@@ -104,12 +116,12 @@ func TestRunPackValidators_EmptyOutputFallsBackToErrString(t *testing.T) {
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "v1", Layer: 3, Validator: "v.sh"},
+			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := runPackValidators(manifests, packsDir, projectRoot)
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nilRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) != 1 {
 		t.Fatalf("expected 1 violation, got %d", len(violations))
@@ -122,9 +134,10 @@ func TestRunPackValidators_EmptyOutputFallsBackToErrString(t *testing.T) {
 	}
 }
 
-// TestRunPackValidators_PassingValidatorNoViolation verifies that a layer-3
-// validator that exits clean produces no violation (the continue branch).
-func TestRunPackValidators_PassingValidatorNoViolation(t *testing.T) {
+// TestDispatchSandbox_PassingValidatorNoViolation verifies that an
+// engine:sandbox validator that exits clean produces no violation (the continue
+// branch). Re-keyed from TestRunPackValidators_PassingValidatorNoViolation.
+func TestDispatchSandbox_PassingValidatorNoViolation(t *testing.T) {
 	projectRoot := t.TempDir()
 	packsDir := filepath.Join(projectRoot, ".backstop", "packs")
 	packRoot := filepath.Join(packsDir, "org", "pack")
@@ -142,12 +155,12 @@ func TestRunPackValidators_PassingValidatorNoViolation(t *testing.T) {
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "v1", Layer: 3, Validator: "v.sh"},
+			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := runPackValidators(manifests, packsDir, projectRoot)
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nilRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) != 0 {
 		t.Errorf("expected no violations from a passing validator, got %d", len(violations))

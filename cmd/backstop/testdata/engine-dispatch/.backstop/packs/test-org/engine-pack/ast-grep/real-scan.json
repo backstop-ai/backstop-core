@@ -1,0 +1,50 @@
+[
+{
+  "text": "forbiddenCall(3)",
+  "range": {
+    "byteOffset": {
+      "start": 74,
+      "end": 90
+    },
+    "start": {
+      "line": 2,
+      "column": 18
+    },
+    "end": {
+      "line": 2,
+      "column": 34
+    }
+  },
+  "file": "main.go",
+  "lines": "func main() { _ = forbiddenCall(3) }",
+  "charCount": {
+    "leading": 18,
+    "trailing": 2
+  },
+  "language": "Go",
+  "ruleId": "ast-grep-proof",
+  "severity": "hint",
+  "note": null,
+  "message": "forbiddenCall is not allowed",
+  "labels": [
+    {
+      "text": "forbiddenCall(3)",
+      "range": {
+        "byteOffset": {
+          "start": 74,
+          "end": 90
+        },
+        "start": {
+          "line": 2,
+          "column": 18
+        },
+        "end": {
+          "line": 2,
+          "column": 34
+        }
+      },
+      "style": "primary"
+    }
+  ]
+}
+]

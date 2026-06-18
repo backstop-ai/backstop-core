@@ -1,0 +1,23 @@
+name: test-org/legacy-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Legacy pack carrying a layer-2-only rule with no engine for the no-grandfather proof
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: legacy-no-eval
+        layer: 2
+        standard: "Legacy layer-2 rule with no engine field"
+        rule_path: rules/no-eval.yml
+        risk_class: security
+        claims:
+          - id: lg-no-eval
+            text: Legacy rule reaching migrated reader must fail loud.
+            fixtures:
+              positive:
+                - path: fixtures/rules/legacy-no-eval/positive.go
+                  bypass_attempt: true
+              negative:
+                - fixtures/rules/legacy-no-eval/negative.go

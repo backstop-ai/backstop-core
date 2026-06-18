@@ -21,3 +21,11 @@ type Runner interface {
 
 // DefaultTimeout is a variable that matches the declared contract.
 var DefaultTimeout int
+
+// Mode is a defined type over a primitive underlying type, used to verify the
+// contract checker renders the underlying type (so "type Mode string" matches).
+type Mode string
+
+// BindingTable is a defined map type, used to verify the contract checker
+// renders a map underlying type ("type BindingTable map[string]Widget").
+type BindingTable map[string]Widget

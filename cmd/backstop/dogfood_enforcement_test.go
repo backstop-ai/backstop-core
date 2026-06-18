@@ -1,53 +1,59 @@
 package main
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
-// systemSemgrepEnsurer resolves the semgrep binary already on PATH, so the
-// enforcement-transfer test runs a REAL semgrep pass without downloading a
-// pinned binary. If semgrep is not installed the test skips — the load-bearing
-// assertion needs a real engine.
-type systemSemgrepEnsurer struct {
-	path string
-}
-
-func (e systemSemgrepEnsurer) EnsureSemgrep(_, _ string) (string, error) {
-	return e.path, nil
-}
-
 // goStandardsRuleConfigs resolves the installed backstop/go-standards pack's
-// layer-2 rule --config paths via the production loadInstalledPacks +
-// mergePackRules path. This is exactly the rule set the gate/code-check semgrep
-// pass receives, so the test proves the CONSUMED pack enforces.
+// engine:semgrep rule --config paths via the production loadInstalledPacks +
+// the same per-input_mode gathering dispatchPackEngines uses. This is exactly
+// the rule set the gate dispatches to the semgrep engine, so the test proves
+// the CONSUMED pack enforces.
 func goStandardsRuleConfigs(t *testing.T, root string) []string {
 	t.Helper()
 	packs, err := loadInstalledPacks(root)
 	if err != nil {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
-	var target int
-	found := false
-	for i, m := range packs {
+	var manifest *pack.Manifest
+	for _, m := range packs {
 		if m.NormalizedName == dogfoodPackName {
-			target, found = i, true
+			manifest = m
 		}
 	}
-	if !found {
+	if manifest == nil {
 		t.Fatalf("installed packs do not include %q; got %d packs", dogfoodPackName, len(packs))
 	}
-	configs, mergeErr := mergePackRules(packs[target:target+1], filepath.Join(root, ".backstop", "packs"))
-	if mergeErr != nil {
-		t.Fatalf("mergePackRules: %v", mergeErr)
+	packRoot := filepath.Join(root, ".backstop", "packs", filepath.FromSlash(manifest.NormalizedName))
+	seen := map[string]struct{}{}
+	var configs []string
+	for _, rule := range manifest.Content.Ruleset.Rules {
+		if rule.Engine != "semgrep" {
+			continue
+		}
+		abs, _ := filepath.Abs(filepath.Join(packRoot, filepath.FromSlash(rule.RulePath)))
+		if _, dup := seen[abs]; dup {
+			continue
+		}
+		seen[abs] = struct{}{}
+		configs = append(configs, abs)
 	}
+	sort.Strings(configs)
 	if len(configs) == 0 {
-		t.Fatalf("mergePackRules returned no --config paths for %q; the pack rule tree is missing", dogfoodPackName)
+		t.Fatalf("no engine:semgrep rule paths for %q; the pack rule tree is missing or unmigrated", dogfoodPackName)
+	}
+	// Guard: the registry must classify these as the semgrep rule-flags engine,
+	// matching the dispatch path's gathering.
+	if b, lookErr := engine.DefaultRegistry().Lookup("semgrep"); lookErr != nil || b.InputMode != engine.InputModeRuleFlags {
+		t.Fatalf("semgrep engine binding missing or not rule-flags: %v", lookErr)
 	}
 	return configs
 }
@@ -73,31 +79,26 @@ func TestDogfoodPack_FlagsKnownGoViolation(t *testing.T) {
 	const go060RuleSuffix = "go.security.no-hardcoded-credentials"
 	fixtureDir := filepath.Join(root, "cmd", "backstop", "testdata", "dogfood_enforcement")
 
-	// runFixture drives the production semgrep executor through check.RunWith
-	// over a single fixture with the consumed pack's rule --config set, returning
-	// the semgrep-pass violations. Inlined as a closure so the enforcement-claim
-	// assertions call pkg/check directly within this test body.
+	// runFixture runs a REAL semgrep pass directly over a single fixture with the
+	// consumed pack's engine:semgrep rule --config set — the same paths the gate
+	// dispatches to the semgrep engine — and parses the JSON findings via the
+	// production parseSemgrepJSON path through check.ParsePackFindings is not
+	// applicable here (semgrep emits its own JSON, not SARIF), so we run semgrep
+	// --json and parse with the production semgrep executor by feeding the
+	// fixture as the sole scoped file. We invoke semgrep directly to avoid the
+	// retired ExtraSemgrepConfigs option.
 	runFixture := func(fixture string) []check.Violation {
-		result, runErr := check.RunWith(context.Background(), check.RunOptions{
-			Options: check.Options{
-				Mode:                check.ScopeModeFile,
-				FilePath:            fixture,
-				BackstopDir:         filepath.Dir(filepath.Dir(fixture)),
-				ProjectDir:          filepath.Dir(fixture),
-				ExtraSemgrepConfigs: ruleConfigs,
-			},
-			SemgrepEnsurer: systemSemgrepEnsurer{path: semgrepBin},
-		})
-		if runErr != nil {
-			t.Fatalf("check.RunWith over %s: %v", fixture, runErr)
+		args := []string{"--json", "--quiet"}
+		for _, cfg := range ruleConfigs {
+			args = append(args, "--config", cfg)
 		}
-		var semgrep []check.Violation
-		for _, v := range result.AllViolations() {
-			if v.Pass == check.CheckTypeSemgrep {
-				semgrep = append(semgrep, v)
-			}
+		args = append(args, fixture)
+		out, _ := exec.Command(semgrepBin, args...).Output()
+		violations, parseErr := check.ParseSemgrepJSONForTest(out)
+		if parseErr != nil {
+			t.Fatalf("parse semgrep json over %s: %v", fixture, parseErr)
 		}
-		return semgrep
+		return violations
 	}
 
 	// POSITIVE: the known-bad fixture must be flagged by the GO-060 pack rule.

@@ -3,6 +3,8 @@ package pack
 import (
 	"strconv"
 	"strings"
+
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // ValidationError describes a manifest validation violation.
@@ -24,7 +26,7 @@ func ValidateManifest(m *Manifest) []ValidationError {
 
 	var errs []ValidationError
 	errs = append(errs, validateContentTypes(m)...)
-	errs = append(errs, validateLayerFields(m)...)
+	errs = append(errs, validateEngineFields(m)...)
 	errs = append(errs, validateSecurityFixtures(m)...)
 	errs = append(errs, validateToolConfigTrace(m)...)
 	errs = append(errs, validateCoOccurrence(m)...)
@@ -49,25 +51,27 @@ func ExpectedLayout(m *Manifest) []string {
 	add("go.mod")
 	add("fixtures/rules/")
 
-	hasLayer2 := false
-	hasLayer3 := false
+	hasRuleFiles := false
+	hasValidators := false
 	if m != nil {
 		for _, rule := range m.Content.Ruleset.Rules {
-			if rule.Layer == 2 {
-				hasLayer2 = true
-			}
-			if rule.Layer == 3 {
-				hasLayer3 = true
+			// Rule-fed findings engines (semgrep, ast-grep) ship rule files under
+			// rules/; the sandbox engine ships validators under validators/.
+			switch rule.Engine {
+			case "semgrep", "ast-grep":
+				hasRuleFiles = true
+			case "sandbox":
+				hasValidators = true
 			}
 		}
 		if m.Archetype == "code" {
 			add("scaffolds/")
 		}
 	}
-	if hasLayer2 {
+	if hasRuleFiles {
 		add("rules/")
 	}
-	if hasLayer3 {
+	if hasValidators {
 		add("validators/")
 	}
 	return layout
@@ -102,138 +106,159 @@ func validateContentTypes(m *Manifest) []ValidationError {
 	return errs
 }
 
-func validateLayerFields(m *Manifest) []ValidationError {
+// engineFieldClaim maps an (engine, field, kind) check to the pack validation
+// claim code it must report. kind is "requires" (field missing) or "forbids"
+// (field present). The codes are re-keyed faithfully from the retired
+// retired per-layer field checks so existing claim-traceability is preserved
+// across the layer->engine cutover (REQ-003 / CLM-016).
+var engineFieldClaim = map[string]string{
+	// semgrep (ex-layer-2)
+	"semgrep|rule_path|requires":  "CLM-007",
+	"semgrep|standard|requires":   "CLM-008",
+	"semgrep|category|forbids":    "CLM-018",
+	"semgrep|input_scope|forbids": "CLM-025",
+	"semgrep|validator|forbids":   "CLM-027",
+	// ast-grep (rule-fed like semgrep, no standard requirement)
+	"ast-grep|rule_path|requires":  "CLM-007",
+	"ast-grep|category|forbids":    "CLM-018",
+	"ast-grep|input_scope|forbids": "CLM-025",
+	"ast-grep|validator|forbids":   "CLM-027",
+	// sandbox (ex-layer-3)
+	"sandbox|validator|requires":   "CLM-022",
+	"sandbox|input_scope|requires": "CLM-021",
+	"sandbox|category|requires":    "CLM-015",
+	"sandbox|rule_path|forbids":    "CLM-010",
+	// config-file (ex-layer-1 native linter)
+	"config-file|rule_path|forbids":   "CLM-009",
+	"config-file|category|forbids":    "CLM-017",
+	"config-file|input_scope|forbids": "CLM-024",
+	"config-file|validator|forbids":   "CLM-026",
+}
+
+func claimFor(engineName, field, kind string) string {
+	if code, ok := engineFieldClaim[engineName+"|"+field+"|"+kind]; ok {
+		return code
+	}
+	return "CLM-003-engine-fit"
+}
+
+// validateEngineFields verifies each rule's populated fields satisfy its
+// declared engine's requires/forbids field-contract (REQ-003), emitting a
+// ValidationError naming the offending field AND engine. It is verify-only: it
+// never inspects rule content, recommends an engine, or reclassifies a rule
+// (REQ-004). It replaces the retired per-layer field validation, re-keyed
+// engine-for-layer with every per-layer forbid preserved (REQ-003 / CLM-016).
+func validateEngineFields(m *Manifest) []ValidationError {
 	var errs []ValidationError
+	contracts := engine.DefaultFieldContracts()
 	for i, rule := range m.Content.Ruleset.Rules {
 		fieldPrefix := "content.ruleset.rules[" + strconv.Itoa(i) + "]"
-		switch rule.Layer {
-		case 1:
-			if rule.RulePath != "" {
+		// An empty engine is caught at parse time; in direct ValidateManifest
+		// calls on hand-built structs, surface it here too so validation is loud.
+		if rule.Engine == "" {
+			errs = append(errs, ValidationError{
+				Field:   fieldPrefix + ".engine",
+				Message: "engine is required (layer is retired)",
+				Rule:    "CLM-005-engine-required",
+			})
+			continue
+		}
+		contract, ok := contracts[rule.Engine]
+		if !ok {
+			errs = append(errs, ValidationError{
+				Field:   fieldPrefix + ".engine",
+				Message: "unknown engine " + rule.Engine,
+				Rule:    "CLM-020-unknown-engine",
+			})
+			continue
+		}
+
+		for _, field := range contract.Requires {
+			if ruleFieldValue(rule, field) == "" {
 				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".rule_path",
-					Message: "layer 1 must not define rule_path",
-					Rule:    "CLM-009",
+					Field:   fieldPrefix + "." + field,
+					Message: "engine " + rule.Engine + " requires " + field,
+					Rule:    claimFor(rule.Engine, field, "requires"),
 				})
 			}
-			if rule.Category != "" {
+		}
+		for _, field := range contract.Forbids {
+			if ruleFieldValue(rule, field) != "" {
 				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".category",
-					Message: "layer 1 must not define category",
-					Rule:    "CLM-017",
+					Field:   fieldPrefix + "." + field,
+					Message: "engine " + rule.Engine + " must not define " + field,
+					Rule:    claimFor(rule.Engine, field, "forbids"),
 				})
 			}
-			if rule.InputScope != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".input_scope",
-					Message: "layer 1 must not define input_scope",
-					Rule:    "CLM-024",
-				})
-			}
-			if rule.Validator != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".validator",
-					Message: "layer 1 must not define validator",
-					Rule:    "CLM-026",
-				})
-			}
-		case 2:
-			if rule.RulePath == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".rule_path",
-					Message: "layer 2 requires rule_path",
-					Rule:    "CLM-007",
-				})
-			}
-			if rule.Standard == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".standard",
-					Message: "layer 2 requires standard",
-					Rule:    "CLM-008",
-				})
-			}
-			if rule.Category != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".category",
-					Message: "layer 2 must not define category",
-					Rule:    "CLM-018",
-				})
-			}
-			if rule.InputScope != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".input_scope",
-					Message: "layer 2 must not define input_scope",
-					Rule:    "CLM-025",
-				})
-			}
-			if rule.Validator != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".validator",
-					Message: "layer 2 must not define validator",
-					Rule:    "CLM-027",
-				})
-			}
-		case 3:
-			if rule.RulePath != "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".rule_path",
-					Message: "layer 3 must not define rule_path",
-					Rule:    "CLM-010",
-				})
-			}
-			if rule.Category == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".category",
-					Message: "layer 3 requires category",
-					Rule:    "CLM-015",
-				})
-			} else if !isValidLayer3Category(rule.Category) {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".category",
-					Message: "layer 3 category must be presence, structural, or other",
-					Rule:    "CLM-016",
-				})
-			}
-			if rule.Category == "other" && strings.TrimSpace(rule.Justification) == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".justification",
-					Message: "layer 3 category other requires justification",
-					Rule:    "CLM-014",
-				})
-			}
-			if rule.InputScope == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".input_scope",
-					Message: "layer 3 requires input_scope",
-					Rule:    "CLM-021",
-				})
-			} else if rule.InputScope != "single-file" && rule.InputScope != "multi-file" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".input_scope",
-					Message: "layer 3 input_scope must be single-file or multi-file",
-					Rule:    "CLM-023",
-				})
-			}
-			if rule.Validator == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix + ".validator",
-					Message: "layer 3 requires validator",
-					Rule:    "CLM-022",
-				})
-			}
-			if rule.InputScope == "" || rule.Validator == "" {
-				errs = append(errs, ValidationError{
-					Field:   fieldPrefix,
-					Message: "layer 3 requires isolation fields",
-					Rule:    "CLM-040",
-				})
-			}
+		}
+
+		// The sandbox engine additionally enforces the category value-enum, the
+		// other-requires-justification rule, and the input_scope value-enum —
+		// re-keyed unchanged from the layer-3 checks.
+		if rule.Engine == "sandbox" {
+			errs = append(errs, validateSandboxValueRules(rule, fieldPrefix)...)
 		}
 	}
 
 	return errs
 }
 
-func isValidLayer3Category(category string) bool {
+// validateSandboxValueRules applies the sandbox engine's value-enum and
+// justification checks (category in {presence,structural,other}; other requires
+// justification; input_scope in {single-file,multi-file}) re-keyed from layer-3.
+func validateSandboxValueRules(rule Rule, fieldPrefix string) []ValidationError {
+	var errs []ValidationError
+	if rule.Category != "" && !isValidSandboxCategory(rule.Category) {
+		errs = append(errs, ValidationError{
+			Field:   fieldPrefix + ".category",
+			Message: "engine sandbox category must be presence, structural, or other",
+			Rule:    "CLM-016",
+		})
+	}
+	if rule.Category == "other" && strings.TrimSpace(rule.Justification) == "" {
+		errs = append(errs, ValidationError{
+			Field:   fieldPrefix + ".justification",
+			Message: "engine sandbox category other requires justification",
+			Rule:    "CLM-014",
+		})
+	}
+	if rule.InputScope != "" && rule.InputScope != "single-file" && rule.InputScope != "multi-file" {
+		errs = append(errs, ValidationError{
+			Field:   fieldPrefix + ".input_scope",
+			Message: "engine sandbox input_scope must be single-file or multi-file",
+			Rule:    "CLM-023",
+		})
+	}
+	if rule.InputScope == "" || rule.Validator == "" {
+		errs = append(errs, ValidationError{
+			Field:   fieldPrefix,
+			Message: "engine sandbox requires isolation fields",
+			Rule:    "CLM-040",
+		})
+	}
+	return errs
+}
+
+// ruleFieldValue returns the populated value of the named pack.yml field on a
+// rule, so the field-contract loop can check presence generically.
+func ruleFieldValue(rule Rule, field string) string {
+	switch field {
+	case engine.FieldRulePath:
+		return rule.RulePath
+	case engine.FieldStandard:
+		return rule.Standard
+	case engine.FieldCategory:
+		return rule.Category
+	case engine.FieldInputScope:
+		return rule.InputScope
+	case engine.FieldValidator:
+		return rule.Validator
+	default:
+		return ""
+	}
+}
+
+func isValidSandboxCategory(category string) bool {
 	switch category {
 	case "presence", "structural", "other":
 		return true

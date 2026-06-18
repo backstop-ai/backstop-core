@@ -8,26 +8,6 @@ import (
 	"testing"
 )
 
-// containsConfigFor reports whether args contains a `--config <path>` pair for
-// the given path.
-func containsConfigFor(args []string, path string) bool {
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "--config" && args[i+1] == path {
-			return true
-		}
-	}
-	return false
-}
-
-func containsArg(args []string, want string) bool {
-	for _, a := range args {
-		if a == want {
-			return true
-		}
-	}
-	return false
-}
-
 // configPaths returns every value that follows a `--config` flag in args.
 func configPaths(args []string) []string {
 	var paths []string
@@ -37,6 +17,15 @@ func configPaths(args []string) []string {
 		}
 	}
 	return paths
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
 }
 
 // hasConfigUnderRules reports whether any `--config` path points inside a
@@ -50,58 +39,13 @@ func hasConfigUnderRules(args []string) bool {
 	return false
 }
 
-// TestSemgrepExecutor_ConfigArgsFromPacksOnly verifies that a semgrepExecutor
-// constructed with pack-supplied extraSemgrepConfigs (and no manifestDir field)
-// assembles exactly one --config per pack path and NO standards-dir
-// (.backstop/rules) --config. This pins the packs-only --config behavior after
-// the compiled-standards arm is deleted. (CLM-001)
-func TestSemgrepExecutor_ConfigArgsFromPacksOnly(t *testing.T) {
-	const binPath = "/fake/tools/semgrep"
-	runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(fixtureSemgrepFindings)}}
-	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
-
-	packConfigA := "/proj/.backstop/packs/slotly/go-standards/rules/a.yml"
-	packConfigB := "/proj/.backstop/packs/acme/ts-standards/rules/b.yml"
-
-	e := &semgrepExecutor{
-		runner:              runner,
-		ensurer:             ensurer,
-		backstopDir:         "/proj/.backstop",
-		extraSemgrepConfigs: []string{packConfigA, packConfigB},
-	}
-
-	if _, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"}); err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-
-	call := runner.lastCall()
-	if call.name != binPath {
-		t.Fatalf("invoked %q, want EnsureSemgrep-resolved binary %q", call.name, binPath)
-	}
-	if !containsArg(call.args, "--json") {
-		t.Errorf("args %v missing --json", call.args)
-	}
-	if !containsConfigFor(call.args, packConfigA) {
-		t.Errorf("args %v missing --config for pack config A", call.args)
-	}
-	if !containsConfigFor(call.args, packConfigB) {
-		t.Errorf("args %v missing --config for pack config B", call.args)
-	}
-
-	// Exactly the two pack paths are --config sources — no standards-dir config.
-	got := configPaths(call.args)
-	if len(got) != 2 {
-		t.Fatalf("got %d --config paths, want exactly 2 (pack paths only): %v", len(got), got)
-	}
-	if hasConfigUnderRules(call.args) {
-		t.Errorf("args %v carry a standards-dir (.backstop/rules) --config; the compiled-standards arm must be gone", call.args)
-	}
-}
-
-// TestSemgrepExecutor_NoConfigWhenNoPacks verifies that with zero
-// extraSemgrepConfigs the semgrep argv carries no --config flag at all — the
-// deleted manifestDir arm leaves no residual standards --config. (CLM-002)
-func TestSemgrepExecutor_NoConfigWhenNoPacks(t *testing.T) {
+// TestSemgrepExecutor_NoConfigEver verifies that after SPEC-031 the in-process
+// semgrepExecutor invokes semgrep with NO --config at all. Installed-pack
+// semgrep rules are dispatched group-by-engine in cmd/backstop's
+// dispatchPackEngines (the migrated pack-feeder coverage lives in the dispatch
+// tests), so the executor's only job is the project's own semgrep pass:
+// --json --quiet <files>, no rule-config source. (REQ-011)
+func TestSemgrepExecutor_NoConfigEver(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(`{"results":[]}`)}}
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
@@ -118,30 +62,30 @@ func TestSemgrepExecutor_NoConfigWhenNoPacks(t *testing.T) {
 
 	call := runner.lastCall()
 	if containsArg(call.args, "--config") {
-		t.Errorf("args %v carry a --config flag with zero packs; expected none", call.args)
+		t.Errorf("args %v carry a --config flag; the executor no longer feeds pack configs", call.args)
 	}
 	if !containsArg(call.args, "--json") {
 		t.Errorf("args %v missing --json", call.args)
 	}
 }
 
-// TestSemgrepExecutor_StructHasNoManifestDir constructs the semgrepExecutor with
-// an UNKEYED (positional) composite literal of exactly five field values
-// (runner, ensurer, backstopDir, pinnedVersion, extraSemgrepConfigs). If a
-// manifestDir field — or any other field — is added or removed, this literal
-// fails to compile, so the struct's field set is pinned exactly. (CLM-003)
-func TestSemgrepExecutor_StructHasNoManifestDir(t *testing.T) {
+// TestSemgrepExecutor_StructHasNoPackFeeder constructs the semgrepExecutor with
+// an UNKEYED (positional) composite literal of exactly four field values
+// (runner, ensurer, backstopDir, pinnedVersion). If the retired
+// extraSemgrepConfigs field — or any other field — is added back, this literal
+// fails to compile, so the struct's field set is pinned exactly after the
+// pack-feeder field is removed. (REQ-011)
+func TestSemgrepExecutor_StructHasNoPackFeeder(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(`{"results":[]}`)}}
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
 
-	// Unkeyed: runner, ensurer, backstopDir, pinnedVersion, extraSemgrepConfigs.
+	// Unkeyed: runner, ensurer, backstopDir, pinnedVersion.
 	e := &semgrepExecutor{
 		runner,
 		ensurer,
 		"/proj/.backstop",
 		"",
-		[]string{},
 	}
 
 	if _, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"}); err != nil {
@@ -149,16 +93,16 @@ func TestSemgrepExecutor_StructHasNoManifestDir(t *testing.T) {
 	}
 	call := runner.lastCall()
 	if containsArg(call.args, "--config") {
-		t.Errorf("args %v carry a --config flag; an empty extraSemgrepConfigs must yield none", call.args)
+		t.Errorf("args %v carry a --config flag; the executor must yield none", call.args)
 	}
 }
 
-// TestNoTestRequiresManifestDirOrStandardsConfig is a source self-check over the
-// pkg/check test files: it asserts neither the removed semgrepExecutor field
-// token in a struct literal nor a containsConfigFor(..., ".../rules")
-// standards-dir assertion survives, so the green go-test guarantee is enforced
-// rather than assumed. (CLM-023)
-func TestNoTestRequiresManifestDirOrStandardsConfig(t *testing.T) {
+// TestNoTestRequiresManifestDirOrPackFeeder is a source self-check over the
+// pkg/check test files: it asserts neither the removed manifestDir field token
+// nor the retired extraSemgrepConfigs field token survives in any
+// semgrepExecutor struct literal, so the green go-test guarantee is enforced
+// rather than assumed. (REQ-011)
+func TestNoTestRequiresManifestDirOrPackFeeder(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("reading pkg/check dir: %v", err)
@@ -179,32 +123,31 @@ func TestNoTestRequiresManifestDirOrStandardsConfig(t *testing.T) {
 		if strings.Contains(src, manifestFieldToken) {
 			t.Errorf("%s still constructs a semgrepExecutor with a %s field; the field is removed", name, manifestFieldToken)
 		}
-		standardsConfigToken := `containsConfigFor(call.args, "/proj/.backstop/` + `rules")`
-		if strings.Contains(src, standardsConfigToken) {
-			t.Errorf("%s still asserts a standards-dir (.backstop/rules) --config path", name)
+		packFeederToken := "extraSemgrep" + "Configs:"
+		if strings.Contains(src, packFeederToken) {
+			t.Errorf("%s still constructs a semgrepExecutor with the retired %s field", name, packFeederToken)
 		}
 	}
 }
 
-// TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs verifies that the
-// semgrepExecutor invokes the EnsureSemgrep-resolved binary with --json and a
-// --config for every extraSemgrepConfigs path (packs only — no standards-dir
-// --config), then maps results[] to Violations with correct File (.path), Line
-// (.start.line), Message (.extra.message), and Severity (.extra.severity
-// ERROR->error, WARNING->warning).
-func TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs(t *testing.T) {
+// TestCodeCheck_SemgrepExecutor_RunsProjectAndMapsResults verifies that the
+// semgrepExecutor invokes the EnsureSemgrep-resolved binary with --json (no
+// pack --config — that path moved to dispatch), then maps results[] to
+// Violations with correct File (.path), Line (.start.line), Message
+// (.extra.message), and Severity (.extra.severity ERROR->error,
+// WARNING->warning). Re-keyed from the retired
+// TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs: the pack-config
+// assertions are dropped (their coverage moved to the dispatchPackEngines
+// tests), the project-rules --json/results-to-Violations coverage is retained.
+func TestCodeCheck_SemgrepExecutor_RunsProjectAndMapsResults(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(fixtureSemgrepFindings)}}
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
 
-	packConfigA := "/proj/.backstop/packs/slotly/go-standards/rules/a.yml"
-	packConfigB := "/proj/.backstop/packs/acme/ts-standards/rules/b.yml"
-
 	e := &semgrepExecutor{
-		runner:              runner,
-		ensurer:             ensurer,
-		backstopDir:         "/proj/.backstop",
-		extraSemgrepConfigs: []string{packConfigA, packConfigB},
+		runner:      runner,
+		ensurer:     ensurer,
+		backstopDir: "/proj/.backstop",
 	}
 
 	res, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"})
@@ -223,13 +166,10 @@ func TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs(t *testing.T) {
 	if !containsArg(call.args, "--json") {
 		t.Errorf("args %v missing --json", call.args)
 	}
-	if !containsConfigFor(call.args, packConfigA) {
-		t.Errorf("args %v missing --config for pack config A", call.args)
+	// The pack-config feeder is retired: no --config and no standards-dir config.
+	if containsArg(call.args, "--config") {
+		t.Errorf("args %v carry a --config flag; pack rule dispatch is no longer fed here", call.args)
 	}
-	if !containsConfigFor(call.args, packConfigB) {
-		t.Errorf("args %v missing --config for pack config B", call.args)
-	}
-	// --config is composed SOLELY from extraSemgrepConfigs — no standards dir.
 	if hasConfigUnderRules(call.args) {
 		t.Errorf("args %v carry a standards-dir (.backstop/rules) --config", call.args)
 	}
@@ -299,18 +239,16 @@ func TestCodeCheck_SemgrepExecutor_ToleratesNonJSONPreamble(t *testing.T) {
 
 // TestCodeCheck_SemgrepExecutor_QuietFlagPassed verifies that the semgrep
 // invocation includes --quiet (suppresses non-JSON banner/progress output)
-// alongside the existing --json and pack --config args. (CLM-002)
+// alongside --json. (CLM-002)
 func TestCodeCheck_SemgrepExecutor_QuietFlagPassed(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(fixtureSemgrepFindings)}}
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
 
-	packConfig := "/proj/.backstop/packs/slotly/go-standards/rules/a.yml"
 	e := &semgrepExecutor{
-		runner:              runner,
-		ensurer:             ensurer,
-		backstopDir:         "/proj/.backstop",
-		extraSemgrepConfigs: []string{packConfig},
+		runner:      runner,
+		ensurer:     ensurer,
+		backstopDir: "/proj/.backstop",
 	}
 
 	if _, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"}); err != nil {
@@ -321,12 +259,8 @@ func TestCodeCheck_SemgrepExecutor_QuietFlagPassed(t *testing.T) {
 	if !containsArg(call.args, "--quiet") {
 		t.Errorf("args %v missing --quiet", call.args)
 	}
-	// --quiet must be additive: the existing --json and pack --config flags stay.
 	if !containsArg(call.args, "--json") {
 		t.Errorf("args %v missing --json", call.args)
-	}
-	if !containsConfigFor(call.args, packConfig) {
-		t.Errorf("args %v missing --config for the pack rule path", call.args)
 	}
 }
 
@@ -340,10 +274,9 @@ func TestCodeCheck_SemgrepExecutor_PreservesPackNamespacedRuleIDs(t *testing.T) 
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
 
 	e := &semgrepExecutor{
-		runner:              runner,
-		ensurer:             ensurer,
-		backstopDir:         "/proj/.backstop",
-		extraSemgrepConfigs: []string{"/proj/.backstop/packs/slotly/go-standards/rules/a.yml"},
+		runner:      runner,
+		ensurer:     ensurer,
+		backstopDir: "/proj/.backstop",
 	}
 
 	res, err := e.Execute(context.Background(), []string{"pkg/server/handler.go"})
@@ -376,8 +309,8 @@ func TestCodeCheck_SemgrepExecutor_PreservesPackNamespacedRuleIDs(t *testing.T) 
 
 // TestNoFallback_LeftoverCompiledRulesIgnored verifies that a planted
 // STD-*.semgrep.yml in .backstop/rules/ is NOT collected as a --config path:
-// the recorded argv contains no path under .backstop/rules/. The executor's
-// --config set is composed solely from extraSemgrepConfigs. (CLM-018)
+// the recorded argv contains no path under .backstop/rules/. The executor
+// composes no --config at all. (CLM-018)
 func TestNoFallback_LeftoverCompiledRulesIgnored(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	dir := t.TempDir()
@@ -407,14 +340,14 @@ func TestNoFallback_LeftoverCompiledRulesIgnored(t *testing.T) {
 		t.Errorf("args %v collected a leftover .backstop/rules/ path as --config; it must be ignored", call.args)
 	}
 	if containsArg(call.args, "--config") {
-		t.Errorf("args %v carry a --config flag; with zero packs there must be none", call.args)
+		t.Errorf("args %v carry a --config flag; the executor composes none", call.args)
 	}
 }
 
 // TestNoFallback_PopulatedRulesDirNotASource verifies that a populated
-// .backstop/rules/ directory does not become an implicit second rule source:
-// with zero packs, semgrep still runs with no --config even when
-// .backstop/rules/ contains files. (CLM-019)
+// .backstop/rules/ directory does not become an implicit rule source: semgrep
+// still runs with no --config even when .backstop/rules/ contains files.
+// (CLM-019)
 func TestNoFallback_PopulatedRulesDirNotASource(t *testing.T) {
 	const binPath = "/fake/tools/semgrep"
 	dir := t.TempDir()
@@ -432,10 +365,9 @@ func TestNoFallback_PopulatedRulesDirNotASource(t *testing.T) {
 	ensurer := &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
 
 	e := &semgrepExecutor{
-		runner:              runner,
-		ensurer:             ensurer,
-		backstopDir:         filepath.Join(dir, ".backstop"),
-		extraSemgrepConfigs: []string{},
+		runner:      runner,
+		ensurer:     ensurer,
+		backstopDir: filepath.Join(dir, ".backstop"),
 	}
 
 	if _, err := e.Execute(context.Background(), []string{"main.go"}); err != nil {

@@ -116,6 +116,10 @@ func TestGateIntegration_LockHashMismatch(t *testing.T) {
 	}
 }
 
+// TestGateIntegration_SemgrepRulesMerged asserts dispatchPackEngines gathers the
+// engine: semgrep rule-flags input as one absolute rule path resolved relative
+// to the per-engine pack dir. Re-keyed from the retired mergePackRules direct
+// caller onto a capturingRunner that records the semgrep --config args.
 func TestGateIntegration_SemgrepRulesMerged(t *testing.T) {
 	projectRoot := fixtureProjectRoot(t, "packgate")
 	packs, err := loadInstalledPacks(projectRoot)
@@ -123,12 +127,22 @@ func TestGateIntegration_SemgrepRulesMerged(t *testing.T) {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
 
-	rulePaths, err := mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
-	if err != nil {
-		t.Fatalf("mergePackRules: %v", err)
+	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
+	orig := sandboxedRun
+	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
+	defer func() { sandboxedRun = orig }()
+
+	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec); err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+	var rulePaths []string
+	for i := 0; i+1 < len(rec.lastArgs); i++ {
+		if rec.lastArgs[i] == "--config" {
+			rulePaths = append(rulePaths, rec.lastArgs[i+1])
+		}
 	}
 	if len(rulePaths) != 1 {
-		t.Fatalf("expected 1 semgrep rule path, got %d", len(rulePaths))
+		t.Fatalf("expected 1 semgrep rule path, got %d: %v", len(rulePaths), rec.lastArgs)
 	}
 	if !filepath.IsAbs(rulePaths[0]) {
 		t.Fatalf("expected absolute rule path, got %q", rulePaths[0])
@@ -153,7 +167,11 @@ func TestGateIntegration_NamespacedRuleIDs(t *testing.T) {
 	}
 }
 
-func TestGateIntegration_Layer3ValidatorExecuted(t *testing.T) {
+// TestGateIntegration_SandboxValidatorExecuted asserts the engine==sandbox
+// exit-code branch of dispatchPackEngines invokes the validator on the full
+// project root. Re-keyed from TestGateIntegration_Layer3ValidatorExecuted (the
+// fixture rule is now engine: sandbox).
+func TestGateIntegration_SandboxValidatorExecuted(t *testing.T) {
 	projectRoot := fixtureProjectRoot(t, "packgate")
 	packs, err := loadInstalledPacks(projectRoot)
 	if err != nil {
@@ -174,9 +192,9 @@ func TestGateIntegration_Layer3ValidatorExecuted(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if !called {
 		t.Fatal("expected validator execution")
@@ -186,7 +204,10 @@ func TestGateIntegration_Layer3ValidatorExecuted(t *testing.T) {
 	}
 }
 
-func TestGateIntegration_Layer3NamespacedIDs(t *testing.T) {
+// TestGateIntegration_SandboxNamespacedIDs asserts the namespaced violation id
+// survives the re-keyed engine==sandbox exit-code branch. Re-keyed from
+// TestGateIntegration_Layer3NamespacedIDs.
+func TestGateIntegration_SandboxNamespacedIDs(t *testing.T) {
 	projectRoot := fixtureProjectRoot(t, "packgate")
 	packs, err := loadInstalledPacks(projectRoot)
 	if err != nil {
@@ -199,9 +220,9 @@ func TestGateIntegration_Layer3NamespacedIDs(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) == 0 {
 		t.Fatal("expected validator violation")
@@ -218,12 +239,15 @@ func TestGateIntegration_BrokenPackRuleFile(t *testing.T) {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
 
-	_, err = mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
+	_, err = dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
 	if err == nil {
 		t.Fatal("expected error for missing pack rule file")
 	}
 	if !strings.Contains(err.Error(), "does-not-exist.yml") {
 		t.Fatalf("expected missing file diagnostic, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "broken pack") {
+		t.Fatalf("expected broken-pack diagnostic naming the pack, got: %v", err)
 	}
 }
 
@@ -236,12 +260,21 @@ func TestGateIntegration_ToolConfigApplied(t *testing.T) {
 	if len(packs[0].ToolConfig) == 0 {
 		t.Fatal("fixture pack should include tool_config")
 	}
-	rulePaths, err := mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
-	if err != nil {
-		t.Fatalf("mergePackRules should not require runtime tool_config merge: %v", err)
+	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
+	orig := sandboxedRun
+	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
+	defer func() { sandboxedRun = orig }()
+	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec); err != nil {
+		t.Fatalf("dispatchPackEngines should not require runtime tool_config merge: %v", err)
 	}
-	if len(rulePaths) != 1 {
-		t.Fatalf("expected layer-2 rule path while ignoring tool_config runtime merge, got %d", len(rulePaths))
+	configs := 0
+	for i := 0; i+1 < len(rec.lastArgs); i++ {
+		if rec.lastArgs[i] == "--config" {
+			configs++
+		}
+	}
+	if configs != 1 {
+		t.Fatalf("expected one semgrep rule input while ignoring tool_config runtime merge, got %d", configs)
 	}
 }
 
@@ -255,13 +288,7 @@ func TestGateIntegration_MultiplePacksEnforced(t *testing.T) {
 		t.Fatalf("expected 2 packs, got %d", len(packs))
 	}
 
-	rulePaths, err := mergePackRules(packs, filepath.Join(projectRoot, ".backstop", "packs"))
-	if err != nil {
-		t.Fatalf("mergePackRules: %v", err)
-	}
-	if len(rulePaths) != 1 {
-		t.Fatalf("expected one layer-2 rule path from first pack, got %d", len(rulePaths))
-	}
+	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
 
 	orig := sandboxedRun
 	sandboxedRun = func(cmd string, args []string, packDir string) ([]byte, error) {
@@ -272,12 +299,16 @@ func TestGateIntegration_MultiplePacksEnforced(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec)
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+	// First pack supplies one engine: semgrep rule input (gathered as --config).
+	if len(rec.allConfigs) < 1 {
+		t.Fatalf("expected the first pack's semgrep rule input gathered, got %v", rec.allConfigs)
 	}
 	if len(violations) != 1 {
-		t.Fatalf("expected one layer-3 violation from second pack, got %d", len(violations))
+		t.Fatalf("expected one engine: sandbox violation from second pack, got %d", len(violations))
 	}
 }
 
@@ -288,11 +319,12 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
 
-	// Add a synthetic layer-3 rule to the second pack (test-pack) so both packs emit.
+	// Add a synthetic engine: sandbox rule to the second pack (test-pack) so both
+	// packs emit through the re-keyed exit-code branch.
 	packs[1].Content.Ruleset.Rules = append(packs[1].Content.Ruleset.Rules, pack.Rule{
 		ID:           "test-pack-validator",
 		NamespacedID: pack.NamespacedRuleID(packs[1].NormalizedName, "test-pack-validator"),
-		Layer:        3,
+		Engine:       "sandbox",
 		Validator:    filepath.Join("..", "other-pack", "validators", "check-printf.sh"),
 	})
 
@@ -302,9 +334,9 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := runPackValidators(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(violations) < 2 {
 		t.Fatalf("expected at least 2 violations for attribution, got %d", len(violations))
@@ -325,9 +357,11 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 	}
 }
 
-// TestGateIntegration_Layer3SingleFileScope verifies that single-file input_scope
-// validators are invoked per-file, not once with the project root.
-func TestGateIntegration_Layer3SingleFileScope(t *testing.T) {
+// TestGateIntegration_SandboxSingleFileScope verifies that single-file
+// input_scope validators are invoked per-file, not once with the project root,
+// through the re-keyed engine==sandbox branch. Re-keyed from
+// TestGateIntegration_Layer3SingleFileScope.
+func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	// Create source files
 	os.WriteFile(filepath.Join(projectRoot, "main.go"), []byte("package main\n"), 0o644)
@@ -346,7 +380,7 @@ func TestGateIntegration_Layer3SingleFileScope(t *testing.T) {
 			Ruleset: pack.Ruleset{
 				Rules: []pack.Rule{{
 					ID:         "sf-check",
-					Layer:      3,
+					Engine:     "sandbox",
 					Validator:  "check.sh",
 					InputScope: "single-file",
 				}},
@@ -364,9 +398,9 @@ func TestGateIntegration_Layer3SingleFileScope(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := runPackValidators(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+	violations, err := dispatchPackEngines(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
 	if err != nil {
-		t.Fatalf("runPackValidators: %v", err)
+		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	// Should have been called per-file, not once with project root
 	if len(calls) < 2 {

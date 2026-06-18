@@ -1,0 +1,22 @@
+name: test-org/broken-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Broken pack whose declared rule input path is missing on disk
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: missing-rule
+        engine: semgrep
+        standard: "Rule file is intentionally absent to prove fail-loud"
+        rule_path: semgrep/does-not-exist.yml
+        risk_class: correctness
+        claims:
+          - id: bp-missing
+            text: Declared rule path is absent.
+            fixtures:
+              positive:
+                - fixtures/rules/missing-rule/positive.go
+              negative:
+                - fixtures/rules/missing-rule/negative.go

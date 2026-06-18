@@ -10,7 +10,7 @@ content:
       - id: no-printf
         standard: standards/go/no-printf.standard.md
         risk_class: correctness
-        layer: 3
+        engine: sandbox
         category: custom-validator
         validator: validators/check-printf.sh
         input_scope: multi-file

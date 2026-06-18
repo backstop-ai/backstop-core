@@ -133,30 +133,25 @@ func TestGateIntegration_CodeCheckLoadsPacks(t *testing.T) {
 	defer restore()
 
 	calledLoad := false
-	calledMerge := false
+	calledDispatch := false
 	origLoad := loadInstalledPacksFn
-	origMerge := mergePackRulesFn
 	origRun := checkRunFn
-	origValidators := runPackValidatorsFn
+	origDispatch := dispatchPackEnginesFn
 	defer func() {
 		loadInstalledPacksFn = origLoad
-		mergePackRulesFn = origMerge
 		checkRunFn = origRun
-		runPackValidatorsFn = origValidators
+		dispatchPackEnginesFn = origDispatch
 	}()
 
 	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
 		calledLoad = true
 		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
 	}
-	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
-		calledMerge = true
-		return []string{filepath.Join(packDir, "test-org", "test-pack", "rules", "no-eval.yml")}, nil
-	}
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		return &check.Result{}, nil
 	}
-	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
+		calledDispatch = true
 		return nil, nil
 	}
 
@@ -168,8 +163,8 @@ func TestGateIntegration_CodeCheckLoadsPacks(t *testing.T) {
 	if !calledLoad {
 		t.Fatal("expected code check to load packs")
 	}
-	if !calledMerge {
-		t.Fatal("expected code check to merge pack rules")
+	if !calledDispatch {
+		t.Fatal("expected code check to dispatch pack engines group-by-engine")
 	}
 }
 
@@ -179,28 +174,23 @@ func TestGateIntegration_CodeCheckAllLoadsPacks(t *testing.T) {
 	defer restore()
 
 	origLoad := loadInstalledPacksFn
-	origMerge := mergePackRulesFn
 	origRun := checkRunFn
-	origValidators := runPackValidatorsFn
+	origDispatch := dispatchPackEnginesFn
 	defer func() {
 		loadInstalledPacksFn = origLoad
-		mergePackRulesFn = origMerge
 		checkRunFn = origRun
-		runPackValidatorsFn = origValidators
+		dispatchPackEnginesFn = origDispatch
 	}()
 
 	var capturedMode check.ScopeMode
 	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
 		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
 	}
-	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
-		return []string{"dummy.yml"}, nil
-	}
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		capturedMode = opts.Mode
 		return &check.Result{}, nil
 	}
-	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
 		return nil, nil
 	}
 
@@ -214,35 +204,35 @@ func TestGateIntegration_CodeCheckAllLoadsPacks(t *testing.T) {
 	}
 }
 
-func TestGateIntegration_CodeCheckLayer3FullProject(t *testing.T) {
+// TestGateIntegration_CodeCheckSandboxFullProject verifies the sandbox engine's
+// exit-code branch (re-keyed from layer-3) runs on the full project root via the
+// consolidated dispatchPackEngines path. Re-keyed from the retired
+// TestGateIntegration_CodeCheckLayer3FullProject: the runPackValidatorsFn seam
+// is replaced by the dispatchPackEnginesFn seam capturing the dispatch root.
+func TestGateIntegration_CodeCheckSandboxFullProject(t *testing.T) {
 	projectRoot := setupCodeCheckPackProject(t)
 	restore := chdirTemp(t, projectRoot)
 	defer restore()
 
 	origLoad := loadInstalledPacksFn
-	origMerge := mergePackRulesFn
 	origRun := checkRunFn
-	origValidators := runPackValidatorsFn
+	origDispatch := dispatchPackEnginesFn
 	defer func() {
 		loadInstalledPacksFn = origLoad
-		mergePackRulesFn = origMerge
 		checkRunFn = origRun
-		runPackValidatorsFn = origValidators
+		dispatchPackEnginesFn = origDispatch
 	}()
 
 	loadInstalledPacksFn = func(root string) ([]*pack.Manifest, error) {
 		return []*pack.Manifest{{NormalizedName: "test-org/test-pack"}}, nil
 	}
-	mergePackRulesFn = func(packs []*pack.Manifest, packDir string) ([]string, error) {
-		return nil, nil
-	}
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		return &check.Result{}, nil
 	}
 
-	var validatorRoot string
-	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
-		validatorRoot = root
+	var dispatchRoot string
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
+		dispatchRoot = root
 		return nil, nil
 	}
 
@@ -253,9 +243,9 @@ func TestGateIntegration_CodeCheckLayer3FullProject(t *testing.T) {
 	}
 	// Resolve symlinks (macOS /var → /private/var) for comparison.
 	resolvedRoot, _ := filepath.EvalSymlinks(projectRoot)
-	resolvedValidator, _ := filepath.EvalSymlinks(validatorRoot)
-	if resolvedValidator != resolvedRoot {
-		t.Fatalf("expected layer3 validators to run on full project root %q, got %q", resolvedRoot, resolvedValidator)
+	resolvedDispatch, _ := filepath.EvalSymlinks(dispatchRoot)
+	if resolvedDispatch != resolvedRoot {
+		t.Fatalf("expected sandbox engine dispatch to run on full project root %q, got %q", resolvedRoot, resolvedDispatch)
 	}
 }
 
@@ -707,9 +697,9 @@ func semgrepCalls(r *recordingRunner) []recordedCall {
 
 // TestCodeCheckOptions_NoManifestDir verifies the code-check Options
 // construction produces Options with no compiled-standards manifest directory
-// wired in. The Options reach check.Run via the checkRunFn seam; the captured
-// Options' only semgrep rule source is ExtraSemgrepConfigs (empty with no
-// packs), and no field carries a .backstop/rules standards directory. (CLM-007)
+// wired in. The Options reach check.Run via the checkRunFn seam; after SPEC-031
+// the retired ExtraSemgrepConfigs pack feeder is gone entirely, and no field
+// carries a .backstop/rules standards directory. (CLM-007)
 func TestCodeCheckOptions_NoManifestDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-opts\nlanguage: go\n"), 0o644); err != nil {
@@ -735,9 +725,6 @@ func TestCodeCheckOptions_NoManifestDir(t *testing.T) {
 		t.Fatalf("code check: %v", err)
 	}
 
-	if len(captured.ExtraSemgrepConfigs) != 0 {
-		t.Errorf("ExtraSemgrepConfigs = %v, want empty (no packs)", captured.ExtraSemgrepConfigs)
-	}
 	// BackstopDir is the only directory the Options carry; it drives routing, not
 	// rule config. Confirm it points at .backstop (not a rules-as-config wiring).
 	if filepath.Base(captured.BackstopDir) != ".backstop" {
@@ -812,10 +799,15 @@ func TestCodeCheck_NoPacks_NoSemgrepConfig(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly verifies a code-check run
-// with one installed pack invokes semgrep with exactly the pack's rule paths as
-// --config and nothing from a standards directory. (CLM-011)
-func TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly(t *testing.T) {
+// TestCodeCheck_PackOnly_SemgrepPassCarriesNoPackConfig verifies that after
+// SPEC-031 an installed semgrep pack does NOT feed the in-process semgrep pass
+// via --config: the project semgrep invocation carries zero --config paths
+// because pack rules are dispatched group-by-engine through dispatchPackEngines
+// instead. Re-keyed from the retired
+// TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly (which asserted the old
+// in-process pack-config feeder). The pack.yml below declares engine: semgrep
+// under the migrated reader. (REQ-011)
+func TestCodeCheck_PackOnly_SemgrepPassCarriesNoPackConfig(t *testing.T) {
 	dir := t.TempDir()
 	rulesDir := filepath.Join(dir, ".backstop", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -851,8 +843,9 @@ content:
         standard: "no panic"
         rule_path: rules/no-panic.yml
         risk_class: correctness
-        layer: 2
+        engine: semgrep
 `
+	_ = ruleFile
 	if err := os.WriteFile(filepath.Join(packRoot, "pack.yml"), []byte(packYml), 0o644); err != nil {
 		t.Fatalf("write pack.yml: %v", err)
 	}
@@ -864,9 +857,11 @@ content:
 
 	runner := &recordingRunner{}
 	origRun := checkRunFn
-	origValidators := runPackValidatorsFn
-	defer func() { checkRunFn = origRun; runPackValidatorsFn = origValidators }()
-	runPackValidatorsFn = func(packs []*pack.Manifest, packDir, root string) ([]gate.Violation, error) {
+	origDispatch := dispatchPackEnginesFn
+	defer func() { checkRunFn = origRun; dispatchPackEnginesFn = origDispatch }()
+	// Stub dispatch so the pack-engine path does not shell out to a live engine;
+	// this test asserts the IN-PROCESS semgrep pass carries no pack --config.
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, r check.CommandRunner) ([]gate.Violation, error) {
 		return nil, nil
 	}
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
@@ -877,28 +872,13 @@ content:
 	root.SetArgs([]string{"code", "check", "--all"})
 	_ = root.Execute()
 
-	absRule, _ := filepath.Abs(ruleFile)
-	if resolved, evalErr := filepath.EvalSymlinks(absRule); evalErr == nil {
-		absRule = resolved
-	}
 	calls := semgrepCalls(runner)
 	if len(calls) == 0 {
-		t.Fatal("semgrep was never invoked; expected one invocation with the pack rule --config")
+		t.Fatal("semgrep was never invoked; expected one finding-free in-process invocation")
 	}
 	for _, c := range calls {
-		vals := configValues(c.args)
-		if len(vals) != 1 {
-			t.Fatalf("semgrep --config paths = %v, want exactly 1 (the pack rule)", vals)
-		}
-		got, _ := filepath.Abs(vals[0])
-		if resolved, evalErr := filepath.EvalSymlinks(got); evalErr == nil {
-			got = resolved
-		}
-		if got != absRule {
-			t.Errorf("semgrep --config = %q, want the pack rule path %q", got, absRule)
-		}
-		if strings.Contains(filepath.ToSlash(vals[0]), ".backstop/rules") {
-			t.Errorf("semgrep --config %q points under .backstop/rules (a standards dir), want only the pack path", vals[0])
+		if n := configCount(c.args); n != 0 {
+			t.Errorf("in-process semgrep invoked with %d --config paths, want 0 (pack rules dispatch separately): %v", n, c.args)
 		}
 	}
 }

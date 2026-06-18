@@ -1,0 +1,5 @@
+id: ast-grep-proof
+language: go
+rule:
+  pattern: forbiddenCall($$$)
+message: forbiddenCall is not allowed

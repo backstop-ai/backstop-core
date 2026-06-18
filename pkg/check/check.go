@@ -26,7 +26,6 @@ type Options struct {
 	Timeout               time.Duration
 	ProjectDir            string
 	GolangciLintAvailable bool
-	ExtraSemgrepConfigs   []string // Additional --config paths from installed packs
 	// Language selects the toolchain stack (go, typescript, or a declared
 	// stack). Empty defaults to the Go stack, preserving prior behavior.
 	Language string
@@ -386,11 +385,10 @@ func goBuiltinExecutors(opts Options, runner CommandRunner) map[CheckType]PassEx
 		CheckTypeBuild: &buildExecutor{runner: runner},
 		CheckTypeTest:  &testExecutor{runner: runner, fileMode: opts.Mode == ScopeModeFile},
 		CheckTypeSemgrep: &semgrepExecutor{
-			runner:              runner,
-			ensurer:             &DefaultSemgrepEnsurer{},
-			backstopDir:         opts.BackstopDir,
-			pinnedVersion:       opts.PinnedSemgrepVersion,
-			extraSemgrepConfigs: opts.ExtraSemgrepConfigs,
+			runner:        runner,
+			ensurer:       &DefaultSemgrepEnsurer{},
+			backstopDir:   opts.BackstopDir,
+			pinnedVersion: opts.PinnedSemgrepVersion,
 		},
 	}
 }
@@ -548,16 +546,17 @@ func (e *testExecutor) IsAvailable() (bool, string) {
 	return true, "" // go is assumed available
 }
 
-// semgrepExecutor runs semgrep rules against every pack-provided
-// ExtraSemgrepConfigs path — the SOLE rule-config source after SPEC-030. The
-// compiled-standards manifestDir arm has been removed; an empty
-// extraSemgrepConfigs yields a semgrep invocation with no --config.
+// semgrepExecutor runs the project's own semgrep pass over scoped files. After
+// SPEC-031 it carries NO pack rule-config feeder: installed-pack semgrep rules
+// are dispatched group-by-engine in cmd/backstop's dispatchPackEngines, not fed
+// into this in-process executor. This executor invokes semgrep with no --config
+// (just --json --quiet <files>), surfacing only the project's native semgrep
+// findings.
 type semgrepExecutor struct {
-	runner              CommandRunner
-	ensurer             SemgrepEnsurer
-	backstopDir         string
-	pinnedVersion       string
-	extraSemgrepConfigs []string
+	runner        CommandRunner
+	ensurer       SemgrepEnsurer
+	backstopDir   string
+	pinnedVersion string
 }
 
 func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
@@ -576,18 +575,14 @@ func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassRes
 		return nil, ensureErr
 	}
 
-	// Assemble --config flags solely from the pack-provided ExtraSemgrepConfigs
-	// paths (SPEC-030: installed packs are the single rule-config source). When
-	// that slice is empty, semgrep is invoked with --json --quiet <files...> and
-	// NO --config — there is no compiled-standards directory arm.
+	// The project semgrep pass carries NO --config: installed-pack semgrep rules
+	// are dispatched group-by-engine elsewhere (SPEC-031 REQ-011), not merged
+	// here. semgrep is invoked with --json --quiet <files...>.
 	// --quiet suppresses semgrep's non-JSON banner/progress output (the primary
 	// fix for the live `invalid character 'â'` parse failure). JSON-document
 	// extraction below is the belt-and-suspenders safety net for any stray
 	// preamble byte a future semgrep emits despite --quiet (ISSUE-006).
 	args := []string{"--json", "--quiet"}
-	for _, cfg := range e.extraSemgrepConfigs {
-		args = append(args, "--config", cfg)
-	}
 	args = append(args, files...)
 
 	out, _ := e.runner.Run(ctx, binPath, args...)
@@ -681,6 +676,15 @@ func extractJSONDocument(out []byte) []byte {
 		return out[i:]
 	}
 	return out
+}
+
+// ParseSemgrepJSONForTest parses raw `semgrep --json` output (tolerating a
+// non-JSON preamble via the same extractJSONDocument path the executor uses)
+// into violations. It is exported so the dogfood enforcement-transfer test can
+// run a real semgrep pass over the consumed pack's rule paths and assert on the
+// findings without reconstructing the executor's parsing.
+func ParseSemgrepJSONForTest(out []byte) ([]Violation, error) {
+	return parseSemgrepJSON(extractJSONDocument(out))
 }
 
 // parseSemgrepJSON unmarshals semgrep JSON output into semgrep violations,

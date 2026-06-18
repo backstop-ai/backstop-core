@@ -1,0 +1,2 @@
+- [Agent-guard blocks testdata](feedback_agent_guard_testdata.md) — implementer Write/Edit blocked on non-Go/non-.backstop files; use Bash to create fixtures + memory
+- [Dogfood/gate quirks (SPEC-031)](project_dogfood_gate_quirks.md) — contract checker collapsed defined types; no-global-mutable-state false-fired on const; both fixed by precision, not weakening

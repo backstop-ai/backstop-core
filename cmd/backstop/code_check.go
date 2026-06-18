@@ -13,10 +13,9 @@ import (
 )
 
 var (
-	checkRunFn           = check.Run
-	loadInstalledPacksFn = loadInstalledPacks
-	mergePackRulesFn     = mergePackRules
-	runPackValidatorsFn  = runPackValidators
+	checkRunFn            = check.Run
+	loadInstalledPacksFn  = loadInstalledPacks
+	dispatchPackEnginesFn = dispatchPackEngines
 )
 
 // codeCheckCmd is the top-level Cobra command for backstop code check,
@@ -83,18 +82,6 @@ dispatch with a 2-second execution budget.`,
 				}
 			}
 
-			extraSemgrepConfigs := []string{}
-			if len(packs) > 0 {
-				configs, mergeErr := mergePackRulesFn(packs, filepath.Join(projectRoot, ".backstop", "packs"))
-				if mergeErr != nil {
-					return &ExitCodeError{
-						Code:    ExitConfigError,
-						Message: fmt.Sprintf("pack rules: %s", mergeErr),
-					}
-				}
-				extraSemgrepConfigs = configs
-			}
-
 			// Step 5: Determine scope mode
 			mode := check.ScopeModeDiff
 			if allFlag {
@@ -103,15 +90,16 @@ dispatch with a 2-second execution budget.`,
 				mode = check.ScopeModeFile
 			}
 
-			// Step 6: Build check options
+			// Step 6: Build check options. Pack rule findings are dispatched
+			// group-by-engine in step 9 (SPEC-031 REQ-011), not fed into the
+			// in-process semgrepExecutor via ExtraSemgrepConfigs.
 			opts := check.Options{
-				Mode:                mode,
-				FilePath:            fileFlag,
-				BackstopDir:         filepath.Join(projectRoot, ".backstop"),
-				ProjectDir:          projectRoot,
-				ExtraSemgrepConfigs: extraSemgrepConfigs,
-				Language:            cfg.Language,
-				Config:              cfg,
+				Mode:        mode,
+				FilePath:    fileFlag,
+				BackstopDir: filepath.Join(projectRoot, ".backstop"),
+				ProjectDir:  projectRoot,
+				Language:    cfg.Language,
+				Config:      cfg,
 			}
 
 			// Extract semgrep version pin from config
@@ -141,13 +129,19 @@ dispatch with a 2-second execution budget.`,
 				}
 			}
 
-			// Step 9: Run pack validators on full project (always full scope).
+			// Step 9: Dispatch pack engines on full project (always full scope).
+			// This is the consolidated group-by-engine path (SPEC-031 REQ-011):
+			// it runs findings engines (semgrep, ast-grep, config-file) through
+			// convert+parseSarif AND the sandbox engine through the exit-code
+			// branch, replacing both the layer-2 mergePackRules feeder and the
+			// layer-3 runPackValidators feeder.
 			if len(packs) > 0 {
-				packViolations, validatorErr := runPackValidatorsFn(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot)
+				runner := &check.ExecCommandRunner{Dir: projectRoot}
+				packViolations, validatorErr := dispatchPackEnginesFn(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
 				if validatorErr != nil {
 					return &ExitCodeError{
 						Code:    ExitConfigError,
-						Message: fmt.Sprintf("pack validators: %s", validatorErr),
+						Message: fmt.Sprintf("pack engines: %s", validatorErr),
 					}
 				}
 				if len(packViolations) > 0 {

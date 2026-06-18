@@ -20,7 +20,7 @@ func makeMinimalManifest() *pack.Manifest {
 					{
 						ID:        "demo-rule",
 						RiskClass: "security",
-						Layer:     1,
+						Engine:    "config-file",
 						Claims: []pack.Claim{
 							{
 								ID:   "claim-1",
@@ -63,7 +63,7 @@ func requireNoError(t *testing.T, errs []pack.ValidationError, rule string) {
 
 func TestValidateManifest_AccumulatesErrors(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = ""
 	m.Content.Ruleset.Rules[0].Standard = ""
 

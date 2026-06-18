@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,17 +38,21 @@ func TestBuildGateSteps_PackLoadingFailureYieldsSingleFailStep(t *testing.T) {
 	}
 }
 
-// TestBuildGateSteps_PackRuleMergeFailureYieldsSingleFailStep verifies that a
-// pack whose declared layer-2 rule file is missing collapses buildGateSteps to
-// a single pack_rule_merge fail step flagged as a config error.
-func TestBuildGateSteps_PackRuleMergeFailureYieldsSingleFailStep(t *testing.T) {
+// TestBuildGateSteps_PackEngineDispatchFailureYieldsFailStep verifies that a
+// pack whose declared engine: semgrep rule file is missing surfaces as a
+// pack_engines gate step flagged as a config error. Re-keyed from the retired
+// TestBuildGateSteps_PackRuleMergeFailureYieldsSingleFailStep: the broken-pack
+// detection moved from the early mergePackRules collapse into the runtime
+// dispatchPackEngines step (the pack_engines step), so the gate now builds its
+// full step list and the failure is reported when that step runs.
+func TestBuildGateSteps_PackEngineDispatchFailureYieldsFailStep(t *testing.T) {
 	projectRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(
 		"project: p\nlanguage: go\npacks:\n  org/pack: \"1.0.0\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Install the pack dir with a manifest that references a rule file that does
-	// not exist, so mergePackRules fails with "broken pack".
+	// not exist, so dispatchPackEngines fails with "broken pack".
 	packRoot := filepath.Join(projectRoot, ".backstop", "packs", "org", "pack")
 	if err := os.MkdirAll(packRoot, 0o755); err != nil {
 		t.Fatal(err)
@@ -56,7 +61,7 @@ func TestBuildGateSteps_PackRuleMergeFailureYieldsSingleFailStep(t *testing.T) {
 version: 1.0.0
 language: go
 archetype: enforcement
-description: Pack with a broken layer-2 rule path
+description: Pack with a broken engine semgrep rule path
 content:
   ruleset:
     version: 1.0.0
@@ -65,8 +70,7 @@ content:
         standard: standards/go/r1.standard.md
         rule_path: rules/absent.yml
         risk_class: security
-        layer: 2
-        category: static-analysis
+        engine: semgrep
         claims:
           - id: c-r1
             text: Rule one.
@@ -81,15 +85,22 @@ content:
 	}
 
 	steps := buildGateSteps(projectRoot)
-	if len(steps) != 1 {
-		t.Fatalf("expected a single collapsed step, got %d", len(steps))
+	// Find the pack_engines step and run it; it must fail loud as a config error.
+	var found bool
+	for _, step := range steps {
+		res := step(context.Background())
+		if res.StepName == "pack_engines" {
+			found = true
+			if res.Status != "fail" || !res.ConfigErr {
+				t.Errorf("expected pack_engines fail+ConfigErr, got status=%q configErr=%v", res.Status, res.ConfigErr)
+			}
+			if len(res.Violations) == 0 || !strings.Contains(res.Violations[0].Message, "broken pack") {
+				t.Errorf("expected a broken-pack violation message, got %#v", res.Violations)
+			}
+		}
 	}
-	res := steps[0](context.Background())
-	if res.StepName != "pack_rule_merge" {
-		t.Errorf("step name = %q, want pack_rule_merge", res.StepName)
-	}
-	if res.Status != "fail" || !res.ConfigErr {
-		t.Errorf("expected fail+ConfigErr, got status=%q configErr=%v", res.Status, res.ConfigErr)
+	if !found {
+		t.Fatal("expected a pack_engines step in the gate step list")
 	}
 }
 

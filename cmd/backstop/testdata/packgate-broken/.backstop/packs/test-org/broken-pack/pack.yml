@@ -11,7 +11,7 @@ content:
         standard: standards/go/missing.standard.md
         rule_path: rules/does-not-exist.yml
         risk_class: security
-        layer: 2
+        engine: semgrep
         category: static-analysis
         claims:
           - id: c-missing-rule

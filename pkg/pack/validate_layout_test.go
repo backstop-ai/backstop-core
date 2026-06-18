@@ -32,7 +32,7 @@ func TestExpectedLayout_GoModAlways(t *testing.T) {
 
 func TestExpectedLayout_EnforcementWithLayer2(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.rego"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 
@@ -44,7 +44,7 @@ func TestExpectedLayout_EnforcementWithLayer2(t *testing.T) {
 
 func TestExpectedLayout_WithLayer3(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 3
+	m.Content.Ruleset.Rules[0].Engine = "sandbox"
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"

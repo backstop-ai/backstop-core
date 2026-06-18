@@ -66,7 +66,7 @@ func TestValidateLayer1_WithInputScope(t *testing.T) {
 
 func TestValidateLayer2_WithInputScope(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.rego"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
@@ -87,7 +87,7 @@ func TestValidateLayer1_WithValidator(t *testing.T) {
 
 func TestValidateLayer2_WithValidator(t *testing.T) {
 	m := makeMinimalManifest()
-	m.Content.Ruleset.Rules[0].Layer = 2
+	m.Content.Ruleset.Rules[0].Engine = "semgrep"
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.rego"
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"

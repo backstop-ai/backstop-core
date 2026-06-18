@@ -15,28 +15,27 @@ import (
 )
 
 // stubCodeCheckFns swaps the injectable code-check function vars for the
-// duration of a test and restores them afterward.
+// duration of a test and restores them afterward. After SPEC-031 the two
+// symmetric pack feeders (mergePackRules + runPackValidators) collapse into the
+// single dispatchPackEngines seam, so the stub takes one dispatch override that
+// stands in for both the findings feeder and the sandbox validator feeder.
 func stubCodeCheckFns(t *testing.T,
 	load func(string) ([]*pack.Manifest, error),
-	merge func([]*pack.Manifest, string) ([]string, error),
 	run func(context.Context, check.Options) (*check.Result, error),
-	validators func([]*pack.Manifest, string, string) ([]gate.Violation, error),
+	dispatch func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error),
 ) {
 	t.Helper()
 	origLoad := loadInstalledPacksFn
-	origMerge := mergePackRulesFn
 	origRun := checkRunFn
-	origValidators := runPackValidatorsFn
+	origDispatch := dispatchPackEnginesFn
 	t.Cleanup(func() {
 		loadInstalledPacksFn = origLoad
-		mergePackRulesFn = origMerge
 		checkRunFn = origRun
-		runPackValidatorsFn = origValidators
+		dispatchPackEnginesFn = origDispatch
 	})
 	loadInstalledPacksFn = load
-	mergePackRulesFn = merge
 	checkRunFn = run
-	runPackValidatorsFn = validators
+	dispatchPackEnginesFn = dispatch
 }
 
 // asExitCodeError extracts an *ExitCodeError from err, failing the test if it is
@@ -61,9 +60,8 @@ func TestCodeCheck_PackLoadingError_ExitConfig(t *testing.T) {
 
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, errors.New("boom loading packs") },
-		func([]*pack.Manifest, string) ([]string, error) { return nil, nil },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -77,9 +75,12 @@ func TestCodeCheck_PackLoadingError_ExitConfig(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_MergeRulesError_ExitConfig verifies that a failure merging pack
-// rules (reached only when packs are present) surfaces as an ExitConfigError.
-func TestCodeCheck_MergeRulesError_ExitConfig(t *testing.T) {
+// TestCodeCheck_DispatchError_ExitConfig verifies that a failure in the
+// group-by-engine dispatch (reached only when packs are present) surfaces as an
+// ExitConfigError naming the pack-engines stage. Re-keyed from the retired
+// TestCodeCheck_MergeRulesError_ExitConfig: the separate merge feeder is gone,
+// so a broken-pack/unknown-engine error now propagates from dispatchPackEngines.
+func TestCodeCheck_DispatchError_ExitConfig(t *testing.T) {
 	dir := setupCodeCheckPackProject(t)
 	defer chdirTemp(t, dir)()
 
@@ -87,9 +88,10 @@ func TestCodeCheck_MergeRulesError_ExitConfig(t *testing.T) {
 		func(string) ([]*pack.Manifest, error) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
-		func([]*pack.Manifest, string) ([]string, error) { return nil, errors.New("merge failed") },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
+			return nil, errors.New("dispatch failed")
+		},
 	)
 
 	root := NewRootCommand()
@@ -98,8 +100,8 @@ func TestCodeCheck_MergeRulesError_ExitConfig(t *testing.T) {
 	if ece.Code != ExitConfigError {
 		t.Errorf("exit code = %d, want %d", ece.Code, ExitConfigError)
 	}
-	if !strings.Contains(ece.Message, "pack rules") {
-		t.Errorf("message = %q, want it to mention pack rules", ece.Message)
+	if !strings.Contains(ece.Message, "pack engines") {
+		t.Errorf("message = %q, want it to mention pack engines", ece.Message)
 	}
 }
 
@@ -112,11 +114,10 @@ func TestCodeCheck_CheckRunConfigError_PropagatesConfigError(t *testing.T) {
 
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, nil },
-		func([]*pack.Manifest, string) ([]string, error) { return nil, nil },
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, &check.ConfigError{Message: "manifest has zero routable rules"}
 		},
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -139,11 +140,10 @@ func TestCodeCheck_CheckRunGenericError_ExitConfig(t *testing.T) {
 
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, nil },
-		func([]*pack.Manifest, string) ([]string, error) { return nil, nil },
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, errors.New("toolchain exploded")
 		},
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -157,10 +157,12 @@ func TestCodeCheck_CheckRunGenericError_ExitConfig(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_PackValidatorError_ExitConfig verifies that a pack-validator
+// TestCodeCheck_PackEngineError_ExitConfig verifies that a pack-engine dispatch
 // failure (only reached when packs are present) surfaces as an ExitConfigError
-// naming the pack-validators stage.
-func TestCodeCheck_PackValidatorError_ExitConfig(t *testing.T) {
+// naming the pack-engines stage. Re-keyed from
+// TestCodeCheck_PackValidatorError_ExitConfig: the sandbox validator feeder is
+// folded into dispatchPackEngines.
+func TestCodeCheck_PackEngineError_ExitConfig(t *testing.T) {
 	dir := setupCodeCheckPackProject(t)
 	defer chdirTemp(t, dir)()
 
@@ -168,9 +170,8 @@ func TestCodeCheck_PackValidatorError_ExitConfig(t *testing.T) {
 		func(string) ([]*pack.Manifest, error) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
-		func([]*pack.Manifest, string) ([]string, error) { return []string{"rules.yml"}, nil },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) {
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
 			return nil, errors.New("validator crashed")
 		},
 	)
@@ -181,15 +182,16 @@ func TestCodeCheck_PackValidatorError_ExitConfig(t *testing.T) {
 	if ece.Code != ExitConfigError {
 		t.Errorf("exit code = %d, want %d", ece.Code, ExitConfigError)
 	}
-	if !strings.Contains(ece.Message, "pack validators") {
-		t.Errorf("message = %q, want it to mention pack validators", ece.Message)
+	if !strings.Contains(ece.Message, "pack engines") {
+		t.Errorf("message = %q, want it to mention pack engines", ece.Message)
 	}
 }
 
-// TestCodeCheck_PackValidatorViolations_BecomeExitViolations verifies that
-// pack-validator violations are appended to the result and drive a non-zero
-// exit code, proving the violations actually flow through to the final status.
-func TestCodeCheck_PackValidatorViolations_BecomeExitViolations(t *testing.T) {
+// TestCodeCheck_PackEngineViolations_BecomeExitViolations verifies that
+// pack-engine dispatch violations are appended to the result and drive a
+// non-zero exit code, proving the violations actually flow through to the final
+// status. Re-keyed from TestCodeCheck_PackValidatorViolations_BecomeExitViolations.
+func TestCodeCheck_PackEngineViolations_BecomeExitViolations(t *testing.T) {
 	dir := setupCodeCheckPackProject(t)
 	defer chdirTemp(t, dir)()
 
@@ -197,9 +199,8 @@ func TestCodeCheck_PackValidatorViolations_BecomeExitViolations(t *testing.T) {
 		func(string) ([]*pack.Manifest, error) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
-		func([]*pack.Manifest, string) ([]string, error) { return []string{"rules.yml"}, nil },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) {
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
 			return []gate.Violation{
 				{Rule: "no-eval", File: "danger.go", Message: "eval is forbidden", Severity: "error"},
 			}, nil
@@ -235,12 +236,11 @@ func TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep(t *testing.T) {
 	var captured check.Options
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, nil },
-		func([]*pack.Manifest, string) ([]string, error) { return nil, nil },
 		func(_ context.Context, opts check.Options) (*check.Result, error) {
 			captured = opts
 			return &check.Result{}, nil
 		},
-		func([]*pack.Manifest, string, string) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
