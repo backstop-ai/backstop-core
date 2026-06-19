@@ -1,0 +1,869 @@
+---
+plan_id: PLAN-SPEC-034
+spec_id: SPEC-034
+spec_version: 1.0.0
+created: "2026-06-18"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/check/ ./pkg/pack/engine/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-034 (BUNDLE-010, the native code-check half of pluggable
+  engines): bridge the native Go lint/build/test toolchain onto the EXISTING
+  dispatchPackEngines substrate (cmd/backstop/pack_gate.go) as Layer-0 engine
+  passes declared in a reusable `go-toolchain` pack, then DELETE the bespoke
+  pkg/check executors/parsers and the `if language == "go"` short-circuit. The
+  bridge REUSES dispatchPackEngines — it introduces no parallel dispatcher and
+  adds NO pkg/check -> pkg/pack/engine import (orchestration stays at
+  cmd/backstop, which already imports both). Traceability steps (coverage,
+  substantiveness, contracts) are BUNDLE-009 and an explicit NON-GOAL here.
+
+  STRANGLER PHASING (REQ-009 / CLM-033, load-bearing — encoded in task deps):
+    - Phase 1 (WIRE): stand up the go-toolchain pack + build/test convert scripts
+      + lint config-file entry, and bridge lint/build/test through
+      dispatchPackEngines. NOTHING is deleted in phase 1; both substrates coexist
+      so there is never an enforcement-lapse window (Sharp Edge 2).
+    - Phase 2 (PROVE EQUIVALENCE): mandated tests prove the engine path emits the
+      SAME normalized violations as the still-present bespoke path, run against
+      REAL captured tool output through the REAL convert scripts (never canned
+      SARIF), AND that the `code check --file` go-test file-mode package scoping
+      is preserved. The equivalence tests must EXIST and PASS before any deletion.
+    - Phase 3 (DELETE): remove the bespoke executors, parsers, the short-circuit,
+      and EnsureSemgrep's bespoke install ladder, and migrate-or-delete the seven
+      bespoke-asserting test files. Every phase-3 deletion task depends on the
+      phase-2 equivalence tasks; the deletion-gate guard task (CLM-033) asserts
+      one-tree equivalence: bespoke-absent ⇒ equivalence-present-and-green.
+
+  N1 (real work, not a freebie): reusing dispatchPackEngines for build/test forces
+    runFindingsEngine's arg-shaping to become SCOPE-KIND-AWARE. Today it appends
+    projectRoot unconditionally (pack_gate.go:279) — correct for semgrep/ast-grep,
+    WRONG for `go build ./...`/`go test ./...` — and it has no file-mode notion.
+    The arg-shaping task (REQ-010/CLM-034/CLM-035) makes the scope target
+    kind-aware AND preserves the `code check --file` go-test package scoping
+    (goPackageSelector). Separately, runFindingsEngine discards runErr
+    (`_ = runErr`, pack_gate.go:284), so the build/test crash-vs-findings guard
+    (REQ-003/CLM-010) is a genuine BEHAVIORAL addition to the findings path, not a
+    transparent inheritance.
+
+  N2 (deletion-gate guard semantics): CLM-033's guard asserts ONE-TREE equivalence
+    — in a single working tree, bespoke-symbols-absent implies the equivalence test
+    is present-and-green — NOT literal git commit ordering. The guard task is
+    phrased as a same-tree invariant (grep finds no bespoke symbol AND the
+    equivalence tests compile and pass), so a deletion that outran the proof fails
+    the gate rather than relying on commit history.
+
+  OPEN QUESTIONS held under either resolution (NOT resolved here):
+    - OQ-1 (lint config-file entry: go-toolchain pack vs project-side golangci
+      config): the lint config-file BINDING task (TASK-009) is authored so the
+      config-file engine entry converges to native v2 SARIF either way; WHERE the
+      optional golangci config lives (pack vs backstop.yml/.golangci.yml) is left
+      to authoring. The task's files include both the pack lint entry and the
+      project-side config seam, and its description records the branch rather than
+      picking one. REQ-005 holds under either.
+    - OQ-2 (one go-toolchain pack vs a build/test split): the pack scaffolding task
+      (TASK-001) and the build/test engine tasks are authored against the
+      mechanism-vs-opinion boundary (REQ-007) without assuming a single pack vs a
+      go-build/go-test split; the pass->engine mapping holds either way. The branch
+      is noted, not decided.
+
+  Sharp Edges -> tasks: SE-1 (no parallel dispatcher / no import cycle) -> TASK-005
+    + TestBridge_NoCheckToEngineImport/NoParallelDispatcher; SE-2 (enforcement-lapse
+    window) -> phase ordering + deletion-gate guard TASK-022; SE-3 (build/test clean
+    stdout + crash guard) -> TASK-007 (SandboxedRunStdout) + TASK-006 (crash guard);
+    SE-4 (lint CombinedOutput corrupts SARIF) -> TASK-009/TASK-010 (RunStdout);
+    SE-5 (golangci v1 vs v2 fail-loud) -> TASK-010 + provisioning fail-loud TASK-012;
+    SE-6 (macOS-only sandbox fail-loud) -> TASK-007; SE-7 (removed-not-extracted) ->
+    TASK-008 (no embedded parser) + end-state grep TASK-023; SE-8 (file-mode test
+    scoping) -> TASK-013/TASK-016; SE-9 (mechanism/opinion bleed) -> TASK-002/TASK-019;
+    SE-10 (EnsureSemgrep retirement must not break provisioning) -> TASK-012/TASK-021;
+    SE-11 (seven test files move with code) -> TASK-024; SE-12 (traceability NOT in
+    scope) -> no task touches coverage/substantiveness/contract steps.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: WIRE — go-toolchain pack scaffolding and fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold the go-toolchain pack with build/test convert scripts and fixtures"
+        description: |
+          Create the reusable `go-toolchain` pack as a SEPARATE artifact from the
+          opinionated backstop-go-pack (REQ-007 / CLM-022): a pack manifest plus
+          the build and test `convert` scripts that re-express the retired
+          parseGoBuildErrors / parseGoTestFailures normalization OUTSIDE the core
+          binary (REQ-003 / DD-2 "removed, not extracted"). The convert scripts
+          read raw `go build` / `go test` stdout on stdin and emit located SARIF
+          (file:line:message) on stdout, with the crash-vs-findings discipline
+          observable to the caller (non-zero, no parseable findings => non-green).
+
+          Also create the shared captured-output fixtures consumed by the phase-2
+          equivalence gate: a real `go build` compiler-error sample, a real
+          `go test` failure sample, and a golangci-lint findings sample (v1 JSON
+          for the retired parseGolangciJSON, v2 SARIF for the engine path) — the
+          SAME bytes fed to both the bespoke parser and the engine path so the
+          comparison is like-for-like (never canned SARIF).
+
+          OQ-2 NOTE: author the pack layout so build/test can ship as one
+          go-toolchain pack OR a go-build/go-test split without reshaping the
+          convert scripts; do not assume a single pack here. OQ-1 NOTE: leave a
+          place for the lint config-file entry but do not decide pack-vs-project
+          ownership of the golangci config in this scaffolding task.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/build-to-sarif.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-to-sarif.sh
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-build-errors.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/golangci-v1.json
+          - cmd/backstop/testdata/go-toolchain/fixtures/golangci-v2.sarif
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-022
+          - CLM-025
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: WIRE — bridge build/test/lint through dispatchPackEngines"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Tests: build/test findings engine + scope-kind-aware arg-shaping + crash guard"
+        description: |
+          Write the failing tests for the build/test findings-engine path through
+          runFindingsEngine and the scope-kind-aware arg-shaping it requires.
+
+          Mandated tests:
+            - TestGoToolchain_BuildFindingsEngineWithConvert (CLM-011): build is a
+              go-toolchain findings engine whose pack-relative convert script
+              normalizes output to SARIF via runFindingsEngine.
+            - TestGoToolchain_TestFindingsEngineWithConvert (CLM-012): test is a
+              go-toolchain findings engine with a convert script via runFindingsEngine.
+            - TestGoToolchain_ConvertUsesSandboxedRunStdout (CLM-013): the convert
+              step runs via the sandboxed clean-stdout capture so a converter stderr
+              banner cannot corrupt the SARIF.
+            - TestGoToolchain_BuildTestCrashNotSilentGreen (CLM-010): a build/test
+              run that exits non-zero with NO parseable findings surfaces as a crash
+              on the convert path, not a silent green. N1: runFindingsEngine today
+              discards runErr (pack_gate.go:284) — this is the new behavior.
+
+          N1 arg-shaping coverage (REQ-010): assert build/test do NOT get
+          projectRoot appended as a scan target the way semgrep/ast-grep do
+          (`go build ./...` not `go build <root>`), i.e. arg-shaping is now
+          scope-kind-aware. Use a fake CommandRunner returning the captured
+          fixtures and a stubbed SandboxedRunStdout so no live tool/sandbox runs.
+        files:
+          - cmd/backstop/pack_gate_gotoolchain_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: implementation
+        title: "Implement scope-kind-aware arg-shaping + crash guard in runFindingsEngine for build/test"
+        description: |
+          Make runFindingsEngine (cmd/backstop/pack_gate.go) able to carry the
+          native build/test passes as findings engines:
+            - SCOPE-KIND-AWARE arg-shaping (N1, REQ-010/CLM-034): the unconditional
+              `cmdArgs = append(cmdArgs, projectRoot)` (pack_gate.go:279) is correct
+              for semgrep/ast-grep scan targets but WRONG for `go build ./...` /
+              `go test ./...`. Introduce an explicit scope-target notion on the
+              binding/engine so a project-wide toolchain pass shapes its own target
+              (`./...`) rather than having projectRoot bolted on, without regressing
+              the rule-fed findings engines' existing behavior.
+            - CRASH-VS-FINDINGS GUARD (N1, REQ-003/CLM-010): runFindingsEngine
+              currently does `_ = runErr` (pack_gate.go:284). For the build/test
+              convert path, a non-zero run with no parseable findings must surface
+              as a crash (broken-pack/tool error naming the engine), not a silent
+              green. Preserve the semgrep/ast-grep semantics (non-zero with findings
+              is normal) so only the toolchain build/test passes gain the guard.
+            - Route build/test convert via SandboxedRunStdout (CLM-013), already the
+              findings-engine convert capture; assert it fails loud where the sandbox
+              is unavailable (Sharp Edge 6) rather than silently green.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-002
+      - id: TASK-004
+        type: test
+        title: "Tests: no embedded build/test parser + bridge dispatch reuse + no import cycle"
+        description: |
+          Write the failing tests proving the build/test transform lives in the
+          pack (not the binary) and that the native passes ride the existing
+          dispatch substrate.
+
+          Mandated tests:
+            - TestGoToolchain_NoEmbeddedBuildTestParser (CLM-014): backstop-core
+              embeds no Go build/test parser; the transform resolves from the pack
+              convert script. Assert the build/test SARIF is produced by the pack
+              convert path, with no in-binary parse of compiler/test output.
+            - TestBridge_NativePassesRunThroughDispatchPackEngines (CLM-001): the
+              native lint/build/test passes are dispatched through dispatchPackEngines
+              as engine bindings, not through bespoke pkg/check PassExecutors.
+            - TestBridge_NoParallelDispatcher (CLM-003): the bridge reuses
+              dispatchPackEngines and introduces no second native dispatcher.
+            - TestBridge_NoCheckToEngineImport (CLM-002): pkg/check does NOT import
+              pkg/pack/engine after the bridge (Sharp Edge 1 — leaf-placement /
+              import-cycle guard). Implement as a source/import scan over pkg/check.
+        files:
+          - cmd/backstop/bridge_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-014
+        depends_on:
+          - TASK-001
+      - id: TASK-005
+        type: implementation
+        title: "Bridge native lint/build/test onto dispatchPackEngines in buildGateSteps"
+        description: |
+          Converge the two substrates at the orchestration layer (REQ-001): in
+          buildGateSteps (cmd/backstop/gate.go) the native lint/build/test passes
+          run through the EXISTING dispatchPackEngines step (the go-toolchain pack's
+          engine bindings), NOT a new dispatcher and NOT a pkg/check ->
+          pkg/pack/engine import (cmd/backstop already imports both — Sharp Edge 1 /
+          CLM-002/CLM-003). At this stage the bespoke realCodeChecker -> check.Run
+          toolchain step is NOT yet deleted (that is phase 3, gated on equivalence);
+          the bridge stands the engine path up ALONGSIDE the bespoke path so there
+          is never an enforcement-lapse window (Sharp Edge 2). The go-toolchain pack
+          lands in LOCKSTEP with this wiring (REQ-007 / CLM-025): the bridge and the
+          pack are introduced together, never as separate independently-green commits
+          leaving Go build/test unenforced.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-014
+          - CLM-025
+        depends_on:
+          - TASK-003
+          - TASK-004
+      - id: TASK-006
+        type: verification
+        title: "Verify build/test findings-engine bridge (code check)"
+        description: |
+          Run `backstop code check` over the bridged build/test engine path and the
+          scope-kind-aware arg-shaping + crash guard. Confirm lint/build/build/test
+          findings dispatch through dispatchPackEngines with no parallel dispatcher,
+          no pkg/check->pkg/pack/engine import, and the crash guard wired. This is
+          the fast inner-loop gate for the build/test half of phase 1.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: WIRE — lint config-file engine + provisioning split (parallel to phase 2)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Tests: golangci config-file engine emits native v2 SARIF via RunStdout"
+        description: |
+          Write the failing tests for the lint pass as a config-file engine on
+          golangci-lint v2 native SARIF.
+
+          Mandated tests:
+            - TestGoLint_ConfigFileEngineNativeSarif (CLM-015): lint runs golangci-lint
+              as a config-file engine whose SARIF output parses directly through
+              parseSarif with NO converter.
+            - TestGoLint_SarifCapturedViaRunStdoutNotCombined (CLM-016): the lint
+              engine output is captured via RunStdout (clean stdout), NOT
+              CombinedOutput, so a golangci-lint stderr banner cannot corrupt the
+              SARIF (Sharp Edge 4 — same bug class as the semgrep --sarif fix).
+            - TestGoLint_NoVersionProbeOrV1Branch (CLM-019): the lint invocation
+              assumes golangci-lint v2 SARIF and performs no `golangci-lint version`
+              probe or v1/v2 flag branch.
+
+          Use a fake CommandRunner returning the captured golangci v2 SARIF fixture;
+          assert RunStdout is the capture method exercised, not CombinedOutput.
+        files:
+          - cmd/backstop/pack_gate_golint_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-019
+        depends_on:
+          - TASK-001
+      - id: TASK-008
+        type: implementation
+        title: "Wire golangci-lint as a config-file engine binding (native v2 SARIF, RunStdout)"
+        description: |
+          Declare/wire the lint pass as a `config-file` engine binding running
+          golangci-lint v2 (REQ-005). The pass declares NO converter; its stdout is
+          captured via the clean-stdout runner (RunStdout — already the
+          findings-engine capture in runFindingsEngine) and parsed via parseSarif.
+          The invocation pins/assumes v2 SARIF: no version probe, no v1/v2 flag
+          branch (CLM-019). On v1/too-old golangci (no SARIF), the pass must fail
+          loud as unparseable SARIF attributed to the lint engine, not a silent
+          zero-findings green (Sharp Edge 5).
+
+          OQ-1 NOTE: this task wires the config-file engine so lint converges to
+          native v2 SARIF REGARDLESS of where the optional golangci config lives.
+          WHERE the config-file entry is declared — inside the go-toolchain pack vs
+          project-side (backstop.yml / .golangci.yml) — is left to authoring;
+          include both seams in scope and record the branch. REQ-005 holds either way.
+        files:
+          - cmd/backstop/pack_gate_golint.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-019
+        depends_on:
+          - TASK-007
+      - id: TASK-009
+        type: test
+        title: "Tests: split provisioning — assume-present native, pinned semgrep, fail-loud absence"
+        description: |
+          Write the failing tests for the split-provisioning model (REQ-006/REQ-008).
+
+          Mandated tests:
+            - TestProvision_GoAssumedPresentFailsLoud (CLM-026): a missing `go`
+              binary fails loud with a ConfigError (exit 2) naming the tool and is
+              never auto-installed. NEW behavior — neither the bespoke nor bare
+              engine path emits this today.
+            - TestProvision_GolangciAssumedPresentFailsLoud (CLM-027): a missing
+              `golangci-lint` binary fails loud with a ConfigError (exit 2) naming
+              the tool and is never auto-installed.
+            - TestProvision_SemgrepStillPinnedAndProvisioned (CLM-028): the
+              backstop-introduced semgrep engine remains pinned and auto-provisioned,
+              distinct from the assume-present native toolchain.
+
+          Inject a fake binary-resolver so absence is simulated without depending on
+          host PATH.
+        files:
+          - cmd/backstop/pack_gate_provision_test.go
+        claims:
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-001
+      - id: TASK-010
+        type: implementation
+        title: "Implement split provisioning: Layer-0 assume-present fail-loud + pinned semgrep"
+        description: |
+          Implement the provisioning split (REQ-008) on the bridged engine path:
+            - Layer-0 native tools (`go`, `golangci-lint`) are assume-present:
+              backstop NEVER installs them; a missing binary surfaces as a ConfigError
+              (exit 2) naming the tool (CLM-026/CLM-027). This is NEW behavior the
+              bridge adds.
+            - The backstop-introduced semgrep engine stays pinned and auto-provisioned
+              through the declared Provision mechanism (CLM-028), unchanged in its
+              findings path (REQ-006 — semgrep is not re-wired here).
+          Keep this disjoint from the lint wiring file so phase-3-parallel tasks
+          stay file-exclusive.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+        claims:
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-009
+      - id: TASK-011
+        type: verification
+        title: "Verify lint config-file engine + split provisioning (code check)"
+        description: |
+          Run `backstop code check` over the lint config-file engine and the
+          split-provisioning fail-loud path. Confirm RunStdout clean capture, no
+          version probe, and ConfigError exit 2 for absent go/golangci-lint while
+          semgrep stays pinned. Fast inner-loop gate for the lint/provisioning half
+          of the WIRE phase.
+        files:
+          - cmd/backstop/pack_gate_golint.go
+          - cmd/backstop/pack_gate_provision.go
+        claims:
+          - CLM-015
+          - CLM-019
+          - CLM-026
+          - CLM-028
+        depends_on:
+          - TASK-008
+          - TASK-010
+
+  - id: phase-4
+    name: "Phase 4: PROVE EQUIVALENCE — engine path vs bespoke path on real output"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Equivalence gate: build/test/lint engine path emits identical normalized violations"
+        description: |
+          Write the mandated phase-2 EQUIVALENCE GATE tests (REQ-009). Each runs the
+          REAL go-toolchain convert scripts / native v2 SARIF against the REAL
+          captured tool output fixtures (never canned SARIF — a stub would let the
+          relocation pass without proving the transform, re-opening the DD-2 risk),
+          and asserts the engine path equals the STILL-PRESENT bespoke parser.
+
+          Mandated tests:
+            - TestEquivalence_BuildBespokeVsEngine (CLM-030): for the same go build
+              output, engine path == bespoke parseGoBuildErrors normalized violations.
+            - TestEquivalence_TestBespokeVsEngine (CLM-031): for the same go test
+              output, engine path == bespoke parseGoTestFailures normalized violations.
+            - TestEquivalence_LintBespokeVsEngine (CLM-032): for the same golangci
+              findings, engine path (v2 SARIF -> parseSarif) == bespoke
+              parseGolangciJSON (v1 JSON) normalized violations.
+            - TestGoToolchainConverter_BuildErrorsEquivalent (CLM-008): the convert
+              script normalizes real go build compiler-error output into the same
+              file:line:message findings parseGoBuildErrors produced.
+            - TestGoToolchainConverter_TestFailuresEquivalent (CLM-009): the convert
+              script normalizes real go test failure output into the same
+              file:line:message findings parseGoTestFailures produced.
+            - TestGoLint_V2SarifEquivalentToRetiredJSON (CLM-017): golangci v2 native
+              SARIF parses into the same lint violations parseGolangciJSON produced
+              for the equivalent findings.
+
+          This task is the deletion GATE: phase 3 cannot proceed until these exist
+          and pass. The bespoke parsers are NOT yet deleted (phase 3), so this test
+          can call both sides in one tree.
+        files:
+          - cmd/backstop/equivalence_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-017
+          - CLM-030
+          - CLM-031
+          - CLM-032
+        depends_on:
+          - TASK-006
+          - TASK-011
+      - id: TASK-013
+        type: test
+        title: "Invocation equivalence: code check --file go-test file-mode package scoping"
+        description: |
+          Write the mandated invocation-equivalence tests (REQ-010, N1). Parser
+          equivalence is necessary but not sufficient — the `code check --file`
+          hook scopes `go test` to the changed file's PACKAGE (goPackageSelector /
+          testExecutor.fileMode), not `./...`, under a tight budget. Routing test
+          through the bridge could silently switch it to `./...` (Sharp Edge 8).
+
+          Mandated tests:
+            - TestFileMode_TestPassScopedToChangedFilePackage (CLM-034): the
+              --file hook path scopes the test pass to the changed file's package
+              through the new engine path, preserving goPackageSelector file-mode
+              scoping (asserts the invocation targets the package, not `./...`).
+            - TestFileMode_NoSilentWholeModuleRegression (CLM-035): a whole-module
+              run in file mode is REJECTED as a regression unless the decision to
+              drop scoping is an explicit recorded decision.
+
+          N1: this is the file-mode half of the scope-kind-aware arg-shaping —
+          the test engine binding must carry a file-mode notion, which
+          runFindingsEngine lacks today.
+        files:
+          - cmd/backstop/filemode_scoping_test.go
+        claims:
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-006
+      - id: TASK-014
+        type: implementation
+        title: "Preserve code check --file go-test package scoping through the engine path"
+        description: |
+          Make the bridged test engine honor the `code check --file` file-mode
+          package scoping (REQ-010 / CLM-034). The test engine binding gains a
+          file-mode notion so, in file mode, `go test` targets the changed file's
+          PACKAGE (goPackageSelector equivalent) rather than `./...` — preserving
+          the hook's tight time budget. If authoring instead records an explicit
+          decision to DROP scoping, that decision must be tested (CLM-035) rather
+          than silently regressing. This completes the scope-kind-aware arg-shaping
+          started in TASK-003 (project-wide vs file-mode targets); kept in a
+          dedicated file so it stays disjoint from pack_gate.go's other edits in
+          this phase. Depends on the file-mode test (TASK-013).
+        files:
+          - cmd/backstop/pack_gate_filemode.go
+        claims:
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-013
+      - id: TASK-015
+        type: test
+        title: "Tests: semgrep unchanged shared engine; only provisioning changes"
+        description: |
+          Write the mandated tests pinning semgrep's no-change posture (REQ-006).
+
+          Mandated tests:
+            - TestSemgrep_UnchangedSharedEngine (CLM-020): the semgrep pass is not
+              re-implemented or re-wired by this spec and retains its SPEC-031
+              shared-engine shape and SARIF contract.
+            - TestSemgrep_OnlyProvisioningChanges (CLM-021): this spec's only
+              semgrep-adjacent change is retiring EnsureSemgrep's bespoke install
+              into declared provisioning, not altering the findings path.
+        files:
+          - cmd/backstop/semgrep_unchanged_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-001
+      - id: TASK-016
+        type: verification
+        title: "Verify equivalence gate + invocation scoping + semgrep posture (code check)"
+        description: |
+          Run `backstop code check` over the full PROVE-EQUIVALENCE phase: parser
+          equivalence on real output through real convert scripts, file-mode go-test
+          package scoping preserved, and semgrep unchanged. This verification is the
+          last green signal before any deletion — phase 5 deletion tasks depend on
+          it transitively via the equivalence tasks.
+        files:
+          - cmd/backstop/pack_gate_filemode.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-030
+          - CLM-034
+        depends_on:
+          - TASK-012
+          - TASK-014
+          - TASK-015
+
+  - id: phase-5
+    name: "Phase 5: DELETE — rip out the bespoke path, gated on proven equivalence"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Deletion-gate guard + end-state tests (red against the not-yet-deleted bespoke path)"
+        description: |
+          Write the mandated phase-3 guard and end-state tests. These assert the
+          DELETION invariants and so fail while the bespoke symbols still exist —
+          they go green only after the refactor deletions land (TASK-018..021).
+
+          Mandated tests:
+            - TestStrangler_DeletionGatedOnProvenEquivalence (CLM-033): the
+              deletion-gate guard. N2: phrase as a ONE-TREE invariant — in this
+              working tree, the equivalence tests (TASK-012) are present and pass
+              AND the bespoke symbols are absent; bespoke-absent implies
+              equivalence-present-and-green. NOT literal commit ordering. A deletion
+              that outran the proof fails this guard.
+            - TestEndState_NoBakedGoToolchainKnowledge (CLM-036): a grep of pkg/check
+              NON-TEST source for goBuiltinExecutors, lintExecutor, buildExecutor,
+              testExecutor, parseGoBuildErrors, parseGoTestFailures, parseGolangciJSON,
+              the version-adaptive flag logic (golangciOutputArgs, golangciMajorVersion,
+              golangciVersionRe), the `go-build` / `go-test` / `golangci-json`
+              formatParsers entries, and the `language == "go"` short-circuit returns
+              zero matches. (Symbol-level removals are also asserted by TASK-028's
+              cutover tests; this grep is the binary-wide backstop.)
+            - TestEndState_NoTestReferencesDeletedBespokeSymbol (CLM-037): no test
+              file references a deleted bespoke symbol (the seven enumerated files are
+              migrated or deleted).
+            - TestEndState_NewStackNeedsNoCoreChange (CLM-038): adding a new stack
+              requires no pkg/check change — a declared stack-toolchain pack suffices.
+            - TestCutover_CheckRunNoLongerRunsToolchainPasses (CLM-005): the gate's
+              realCodeChecker/check.Run step no longer runs the native lint/build/test
+              passes.
+        files:
+          - cmd/backstop/strangler_guard_test.go
+        claims:
+          - CLM-005
+          - CLM-033
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-012
+          - TASK-016
+      - id: TASK-028
+        type: test
+        title: "Cutover deletion-assertion tests: short-circuit, executor types, named formats, lint flags, EnsureSemgrep"
+        description: |
+          Write the mandated cutover/provisioning deletion-assertion tests. Like
+          TASK-017 these assert POST-DELETION absence, so they are red while the
+          bespoke symbols still exist and go green only after the refactors land
+          (TASK-018..021). They are GATED behind the equivalence gate (depends on
+          TASK-012/TASK-017) — no deletion assertion may run before equivalence is
+          proven. Kept in a dedicated _test.go file for D-081 file-disjointness from
+          TASK-017's strangler_guard_test.go.
+
+          Mandated tests:
+            - TestCutover_GoShortCircuitRemoved (CLM-004): the `if language == "go"`
+              short-circuit and goBuiltinExecutors are deleted from
+              registry.go/check.go (asserts the short-circuit branch is gone, not
+              merely bypassed).
+            - TestCutover_BespokeExecutorTypesDeleted (CLM-006): the bespoke
+              lintExecutor, buildExecutor, and testExecutor types are deleted from
+              pkg/check.
+            - TestCutover_GoBuildTestFormatsRemoved (CLM-007): parseGoBuildErrors and
+              parseGoTestFailures are deleted AND their `go-build` / `go-test`
+              formatParsers entries are removed (assert the NAMED-FORMAT entries are
+              gone, not just the parser funcs).
+            - TestCutover_BespokeLintPathRemoved (CLM-018): lintExecutor,
+              parseGolangciJSON, the `golangci-json` formatParsers entry, AND the
+              version-adaptive flag logic (golangciOutputArgs, golangciMajorVersion,
+              golangciVersionRe) are all deleted from pkg/check (assert the
+              version-flag symbols and the named-format entry are gone, not just the
+              executor type).
+            - TestProvision_EnsureSemgrepBespokeInstallRetired (CLM-029): asserts
+              BOTH halves so the Sharp-Edge-10 silent gap cannot open — (a) the
+              bespoke EnsureSemgrep install ladder (PATH-probe / .backstop/tools /
+              pip-install path) is removed from the native Run path, AND (b) semgrep
+              REMAINS provisioned through the declared provisioning model. NOT a bare
+              symbol-absent grep: the provisioning-still-present assertion is
+              mandatory so retiring the ladder cannot silently drop semgrep.
+        files:
+          - cmd/backstop/cutover_deletion_test.go
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-018
+          - CLM-029
+        depends_on:
+          - TASK-012
+          - TASK-017
+      - id: TASK-018
+        type: refactor
+        title: "Delete bespoke build/test executors + parsers + go-build/go-test formats"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Delete from
+          pkg/check: the buildExecutor and testExecutor types, parseGoBuildErrors and
+          parseGoTestFailures, and the go-build / go-test named formats from
+          formatParsers (REQ-002/REQ-003 — CLM-006 build/test half, CLM-007). The
+          transform now lives in the go-toolchain pack convert scripts (TASK-001),
+          not the binary (DD-2 removed-not-extracted). Retain parseSarif and the TS
+          formats (eslint-json, tsc, regex-lines).
+        files:
+          - pkg/check/check.go
+          - pkg/check/parsers.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-028
+      - id: TASK-019
+        type: refactor
+        title: "Delete bespoke lint path: lintExecutor, parseGolangciJSON, version-adaptive flags"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Delete from
+          pkg/check: the lintExecutor type, parseGolangciJSON, the golangci-json named
+          format in formatParsers, and the version-adaptive flag logic
+          (golangciOutputArgs, golangciMajorVersion, golangciVersionRe) — REQ-005 /
+          CLM-018. Lint now runs as the config-file engine wired in TASK-008. Kept
+          disjoint from TASK-018 by editing only the lint-specific declarations;
+          parsers.go's golangci-json entry removal is coordinated with TASK-018 via
+          the dependency chain (both depend on the guard) — assign the golangci-json
+          formatParsers entry removal to THIS task to keep parsers.go edits
+          single-owner.
+        files:
+          - pkg/check/check.go
+          - pkg/check/parsers.go
+        claims:
+          - CLM-018
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-028
+          - TASK-018
+      - id: TASK-020
+        type: refactor
+        title: "Delete the if language==go short-circuit and goBuiltinExecutors"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Delete the
+          `if language == "go" { return goBuiltinExecutors(...) }` short-circuit in
+          buildExecutorsForConfigErr (pkg/check/registry.go) and the goBuiltinExecutors
+          constructor (pkg/check/check.go) — REQ-002 / CLM-004, plus the
+          goBuiltinExecutors-typed deletions completing CLM-006. After removal there
+          is no language-special-cased native-executor construction; semgrep stays the
+          shared executor. Depends on TASK-018/TASK-019 so the executor/parser types
+          it referenced are already gone (clean compile).
+        files:
+          - pkg/check/registry.go
+          - pkg/check/check.go
+        claims:
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-028
+          - TASK-018
+          - TASK-019
+      - id: TASK-021
+        type: refactor
+        title: "Retire EnsureSemgrep's bespoke install ladder into declared provisioning"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Retire
+          EnsureSemgrep's bespoke PATH-probe / .backstop/tools / pip-install ladder
+          (pkg/check/semgrep.go) from the native Run path (REQ-008 / CLM-029). The ad
+          hoc installer is removed and semgrep provisioning is routed through the
+          declared provisioning wired in TASK-010 — semgrep stays provisioned, not
+          dropped (Sharp Edge 10). The semgrep FINDINGS path is unchanged (REQ-006).
+        files:
+          - pkg/check/semgrep.go
+        claims:
+          - CLM-029
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-028
+          - TASK-010
+      - id: TASK-022
+        type: refactor
+        title: "Stop realCodeChecker/check.Run from running the native toolchain passes"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Now that the
+          bridge (TASK-005) carries lint/build/test through dispatchPackEngines and
+          the bespoke executors are gone (TASK-018..020), update the gate wiring so
+          the realCodeChecker -> check.Run Step 2 no longer runs the native
+          lint/build/test passes (REQ-002 / CLM-005). This is the cutover that closes
+          the two-substrate split — the engine path is now the SOLE Go build/test/lint
+          enforcement, with no enforcement-lapse window (it lands after equivalence is
+          proven and the bridge is live).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-020
+      - id: TASK-023
+        type: refactor
+        title: "Migrate-or-delete the seven bespoke-asserting test files"
+        description: |
+          GATED ON PROVEN EQUIVALENCE (depends on TASK-012/TASK-017). Migrate-or-delete
+          the bespoke-asserting test files so none references a deleted symbol
+          (REQ-011 / CLM-037, Sharp Edge 11): check_test.go, executor_test.go,
+          registry_test.go, registry_coverage_test.go, engine_semantics_test.go are
+          migrated to assert the engine path or deleted with their target;
+          ts_executor_test.go and ts_routing_test.go are audited for references to
+          deleted Go bespoke symbols and migrated if present (the TS commandExecutor
+          path remains). Depends on the deletions (TASK-018..021) so the migration
+          targets the final symbol set.
+        files:
+          - pkg/check/check_test.go
+          - pkg/check/executor_test.go
+          - pkg/check/registry_test.go
+          - pkg/check/registry_coverage_test.go
+          - pkg/check/engine_semantics_test.go
+          - pkg/check/ts_executor_test.go
+          - pkg/check/ts_routing_test.go
+        claims:
+          - CLM-037
+        depends_on:
+          - TASK-012
+          - TASK-017
+          - TASK-018
+          - TASK-019
+          - TASK-020
+          - TASK-021
+      - id: TASK-024
+        type: verification
+        title: "Verify the deletion: end-state grep, guard, and no dangling references (code check)"
+        description: |
+          Run `backstop code check` over the post-deletion tree: the deletion-gate
+          guard is green (bespoke absent AND equivalence present-and-green, N2), the
+          end-state grep of pkg/check non-test source returns zero matches, no test
+          references a deleted symbol, and adding a new stack needs no pkg/check
+          change. Confirms phase 5 closed the cutover without re-opening a vacuous
+          green.
+        files:
+          - cmd/backstop/strangler_guard_test.go
+        claims:
+          - CLM-004
+          - CLM-033
+          - CLM-036
+          - CLM-038
+        depends_on:
+          - TASK-018
+          - TASK-019
+          - TASK-020
+          - TASK-021
+          - TASK-022
+          - TASK-023
+
+  - id: phase-6
+    name: "Phase 6: Mechanism/opinion separation + final full-gate verification"
+    tasks:
+      - id: TASK-025
+        type: test
+        title: "Tests: go-toolchain (mechanism) vs backstop-go-pack (opinion) separation + lockstep"
+        description: |
+          Write the mandated tests for the mechanism-vs-opinion pack boundary
+          (REQ-007, Sharp Edge 9).
+
+          Mandated tests:
+            - TestGoToolchainPack_SeparateFromGoStandardsPack (CLM-022): the build/test
+              convert scripts live in a reusable go-toolchain pack distinct from the
+              opinionated backstop-go-pack.
+            - TestGoToolchainPack_MechanismOnlyNoStandards (CLM-023): the go-toolchain
+              pack contains only toolchain mechanism (run + normalize), no
+              coding-standards rules.
+            - TestGoStandardsPack_OpinionOnlyNoToolchain (CLM-024): backstop-go-pack
+              contains only coding-standards opinion, no build/test toolchain mechanism.
+            - TestGoToolchainPack_LandsInLockstepWithBridge (CLM-025): the bridge and
+              the go-toolchain pack are wired to land in lockstep so no commit leaves
+              Go build/test unenforced.
+        files:
+          - cmd/backstop/pack_separation_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-001
+      - id: TASK-026
+        type: implementation
+        title: "Enforce the mechanism/opinion boundary between the two packs"
+        description: |
+          Wire/assert the decomposition so the go-toolchain pack carries only
+          toolchain mechanism and backstop-go-pack carries only coding-standards
+          opinion (REQ-007 / CLM-023/CLM-024), with the bridge and pack landing in
+          lockstep (CLM-025). Any shared declaration that would let build/test
+          mechanism bleed into backstop-go-pack (or standards into go-toolchain) is
+          rejected. Depends on the separation tests (TASK-025) — TDD.
+        files:
+          - cmd/backstop/pack_separation.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-025
+      - id: TASK-027
+        type: verification
+        title: "Final full gate: backstop gate + backstop artifact validate"
+        description: |
+          Final comprehensive verification of the whole cutover. Run `backstop gate`
+          (the full kill chain — code check, test verification, substantiveness,
+          coverage, contracts) over the .go changes across cmd/backstop, pkg/check,
+          and pkg/pack/engine, and `backstop artifact validate` over the spec/plan
+          and the new go-toolchain pack artifact. Confirms: the native lint/build/test
+          passes run SOLELY through dispatchPackEngines; zero baked-in Go toolchain
+          knowledge remains in pkg/check; the deletion-gate guard holds; semgrep is
+          still provisioned; and the mechanism/opinion pack boundary is intact. This
+          is the only phase that runs the full gate.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/check/registry.go
+          - cmd/backstop/pack_separation.go
+        claims:
+          - CLM-002
+          - CLM-005
+          - CLM-021
+          - CLM-029
+          - CLM-033
+          - CLM-036
+        depends_on:
+          - TASK-024
+          - TASK-026
