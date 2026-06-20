@@ -577,11 +577,13 @@ claims:
       - TestEngineBinding_Shape
 
   # REQ-014 — non-SARIF carve-out
-  - id: CLM-035
-    requirement: REQ-014
-    text: Build and test passes retain their ToolchainEntry.Format and do not route through parseSarif
-    tests:
-      - TestEngineDispatch_BuildTestKeepFormatParsers
+  # CLM-035 (build/test passes RETAIN their go-build/go-test ToolchainEntry.Format
+  # parsers) was RETIRED: its premise is reversed by the SPEC-034 cutover, which
+  # REMOVED the go-build/go-test named formats from formatParsers (those passes are
+  # now InputMode none convert-to-SARIF go-toolchain engines). Superseded by
+  # SPEC-034 REQ-003 / CLM-007 (TestCutover_GoBuildTestFormatsRemoved). The claim is
+  # removed rather than repointed because no surviving test asserts its (now false)
+  # premise; REQ-014 coverage is retained by CLM-036, CLM-066, CLM-067.
   - id: CLM-036
     requirement: REQ-014
     text: Pack engine dispatch resolves only the SARIF parser and never references golangci-json or eslint-json
@@ -596,7 +598,7 @@ claims:
     requirement: REQ-014
     text: The retired layer-3 sandbox branch is re-keyed to engine sandbox (input_mode none) with no remaining rule.Layer reference
     tests:
-      - TestEngineDispatch_SandboxBranchReKeyedFromLayer3
+      - TestGateIntegration_SandboxValidatorExecuted
 
   # REQ-015 — flag-day migration
   - id: CLM-037

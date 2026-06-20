@@ -182,15 +182,15 @@ claims:
   # REQ-005: Layer 3 validators
   - id: CLM-010
     requirement: REQ-005
-    text: Gate executes pack layer 3 validators in sandbox and reports violations
+    text: Gate executes pack sandbox-engine validators in sandbox and reports violations
     tests:
-      - TestGateIntegration_Layer3ValidatorExecuted
+      - TestGateIntegration_SandboxValidatorExecuted
 
   - id: CLM-011
     requirement: REQ-005
-    text: Layer 3 validator violations appear with namespaced rule IDs
+    text: Sandbox-engine validator violations appear with namespaced rule IDs
     tests:
-      - TestGateIntegration_Layer3NamespacedIDs
+      - TestGateIntegration_SandboxNamespacedIDs
 
   # REQ-006: Multi-pack
   - id: CLM-012
@@ -247,9 +247,9 @@ claims:
 
   - id: CLM-021
     requirement: REQ-010
-    text: backstop code check runs layer 3 validators against full project even in diff mode
+    text: backstop code check runs sandbox-engine validators against full project even in diff mode
     tests:
-      - TestGateIntegration_CodeCheckLayer3FullProject
+      - TestGateIntegration_SandboxSingleFileScope
 
   # REQ-011: Removed pack not enforced
   - id: CLM-022
