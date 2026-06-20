@@ -52,17 +52,6 @@
           }
         ]
       }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/backstop-gate-on-implement.sh"
-          }
-        ]
-      }
     ]
   }
 }
