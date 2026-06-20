@@ -66,3 +66,54 @@ func TestParsePackFindings_GolangciV2Sarif(t *testing.T) {
 		t.Error("malformed SARIF must return a parse error, not a silent zero-findings green")
 	}
 }
+
+// TestParsePackFindings_SuppressedResultsDropped pins ISSUE-017: a SARIF result
+// carrying a non-empty `suppressions` array is INACTIVE (semgrep in --sarif mode
+// emits `// nosemgrep`-suppressed findings as suppressed results, not by dropping
+// them). ParsePackFindings must NOT count a suppressed result as a violation, or
+// an inline-justified finding reads as a false failure. The fixture carries one
+// suppressed result and one active result; only the active one may surface.
+func TestParsePackFindings_SuppressedResultsDropped(t *testing.T) {
+	sarif := []byte(`{
+	  "runs": [
+	    {
+	      "results": [
+	        {
+	          "ruleId": "go.core.no-global-mutable-state",
+	          "level": "error",
+	          "message": {"text": "suppressed false positive on a const"},
+	          "locations": [
+	            {"physicalLocation": {"artifactLocation": {"uri": "pkg/engine/binding.go"}, "region": {"startLine": 73}}}
+	          ],
+	          "suppressions": [{"kind": "inSource"}]
+	        },
+	        {
+	          "ruleId": "go.core.no-panic",
+	          "level": "error",
+	          "message": {"text": "real active finding"},
+	          "locations": [
+	            {"physicalLocation": {"artifactLocation": {"uri": "pkg/widget/widget.go"}, "region": {"startLine": 42}}}
+	          ]
+	        }
+	      ]
+	    }
+	  ]
+	}`)
+
+	vs, err := ParsePackFindings(sarif)
+	if err != nil {
+		t.Fatalf("ParsePackFindings: %v", err)
+	}
+	if len(vs) != 1 {
+		t.Fatalf("expected exactly 1 active violation (the suppressed result must be dropped), got %d: %+v", len(vs), vs)
+	}
+	v := vs[0]
+	if v.Rule != "go.core.no-panic" || v.File != "pkg/widget/widget.go" || v.Line != 42 {
+		t.Errorf("the surviving violation must be the ACTIVE finding, got %+v", v)
+	}
+	for _, got := range vs {
+		if got.Rule == "go.core.no-global-mutable-state" {
+			t.Errorf("the suppressed result (suppressions:[{kind:inSource}]) must not be emitted as a violation, got %+v", got)
+		}
+	}
+}

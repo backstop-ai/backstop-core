@@ -18,7 +18,7 @@ type Parser func(out []byte, target CheckType) ([]Violation, error)
 // into SARIF (parsed via "sarif") after the SPEC-034 cutover — the bespoke
 // go-build/go-test/golangci-json named formats were removed with their parsers.
 // eslint-json/tsc/sarif/regex-lines are pure functions with no tool invocation.
-var formatParsers map[string]Parser = map[string]Parser{
+var formatParsers map[string]Parser = map[string]Parser{ // nosemgrep: go.core.no-global-mutable-state — immutable parser registry, never reassigned
 	"eslint-json": parseESLintJSON,
 	"tsc":         parseTscOutput,
 	"sarif":       parseSarif,
@@ -45,7 +45,7 @@ func lookupParser(format string) (Parser, error) {
 func ParsePackFindings(out []byte) ([]Violation, error) {
 	parser, err := lookupParser("sarif")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolving sarif parser for pack findings: %w", err)
 	}
 	return parser(out, CheckTypeSemgrep)
 }
@@ -71,7 +71,7 @@ func parseESLintJSON(out []byte, target CheckType) ([]Violation, error) {
 	}
 	var files []eslintFile
 	if err := json.Unmarshal(trimmed, &files); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing eslint JSON output: %w", err)
 	}
 	var violations []Violation
 	for _, f := range files {
@@ -100,7 +100,7 @@ func eslintSeverity(sev int) string {
 
 // tscLineRe matches a tsc --noEmit diagnostic line:
 // `file(line,col): error TSxxxx: message` (severity keyword error|warning).
-var tscLineRe = regexp.MustCompile(`^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)$`)
+var tscLineRe = regexp.MustCompile(`^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, idiomatic package global
 
 // parseTscOutput parses tsc --noEmit output lines into violations. Lines that
 // do not match the diagnostic shape (summary lines, blanks) are ignored.
@@ -151,6 +151,15 @@ type sarifLog struct {
 					} `json:"region"`
 				} `json:"physicalLocation"`
 			} `json:"locations"`
+			// Suppressions is the SARIF suppression list (ISSUE-017). A result with a
+			// non-empty suppressions array is INACTIVE per the SARIF spec — e.g.
+			// semgrep, in --sarif mode, emits `// nosemgrep`-suppressed findings as
+			// results carrying `suppressions: [{kind:"inSource"}]` rather than
+			// dropping them. parseSarif must not count a suppressed result as a live
+			// violation, or an inline-justified finding reads as a false failure.
+			Suppressions []struct {
+				Kind string `json:"kind"`
+			} `json:"suppressions"`
 		} `json:"results"`
 	} `json:"runs"`
 }
@@ -166,11 +175,16 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 	}
 	var log sarifLog
 	if err := json.Unmarshal(trimmed, &log); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing SARIF output: %w", err)
 	}
 	var violations []Violation
 	for _, run := range log.Runs {
 		for _, r := range run.Results {
+			// A SARIF result carrying suppressions is inactive (ISSUE-017): skip it so
+			// an inline-justified `// nosemgrep` finding is not counted as a violation.
+			if len(r.Suppressions) > 0 {
+				continue
+			}
 			file, line := "", 0
 			if len(r.Locations) > 0 {
 				pl := r.Locations[0].PhysicalLocation
@@ -204,7 +218,7 @@ func sarifSeverity(level string) string {
 // file/line/col/message. A declared toolchain may override this in a future
 // extension; today the generic format uses this default shape
 // (`file:line:col message`).
-var defaultRegexLinesPattern = regexp.MustCompile(`^(?P<file>[^:\s]+):(?P<line>\d+):(?P<col>\d+)\s+(?P<message>.+)$`)
+var defaultRegexLinesPattern = regexp.MustCompile(`^(?P<file>[^:\s]+):(?P<line>\d+):(?P<col>\d+)\s+(?P<message>.+)$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, idiomatic package global
 
 // parseRegexLines parses generic tool output line-by-line using the default
 // named-group pattern (file/line/col/message), defaulting severity to error.
