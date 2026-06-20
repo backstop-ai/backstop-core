@@ -1,0 +1,16 @@
+{
+  "Issues": [
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value is not checked",
+      "Severity": "error",
+      "Pos": { "Filename": "pkg/widget/widget.go", "Line": 14, "Column": 6 }
+    },
+    {
+      "FromLinter": "ineffassign",
+      "Text": "ineffectual assignment to count",
+      "Severity": "warning",
+      "Pos": { "Filename": "pkg/gadget/gadget.go", "Line": 8, "Column": 2 }
+    }
+  ]
+}

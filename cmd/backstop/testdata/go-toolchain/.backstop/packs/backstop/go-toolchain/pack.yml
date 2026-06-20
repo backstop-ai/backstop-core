@@ -1,0 +1,37 @@
+name: backstop/go-toolchain
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Reusable Go native-toolchain MECHANISM pack (SPEC-034 REQ-007): runs the Go
+  build/test/lint passes through the engine-dispatch substrate and normalizes
+  their output to SARIF. Mechanism only — it carries NO coding-standards rules
+  (those live in the separate, opinionated backstop-go-pack). Convention:
+  one <lang>-toolchain pack bundles a language's whole native toolchain.
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # Lint: golangci-lint v2 as a config-file engine. Native v2 SARIF on
+      # stdout (no converter); the pack-owned .golangci.yml is the config
+      # (OQ-1 resolved: pack-defined). rule_path binds the pack config.
+      - id: go-lint
+        engine: golangci
+        rule_path: .golangci.yml
+        risk_class: correctness
+        category: toolchain
+        justification: Native Go lint pass via golangci-lint v2 SARIF.
+      # Build: findings engine; `go build ./...` stdout normalized to SARIF by
+      # the pack convert script (parseGoBuildErrors relocated, DD-2).
+      - id: go-build
+        engine: go-build
+        risk_class: correctness
+        category: toolchain
+        justification: Native Go build pass; compiler errors normalized to SARIF.
+      # Test: findings engine; `go test ./...` stdout normalized to SARIF by the
+      # pack convert script (parseGoTestFailures relocated, DD-2).
+      - id: go-test
+        engine: go-test
+        risk_class: correctness
+        category: toolchain
+        justification: Native Go test pass; test failures normalized to SARIF.

@@ -12,6 +12,7 @@ import (
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/spf13/cobra"
 )
 
@@ -221,6 +222,63 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 // Steps 1-2: delegate to real artifact validation and code check.
 // Steps 3-6: mechanical verification using grep/AST parsing.
 // Steps 7-9: deferred (baseline, waivers, ledger).
+// gateLanguage reads the project's declared language from backstop.yml so the
+// bridge can select the matching native toolchain pack. An unreadable config
+// defaults to the Go stack, mirroring check.Options' empty-language default.
+func gateLanguage(projectRoot string) string {
+	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
+	if err != nil || cfg == nil {
+		return "go"
+	}
+	if cfg.Language == "" {
+		return "go"
+	}
+	return cfg.Language
+}
+
+// nativeToolchainPackName is the on-disk name of the reusable Go
+// native-toolchain MECHANISM pack (SPEC-034 REQ-007) the bridge dispatches. It
+// is a function (not a package-level var/const) to keep the bridge free of
+// package-level mutable state.
+func nativeToolchainPackName() string { return "backstop/go-toolchain" }
+
+// loadBridgedToolchainPacks resolves the native <lang>-toolchain mechanism pack
+// the bridge routes the native lint/build/test passes through (SPEC-034
+// REQ-001/REQ-007). It is loaded from .backstop/packs/<name> on disk (so its
+// pack-relative convert scripts resolve for SandboxedRunStdout) and dispatched
+// through the SAME dispatchPackEngines step the declared packs use — NOT a
+// parallel dispatcher and NOT a pkg/check->pkg/pack/engine import. The pack and
+// this wiring land in lockstep (REQ-007): the bridge dispatches the pack's
+// engine bindings, so there is never a commit where the bridge is live but the
+// pack is absent. A missing pack directory yields no bridged packs (the bespoke
+// path is still live in phase 1 — no enforcement lapse), while a PRESENT but
+// malformed pack fails loud through the dispatch step like any broken pack.
+func loadBridgedToolchainPacks(projectRoot, language string, declared []*pack.Manifest) ([]*pack.Manifest, error) {
+	if language != "" && language != "go" {
+		return nil, nil
+	}
+	// Dedupe: when the native toolchain pack is ALSO a declared+locked project
+	// pack (as it is when backstop-core dogfoods it), the existing pack dispatch
+	// already runs it — the bridge must not re-add it and double-run lint/build/
+	// test. The bridge's value is dispatching the native pack even when a Go
+	// project has NOT declared it; when it is declared, dispatch already covers it.
+	for _, m := range declared {
+		if m.NormalizedName == strings.ToLower(nativeToolchainPackName()) {
+			return nil, nil
+		}
+	}
+	packPath := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(nativeToolchainPackName()))
+	info, statErr := os.Stat(packPath)
+	if statErr != nil || !info.IsDir() {
+		return nil, nil
+	}
+	manifest, parseErr := pack.ParseManifestFile(filepath.Join(packPath, "pack.yml"))
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing native toolchain pack %s: %w", nativeToolchainPackName(), parseErr)
+	}
+	return []*pack.Manifest{manifest}, nil
+}
+
 func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFunc {
 	var activeScope *gate.GateScope
 	if len(scope) > 0 {
@@ -236,6 +294,27 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 					Status:     "fail",
 					ConfigErr:  true,
 					Violations: []gate.Violation{{Rule: "pack_loading", Message: packErr.Error(), Severity: "error"}},
+				}
+			},
+		}
+	}
+
+	// The BRIDGE (SPEC-034 REQ-001): resolve the native <lang>-toolchain
+	// mechanism pack so its lint/build/test engine bindings dispatch through the
+	// SAME dispatchPackEngines step the declared packs use. Computed here, before
+	// the no-declared-packs early return, so a Go project with no declared packs
+	// still gets its native toolchain enforced via the engine path (the pack
+	// engine step is built whenever there are declared OR bridged packs). A
+	// malformed native pack fails loud as a single config-error step.
+	bridged, bridgeErr := loadBridgedToolchainPacks(projectRoot, gateLanguage(projectRoot), packs)
+	if bridgeErr != nil {
+		return []gate.StepFunc{
+			func(context.Context) gate.StepResult {
+				return gate.StepResult{
+					StepName:   "pack_loading",
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "pack_loading", Message: bridgeErr.Error(), Severity: "error"}},
 				}
 			},
 		}
@@ -283,7 +362,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		gate.StepLedgerIntegrityScopedFunc(activeScope),
 	}
 
-	if len(packs) == 0 {
+	if len(packs) == 0 && len(bridged) == 0 {
 		return steps
 	}
 
@@ -311,7 +390,12 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	packValidatorStep := func(context.Context) gate.StepResult {
 		runner := &check.ExecCommandRunner{Dir: projectRoot}
-		violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
+		// The bridge dispatches the native toolchain pack's engine bindings
+		// alongside the declared packs through the SAME substrate (SPEC-034
+		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
+		// still-live bespoke path (phase 1, no enforcement lapse).
+		dispatchPacks := append(append([]*pack.Manifest{}, bridged...), packs...)
+		violations, err := dispatchPackEngines(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
 		if err != nil {
 			return gate.StepResult{
 				StepName:   "pack_engines",

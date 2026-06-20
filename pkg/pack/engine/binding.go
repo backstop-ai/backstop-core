@@ -90,6 +90,21 @@ type EngineBinding struct {
 	// Provision is an optional pinned install descriptor. Nil => assumed-present
 	// Layer-0 engine (REQ-019).
 	Provision *Provision
+	// CrashGuard, when true, marks a findings engine whose tool run exiting
+	// non-zero with NO parseable findings is a CRASH (a broken tool/infra error
+	// naming the engine), not a finding-free green (SPEC-034 REQ-003/CLM-010).
+	// The native go build/test passes set this: a compiler/test-binary crash must
+	// never read as a silent pass. semgrep/ast-grep/golangci leave it false —
+	// they legitimately exit non-zero WHEN they report findings, so the SARIF on
+	// stdout, not the exit code, is their contract.
+	CrashGuard bool
+	// ProjectTarget, when non-empty, is the project-wide scan target a toolchain
+	// pass shapes for ITSELF (e.g. "./..." for `go build ./...`) INSTEAD of having
+	// the project root appended as a scan argument the way rule-fed findings
+	// engines do (SPEC-034 REQ-010/CLM-034, N1). It is the scope-kind-aware
+	// arg-shaping notion: a ScopeKindProjectWide engine with a ProjectTarget runs
+	// `<command> <ProjectTarget>` and never gets projectRoot bolted on.
+	ProjectTarget string
 }
 
 // Registry maps an engine name to its EngineBinding. The gate looks up a rule's
@@ -155,6 +170,47 @@ func DefaultRegistry() Registry {
 			InputMode: InputModeConfigFile,
 			InputFlag: "--config",
 			ScopeKind: ScopeKindProjectWide,
+		},
+		// Native Go toolchain engines (SPEC-034). These are the Layer-0
+		// assume-present passes the native code-check toolchain was bridged onto:
+		// adding them is an EngineBinding record (the engine model is open and
+		// declared), not a gate executor edit. They carry nil Provision (the
+		// project owns its own `go`/`golangci-lint`; a missing binary fails loud,
+		// backstop never installs it — REQ-008).
+		//
+		// golangci is a config-file engine on golangci-lint v2 native SARIF: it
+		// declares no Convert (v2 emits SARIF on stdout) and its config (the
+		// pack-owned .golangci.yml) is the optional config-file input. It runs the
+		// `run` subcommand with the SARIF output flags and no version probe
+		// (REQ-005). ScopeKindProjectWide + a ProjectTarget of "./..." so the lint
+		// run is project-wide and the project root is never appended.
+		"golangci": {
+			Command:       "golangci-lint run --output.sarif.path stdout --show-stats=false",
+			InputMode:     InputModeConfigFile,
+			InputFlag:     "--config",
+			ScopeKind:     ScopeKindProjectWide,
+			ProjectTarget: "./...",
+		},
+		// go-build / go-test are findings engines: their stdout is normalized to
+		// SARIF by the pack-relative convert script (the retired
+		// parseGoBuildErrors / parseGoTestFailures logic relocated OUTSIDE the core
+		// binary — DD-2). CrashGuard distinguishes a compiler/test crash from
+		// findings; ProjectTarget "./..." is the project-wide scope (REQ-003/004/010).
+		"go-build": {
+			Command:       "go build",
+			InputMode:     InputModeNone,
+			ScopeKind:     ScopeKindProjectWide,
+			ProjectTarget: "./...",
+			Convert:       "scripts/build-to-sarif.sh",
+			CrashGuard:    true,
+		},
+		"go-test": {
+			Command:       "go test",
+			InputMode:     InputModeNone,
+			ScopeKind:     ScopeKindProjectWide,
+			ProjectTarget: "./...",
+			Convert:       "scripts/test-to-sarif.sh",
+			CrashGuard:    true,
 		},
 	}
 }

@@ -149,8 +149,13 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, ru
 			}
 			rules := grouped[engineName]
 
-			if binding.InputMode == engine.InputModeNone {
-				// Exit-code terminal branch (sandbox), relocated from layer-3.
+			// The exit-code terminal branch (sandbox) is the validator-driven
+			// engine: input_mode none AND no command (the executable is the pack
+			// validator). The native go-build/go-test engines also declare
+			// input_mode none but DO carry a command + convert script, so they ride
+			// the findings path below — keyed off Command, not input_mode alone
+			// (SPEC-034 REQ-001/REQ-004).
+			if binding.InputMode == engine.InputModeNone && binding.Command == "" {
 				vs, err := runSandboxEngine(manifest, packRoot, projectRoot, rules)
 				if err != nil {
 					return nil, err
@@ -272,16 +277,26 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 
 	cmdName, cmdArgs := splitCommand(binding.Command)
 	cmdArgs = append(cmdArgs, inputs...)
-	// Findings engines scan the project: append the project root as the scan
-	// target so rule-fed engines (semgrep --config X <root>, ast-grep scan
-	// --rule DIR <root>) have files to analyze. config-file engines run the
-	// tool's own rules over the same target.
-	cmdArgs = append(cmdArgs, projectRoot)
+	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1). Rule-fed
+	// findings engines (semgrep --config X <root>, ast-grep scan --rule DIR
+	// <root>) and config-file engines with no self-declared target scan the
+	// project, so the project root is appended as their scan target. A
+	// project-wide toolchain pass (go build ./..., go test ./..., golangci-lint
+	// run ./...) shapes its OWN target via ProjectTarget and must NOT have the
+	// project root bolted on — appending <root> to `go build ./...` is wrong.
+	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+		cmdArgs = append(cmdArgs, binding.ProjectTarget)
+	} else {
+		cmdArgs = append(cmdArgs, projectRoot)
+	}
 
 	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-	// A findings engine exits non-zero when it reports findings; the SARIF on
-	// stdout is the contract, so runErr is not fatal on its own.
-	_ = runErr
+	// A rule-fed/config-file findings engine exits non-zero when it reports
+	// findings; the SARIF on stdout is the contract, so runErr is not fatal on
+	// its own. A CrashGuard engine (native build/test) is different: a non-zero
+	// exit that yields NO parseable findings is a tool/infra crash, not a
+	// finding-free pass, and must fail loud rather than read as a silent green
+	// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
 
 	sarifBytes := stdout
 	if binding.Convert != "" {
@@ -299,6 +314,14 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 	checkViolations, parseErr := check.ParsePackFindings(sarifBytes)
 	if parseErr != nil {
 		return nil, fmt.Errorf("pack %s engine %s: convert/parse to SARIF failed: %w", manifest.NormalizedName, binding.Command, parseErr)
+	}
+
+	// Crash-vs-findings guard (SPEC-034 REQ-003/CLM-010). For a CrashGuard engine
+	// a non-zero run with zero parseable findings is a compiler/test-binary crash
+	// or unparseable output, not a clean pass — surface it (naming the pack and
+	// engine) instead of returning a silent green.
+	if binding.CrashGuard && runErr != nil && len(checkViolations) == 0 {
+		return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with no parseable findings: %w", manifest.NormalizedName, binding.Command, runErr)
 	}
 
 	out := make([]gate.Violation, 0, len(checkViolations))

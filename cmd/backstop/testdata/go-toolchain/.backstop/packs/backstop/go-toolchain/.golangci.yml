@@ -1,0 +1,12 @@
+# Pack-owned golangci-lint v2 configuration (SPEC-034 OQ-1: pack-defined).
+# Adopting the go-toolchain pack yields working lint with zero project-side
+# wiring. The config-file engine binds golangci-lint to THIS file.
+version: "2"
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
