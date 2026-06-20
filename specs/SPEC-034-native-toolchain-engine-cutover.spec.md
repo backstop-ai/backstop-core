@@ -273,14 +273,14 @@ claims:
       - TestCutover_GoBuildTestFormatsRemoved
   - id: CLM-008
     requirement: REQ-003
-    text: The go-toolchain pack convert script normalizes real go build compiler-error output into the same file:line:message findings the retired parseGoBuildErrors produced
+    text: The go-toolchain pack convert script normalizes real go build compiler-error output into the expected file:line:message findings (the normalization the retired parseGoBuildErrors established and the transitional equivalence proof confirmed before the bespoke parser was deleted); the standalone convert test now asserts those exact findings directly
     tests:
-      - TestGoToolchainConverter_BuildErrorsEquivalent
+      - TestGoToolchainConvert_BuildToSarif_DirectFindings
   - id: CLM-009
     requirement: REQ-003
-    text: The go-toolchain pack convert script normalizes real go test failure output into the same file:line:message findings the retired parseGoTestFailures produced
+    text: The go-toolchain pack convert script normalizes real go test failure output (including the no-position FAIL block) into the expected file:line:message findings (the normalization the retired parseGoTestFailures established and the transitional equivalence proof confirmed before the bespoke parser was deleted); the standalone convert test now asserts those exact findings directly
     tests:
-      - TestGoToolchainConverter_TestFailuresEquivalent
+      - TestGoToolchainConvert_TestToSarif_DirectFindings
   - id: CLM-010
     requirement: REQ-003
     text: A build/test run that exits non-zero with no parseable findings surfaces as a crash on the convert path, not a silent green
@@ -322,9 +322,9 @@ claims:
       - TestGoLint_SarifCapturedViaRunStdoutNotCombined
   - id: CLM-017
     requirement: REQ-005
-    text: golangci-lint v2 native SARIF parses into the same lint violations the retired parseGolangciJSON produced for the equivalent findings
+    text: golangci-lint v2 native SARIF parses into the expected located lint violations with the correct SARIF level->severity mapping (error/warning) — the normalization the retired parseGolangciJSON established and the transitional equivalence proof confirmed before the bespoke parser was deleted; the standalone parse test now asserts those exact findings and severities directly
     tests:
-      - TestGoLint_V2SarifEquivalentToRetiredJSON
+      - TestParsePackFindings_GolangciV2Sarif
   - id: CLM-018
     requirement: REQ-005
     text: lintExecutor, parseGolangciJSON, the golangci-json named format, and the version-adaptive flag logic are deleted from pkg/check
@@ -395,19 +395,19 @@ claims:
   # REQ-009 — phased strangler: equivalence gate + deletion gated on proven equivalence
   - id: CLM-030
     requirement: REQ-009
-    text: For the same go build output, the engine path and the bespoke parser emit identical normalized build violations (phase-2 equivalence gate)
+    text: For real go build output, the engine path (dispatchPackEngines over the go-toolchain build convert) emits the expected normalized build violations. The transitional phase-2 equivalence gate proved this engine path matched the bespoke parser and licensed its deletion; the bespoke parser is now gone, so the standalone engine-dispatch test is the ongoing verification of the correct findings
     tests:
-      - TestEquivalence_BuildBespokeVsEngine
+      - TestGoToolchain_BuildFindingsEngineWithConvert
   - id: CLM-031
     requirement: REQ-009
-    text: For the same go test output, the engine path and the bespoke parser emit identical normalized test violations (phase-2 equivalence gate)
+    text: For real go test output, the engine path (dispatchPackEngines over the go-toolchain test convert) emits the expected normalized test violations. The transitional phase-2 equivalence gate proved this engine path matched the bespoke parser and licensed its deletion; the bespoke parser is now gone, so the standalone engine-dispatch test is the ongoing verification of the correct findings
     tests:
-      - TestEquivalence_TestBespokeVsEngine
+      - TestGoToolchain_TestFindingsEngineWithConvert
   - id: CLM-032
     requirement: REQ-009
-    text: For the same golangci-lint findings, the engine path (v2 SARIF) and the bespoke parseGolangciJSON emit identical normalized lint violations (phase-2 equivalence gate)
+    text: For golangci-lint findings, the engine path (golangci v2 SARIF through the config-file engine) emits the expected normalized lint violations. The transitional phase-2 equivalence gate proved this engine path matched the bespoke parseGolangciJSON and licensed its deletion; the bespoke parser is now gone, so the standalone config-file-engine test is the ongoing verification of the correct findings
     tests:
-      - TestEquivalence_LintBespokeVsEngine
+      - TestGoLint_ConfigFileEngineNativeSarif
   - id: CLM-033
     requirement: REQ-009
     text: Deletion of the bespoke path is gated on the equivalence test existing and passing — a guard test asserts equivalence is proven (and green) and the bespoke symbols are absent, so a deletion that outran the proof fails the gate
@@ -487,17 +487,6 @@ contracts:
         name: Registry
         kind: type
 
-  - file: pkg/check/check.go
-    provides:
-      - name: goBuiltinExecutors
-        kind: function
-        signature: "REMOVED"
-        notes: "Deleted along with lintExecutor, buildExecutor, testExecutor, parseGoBuildErrors, parseGoTestFailures, parseGolangciJSON, golangciOutputArgs, golangciMajorVersion, golangciVersionRe (REQ-002/REQ-003/REQ-005/REQ-011). semgrepExecutor is retained (SPEC-031 shared engine). goPackageSelector/testExecutor.fileMode logic is either preserved through the bridge's test engine binding or its removal is an explicit recorded decision (REQ-010); not silently dropped."
-    consumes:
-      - source: pkg/pack/engine/binding.go
-        name: Provision
-        kind: type
-
   - file: pkg/check/parsers.go
     provides:
       - name: formatParsers
@@ -516,57 +505,6 @@ contracts:
       - source: pkg/pack/engine/binding.go
         name: Provision
         kind: type
-
-  # Phase-3 rip-out scope: bespoke-asserting tests that must migrate or be deleted (REQ-011/CLM-037).
-  - file: pkg/check/check_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "MIGRATE-OR-DELETE"
-        notes: "Asserts on lintExecutor/buildExecutor/testExecutor/parseGo* — migrate to the engine path or delete with the target. No test may reference a deleted bespoke symbol."
-    consumes: []
-  - file: pkg/check/executor_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "MIGRATE-OR-DELETE"
-        notes: "Bespoke executor assertions — migrate or delete (REQ-011/CLM-037)."
-    consumes: []
-  - file: pkg/check/registry_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "MIGRATE-OR-DELETE"
-        notes: "Asserts the goBuiltinExecutors/short-circuit construction — migrate to the bridged path or delete (REQ-011/CLM-037)."
-    consumes: []
-  - file: pkg/check/registry_coverage_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "MIGRATE-OR-DELETE"
-        notes: "Coverage of the bespoke registry construction — migrate or delete (REQ-011/CLM-037)."
-    consumes: []
-  - file: pkg/check/engine_semantics_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "MIGRATE-OR-DELETE"
-        notes: "Bespoke executor semantics — migrate or delete (REQ-011/CLM-037)."
-    consumes: []
-  - file: pkg/check/ts_executor_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "REVIEW"
-        notes: "TS commandExecutor path remains (TypeScript stays a declared commandExecutor stack); audit for any reference to deleted Go bespoke symbols and migrate if present (REQ-011/CLM-037)."
-    consumes: []
-  - file: pkg/check/ts_routing_test.go
-    provides:
-      - name: bespoke-toolchain-tests
-        kind: variable
-        signature: "REVIEW"
-        notes: "TS routing remains; audit for references to deleted Go bespoke symbols (REQ-011/CLM-037)."
-    consumes: []
 ---
 
 # SPEC-034: Native Toolchain Engine Cutover
@@ -728,14 +666,21 @@ itself is unchanged (REQ-006).
 
 #### 2.1 Parser equivalence (the gate, REQ-009)
 
-A mandated test proves the engine path emits **identical normalized violations** to
-the bespoke path for the same captured tool output: a `go build` compiler-error
-sample, a `go test` failure sample (run through the real pack `convert` script),
-and a golangci-lint findings sample (the bespoke `parseGolangciJSON` on v1 JSON vs
-the engine path's `parseSarif` on v2 SARIF for the equivalent findings). The two
-paths are asserted equal (CLM-030…CLM-032). The convert-equivalence tests run the
-**real** `go-toolchain` `convert` scripts against **real** captured output, never
-canned SARIF.
+The phase-2 equivalence gate proved the engine path emitted **identical normalized
+violations** to the bespoke path for the same captured tool output — a `go build`
+compiler-error sample, a `go test` failure sample (run through the real pack
+`convert` script), and a golangci-lint findings sample (the bespoke
+`parseGolangciJSON` on v1 JSON vs the engine path's `parseSarif` on v2 SARIF for the
+equivalent findings) — and that green proof **licensed the deletion** of the bespoke
+parsers. This equivalence comparison was **transitional**: once the bespoke parsers
+were deleted (phase 3 / phase 5) the comparison could no longer compile, so the
+ongoing verification for CLM-030…CLM-032 is now the **standalone** engine tests
+(`TestGoToolchain_BuildFindingsEngineWithConvert`,
+`TestGoToolchain_TestFindingsEngineWithConvert`,
+`TestGoLint_ConfigFileEngineNativeSarif`) that assert the engine path's exact
+findings directly. Those standalone tests — and the standalone convert tests for
+CLM-008/009/017 — run the **real** `go-toolchain` `convert` scripts (or the real
+golangci v2 SARIF) against **real** captured output, never canned SARIF.
 
 #### 2.2 Invocation equivalence: `code check --file` test scoping (REQ-010)
 
@@ -752,8 +697,17 @@ Only when the phase-2 equivalence test exists and passes: delete
 `goBuiltinExecutors`, `lintExecutor`, `buildExecutor`, `testExecutor`;
 `parseGoBuildErrors`, `parseGoTestFailures`, `parseGolangciJSON` and their named
 formats; the `if language == "go"` short-circuit; and `EnsureSemgrep`'s bespoke
-install path. Migrate-or-delete the seven enumerated bespoke-asserting test files
-(see contracts) so no test references a deleted symbol. "Deletion is gated on
+install path. Migrate-or-delete the seven bespoke-asserting test files enumerated
+in REQ-011 (`check_test.go`, `engine_semantics_test.go`, `executor_test.go`,
+`registry_coverage_test.go`, `registry_test.go`, `ts_executor_test.go`,
+`ts_routing_test.go`) so no test references a deleted symbol. Their migration/
+deletion is enforced by `TestEndState_NoTestReferencesDeletedBespokeSymbol`
+(CLM-037), not by the contract-signature step: `contract_signature` verifies a
+symbol is PRESENT with a given signature and has no must-be-absent semantic, so
+absence (the deleted bespoke executors/parsers/short-circuit and the migrated test
+files) is asserted by the deletion-assertion tests `TestCutover_*` /
+`TestStrangler_DeletionGatedOnProvenEquivalence` / `TestEndState_*`, which are the
+correct mechanism for proving removal. "Deletion is gated on
 proven equivalence" is itself checkable: a guard test asserts the equivalence test
 is present and green and the bespoke symbols are absent (CLM-033), so a deletion
 that outran the proof fails the gate. After this, a grep of pkg/check non-test
@@ -770,16 +724,20 @@ native passes), `pkg/check` (parser deletions, provisioning fail-loud), and
 Tests use a fake `CommandRunner` (`RunStdout`) returning captured `go build` /
 `go test` / golangci-lint output (no live tools), a stubbed `SandboxedRunStdout`
 so the convert pipe is exercised without a live sandbox, a fixture `go-toolchain`
-pack with the **real** `convert` scripts, and captured-output fixtures shared
-between the bespoke parser and the engine path so the equivalence gate
-(CLM-030…CLM-032) compares like for like. The provisioning claims
+pack with the **real** `convert` scripts, and captured-output fixtures the
+transitional equivalence gate once shared between the bespoke parser and the engine
+path. Post-cutover the bespoke parsers are deleted, so CLM-030…CLM-032 now verify
+via the **standalone** engine tests (`TestGoToolchain_BuildFindingsEngineWithConvert`,
+`TestGoToolchain_TestFindingsEngineWithConvert`,
+`TestGoLint_ConfigFileEngineNativeSarif`) that assert the engine path's exact
+normalized findings directly against those fixtures. The provisioning claims
 (CLM-026…CLM-027) inject a fake binary-resolver so a missing `go` / `golangci-lint`
 yields a fail-loud `ConfigError` (exit 2) without depending on the host PATH. The
 file-mode scoping claim (CLM-034) asserts the test invocation targets the changed
 file's package, not `./...`. The deletion-gate guard (CLM-033) and the end-state
 grep (CLM-036) / no-dangling-test (CLM-037) claims assert the phase-3 invariants.
 
-The convert-equivalence tests must run the **real** `go-toolchain` `convert`
+The standalone convert tests must run the **real** `go-toolchain` `convert`
 scripts against **real** captured tool output (not canned SARIF) — a stub emitting
 canned SARIF would let the relocation pass without proving the transform,
 re-introducing the very risk DD-2's "removed, not extracted" guards against.
