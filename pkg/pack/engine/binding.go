@@ -17,16 +17,16 @@ type InputMode string
 const (
 	// InputModeConfigFile passes a single optional pack-supplied config file; the
 	// tool runs its own built-in rules (e.g. golangci-lint/eslint/tsc).
-	InputModeConfigFile InputMode = "config-file"
+	InputModeConfigFile InputMode = "config-file" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 	// InputModeRuleFlags repeats input_flag once per rule file (e.g. semgrep's
 	// --config X --config Y).
-	InputModeRuleFlags InputMode = "rule-flags"
+	InputModeRuleFlags InputMode = "rule-flags" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 	// InputModeRuleDir collects rule files into one directory passed once via
 	// input_flag (e.g. ast-grep --rule DIR).
-	InputModeRuleDir InputMode = "rule-dir"
+	InputModeRuleDir InputMode = "rule-dir" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 	// InputModeNone injects no rules or config; the executable is the logic
 	// (the sandbox engine).
-	InputModeNone InputMode = "none"
+	InputModeNone InputMode = "none" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 )
 
 // ParseInputMode resolves a raw string to an InputMode, fail-louding on an
@@ -48,12 +48,36 @@ type ScopeKind int
 
 const (
 	// ScopeKindFileArgs appends the scoped files to the command as arguments.
-	ScopeKindFileArgs ScopeKind = iota
+	ScopeKindFileArgs ScopeKind = iota // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 	// ScopeKindProjectWide runs the command once project-wide, ignoring the
 	// scoped file list.
 	ScopeKindProjectWide
 	// ScopeKindDependencyMapped runs once, optionally using a dependency map.
 	ScopeKindDependencyMapped
+)
+
+// EngineCategory classifies an engine as Go-native toolchain MECHANISM or
+// coding-standards OPINION for the pack-separation enforcer (ISSUE-015 /
+// SPEC-034 REQ-007). It is the single source of truth for the mechanism/opinion
+// boundary: the enforcer reads this field off the engine's binding instead of
+// reconstructing the classification from a hardcoded engine set. The zero value
+// EngineCategoryUnset means the engine is NEITHER mechanism nor opinion (e.g.
+// sandbox, config-file), so a rule binding it trips no boundary check — identical
+// to the pre-ISSUE-015 switches returning false for both.
+type EngineCategory int
+
+const (
+	// EngineCategoryUnset is the zero value: the engine is neither toolchain
+	// mechanism nor coding-standards opinion. A rule binding such an engine is
+	// invisible to the pack-separation boundary check.
+	EngineCategoryUnset EngineCategory = iota // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
+	// EngineCategoryMechanism marks a Go native-toolchain engine that runs the
+	// toolchain (build/test/lint) and normalizes its output (go-build, go-test,
+	// golangci). A pack carrying these rules is a mechanism pack.
+	EngineCategoryMechanism
+	// EngineCategoryOpinion marks a swappable coding-standards engine fed by rule
+	// files (semgrep, ast-grep). A pack carrying these rules is an opinion pack.
+	EngineCategoryOpinion
 )
 
 // Provision is a pinned install descriptor for a backstop-introduced engine
@@ -98,6 +122,12 @@ type EngineBinding struct {
 	// they legitimately exit non-zero WHEN they report findings, so the SARIF on
 	// stdout, not the exit code, is their contract.
 	CrashGuard bool
+	// Category classifies the engine as toolchain MECHANISM or coding-standards
+	// OPINION for the pack-separation enforcer (ISSUE-015 / SPEC-034 REQ-007). The
+	// zero value EngineCategoryUnset means neither, so a rule binding the engine is
+	// invisible to the boundary check. This is the single source of truth for the
+	// classification: the enforcer reads it here rather than mirroring an engine set.
+	Category EngineCategory
 	// ProjectTarget, when non-empty, is the project-wide scan target a toolchain
 	// pass shapes for ITSELF (e.g. "./..." for `go build ./...`) INSTEAD of having
 	// the project root appended as a scan argument the way rule-fed findings
@@ -150,6 +180,7 @@ func DefaultRegistry() Registry {
 			InputFlag: "--config",
 			ScopeKind: ScopeKindFileArgs,
 			Provision: &Provision{Tool: "semgrep", Version: "1.96.0"},
+			Category:  EngineCategoryOpinion,
 		},
 		"ast-grep": {
 			Command:   "ast-grep scan",
@@ -158,6 +189,7 @@ func DefaultRegistry() Registry {
 			ScopeKind: ScopeKindFileArgs,
 			Convert:   "ast-grep/to-sarif.sh",
 			Provision: &Provision{Tool: "ast-grep", Version: "0.43.0"},
+			Category:  EngineCategoryOpinion,
 		},
 		"sandbox": {
 			Command:   "",
@@ -190,6 +222,7 @@ func DefaultRegistry() Registry {
 			InputFlag:     "--config",
 			ScopeKind:     ScopeKindProjectWide,
 			ProjectTarget: "./...",
+			Category:      EngineCategoryMechanism,
 		},
 		// go-build / go-test are findings engines: their stdout is normalized to
 		// SARIF by the pack-relative convert script (the retired
@@ -203,6 +236,7 @@ func DefaultRegistry() Registry {
 			ProjectTarget: "./...",
 			Convert:       "scripts/build-to-sarif.sh",
 			CrashGuard:    true,
+			Category:      EngineCategoryMechanism,
 		},
 		"go-test": {
 			Command:       "go test",
@@ -211,6 +245,7 @@ func DefaultRegistry() Registry {
 			ProjectTarget: "./...",
 			Convert:       "scripts/test-to-sarif.sh",
 			CrashGuard:    true,
+			Category:      EngineCategoryMechanism,
 		},
 	}
 }

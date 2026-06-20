@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // SPEC-034 REQ-007 / Sharp Edge 9 — the mechanism vs opinion pack boundary.
@@ -21,30 +22,37 @@ import (
 // not bleed into the standards pack, and coding-standards opinion must not bleed
 // into the toolchain pack.
 
-// isToolchainMechanismEngine reports whether engine is a Go native-toolchain
-// mechanism engine (build/test/lint run + normalize). These mirror the SPEC-034
-// EngineBinding records the bridge registers; a rule binding one of these is
-// toolchain mechanism, not coding-standards opinion. Expressed as a switch (not a
-// package-level map) so the classifier carries no global mutable state.
-func isToolchainMechanismEngine(engine string) bool {
-	switch engine {
-	case "go-build", "go-test", "golangci":
-		return true
-	default:
-		return false
+// engineCategory resolves an engine name to its EngineCategory by looking up the
+// engine's binding in the shared registry (ISSUE-015). The registry is the SINGLE
+// source of truth for the mechanism/opinion classification: there is no second
+// hardcoded engine set to drift. An unknown/unregistered engine resolves to
+// EngineCategoryUnset (Lookup fails loud, but for classification that simply means
+// "neither mechanism nor opinion" — identical to the pre-ISSUE-015 switches
+// returning false for both, so a mis-bound rule trips no boundary check here and
+// is caught instead by the gate's fail-loud Lookup at dispatch).
+func engineCategory(engineName string) engine.EngineCategory {
+	bind, err := resolveEngineRegistry().Lookup(engineName)
+	if err != nil {
+		return engine.EngineCategoryUnset
 	}
+	return bind.Category
+}
+
+// isToolchainMechanismEngine reports whether engine is a Go native-toolchain
+// mechanism engine (build/test/lint run + normalize). The classification is read
+// from the engine's EngineBinding.Category in the registry (ISSUE-015), not a
+// hardcoded engine set: a rule binding a mechanism engine is toolchain mechanism,
+// not coding-standards opinion.
+func isToolchainMechanismEngine(engineName string) bool {
+	return engineCategory(engineName) == engine.EngineCategoryMechanism
 }
 
 // isStandardsOpinionEngine reports whether engine is a coding-standards opinion
 // engine (rule-fed semgrep/ast-grep): a rule binding one of these is opinion, not
-// toolchain mechanism.
-func isStandardsOpinionEngine(engine string) bool {
-	switch engine {
-	case "semgrep", "ast-grep":
-		return true
-	default:
-		return false
-	}
+// toolchain mechanism. The classification is read from the engine's
+// EngineBinding.Category in the registry (ISSUE-015).
+func isStandardsOpinionEngine(engineName string) bool {
+	return engineCategory(engineName) == engine.EngineCategoryOpinion
 }
 
 // packClassification is the mechanism/opinion character a pack's rules carry.

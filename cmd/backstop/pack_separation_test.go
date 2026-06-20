@@ -230,6 +230,82 @@ func TestPackSeparation_RejectsBleed(t *testing.T) {
 	}
 }
 
+// TestPackSeparation_CategoryDrivesClassification proves the mechanism/opinion
+// boundary derives ENTIRELY from EngineBinding.Category in the registry (ISSUE-015),
+// not a hardcoded engine set in pack_separation.go. A brand-new engine registered
+// purely as data — one tagged EngineCategoryMechanism, one tagged
+// EngineCategoryOpinion, one left EngineCategoryUnset — is classified correctly by
+// the SAME isToolchainMechanismEngine/isStandardsOpinionEngine helpers WITHOUT any
+// edit to pack_separation.go, and a pack mixing the two new engines is rejected as
+// bleed. This is the single-source-of-truth assertion: adding an engine is one
+// Category declaration, and the separation enforcer picks it up automatically.
+func TestPackSeparation_CategoryDrivesClassification(t *testing.T) {
+	orig := engineRegistry
+	t.Cleanup(func() { engineRegistry = orig })
+	engineRegistry = engine.DefaultRegistry()
+
+	// Three brand-new engines added as DATA ONLY (no edit to pack_separation.go):
+	// classified by their declared Category.
+	engineRegistry["newmech"] = engine.EngineBinding{
+		Command:  "newmech run",
+		Category: engine.EngineCategoryMechanism,
+	}
+	engineRegistry["newopinion"] = engine.EngineBinding{
+		Command:  "newopinion scan",
+		Category: engine.EngineCategoryOpinion,
+	}
+	engineRegistry["newneutral"] = engine.EngineBinding{
+		Command: "newneutral run",
+		// EngineCategoryUnset (zero value) — neither mechanism nor opinion.
+	}
+
+	// The classifiers read Category off the registry, so the new engines are
+	// classified with no change to the helpers themselves.
+	if !isToolchainMechanismEngine("newmech") {
+		t.Error("an engine declared EngineCategoryMechanism must classify as toolchain mechanism")
+	}
+	if isStandardsOpinionEngine("newmech") {
+		t.Error("a mechanism engine must NOT classify as opinion")
+	}
+	if !isStandardsOpinionEngine("newopinion") {
+		t.Error("an engine declared EngineCategoryOpinion must classify as standards opinion")
+	}
+	if isToolchainMechanismEngine("newopinion") {
+		t.Error("an opinion engine must NOT classify as mechanism")
+	}
+	// EngineCategoryUnset => neither (same as the pre-ISSUE-015 false/false), and an
+	// engine absent from the registry resolves the same neutral way.
+	if isToolchainMechanismEngine("newneutral") || isStandardsOpinionEngine("newneutral") {
+		t.Error("an EngineCategoryUnset engine must classify as neither mechanism nor opinion")
+	}
+	if isToolchainMechanismEngine("does-not-exist") || isStandardsOpinionEngine("does-not-exist") {
+		t.Error("an unregistered engine must classify as neither mechanism nor opinion")
+	}
+
+	// End-to-end: a pack mixing the new mechanism engine with the new opinion engine
+	// is rejected as bleed — driven solely by the declared Categories.
+	mixed := &pack.Manifest{
+		Name: "backstop/new-mixed",
+		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
+			{ID: "m", Engine: "newmech"},
+			{ID: "o", Engine: "newopinion", Standard: "some opinion"},
+		}}},
+	}
+	if v := packSeparationViolations(mixed); len(v) == 0 {
+		t.Error("a pack mixing a Category=Mechanism and a Category=Opinion engine must be rejected as bleed")
+	}
+
+	// A clean pack of only the neutral engine produces no violations (it is invisible
+	// to the boundary, exactly like sandbox/config-file).
+	neutral := &pack.Manifest{
+		Name:    "backstop/new-neutral",
+		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{{ID: "n", Engine: "newneutral"}}}},
+	}
+	if v := packSeparationViolations(neutral); len(v) != 0 {
+		t.Errorf("a pack of only EngineCategoryUnset engines must produce no violations, got %v", v)
+	}
+}
+
 // TestPackSeparation_NilAndEmptySafe pins the defensive guards: a nil manifest and
 // an empty (no-rules) manifest are classified as neither mechanism nor opinion and
 // produce no violations, so the boundary check never panics on a degenerate pack.
