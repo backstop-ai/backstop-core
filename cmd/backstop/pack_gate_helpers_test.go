@@ -99,7 +99,7 @@ func TestVerifyPackLock_NoPacks(t *testing.T) {
 // violations and no error. Re-keyed from TestMergePackRules_NoPacks (the
 // findings-feeder no-packs case).
 func TestDispatchPackEngines_NoPacks(t *testing.T) {
-	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nilRunner{})
+	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nil, nilRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestDispatchPackEngines_NoPacks(t *testing.T) {
 // zero packs yields zero violations through the consolidated path that now folds
 // in the sandbox validator branch.
 func TestDispatchPackEngines_NoPacksValidators(t *testing.T) {
-	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nilRunner{})
+	violations, err := dispatchPackEngines(nil, t.TempDir(), t.TempDir(), nil, nilRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestDispatchSandbox_SkipsNonSandboxEngines(t *testing.T) {
 			},
 		},
 	}}
-	violations, err := dispatchPackEngines(manifests, packDir, t.TempDir(), emptySarifRunner{})
+	violations, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, emptySarifRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDispatchSemgrep_GathersRuleFlagsInputs(t *testing.T) {
 	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
 	t.Cleanup(func() { sandboxedRun = orig })
 
-	if _, err := dispatchPackEngines(manifests, packDir, t.TempDir(), rec); err != nil {
+	if _, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, rec); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	configs := 0

@@ -463,8 +463,8 @@ contracts:
     provides:
       - name: dispatchPackEngines
         kind: function
-        signature: "func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, runner check.CommandRunner) ([]gate.Violation, error)"
-        notes: "REUSED unchanged in shape as the single dispatch substrate for native lint/build/test (REQ-001). lint is a config-file findings engine (RunStdout, no convert); build/test are findings engines with a pack-relative convert script run via SandboxedRunStdout in runFindingsEngine. The build/test convert path must preserve the crash-vs-findings guard (a non-zero exit with no parseable findings is a crash, not green — REQ-003/CLM-010); today runFindingsEngine discards runErr, so this guard is the one behavioral addition the bridge makes to the findings path."
+        signature: "func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error)"
+        notes: "REUSED as the single dispatch substrate for native lint/build/test (REQ-001). Its shape gained a scope *gate.GateScope param (ISSUE-010 diff-scope fix) threaded ahead of the runner; the native bridge reuses this same signature, introducing no parallel dispatcher. lint is a config-file findings engine (RunStdout, no convert); build/test are findings engines with a pack-relative convert script run via SandboxedRunStdout in runFindingsEngine. The build/test convert path must preserve the crash-vs-findings guard (a non-zero exit with no parseable findings is a crash, not green — REQ-003/CLM-010); today runFindingsEngine discards runErr, so this guard is the one behavioral addition the bridge makes to the findings path."
     consumes:
       - source: pkg/check/runner.go
         name: RunStdout

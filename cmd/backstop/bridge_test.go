@@ -24,7 +24,7 @@ func TestGoToolchain_NoEmbeddedBuildTestParser(t *testing.T) {
 	raw := readFixture(t, "go-build-errors.txt")
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": raw}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestBridge_NativePassesRunThroughDispatchPackEngines(t *testing.T) {
 		"golangci-lint": readFixture(t, "golangci-v2.sarif"),
 	}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (all three native passes): %v", err)
 	}

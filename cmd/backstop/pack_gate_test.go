@@ -132,7 +132,7 @@ func TestGateIntegration_SemgrepRulesMerged(t *testing.T) {
 	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
 	defer func() { sandboxedRun = orig }()
 
-	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec); err != nil {
+	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	var rulePaths []string
@@ -192,7 +192,7 @@ func TestGateIntegration_SandboxValidatorExecuted(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestGateIntegration_SandboxNamespacedIDs(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestGateIntegration_BrokenPackRuleFile(t *testing.T) {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
 
-	_, err = dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
+	_, err = dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
 	if err == nil {
 		t.Fatal("expected error for missing pack rule file")
 	}
@@ -264,7 +264,7 @@ func TestGateIntegration_ToolConfigApplied(t *testing.T) {
 	orig := sandboxedRun
 	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
 	defer func() { sandboxedRun = orig }()
-	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec); err != nil {
+	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec); err != nil {
 		t.Fatalf("dispatchPackEngines should not require runtime tool_config merge: %v", err)
 	}
 	configs := 0
@@ -299,7 +299,7 @@ func TestGateIntegration_MultiplePacksEnforced(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, rec)
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
+	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 	}
 	defer func() { sandboxedRun = orig }()
 
-	violations, err := dispatchPackEngines(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, emptySarifRunner{})
+	violations, err := dispatchPackEngines(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}

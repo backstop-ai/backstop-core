@@ -279,14 +279,12 @@ contracts:
         kind: function
         signature: "func loadInstalledPacks(projectRoot string) ([]*pack.Manifest, error)"
         notes: "Reads backstop.yml packs list, resolves from .backstop/packs/, returns parsed manifests"
-      - name: mergePackRules
-        kind: function
-        signature: "func mergePackRules(packs []*pack.Manifest, packDir string) ([]string, error)"
-        notes: "Returns additional semgrep --config paths from all pack layer 2 rules"
-      - name: runPackValidators
-        kind: function
-        signature: "func runPackValidators(packs []*pack.Manifest, packDir, projectRoot string) ([]gate.Violation, error)"
-        notes: "Executes all layer 3 validators from installed packs in sandbox"
+      # mergePackRules and runPackValidators were retired by the engine-dispatch
+      # refactor (SPEC-031): mergePackRules' semgrep-config feeder folded into
+      # dispatchPackEngines, and runPackValidators' layer-3 sandbox path split into
+      # runFindingsEngine + runSandboxEngine. Neither survives as a standalone
+      # symbol, so their provides contracts are removed here. The current dispatch
+      # substrate is contracted in SPEC-031 (dispatchPackEngines).
     consumes:
       - source: pkg/pack/manifest.go
         name: ParseManifestFile

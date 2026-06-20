@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -12,11 +13,43 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// checkRunFn / loadInstalledPacksFn / dispatchPackEnginesFn are test seams:
+// nil in production (the resolvers below fall back to the concrete functions),
+// and overridden by tests to inject hermetic stubs. They are declared WITHOUT
+// initializers so they hold no package-level mutable default — the real
+// implementation is resolved lazily via the resolveXxx helpers, which keeps the
+// production behavior identical while leaving an injectable hook for tests.
 var (
-	checkRunFn            = check.Run
-	loadInstalledPacksFn  = loadInstalledPacks
-	dispatchPackEnginesFn = dispatchPackEngines
+	checkRunFn            func(context.Context, check.Options) (*check.Result, error)
+	loadInstalledPacksFn  func(string) ([]*pack.Manifest, error)
+	dispatchPackEnginesFn func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error)
 )
+
+// resolveCheckRun returns the injected check-run seam or the concrete check.Run.
+func resolveCheckRun() func(context.Context, check.Options) (*check.Result, error) {
+	if checkRunFn != nil {
+		return checkRunFn
+	}
+	return check.Run
+}
+
+// resolveLoadInstalledPacks returns the injected pack-loader seam or the
+// concrete loadInstalledPacks.
+func resolveLoadInstalledPacks() func(string) ([]*pack.Manifest, error) {
+	if loadInstalledPacksFn != nil {
+		return loadInstalledPacksFn
+	}
+	return loadInstalledPacks
+}
+
+// resolveDispatchPackEngines returns the injected dispatch seam or the concrete
+// dispatchPackEngines.
+func resolveDispatchPackEngines() func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+	if dispatchPackEnginesFn != nil {
+		return dispatchPackEnginesFn
+	}
+	return dispatchPackEngines
+}
 
 // codeCheckCmd is the top-level Cobra command for backstop code check,
 // registered under the code namespace. It mirrors gateCmd so the command is
@@ -74,7 +107,7 @@ dispatch with a 2-second execution budget.`,
 			}
 
 			// Step 4: Load installed packs
-			packs, packsErr := loadInstalledPacksFn(projectRoot)
+			packs, packsErr := resolveLoadInstalledPacks()(projectRoot)
 			if packsErr != nil {
 				return &ExitCodeError{
 					Code:    ExitConfigError,
@@ -114,7 +147,7 @@ dispatch with a 2-second execution budget.`,
 			}
 
 			// Step 8: Run checks
-			result, runErr := checkRunFn(ctx, opts)
+			result, runErr := resolveCheckRun()(ctx, opts)
 			if runErr != nil {
 				// Check for config errors from the check engine
 				if cfgErr, ok := runErr.(*check.ConfigError); ok {
@@ -135,9 +168,16 @@ dispatch with a 2-second execution budget.`,
 			// convert+parseSarif AND the sandbox engine through the exit-code
 			// branch, replacing both the layer-2 mergePackRules feeder and the
 			// layer-3 runPackValidators feeder.
+			//
+			// `code check` is intentionally NOT diff-scoped for pack engines
+			// (CLM-008, ISSUE-010): it passes the full-scope sentinel (nil scope)
+			// so rule-fed findings engines scan the whole project via the
+			// projectRoot escape hatch. ONLY the gate's pack_engines step threads a
+			// real diff scope. Narrowing code check here would silently drop
+			// pack-rule coverage on the unchanged-but-still-relevant codebase.
 			if len(packs) > 0 {
 				runner := &check.ExecCommandRunner{Dir: projectRoot}
-				packViolations, validatorErr := dispatchPackEnginesFn(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
+				packViolations, validatorErr := resolveDispatchPackEngines()(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, runner)
 				if validatorErr != nil {
 					return &ExitCodeError{
 						Code:    ExitConfigError,

@@ -18,17 +18,45 @@ import (
 	"github.com/bmanson/backstop-core/pkg/packval"
 )
 
-var sandboxedRun = packval.SandboxedRun
+// sandboxedRun / sandboxedRunStdout / engineRegistry are test seams: nil in
+// production (the resolveXxx helpers below fall back to the concrete
+// packval.SandboxedRun, packval.SandboxedRunStdout, and engine.DefaultRegistry),
+// and overridden by tests to substitute a stub sandbox or inject a custom engine
+// binding. They are declared WITHOUT initializers so they hold no package-level
+// mutable default; the real implementation is resolved lazily at the call site.
+var (
+	sandboxedRun       func(cmd string, args []string, packDir string) ([]byte, error)
+	sandboxedRunStdout func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error)
+	engineRegistry     engine.Registry
+)
 
-// sandboxedRunStdout is the clean-stdout sandbox capture used by the convert
-// step (REQ-007/REQ-009/CLM-065). It is a package var so tests can substitute a
-// stub without a live sandbox.
-var sandboxedRunStdout = packval.SandboxedRunStdout
+// resolveSandboxedRun returns the injected sandbox seam or the concrete
+// packval.SandboxedRun.
+func resolveSandboxedRun() func(cmd string, args []string, packDir string) ([]byte, error) {
+	if sandboxedRun != nil {
+		return sandboxedRun
+	}
+	return packval.SandboxedRun
+}
 
-// engineRegistry is the engine binding table dispatch resolves against. A
-// package var so tests can inject additional bindings to prove a newly
-// registered engine dispatches without an executor edit (CLM-003).
-var engineRegistry = engine.DefaultRegistry()
+// resolveSandboxedRunStdout returns the injected clean-stdout sandbox seam or the
+// concrete packval.SandboxedRunStdout (REQ-007/REQ-009/CLM-065).
+func resolveSandboxedRunStdout() func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
+	if sandboxedRunStdout != nil {
+		return sandboxedRunStdout
+	}
+	return packval.SandboxedRunStdout
+}
+
+// resolveEngineRegistry returns the injected engine registry seam or the
+// concrete engine.DefaultRegistry, so tests can register a new engine binding
+// and prove it dispatches without an executor edit (CLM-003).
+func resolveEngineRegistry() engine.Registry {
+	if engineRegistry != nil {
+		return engineRegistry
+	}
+	return engine.DefaultRegistry()
+}
 
 func loadInstalledPacks(projectRoot string) ([]*pack.Manifest, error) {
 	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
@@ -127,7 +155,14 @@ func declaredPackNames(cfg *config.Config) []string {
 // An unknown engine, an unknown input_mode, or a missing declared input path is
 // a fail-loud config error naming the pack — never a silent skip or inferred
 // fallback.
-func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, runner check.CommandRunner) ([]gate.Violation, error) {
+// The scope parameter carries the gate's changed-file diff scope (untracked
+// inclusive) so rule-fed findings engines scan only the in-scope changed files
+// instead of the whole repository (ISSUE-010). A nil scope or a
+// GateScopeModeAll scope is the explicit whole-repo escape hatch; `backstop code
+// check` and `gate --all` pass that sentinel. The project-wide toolchain branch
+// (go build/test ./..., golangci-lint run ./...) is unaffected by scope — it
+// stays project-wide so unchanged-file breakage still fails the gate.
+func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 	violations := []gate.Violation{}
 	for _, manifest := range packs {
 		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
@@ -143,7 +178,7 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, ru
 		}
 
 		for _, engineName := range order {
-			binding, lookupErr := engineRegistry.Lookup(engineName)
+			binding, lookupErr := resolveEngineRegistry().Lookup(engineName)
 			if lookupErr != nil {
 				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
 			}
@@ -158,16 +193,16 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, ru
 			if binding.InputMode == engine.InputModeNone && binding.Command == "" {
 				vs, err := runSandboxEngine(manifest, packRoot, projectRoot, rules)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 				}
 				violations = append(violations, vs...)
 				continue
 			}
 
 			// Findings engine: gather inputs, run, convert, parseSarif.
-			vs, err := runFindingsEngine(manifest, packRoot, projectRoot, binding, rules, runner)
+			vs, err := runFindingsEngine(manifest, packRoot, projectRoot, scope, binding, rules, runner)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
 			violations = append(violations, vs...)
 		}
@@ -192,7 +227,7 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 			}
 			path, err := resolveRulePath(manifest, packRoot, rule)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("gathering config-file input for rule %s: %w", rule.ID, err)
 			}
 			return []string{binding.InputFlag, path}, nil
 		}
@@ -203,7 +238,7 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 		for _, rule := range rules {
 			path, err := resolveRulePath(manifest, packRoot, rule)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("gathering rule-flag input for rule %s: %w", rule.ID, err)
 			}
 			if _, dup := seen[path]; dup {
 				continue
@@ -224,7 +259,7 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 		for _, rule := range rules {
 			path, err := resolveRulePath(manifest, packRoot, rule)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("gathering rule-dir input for rule %s: %w", rule.ID, err)
 			}
 			dir := filepath.Dir(path)
 			if _, dup := seen[dir]; dup {
@@ -269,25 +304,38 @@ func resolveRulePath(manifest *pack.Manifest, packRoot string, rule pack.Rule) (
 // the clean-stdout runner, pipe through the sandboxed convert when declared, and
 // parse the normalized SARIF (REQ-006/REQ-007/REQ-009). Violations are
 // namespaced to the pack.
-func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error) {
+func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gathering engine inputs for pack %s: %w", manifest.NormalizedName, err)
 	}
 
 	cmdName, cmdArgs := splitCommand(binding.Command)
 	cmdArgs = append(cmdArgs, inputs...)
-	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1). Rule-fed
-	// findings engines (semgrep --config X <root>, ast-grep scan --rule DIR
-	// <root>) and config-file engines with no self-declared target scan the
-	// project, so the project root is appended as their scan target. A
-	// project-wide toolchain pass (go build ./..., go test ./..., golangci-lint
-	// run ./...) shapes its OWN target via ProjectTarget and must NOT have the
-	// project root bolted on — appending <root> to `go build ./...` is wrong.
+	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
+	// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
+	// --rule DIR <targets>) and config-file engines with no self-declared target
+	// scan the files they are pointed at. A project-wide toolchain pass (go build
+	// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
+	// ProjectTarget and must NOT have a scan target bolted on — appending <root>
+	// to `go build ./...` is wrong (CLM-005, Ratified Design Constraint 3).
 	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
 		cmdArgs = append(cmdArgs, binding.ProjectTarget)
 	} else {
-		cmdArgs = append(cmdArgs, projectRoot)
+		// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
+		// A nil scope or GateScopeModeAll is the explicit whole-repo escape hatch
+		// (gate --all, code check) — scan projectRoot exactly as before (CLM-004).
+		// Otherwise point the engine at ONLY the in-scope changed files (untracked
+		// included, project-relative as they arrive from the gate scope) so it
+		// never produces out-of-scope findings (CLM-001/CLM-002/CLM-007). When the
+		// resulting target list is empty, append NOTHING — the engine scans
+		// nothing and yields zero findings; it must NOT silently fall back to the
+		// whole repo (CLM-003).
+		if scope == nil || scope.Mode == gate.GateScopeModeAll {
+			cmdArgs = append(cmdArgs, projectRoot)
+		} else {
+			cmdArgs = append(cmdArgs, scope.Files...)
+		}
 	}
 
 	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
@@ -304,7 +352,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 		if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
 			return nil, fmt.Errorf("broken pack %s: missing convert script %s", manifest.NormalizedName, convertPath)
 		}
-		converted, convErr := sandboxedRunStdout(convertPath, nil, packRoot, stdout)
+		converted, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, stdout)
 		if convErr != nil {
 			return nil, fmt.Errorf("pack %s: convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
 		}
@@ -370,7 +418,7 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 		}
 
 		for _, target := range targets {
-			output, err := sandboxedRun(validatorPath, []string{target}, packRoot)
+			output, err := resolveSandboxedRun()(validatorPath, []string{target}, packRoot)
 			if err == nil {
 				continue
 			}

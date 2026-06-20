@@ -600,12 +600,12 @@ contracts:
         notes: "Top-level gate command registered on root"
       - name: GateResult
         kind: type
-        signature: "type GateResult"
-        notes: "Holds the unified gate output including all step results"
+        signature: "type GateResult gate.GateResult"
+        notes: "Re-export of pkg/gate.GateResult for the contract; holds the unified gate output including all step results"
       - name: StepResult
         kind: type
-        signature: "type StepResult"
-        notes: "Per-step result with name, status, violations, and optional reason"
+        signature: "type StepResult gate.StepResult"
+        notes: "Re-export of pkg/gate.StepResult for the contract; per-step result with name, status, violations, and optional reason"
       - name: runGate
         kind: function
         signature: "func runGate(cmd *cobra.Command, args []string) error"

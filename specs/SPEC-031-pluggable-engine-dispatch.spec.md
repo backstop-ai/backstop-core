@@ -729,8 +729,8 @@ contracts:
     provides:
       - name: dispatchPackEngines
         kind: function
-        signature: "func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, runner check.CommandRunner) ([]gate.Violation, error)"
-        notes: "Replaces mergePackRules feeder AND folds in runPackValidators' layer-3 sandbox branch (re-keyed to engine==sandbox): groups rules by engine, gathers inputs by input_mode, runs each engine; findings engines pipe through convert when declared and parse via parseSarif; the sandbox/none engine takes the exit-code terminal branch (non-zero exit ⇒ violation, no parseSarif). Namespaces violations."
+        signature: "func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error)"
+        notes: "Replaces mergePackRules feeder AND folds in runPackValidators' layer-3 sandbox branch (re-keyed to engine==sandbox): groups rules by engine, gathers inputs by input_mode, runs each engine; findings engines pipe through convert when declared and parse via parseSarif; the sandbox/none engine takes the exit-code terminal branch (non-zero exit ⇒ violation, no parseSarif). Namespaces violations. The scope *gate.GateScope param (added by ISSUE-010) carries the gate's changed-file diff scope so rule-fed findings engines scan only in-scope changed files; a nil scope or GateScopeModeAll is the whole-repo escape hatch."
     consumes:
       - source: pkg/pack/engine/binding.go
         name: Registry

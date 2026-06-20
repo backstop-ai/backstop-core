@@ -119,7 +119,7 @@ func TestGoToolchain_BuildFindingsEngineWithConvert(t *testing.T) {
 	stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (build): %v", err)
 	}
@@ -141,7 +141,7 @@ func TestGoToolchain_TestFindingsEngineWithConvert(t *testing.T) {
 	stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (test): %v", err)
 	}
@@ -163,7 +163,7 @@ func TestGoToolchain_ConvertUsesSandboxedRunStdout(t *testing.T) {
 	raw := readFixture(t, "go-build-errors.txt")
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": raw}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner); err != nil {
+	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if string(gotStdin) != string(raw) {
@@ -185,7 +185,7 @@ func TestGoToolchain_BuildTestCrashNotSilentGreen(t *testing.T) {
 		byCmdErr: map[string]error{"go build": &fakeExitError{code: 1}},
 	}
 
-	_, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	_, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err == nil {
 		t.Fatal("expected a fail-loud crash error (non-zero exit, no parseable findings), got nil — that is a silent green")
 	}
@@ -204,7 +204,7 @@ func TestGoToolchain_BuildTestNonZeroWithFindingsIsNormal(t *testing.T) {
 		byCmd:    map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")},
 		byCmdErr: map[string]error{"go build": &fakeExitError{code: 1}},
 	}
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), runner)
+	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("non-zero exit WITH parseable findings must not be a crash, got err: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestGoToolchain_BuildTestArgShapingScopeKindAware(t *testing.T) {
 	root := t.TempDir()
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), root, runner); err != nil {
+	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), root, nil, runner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(runner.calls) != 1 {

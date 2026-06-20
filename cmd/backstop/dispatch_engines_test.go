@@ -106,7 +106,7 @@ func TestGateDispatch_GroupsRulesByEngine(t *testing.T) {
 		}}},
 	}}
 
-	if _, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), rec); err != nil {
+	if _, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if rec.calls != 1 {
@@ -148,7 +148,7 @@ func TestGateDispatch_NewEngineNeedsNoExecutorEdit(t *testing.T) {
 			{ID: "r", Engine: "customlint", RulePath: "customlint/r.yml"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), rec)
+	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestGateDispatch_UnknownEngineFailsLoud(t *testing.T) {
 			{ID: "r", Engine: "nonexistent-engine", RulePath: "r.yml"},
 		}}},
 	}}
-	_, err := dispatchPackEngines(manifests, t.TempDir(), t.TempDir(), emptySarifRunner{})
+	_, err := dispatchPackEngines(manifests, t.TempDir(), t.TempDir(), nil, emptySarifRunner{})
 	if err == nil {
 		t.Fatal("expected a fail-loud error for an unknown engine")
 	}
@@ -195,7 +195,7 @@ func TestGateDispatch_ParserIsSarifViaLookup(t *testing.T) {
 			{ID: "no-eval", Engine: "semgrep", RulePath: "semgrep/r.yml", Standard: "x"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), rec)
+	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -225,5 +225,8 @@ func TestEngineDispatch_PackFindingsParseSarifOnly(t *testing.T) {
 	}
 }
 
-// ensure check import is used even if a future edit drops a reference.
-var _ check.CommandRunner = emptySarifRunner{}
+// emptySarifRunnerIsCommandRunner is a compile-time assertion that
+// emptySarifRunner satisfies check.CommandRunner (and keeps the check import
+// referenced). Written as a function rather than a package-level `var _ = ...`
+// so it carries no package-level mutable state.
+func emptySarifRunnerIsCommandRunner() check.CommandRunner { return emptySarifRunner{} }

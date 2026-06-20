@@ -150,7 +150,7 @@ func TestGateIntegration_CodeCheckLoadsPacks(t *testing.T) {
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		return &check.Result{}, nil
 	}
-	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 		calledDispatch = true
 		return nil, nil
 	}
@@ -190,7 +190,7 @@ func TestGateIntegration_CodeCheckAllLoadsPacks(t *testing.T) {
 		capturedMode = opts.Mode
 		return &check.Result{}, nil
 	}
-	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 		return nil, nil
 	}
 
@@ -231,7 +231,7 @@ func TestGateIntegration_CodeCheckSandboxFullProject(t *testing.T) {
 	}
 
 	var dispatchRoot string
-	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, runner check.CommandRunner) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 		dispatchRoot = root
 		return nil, nil
 	}
@@ -242,8 +242,14 @@ func TestGateIntegration_CodeCheckSandboxFullProject(t *testing.T) {
 		t.Fatalf("code check: %v", err)
 	}
 	// Resolve symlinks (macOS /var → /private/var) for comparison.
-	resolvedRoot, _ := filepath.EvalSymlinks(projectRoot)
-	resolvedDispatch, _ := filepath.EvalSymlinks(dispatchRoot)
+	resolvedRoot, symErr := filepath.EvalSymlinks(projectRoot)
+	if symErr != nil {
+		t.Fatalf("resolve symlinks for project root: %v", symErr)
+	}
+	resolvedDispatch, dispatchSymErr := filepath.EvalSymlinks(dispatchRoot)
+	if dispatchSymErr != nil {
+		t.Fatalf("resolve symlinks for dispatch root: %v", dispatchSymErr)
+	}
 	if resolvedDispatch != resolvedRoot {
 		t.Fatalf("expected sandbox engine dispatch to run on full project root %q, got %q", resolvedRoot, resolvedDispatch)
 	}
@@ -861,7 +867,7 @@ content:
 	defer func() { checkRunFn = origRun; dispatchPackEnginesFn = origDispatch }()
 	// Stub dispatch so the pack-engine path does not shell out to a live engine;
 	// this test asserts the IN-PROCESS semgrep pass carries no pack --config.
-	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, r check.CommandRunner) ([]gate.Violation, error) {
+	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, scope *gate.GateScope, r check.CommandRunner) ([]gate.Violation, error) {
 		return nil, nil
 	}
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {

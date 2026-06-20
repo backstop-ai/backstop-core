@@ -22,7 +22,7 @@ import (
 func stubCodeCheckFns(t *testing.T,
 	load func(string) ([]*pack.Manifest, error),
 	run func(context.Context, check.Options) (*check.Result, error),
-	dispatch func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error),
+	dispatch func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error),
 ) {
 	t.Helper()
 	origLoad := loadInstalledPacksFn
@@ -61,7 +61,7 @@ func TestCodeCheck_PackLoadingError_ExitConfig(t *testing.T) {
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, errors.New("boom loading packs") },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -89,7 +89,7 @@ func TestCodeCheck_DispatchError_ExitConfig(t *testing.T) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
 			return nil, errors.New("dispatch failed")
 		},
 	)
@@ -117,7 +117,7 @@ func TestCodeCheck_CheckRunConfigError_PropagatesConfigError(t *testing.T) {
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, &check.ConfigError{Message: "manifest has zero routable rules"}
 		},
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -143,7 +143,7 @@ func TestCodeCheck_CheckRunGenericError_ExitConfig(t *testing.T) {
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, errors.New("toolchain exploded")
 		},
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()
@@ -171,7 +171,7 @@ func TestCodeCheck_PackEngineError_ExitConfig(t *testing.T) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
 			return nil, errors.New("validator crashed")
 		},
 	)
@@ -200,7 +200,7 @@ func TestCodeCheck_PackEngineViolations_BecomeExitViolations(t *testing.T) {
 			return []*pack.Manifest{{NormalizedName: "org/pack"}}, nil
 		},
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) {
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
 			return []gate.Violation{
 				{Rule: "no-eval", File: "danger.go", Message: "eval is forbidden", Severity: "error"},
 			}, nil
@@ -240,7 +240,7 @@ func TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep(t *testing.T) {
 			captured = opts
 			return &check.Result{}, nil
 		},
-		func([]*pack.Manifest, string, string, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
 	)
 
 	root := NewRootCommand()

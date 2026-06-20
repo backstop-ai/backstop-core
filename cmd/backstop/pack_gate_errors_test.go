@@ -59,7 +59,7 @@ func TestDispatchPackEngines_BrokenSemgrepRuleFile(t *testing.T) {
 			{ID: "r1", Engine: "semgrep", RulePath: "rules/absent.yml"},
 		}}},
 	}}
-	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nilRunner{})
+	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, nilRunner{})
 	if err == nil {
 		t.Fatal("expected error for missing semgrep rule file")
 	}
@@ -81,7 +81,7 @@ func TestDispatchPackEngines_BrokenValidatorMissingFile(t *testing.T) {
 			{ID: "v1", Engine: "sandbox", Validator: "missing.sh"},
 		}}},
 	}}
-	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nilRunner{})
+	_, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, nilRunner{})
 	if err == nil {
 		t.Fatal("expected error for missing sandbox validator")
 	}
@@ -119,7 +119,7 @@ func TestDispatchSandbox_EmptyOutputFallsBackToErrString(t *testing.T) {
 			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nilRunner{})
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nil, nilRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestDispatchSandbox_PassingValidatorNoViolation(t *testing.T) {
 			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nilRunner{})
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nil, nilRunner{})
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}

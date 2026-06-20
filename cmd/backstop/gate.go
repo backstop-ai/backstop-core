@@ -70,8 +70,11 @@ func runGate(cmd *cobra.Command, args []string) error {
 		projectRoot = filepath.Dir(cfgPath)
 	}
 
-	allFlag, _ := cmd.Flags().GetBool("all")
-	fileValue, _ := cmd.Flags().GetString("file")
+	allFlag, allErr := cmd.Flags().GetBool("all")
+	fileValue, fileErr := cmd.Flags().GetString("file")
+	if flagErr := firstNonNil(allErr, fileErr); flagErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", flagErr)}
+	}
 	if allFlag && fileValue != "" {
 		return &ExitCodeError{Code: ExitConfigError, Message: "config: --all and --file are mutually exclusive"}
 	}
@@ -114,7 +117,10 @@ func runGate(cmd *cobra.Command, args []string) error {
 	result, exitCode := g.Run(context.Background())
 
 	// Format output based on --json flag.
-	jsonFlag, _ := cmd.Flags().GetBool("json")
+	jsonFlag, jsonErr := cmd.Flags().GetBool("json")
+	if jsonErr != nil {
+		return fmt.Errorf("reading --json flag: %w", jsonErr)
+	}
 	if jsonFlag {
 		data, err := gate.FormatJSON(result)
 		if err != nil {
@@ -165,7 +171,7 @@ func resolveBaselineCache(path string, ttl time.Duration) (*gate.BaselineArtifac
 
 func refreshBaselineFromRemote(path string) (*gate.BaselineArtifact, error) {
 	if err := runBaselinePull(nil, nil); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pulling remote baseline: %w", err)
 	}
 	artifact, err := gate.LoadBaseline(path)
 	if err != nil {
@@ -195,7 +201,7 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 	baseCmd.Dir = projectRoot
 	baseOut, err := baseCmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolving merge-base against origin/main: %w", err)
 	}
 	base := strings.TrimSpace(string(baseOut))
 	if base == "" {
@@ -205,7 +211,7 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 	diffCmd.Dir = projectRoot
 	out, err := diffCmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing changed files against merge-base: %w", err)
 	}
 	files := []string{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -395,7 +401,14 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
 		// still-live bespoke path (phase 1, no enforcement lapse).
 		dispatchPacks := append(append([]*pack.Manifest{}, bridged...), packs...)
-		violations, err := dispatchPackEngines(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, runner)
+		// Thread the gate's diff scope (activeScope) so rule-fed findings engines
+		// scan only the changed files, not the whole repository (ISSUE-010). A nil
+		// activeScope or GateScopeModeAll restores the whole-repo sweep; the
+		// project-wide toolchain passes stay project-wide regardless. Routed through
+		// the dispatchPackEnginesFn seam (the same one code check uses) so the
+		// gate-wiring test can assert activeScope reaches the engine without a live
+		// tool — it is the existing dispatchPackEngines, not a parallel dispatcher.
+		violations, err := resolveDispatchPackEngines()(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
 		if err != nil {
 			return gate.StepResult{
 				StepName:   "pack_engines",
@@ -565,7 +578,7 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 	// Check .backstop/ directory validity. Missing .backstop is a step
 	// failure, not a config error — gate should continue with other steps.
 	if verr := check.ValidateBackstopDir(pRoot); verr != nil {
-		return nil, verr
+		return nil, fmt.Errorf("validating .backstop directory: %w", verr)
 	}
 
 	opts := check.Options{
@@ -656,6 +669,17 @@ func checkViolationsToGate(cvs []check.Violation) []gate.Violation {
 		})
 	}
 	return violations
+}
+
+// firstNonNil returns the first non-nil error from errs, or nil if all are nil.
+// Used to collapse several independent flag-lookup errors into one guard.
+func firstNonNil(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Verify that specDir exists before building steps — avoid confusing
