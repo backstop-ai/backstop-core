@@ -320,7 +320,17 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	// ProjectTarget and must NOT have a scan target bolted on — appending <root>
 	// to `go build ./...` is wrong (CLM-005, Ratified Design Constraint 3).
 	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
-		cmdArgs = append(cmdArgs, binding.ProjectTarget)
+		// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
+		// `code check --file` hook scopes `go test` to the changed file's package,
+		// not ./..., to stay within its tight budget. fileModeTestTarget returns the
+		// package selector ONLY for the native go-test engine under a file-mode
+		// scope (pack_gate_filemode.go); every other project-wide pass keeps its
+		// ProjectTarget so unchanged-file breakage still fails a full run.
+		if target, ok := fileModeTestTarget(binding, scope); ok {
+			cmdArgs = append(cmdArgs, target)
+		} else {
+			cmdArgs = append(cmdArgs, binding.ProjectTarget)
+		}
 	} else {
 		// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
 		// A nil scope or GateScopeModeAll is the explicit whole-repo escape hatch
