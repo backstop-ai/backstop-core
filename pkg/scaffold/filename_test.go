@@ -83,7 +83,7 @@ func TestArtifactNew_Filename_PlanIssue(t *testing.T) {
 
 func TestArtifactNew_Filename_Issue(t *testing.T) {
 	got := Filename("issue", "003", "my-issue", "")
-	expected := "ISSUE-003-my-issue.md"
+	expected := "ISSUE-003-my-issue.issue.md"
 	if got != expected {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}

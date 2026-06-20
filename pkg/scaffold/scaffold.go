@@ -52,7 +52,7 @@ var ValidArtifactTypes = map[string]ArtifactTypeConfig{
 		IDPrefix:      "ISSUE",
 		DigitCount:    3,
 		DefaultStatus: "open",
-		FileExtension: ".md",
+		FileExtension: ".issue.md",
 		BodySections:  []string{"Problem"},
 	},
 	"adr": {
