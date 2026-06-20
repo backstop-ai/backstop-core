@@ -346,6 +346,17 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	// finding-free pass, and must fail loud rather than read as a silent green
 	// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
 
+	// Strict-SARIF guard for a config-file engine that assumes a NATIVE SARIF tool
+	// (golangci-lint v2): a v1/too-old binary emits non-SARIF JSON that the lenient
+	// parser would silently read as zero findings — vacuous green. Fail loud,
+	// engine-attributed, instead (SPEC-034 REQ-005/CLM-019, Sharp Edge 5). The
+	// guard lives in pack_gate_golint.go and is a no-op unless binding.StrictSarif.
+	if binding.Convert == "" {
+		if shapeErr := requireLintSarifShape(manifest, binding, stdout); shapeErr != nil {
+			return nil, fmt.Errorf("validating SARIF shape for pack %s: %w", manifest.NormalizedName, shapeErr)
+		}
+	}
+
 	sarifBytes := stdout
 	if binding.Convert != "" {
 		convertPath := filepath.Join(packRoot, filepath.FromSlash(binding.Convert))

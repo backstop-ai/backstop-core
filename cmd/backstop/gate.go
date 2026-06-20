@@ -401,6 +401,20 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
 		// still-live bespoke path (phase 1, no enforcement lapse).
 		dispatchPacks := append(append([]*pack.Manifest{}, bridged...), packs...)
+		// Split-provisioning fail-loud (SPEC-034 REQ-008): before dispatch, verify
+		// the assume-present Layer-0 native tools (go/golangci-lint) resolve on PATH.
+		// A missing one is a *check.ConfigError surfaced as a config-error step (exit
+		// 2) naming the tool — backstop never installs it. Backstop-introduced
+		// engines (semgrep) carry a Provision record and are skipped here (pinned +
+		// auto-provisioned, CLM-026/CLM-027/CLM-028).
+		if provErr := provisionEngines(dispatchPacks); provErr != nil {
+			return gate.StepResult{
+				StepName:   "pack_engines",
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "pack_engines", Message: provErr.Error(), Severity: "error"}},
+			}
+		}
 		// Thread the gate's diff scope (activeScope) so rule-fed findings engines
 		// scan only the changed files, not the whole repository (ISSUE-010). A nil
 		// activeScope or GateScopeModeAll restores the whole-repo sweep; the
