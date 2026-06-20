@@ -1,0 +1,596 @@
+---
+plan_id: PLAN-ISSUE-012
+spec_id: ISSUE-012
+created: "2026-06-20"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/check/... ./pkg/pack/... ./pkg/pack/engine/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Closes the BUNDLE-010 mandated-test debt (ISSUE-012). SPEC-017 (pack-gate-
+  integration) and SPEC-031 (pluggable-engine-dispatch) declare mandated test
+  functions in their claims' `tests:` arrays. The gate's test_verification step
+  fails whenever either spec is in diff scope because some of those named
+  functions DO NOT EXIST in code. The end state: every SPEC-017/031 claim maps
+  to an existing, passing test — achieved by BOTH the WRITE tasks in this plan
+  AND the spec-author reconciliation prerequisite below (RETIRE/REPOINT items).
+
+  ── METHOD ─────────────────────────────────────────────────────────────────
+  Existence was checked per mandated `tests:` entry with
+  `grep -rl "func <name>" cmd pkg` (NOT prose). 27 of the two specs' mandated
+  functions are absent. Each absent function was classified WRITE / RETIRE /
+  REPOINT against the CURRENT post-cutover substrate (engine model; the layer
+  model is GONE), confirming the substrate each WRITE test would assert against
+  actually exists before mandating it.
+
+  ── SUBSTRATE THE WRITE TASKS ASSERT AGAINST (verified present) ─────────────
+  - dispatchPackEngines / runFindingsEngine / runSandboxEngine
+    (cmd/backstop/pack_gate.go) — group-by-engine dispatch, convert pipe,
+    sandbox exit-code terminal branch.
+  - convert pipe seam: resolveSandboxedRunStdout() →
+    packval.SandboxedRunStdout (clean-stdout); resolveSandboxedRun() →
+    packval.SandboxedRun (CombinedOutput) for the sandbox/none branch.
+  - engine.Registry / DefaultRegistry (pkg/pack/engine/binding.go): semgrep,
+    ast-grep (Convert: ast-grep/to-sarif.sh), sandbox (InputModeNone),
+    golangci/go-build/go-test bindings.
+  - check.ParsePackFindings → lookupParser("sarif") (pkg/check/parsers.go);
+    dispatch resolves ONLY the SARIF parser.
+  - layer-only rejection: validateEngine in pkg/pack/manifest.go (empty engine
+    => blocking ConfigError; no layer:2→engine:semgrep alias).
+  - existing fixture pack cmd/backstop/testdata/engine-dispatch/...engine-pack
+    (semgrep + ast-grep + sandbox rules, stub + real converters, real-scan.json)
+    and legacy-pack (layer-only, no-grandfather) and the go-toolchain pack
+    (golangci config-file + go-build/go-test).
+  - fake runners: emptySarifRunner, capturingRunner (dispatch_engines_test.go);
+    convert helpers in gotoolchain_testhelpers_test.go.
+
+  ── CATEGORIZED MISSING-TEST INVENTORY (27 total) ──────────────────────────
+  WRITE (20) — surviving engine-substrate behavior lacking a test:
+    SPEC-031:
+      CLM-022 TestGateDispatch_SarifNativeNoConvert
+      CLM-023 TestGateDispatch_NonSarifWithoutConvertFails
+      CLM-024 TestGateDispatch_ConvertPipeProducesSarif
+      CLM-025 TestGateDispatch_ConvertRunsSandboxed
+      CLM-026 TestGateDispatch_EmptyConvertNoPipe
+      CLM-029 TestGateDispatch_StderrBannerDoesNotCorruptSarif
+      CLM-064 TestGateDispatch_ConvertStderrBannerDoesNotCorruptSarif
+      CLM-065 TestGateDispatch_ConvertUsesCleanStdoutSandbox
+      CLM-030 TestGateDispatch_AstGrepProofRuleEndToEnd
+      CLM-031 TestGateDispatch_ReplacesSemgrepOnlyFeeder
+      CLM-032 TestGateDispatch_MixedEnginesNotCrossFed
+      CLM-033 TestEngineBinding_NoImportCycle
+      CLM-066 TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif
+      CLM-037 TestMigration_GoPackEngineSemgrep + TestMigration_GoPackRulesRetainStandard
+      CLM-038 TestMigration_NoSilentGrandfather
+      CLM-039 TestGateDispatch_ConfigFileEngineRunsOwnRules
+      CLM-040 TestGateDispatch_ConfigFileEngineNeedsNoGo
+      CLM-041 TestProvision_NativeAssumedPresentFailsLoud
+      CLM-042 TestProvision_IntroducedEngineAutoProvisioned
+      CLM-043 TestProvision_EnsureSemgrepRetired
+      CLM-049 TestPackLayout_EngineDirResolvesInputs
+      CLM-050 TestPackLayout_MissingInputPathFailsLoud
+    (CLM-037 carries two mandated names; counted once as a claim, both written.)
+
+  RETIRE (5) — mandate a concept the cutover/engine model REMOVED; do NOT write:
+    SPEC-017:
+      CLM-010 TestGateIntegration_Layer3ValidatorExecuted  (layer model gone)
+      CLM-011 TestGateIntegration_Layer3NamespacedIDs      (layer model gone)
+      CLM-021 TestGateIntegration_CodeCheckLayer3FullProject (layer model gone)
+    SPEC-031:
+      CLM-035 TestEngineDispatch_BuildTestKeepFormatParsers (SPEC-034 reversed
+              this: go-build/go-test now CONVERT to SARIF; the go-build/go-test/
+              golangci-json formatParsers were REMOVED — the mandate asserts the
+              pre-cutover behavior)
+      CLM-067 TestEngineDispatch_SandboxBranchReKeyedFromLayer3 ("ReKeyedFrom
+              Layer3" is a one-time migration-history assertion; rule.Layer is
+              already fully gone from dispatch/validation)
+
+  REPOINT targets for the RETIRE items (engine-model successors that ALREADY
+  EXIST and pass — the spec-author repoints each claim's mandate to these
+  rather than retiring the claim outright where a true successor exists):
+    CLM-010 -> TestGateIntegration_SandboxValidatorExecuted (cmd/backstop/pack_gate_test.go)
+    CLM-011 -> TestGateIntegration_SandboxNamespacedIDs    (cmd/backstop/pack_gate_test.go)
+    CLM-021 -> TestGateIntegration_SandboxSingleFileScope  (cmd/backstop/pack_gate_test.go)
+              (full-project sandbox visibility under code check; the engine-model
+              successor to "layer-3 full project"; spec-author confirms scope)
+    CLM-067 -> TestGateIntegration_SandboxValidatorExecuted (the relocated
+              engine==sandbox exit-code branch; rule.Layer reference is gone)
+    CLM-035 -> RETIRE outright (no successor): the asserted behavior was
+              deliberately reversed by SPEC-034; build/test now ride
+              convert→parseSarif. The claim's mandate must be removed, and its
+              text reconciled to the post-cutover SARIF-convert behavior already
+              covered by TestGoToolchainConvert_BuildToSarif_DirectFindings /
+              TestGoToolchainConvert_TestToSarif_DirectFindings
+              (cmd/backstop/gotoolchain_convert_test.go).
+
+  ── REQUIRED PREREQUISITE / COORDINATED RECONCILIATION (NOT in this plan) ───
+  The 5 RETIRE/REPOINT items above are SPEC-AUTHOR reconciliation, not test
+  writing. The orchestrator MUST dispatch a spec-author to evolve SPEC-017 and
+  SPEC-031 (via /spec, never hand-edit) so each listed claim's `tests:` mandate
+  is either retired (CLM-035) or repointed to the named existing successor test
+  (CLM-010/011/021/067). This plan's WRITE tasks close the other 20 claims; the
+  end-state (SPEC-017/031 test_verification green when in diff scope) requires
+  BOTH halves. The WRITE tasks have no code dependency on the reconciliation and
+  may run in parallel with it, but the gate will not go green on the two specs
+  until the reconciliation lands.
+
+  ── TDD-INVERTED FRAMING (why some tasks are typed implementation) ──────────
+  The production substrate already shipped (untested — that is the debt), so
+  there is no green-phase code to write. Each cluster's mandated tests are
+  authored first as `test` tasks; the new TEST-SUPPORT artifacts they require
+  (new testdata fixture packs, stub scripts emitting stderr banners, the
+  migration fixture pack, the import-cycle guard helper) are real new files
+  created in a following `implementation` task that depends on the test task,
+  satisfying gate cadence. Tests must be SUBSTANTIVE — assert real violations /
+  errors against real fixtures and the real dispatch functions; this debt exists
+  precisely because the substrate shipped untested, so NO stubbed/vacuous green.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Convert pipe & SARIF-contract dispatch tests (SPEC-031 REQ-006/REQ-007/REQ-009)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write SARIF-contract dispatch tests: native-no-convert, non-SARIF-fails, empty-convert-no-pipe"
+        description: |
+          Write the mandated tests asserting the findings-engine SARIF contract
+          against the real dispatchPackEngines / runFindingsEngine
+          (cmd/backstop/pack_gate.go) using a fake check.CommandRunner and the
+          existing engine-dispatch fixture pack:
+            - TestGateDispatch_SarifNativeNoConvert (CLM-022): a binding with an
+              empty Convert sends engine stdout straight to ParsePackFindings;
+              assert a real namespaced violation is produced from native SARIF.
+            - TestGateDispatch_NonSarifWithoutConvertFails (CLM-023): non-SARIF
+              engine stdout with empty Convert reaches parseSarif and FAILS LOUD
+              (error attributed to the pack/engine), not a silent zero-finding
+              green.
+            - TestGateDispatch_EmptyConvertNoPipe (CLM-026): assert no convert
+              executable is invoked when Convert == "" (e.g. a sandboxedRunStdout
+              seam that records calls observes zero convert invocations).
+          Substantive: real fixture pack, real dispatch entrypoint, asserts on
+          violation content / error provenance — not on canned plumbing.
+        files:
+          - cmd/backstop/dispatch_sarif_contract_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-026
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write convert-pipe tests: pipe-produces-sarif, runs-sandboxed, stderr-banner-clean (engine + convert)"
+        description: |
+          Write the mandated tests for the two-process convert pipe and clean-
+          stdout capture against runFindingsEngine and the resolveSandboxedRunStdout
+          seam (cmd/backstop/pack_gate.go):
+            - TestGateDispatch_ConvertPipeProducesSarif (CLM-024): a non-empty
+              Convert binding pipes engine stdout → convert stdin → convert stdout
+              (SARIF) → ParsePackFindings; assert the resulting namespaced
+              violation carries the converted finding.
+            - TestGateDispatch_ConvertRunsSandboxed (CLM-025): assert the convert
+              executable is resolved relative to the pack dir and run via the
+              SandboxedRunStdout seam (inject the seam; assert it received the
+              pack-relative convert path).
+            - TestGateDispatch_StderrBannerDoesNotCorruptSarif (CLM-029): an
+              ENGINE writing a banner to stderr still yields parseable SARIF on
+              stdout (RunStdout separation).
+            - TestGateDispatch_ConvertStderrBannerDoesNotCorruptSarif (CLM-064): a
+              CONVERT script writing a banner to stderr still yields parseable
+              SARIF on its stdout via the clean-stdout sandbox capture.
+            - TestGateDispatch_ConvertUsesCleanStdoutSandbox (CLM-065): assert the
+              convert step uses the SandboxedRunStdout seam, never the
+              CombinedOutput SandboxedRun (seam interception proves which path).
+          Drives stub convert scripts that emit a stderr banner (created in
+          TASK-003).
+        files:
+          - cmd/backstop/dispatch_convert_pipe_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-029
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Add convert-pipe test fixtures: SARIF-native pack + stderr-banner convert/engine stub scripts"
+        description: |
+          Create the new test-support fixtures the Phase-1 tests drive (real new
+          files; the dispatch substrate itself is unchanged):
+            - a SARIF-native fixture pack directory under
+              cmd/backstop/testdata/engine-dispatch/sarif-native/ whose engine
+              binding has an empty Convert and whose fake-runner stdout is native
+              SARIF (for CLM-022/CLM-026);
+            - a non-SARIF fixture (engine stdout that is NOT SARIF) for CLM-023;
+            - a convert stub script that writes a banner to STDERR and SARIF to
+              STDOUT (to-sarif-stderr-banner.sh) for CLM-064/CLM-065;
+            - the corresponding backstop.yml / pack.yml / lockfile entries so the
+              packs load through loadInstalledPacks.
+          Make TASK-001 and TASK-002 pass against the real dispatch path.
+        files:
+          - cmd/backstop/testdata/engine-dispatch/sarif-native/backstop.yml
+          - cmd/backstop/testdata/engine-dispatch/sarif-native/.backstop/packs/test-org/sarif-native-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/to-sarif-stderr-banner.sh
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-026
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run code check over the convert-pipe / SARIF-contract test additions"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm the Phase-1 test
+          files and fixtures build, lint clean, and the new tests pass green
+          against the real dispatch substrate.
+        files:
+          - cmd/backstop/dispatch_sarif_contract_test.go
+          - cmd/backstop/dispatch_convert_pipe_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-029
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-003
+
+  - id: phase-2
+    name: "Phase 2: Group-by-engine, ast-grep end-to-end, no-cross-feed, no-import-cycle (SPEC-031 REQ-010/REQ-011/REQ-013)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write ast-grep end-to-end + replaces-feeder + mixed-engines dispatch tests"
+        description: |
+          Write the mandated dispatch-path tests against dispatchPackEngines and
+          the engine-dispatch fixture pack:
+            - TestGateDispatch_AstGrepProofRuleEndToEnd (CLM-030): the trivial
+              ast-grep proof rule drives declaration → group-by-engine → gather
+              rule-dir → run (fake runner) → convert (stub to-sarif) → parseSarif
+              → namespaced violation. Substantive: assert the namespaced violation
+              id/file reach gate output.
+            - TestGateDispatch_ReplacesSemgrepOnlyFeeder (CLM-031): assert
+              dispatch produces violations via group-by-engine execution with no
+              mergePackRules/ExtraSemgrepConfigs feeder (grep-absence in dispatch
+              path + behavioral assertion that a non-semgrep engine still fires).
+            - TestGateDispatch_MixedEnginesNotCrossFed (CLM-032): a pack with both
+              semgrep and ast-grep rules dispatches each to its own engine;
+              capture per-engine invocations (capturingRunner) and assert ast-grep
+              rule files never appear in the semgrep invocation and vice versa.
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+        depends_on: []
+
+      - id: TASK-006
+        type: test
+        title: "Write EngineBinding no-import-cycle test (pkg/pack/engine leaf placement)"
+        description: |
+          Write TestEngineBinding_NoImportCycle (CLM-033) asserting pkg/pack/engine
+          is a leaf package importable by pkg/check, pkg/packval, and cmd/backstop
+          without an import cycle. Substantive form: `go list -deps
+          github.com/bmanson/backstop-core/pkg/pack/engine` (or go/packages) must
+          show the engine package imports none of pkg/check, pkg/packval,
+          cmd/backstop — proving the leaf invariant structurally, not by comment.
+        files:
+          - pkg/pack/engine/import_cycle_test.go
+        claims:
+          - CLM-033
+        depends_on: []
+
+      - id: TASK-007
+        type: implementation
+        title: "Add ast-grep mixed-engine fixture rules to drive group-by-engine and no-cross-feed assertions"
+        description: |
+          Extend the engine-dispatch fixture pack with a mixed-engine rule set
+          (semgrep + ast-grep rules co-resident in one pack.yml, with their
+          per-engine input dirs) so TASK-005's no-cross-feed and end-to-end tests
+          have a real fixture to dispatch. Real new files; dispatch code unchanged.
+        files:
+          - cmd/backstop/testdata/engine-dispatch/mixed/backstop.yml
+          - cmd/backstop/testdata/engine-dispatch/mixed/.backstop/packs/test-org/mixed-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/mixed/.backstop/packs/test-org/mixed-pack/ast-grep/to-sarif.sh
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: verification
+        title: "Run code check over dispatch e2e + import-cycle test additions"
+        description: |
+          Run `backstop code check` to confirm the Phase-2 tests and mixed-engine
+          fixtures build, lint clean, and pass green against the real substrate.
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - pkg/pack/engine/import_cycle_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+  - id: phase-3
+    name: "Phase 3: Sandbox/none exit-code branch, config-file engine, provisioning, layout (SPEC-031 REQ-014/REQ-018/REQ-019/REQ-021)"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write sandbox/none exit-code branch test (skips parseSarif)"
+        description: |
+          Write TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif (CLM-066)
+          against runSandboxEngine via dispatchPackEngines using the existing
+          sandbox rule + scripts/check.sh fixture: a non-zero validator exit
+          yields a namespaced violation whose message is the captured output, and
+          the path NEVER enters parseSarif/convert (assert via a parseSarif seam or
+          by feeding non-SARIF validator output that would fail parseSarif if it
+          were reached). Substantive exit-code semantics, not plumbing.
+        files:
+          - cmd/backstop/dispatch_sandbox_exitcode_test.go
+        claims:
+          - CLM-066
+        depends_on: []
+
+      - id: TASK-010
+        type: test
+        title: "Write config-file engine tests: runs-own-rules + needs-no-dispatch-Go"
+        description: |
+          Write against the real golangci config-file binding + go-toolchain pack:
+            - TestGateDispatch_ConfigFileEngineRunsOwnRules (CLM-039): an
+              input_mode config-file engine runs the tool's own built-in rules
+              tuned by an optional pack-supplied config (fake runner returns SARIF;
+              assert dispatch passes only the config path, no rule files, and the
+              violation is namespaced).
+            - TestGateDispatch_ConfigFileEngineNeedsNoGo (CLM-040): adding a
+              config-driven linter is a pure EngineBinding declaration — register a
+              second config-file binding in a test registry and assert it
+              dispatches with zero changes to the dispatch switch (data-driven
+              proof: same gatherEngineInputs/runFindingsEngine path).
+        files:
+          - cmd/backstop/dispatch_configfile_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+        depends_on: []
+
+      - id: TASK-011
+        type: test
+        title: "Write split-provisioning tests: native-assumed-present, introduced-auto-provisioned, EnsureSemgrep-retired"
+        description: |
+          Write against provisionEngines / resolveBinaryResolver
+          (cmd/backstop/pack_gate_provision.go) and the engine.Provision records:
+            - TestProvision_NativeAssumedPresentFailsLoud (CLM-041): a Layer-0
+              engine with nil Provision whose binary is absent fails loud with a
+              ConfigError naming the engine and is NEVER auto-installed (inject a
+              binary resolver that reports absence; assert no install attempt).
+            - TestProvision_IntroducedEngineAutoProvisioned (CLM-042): a
+              backstop-introduced engine (semgrep/ast-grep) with a pinned Provision
+              is provisioned+verified via the lock path and is NOT failed-loud for
+              PATH absence.
+            - TestProvision_EnsureSemgrepRetired (CLM-043): assert EnsureSemgrep's
+              bespoke install logic no longer drives semgrep provisioning — semgrep
+              is provisioned through the declared Provision/lock mechanism (grep-
+              absence of an EnsureSemgrep call in the dispatch/provision path +
+              behavioral assertion that the pinned Provision record drives it).
+          Distinct from the existing TestProvision_*AssumedPresentFailsLoud /
+          TestProvision_SemgrepStillPinnedAndProvisioned (do not duplicate).
+        files:
+          - cmd/backstop/dispatch_provision_test.go
+        claims:
+          - CLM-041
+          - CLM-042
+          - CLM-043
+        depends_on: []
+
+      - id: TASK-012
+        type: test
+        title: "Write pack-layout tests: engine-dir resolves inputs + missing-input-path fails loud"
+        description: |
+          Write against gatherEngineInputs (cmd/backstop/pack_gate.go) and the
+          engine-organized fixture layout:
+            - TestPackLayout_EngineDirResolvesInputs (CLM-049): engine inputs
+              resolve relative to the per-engine pack directory matching the
+              input_mode (semgrep/ for rule-flags, ast-grep/ for rule-dir, scripts/
+              for none). Assert the gathered input paths point into the correct
+              per-engine dir.
+            - TestPackLayout_MissingInputPathFailsLoud (CLM-050): a rule whose
+              declared input path is absent on disk is a blocking broken-pack error
+              naming the pack and the missing path.
+        files:
+          - cmd/backstop/dispatch_layout_test.go
+        claims:
+          - CLM-049
+          - CLM-050
+        depends_on: []
+
+      - id: TASK-013
+        type: implementation
+        title: "Add config-file + missing-path fixtures for engine-shape and layout tests"
+        description: |
+          Create the new test-support fixtures the Phase-3 config-file and layout
+          tests drive: a second config-file-engine binding fixture (for CLM-040's
+          needs-no-Go proof), and a broken-layout fixture pack whose rule declares
+          an input path that does not exist on disk (for CLM-050). Real new files;
+          dispatch/provision code unchanged.
+        files:
+          - cmd/backstop/testdata/engine-dispatch/configfile/backstop.yml
+          - cmd/backstop/testdata/engine-dispatch/configfile/.backstop/packs/test-org/configfile-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/missing-input/.backstop/packs/test-org/missing-input-pack/pack.yml
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-009
+          - TASK-010
+          - TASK-011
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Run code check over sandbox/config-file/provision/layout test additions"
+        description: |
+          Run `backstop code check` to confirm the Phase-3 tests and fixtures
+          build, lint clean, and pass green against the real
+          runSandboxEngine / config-file dispatch / provisionEngines /
+          gatherEngineInputs substrate.
+        files:
+          - cmd/backstop/dispatch_sandbox_exitcode_test.go
+          - cmd/backstop/dispatch_configfile_test.go
+          - cmd/backstop/dispatch_provision_test.go
+          - cmd/backstop/dispatch_layout_test.go
+        claims:
+          - CLM-066
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-013
+
+  - id: phase-4
+    name: "Phase 4: Flag-day migration reader tests (SPEC-031 REQ-015)"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write migration tests: go-pack engine semgrep + retains standard + no silent grandfather"
+        description: |
+          Write the mandated migration-reader tests against the manifest reader
+          (pkg/pack/manifest.go validateEngine) and the engine-dispatch fixtures:
+            - TestMigration_GoPackEngineSemgrep (CLM-037): a migrated semgrep rule
+              (engine: semgrep) parses and validates cleanly under the migrated
+              reader. Use the existing engine-pack semgrep-no-eval rule (engine:
+              semgrep, standard set) as the representative migrated rule.
+            - TestMigration_GoPackRulesRetainStandard (CLM-037): the migrated
+              semgrep rules each carry a non-empty `standard`, satisfying the
+              re-keyed semgrep field-contract.
+            - TestMigration_NoSilentGrandfather (CLM-038): a legacy layer-2-only
+              rule (no engine) reaching the migrated reader fails loud with a
+              ConfigError and NO layer:2→engine:semgrep alias. Use the existing
+              legacy-pack fixture.
+          Substantive: parse real fixtures through the real reader; assert
+          pass/ConfigError outcomes and the standard-field presence.
+        files:
+          - cmd/backstop/migration_reader_test.go
+        claims:
+          - CLM-037
+          - CLM-038
+        depends_on: []
+
+      - id: TASK-016
+        type: implementation
+        title: "Add go-pack-shaped migration fixture (engine: semgrep, standard set) for the migration reader tests"
+        description: |
+          Create a small migration fixture pack shaped like the migrated
+          backstop-go-pack — semgrep-engine rules each carrying a non-empty
+          `standard` — so TestMigration_GoPackEngineSemgrep / _GoPackRulesRetainStandard
+          assert against a representative migrated layout (not only the single
+          engine-pack rule). Real new fixture files; reader code unchanged.
+        files:
+          - cmd/backstop/testdata/engine-dispatch/migration/.backstop/packs/backstop/go-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/migration/.backstop/packs/backstop/go-pack/semgrep/no-eval.yml
+          - cmd/backstop/testdata/engine-dispatch/migration/backstop.yml
+        claims:
+          - CLM-037
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Run code check over migration reader test additions"
+        description: |
+          Run `backstop code check` to confirm the migration-reader tests and the
+          go-pack-shaped fixture build, lint clean, and pass green against the real
+          validateEngine reader.
+        files:
+          - cmd/backstop/migration_reader_test.go
+        claims:
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-016
+
+  - id: phase-5
+    name: "Phase 5: Full gate verification (whole-repo, artifact + code)"
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run full gate and validate the plan artifact for the closed mandated-test debt"
+        description: |
+          Final comprehensive verification of the whole change set:
+            - `backstop gate` — the full kill chain (artifact validation, code
+              check, test verification, substantiveness, coverage, contracts) over
+              the new test files and fixtures, confirming SPEC-017/SPEC-031
+              test_verification for the WRITE-closed claims is green and no
+              regression in the existing dispatch suite.
+            - `backstop artifact validate --plan PLAN-ISSUE-012` — confirm this
+              plan validates (artifact files were authored).
+          NOTE FOR THE ORCHESTRATOR: SPEC-017/SPEC-031 test_verification will only
+          reach full green once the RETIRE/REPOINT spec-author reconciliation in
+          this plan's notes has also landed (CLM-010/011/021/035/067). The WRITE
+          tasks here are necessary but not sufficient on their own; this gate task
+          verifies the WRITE half and surfaces any remaining RETIRE/REPOINT
+          mandates so the coordinated reconciliation can close them.
+        files:
+          - plans/PLAN-ISSUE-012-bundle-010-mandated-test-debt.plan.yml
+          - cmd/backstop/dispatch_sarif_contract_test.go
+          - cmd/backstop/dispatch_convert_pipe_test.go
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/migration_reader_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-049
+          - CLM-050
+          - CLM-064
+          - CLM-065
+          - CLM-066
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-007
+          - TASK-008
+          - TASK-013
+          - TASK-014
+          - TASK-016
+          - TASK-017
