@@ -1,0 +1,554 @@
+---
+plan_id: PLAN-ISSUE-010
+spec_id: ISSUE-010
+created: "2026-06-20"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... -run \"TestPackEngines|TestGate\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-010 — the gate's `pack_engines` step is not diff-scoped, so
+  rule-fed findings engines (semgrep, ast-grep) scan the WHOLE repository on
+  every run. A 15-changed-file gate run returns 245 violations across ~20
+  untouched files, permanently red-locking `gate-on-implement` against a
+  pre-existing repo-wide backlog. This directly blocks PLAN-SPEC-034 (native
+  toolchain engine cutover), but this plan is scoped to the diff-scope fix ONLY.
+
+  ── ROOT CAUSE (verified against the code) ─────────────────────────────────
+  `runFindingsEngine` (cmd/backstop/pack_gate.go ~272) shapes its scan target in
+  the scope-kind arg-shaping block (~287-291):
+
+      if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+          cmdArgs = append(cmdArgs, binding.ProjectTarget)   // go build ./..., golangci-lint run ./...
+      } else {
+          cmdArgs = append(cmdArgs, projectRoot)             // ← rule-fed engines scan the WHOLE repo
+      }
+
+  The `else` branch fires for ScopeKindFileArgs rule-fed engines (semgrep
+  --config X <root>, ast-grep scan --rule DIR <root>) and unconditionally
+  appends `projectRoot`. The gate already computed a changed-file scope, but
+  `dispatchPackEngines` (~130) has no scope parameter in its signature, so the
+  changed-file list never reaches this branch.
+
+  ── REAL CALL CHAIN THE FIX THREADS SCOPE THROUGH ──────────────────────────
+    runGate (gate.go:91)               computes scope := ComputeGateScope(...)
+      → buildGateSteps(projectRoot, scope)  (gate.go:99 / 282; activeScope)
+        → packValidatorStep closure         (gate.go:391-416)
+          → dispatchPackEngines(dispatchPacks, packDir, projectRoot, runner)  (gate.go:398)
+            → runFindingsEngine(... binding, rules, runner)                   (pack_gate.go:168)
+              → else-branch append(cmdArgs, projectRoot)                      (pack_gate.go:289-290)
+
+  scope.Files (gate/scope.go GateScope) is the same diff-scoped, untracked-
+  inclusive changed-file list code_check consumes (resolveGateScopeDiff appends
+  `git ls-files --others --exclude-standard`). It is available at the
+  packValidatorStep call site via the captured activeScope; threading it is the
+  whole fix.
+
+  ── THE FIX (design intent — verify exact seams against the code) ──────────
+    1. Add a scope parameter to dispatchPackEngines and runFindingsEngine
+       carrying the gate's changed-file list + mode (the GateScope, or the
+       {mode, files} it needs). The packValidatorStep closure passes activeScope.
+    2. In runFindingsEngine's `else` branch (rule-fed ScopeKindFileArgs
+       engines): when a diff/file scope is present, append the IN-SCOPE changed
+       files as scan targets instead of projectRoot. The in-scope set is the
+       intersection of scope.Files with the files the engine actually applies to
+       — at minimum, pass scope.Files as the targets so semgrep/ast-grep scan
+       only changed files (they self-filter by file type / rule language).
+    3. FULL-SWEEP fallback: when scope is nil OR scope.Mode == GateScopeModeAll,
+       preserve the current behavior — append projectRoot (the explicit
+       whole-repo escape hatch via `gate --all`).
+    4. PROJECT-WIDE toolchain passes (the `if` branch:
+       ScopeKindProjectWide && ProjectTarget != "" — go build ./..., go test
+       ./..., golangci-lint run ./...) STAY project-wide and UNCHANGED. Per
+       Ratified Design Constraint 3, a change to a.go that breaks unchanged b.go
+       must still fail the gate. Do NOT file-scope these.
+    5. EMPTY-INTERSECTION (Sharp Edge): when NONE of the changed files are
+       targets for a rule-fed engine (diff scope present but the resulting target
+       list is empty), the engine scans NOTHING and yields zero findings — it
+       must NOT silently fall back to scanning the whole repo. The full-repo scan
+       is reachable ONLY via --all / GateScopeModeAll, never as a default for an
+       empty target set.
+
+  ── NO-VACUOUS-GREEN GUARDRAIL (strangler principle) ───────────────────────
+  Narrowing scope must NOT silently drop real in-scope findings. The tests pin
+  that an in-scope changed file with a real violation is still reported, while
+  identical violations on untouched files are excluded. The project-wide
+  toolchain branch keeps its full-repo reach so unchanged-file breakage still
+  fails the gate.
+
+  ── SIGNATURE BLAST RADIUS (integration-gap accounting) ────────────────────
+  Changing dispatchPackEngines's SIGNATURE (new scope param) radiates across the
+  whole cmd/backstop package — every caller and every test that overrides the
+  `dispatchPackEnginesFn` seam (or mirrors its type) must update its arity or the
+  package will NOT compile. The plan's file scope MUST include them. Enumerated
+  from the code (`grep -rln "dispatchPackEngines" cmd/backstop`), the forced
+  surface is:
+
+    Production (won't compile until updated) — in TASK-002:
+      • cmd/backstop/code_check.go — holds the seam `dispatchPackEnginesFn =
+        dispatchPackEngines` (~line 18) and a call (~line 140) under a deliberate
+        "always full scope" comment (~line 132). When the signature changes, both
+        the seam's inferred type and the call must update. See the code_check
+        full-scope DECISION below.
+
+    Test files that CALL dispatchPackEngines directly (arity update) — in TASK-001:
+      • cmd/backstop/dispatch_engines_test.go
+      • cmd/backstop/bridge_test.go
+      • cmd/backstop/pack_gate_errors_test.go
+      • cmd/backstop/pack_gate_helpers_test.go
+      • cmd/backstop/pack_gate_gotoolchain_test.go
+      • cmd/backstop/pack_gate_test.go
+
+    Test files that OVERRIDE the dispatchPackEnginesFn seam / mirror its type
+    (the func-literal override OR the stubCodeCheckFns helper's `dispatch
+    func(...)` param type must match the new signature) — in TASK-001:
+      • cmd/backstop/code_check_test.go
+      • cmd/backstop/code_check_errors_test.go
+
+    Reference-only — NOT in scope (string/source-inspection, no typed call, no
+    arity change): cmd/backstop/gate_buildsteps_test.go,
+    cmd/backstop/dogfood_enforcement_test.go.
+
+  ── code_check FULL-SCOPE DECISION (state explicitly so it is not narrowed) ──
+  `backstop code check` MUST KEEP its "always full scope" pack-engine behavior
+  (code_check.go comment ~line 132). It is intentionally NOT diff-scoped: it
+  passes the explicit full-scope sentinel (nil scope, equivalently
+  GateScopeModeAll) for the new scope param, which the runFindingsEngine design
+  already maps to the projectRoot whole-repo fallback (CLM-004). ONLY the gate's
+  pack_engines step passes activeScope (a real diff scope). The implementer must
+  NOT accidentally narrow code_check's scope when updating its call site — the
+  call gains the sentinel argument and otherwise behaves identically. (CLM-008)
+
+  ── SCOPE GUARDS ───────────────────────────────────────────────────────────
+  File scope stays tight: cmd/backstop/pack_gate.go (signature + else branch),
+  cmd/backstop/gate.go (thread activeScope into packValidatorStep),
+  cmd/backstop/code_check.go (seam + full-scope sentinel call), and the
+  enumerated test files (arity updates only). Do NOT broaden beyond what the
+  signature change forces. Do NOT touch pkg/gate project-wide-violation
+  semantics (filterViolations / ProjectWide) beyond what threading scope
+  requires; that exemption already exists, and the project-wide engine branch and
+  runSandboxEngine are unchanged.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue) ─────────────
+    REQ-001: The pack_engines gate step must scope rule-fed findings engines to
+             the gate's changed-file diff scope.
+      CLM-001  diff-scoped rule-fed findings engine scans only the changed files
+               (in-scope targets), not projectRoot.
+      CLM-002  violations on untouched files outside the diff scope are excluded.
+      CLM-003  empty-intersection (no changed file is a target) scans nothing —
+               zero findings, NO whole-repo fallback.
+      CLM-004  `gate --all` (GateScopeModeAll) / nil scope restores the
+               whole-repo scan (projectRoot) — the explicit escape hatch.
+      CLM-005  the project-wide toolchain branch stays project-wide
+               (./...): unchanged-file breakage still fails the gate.
+      CLM-006  the changed-file scope is threaded end-to-end from the
+               packValidatorStep call site through dispatchPackEngines into
+               runFindingsEngine (gate-wiring integration).
+      CLM-007  in-scope changed files include untracked files (parity with the
+               gate diff resolver), so a brand-new file's findings are reported.
+      CLM-008  `backstop code check` keeps its full-scope pack-engine behavior:
+               it passes the full-scope sentinel (nil / GateScopeModeAll) for the
+               new scope param and is intentionally NOT diff-scoped; the signature
+               change updates its call site and every dispatchPackEngines caller /
+               seam override in cmd/backstop so the package still compiles.
+
+  Structure:
+    Phase 1: TDD red — failing unit tests pinning runFindingsEngine /
+             dispatchPackEngines scope behavior (diff-only, exclusion,
+             empty-intersection, --all fallback, project-wide unchanged).
+    Phase 2: TDD green — thread scope through dispatchPackEngines +
+             runFindingsEngine; scope-aware else branch.
+    Phase 3: TDD red+green — gate-wiring: packValidatorStep passes activeScope;
+             integration test that a diff-scoped gate excludes untouched-file
+             pack findings (untracked included).
+    Phase 4: Comprehensive verification — full gate kill chain.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — Failing Tests for Diff-Scoped Findings Engines
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Failing Tests for Diff-Scoped Rule-Fed Findings Engines"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing tests pinning runFindingsEngine/dispatchPackEngines scope behavior"
+        description: |
+          Add failing tests to a new cmd/backstop/pack_gate_scope_test.go that
+          drive dispatchPackEngines for a rule-fed findings engine (semgrep- or
+          ast-grep-shaped binding, ScopeKindFileArgs) through the existing
+          fixtureRunner (cmd/backstop/pack_gate_gotoolchain_test.go) so each
+          assertion inspects fixtureRunner.calls to see the exact scan targets
+          the engine was invoked with. These tests fail today because
+          dispatchPackEngines has no scope parameter and runFindingsEngine
+          unconditionally appends projectRoot (pack_gate.go ~289-290).
+
+          The tests must reference the NEW scoped signature of
+          dispatchPackEngines (the threaded changed-file scope) so the package
+          does not compile until Phase 2 lands the parameter — this is the red
+          state, intentional.
+
+          Mandated test names (exact):
+
+            - TestPackEngines_DiffScope_FindingsEngineScansChangedFilesOnly
+              (CLM-001): a rule-fed findings engine dispatched with a diff scope
+              whose Files = {changed_a.go, changed_b.go}. Assert the recorded
+              invocation's trailing scan targets are EXACTLY the in-scope changed
+              files (changed_a.go, changed_b.go) and DO NOT include projectRoot.
+
+            - TestPackEngines_DiffScope_ExcludesUntouchedFileViolations
+              (CLM-002): wire the fixtureRunner to emit SARIF findings for both an
+              in-scope changed file and an untouched out-of-scope file. With a
+              diff scope limited to the changed file, assert the engine is only
+              pointed at the changed file (so the untouched-file finding can never
+              be produced) — pinning that the 245-violations-from-untouched-files
+              regression cannot recur.
+
+            - TestPackEngines_DiffScope_EmptyIntersectionScansNothing (CLM-003):
+              diff scope is non-empty but NONE of its files are targets for the
+              engine (e.g. scope = {README.md} against a Go-only rule set, or an
+              explicitly empty resolved target set). Assert the engine is NOT
+              invoked against projectRoot and yields ZERO findings — there must be
+              NO whole-repo fallback. This is the no-vacuous-green inverse: narrow
+              correctly, but never silently widen back to the whole repo.
+
+            - TestPackEngines_AllScope_RestoresWholeRepoScan (CLM-004): with scope
+              == nil AND separately with scope.Mode == GateScopeModeAll, assert the
+              engine's scan target is projectRoot exactly as today (the explicit
+              --all whole-repo escape hatch is preserved).
+
+            - TestPackEngines_ProjectWideToolchainStaysProjectWide (CLM-005):
+              dispatch a ScopeKindProjectWide engine with a ProjectTarget (e.g.
+              go-build ./... / golangci ./...) under a NARROW diff scope. Assert
+              its scan target remains ProjectTarget ("./...") and that projectRoot
+              / the changed-file list is NOT appended — the project-wide branch is
+              untouched by scoping, so unchanged-file breakage still fails.
+
+            - TestPackEngines_DiffScope_IncludesUntrackedChangedFiles (CLM-007): a
+              diff scope whose Files contains an untracked changed file (mirroring
+              resolveGateScopeDiff's untracked inclusion). Assert that untracked
+              changed file appears in the engine's scan targets, so a brand-new
+              file's findings are still enforced.
+
+          Use the existing fixtureRunner and stubSandboxedRunStdout helpers; do
+          not stand up live semgrep/ast-grep. Keep fixtures Go-shaped so the
+          rule-fed binding under test is unambiguous.
+
+          SIGNATURE BLAST RADIUS (integration-gap — keep cmd/backstop compiling):
+          adding the scope parameter to dispatchPackEngines (Phase 2) changes the
+          arity of every existing caller and the type of the
+          `dispatchPackEnginesFn` seam across the whole cmd/backstop package. This
+          task — written first and exercising the new signature — must update each
+          existing call / seam override to the new arity in lockstep, or the
+          package will not compile (the defect the plan-reviewer flagged). For
+          each test file below, pass the full-scope sentinel (nil scope /
+          GateScopeModeAll) to the existing call sites unless the test
+          specifically asserts diff behavior, so their current assertions are
+          unchanged:
+            * cmd/backstop/dispatch_engines_test.go — 4 direct calls.
+            * cmd/backstop/bridge_test.go — 3 direct calls (leave the string
+              source-inspection assertions untouched).
+            * cmd/backstop/pack_gate_errors_test.go — 4 direct calls.
+            * cmd/backstop/pack_gate_helpers_test.go — 4 direct calls.
+            * cmd/backstop/pack_gate_gotoolchain_test.go — 6 direct calls
+              (the existing TestGoToolchain_BuildTestArgShapingScopeKindAware
+              project-wide assertion must still hold — pass full-scope sentinel).
+            * cmd/backstop/pack_gate_test.go — 7 direct calls.
+            * cmd/backstop/code_check_test.go — 4 `dispatchPackEnginesFn = func(
+              ...)` seam overrides: update each literal's parameter list to the
+              new signature.
+            * cmd/backstop/code_check_errors_test.go — the stubCodeCheckFns
+              helper's `dispatch func([]*pack.Manifest, string, string,
+              check.CommandRunner) (...)` parameter type must gain the new scope
+              param so it matches the seam.
+          Do NOT modify gate_buildsteps_test.go or dogfood_enforcement_test.go —
+          they only reference dispatchPackEngines in comments/strings (no typed
+          call), so the signature change does not touch them.
+        files:
+          - cmd/backstop/pack_gate_scope_test.go
+          - cmd/backstop/dispatch_engines_test.go
+          - cmd/backstop/bridge_test.go
+          - cmd/backstop/pack_gate_errors_test.go
+          - cmd/backstop/pack_gate_helpers_test.go
+          - cmd/backstop/pack_gate_gotoolchain_test.go
+          - cmd/backstop/pack_gate_test.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/code_check_errors_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — Thread Scope Through dispatch + runFindingsEngine
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — Scope-Aware runFindingsEngine and dispatchPackEngines"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Thread the gate diff scope through dispatchPackEngines into runFindingsEngine"
+        description: |
+          Make the Phase 1 tests pass with the minimum diff-scope fix in
+          cmd/backstop/pack_gate.go. Realize the design intent in the notes;
+          verify the exact seams against the code before editing.
+
+          1. dispatchPackEngines (~130): add a scope parameter carrying the
+             gate's changed-file list and mode — pass the *gate.GateScope (or the
+             {mode, files} it needs) through. Forward it to every runFindingsEngine
+             call (~168). Leave the runSandboxEngine branch's signature as-is
+             unless a target-shaping change is required (it walks projectRoot for
+             single-file scope and is NOT a rule-fed findings engine — out of
+             scope for this fix; do not file-scope it here).
+
+          2. runFindingsEngine (~272): replace the scope-kind arg-shaping `else`
+             branch (~289-290 `append(cmdArgs, projectRoot)`) so that:
+               - if binding.ScopeKind == ScopeKindProjectWide && ProjectTarget !=
+                 "" → UNCHANGED: append ProjectTarget (CLM-005).
+               - else (rule-fed ScopeKindFileArgs / config-file with no target):
+                   * if scope is nil OR scope.Mode == GateScopeModeAll → append
+                     projectRoot (whole-repo escape hatch, CLM-004).
+                   * else → compute the in-scope target list from scope.Files
+                     (the changed files, untracked included; project-relative as
+                     they arrive from the gate scope) and append those targets
+                     instead of projectRoot (CLM-001/CLM-007). When the resulting
+                     target list is EMPTY, append NOTHING and let the engine scan
+                     nothing — do NOT fall back to projectRoot (CLM-003).
+
+          3. Preserve everything downstream unchanged: the runner.RunStdout call,
+             the convert step, ParsePackFindings, the CrashGuard guard, and the
+             namespaced-violation mapping. Targets are appended after `inputs`,
+             exactly where projectRoot is appended today.
+
+          4. cmd/backstop/code_check.go — the SIGNATURE CHANGE forces this
+             production file to update or the package will not compile. It holds
+             the seam `dispatchPackEnginesFn = dispatchPackEngines` (~line 18) and
+             a call (~line 140) under a deliberate "always full scope" comment
+             (~line 132). DECISION (CLM-008): `backstop code check` MUST KEEP its
+             full-scope pack-engine behavior — it is intentionally NOT diff-scoped.
+             Update the call to pass the FULL-SCOPE SENTINEL (nil scope, or an
+             explicit GateScopeModeAll scope) for the new param, which the
+             runFindingsEngine design maps to the projectRoot whole-repo fallback
+             (CLM-004). Do NOT narrow code_check to a diff scope; the seam's
+             inferred type updates with the signature and the call gains only the
+             sentinel argument — behavior is otherwise identical. Keep the
+             "always full scope" comment accurate.
+
+          Do NOT alter pkg/gate filterViolations / ProjectWide semantics, the
+          project-wide engine branch, or runSandboxEngine's projectRoot walk.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Run backstop code check on the scoped findings-engine fix"
+        description: |
+          Fast inner-loop verification of the Phase 2 implementation. Run:
+
+              backstop code check
+
+          to confirm the changed files (cmd/backstop/pack_gate.go,
+          cmd/backstop/pack_gate_scope_test.go) pass lint, build, test, and
+          semgrep with no violations, and that the Phase 1 mandated tests now
+          pass:
+            - TestPackEngines_DiffScope_FindingsEngineScansChangedFilesOnly
+            - TestPackEngines_DiffScope_ExcludesUntouchedFileViolations
+            - TestPackEngines_DiffScope_EmptyIntersectionScansNothing
+            - TestPackEngines_AllScope_RestoresWholeRepoScan
+            - TestPackEngines_ProjectWideToolchainStaysProjectWide
+            - TestPackEngines_DiffScope_IncludesUntrackedChangedFiles
+
+          Confirm the WHOLE cmd/backstop package still compiles and its existing
+          tests pass after the signature change — the arity update reached every
+          dispatchPackEngines caller and every dispatchPackEnginesFn seam override
+          (TASK-001) and code_check.go's full-scope sentinel call (TASK-002). In
+          particular confirm code_check's pack-engine pass is still full-scope
+          (CLM-008) and TestGoToolchain_BuildTestArgShapingScopeKindAware still
+          holds (CLM-005). A `backstop code check` failure here most likely means
+          a missed caller/override arity — fix it before proceeding.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD Red+Green — Gate Wiring Threads activeScope to pack_engines
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Red+Green — Gate Wiring Passes activeScope to the pack_engines Step"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write failing gate-wiring test that pack_engines honors the diff scope"
+        description: |
+          Add a failing test to cmd/backstop/gate_scope_test.go (the existing
+          gate-scope test file) pinning that the packValidatorStep closure built
+          by buildGateSteps threads the activeScope through to dispatchPackEngines
+          — closing the integration seam, not just the unit seam from Phase 1/2.
+
+          Mandated test name (exact):
+
+            - TestGate_PackEngines_DiffScopeExcludesUntouchedFindings (CLM-006):
+              build the gate steps via buildGateSteps with a GateScope in
+              GateScopeModeDiff whose Files is a narrow changed-file set. Drive
+              the pack_engines step with a rule-fed pack whose engine, if pointed
+              at projectRoot, would report findings on untouched files, but
+              pointed at the diff scope reports only in-scope findings. Assert the
+              pack_engines StepResult does NOT contain violations for out-of-scope
+              untouched files — i.e. the scope reached the engine through the gate
+              wiring. Include an untracked changed file in scope.Files and assert
+              its in-scope finding IS still reported (CLM-007 parity at the gate
+              layer; no-vacuous-green: real in-scope findings are preserved).
+
+          Reuse the gate-test harness conventions already in gate_scope_test.go /
+          gate_buildsteps_test.go (temp project root, fixture pack, injected
+          runner). This test fails until TASK-005 threads activeScope into the
+          packValidatorStep dispatchPackEngines call.
+        files:
+          - cmd/backstop/gate_scope_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Pass activeScope into the packValidatorStep dispatchPackEngines call"
+        description: |
+          Make TASK-004 pass with a minimal change in cmd/backstop/gate.go.
+
+          In buildGateSteps, the packValidatorStep closure (~391-416) currently
+          calls:
+
+              dispatchPackEngines(dispatchPacks, filepath.Join(projectRoot,
+                  ".backstop", "packs"), projectRoot, runner)
+
+          buildGateSteps already captures activeScope (the *gate.GateScope from
+          runGate). Thread activeScope into the dispatchPackEngines call so the
+          changed-file scope reaches runFindingsEngine. The closure captures
+          activeScope from the enclosing scope; no new plumbing through buildGate
+          callers is required because runGate already passes scope into
+          buildGateSteps (gate.go:99).
+
+          Do NOT change any other gate step, the lockStep, the bridge dispatch
+          set assembly, or filterViolations. The diff scope already filters the
+          gate-level violation set; this change ensures the pack_engines step
+          never PRODUCES out-of-scope findings in the first place (so a stale
+          repo-wide backlog cannot red-lock the gate).
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Run backstop code check on the gate-wiring change"
+        description: |
+          Fast inner-loop verification of the Phase 3 wiring. Run:
+
+              backstop code check
+
+          to confirm cmd/backstop/gate.go and cmd/backstop/gate_scope_test.go
+          pass lint, build, test, and semgrep with no violations, and that
+          TestGate_PackEngines_DiffScopeExcludesUntouchedFindings now passes.
+          Confirm the existing gate buildsteps / scope tests remain green after
+          the call-site change.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_scope_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive Verification — Full Gate Kill Chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Full Gate"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Run the full backstop gate over the diff-scope fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files
+          (cmd/backstop/pack_gate.go, cmd/backstop/gate.go and their test files),
+          so the full kill chain runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold), and contract
+          verification. Confirm that:
+            - the pack_engines step now reports ONLY in-scope findings on a
+              diff-scoped run (the 245-from-untouched-files regression is gone);
+            - `backstop code check` still runs pack engines at FULL scope
+              (CLM-008) — its behavior is unchanged by the signature change;
+            - `backstop gate --all` still performs the whole-repo sweep;
+            - the project-wide toolchain passes (go build/test ./...,
+              golangci-lint run ./...) remain project-wide and would still fail on
+              unchanged-file breakage (CLM-005);
+            - the gate is green on this branch's own diff scope, unblocking
+              gate-on-implement (and, downstream, PLAN-SPEC-034).
+
+          No artifact files (.spec.md / .plan.yml / etc.) are modified by the
+          implementation work, so no separate `backstop artifact validate` step
+          is required beyond what the gate runs.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/pack_gate_scope_test.go
+          - cmd/backstop/gate_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-003
+          - TASK-006
