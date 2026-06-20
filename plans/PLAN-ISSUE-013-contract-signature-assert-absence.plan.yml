@@ -1,0 +1,408 @@
+---
+plan_id: PLAN-ISSUE-013
+spec_id: ISSUE-013
+created: "2026-06-20"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/gate/... -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Closes ISSUE-013: teach the `contract_signature` gate step to assert a symbol
+  is ABSENT (not only present), so a spec can declare "this symbol MUST NOT exist
+  in this file" as a first-class, gate-enforced contract — a regression guard for
+  deletions (the strangler end-state). The SPEC-034 cutover wanted this and had to
+  fall back to hand-written deletion-assertion tests (cmd/backstop/cutover_deletion_test.go,
+  strangler_guard_test.go) because the step could not express absence.
+
+  ── CHOSEN REPRESENTATION: explicit `absent: true` field on ContractEntry ─────
+  (NOT a sentinel `signature: REMOVED` string.) Justification:
+    - The existing present-path matches `entry.Signature` against an AST-rendered
+      signature via signaturesMatch/normalizeSignature (step_contract.go:106,
+      :409-419). A sentinel REMOVED would overload Signature into double-duty and
+      push a special-case branch into the comparator — fragile (a real symbol's
+      declared doc-signature could legitimately contain the word) and it forces
+      the Signature field to carry control intent rather than data.
+    - A boolean is an unambiguous branch point exactly at the `!found` check
+      (step_contract.go:96-104), evaluated BEFORE any signature comparison, which
+      is precisely where the inversion belongs.
+    - It is additive and backward-compatible: `ContractEntry.Absent` defaults to
+      false, and the new `absent` YAML field on Contracts[].Provides[] (parsed in
+      ExtractContractEntries, step_testverify.go:43-50 / :492-499) defaults false,
+      so every existing contract keeps today's exact present-with-signature
+      behavior. The present-path becomes a strict superset — no regression.
+    - Surface area: ContractEntry gains `Absent bool` (step_contract.go:16-21);
+      the inline frontmatter Provides struct gains `Absent bool \`yaml:"absent"\``
+      (step_testverify.go:43-50); ExtractContractEntries copies it through
+      (step_testverify.go:492-499). The plan/v1 and spec schemas need a documented
+      optional `absent` boolean on a contract provide entry (additive, no required
+      change). No change to the present-path signature machinery.
+
+  ── SEMANTICS (pinned; NO VACUOUS GREEN) ─────────────────────────────────────
+  An absence-asserting entry is `{absent: true, name: <REAL Go identifier>, file:
+  <.go file>, kind: <function|type|interface|variable|constant|method>}`. The
+  verifier loop (step_contract.go:71-114) branches on entry.Absent:
+
+    case                                                  | absent:true result
+    ----------------------------------------------------- | ------------------
+    symbol genuinely NOT present in the named file        | PASS  (deletion held)
+    symbol PRESENT in the named file (any signature)      | FAIL  (regression caught;
+                                                          |        "expected absent")
+    named .go FILE does not exist on disk                 | FAIL  config error
+                                                          |        ("absence assertion
+                                                          |         targets missing file")
+    name is NOT a valid Go identifier (placeholder slug,  | FAIL  config error
+      e.g. "bespoke-toolchain-tests")                     |        ("absence contract must
+                                                          |         name a real identifier")
+    named file fails to parse                             | FAIL  parse error (as today)
+    unknown kind                                          | FAIL  unknown-kind error (as today)
+
+  Notes that pin the loud-config-error rule (the anti-vacuous-green core):
+    - TODAY a non-existent file is SILENTLY SKIPPED (step_contract.go:52-55:
+      `os.Stat` err → continue). That silent-skip is acceptable for a PRESENCE
+      contract (a deleted file can't host a present symbol) but is VACUOUS GREEN
+      for an ABSENCE contract: "assert X absent from a file that isn't there"
+      would pass without probing anything. Therefore: when ANY entry for a missing
+      file has absent:true, the missing file is a LOUD config error, not a skip.
+      (Present-only entries for a missing file keep today's skip.)
+    - The non-Go-file skip (step_contract.go:48-50) stays: absence is an AST/source
+      probe and only .go files are probed; an absent:true entry on a non-.go file
+      is a config error (cannot probe), not a silent skip.
+    - "Symbol present elsewhere but not the named file" → PASS. Absence is scoped
+      to the NAMED file only (matches the present-path's file-scoped semantics);
+      a contract that wants whole-tree absence declares one entry per file. This is
+      deliberate and documented, not an oversight.
+    - Identifier validation uses go/token.IsIdentifier on the bare name (for the
+      receiver-qualified method form "(*Type).method", the method component is
+      validated). A descriptive slug containing '-' is rejected loud — this is the
+      "bespoke-toolchain-tests" smell the issue calls out; the gate must reject it,
+      never silently pass.
+    - Interaction with the present path: Absent and a non-empty Signature are
+      mutually exclusive intents; absent:true ignores Signature (a deleted symbol
+      has no signature to match). If a spec sets both, the absent branch wins and
+      Signature is not consulted.
+
+  ── TDD framing ──────────────────────────────────────────────────────────────
+  Pure new behavior on a verifier that already exists → real red→green TDD. Tests
+  are written first (red: the new absent branch does not exist), then the
+  ContractEntry field + verifier branch + parser passthrough make them green.
+  Tests are SUBSTANTIVE: they drive StepContractSignatureFunc / ExtractContractEntries
+  against real .go testdata fixtures and assert pass/fail status AND violation
+  content (message provenance), never canned plumbing. The existing present-path
+  tests (step_contract_test.go) must keep passing — explicitly re-asserted as a
+  no-regression task.
+
+  ── OUT OF SCOPE (noted, not required) ───────────────────────────────────────
+  This capability would let SPEC-034's retired deletion sentinels (REMOVED /
+  MIGRATE-OR-DELETE on lintExecutor/buildExecutor/testExecutor/goBuiltinExecutors)
+  be restored as real gate-enforced absence contracts, and would let the
+  TestStrangler_DeletionGatedOnProvenEquivalence dual-assertion (bespoke absent +
+  replacement present) be expressed as a contract pair. That dogfood restoration
+  and any contract-pairing semantic are a SEPARATE spec-author task and are NOT
+  required by this plan.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Absence-assertion verifier behavior (TDD red→green)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add .go testdata fixtures for absence assertions (symbol-present and symbol-absent files)"
+        description: |
+          Create Go source fixtures the absence tests probe with the AST scanner:
+            - testdata/contract-absent-present.go — a real package file that
+              DECLARES the identifiers an absence test will (wrongly) assert gone
+              (e.g. funcs/types/vars named so a `{absent:true}` entry against this
+              file must FAIL as a regression). Mirrors the shape of the existing
+              contract-target.go.
+            - testdata/contract-absent-clean.go — a real package file that does NOT
+              declare those identifiers, so a `{absent:true}` entry against it must
+              PASS (deletion genuinely held). Contains at least one unrelated
+              decl so the file parses as real source.
+          These fixtures support the present→fail and absent→pass cases plus the
+          present-elsewhere-not-here case (symbol exists in -present but not -clean).
+          No production code in this task.
+        files:
+          - pkg/gate/testdata/contract-absent-present.go
+          - pkg/gate/testdata/contract-absent-clean.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write absence-verifier tests: absent→pass, reappeared→fail, present-elsewhere→pass"
+        description: |
+          Write failing tests against StepContractSignatureFunc / StepContractSignatureScopedFunc
+          (the new entry.Absent branch does not exist yet → red). Drive ContractEntry
+          values with Absent:true directly. Mandated test names:
+            - TestGate_ContractSignature_AbsentSymbolPasses (CLM-001): an
+              {Absent:true} entry naming an identifier NOT present in
+              contract-absent-clean.go → status "pass", zero violations.
+            - TestGate_ContractSignature_ReappearedSymbolFails (CLM-002): an
+              {Absent:true} entry naming an identifier that IS present in
+              contract-absent-present.go → status "fail"; assert the violation
+              message states the symbol was expected absent (regression caught),
+              and Rule == "contract_signature".
+            - TestGate_ContractSignature_AbsentScopedToNamedFile (CLM-005): an
+              {Absent:true} entry whose symbol exists in contract-absent-present.go
+              but is named against contract-absent-clean.go → "pass" (absence is
+              file-scoped to the named file; present-elsewhere does not fail it).
+          Substantive: real fixtures, real step func, assert status AND message
+          content — not plumbing.
+        files:
+          - pkg/gate/step_contract_absence_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write absence loud-config-error tests: missing file, non-identifier name, non-Go file"
+        description: |
+          Write failing tests asserting the anti-vacuous-green config-error rules
+          (red until the branch exists). Mandated test names:
+            - TestGate_ContractSignature_AbsentMissingFileIsConfigError (CLM-003):
+              an {Absent:true} entry whose File does not exist on disk → status
+              "fail" with a violation whose message names the missing file and
+              flags it as an absence-assertion config error (NOT silently skipped
+              the way a present-only entry on a missing file is). Also assert that
+              a PRESENT-only entry on the same missing file still skips (no
+              violation) — proving the skip change is absence-scoped.
+            - TestGate_ContractSignature_AbsentNonIdentifierIsConfigError (CLM-004):
+              an {Absent:true} entry whose Name is a placeholder slug (e.g.
+              "bespoke-toolchain-tests", containing '-') → status "fail" with a
+              config-error violation requiring a real Go identifier; the slug must
+              NOT silently pass.
+            - TestGate_ContractSignature_AbsentNonGoFileIsConfigError (CLM-007): an
+              {Absent:true} entry whose File is a non-.go path → status "fail"
+              config error (cannot AST-probe), distinct from the present-path's
+              documentation skip of non-Go files.
+          Substantive: assert "fail" status AND that the message identifies the
+          specific misconfiguration; a vacuous pass on any of these fails the test.
+        files:
+          - pkg/gate/step_contract_absence_config_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Add ContractEntry.Absent and the inverted absence branch with loud config errors"
+        description: |
+          Make TASK-002 and TASK-003 green. In pkg/gate/step_contract.go:
+            - Add `Absent bool` to ContractEntry (lines 16-21) documenting that it
+              asserts the symbol must NOT exist in File.
+            - In StepContractSignatureScopedFunc (lines 71-114): for an entry with
+              Absent==true, branch BEFORE the kind/signature machinery:
+                * validate Name is a real Go identifier (go/token.IsIdentifier;
+                  for the receiver-qualified method form validate the method
+                  component) → else loud config-error violation (CLM-004);
+                * the named file must exist and be .go → else loud config-error
+                  violation (CLM-003 missing-file, CLM-007 non-Go); do NOT reuse the
+                  silent os.Stat/non-Go skips for absent entries;
+                * run the same find* probe (findFunction/findType/findVariable/
+                  findMethod) on the named file: found==true → FAIL
+                  ("symbol %s expected absent but present in %s", CLM-002);
+                  found==false → PASS contribute no violation (CLM-001).
+            - Preserve the existing missing-file (52-55) and non-Go (48-50) SKIPS
+              for present-only entries so the present path is unchanged (CLM-006).
+            - Absent==true ignores entry.Signature (mutually exclusive intent).
+          Keep change surface to step_contract.go only in this task.
+        files:
+          - pkg/gate/step_contract.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: test
+        title: "Write present-path no-regression test for absence rollout"
+        description: |
+          Write TestGate_ContractSignature_PresentPathUnchangedByAbsence (CLM-006):
+          assert that entries with Absent==false (the default) retain exact present-
+          path behavior after the absence branch lands — a matching present symbol
+          passes, a missing present-only symbol still reports "symbol not found",
+          and a present-only entry on a missing/non-Go file is still silently
+          skipped. Drives the existing contract-target.go fixture plus the new
+          fixtures. Guards against the absence branch leaking into the present path.
+          Written in the red phase (passes once TASK-004 lands); verified green by
+          TASK-006.
+        files:
+          - pkg/gate/step_contract_noregress_test.go
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "Run code check over the absence verifier and its tests"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm step_contract.go and
+          all Phase-1 absence/config/no-regression tests build, lint clean, and the
+          full pkg/gate contract suite (new + existing present-path tests) passes
+          green. No raw `go test`/`golangci-lint` — backstop CLI only.
+        files:
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_contract_absence_test.go
+          - pkg/gate/step_contract_absence_config_test.go
+          - pkg/gate/step_contract_noregress_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  - id: phase-2
+    name: "Phase 2: Surface `absent` through the spec contract parser"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write ExtractContractEntries test: `absent: true` is parsed onto ContractEntry"
+        description: |
+          Write failing tests against ExtractContractEntries (step_testverify.go:
+          469-503) proving the new spec-contract `absent` field is surfaced (red
+          until the parser struct carries it). Mandated test names:
+            - TestGate_ExtractContractEntries_AbsentFieldParsed (CLM-008): a spec
+              fixture whose `## Contracts` frontmatter declares a provide entry with
+              `absent: true` yields a ContractEntry with Absent==true and the right
+              File/Name/Kind; a sibling entry without the field yields Absent==false.
+            - TestGate_ExtractContractEntries_AbsentDefaultsFalse (CLM-009): a spec
+              with only conventional present contracts yields entries all with
+              Absent==false (backward-compatible default — existing specs unchanged).
+          Use a spec fixture file under the test's testdata (mirroring the existing
+          ExtractContractEntries happy-path test setup). Substantive: assert the
+          parsed Absent boolean per entry, not just len().
+        files:
+          - pkg/gate/step_contract_parser_absence_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on: []
+
+      - id: TASK-008
+        type: implementation
+        title: "Parse `absent` in spec contracts and pass it through to ContractEntry"
+        description: |
+          Make TASK-007 green. In pkg/gate/step_testverify.go:
+            - Add `Absent bool \`yaml:"absent"\`` to the inline Contracts[].Provides[]
+              struct in specFrontmatter (lines 43-50).
+            - In ExtractContractEntries (lines 492-499) copy p.Absent into the
+              constructed ContractEntry.Absent.
+          Additive only — entries without the field default to Absent:false, so
+          ExtractContractEntries output for existing specs is byte-for-byte
+          unchanged in intent. Touch only step_testverify.go here.
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Run code check over the contract-parser passthrough"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm step_testverify.go and
+          the parser tests build, lint clean, and pass green, and that the existing
+          ExtractContractEntries happy-path / invalid-dir tests still pass (no
+          regression in present-contract parsing).
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_contract_parser_absence_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-008
+
+  - id: phase-3
+    name: "Phase 3: Document the `absent` contract field in the schemas"
+    tasks:
+      - id: TASK-010
+        type: documentation
+        title: "Document optional `absent` boolean on a contract provide entry in plan/spec schemas"
+        description: |
+          Document the new optional `absent: true` field on a contract `provides`
+          entry so spec/plan authors and validation describe it as first-class:
+            - artifacts/spec/v1/schema.json — note the optional `absent` boolean on
+              a contract provide (asserts the named identifier MUST NOT exist in the
+              file; mutually exclusive with a `signature`; name must be a real Go
+              identifier). Additive/optional — does not make it required.
+            - artifacts/plan/v1/schema.json — cross-reference the absence-contract
+              capability in the enforcement/contract notes where contracts are
+              described, so plan authors know absence is expressible.
+          Documentation/schema annotation only — no behavioral validator change is
+          required for this plan (the gate is the enforcer). Confirm the edited
+          JSON remains valid and `backstop artifact validate` still parses specs/
+          plans unchanged.
+        files:
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+        claims:
+          - CLM-010
+        depends_on: []
+
+  - id: phase-4
+    name: "Phase 4: Full gate verification (code + artifacts)"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Run full gate and validate the plan artifact for the absence-contract capability"
+        description: |
+          Final comprehensive verification of the whole change set:
+            - `backstop gate` — the full kill chain (artifact validation, code
+              check, test verification, substantiveness, coverage, contracts) over
+              the modified pkg/gate files and tests, confirming the absence branch,
+              parser passthrough, and present-path no-regression are all green and
+              coverage holds.
+            - `backstop artifact validate --plan PLAN-ISSUE-013` — confirm this
+              plan validates and the edited spec/plan schemas still validate
+              cleanly (artifact files were touched in Phase 3).
+        files:
+          - plans/PLAN-ISSUE-013-contract-signature-assert-absence.plan.yml
+          - pkg/gate/step_contract.go
+          - pkg/gate/step_testverify.go
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-004
+          - TASK-006
+          - TASK-008
+          - TASK-009
+          - TASK-010

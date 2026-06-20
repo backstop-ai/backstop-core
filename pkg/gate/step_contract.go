@@ -18,6 +18,15 @@ type ContractEntry struct {
 	Name      string // symbol name
 	Kind      string // "function", "type", "variable", "interface"
 	Signature string // declared signature
+	// Absent inverts the assertion: when true, the entry asserts the named
+	// symbol must NOT exist in File. It passes iff the symbol is genuinely
+	// absent from the named file and fails if the symbol reappears (a deletion
+	// regression guard). An absent entry ignores Signature (mutually exclusive
+	// intent — a deleted symbol has no signature to match). Unlike a present
+	// entry, an absent entry on a missing or non-Go file is a loud config error,
+	// not a silent skip — a silent pass would be vacuous green for an absence
+	// assertion.
+	Absent bool
 }
 
 // StepContractSignatureFunc returns a StepFunc that verifies spec contract
@@ -41,23 +50,75 @@ func StepContractSignatureScopedFunc(contracts []ContractEntry, scope *GateScope
 		}
 
 		for file, entries := range byFile {
-			// Skip non-Go files — the Go parser can only handle .go files.
-			// Specs may reference non-Go files (JSON schemas, YAML configs,
-			// shell scripts, markdown) in their contracts for documentation
-			// purposes. These are not checkable via AST parsing.
-			if !strings.HasSuffix(file, ".go") {
-				continue
+			// Split each file's entries by intent. The file-level non-Go and
+			// missing-file SKIPS below short-circuit only the present-only
+			// entries (a deleted file cannot host a present symbol, so skipping
+			// is acceptable). Absence assertions are entry-aware: an absent
+			// entry on a missing or non-Go file is a LOUD config error, not a
+			// silent skip, because "assert X absent from a file that isn't there
+			// / can't be probed" would pass without probing anything — vacuous
+			// green for an absence assertion.
+			var presentEntries, absentEntries []ContractEntry
+			for _, e := range entries {
+				if e.Absent {
+					absentEntries = append(absentEntries, e)
+				} else {
+					presentEntries = append(presentEntries, e)
+				}
 			}
 
-			// Skip files that don't exist (may have been deleted/moved).
-			if _, statErr := os.Stat(file); statErr != nil {
+			isGoFile := strings.HasSuffix(file, ".go")
+			_, statErr := os.Stat(file)
+			fileExists := statErr == nil
+
+			// Absence assertions: loud config errors for non-Go / missing files
+			// (cannot AST-probe), evaluated BEFORE any parse.
+			for _, entry := range absentEntries {
+				if !isGoFile {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("absence assertion for symbol %s targets non-Go file %s: absence is an AST/source probe and only .go files are checkable", entry.Name, file),
+						Severity: "error",
+					})
+					continue
+				}
+				if !fileExists {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("absence assertion for symbol %s targets missing file %s: cannot probe absence in a file that does not exist", entry.Name, file),
+						Severity: "error",
+					})
+					continue
+				}
+				if !isValidContractIdentifier(entry.Name) {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("absence contract must name a real Go identifier, got %q: a descriptive slug is not AST-scannable", entry.Name),
+						Severity: "error",
+					})
+					continue
+				}
+			}
+
+			// Present-only entries keep today's exact skip behavior for non-Go
+			// and missing files (unchanged present path).
+			if !isGoFile || !fileExists {
+				presentEntries = nil
+			}
+
+			// Nothing left to parse for this file.
+			probeAbsent := absentEntriesNeedingProbe(absentEntries, isGoFile, fileExists)
+			if len(presentEntries) == 0 && len(probeAbsent) == 0 {
 				continue
 			}
 
 			fset := token.NewFileSet()
 			parsed, err := parser.ParseFile(fset, file, nil, parser.AllErrors)
 			if err != nil {
-				for _, e := range entries {
+				for _, e := range presentEntries {
 					violations = append(violations, Violation{
 						Rule:     "contract_signature",
 						File:     file,
@@ -65,25 +126,21 @@ func StepContractSignatureScopedFunc(contracts []ContractEntry, scope *GateScope
 						Severity: "error",
 					})
 				}
+				for _, e := range probeAbsent {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("failed to parse file for absence assertion on symbol %s: %v", e.Name, err),
+						Severity: "error",
+					})
+				}
 				continue
 			}
 
-			for _, entry := range entries {
-				var actualSig string
-				var found bool
-
-				switch entry.Kind {
-				case "function":
-					actualSig, found = findFunction(fset, parsed, entry.Name)
-				case "type", "interface":
-					actualSig, found = findType(parsed, entry.Name)
-				case "variable":
-					actualSig, found = findVariable(fset, parsed, entry.Name)
-				case "constant":
-					actualSig, found = findVariable(fset, parsed, entry.Name) // constants parsed like variables
-				case "method":
-					actualSig, found = findMethod(fset, parsed, entry.Name)
-				default:
+			// Absence probes: found==true → FAIL (regression caught);
+			// found==false → PASS (deletion held, no violation).
+			for _, entry := range probeAbsent {
+				if !knownContractKind(entry.Kind) {
 					violations = append(violations, Violation{
 						Rule:     "contract_signature",
 						File:     file,
@@ -92,6 +149,28 @@ func StepContractSignatureScopedFunc(contracts []ContractEntry, scope *GateScope
 					})
 					continue
 				}
+				_, found := probeSymbol(fset, parsed, entry)
+				if found {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("symbol %s expected absent but present in %s (deletion regression)", entry.Name, file),
+						Severity: "error",
+					})
+				}
+			}
+
+			for _, entry := range presentEntries {
+				if !knownContractKind(entry.Kind) {
+					violations = append(violations, Violation{
+						Rule:     "contract_signature",
+						File:     file,
+						Message:  fmt.Sprintf("unknown contract kind %q for symbol %s", entry.Kind, entry.Name),
+						Severity: "error",
+					})
+					continue
+				}
+				actualSig, found := probeSymbol(fset, parsed, entry)
 
 				if !found {
 					violations = append(violations, Violation{
@@ -127,6 +206,68 @@ func StepContractSignatureScopedFunc(contracts []ContractEntry, scope *GateScope
 			Violations: violations,
 		}
 	}
+}
+
+// knownContractKind reports whether kind is a recognized contract symbol kind
+// that probeSymbol can dispatch on. An unrecognized kind is a config error on
+// both the present and absent paths.
+func knownContractKind(kind string) bool {
+	switch kind {
+	case "function", "type", "interface", "variable", "constant", "method":
+		return true
+	default:
+		return false
+	}
+}
+
+// probeSymbol dispatches to the right find* probe for the entry's kind and
+// returns the rendered signature (present path) and whether the symbol was
+// found in the parsed file. An unknown kind returns ("", false); the caller is
+// responsible for emitting the unknown-kind violation.
+func probeSymbol(fset *token.FileSet, parsed *ast.File, entry ContractEntry) (string, bool) {
+	switch entry.Kind {
+	case "function":
+		return findFunction(fset, parsed, entry.Name)
+	case "type", "interface":
+		return findType(parsed, entry.Name)
+	case "variable":
+		return findVariable(fset, parsed, entry.Name)
+	case "constant":
+		return findVariable(fset, parsed, entry.Name) // constants parsed like variables
+	case "method":
+		return findMethod(fset, parsed, entry.Name)
+	default:
+		return "", false
+	}
+}
+
+// absentEntriesNeedingProbe returns the absence entries that survived the
+// loud-config-error gates (Go file, exists on disk, valid identifier) and so
+// must be AST-probed. Entries that already produced a config-error violation are
+// excluded so they are not double-reported.
+func absentEntriesNeedingProbe(absentEntries []ContractEntry, isGoFile, fileExists bool) []ContractEntry {
+	if !isGoFile || !fileExists {
+		return nil
+	}
+	var probe []ContractEntry
+	for _, e := range absentEntries {
+		if !isValidContractIdentifier(e.Name) {
+			continue
+		}
+		probe = append(probe, e)
+	}
+	return probe
+}
+
+// isValidContractIdentifier reports whether name is usable as an absence-contract
+// symbol name. The bare name must be a valid Go identifier so the AST scanner can
+// probe for it; for the receiver-qualified method form "(*Type).method" or
+// "(Type).method" the method component is validated (the receiver type is a
+// disambiguator, not the probed identifier). A descriptive slug such as
+// "bespoke-toolchain-tests" is rejected — it is not AST-scannable.
+func isValidContractIdentifier(name string) bool {
+	_, method := splitReceiverQualifiedName(name)
+	return token.IsIdentifier(method)
 }
 
 // findFunction finds a function declaration by name and returns its signature.

@@ -46,6 +46,9 @@ type specFrontmatter struct {
 			Name      string `yaml:"name"`
 			Kind      string `yaml:"kind"`
 			Signature string `yaml:"signature"`
+			// Absent asserts the named symbol MUST NOT exist in File. Optional,
+			// defaults false; mutually exclusive with Signature.
+			Absent bool `yaml:"absent"`
 		} `yaml:"provides"`
 	} `yaml:"contracts"`
 }
@@ -495,6 +498,7 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 					Name:      p.Name,
 					Kind:      p.Kind,
 					Signature: p.Signature,
+					Absent:    p.Absent,
 				})
 			}
 		}
