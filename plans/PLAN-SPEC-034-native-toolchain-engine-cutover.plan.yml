@@ -53,19 +53,15 @@ notes: |
     equivalence tests compile and pass), so a deletion that outran the proof fails
     the gate rather than relying on commit history.
 
-  OPEN QUESTIONS held under either resolution (NOT resolved here):
-    - OQ-1 (lint config-file entry: go-toolchain pack vs project-side golangci
-      config): the lint config-file BINDING task (TASK-009) is authored so the
-      config-file engine entry converges to native v2 SARIF either way; WHERE the
-      optional golangci config lives (pack vs backstop.yml/.golangci.yml) is left
-      to authoring. The task's files include both the pack lint entry and the
-      project-side config seam, and its description records the branch rather than
-      picking one. REQ-005 holds under either.
-    - OQ-2 (one go-toolchain pack vs a build/test split): the pack scaffolding task
-      (TASK-001) and the build/test engine tasks are authored against the
-      mechanism-vs-opinion boundary (REQ-007) without assuming a single pack vs a
-      go-build/go-test split; the pass->engine mapping holds either way. The branch
-      is noted, not decided.
+  OPEN QUESTIONS — RESOLVED 2026-06-18 (this plan assumes the resolutions):
+    - OQ-1 -> PACK-DEFINED: the lint `config-file` binding AND its `.golangci.yml`
+      live IN the `go-toolchain` pack, not project-side. The config-file engine
+      entry converges to native v2 SARIF with its config sourced from the pack.
+    - OQ-2 -> SINGLE PACK: one `go-toolchain` pack ships lint+build+test together;
+      no build/test split, no rename. The split is degenerate (`go test ./...`
+      already compiles everything `go build ./...` does).
+    - Convention: one `<lang>-toolchain` pack per language bundles that language's
+      whole native toolchain — convention over configuration, not a hard rule.
 
   Sharp Edges -> tasks: SE-1 (no parallel dispatcher / no import cycle) -> TASK-005
     + TestBridge_NoCheckToEngineImport/NoParallelDispatcher; SE-2 (enforcement-lapse
@@ -104,13 +100,16 @@ phases:
           SAME bytes fed to both the bespoke parser and the engine path so the
           comparison is like-for-like (never canned SARIF).
 
-          OQ-2 NOTE: author the pack layout so build/test can ship as one
-          go-toolchain pack OR a go-build/go-test split without reshaping the
-          convert scripts; do not assume a single pack here. OQ-1 NOTE: leave a
-          place for the lint config-file entry but do not decide pack-vs-project
-          ownership of the golangci config in this scaffolding task.
+          OQ-2 (RESOLVED -> single pack): author the pack as ONE `go-toolchain`
+          pack carrying lint+build+test together; no go-build/go-test split. The
+          split is degenerate (`go test ./...` already compiles everything
+          `go build ./...` does). OQ-1 (RESOLVED -> pack-defined): the lint
+          `config-file` entry AND its `.golangci.yml` live IN the go-toolchain
+          pack — declare the config-file entry here and land the pack-owned
+          `.golangci.yml` alongside the pack manifest.
         files:
           - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/.golangci.yml
           - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/build-to-sarif.sh
           - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-to-sarif.sh
           - cmd/backstop/testdata/go-toolchain/fixtures/go-build-errors.txt
@@ -314,11 +313,11 @@ phases:
           loud as unparseable SARIF attributed to the lint engine, not a silent
           zero-findings green (Sharp Edge 5).
 
-          OQ-1 NOTE: this task wires the config-file engine so lint converges to
-          native v2 SARIF REGARDLESS of where the optional golangci config lives.
-          WHERE the config-file entry is declared — inside the go-toolchain pack vs
-          project-side (backstop.yml / .golangci.yml) — is left to authoring;
-          include both seams in scope and record the branch. REQ-005 holds either way.
+          OQ-1 (RESOLVED -> pack-defined): the config-file engine binds golangci to
+          the `.golangci.yml` that lives INSIDE the go-toolchain pack (TASK-001),
+          not a project-side config. Wire the config-file entry to source its config
+          from the pack so lint converges to native v2 SARIF with pack-owned config.
+          REQ-005.
         files:
           - cmd/backstop/pack_gate_golint.go
         claims:
