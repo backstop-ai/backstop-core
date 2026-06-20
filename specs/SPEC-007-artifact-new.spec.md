@@ -764,14 +764,6 @@ contracts:
         kind: function
         signature: "func Scaffold(artifactType string, id string, slug string, date string, sourceID string) ([]byte, error)"
         notes: "Renders artifact template with frontmatter and body sections for the given type. sourceID is the backing spec/issue ID for plan types (e.g. SPEC-002, ISSUE-005); empty string for non-plan types."
-      - name: ResolveID
-        kind: function
-        signature: "func ResolveID(artifactType string, opts IDOptions) (string, error)"
-        notes: "Resolves the next available ID via git tags or local filesystem scan"
-      - name: IDOptions
-        kind: type
-        signature: "type IDOptions struct"
-        notes: "Options for ID resolution: project root, git availability, max retries"
       - name: ArtifactTypeConfig
         kind: type
         signature: "type ArtifactTypeConfig struct"
@@ -792,6 +784,14 @@ contracts:
 
   - file: pkg/scaffold/idresolver.go
     provides:
+      - name: ResolveID
+        kind: function
+        signature: "func ResolveID(artifactType string, opts IDOptions) (string, error)"
+        notes: "Resolves the next available ID via git tags or local filesystem scan"
+      - name: IDOptions
+        kind: type
+        signature: "type IDOptions struct"
+        notes: "Options for ID resolution: project root, git availability, max retries"
       - name: GitTagResolver
         kind: type
         signature: "type GitTagResolver struct"
