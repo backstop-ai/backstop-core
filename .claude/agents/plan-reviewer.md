@@ -199,6 +199,7 @@ There is no "pass with suggestions." Either it's right or it's not.]
 - Sharp edge not addressed by any task
 - Verification task descriptions missing specific gate commands
 - Phase with only one task (could be merged)
+- Plan deletes or renames a test that a surviving spec claim still mandates, with no task to repoint or retire that claim (dangling claim→test mapping — see "Preventing Deleted-Test Claim Drift")
 
 ### Green Flags
 - 1:1 or better claim-to-task coverage
@@ -217,6 +218,24 @@ The mechsuit SPEC-015 failure: reviewer checked 20/20 requirements but missed 27
 3. Count test tasks vs implementation tasks — there should be roughly 1:1
 4. Don't assume claim coverage means task completion
 5. Read task descriptions — do they actually describe the work needed?
+
+## Preventing Deleted-Test Claim Drift (ISSUE-014)
+
+The SPEC-034 cutover failure: a strangler plan CREATED transitional equivalence
+tests in one phase and DELETED them in a later phase (they depended on code the
+plan removed) — but the spec's claims still mandated those exact test names. No
+task repointed or retired the claims. The dangling claim→test mapping stayed
+invisible because `test_verification` is diff-scoped: it only re-checks a spec's
+mandated tests when that spec's file re-enters scope, so the hole surfaced much
+later, on an unrelated edit.
+
+**To prevent this, for every test a plan task DELETES or RENAMES:**
+1. Find every surviving spec claim that still maps to that test name.
+2. If one does, the plan MUST include a task to repoint the claim to a successor
+   test or retire the claim — otherwise it's a blocker.
+3. More generally: the plan's NET effect on the claim→mandated-test mapping must
+   leave EVERY claim mapped to a test that will exist at plan end. A plan that
+   ends with a claim mandating a non-existent test is incomplete.
 
 ## Critical Rules
 
