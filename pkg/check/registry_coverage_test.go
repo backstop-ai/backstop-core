@@ -7,44 +7,6 @@ import (
 	"testing"
 )
 
-// TestCodeCheck_Parsers_GoFormatWrappers exercises the golangci-json/go-build/
-// go-test named formats through the registry, confirming they wrap the existing
-// parse* funcs and stamp the target pass (the retarget/retargetViolations path).
-func TestCodeCheck_Parsers_GoFormatWrappers(t *testing.T) {
-	golangci := `{"Issues":[{"FromLinter":"govet","Text":"shadow","Severity":"error","Pos":{"Filename":"a.go","Line":3}}]}`
-	p, err := lookupParser("golangci-json")
-	if err != nil {
-		t.Fatalf("lookupParser(golangci-json): %v", err)
-	}
-	vs, err := p([]byte(golangci), CheckTypeLint)
-	if err != nil {
-		t.Fatalf("golangci parse: %v", err)
-	}
-	if len(vs) != 1 || vs[0].Pass != CheckTypeLint || vs[0].File != "a.go" {
-		t.Fatalf("golangci wrapper = %+v, want one lint violation on a.go", vs)
-	}
-
-	// go-build wrapper.
-	pb, _ := lookupParser("go-build")
-	bvs, err := pb([]byte("pkg/x.go:10:2: undefined: foo"), CheckTypeBuild)
-	if err != nil {
-		t.Fatalf("go-build parse: %v", err)
-	}
-	if len(bvs) != 1 || bvs[0].Pass != CheckTypeBuild {
-		t.Fatalf("go-build wrapper = %+v, want one build violation", bvs)
-	}
-
-	// go-test wrapper.
-	pt, _ := lookupParser("go-test")
-	tvs, err := pt([]byte("--- FAIL: TestFoo (0.00s)\n    foo_test.go:5: boom"), CheckTypeTest)
-	if err != nil {
-		t.Fatalf("go-test parse: %v", err)
-	}
-	if len(tvs) != 1 || tvs[0].Pass != CheckTypeTest {
-		t.Fatalf("go-test wrapper = %+v, want one test violation", tvs)
-	}
-}
-
 // TestCodeCheck_Parsers_EmptyAndMalformedInputs covers the empty-input and
 // malformed-JSON branches of the new parsers (fail-loud on bad JSON, nil on
 // empty).

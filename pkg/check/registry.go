@@ -51,10 +51,11 @@ type Toolchain struct {
 }
 
 // builtinToolchains returns the predefined built-in stacks (go, typescript).
-// The go stack is sentinel-only: its executors are the bespoke goBuiltin
-// implementations, so its entries carry no command (selectStack special-cases
-// it). The typescript stack is fully data-driven via the generic
-// commandExecutor.
+// After the SPEC-034 cutover the go stack declares NO build/test/lint entries:
+// those passes run through the go-toolchain pack engines (dispatchPackEngines),
+// not pkg/check. The go stack therefore contributes only its routable `.go`
+// extension and the shared semgrep executor. The typescript stack is fully
+// data-driven via the generic commandExecutor.
 func builtinToolchain(language string) (Toolchain, bool) {
 	switch language {
 	case "go":
@@ -95,8 +96,10 @@ func builtinToolchain(language string) (Toolchain, bool) {
 // commandExecutor is the generic PassExecutor backing the typescript built-in
 // stack and every declared stack. It is parameterized by a command string, a
 // parser resolved from the named format, a ScopeKind, and the CommandRunner
-// seam. The four bespoke Go executors are NOT routed through this path so the
-// landed ISSUE-002 behavior has no regression risk.
+// seam. After the SPEC-034 cutover this is the SINGLE construction route for
+// every stack's lint/build/test passes — the Go stack runs its build/test/lint
+// through the go-toolchain pack engines instead, so it constructs no
+// commandExecutor of its own (only the shared semgrep executor).
 type commandExecutor struct {
 	pass                  CheckType
 	command               string
@@ -215,11 +218,6 @@ func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckTy
 	language := opts.Language
 	if language == "" {
 		language = "go"
-	}
-
-	// Go-default stack: the bespoke executors, unchanged.
-	if language == "go" {
-		return goBuiltinExecutors(opts, runner), nil
 	}
 
 	toolchain, err := resolveToolchain(language, opts.Config)

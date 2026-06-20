@@ -690,87 +690,57 @@ func TestCodeCheck_RunWith_SemgrepDegradedMode(t *testing.T) {
 
 // TestCodeCheck_BuildDefaultExecutors verifies buildDefaultExecutors creates
 // all four executors.
+// TestCodeCheck_BuildDefaultExecutors verifies that after the SPEC-034 cutover
+// the default (Go) executor map carries ONLY the shared semgrep executor: the Go
+// build/test/lint passes run through the go-toolchain pack engines, so no native
+// lint/build/test executor is constructed in pkg/check. (CLM-005)
 func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
 	opts := Options{
 		Mode:        ScopeModeDiff,
 		BackstopDir: "/fake/.backstop",
 	}
 	executors := buildDefaultExecutors(opts)
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
-		if _, ok := executors[ct]; !ok {
-			t.Errorf("missing executor for %v", ct)
+
+	if _, ok := executors[CheckTypeSemgrep]; !ok {
+		t.Error("the Go stack must retain the shared semgrep executor")
+	}
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
+		if _, ok := executors[ct]; ok {
+			t.Errorf("the Go stack must NOT construct a native %v executor after the cutover; that pass runs through the go-toolchain pack engine", ct)
 		}
 	}
 }
 
-// TestCodeCheck_DefaultExecutors_IsAvailable verifies IsAvailable for default
-// executors.
+// TestCodeCheck_DefaultExecutors_IsAvailable verifies IsAvailable for the
+// surviving shared semgrep executor (the bespoke build/test/lint executors were
+// deleted in the cutover).
 func TestCodeCheck_DefaultExecutors_IsAvailable(t *testing.T) {
-	// Build executor — go is always available
-	be := &buildExecutor{}
-	avail, _ := be.IsAvailable()
-	if !avail {
-		t.Error("buildExecutor should be available")
-	}
-
-	// Test executor — go is always available
-	te := &testExecutor{}
-	avail, _ = te.IsAvailable()
-	if !avail {
-		t.Error("testExecutor should be available")
-	}
-
 	// Semgrep executor — always reports available (handled by EnsureSemgrep)
 	se := &semgrepExecutor{}
-	avail, _ = se.IsAvailable()
+	avail, _ := se.IsAvailable()
 	if !avail {
 		t.Error("semgrepExecutor should be available")
 	}
 }
 
-// TestCodeCheck_DefaultExecutors_Execute verifies that each default executor,
-// driven by a fake CommandRunner returning CLEAN (no-finding) tool output,
-// produces a passing PassResult tagged with its own CheckType and zero
-// violations. It is deliberately hermetic: the moment the executor Execute
-// bodies are real, constructing them and calling Execute() directly would
-// shell out to live golangci-lint / go build / go test / semgrep. Injecting a
-// fake runner (and a fake SemgrepEnsurer for semgrep) keeps it offline while
-// still exercising the real Execute code path.
+// TestCodeCheck_DefaultExecutors_Execute verifies that the surviving shared
+// semgrep executor, driven by a fake CommandRunner returning CLEAN (no-finding)
+// output, produces a passing PassResult tagged with CheckTypeSemgrep and zero
+// violations. Injecting a fake runner (and a fake SemgrepEnsurer) keeps it
+// offline while exercising the real Execute code path.
 func TestCodeCheck_DefaultExecutors_Execute(t *testing.T) {
 	ctx := context.Background()
 	files := []string{"main.go"}
 
-	// clean runner: golangci-lint emits {"Issues":null}, go build/test emit
-	// nothing, semgrep emits {"results":[]} — none of which yield violations.
 	cleanRunner := &fakeRunner{outputs: map[string][]byte{
-		"golangci-lint": []byte(`{"Issues":[]}`),
-		"go":            []byte(""),
-		"semgrep":       []byte(`{"results":[]}`),
+		"semgrep": []byte(`{"results":[]}`),
 	}}
 	ensurer := &mockSemgrepEnsurer{}
 
-	be := &buildExecutor{runner: cleanRunner}
-	r, err := be.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeBuild || len(r.Violations) != 0 {
-		t.Errorf("buildExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
-	}
-
-	te := &testExecutor{runner: cleanRunner}
-	r, err = te.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeTest || len(r.Violations) != 0 {
-		t.Errorf("testExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
-	}
-
 	se := &semgrepExecutor{runner: cleanRunner, ensurer: ensurer}
-	r, err = se.Execute(ctx, files)
+	r, err := se.Execute(ctx, files)
 	if err != nil || r.Pass != CheckTypeSemgrep || len(r.Violations) != 0 {
 		t.Errorf("semgrepExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
-	}
-
-	le := &lintExecutor{runner: cleanRunner}
-	r, err = le.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeLint || len(r.Violations) != 0 {
-		t.Errorf("lintExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 }
 
@@ -914,16 +884,6 @@ func TestCodeCheck_DefaultSemgrepEnsurer(t *testing.T) {
 	// It's OK if this succeeds (semgrep on PATH) or fails (degraded/not found)
 	// — we just verify the function doesn't panic.
 	_ = err
-}
-
-// TestCodeCheck_LintExecutor_IsAvailable verifies the lintExecutor.IsAvailable
-// function runs without panic (it checks for golangci-lint on PATH).
-func TestCodeCheck_LintExecutor_IsAvailable(t *testing.T) {
-	le := &lintExecutor{}
-	avail, msg := le.IsAvailable()
-	// golangci-lint may or may not be on PATH; just verify no panic
-	_ = avail
-	_ = msg
 }
 
 // TestCodeCheck_RunPasses_ExecutorError verifies that a non-timeout executor
@@ -1198,11 +1158,14 @@ func TestOptions_NoManifestDirField(t *testing.T) {
 	}
 }
 
-// TestBuildExecutors_SemgrepHasNoManifestDir verifies that both the
-// goBuiltinExecutors construction and the registry shared-semgrep construction
-// build a semgrepExecutor that references no compiled-standards directory: with
-// an empty ExtraSemgrepConfigs and a populated .backstop/rules/ on disk, the
-// semgrep pass invokes the tool with NO --config at all. (CLM-005)
+// TestBuildExecutors_SemgrepHasNoManifestDir verifies that both the Go-default
+// construction and the registry shared-semgrep construction build a
+// semgrepExecutor that references no compiled-standards directory: with an empty
+// ExtraSemgrepConfigs and a populated .backstop/rules/ on disk, the semgrep pass
+// invokes the tool with NO --config at all. After the SPEC-034 cutover the Go
+// default path constructs ONLY the shared semgrep executor (the bespoke Go
+// builtin construction was deleted), so the same shared-semgrep contract is
+// asserted on the generic construction path every stack uses. (CLM-005)
 func TestBuildExecutors_SemgrepHasNoManifestDir(t *testing.T) {
 	dir := t.TempDir()
 	backstopDir := filepath.Join(dir, ".backstop")
@@ -1238,7 +1201,7 @@ func TestBuildExecutors_SemgrepHasNoManifestDir(t *testing.T) {
 		}
 	}
 
-	assertNoConfig("goBuiltinExecutors", goBuiltinExecutors(opts, &fakeRunner{}))
+	assertNoConfig("go default (shared semgrep)", buildDefaultExecutorsWithRunner(opts, &fakeRunner{}))
 
 	tsOpts := opts
 	tsOpts.Language = "typescript"

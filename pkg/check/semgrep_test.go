@@ -2,229 +2,120 @@ package check
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 )
 
-// TestCodeCheck_Semgrep_AutoInstallWhenMissing verifies semgrep auto-installs
-// to .backstop/tools/ when not on PATH. (CLM-018)
-func TestCodeCheck_Semgrep_AutoInstallWhenMissing(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	os.MkdirAll(backstopDir, 0o755)
+// SPEC-034 cutover (REQ-008): EnsureSemgrep's bespoke install ladder (PATH-probe
+// -> .backstop/tools probe -> pip Install, with an install lock) was retired.
+// semgrep is now provisioned through the declared provisioning model
+// (provisionEngines); EnsureSemgrep/ensureSemgrepWith only RESOLVE the provisioned
+// binary on PATH and verify the pinned version — they never install. These tests
+// cover that surviving resolution behavior.
 
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		installFn: func(targetDir, version string) (string, error) {
-			// Simulate successful install
-			toolsDir := filepath.Join(targetDir, "tools")
-			os.MkdirAll(toolsDir, 0o755)
-			binPath := filepath.Join(toolsDir, "semgrep")
-			os.WriteFile(binPath, []byte("#!/bin/sh\necho 1.50.0"), 0o755)
-			return binPath, nil
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "1.50.0", nil
-		},
+// TestCodeCheck_Semgrep_UsesPathWhenAvailable verifies that when semgrep is on
+// PATH, it is resolved directly and its path returned.
+func TestCodeCheck_Semgrep_UsesPathWhenAvailable(t *testing.T) {
+	resolver := &mockSemgrepInstaller{
+		lookPathFn: func(string) (string, error) { return "/usr/local/bin/semgrep", nil },
+		versionFn:  func(string) (string, error) { return "1.50.0", nil },
 	}
 
-	path, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	path, err := ensureSemgrepWith("/fake/.backstop", "1.50.0", resolver)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if path == "" {
-		t.Error("expected non-empty semgrep path")
+	if path != "/usr/local/bin/semgrep" {
+		t.Errorf("path = %q, want /usr/local/bin/semgrep", path)
 	}
 }
 
-// TestCodeCheck_Semgrep_WrongVersionExitCode2 verifies that installed semgrep
-// at wrong version produces a config error (exit code 2), not degraded mode.
-// (CLM-019)
-func TestCodeCheck_Semgrep_WrongVersionExitCode2(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-	os.WriteFile(filepath.Join(toolsDir, "semgrep"), []byte("fake"), 0o755)
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(backstopDir string) (string, bool) {
-			return filepath.Join(backstopDir, "tools", "semgrep"), true
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "1.40.0", nil // wrong version
+// TestCodeCheck_Semgrep_NoPinSkipsVersionCheck verifies that when no version is
+// pinned, the version check is skipped and the resolved path is returned.
+func TestCodeCheck_Semgrep_NoPinSkipsVersionCheck(t *testing.T) {
+	versionCalled := false
+	resolver := &mockSemgrepInstaller{
+		lookPathFn: func(string) (string, error) { return "/usr/local/bin/semgrep", nil },
+		versionFn: func(string) (string, error) {
+			versionCalled = true
+			return "1.40.0", nil
 		},
 	}
 
-	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
+	path, err := ensureSemgrepWith("/fake/.backstop", "", resolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != "/usr/local/bin/semgrep" {
+		t.Errorf("path = %q, want /usr/local/bin/semgrep", path)
+	}
+	if versionCalled {
+		t.Error("version check must be skipped when no version is pinned")
+	}
+}
+
+// TestCodeCheck_Semgrep_WrongVersionExitCode2 verifies that a provisioned semgrep
+// at the wrong version is a fail-loud ConfigError (exit code 2), not degraded
+// mode — the version pin is a hard contract.
+func TestCodeCheck_Semgrep_WrongVersionExitCode2(t *testing.T) {
+	resolver := &mockSemgrepInstaller{
+		lookPathFn: func(string) (string, error) { return "/usr/local/bin/semgrep", nil },
+		versionFn:  func(string) (string, error) { return "1.40.0", nil }, // wrong version
+	}
+
+	_, err := ensureSemgrepWith("/fake/.backstop", "1.50.0", resolver)
 	if err == nil {
 		t.Fatal("expected error for wrong version, got nil")
 	}
-
 	var cfgErr *ConfigError
 	if !asConfigError(err, &cfgErr) {
-		t.Errorf("expected ConfigError, got %T: %v", err, err)
+		t.Errorf("expected ConfigError (exit 2), got %T: %v", err, err)
 	}
 }
 
-// TestCodeCheck_Semgrep_InstallFailureDegradedMode verifies that when semgrep
-// is not installed and auto-install fails, it skips with warning (not exit code 2).
-// (CLM-020)
-func TestCodeCheck_Semgrep_InstallFailureDegradedMode(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	os.MkdirAll(backstopDir, 0o755)
-
-	installer := &mockSemgrepInstaller{
+// TestCodeCheck_Semgrep_MissingFromPathDegraded verifies that when semgrep is not
+// on PATH (the declared provisioning has not materialized it), resolution is a
+// DegradedError — skip with a warning, not a hard stop, and definitely not an ad
+// hoc install.
+func TestCodeCheck_Semgrep_MissingFromPathDegraded(t *testing.T) {
+	installAttempted := false
+	resolver := &mockSemgrepInstaller{
 		lookPathFn: func(name string) (string, error) {
 			return "", &execNotFoundError{name: name}
 		},
-		existsAtFn: func(backstopDir string) (string, bool) {
-			return "", false
-		},
-		installFn: func(targetDir, version string) (string, error) {
-			return "", &installError{msg: "network timeout"}
-		},
-	}
-
-	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if err == nil {
-		t.Fatal("expected error for install failure, got nil")
-	}
-
-	var degradedErr *DegradedError
-	if !asDegradedError(err, &degradedErr) {
-		t.Errorf("expected DegradedError (degraded mode), got %T: %v", err, err)
-	}
-
-	// Verify it is NOT a ConfigError
-	var cfgErr *ConfigError
-	if asConfigError(err, &cfgErr) {
-		t.Error("install failure should NOT produce ConfigError (exit 2)")
-	}
-}
-
-// TestCodeCheck_Semgrep_UsesPathWhenAvailable verifies that when semgrep is
-// on PATH, it is used directly without auto-install. (CLM-021)
-func TestCodeCheck_Semgrep_UsesPathWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-
-	installCalled := false
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "/usr/local/bin/semgrep", nil
-		},
-		versionFn: func(binPath string) (string, error) {
+		versionFn: func(string) (string, error) {
+			installAttempted = true // a version probe would imply we found/installed something
 			return "1.50.0", nil
 		},
-		installFn: func(targetDir, version string) (string, error) {
-			installCalled = true
-			return "", nil
-		},
 	}
 
-	path, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := ensureSemgrepWith("/fake/.backstop", "1.50.0", resolver)
+	if err == nil {
+		t.Fatal("expected a DegradedError when semgrep is absent from PATH, got nil")
 	}
-	if path != "/usr/local/bin/semgrep" {
-		t.Errorf("path = %q, want /usr/local/bin/semgrep", path)
+	var degradedErr *DegradedError
+	if !asDegradedError(err, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", err, err)
 	}
-	if installCalled {
-		t.Error("auto-install was called, but semgrep is on PATH")
+	if installAttempted {
+		t.Error("retired ladder must not run: no version probe / install when semgrep is absent — it is just degraded")
 	}
 }
 
-// TestCodeCheck_Semgrep_NoPinSkipsVersionCheck verifies that when no version
-// is pinned, version check is skipped.
-func TestCodeCheck_Semgrep_NoPinSkipsVersionCheck(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "/usr/local/bin/semgrep", nil
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "1.40.0", nil // any version
-		},
+// TestCodeCheck_Semgrep_VersionParseFailureOnPath verifies that when semgrep is on
+// PATH but its version cannot be determined, resolution is a DegradedError.
+func TestCodeCheck_Semgrep_VersionParseFailureOnPath(t *testing.T) {
+	resolver := &mockSemgrepInstaller{
+		lookPathFn: func(string) (string, error) { return "/usr/local/bin/semgrep", nil },
+		versionFn:  func(string) (string, error) { return "", fmt.Errorf("cannot parse version output") },
 	}
 
-	path, err := ensureSemgrepWith(backstopDir, "", installer)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := ensureSemgrepWith("/fake/.backstop", "1.50.0", resolver)
+	if err == nil {
+		t.Fatal("expected error when version check fails, got nil")
 	}
-	if path != "/usr/local/bin/semgrep" {
-		t.Errorf("path = %q, want /usr/local/bin/semgrep", path)
-	}
-}
-
-// TestCodeCheck_Semgrep_LockAcquireRelease verifies lock file creation and cleanup.
-func TestCodeCheck_Semgrep_LockAcquireRelease(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("acquireSemgrepLock: %v", err)
-	}
-
-	lockPath := semgrepLockPath(backstopDir)
-	if _, statErr := os.Stat(lockPath); statErr != nil {
-		t.Errorf("lock file should exist: %v", statErr)
-	}
-
-	// Second acquire should fail (lock already held)
-	_, err2 := acquireSemgrepLock(backstopDir)
-	if err2 == nil {
-		t.Error("expected error on second lock acquire")
-	}
-
-	// Release
-	cleanup()
-
-	// After cleanup, lock file should be gone
-	if _, statErr := os.Stat(lockPath); statErr == nil {
-		t.Error("lock file should be removed after cleanup")
-	}
-}
-
-// TestCodeCheck_Semgrep_StaleLockRemoval verifies stale locks are removed.
-func TestCodeCheck_Semgrep_StaleLockRemoval(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-
-	lockPath := semgrepLockPath(backstopDir)
-	// Create a stale lock file with old mtime
-	os.WriteFile(lockPath, []byte{}, 0o644)
-	// Set mtime to 10 minutes ago
-	oldTime := time.Now().Add(-10 * time.Minute)
-	os.Chtimes(lockPath, oldTime, oldTime)
-
-	// Acquire should succeed because the lock is stale
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("acquireSemgrepLock should handle stale lock: %v", err)
-	}
-	cleanup()
-}
-
-// TestCodeCheck_Semgrep_LockPath verifies semgrepLockPath.
-func TestCodeCheck_Semgrep_LockPath(t *testing.T) {
-	got := semgrepLockPath("/project/.backstop")
-	want := "/project/.backstop/tools/.semgrep.lock"
-	if got != want {
-		t.Errorf("semgrepLockPath = %q, want %q", got, want)
+	var degradedErr *DegradedError
+	if !asDegradedError(err, &degradedErr) {
+		t.Errorf("expected DegradedError, got %T: %v", err, err)
 	}
 }
 
@@ -244,32 +135,8 @@ func TestCodeCheck_Semgrep_DegradedError_Message(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_DefaultSemgrepInstaller_ExistsAt verifies ExistsAt for real filesystem.
-func TestCodeCheck_DefaultSemgrepInstaller_ExistsAt(t *testing.T) {
-	d := &DefaultSemgrepInstaller{}
-
-	// Non-existent backstop dir — should return false
-	path, exists := d.ExistsAt("/nonexistent/.backstop")
-	if exists {
-		t.Errorf("expected false for non-existent dir, got path=%q", path)
-	}
-
-	// Create a fake semgrep binary
-	dir := t.TempDir()
-	toolsDir := filepath.Join(dir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-	os.WriteFile(filepath.Join(toolsDir, "semgrep"), []byte("fake"), 0o755)
-
-	path, exists = d.ExistsAt(dir)
-	if !exists {
-		t.Error("expected true for existing semgrep binary")
-	}
-	if path == "" {
-		t.Error("expected non-empty path")
-	}
-}
-
-// TestCodeCheck_DefaultSemgrepInstaller_LookPath verifies LookPath delegates to exec.LookPath.
+// TestCodeCheck_DefaultSemgrepInstaller_LookPath verifies LookPath delegates to
+// exec.LookPath.
 func TestCodeCheck_DefaultSemgrepInstaller_LookPath(t *testing.T) {
 	d := &DefaultSemgrepInstaller{}
 	// Look for a binary that definitely exists (go)
@@ -288,6 +155,15 @@ func TestCodeCheck_DefaultSemgrepInstaller_LookPath(t *testing.T) {
 	}
 }
 
+// TestCodeCheck_DefaultSemgrepInstaller_Version verifies Version shells the binary
+// with --version and trims the output (and surfaces an error for a missing binary).
+func TestCodeCheck_DefaultSemgrepInstaller_Version(t *testing.T) {
+	d := &DefaultSemgrepInstaller{}
+	if _, err := d.Version("/nonexistent/semgrep-backstop-test"); err == nil {
+		t.Error("expected an error resolving the version of a nonexistent binary")
+	}
+}
+
 // --- Test helpers ---
 
 type execNotFoundError struct {
@@ -298,18 +174,11 @@ func (e *execNotFoundError) Error() string {
 	return "executable file not found: " + e.name
 }
 
-type installError struct {
-	msg string
-}
-
-func (e *installError) Error() string {
-	return e.msg
-}
-
+// mockSemgrepInstaller implements SemgrepResolver (LookPath + Version) for the
+// post-cutover resolution tests. The bespoke ExistsAt/Install ladder methods were
+// retired with the install path.
 type mockSemgrepInstaller struct {
 	lookPathFn func(name string) (string, error)
-	existsAtFn func(backstopDir string) (string, bool)
-	installFn  func(targetDir, version string) (string, error)
 	versionFn  func(binPath string) (string, error)
 }
 
@@ -320,224 +189,11 @@ func (m *mockSemgrepInstaller) LookPath(name string) (string, error) {
 	return "", &execNotFoundError{name: name}
 }
 
-func (m *mockSemgrepInstaller) ExistsAt(backstopDir string) (string, bool) {
-	if m.existsAtFn != nil {
-		return m.existsAtFn(backstopDir)
-	}
-	return "", false
-}
-
-func (m *mockSemgrepInstaller) Install(targetDir, version string) (string, error) {
-	if m.installFn != nil {
-		return m.installFn(targetDir, version)
-	}
-	return "", &installError{msg: "not implemented"}
-}
-
 func (m *mockSemgrepInstaller) Version(binPath string) (string, error) {
 	if m.versionFn != nil {
 		return m.versionFn(binPath)
 	}
 	return "", nil
-}
-
-// TestCodeCheck_Semgrep_LockFailureFallbackExistsAt verifies that when lock
-// acquisition fails but the binary exists (installed by another process),
-// ensureSemgrepWith returns the existing binary.
-func TestCodeCheck_Semgrep_LockFailureFallbackExistsAt(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-
-	// Hold the lock so ensureSemgrepWith can't acquire it
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("setup: acquireSemgrepLock: %v", err)
-	}
-	defer cleanup()
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(bDir string) (string, bool) {
-			// Simulate another process having installed it
-			return filepath.Join(bDir, "tools", "semgrep"), true
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "1.50.0", nil
-		},
-	}
-
-	path, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if ensureErr != nil {
-		t.Fatalf("expected success via lock-contention fallback, got: %v", ensureErr)
-	}
-	if path == "" {
-		t.Error("expected non-empty path")
-	}
-}
-
-// TestCodeCheck_Semgrep_LockFailureNoBinaryDegraded verifies that when lock
-// acquisition fails and no binary exists, ensureSemgrepWith returns DegradedError.
-func TestCodeCheck_Semgrep_LockFailureNoBinaryDegraded(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-
-	// Hold the lock
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("setup: acquireSemgrepLock: %v", err)
-	}
-	defer cleanup()
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(bDir string) (string, bool) {
-			return "", false // no binary exists
-		},
-	}
-
-	_, ensureErr := ensureSemgrepWith(backstopDir, "", installer)
-	if ensureErr == nil {
-		t.Fatal("expected DegradedError, got nil")
-	}
-	var degradedErr *DegradedError
-	if !asDegradedError(ensureErr, &degradedErr) {
-		t.Errorf("expected DegradedError, got %T: %v", ensureErr, ensureErr)
-	}
-}
-
-// TestCodeCheck_Semgrep_VersionParseFailureOnPath verifies that when semgrep
-// is on PATH but version check fails, ensureSemgrepWith returns DegradedError.
-func TestCodeCheck_Semgrep_VersionParseFailureOnPath(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "/usr/local/bin/semgrep", nil
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "", fmt.Errorf("cannot parse version output")
-		},
-	}
-
-	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if err == nil {
-		t.Fatal("expected error when version check fails, got nil")
-	}
-	var degradedErr *DegradedError
-	if !asDegradedError(err, &degradedErr) {
-		t.Errorf("expected DegradedError, got %T: %v", err, err)
-	}
-}
-
-// TestCodeCheck_Semgrep_VersionParseFailureAtBackstop verifies that when
-// semgrep exists at .backstop/tools but version check fails, returns DegradedError.
-func TestCodeCheck_Semgrep_VersionParseFailureAtBackstop(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(bDir string) (string, bool) {
-			return filepath.Join(bDir, "tools", "semgrep"), true
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "", fmt.Errorf("binary corrupt")
-		},
-	}
-
-	_, err := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if err == nil {
-		t.Fatal("expected error when version check fails at backstop dir, got nil")
-	}
-	var degradedErr *DegradedError
-	if !asDegradedError(err, &degradedErr) {
-		t.Errorf("expected DegradedError, got %T: %v", err, err)
-	}
-}
-
-// TestCodeCheck_Semgrep_LockFailureExistsAtVersionMismatch verifies that when
-// lock fails, binary exists, but version mismatches, returns ConfigError.
-func TestCodeCheck_Semgrep_LockFailureExistsAtVersionMismatch(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-
-	// Hold the lock
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("setup: acquireSemgrepLock: %v", err)
-	}
-	defer cleanup()
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(bDir string) (string, bool) {
-			return filepath.Join(bDir, "tools", "semgrep"), true
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "1.40.0", nil // wrong version
-		},
-	}
-
-	_, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if ensureErr == nil {
-		t.Fatal("expected ConfigError for version mismatch, got nil")
-	}
-	var cfgErr *ConfigError
-	if !asConfigError(ensureErr, &cfgErr) {
-		t.Errorf("expected ConfigError, got %T: %v", ensureErr, ensureErr)
-	}
-}
-
-// TestCodeCheck_Semgrep_LockFailureExistsAtVersionCheckFails verifies that when
-// lock fails, binary exists, but version check errors, returns DegradedError.
-func TestCodeCheck_Semgrep_LockFailureExistsAtVersionCheckFails(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	toolsDir := filepath.Join(backstopDir, "tools")
-	os.MkdirAll(toolsDir, 0o755)
-
-	// Hold the lock
-	cleanup, err := acquireSemgrepLock(backstopDir)
-	if err != nil {
-		t.Fatalf("setup: acquireSemgrepLock: %v", err)
-	}
-	defer cleanup()
-
-	installer := &mockSemgrepInstaller{
-		lookPathFn: func(name string) (string, error) {
-			return "", &execNotFoundError{name: name}
-		},
-		existsAtFn: func(bDir string) (string, bool) {
-			return filepath.Join(bDir, "tools", "semgrep"), true
-		},
-		versionFn: func(binPath string) (string, error) {
-			return "", fmt.Errorf("binary corrupt")
-		},
-	}
-
-	_, ensureErr := ensureSemgrepWith(backstopDir, "1.50.0", installer)
-	if ensureErr == nil {
-		t.Fatal("expected DegradedError, got nil")
-	}
-	var degradedErr *DegradedError
-	if !asDegradedError(ensureErr, &degradedErr) {
-		t.Errorf("expected DegradedError, got %T: %v", ensureErr, ensureErr)
-	}
 }
 
 // asConfigError checks if err is a *ConfigError.

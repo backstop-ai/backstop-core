@@ -45,14 +45,21 @@ func (r *recordingRunner) callsFor(name string) []recordedCall {
 	return out
 }
 
-// TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide pins CLM-008 against
-// the GATE CheckScoped path (not an in-process check.Run): driving
-// realCodeChecker.CheckScoped with a MULTI-FILE diff scope must invoke the lint
-// command EXACTLY ONCE with ALL scoped files as arguments (not once per file),
-// and the build command EXACTLY ONCE project-wide (scoped files NOT appended).
-// Asserting against the gate path is load-bearing: it is what fails against the
-// current per-file loop and passes only after the loop is removed.
-func TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide(t *testing.T) {
+// TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun pins the post-SPEC-034
+// cutover gate posture against the GATE CheckScoped path. For a Go project the
+// native lint/build/test passes no longer run through realCodeChecker -> check.Run
+// (they run through the go-toolchain pack engines / dispatchPackEngines, covered by
+// TestGoLint_NoVersionProbeOrV1Branch + TestPackEngines_ProjectWideToolchainStaysProjectWide).
+// So check.Run for Go must (a) invoke NO golangci-lint / go build / go test, and
+// (b) still carry the whole MULTI-FILE diff scope through ONE Run for the surviving
+// shared semgrep pass — never a per-file loop (the CLM-008 single-Run property).
+//
+// This is the migration of the former ScopeSemantics_LintFileArgsBuildProjectWide
+// test: that test asserted the bespoke Go lint/build invocations, which the cutover
+// deleted by design; the per-pass scope semantics it pinned are now owned and tested
+// on the engine path, while the no-per-file-loop property is re-pinned here on the
+// surviving semgrep pass.
+func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: scope-test\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
@@ -61,7 +68,7 @@ func TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide(t *testing.T) {
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
 		t.Fatalf("mkdir rules: %v", err)
 	}
-	manifest := `{"rules": [{"extensions": [".go"], "check_types": ["lint", "build", "test"]}]}`
+	manifest := `{"rules": [{"extensions": [".go"], "check_types": ["lint", "build", "test", "semgrep"]}]}`
 	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -75,59 +82,52 @@ func TestCodeCheck_ScopeSemantics_LintFileArgsBuildProjectWide(t *testing.T) {
 
 	runner := &recordingRunner{}
 	checker := &realCodeChecker{
-		projectRoot:  dir,
-		runnerForTest: runner,
+		projectRoot:    dir,
+		runnerForTest:  runner,
 		ensurerForTest: stubEnsurer{},
 	}
 
 	scope := &gate.GateScope{Mode: gate.GateScopeModeDiff, Files: files}
-	_, err := checker.CheckScoped(context.Background(), scope)
-	if err != nil {
+	if _, err := checker.CheckScoped(context.Background(), scope); err != nil {
 		t.Fatalf("CheckScoped: %v", err)
 	}
 
-	// (a) lint RUN invoked EXACTLY ONCE with ALL scoped files as args. The
-	// executor also issues a `golangci-lint version` probe (ISSUE-006
-	// version-aware flag selection); filter to the `run` subcommand so this
-	// assertion still pins the scope semantics (one run, all files, not
-	// once-per-file) the way the build assertion below filters to `build`.
-	var lintRuns []recordedCall
-	for _, c := range runner.callsFor("golangci-lint") {
-		if len(c.args) > 0 && c.args[0] == "run" {
-			lintRuns = append(lintRuns, c)
+	// (a) The bespoke Go native toolchain is NOT invoked through check.Run after
+	// the cutover — those passes run on the go-toolchain pack engine path.
+	if n := len(runner.callsFor("golangci-lint")); n != 0 {
+		t.Errorf("golangci-lint invoked %d times through check.Run; the lint pass runs on the engine path now", n)
+	}
+	for _, c := range runner.callsFor("go") {
+		if len(c.args) > 0 && (c.args[0] == "build" || c.args[0] == "test") {
+			t.Errorf("`go %s` invoked through check.Run; build/test run on the engine path now (args=%v)", c.args[0], c.args)
 		}
 	}
-	if len(lintRuns) != 1 {
-		t.Fatalf("golangci-lint run invoked %d times, want exactly 1 (not once per file)", len(lintRuns))
+
+	// (b) The surviving shared semgrep pass runs EXACTLY ONCE carrying BOTH scoped
+	// files in a single invocation — proving the whole-scope set is threaded through
+	// one Run, not a per-file loop (CLM-008). The stub ensurer resolves the binary
+	// to /usr/bin/true, so that is the recorded command for the semgrep pass; it is
+	// invoked with `--json --quiet <files...>`.
+	var semgrepCalls []recordedCall
+	for _, c := range runner.calls {
+		if len(c.args) >= 2 && c.args[0] == "--json" && c.args[1] == "--quiet" {
+			semgrepCalls = append(semgrepCalls, c)
+		}
+	}
+	if len(semgrepCalls) != 1 {
+		t.Fatalf("semgrep pass invoked %d times, want exactly 1 (whole scope in one Run, not per file)", len(semgrepCalls))
 	}
 	gotA, gotB := false, false
-	for _, a := range lintRuns[0].args {
-		if a == "a.go" || filepath.Base(a) == "a.go" {
+	for _, a := range semgrepCalls[0].args {
+		if filepath.Base(a) == "a.go" {
 			gotA = true
 		}
-		if a == "b.go" || filepath.Base(a) == "b.go" {
+		if filepath.Base(a) == "b.go" {
 			gotB = true
 		}
 	}
 	if !gotA || !gotB {
-		t.Errorf("lint args %v must include BOTH scoped files a.go and b.go in one invocation", lintRuns[0].args)
-	}
-
-	// (b) build invoked EXACTLY ONCE project-wide; scoped files NOT appended.
-	buildCalls := runner.callsFor("go")
-	buildRuns := 0
-	for _, c := range buildCalls {
-		if len(c.args) > 0 && c.args[0] == "build" {
-			buildRuns++
-			for _, a := range c.args {
-				if filepath.Base(a) == "a.go" || filepath.Base(a) == "b.go" {
-					t.Errorf("go build args %v wrongly include a scoped file; build is project-wide", c.args)
-				}
-			}
-		}
-	}
-	if buildRuns != 1 {
-		t.Fatalf("go build invoked %d times, want exactly 1 project-wide run (not once per file)", buildRuns)
+		t.Errorf("semgrep args %v must include BOTH scoped files a.go and b.go in one invocation", semgrepCalls[0].args)
 	}
 }
 

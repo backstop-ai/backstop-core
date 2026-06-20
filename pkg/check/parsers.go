@@ -10,24 +10,15 @@ import (
 )
 
 // Parser translates raw tool output into violations for a target CheckType.
-// It mirrors the signature of the existing parse* funcs (e.g. parseGolangciJSON)
-// so the named-format registry can wrap them without behavioral drift.
+// The named-format registry binds each format string to one of these.
 type Parser func(out []byte, target CheckType) ([]Violation, error)
 
-// formatParsers maps each named output format to its Parser. The go-tool
-// formats wrap the existing parse* funcs in check.go verbatim so the landed
-// ISSUE-002 Go parsers have no behavioral drift; eslint-json/tsc/sarif/
-// regex-lines are new pure functions with no tool invocation.
-var formatParsers = map[string]Parser{
-	"golangci-json": func(out []byte, target CheckType) ([]Violation, error) {
-		return retargetViolations(parseGolangciJSON(out))(target)
-	},
-	"go-build": func(out []byte, target CheckType) ([]Violation, error) {
-		return retarget(parseGoBuildErrors(out), target), nil
-	},
-	"go-test": func(out []byte, target CheckType) ([]Violation, error) {
-		return retarget(parseGoTestFailures(out), target), nil
-	},
+// formatParsers maps each named output format to its Parser. The Go toolchain's
+// build/test/lint output is normalized by the go-toolchain pack convert scripts
+// into SARIF (parsed via "sarif") after the SPEC-034 cutover — the bespoke
+// go-build/go-test/golangci-json named formats were removed with their parsers.
+// eslint-json/tsc/sarif/regex-lines are pure functions with no tool invocation.
+var formatParsers map[string]Parser = map[string]Parser{
 	"eslint-json": parseESLintJSON,
 	"tsc":         parseTscOutput,
 	"sarif":       parseSarif,
@@ -40,7 +31,7 @@ var formatParsers = map[string]Parser{
 func lookupParser(format string) (Parser, error) {
 	parser, ok := formatParsers[format]
 	if !ok {
-		return nil, &ConfigError{Message: fmt.Sprintf("unknown output format %q: must be one of golangci-json, go-build, go-test, eslint-json, tsc, sarif, regex-lines", format)}
+		return nil, &ConfigError{Message: fmt.Sprintf("unknown output format %q: must be one of eslint-json, tsc, sarif, regex-lines", format)}
 	}
 	return parser, nil
 }
@@ -57,27 +48,6 @@ func ParsePackFindings(out []byte) ([]Violation, error) {
 		return nil, err
 	}
 	return parser(out, CheckTypeSemgrep)
-}
-
-// retarget stamps each violation's Pass with the target check type. The
-// generic command executor binds a format to a pass at execution time, so the
-// parser's violations must carry the pass they were produced for.
-func retarget(violations []Violation, target CheckType) []Violation {
-	for i := range violations {
-		violations[i].Pass = target
-	}
-	return violations
-}
-
-// retargetViolations adapts a (violations, error) pair from a wrapped parser
-// into a target-stamping closure, preserving the error.
-func retargetViolations(violations []Violation, err error) func(CheckType) ([]Violation, error) {
-	return func(target CheckType) ([]Violation, error) {
-		if err != nil {
-			return nil, err
-		}
-		return retarget(violations, target), nil
-	}
 }
 
 // eslintFile is one entry of eslint's JSON array output.

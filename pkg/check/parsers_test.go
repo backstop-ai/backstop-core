@@ -113,10 +113,11 @@ func TestCodeCheck_Parsers_RegexLinesFormat(t *testing.T) {
 // unknown format name fails loud with an error (feeds the config-error path in
 // Phase 4). CLM-005.
 func TestCodeCheck_Parsers_FormatRegistryResolution(t *testing.T) {
+	// After the SPEC-034 cutover the bespoke go-build/go-test/golangci-json named
+	// formats were removed with their parsers — the Go toolchain output is
+	// normalized to SARIF by the go-toolchain pack convert scripts and parsed via
+	// "sarif". Only the surviving generic formats must resolve here.
 	known := []string{
-		"golangci-json",
-		"go-build",
-		"go-test",
 		"eslint-json",
 		"tsc",
 		"sarif",
@@ -135,5 +136,13 @@ func TestCodeCheck_Parsers_FormatRegistryResolution(t *testing.T) {
 
 	if _, err := lookupParser("does-not-exist"); err == nil {
 		t.Error("lookupParser(unknown) returned nil error; want a fail-loud error for an unknown format name")
+	}
+
+	// The retired bespoke Go formats must now be unknown — resolving them is a
+	// fail-loud config error, not a silent wrap of a deleted parser.
+	for _, retired := range []string{"golangci-json", "go-build", "go-test"} {
+		if _, err := lookupParser(retired); err == nil {
+			t.Errorf("lookupParser(%q) must fail loud after the cutover; the bespoke format was removed", retired)
+		}
 	}
 }

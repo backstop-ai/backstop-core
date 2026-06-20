@@ -6,18 +6,12 @@ import (
 	"testing"
 )
 
-// realExecutorsWithRunner builds the four real executors wired to a fake
-// CommandRunner (and fake SemgrepEnsurer) so engine semantics can be exercised
-// against real Execute bodies without shelling out to live tools.
-func realExecutorsWithRunner(runner CommandRunner) map[CheckType]PassExecutor {
-	ensurer := &mockSemgrepEnsurer{}
-	return map[CheckType]PassExecutor{
-		CheckTypeLint:    &lintExecutor{runner: runner},
-		CheckTypeBuild:   &buildExecutor{runner: runner},
-		CheckTypeTest:    &testExecutor{runner: runner},
-		CheckTypeSemgrep: &semgrepExecutor{runner: runner, ensurer: ensurer},
-	}
-}
+// SPEC-034 cutover: these engine-semantics tests previously drove the bespoke
+// lint/build/test executors as vehicles. Those executors were deleted, but the
+// Engine.RunPasses semantics under test (timeout-surfacing, skip-with-warning,
+// no-short-circuit) live in the engine, not the executors, and survive. They are
+// re-driven here through the SURVIVING generic commandExecutor and the shared
+// semgrepExecutor, plus a small test-only unavailable executor.
 
 // cancelingRunner cancels the supplied context the first time Run is invoked,
 // then returns the canned output. This forces a real executor's post-Run
@@ -43,22 +37,48 @@ func (r *cancelingRunner) RunStdout(ctx context.Context, name string, args ...st
 	return r.Run(ctx, name, args...)
 }
 
+// unavailableExecutor is a test-only PassExecutor that reports itself
+// unavailable, standing in for a tool missing from PATH so the engine's
+// skip-with-warning path can be exercised without a deleted bespoke executor.
+type unavailableExecutor struct {
+	pass   CheckType
+	reason string
+}
+
+func (e *unavailableExecutor) Execute(context.Context, []string) (*PassResult, error) {
+	return &PassResult{Pass: e.pass}, nil
+}
+
+func (e *unavailableExecutor) IsAvailable() (bool, string) { return false, e.reason }
+
+// regexLinesExecutor builds a generic commandExecutor for the given pass that
+// runs `tool` and parses generic regex-lines output — a stand-in for a real Go
+// toolchain pass in these engine-semantics tests.
+func regexLinesExecutor(pass CheckType, runner CommandRunner) PassExecutor {
+	parser, _ := lookupParser("regex-lines")
+	return &commandExecutor{pass: pass, command: "tool", parser: parser, scopeKind: ScopeKindFileArgs, runner: runner}
+}
+
 // TestCodeCheck_Executors_ContextCancellationSurfacesTimeout verifies that when
-// the context is cancelled, running the real executors through
-// Engine.RunPasses surfaces a timeout Violation ("timeout: <pass> pass
-// cancelled") plus the "execution timed out during <pass> pass" warning,
-// unchanged from stub-era engine behavior. A real Execute body must not swallow
-// ctx.Err(): the cancelingRunner trips cancellation DURING the lint Execute, so
-// the executor's own post-Run ctx.Err() check (not just the engine's
-// top-of-loop guard) must return the error for the engine to render the
-// timeout. (CLM-007)
+// the context is cancelled, running the executors through Engine.RunPasses
+// surfaces a timeout Violation ("timeout: <pass> pass cancelled") plus the
+// "execution timed out during <pass> pass" warning. A real Execute body must not
+// swallow ctx.Err(): the cancelingRunner trips cancellation DURING the lint
+// Execute, so the executor's own post-Run ctx.Err() check (not just the engine's
+// top-of-loop guard) must return the error for the engine to render the timeout.
+// (CLM-007)
 func TestCodeCheck_Executors_ContextCancellationSurfacesTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	runner := &cancelingRunner{cancel: cancel, output: []byte(`{"Issues":[]}`)}
+	runner := &cancelingRunner{cancel: cancel, output: []byte("")}
 
 	engine := &Engine{
-		Executors: realExecutorsWithRunner(runner),
-		Manifest:  defaultManifest(),
+		Executors: map[CheckType]PassExecutor{
+			CheckTypeLint:    regexLinesExecutor(CheckTypeLint, runner),
+			CheckTypeBuild:   regexLinesExecutor(CheckTypeBuild, runner),
+			CheckTypeTest:    regexLinesExecutor(CheckTypeTest, runner),
+			CheckTypeSemgrep: &semgrepExecutor{runner: runner, ensurer: &mockSemgrepEnsurer{}},
+		},
+		Manifest: defaultManifest(),
 	}
 
 	result, err := engine.RunPasses(ctx, []string{"main.go"})
@@ -96,25 +116,19 @@ func TestCodeCheck_Executors_ContextCancellationSurfacesTimeout(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_Executors_UnavailableToolSkipsWithWarning verifies that when
-// the lint tool is unavailable (golangci-lint missing from PATH), the lint pass
-// is Skipped with the skip reason and a "<pass> skipped: <msg>" warning, while
-// later passes (build/test/semgrep) still run — no short-circuit. (CLM-007)
+// TestCodeCheck_Executors_UnavailableToolSkipsWithWarning verifies that when the
+// lint tool is unavailable, the lint pass is Skipped with the skip reason and a
+// "<pass> skipped: <msg>" warning, while later passes (build/test/semgrep) still
+// run — no short-circuit. (CLM-007)
 func TestCodeCheck_Executors_UnavailableToolSkipsWithWarning(t *testing.T) {
-	// Make golangci-lint unavailable: emptying PATH makes the real
-	// lintExecutor.IsAvailable (findExecutable on PATH) report it missing.
-	t.Setenv("PATH", "")
-
 	runner := &fakeRunner{outputs: map[string][]byte{
-		"go":      []byte(""),         // go build / go test: clean
-		"semgrep": []byte(`{"results":[]}`), // semgrep clean (binary path "" maps via ensurer)
+		"tool":    []byte(""),                  // build/test generic passes: clean
+		"semgrep": []byte(`{"results":[]}`),     // semgrep clean
 	}}
-	// Wire the semgrep executor to a fake ensurer returning a path the fake
-	// runner produces clean output for.
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &lintExecutor{runner: runner},
-		CheckTypeBuild:   &buildExecutor{runner: runner},
-		CheckTypeTest:    &testExecutor{runner: runner},
+		CheckTypeLint:    &unavailableExecutor{pass: CheckTypeLint, reason: "golangci-lint not found on PATH"},
+		CheckTypeBuild:   regexLinesExecutor(CheckTypeBuild, runner),
+		CheckTypeTest:    regexLinesExecutor(CheckTypeTest, runner),
 		CheckTypeSemgrep: &semgrepExecutor{runner: runner, ensurer: &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return "semgrep", nil }}},
 	}
 	engine := &Engine{Executors: executors, Manifest: defaultManifest()}
@@ -129,7 +143,7 @@ func TestCodeCheck_Executors_UnavailableToolSkipsWithWarning(t *testing.T) {
 		t.Fatal("no lint pass result")
 	}
 	if !lintPR.Skipped {
-		t.Errorf("lint pass should be skipped when golangci-lint is unavailable")
+		t.Errorf("lint pass should be skipped when the tool is unavailable")
 	}
 	if lintPR.SkipReason == "" {
 		t.Error("skipped lint pass should carry a skip reason")

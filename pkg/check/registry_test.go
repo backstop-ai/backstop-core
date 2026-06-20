@@ -64,13 +64,15 @@ enforcement:
 func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	runner := &fakeRunner{}
 
-	// Go stack (explicit language).
+	// Go stack (explicit language): after the SPEC-034 cutover the Go stack
+	// constructs ONLY the shared semgrep executor — build/test/lint run through
+	// the go-toolchain pack engines, not pkg/check.
 	goExec := buildExecutorsForConfig(Options{Language: "go"}, runner)
-	assertGoBuiltinExecutors(t, "language=go", goExec)
+	assertGoStackSemgrepOnly(t, "language=go", goExec)
 
 	// Absent language defaults to the Go stack (preserves current behavior).
 	defaultExec := buildExecutorsForConfig(Options{Language: ""}, runner)
-	assertGoBuiltinExecutors(t, "language absent", defaultExec)
+	assertGoStackSemgrepOnly(t, "language absent", defaultExec)
 
 	// TypeScript stack: distinct executor types from Go (generic commandExecutor
 	// bound to eslint/tsc/declared-test) plus the shared semgrep executor.
@@ -107,19 +109,18 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	}
 }
 
-func assertGoBuiltinExecutors(t *testing.T, ctx string, execs map[CheckType]PassExecutor) {
+// assertGoStackSemgrepOnly pins the post-cutover Go stack shape: the shared
+// semgrep executor is present and NO native lint/build/test executor is
+// constructed (those passes run through the go-toolchain pack engines).
+func assertGoStackSemgrepOnly(t *testing.T, ctx string, execs map[CheckType]PassExecutor) {
 	t.Helper()
-	if _, ok := execs[CheckTypeLint].(*lintExecutor); !ok {
-		t.Errorf("%s: lint executor = %T, want *lintExecutor (Go built-in)", ctx, execs[CheckTypeLint])
-	}
-	if _, ok := execs[CheckTypeBuild].(*buildExecutor); !ok {
-		t.Errorf("%s: build executor = %T, want *buildExecutor (Go built-in)", ctx, execs[CheckTypeBuild])
-	}
-	if _, ok := execs[CheckTypeTest].(*testExecutor); !ok {
-		t.Errorf("%s: test executor = %T, want *testExecutor (Go built-in)", ctx, execs[CheckTypeTest])
-	}
 	if _, ok := execs[CheckTypeSemgrep].(*semgrepExecutor); !ok {
-		t.Errorf("%s: semgrep executor = %T, want *semgrepExecutor", ctx, execs[CheckTypeSemgrep])
+		t.Errorf("%s: semgrep executor = %T, want shared *semgrepExecutor", ctx, execs[CheckTypeSemgrep])
+	}
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
+		if _, ok := execs[ct]; ok {
+			t.Errorf("%s: Go stack must construct no native %v executor after the cutover (it runs through the go-toolchain pack engine), got %T", ctx, ct, execs[ct])
+		}
 	}
 }
 
