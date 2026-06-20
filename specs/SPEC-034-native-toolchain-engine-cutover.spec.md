@@ -680,8 +680,9 @@ engine bindings are dispatched as Layer-0 engine passes. `realCodeChecker`/
 
 #### 1.2 The `go-toolchain` pack (REQ-007)
 
-A reusable `go-toolchain` pack holds the build/test `convert` scripts (and,
-pending OQ-1, the lint `config-file` binding) — **mechanism** (run the Go
+A reusable `go-toolchain` pack holds the build/test `convert` scripts and the lint
+`config-file` binding (with its `.golangci.yml`, per the OQ-1 resolution) —
+**mechanism** (run the Go
 toolchain, normalize to SARIF; identical for every Go project), SEPARATE from the
 opinionated `backstop-go-pack` — **opinion** (swappable coding-standards semgrep
 rules). The `go-toolchain` pack carries no coding-standards rules; `backstop-go-pack`
@@ -785,9 +786,11 @@ re-introducing the very risk DD-2's "removed, not extracted" guards against.
 
 ## Open Questions
 
-These are flagged for resolution during planning/authoring of the `go-toolchain`
-pack (REQ-007). They are not pre-decided here; the requirements above are written
-to hold under either resolution, and the claims do not assume one.
+These were flagged for resolution during planning/authoring of the `go-toolchain`
+pack (REQ-007). They are not pre-decided in the requirements; the requirements
+above are written to hold under either resolution, and the claims do not assume
+one. Both are now resolved (2026-06-18); the resolutions pick the "either" without
+changing any requirement or claim.
 
 - **OQ-1 — Does the `go-toolchain` pack own the lint `config-file` entry, or does
   the golangci-lint config stay project-side?** The build/test toolchain mechanism
@@ -799,6 +802,13 @@ to hold under either resolution, and the claims do not assume one.
   mechanism pack. Resolution affects only WHERE the lint config-file binding is
   declared, not whether lint converges to native SARIF (REQ-005 holds either way).
 
+  **Resolved (2026-06-18): pack-defined.** The lint `config-file` binding AND its
+  config (`.golangci.yml`) live in the `go-toolchain` pack, not project-side.
+  Adopting the pack yields working lint with zero project-side wiring. REQ-005
+  (lint → native SARIF) is unaffected; this only fixes WHERE the binding is
+  declared — inside the reusable mechanism pack, consistent with convention over
+  configuration.
+
 - **OQ-2 — One `go-toolchain` pack, or a build/test split?** REQ-007 mandates a
   reusable mechanism pack separate from `backstop-go-pack`, but does not settle
   whether build and test ship as one `go-toolchain` pack or as separate packs
@@ -806,6 +816,18 @@ to hold under either resolution, and the claims do not assume one.
   project adopt build-gating without test-gating. The mechanism-vs-opinion boundary
   (REQ-007) and the pass→engine mapping hold under either; this is a packaging
   granularity decision for pack authoring.
+
+  **Resolved (2026-06-18): one `go-toolchain` pack, no split, no rename.** Lint +
+  build + test ship together as the single native Go toolchain pack. Rationale:
+  lint is part of the native toolchain; the split's only payoff (build-gating
+  without test-gating) is degenerate because `go test ./...` already compiles
+  everything `go build ./...` does. The name `go-toolchain` (REQ-007) stands.
+
+**Generalizing convention established by these resolutions.** One
+`<lang>-toolchain` pack per language bundles that language's whole native
+toolchain (lint + build + test + whatever else is native), with pack-defined
+config. This is convention over configuration — a default, NOT a hard-and-fast
+rule. `go-toolchain` is the reference instance.
 
 ## Sharp Edges
 
