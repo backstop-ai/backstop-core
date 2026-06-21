@@ -34,7 +34,14 @@ implementation:
     `EngineBinding` struct are ALREADY correct and MUST NOT be churned — this spec
     feeds them from pack data + a trust gate, it does not rewrite them. The
     DefaultRegistry-eradication-vs-incremental-fallback choice is left as an explicit
-    Open Question, NOT pre-decided.
+    Open Question, NOT pre-decided. The allowlist gates the tool COMMAND only; the
+    two other pack-supplied executables that reach execution — the pack `convert`
+    script and the sandbox `validator` — are arbitrary pack code that CANNOT be
+    tool-allowlisted, are deliberately EXEMPT from the tool-allowlist, and rest their
+    trust SOLELY on the sandbox (`SandboxedRun`/`SandboxedRunStdout`). That residual,
+    platform-conditional trust boundary (the sandbox is macOS `sandbox-exec`, a Linux
+    no-op per BUNDLE-010 Non-Goal 10) is stated LOUDLY as a requirement, not silently
+    bypassed.
   package: cmd/backstop
 
 verification:
@@ -63,7 +70,7 @@ requirements:
       A backstop-owned TRUSTED-TOOL ALLOWLIST must ship IN THE SAME SPEC as REQ-001
       (it is a non-negotiable security gate, not a follow-up). The allowlist is a
       backstop-owned `{tool → pinned version}` map. Before backstop runs ANY
-      pack-declared engine command — at the point `runFindingsEngine` would
+      pack-declared engine TOOL command — at the point `runFindingsEngine` would
       `splitCommand`(binding.Command) → `RunStdout` it — the engine's `tool` (the
       command's executable name) MUST be present on the allowlist AND its required
       version MUST be lock-pinned (verified through the existing
@@ -73,7 +80,10 @@ requirements:
       and the pack, and backstop MUST NOT run the command. There is no silent run, no
       silent skip, and no "run it anyway." This closes the arbitrary-command-execution
       hole that opens the instant packs can declare commands (today
-      `runFindingsEngine` runs `splitCommand` → `RunStdout` with NO trust check).
+      `runFindingsEngine` runs `splitCommand` → `RunStdout` with NO trust check). The
+      allowlist gate covers the TOOL command only; the pack `convert` script and the
+      sandbox `validator` are arbitrary pack code governed by REQ-008's sandbox
+      posture, not this tool-allowlist.
     supports: pluggable-pack-engines:REQ-019
     follows: STD-GO-001:GO-010
   - id: REQ-003
@@ -85,8 +95,15 @@ requirements:
       allowlist." A rule whose declared engine is unknown to that combined registry
       remains a blocking config error (the existing unknown-engine fail-loud), and a
       rule whose engine's tool is not allowlisted is ALSO a blocking config error. The
-      allowlist check sits at BOTH validation time (here) and dispatch time (REQ-002),
-      so an un-allowlisted tool cannot reach execution by any path.
+      tool-allowlist check must hold at EVERY non-test caller of `resolveEngineRegistry`
+      so an un-allowlisted tool cannot reach execution by any path: validation time
+      (`validateEngine`, here), the EARLIEST tool-resolution walk
+      (`provisionEngines`, cmd/backstop/pack_gate_provision.go — the natural
+      chokepoint, where the allowlist check is routed so an un-allowlisted tool
+      fails loud BEFORE provisioning), and dispatch time (`runFindingsEngine`,
+      REQ-002). The pack-separation reader (`pack_separation.go`) only looks up a
+      binding's Category and never runs a command, so it needs no allowlist gate; that
+      exemption is explicit, not an oversight.
     supports: pluggable-pack-engines:REQ-001
     follows: STD-GO-001:GO-010
   - id: REQ-004
@@ -111,9 +128,22 @@ requirements:
       build/test/findings/coverage/substantiveness/contracts) WITHOUT naming a tool.
       The enum has exactly these seven values and is defined in pkg/pack/engine
       (alongside the binding) so it carries no import of pkg/check. The tool-NAMED
-      `CheckTypeSemgrep` (pkg/check/manifest.go / pkg/check/check.go) must be RENAMED
-      to a neutral type (e.g. `CheckTypeFindings`) so no gate-type identifier names a
-      specific tool. An engine's declared gate-type is data on the binding, parsed
+      `CheckTypeSemgrep` (pkg/check) must be RENAMED to a neutral type (e.g.
+      `CheckTypeFindings`) so no gate-type identifier — AND no gate-type STRING
+      surface — names a specific tool. The rename's real non-test footprint is ~11
+      references across five files and INCLUDES the serialized string surface: the
+      identifier sites (pkg/check/check.go passOrder / the `delete(opts.Executors,
+      CheckTypeSemgrep)` site / the two `PassResult{Pass: CheckTypeSemgrep}` sites;
+      pkg/check/manifest.go the const decl, the `String()` case, the `parseCheckType`
+      case, and the three `[]CheckType{...CheckTypeSemgrep}` sites; pkg/check/parsers.go
+      the stamp comment + `parser(out, CheckTypeSemgrep)`; pkg/check/registry.go the
+      `execs[CheckTypeSemgrep]` assignment; cmd/backstop/code_check.go the two
+      `Pass: check.CheckTypeSemgrep` sites), and CRUCIALLY the tool-named STRINGS
+      `String()` returning the literal "semgrep" (pkg/check/manifest.go) and
+      `parseCheckType` accepting the literal "semgrep" — both must change to the
+      neutral "findings" so no serialized/config value names a tool. This rename
+      touches serialized/config surfaces and the tests that assert them; those tests
+      migrate with it. An engine's declared gate-type is data on the binding, parsed
       from the pack `engines:` block; an unrecognized gate-type value is a blocking
       config error (fail-loud, parallel to ParseInputMode).
     supports: pluggable-pack-engines:REQ-001
@@ -143,7 +173,7 @@ requirements:
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
-      The eight built-in engine bindings currently hardcoded in
+      The seven built-in engine bindings currently hardcoded in
       `DefaultRegistry()` (semgrep, ast-grep, sandbox, config-file, golangci,
       go-build, go-test — the commands and pinned versions) must be MIGRATED toward
       pack declaration. The DefaultRegistry-vs-default-pack disposition is an OPEN
@@ -157,6 +187,29 @@ requirements:
       be allowlisted before it runs) MUST hold identically — the allowlist is the
       trust floor regardless of where the binding is declared.
     supports: pluggable-pack-engines:REQ-001
+    follows: STD-GO-001:GO-010
+  - id: REQ-008
+    text: >
+      The SECURITY POSTURE of the two OTHER pack-supplied executables that reach
+      execution must be stated EXPLICITLY and LOUDLY, not left as a silent bypass of
+      the tool-allowlist. The pack `convert` script (binding.Convert, run via
+      `resolveSandboxedRunStdout` in `runFindingsEngine`) and the sandbox `validator`
+      (rule.Validator, run via `resolveSandboxedRun` in `runSandboxEngine`) are
+      ARBITRARY PACK CODE — pack-authored scripts, not named tools — so they CANNOT be
+      tool-allowlisted and are DELIBERATELY EXEMPT from the REQ-002 tool-allowlist.
+      Their trust rests SOLELY on the sandbox (`SandboxedRun` / `SandboxedRunStdout`,
+      pkg/packval). This reconciles BUNDLE-010 REQ-019 ("trust surface equals the
+      convert step's: pinned and verified"): the TOOL command is trusted by the
+      ALLOWLIST + lock-pin (REQ-002), and the convert/validator scripts are trusted by
+      the SANDBOX — together these two mechanisms ARE the trust surface, and a
+      pack-declared command cannot escape both. The RESIDUAL gap must be recorded: the
+      sandbox is platform-conditional — macOS `sandbox-exec`, a Linux NO-OP until the
+      deferred sandbox-portability work (BUNDLE-010 Non-Goal 10) — so on a
+      non-sandboxing platform the convert/validator scripts run with NO confinement.
+      This is a KNOWN, STATED residual trust boundary documented in Sharp Edges, NOT a
+      silent bypass; the spec must not over-claim the convert/validator paths as
+      gated when they are sandbox-trusted.
+    supports: pluggable-pack-engines:REQ-019
     follows: STD-GO-001:GO-010
 
 claims:
@@ -208,8 +261,13 @@ claims:
     text: The sandbox engine (no command, input_mode none) is not subject to the command-allowlist tool check — it has no tool to allowlist and runs as before
     tests:
       - TestAllowlist_SandboxEngineNotSubjectToToolAllowlist
+  - id: CLM-029
+    requirement: REQ-002
+    text: The allowlist's pinned-version comparison reads the locked version through the existing backstop.lock/VerifyLock path, not from a literal baked into TrustedToolAllowlist — a tool allowlisted at vX whose lock pins vY fails loud, proving the pin rides the lock and cannot drift from a second source
+    tests:
+      - TestAllowlist_VersionPinReadsFromLockNotSecondSource
 
-  # REQ-003 — validateEngine: pack-declared ∪ fallback ∪ allowlist (allowed + prohibited)
+  # REQ-003 — validateEngine + provisionEngines + dispatch: every resolveEngineRegistry caller gated
   - id: CLM-010
     requirement: REQ-003
     text: validateEngine accepts a rule whose engine is declared in the manifest's own engines block (not in the built-in registry) when that engine's tool is allowlisted
@@ -230,6 +288,16 @@ claims:
     text: validateEngine rejects (blocking config error) a rule whose engine is known but whose tool is not on the trusted-tool allowlist
     tests:
       - TestValidateEngine_KnownEngineUnallowlistedToolRejected
+  - id: CLM-030
+    requirement: REQ-003
+    text: provisionEngines (the earliest tool-resolution walk, the second resolveEngineRegistry caller) fails loud on an un-allowlisted tool BEFORE provisioning, so an un-allowlisted tool is rejected at the earliest chokepoint as well as at validate and dispatch
+    tests:
+      - TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision
+  - id: CLM-031
+    requirement: REQ-003
+    text: The pack-separation reader (pack_separation.go, the third resolveEngineRegistry caller) looks up only a binding's Category and runs no command, so it is explicitly exempt from the allowlist gate — an un-allowlisted engine there is not an execution path
+    tests:
+      - TestPackSeparation_ReaderRunsNoCommandNoAllowlistNeeded
 
   # REQ-004 — pattern-arg input mode (parse-accept, emit, empty-fail) + enum exhaustiveness
   - id: CLM-014
@@ -276,9 +344,14 @@ claims:
       - TestManifest_UnknownGateTypeFailsLoud
   - id: CLM-022
     requirement: REQ-005
-    text: The tool-named CheckTypeSemgrep is renamed to the neutral CheckTypeFindings and no gate-type identifier names a specific tool
+    text: The tool-named CheckTypeSemgrep is renamed to the neutral CheckTypeFindings across all ~11 non-test sites in the five files; no gate-type IDENTIFIER names a tool and the build compiles with zero references to the old identifier
     tests:
       - TestCheckType_SemgrepRenamedToNeutralFindings
+  - id: CLM-032
+    requirement: REQ-005
+    text: The gate-type STRING surface is neutralized too — CheckType.String() returns "findings" (not the literal "semgrep") and parseCheckType accepts "findings" (not "semgrep"), so no serialized/config gate-type value names a tool
+    tests:
+      - TestCheckType_StringAndParseUseNeutralFindingsNotSemgrep
 
   # REQ-006 — three name special-cases retire into declared flags (declared vs name-sniff)
   - id: CLM-023
@@ -314,6 +387,23 @@ claims:
     tests:
       - TestMigration_AllowlistAppliesToBuiltinBindingsToo
 
+  # REQ-008 — convert/validator sandbox posture: tool-allowlist-EXEMPT, sandbox-trusted, platform-conditional
+  - id: CLM-033
+    requirement: REQ-008
+    text: The pack convert script (binding.Convert) runs via the sandbox (SandboxedRunStdout) and is NOT subjected to the tool-allowlist — a non-SARIF findings engine whose tool is allowlisted runs its convert script through the sandbox without an allowlist check on the script
+    tests:
+      - TestConvert_ScriptIsSandboxTrustedNotToolAllowlisted
+  - id: CLM-034
+    requirement: REQ-008
+    text: The sandbox validator (rule.Validator) runs via the sandbox (SandboxedRun) and is NOT subjected to the tool-allowlist — it is arbitrary pack code trusted by the sandbox, not a named tool
+    tests:
+      - TestValidator_IsSandboxTrustedNotToolAllowlisted
+  - id: CLM-035
+    requirement: REQ-008
+    text: On a platform where the sandbox is unavailable (non-macOS, sandbox-exec absent), the convert/validator path surfaces the platform limitation loudly rather than silently running unconfined or silently passing — the residual trust boundary is stated, not bypassed
+    tests:
+      - TestSandbox_PlatformUnavailableSurfacedNotSilent
+
 contracts:
   - file: pkg/pack/engine/binding.go
     provides:
@@ -348,7 +438,7 @@ contracts:
       - name: CheckToolAllowed
         kind: function
         signature: "func CheckToolAllowed(allowlist map[string]string, tool string, lockedVersion string) error"
-        notes: "Returns a non-nil error (wrapped by callers into a *check.ConfigError) when tool is not on the allowlist OR lockedVersion does not match the allowlist's pinned version (REQ-002/CLM-006/CLM-007). Pure function so both validateEngine (REQ-003) and the dispatch gate (REQ-002) call the SAME check."
+        notes: "Returns a non-nil error (wrapped by callers into a *check.ConfigError) when tool is not on the allowlist OR lockedVersion does not match the allowlist's pinned version (REQ-002/CLM-006/CLM-007). The lockedVersion argument is read by callers from the existing backstop.lock / VerifyLock path, NOT from a literal in TrustedToolAllowlist, so the pin cannot drift from a second source (CLM-029). Pure function so all three resolveEngineRegistry callers that run a command — validateEngine (REQ-003), provisionEngines (CLM-030), and the dispatch gate (REQ-002) — call the SAME check."
     consumes: []
 
   - file: pkg/pack/manifest.go
@@ -382,7 +472,11 @@ contracts:
       - name: runFindingsEngine
         kind: function
         signature: "func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error)"
-        notes: "Gains the trust gate (REQ-002): BEFORE splitCommand(binding.Command) -> runner.RunStdout, it resolves the engine's tool from the command and calls CheckToolAllowed against the allowlist + the lock-pinned version; a failure returns a *check.ConfigError naming tool+pack and the command is never run (CLM-005..008). The generic gather/run/convert/parseSarif flow is otherwise unchanged. The strict-SARIF guard now keys off binding.StrictSarif (REQ-006a)."
+        notes: "Gains the trust gate (REQ-002): BEFORE splitCommand(binding.Command) -> runner.RunStdout, it resolves the engine's tool from the command and calls CheckToolAllowed against the allowlist + the lock-pinned version; a failure returns a *check.ConfigError naming tool+pack and the command is never run (CLM-005..008). The generic gather/run/convert/parseSarif flow is otherwise unchanged. The pack convert step (binding.Convert via resolveSandboxedRunStdout) is NOT tool-allowlisted — it is arbitrary pack code trusted by the sandbox (REQ-008/CLM-033); the trust gate covers the TOOL command only. The strict-SARIF guard now keys off binding.StrictSarif (REQ-006a)."
+      - name: runSandboxEngine
+        kind: function
+        signature: "func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rules []pack.Rule) ([]gate.Violation, error)"
+        notes: "UNCHANGED by the trust gate: the sandbox validator (rule.Validator via resolveSandboxedRun) is arbitrary pack code trusted by the sandbox, NOT a named tool, so it is deliberately exempt from the tool-allowlist (REQ-008/CLM-034). Its trust rests solely on SandboxedRun; the platform-conditional sandbox is the residual boundary (CLM-035)."
       - name: resolveEngineRegistry
         kind: function
         signature: "func resolveEngineRegistry(manifest *pack.Manifest) engine.Registry"
@@ -397,6 +491,20 @@ contracts:
       - source: pkg/check/semgrep.go
         name: ConfigError
         kind: type
+
+  - file: cmd/backstop/pack_gate_provision.go
+    provides:
+      - name: provisionEngines
+        kind: function
+        signature: "func provisionEngines(packs []*pack.Manifest) error"
+        notes: "The EARLIEST tool-resolution walk (it already iterates each pack's engines via resolveEngineRegistry). The allowlist check is routed HERE so an un-allowlisted tool fails loud with a *check.ConfigError BEFORE provisioning (REQ-003/CLM-030), the natural chokepoint ahead of validate+dispatch. provisionEngines already resolves each engine's tool name via engineToolName(binding.Command), so it has the tool in hand for the CheckToolAllowed call."
+    consumes:
+      - source: pkg/pack/engine/allowlist.go
+        name: TrustedToolAllowlist
+        kind: function
+      - source: pkg/pack/engine/allowlist.go
+        name: CheckToolAllowed
+        kind: function
 
   - file: cmd/backstop/pack_gate_golint.go
     provides:
@@ -436,7 +544,7 @@ contracts:
       - name: CheckTypeFindings
         kind: constant
         signature: "const CheckTypeFindings CheckType = ..."
-        notes: "RENAME of the tool-named CheckTypeSemgrep to a neutral type (REQ-005/CLM-022). The String() method and passOrder (pkg/check/check.go) update accordingly; no gate-type identifier names a tool."
+        notes: "RENAME of the tool-named CheckTypeSemgrep to a neutral type (REQ-005/CLM-022). The ~11 non-test identifier sites across pkg/check (manifest.go: const decl, String() case, parseCheckType case, three []CheckType slices; check.go: passOrder, the delete(opts.Executors,...) site, two PassResult{Pass:...} sites; parsers.go: the stamp comment + parser(out,...) call; registry.go: the execs[...] assignment) and cmd/backstop/code_check.go (two Pass: check.CheckType... sites) all update. CRUCIALLY the gate-type STRING surface neutralizes too: String() returns \"findings\" (was the literal \"semgrep\", manifest.go) and parseCheckType accepts \"findings\" (was \"semgrep\") — no serialized/config value names a tool (CLM-032). The rename touches serialized/config surfaces + their tests, which migrate with it."
     consumes: []
 ---
 
@@ -452,7 +560,7 @@ generic group-by-engine dispatch (`dispatchPackEngines` / `runFindingsEngine` /
 substrate and the target model:
 
 1. **The engine bindings still live HARDCODED in backstop Go.** `DefaultRegistry()`
-   (binding.go) carries eight built-in bindings — their commands and pinned
+   (binding.go) carries seven built-in bindings — their commands and pinned
    versions — baked into the binary. A pack cannot declare its own engine; adding a
    stack's toolchain is still a Go edit, the opposite of the pack thesis.
 2. **There is NO trust gate.** The dispatch is already generic enough to run any
@@ -493,8 +601,14 @@ multiply.
   ("golangci-lint" sniff) → declared `StrictSarif`; `isNativeGoTestEngine` ("go test"
   sniff) → declared `PackageScoped`; validate_manifest layout switch on engine names
   → InputMode/ScopeKind-derived layout. Backstop ends up knowing zero tool names.
-- **DefaultRegistry migration** (REQ-007) — move the eight built-ins toward pack
+- **DefaultRegistry migration** (REQ-007) — move the seven built-ins toward pack
   declaration; fallback-vs-eradicate left as an **Open Question** below.
+- **Convert/validator sandbox posture** (REQ-008, security completeness) — the
+  allowlist gates the TOOL command only; the pack `convert` script and the sandbox
+  `validator` are arbitrary pack code, deliberately EXEMPT from the tool-allowlist
+  and trusted SOLELY by the sandbox. The tool-allowlist (REQ-002) and the sandbox
+  TOGETHER form BUNDLE-010 REQ-019's trust surface; the residual, platform-conditional
+  gap (the sandbox is a Linux no-op) is stated loudly, not silently bypassed.
 
 **Constraints (from the bundle / prompt).** The generic dispatch
 (`runFindingsEngine` / `gatherEngineInputs`) and the `EngineBinding` struct are
@@ -538,6 +652,33 @@ from the command-allowlist check (CLM-009).
 | — | yes | yes | accepts (CLM-011) |
 | no | no | — | rejects — unknown engine (CLM-012) |
 | yes or fallback | — | no | rejects — un-allowlisted tool (CLM-013) |
+
+### `resolveEngineRegistry` callers and the allowlist gate (REQ-003)
+
+The tool-allowlist must hold at every non-test caller that leads to running a command.
+
+| Caller | Runs a command? | Allowlist gate |
+|---|---|---|
+| `validateEngine` (pkg/pack/manifest.go) | no (validation) | YES — reject un-allowlisted (CLM-013) |
+| `provisionEngines` (pack_gate_provision.go) | leads to it; earliest walk | YES — fail loud BEFORE provisioning (CLM-030) |
+| `runFindingsEngine` (pack_gate.go) | yes (dispatch) | YES — gate before RunStdout (CLM-008) |
+| `pack_separation.go` | no (reads Category only) | EXEMPT — no execution path (CLM-031) |
+
+### Pack-supplied executables and their trust mechanism (REQ-002, REQ-008)
+
+Three pack-supplied executables can reach execution; each has exactly one trust
+mechanism. The tool-allowlist and the sandbox TOGETHER are BUNDLE-010 REQ-019's trust
+surface.
+
+| Executable | Source | Trust mechanism | Allowlist-gated? |
+|---|---|---|---|
+| tool command | `binding.Command` | trusted-tool allowlist + lock-pin (REQ-002) | YES |
+| pack `convert` script | `binding.Convert` | sandbox (`SandboxedRunStdout`) (REQ-008) | NO — exempt (CLM-033) |
+| sandbox `validator` | `rule.Validator` | sandbox (`SandboxedRun`) (REQ-008) | NO — exempt (CLM-034) |
+
+Residual gap: the sandbox is macOS `sandbox-exec`, a Linux no-op until the deferred
+sandbox-portability work (BUNDLE-010 Non-Goal 10), so the convert/validator scripts run
+unconfined on a non-sandboxing platform — surfaced loudly, not silently (CLM-035).
 
 ### InputMode values after this spec (REQ-004)
 
@@ -605,20 +746,36 @@ returning `{tool → pinned version}`, plus a pure `CheckToolAllowed(allowlist, 
 lockedVersion)` returning an error when the tool is absent or the locked version does
 not match. In `runFindingsEngine`, BEFORE `splitCommand(binding.Command)` →
 `runner.RunStdout`, resolve the engine's tool (the command's executable name) and run
-`CheckToolAllowed` against the allowlist and the lock-pinned version (read through the
-existing backstop.lock / `VerifyLock` / `Provision` path). A failure returns a
-`*check.ConfigError` (exit 2) naming the tool and pack; the command is NEVER handed to
-the runner (CLM-005..008). The sandbox engine (no command) is exempt (CLM-009). The
-version pin RIDES the existing lock machinery — no new trust model is invented.
+`CheckToolAllowed` against the allowlist and the lock-pinned version. The
+`lockedVersion` argument MUST be read from the existing backstop.lock / `VerifyLock` /
+`Provision` path — NOT from a literal baked into `TrustedToolAllowlist` — so the pin
+cannot drift from a second source (CLM-029). A failure returns a `*check.ConfigError`
+(exit 2) naming the tool and pack; the command is NEVER handed to the runner
+(CLM-005..008). The sandbox engine (no command) is exempt (CLM-009). The version pin
+RIDES the existing lock machinery — no new trust model is invented. This gate covers
+the TOOL command only; the convert/validator scripts are governed by stage 8.
 
-### 3. `validateEngine` widening (REQ-003)
+### 3. Allowlist at every `resolveEngineRegistry` caller (REQ-003)
 
-`validateEngine` (pkg/pack/manifest.go) takes the manifest's declared engine bindings
-and checks the rule's engine against the pack-declared registry UNION the fallback
-registry, AND that the engine's tool is allowlisted. Unknown engine → blocking config
-error (existing behavior). Known engine, un-allowlisted tool → blocking config error
-(new). Both `validateEngine` and the dispatch gate call the SAME `CheckToolAllowed`,
-so no path reaches execution with an un-allowlisted tool (CLM-010..013).
+`resolveEngineRegistry` has three non-test callers; the tool-allowlist check must hold
+at every one that leads to running a command, so no path reaches execution
+un-allowlisted:
+
+- **`validateEngine`** (pkg/pack/manifest.go) — takes the manifest's declared engine
+  bindings and checks the rule's engine against the pack-declared registry UNION the
+  fallback registry, AND that the engine's tool is allowlisted. Unknown engine →
+  blocking config error (existing). Known engine, un-allowlisted tool → blocking config
+  error (new) (CLM-010..013).
+- **`provisionEngines`** (cmd/backstop/pack_gate_provision.go) — the EARLIEST
+  tool-resolution walk: it already iterates each pack's engines and resolves the tool
+  name via `engineToolName(binding.Command)`. Route the `CheckToolAllowed` call here so
+  an un-allowlisted tool fails loud BEFORE provisioning — the natural chokepoint ahead
+  of dispatch (CLM-030).
+- **`pack_separation.go`** — looks up only a binding's `Category` and runs NO command,
+  so it is explicitly EXEMPT; an un-allowlisted engine there is not an execution path
+  (CLM-031).
+
+All callers that run a command call the SAME `CheckToolAllowed`.
 
 ### 4. `pattern-arg` input mode (REQ-004)
 
@@ -634,9 +791,14 @@ the pack and rule — and NO filesystem rule-path resolution (CLM-014..018).
 Add a `GateType` enum + `ParseGateType` in pkg/pack/engine (leaf-package placement, no
 pkg/check import) with the seven tool-neutral values; an unrecognized declared
 `gate_type` fails loud. Add a `GateType` field to `EngineBinding`, parsed from the
-pack `engines:` block. Rename the tool-named `CheckTypeSemgrep` (pkg/check/manifest.go
-/ check.go) to `CheckTypeFindings`, updating `String()` and `passOrder`
-(CLM-019..022).
+pack `engines:` block. Rename the tool-named `CheckTypeSemgrep` to `CheckTypeFindings`
+across its ~11 non-test sites in five files (pkg/check/manifest.go, check.go,
+parsers.go, registry.go; cmd/backstop/code_check.go). The rename is NOT just the
+identifier: the gate-type STRING surface must neutralize too — `CheckType.String()`
+returns `"findings"` (was the literal `"semgrep"`) and `parseCheckType` accepts
+`"findings"` (was `"semgrep"`), so no serialized/config value names a tool (CLM-032).
+This touches serialized/config surfaces and the tests asserting them, which migrate
+with the rename (CLM-019..022, CLM-032).
 
 ### 6. Retire the three name special-cases (REQ-006)
 
@@ -652,11 +814,30 @@ Go control flow (CLM-023..026).
 
 ### 7. DefaultRegistry migration (REQ-007) — Open Question, staged
 
-Move the eight built-in bindings (commands + pinned versions) toward pack
+Move the seven built-in bindings (commands + pinned versions) toward pack
 declaration. The disposition (incremental fallback vs full eradication) is an OPEN
 QUESTION below and is NOT pre-decided here. Whichever option is chosen, the stage-1
 merge semantics and the stage-2 allowlist gate hold identically: the built-ins'
 tools are subject to the SAME allowlist as any pack-declared tool (CLM-027/CLM-028).
+
+### 8. Convert/validator sandbox posture (REQ-008) — security completeness
+
+State the trust posture of the two OTHER pack-supplied executables LOUDLY. The pack
+`convert` script (binding.Convert, run via `resolveSandboxedRunStdout` in
+`runFindingsEngine`) and the sandbox `validator` (rule.Validator, run via
+`resolveSandboxedRun` in `runSandboxEngine`) are ARBITRARY PACK CODE — not named tools
+— so they CANNOT be tool-allowlisted and are DELIBERATELY EXEMPT from the stage-2
+tool-allowlist; their trust rests SOLELY on the sandbox (CLM-033/CLM-034). This is how
+the spec reconciles BUNDLE-010 REQ-019: the TOOL command is trusted by the allowlist +
+lock-pin, the convert/validator scripts are trusted by the sandbox, and TOGETHER they
+are the trust surface — a pack-declared command escapes neither. The RESIDUAL gap is
+recorded: the sandbox is `macOS sandbox-exec`, a Linux NO-OP until the deferred
+sandbox-portability work (BUNDLE-010 Non-Goal 10), so on a non-sandboxing platform the
+convert/validator scripts run unconfined; the implementation must surface that platform
+limitation LOUDLY rather than silently run unconfined or silently pass (CLM-035). No
+code change is mandated to the sandbox itself here — the deliverable is the stated,
+tested posture plus the loud platform-limitation surface; the spec must not over-claim
+the convert/validator paths as allowlist-gated.
 
 ## Verification
 
@@ -694,7 +875,7 @@ requirements and claims above are written to hold under EITHER resolution.
 - **OQ-1 — Keep `DefaultRegistry` as an incremental fallback, or fully eradicate it
   into a default pack? (REQ-007)** Two stageable options:
   - **(i) Incremental fallback.** Keep `DefaultRegistry()` as a built-in registry
-    that a pack `engines:` block OVERRIDES/EXTENDS via the stage-1 merge. The eight
+    that a pack `engines:` block OVERRIDES/EXTENDS via the stage-1 merge. The seven
     built-ins (semgrep, ast-grep, sandbox, config-file, golangci, go-build, go-test)
     stay available with no pack churn, so `go-toolchain` / `go-standards` keep
     working unchanged. Backstop still ships SOME baked-in engine knowledge.
@@ -741,7 +922,9 @@ requirements and claims above are written to hold under EITHER resolution.
    `Provision` machinery already pins+verifies tool versions. If the allowlist check
    reads a version from somewhere OTHER than the lock, the two can drift and a tool
    could be "allowlisted at vX" while the lock pins vY — a silent inconsistency.
-   Reuse the lock path (REQ-002); do not invent a parallel pin.
+   Reuse the lock path (REQ-002); do not invent a parallel pin. This is claim-backed:
+   CLM-029 drives a tool allowlisted at vX whose lock pins vY and asserts a loud
+   failure, proving the comparison reads the lock and not a literal.
 
 5. **Name special-cases hide as "harmless string checks."** Retiring
    `isNativeSarifLintEngine`/`isNativeGoTestEngine`/the layout switch (REQ-006) is
@@ -766,12 +949,22 @@ requirements and claims above are written to hold under EITHER resolution.
    empty-pattern fail-loud (CLM-017) and the no-filesystem-touch assertion (CLM-018)
    pin both edges.
 
-8. **`CheckTypeSemgrep` rename ripples through `passOrder` and `String()`.** The
-   rename (REQ-005) is not a single-line change: `passOrder` (pkg/check/check.go),
-   the `String()` switch (pkg/check/manifest.go), and the `delete(opts.Executors,
-   CheckTypeSemgrep)` site (check.go:322) all reference it. A rename that misses one
-   leaves a tool-named identifier alive or breaks the build; the neutral-name claim
-   (CLM-022) must confirm no tool-named gate-type identifier survives.
+8. **`CheckTypeSemgrep` rename is ~11 sites across five files AND a STRING surface.**
+   The rename (REQ-005) is not a 3-site change. The real non-test footprint is ~11
+   identifier references: pkg/check/check.go (`passOrder`, the `delete(opts.Executors,
+   CheckTypeSemgrep)` site, two `PassResult{Pass: CheckTypeSemgrep}` sites);
+   pkg/check/manifest.go (the const decl, the `String()` case, the `parseCheckType`
+   case, three `[]CheckType{...}` slices); pkg/check/parsers.go (the stamp comment +
+   `parser(out, CheckTypeSemgrep)`); pkg/check/registry.go (`execs[CheckTypeSemgrep]`);
+   and cmd/backstop/code_check.go (two `Pass: check.CheckTypeSemgrep` sites).
+   CRUCIALLY two of these are the tool-named STRING surface: `String()` returns the
+   literal `"semgrep"` and `parseCheckType` accepts `"semgrep"` — serialized/config
+   values that must become `"findings"`, or the gate-type still names a tool on the
+   wire even after the identifier is renamed. A rename that fixes the identifier but
+   leaves the strings (or misses a slice site) leaves a tool name alive or breaks the
+   build; CLM-022 confirms no tool-named identifier survives and CLM-032 confirms the
+   string surface is neutral. This rename touches serialized/config surfaces and their
+   tests, which migrate with it.
 
 9. **Merge ambiguity if a pack redeclares a built-in engine name.** A pack
    `engines:` block declaring `semgrep` with a different command collides with the
@@ -779,6 +972,25 @@ requirements and claims above are written to hold under EITHER resolution.
    resolved binding is well-defined (pack-declared wins, or built-ins are
    reserved-and-rejected; either is fine, but it must be DECIDED and tested, not left
    to map-iteration order). This same knob is what OQ-1 turns.
+
+10. **The convert/validator paths are the OTHER execution surface — allowlist-EXEMPT,
+    sandbox-trusted, and platform-conditional (the residual trust boundary).** The
+    tool-allowlist (REQ-002) gates the TOOL command, but TWO other pack-supplied
+    executables reach execution: the pack `convert` script (binding.Convert via
+    `resolveSandboxedRunStdout`, on every non-SARIF findings engine) and the sandbox
+    `validator` (rule.Validator via `resolveSandboxedRun`). These are arbitrary pack
+    code, NOT named tools, so they CANNOT be tool-allowlisted — they are deliberately
+    EXEMPT (REQ-008/CLM-033/CLM-034). Their trust rests SOLELY on the sandbox. This is
+    how the spec reconciles BUNDLE-010 REQ-019 ("trust surface equals the convert
+    step's: pinned and verified"): the tool command is trusted by the allowlist+lock,
+    the convert/validator scripts by the sandbox, and TOGETHER they are the trust
+    surface. The RESIDUAL gap is real and must be STATED, not silently bypassed: the
+    sandbox is macOS `sandbox-exec` and a Linux NO-OP until the deferred
+    sandbox-portability work (BUNDLE-010 Non-Goal 10), so on a non-sandboxing platform
+    the convert/validator scripts run UNCONFINED. The implementation must surface that
+    loudly (CLM-035), and the spec must NOT over-claim these paths as allowlist-gated.
+    The danger is asserting "every pack-supplied executable is allowlisted" — false;
+    only the tool command is, and the rest is the sandbox's job.
 
 ## Review Questions
 
@@ -830,6 +1042,28 @@ requirements and claims above are written to hold under EITHER resolution.
 11. Is the `DefaultRegistry` disposition (OQ-1) left UNRESOLVED for the user, with the
     spec holding under either fallback or eradication, and the allowlist gating
     built-in tools the same as pack-declared tools (CLM-028)?
+
+12. Are the pack `convert` script and the sandbox `validator` correctly treated as
+    allowlist-EXEMPT, sandbox-trusted pack code (REQ-008/CLM-033/CLM-034) — NOT
+    silently run through the tool-allowlist and NOT over-claimed as gated? And is the
+    platform-conditional residual gap (sandbox is a Linux no-op) surfaced LOUDLY rather
+    than silently unconfined (CLM-035)?
+
+13. Is the tool-allowlist check routed through `provisionEngines` — the earliest
+    `resolveEngineRegistry` caller — so an un-allowlisted tool fails loud BEFORE
+    provisioning (CLM-030), in addition to validate and dispatch? And is the third
+    caller (`pack_separation.go`) correctly exempt because it runs no command
+    (CLM-031)?
+
+14. Does the `CheckTypeSemgrep` → `CheckTypeFindings` rename neutralize the STRING
+    surface — `String()` returning `"findings"` and `parseCheckType` accepting
+    `"findings"`, not the literal `"semgrep"` (CLM-032) — and cover all ~11
+    identifier sites across the five files, with the affected serialized-surface tests
+    migrated?
+
+15. Does the allowlist's pinned-version comparison genuinely read from backstop.lock /
+    `VerifyLock` rather than a literal in `TrustedToolAllowlist`, proven by the
+    allowlisted-at-vX / locked-at-vY fail-loud case (CLM-029)?
 
 ## References
 
