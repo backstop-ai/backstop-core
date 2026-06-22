@@ -54,14 +54,30 @@ func ExpectedLayout(m *Manifest) []string {
 	hasRuleFiles := false
 	hasValidators := false
 	if m != nil {
+		registry := resolveEngineRegistryForValidation(m)
 		for _, rule := range m.Content.Ruleset.Rules {
-			// Rule-fed findings engines (semgrep, ast-grep) ship rule files under
-			// rules/; the sandbox engine ships validators under validators/.
-			switch rule.Engine {
-			case "semgrep", "ast-grep":
+			// Derive the rules/ vs validators/ layout from the rule's RESOLVED
+			// binding InputMode — NOT a "semgrep"/"ast-grep" engine-name switch
+			// (SPEC-035 REQ-006c/CLM-025). A rule-fed input mode (rule-flags /
+			// rule-dir / pattern-arg) ships rule files under rules/; an
+			// input_mode none engine (the sandbox shape) ships validators under
+			// validators/. An unknown engine is caught by validateEngineFields.
+			binding, ok := registry[rule.Engine]
+			if !ok {
+				continue
+			}
+			switch binding.InputMode {
+			case engine.InputModeRuleFlags, engine.InputModeRuleDir, engine.InputModePatternArg:
 				hasRuleFiles = true
-			case "sandbox":
-				hasValidators = true
+			case engine.InputModeNone:
+				// input_mode none is BOTH the sandbox shape (ships validators) and
+				// the project-wide native toolchain (go build/test, ships nothing).
+				// ScopeKind separates them: the sandbox runs per-scoped-file
+				// (file-args) and ships validators/; a project-wide toolchain engine
+				// shapes its own target and ships no per-rule asset directory.
+				if binding.ScopeKind == engine.ScopeKindFileArgs {
+					hasValidators = true
+				}
 			}
 		}
 		if m.Archetype == "code" {
@@ -150,7 +166,7 @@ func claimFor(engineName, field, kind string) string {
 // engine-for-layer with every per-layer forbid preserved (REQ-003 / CLM-016).
 func validateEngineFields(m *Manifest) []ValidationError {
 	var errs []ValidationError
-	contracts := engine.DefaultFieldContracts()
+	registry := resolveEngineRegistryForValidation(m)
 	for i, rule := range m.Content.Ruleset.Rules {
 		fieldPrefix := "content.ruleset.rules[" + strconv.Itoa(i) + "]"
 		// An empty engine is caught at parse time; in direct ValidateManifest
@@ -163,7 +179,7 @@ func validateEngineFields(m *Manifest) []ValidationError {
 			})
 			continue
 		}
-		contract, ok := contracts[rule.Engine]
+		binding, ok := registry[rule.Engine]
 		if !ok {
 			errs = append(errs, ValidationError{
 				Field:   fieldPrefix + ".engine",
@@ -173,6 +189,13 @@ func validateEngineFields(m *Manifest) []ValidationError {
 			continue
 		}
 
+		// Verify the rule's populated fields against the engine's DECLARED
+		// FieldContract on the binding (SPEC-035 REQ-003/CLM-036), NOT a name-keyed
+		// map. A pack-declared engine supplies its contract inline; a built-in
+		// whose binding carries no declared contract falls back to the name-keyed
+		// DefaultFieldContracts (CLM-037, OQ-1 resolved to option i: the baked
+		// default is the OVERRIDABLE fallback a declared contract wins over).
+		contract := contractForEngine(rule.Engine, binding)
 		for _, field := range contract.Requires {
 			if ruleFieldValue(rule, field) == "" {
 				errs = append(errs, ValidationError{
@@ -201,6 +224,37 @@ func validateEngineFields(m *Manifest) []ValidationError {
 	}
 
 	return errs
+}
+
+// resolveEngineRegistryForValidation projects the manifest's pack-declared
+// engines: block over the fallback DefaultRegistry, with a pack-declared binding
+// OVERRIDING a same-named built-in (the deterministic merge, SPEC-035 CLM-004).
+// The validator's layout-derivation and field-contract checks both resolve a
+// rule's binding through this union so a pack-declared engine is a first-class
+// citizen, not a name the validator fails to recognize.
+func resolveEngineRegistryForValidation(m *Manifest) map[string]engine.EngineBinding {
+	registry := make(map[string]engine.EngineBinding)
+	for name, binding := range engine.DefaultRegistry() {
+		registry[name] = binding
+	}
+	for name, spec := range m.Engines {
+		registry[name] = spec.Binding
+	}
+	return registry
+}
+
+// contractForEngine returns the engine's field-contract to validate against. A
+// pack-declared engine's DECLARED FieldContract on the binding wins (CLM-036); a
+// built-in whose binding carries no declared contract falls back to the
+// name-keyed DefaultFieldContracts default. This is the field-contract half of the
+// OQ-1 disposition (SPEC-035 CLM-037, resolved to option i): the baked default is
+// the OVERRIDABLE fallback a same-named pack-declared contract wins over, mirroring
+// how resolveEngineRegistry lets a pack-declared binding override the built-in.
+func contractForEngine(name string, binding engine.EngineBinding) engine.FieldContract {
+	if len(binding.FieldContract.Requires) > 0 || len(binding.FieldContract.Forbids) > 0 {
+		return binding.FieldContract
+	}
+	return engine.DefaultFieldContracts()[name]
 }
 
 // validateSandboxValueRules applies the sandbox engine's value-enum and

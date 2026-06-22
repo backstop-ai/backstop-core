@@ -47,9 +47,9 @@ func TestCodeCheck_Output_JSONWithSchemaVersion(t *testing.T) {
 func TestCodeCheck_Output_JSONIncludesRule(t *testing.T) {
 	result := &Result{
 		PassResults: []PassResult{
-			{Pass: CheckTypeSemgrep, Violations: []Violation{
+			{Pass: CheckTypeFindings, Violations: []Violation{
 				{
-					Pass:     CheckTypeSemgrep,
+					Pass:     CheckTypeFindings,
 					File:     "pkg/server/handler.go",
 					Line:     31,
 					Message:  "panic() is disallowed",

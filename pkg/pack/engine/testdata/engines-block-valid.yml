@@ -1,0 +1,72 @@
+# Fixture (SPEC-035 TASK-001): a pack manifest carrying a top-level `engines:`
+# block that declares EVERY binding field so the Phase-3 parse tests
+# (TestManifest_EnginesBlockParsesBindingFields, CLM-001) and the Phase-2
+# gate-type tests (TestManifest_GateTypeParsesAllSevenValues, CLM-020) can read
+# each field back off the resolved engine.EngineBinding. Fields mirror the
+# yaml-tagged EngineBinding the spec mandates (command, input_mode, input_flag,
+# convert, provision, scope_kind, category, gate_type, strict_sarif,
+# package_scoped, field_contract). No assertions live here — the consuming test
+# tasks own them.
+name: acme/declared-engines-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack declaring engines via a top-level engines block.
+engines:
+  # SARIF-native findings engine declaring the full binding surface. gate_type
+  # findings is the type the renamed CheckTypeSemgrep -> CheckTypeFindings fills.
+  acme-findings:
+    command: acme-scan --sarif --quiet
+    input_mode: rule-flags
+    input_flag: --config
+    scope_kind: file-args
+    category: opinion
+    gate_type: findings
+    provision:
+      tool: acme-scan
+      version: 2.3.1
+    field_contract:
+      requires:
+        - rule_path
+        - standard
+      forbids:
+        - category
+        - input_scope
+        - validator
+  # A non-SARIF findings engine carrying a convert script (sandbox-trusted),
+  # exercising the convert + scope_kind + category fields.
+  acme-grep:
+    command: acme-grep scan
+    input_mode: rule-dir
+    input_flag: --rule
+    scope_kind: file-args
+    convert: acme-grep/to-sarif.sh
+    category: opinion
+    gate_type: findings
+    field_contract:
+      requires:
+        - rule_path
+      forbids:
+        - category
+        - input_scope
+        - validator
+  # A native lint engine declaring strict_sarif true and a lint gate_type, with a
+  # project-wide scope.
+  acme-lint:
+    command: acme-lint run --output.sarif.path stdout
+    input_mode: config-file
+    input_flag: --config
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint
+    strict_sarif: true
+  # A package-scoped test engine declaring package_scoped true and the test
+  # gate_type.
+  acme-test:
+    command: acme-test
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+    package_scoped: true
+    convert: scripts/test-to-sarif.sh

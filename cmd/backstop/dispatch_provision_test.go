@@ -48,7 +48,7 @@ func TestProvision_NativeAssumedPresentFailsLoud(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
 
 	// Precondition: the engine under test really is assume-present (nil Provision).
-	if b := resolveEngineRegistry()["go-build"]; b.Provision != nil {
+	if b := resolveEngineRegistry(nil)["go-build"]; b.Provision != nil {
 		t.Fatalf("test precondition: go-build must be assume-present (nil Provision), got %+v", b.Provision)
 	}
 
@@ -96,7 +96,7 @@ func TestProvision_IntroducedEngineAutoProvisioned(t *testing.T) {
 	}
 
 	for _, name := range []string{"semgrep", "ast-grep"} {
-		b := resolveEngineRegistry()[name]
+		b := resolveEngineRegistry(nil)[name]
 		if b.Provision == nil {
 			t.Errorf("%s must carry a pinned Provision record (backstop-introduced), got nil", name)
 			continue
@@ -143,8 +143,8 @@ func TestProvision_EnsureSemgrepRetired(t *testing.T) {
 		t.Errorf("the assume-present native sibling must be probed (proving provisioning ran), requested %v", *requested)
 	}
 	// And the pinned Provision record is what governs semgrep (the declared driver).
-	if b := resolveEngineRegistry()["semgrep"]; b.Provision == nil || b.Provision.Tool != "semgrep" || b.Provision.Version == "" {
-		t.Fatalf("semgrep must be governed by a pinned Provision record (the declared driver), got %+v", resolveEngineRegistry()["semgrep"].Provision)
+	if b := resolveEngineRegistry(nil)["semgrep"]; b.Provision == nil || b.Provision.Tool != "semgrep" || b.Provision.Version == "" {
+		t.Fatalf("semgrep must be governed by a pinned Provision record (the declared driver), got %+v", resolveEngineRegistry(nil)["semgrep"].Provision)
 	}
 }
 

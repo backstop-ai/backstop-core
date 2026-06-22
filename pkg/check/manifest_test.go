@@ -124,7 +124,7 @@ func TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles(t *testing.T) {
 			t.Fatalf("LoadManifest: %v", err)
 		}
 		checks := m.RouteFile("pkg/foo/bar.go")
-		want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+		want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 		if len(checks) != len(want) {
 			t.Fatalf("got %d check types, want %d: %v", len(checks), len(want), checks)
 		}
@@ -154,7 +154,7 @@ func TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles(t *testing.T) {
 				t.Errorf("checks[%d] = %v, want %v (full set %v)", i, checks[i], ct, checks)
 			}
 		}
-		if containsCheckType(checks, CheckTypeSemgrep) {
+		if containsCheckType(checks, CheckTypeFindings) {
 			t.Errorf("go manifest with no semgrep signal routed semgrep: %v", checks)
 		}
 	})
@@ -176,12 +176,12 @@ func TestCodeCheck_LoadManifest_CompiledManifestRoutesGoFiles(t *testing.T) {
 			t.Fatalf("LoadManifest: %v", err)
 		}
 		checks := m.RouteFile("scripts/app.py")
-		if len(checks) != 1 || checks[0] != CheckTypeSemgrep {
+		if len(checks) != 1 || checks[0] != CheckTypeFindings {
 			t.Errorf("unknown-language semgrep manifest routed %v, want [semgrep] only", checks)
 		}
 		// Files of any other extension also route to semgrep-only via **.
 		other := m.RouteFile("docs/notes.rst")
-		if len(other) != 1 || other[0] != CheckTypeSemgrep {
+		if len(other) != 1 || other[0] != CheckTypeFindings {
 			t.Errorf("unknown-language semgrep manifest routed %v for .rst, want [semgrep] only", other)
 		}
 	})
@@ -299,7 +299,7 @@ func TestCodeCheck_LoadManifest_CompilerOutputContractRoundTrip(t *testing.T) {
 	if len(checks) == 0 {
 		t.Fatal("real compiler manifest round-tripped to EMPTY routing for .go file")
 	}
-	if !containsCheckType(checks, CheckTypeSemgrep) {
+	if !containsCheckType(checks, CheckTypeFindings) {
 		t.Errorf("routing %v missing semgrep; the fixture carries semgrep-enforced rules", checks)
 	}
 	if !containsCheckType(checks, CheckTypeLint) ||
@@ -332,7 +332,7 @@ func TestCodeCheck_Routing_GoFileAllPasses(t *testing.T) {
 		Rules: []ManifestRule{
 			{
 				Extensions: []string{".go"},
-				CheckTypes: []string{"lint", "build", "test", "semgrep"},
+				CheckTypes: []string{"lint", "build", "test", "findings"},
 			},
 		},
 	})
@@ -346,7 +346,7 @@ func TestCodeCheck_Routing_GoFileAllPasses(t *testing.T) {
 	if len(checks) != 4 {
 		t.Fatalf("got %d check types, want 4: %v", len(checks), checks)
 	}
-	want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 	for i, ct := range want {
 		if checks[i] != ct {
 			t.Errorf("checks[%d] = %v, want %v", i, checks[i], ct)
@@ -362,7 +362,7 @@ func TestCodeCheck_Routing_UnmatchedFileNoChecks(t *testing.T) {
 		Rules: []ManifestRule{
 			{
 				Extensions: []string{".go"},
-				CheckTypes: []string{"lint", "build", "test", "semgrep"},
+				CheckTypes: []string{"lint", "build", "test", "findings"},
 			},
 		},
 	})
@@ -396,7 +396,7 @@ func TestCodeCheck_Routing_DefaultsWhenNoManifest(t *testing.T) {
 
 	// Non-Go files should get semgrep only
 	pyChecks := m.RouteFile("script.py")
-	if len(pyChecks) != 1 || pyChecks[0] != CheckTypeSemgrep {
+	if len(pyChecks) != 1 || pyChecks[0] != CheckTypeFindings {
 		t.Errorf("Python file: got %v, want [semgrep]", pyChecks)
 	}
 }
@@ -409,11 +409,11 @@ func TestCodeCheck_Routing_PathPatternMatching(t *testing.T) {
 		Rules: []ManifestRule{
 			{
 				PathPatterns: []string{"pkg/**/*.go"},
-				CheckTypes:   []string{"lint", "build", "test", "semgrep"},
+				CheckTypes:   []string{"lint", "build", "test", "findings"},
 			},
 			{
 				PathPatterns: []string{"scripts/*.sh"},
-				CheckTypes:   []string{"semgrep"},
+				CheckTypes:   []string{"findings"},
 			},
 		},
 	})
@@ -431,7 +431,7 @@ func TestCodeCheck_Routing_PathPatternMatching(t *testing.T) {
 
 	// File matching scripts/*.sh pattern
 	shChecks := m.RouteFile("scripts/deploy.sh")
-	if len(shChecks) != 1 || shChecks[0] != CheckTypeSemgrep {
+	if len(shChecks) != 1 || shChecks[0] != CheckTypeFindings {
 		t.Errorf("shell file: got %v, want [semgrep]", shChecks)
 	}
 
@@ -450,7 +450,7 @@ func TestCodeCheck_Routing_MultipleExtensions(t *testing.T) {
 		Rules: []ManifestRule{
 			{
 				Extensions: []string{".go"},
-				CheckTypes: []string{"lint", "build", "test", "semgrep"},
+				CheckTypes: []string{"lint", "build", "test", "findings"},
 			},
 		},
 	})
@@ -489,7 +489,7 @@ func TestCodeCheck_Routing_CheckTypeString(t *testing.T) {
 		{CheckTypeLint, "lint"},
 		{CheckTypeBuild, "build"},
 		{CheckTypeTest, "test"},
-		{CheckTypeSemgrep, "semgrep"},
+		{CheckTypeFindings, "findings"},
 		{CheckType(99), "unknown(99)"},
 	}
 	for _, tc := range tests {
@@ -509,7 +509,7 @@ func TestCodeCheck_Routing_ParseCheckType(t *testing.T) {
 		{"lint", CheckTypeLint, true},
 		{"BUILD", CheckTypeBuild, true},
 		{"Test", CheckTypeTest, true},
-		{"semgrep", CheckTypeSemgrep, true},
+		{"findings", CheckTypeFindings, true},
 		{"unknown", 0, false},
 	}
 	for _, tc := range tests {
@@ -643,7 +643,7 @@ func TestCodeCheck_Routing_NoExtension(t *testing.T) {
 
 	// No extension, non-Go: should get semgrep via defaults
 	checks := m.RouteFile("Makefile")
-	if len(checks) != 1 || checks[0] != CheckTypeSemgrep {
+	if len(checks) != 1 || checks[0] != CheckTypeFindings {
 		t.Errorf("Makefile: got %v, want [semgrep]", checks)
 	}
 }
@@ -675,7 +675,7 @@ func TestRouting_DefaultManifestWhenNoStandards(t *testing.T) {
 	}
 
 	checks := m.RouteFile("pkg/server/handler.go")
-	want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 	if len(checks) != len(want) {
 		t.Fatalf(".go routed to %v, want %v", checks, want)
 	}
@@ -704,7 +704,7 @@ func TestRouting_GoFileUnchangedAfterStandardsRemoval(t *testing.T) {
 	}
 
 	checks := m.RouteFile("cmd/backstop/main.go")
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if !routeContains(checks, ct) {
 			t.Errorf(".go route dropped %v after standards removal: got %v", ct, checks)
 		}
@@ -730,7 +730,7 @@ func TestRouting_NonGoFileRoutesToSemgrepAfterRemoval(t *testing.T) {
 
 	for _, f := range []string{"README.md", "config.yml"} {
 		checks := m.RouteFile(f)
-		if len(checks) != 1 || checks[0] != CheckTypeSemgrep {
+		if len(checks) != 1 || checks[0] != CheckTypeFindings {
 			t.Errorf("%s routed to %v, want [semgrep] (additive default)", f, checks)
 		}
 	}
@@ -774,5 +774,53 @@ func TestRouting_ReadsBackstopDirManifestWhenPresent(t *testing.T) {
 	// custom manifest (not the catch-all default) is in force.
 	if got := m.RouteFile("other.go"); len(got) != 0 {
 		t.Errorf("unmatched .go routed to %v, want empty (custom manifest in force, not default)", got)
+	}
+}
+
+// TestCheckType_SemgrepRenamedToNeutralFindings asserts the pack-findings pass
+// tag is the tool-NEUTRAL CheckTypeFindings (SPEC-035 CLM-022). It pins the
+// surviving identifier sites — the const decl, the String() case, the
+// parseCheckType case, and the default routing slices — onto the neutral name,
+// and proves the routing semantics are unchanged by the rename (a .go file still
+// routes to the findings pass; an unknown file routes findings-only).
+func TestCheckType_SemgrepRenamedToNeutralFindings(t *testing.T) {
+	// Const decl + String() case survive under the neutral name.
+	if got := CheckTypeFindings.String(); got != "findings" {
+		t.Fatalf("CheckTypeFindings.String() = %q, want \"findings\" (neutral pack-findings tag)", got)
+	}
+	// parseCheckType case survives under the neutral name.
+	ct, ok := parseCheckType("findings")
+	if !ok || ct != CheckTypeFindings {
+		t.Fatalf("parseCheckType(\"findings\") = %v,%v, want CheckTypeFindings,true", ct, ok)
+	}
+	// Default routing slice (.go → all four passes) carries the neutral tag.
+	m := defaultManifest()
+	goRoutes := m.RouteFile("main.go")
+	if !containsCheckType(goRoutes, CheckTypeFindings) {
+		t.Errorf(".go routing = %v, want to include CheckTypeFindings", goRoutes)
+	}
+	// Unknown-extension default route is findings-only under the neutral tag.
+	other := m.RouteFile("notes.txt")
+	if len(other) != 1 || other[0] != CheckTypeFindings {
+		t.Errorf("unknown-ext routing = %v, want [CheckTypeFindings] only", other)
+	}
+}
+
+// TestCheckType_StringAndParseUseNeutralFindingsNotSemgrep asserts the gate-type
+// STRING surface is tool-neutral (SPEC-035 CLM-032): CheckType.String() returns
+// "findings" (never "semgrep"), parseCheckType accepts "findings", and the old
+// "semgrep" string no longer maps to this type.
+func TestCheckType_StringAndParseUseNeutralFindingsNotSemgrep(t *testing.T) {
+	if got := CheckTypeFindings.String(); got == "semgrep" {
+		t.Errorf("CheckType.String() = %q, want the neutral \"findings\", never the tool name \"semgrep\"", got)
+	}
+	if got := CheckTypeFindings.String(); got != "findings" {
+		t.Errorf("CheckType.String() = %q, want \"findings\"", got)
+	}
+	if _, ok := parseCheckType("findings"); !ok {
+		t.Error("parseCheckType(\"findings\") did not parse; the neutral gate-type string must be accepted")
+	}
+	if ct, ok := parseCheckType("semgrep"); ok {
+		t.Errorf("parseCheckType(\"semgrep\") = %v,true, want false; the tool name must no longer map to a gate type", ct)
 	}
 }

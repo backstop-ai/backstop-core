@@ -1,0 +1,73 @@
+# Fixture (SPEC-035 TASK-001 / Sharp Edge 6): the DIVERGENT-FLAG fixtures — the
+# ONLY fixtures that can prove CLM-023/CLM-024, because the declared flag
+# DISAGREES with the command name. A test using the historical golangci/go-test
+# commands would pass under BOTH the old name-sniff AND the new declared flag,
+# proving nothing. These force the divergence:
+#   - strict-sarif-divergent: command is NOT "golangci-lint" yet strict_sarif is
+#     true -> MUST be guarded (TestStrictSarif_GuardKeyedOnDeclaredFlagNotName,
+#     CLM-023, positive half).
+#   - golangci-named-no-strict: command IS "golangci-lint"-named yet strict_sarif
+#     is false -> MUST NOT be guarded (CLM-023, negative half).
+#   - package-scoped-divergent: command is NOT "go test" yet package_scoped is
+#     true -> MUST be package-scoped
+#     (TestPackageScoped_KeyedOnDeclaredFlagNotName, CLM-024, positive half).
+#   - go-test-named-no-pkgscope: command IS "go test"-named yet package_scoped is
+#     false -> MUST NOT be package-scoped (CLM-024, negative half).
+name: acme/divergent-flags-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Bindings whose declared flags disagree with their command names.
+engines:
+  # NON-golangci command, strict_sarif TRUE -> guarded off the declared flag.
+  strict-sarif-divergent:
+    command: acme-lint run --output.sarif.path stdout
+    input_mode: config-file
+    input_flag: --config
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint
+    strict_sarif: true
+  # golangci-NAMED command, strict_sarif FALSE -> NOT guarded.
+  golangci-named-no-strict:
+    command: golangci-lint run --output.sarif.path stdout
+    input_mode: config-file
+    input_flag: --config
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint
+    strict_sarif: false
+  # NON-"go test" command, package_scoped TRUE -> package-scoped off the flag.
+  package-scoped-divergent:
+    command: acme-test run
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+    package_scoped: true
+    convert: scripts/test-to-sarif.sh
+  # "go test"-NAMED command, package_scoped FALSE -> NOT package-scoped.
+  go-test-named-no-pkgscope:
+    command: go test
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+    package_scoped: false
+    convert: scripts/test-to-sarif.sh
+content:
+  ruleset:
+    rules:
+      - id: divergent-rule
+        engine: strict-sarif-divergent
+        standard: inline standard text
+        risk_class: style
+        rule_path: rules/divergent.yml
+        claims:
+          - id: divergent-rule-claim
+            text: Divergent-flag engines are guarded by declared flags, not names.
+            fixtures:
+              positive:
+                - fixtures/positive/bad.go
+              negative:
+                - fixtures/negative/clean.go

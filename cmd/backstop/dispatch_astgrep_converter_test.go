@@ -73,7 +73,7 @@ func TestAstGrepConverter_RealJSONToValidSarif(t *testing.T) {
 // (CLM-027 / REQ-008): the ast-grep EngineBinding declares a convert script and
 // that script exists inside the pack directory.
 func TestAstGrepPack_ShipsOwnConverter(t *testing.T) {
-	b, err := resolveEngineRegistry().Lookup("ast-grep")
+	b, err := resolveEngineRegistry(nil).Lookup("ast-grep")
 	if err != nil {
 		t.Fatalf("ast-grep engine not registered: %v", err)
 	}

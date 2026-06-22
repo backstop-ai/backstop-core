@@ -36,11 +36,11 @@ func TestCodeCheck_AllPassesRun(t *testing.T) {
 			mu.Unlock()
 			return &PassResult{Pass: CheckTypeTest, Violations: []Violation{{Pass: CheckTypeTest, File: "a.go", Message: "test-err"}}}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			mu.Lock()
-			invoked[CheckTypeSemgrep] = true
+			invoked[CheckTypeFindings] = true
 			mu.Unlock()
-			return &PassResult{Pass: CheckTypeSemgrep, Violations: []Violation{{Pass: CheckTypeSemgrep, File: "a.go", Message: "semgrep-err"}}}, nil
+			return &PassResult{Pass: CheckTypeFindings, Violations: []Violation{{Pass: CheckTypeFindings, File: "a.go", Message: "semgrep-err"}}}, nil
 		}},
 	}
 
@@ -54,7 +54,7 @@ func TestCodeCheck_AllPassesRun(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if !invoked[ct] {
 			t.Errorf("pass %v was not invoked", ct)
 		}
@@ -89,11 +89,11 @@ func TestCodeCheck_PassesContinueAfterViolation(t *testing.T) {
 			mu.Unlock()
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			mu.Lock()
-			callOrder = append(callOrder, CheckTypeSemgrep)
+			callOrder = append(callOrder, CheckTypeFindings)
 			mu.Unlock()
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -139,11 +139,11 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 			mu.Unlock()
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			mu.Lock()
-			invoked[CheckTypeSemgrep] = true
+			invoked[CheckTypeFindings] = true
 			mu.Unlock()
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -153,7 +153,7 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 			{
 				Extensions: []string{".py"},
 				CheckTypes: []string{"semgrep"},
-				parsed:     []CheckType{CheckTypeSemgrep},
+				parsed:     []CheckType{CheckTypeFindings},
 			},
 		},
 	}
@@ -178,7 +178,7 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 	if invoked[CheckTypeTest] {
 		t.Error("test was invoked for .py file")
 	}
-	if !invoked[CheckTypeSemgrep] {
+	if !invoked[CheckTypeFindings] {
 		t.Error("semgrep was NOT invoked for .py file")
 	}
 
@@ -214,7 +214,7 @@ func TestCodeCheck_PassOrderLintBuildTestSemgrep(t *testing.T) {
 		CheckTypeLint:    makeExecutor(CheckTypeLint),
 		CheckTypeBuild:   makeExecutor(CheckTypeBuild),
 		CheckTypeTest:    makeExecutor(CheckTypeTest),
-		CheckTypeSemgrep: makeExecutor(CheckTypeSemgrep),
+		CheckTypeFindings: makeExecutor(CheckTypeFindings),
 	}
 
 	engine := &Engine{
@@ -227,7 +227,7 @@ func TestCodeCheck_PassOrderLintBuildTestSemgrep(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+	expected := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 	if len(order) != 4 {
 		t.Fatalf("got %d passes, want 4", len(order))
 	}
@@ -249,8 +249,8 @@ func TestCodeCheck_Lint_SkippedWhenGolangciLintMissing(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -299,11 +299,11 @@ func TestCodeCheck_Lint_OtherPassesContinueWithoutLint(t *testing.T) {
 			mu.Unlock()
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			mu.Lock()
-			invoked[CheckTypeSemgrep] = true
+			invoked[CheckTypeFindings] = true
 			mu.Unlock()
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -317,7 +317,7 @@ func TestCodeCheck_Lint_OtherPassesContinueWithoutLint(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, ct := range []CheckType{CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if !invoked[ct] {
 			t.Errorf("pass %v was not invoked despite lint being unavailable", ct)
 		}
@@ -339,8 +339,8 @@ func TestCodeCheck_RunWith_Integration(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -431,8 +431,8 @@ func TestCodeCheck_RunWith_Timeout(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -473,8 +473,8 @@ func TestCodeCheck_RunWith_FileMode(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -512,8 +512,8 @@ func TestCodeCheck_RunWith_AllMode(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -559,7 +559,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		CheckTypeLint:    makeExec(CheckTypeLint),
 		CheckTypeBuild:   makeExec(CheckTypeBuild),
 		CheckTypeTest:    makeExec(CheckTypeTest),
-		CheckTypeSemgrep: makeExec(CheckTypeSemgrep),
+		CheckTypeFindings: makeExec(CheckTypeFindings),
 	}
 
 	// Use default manifest (no manifest dir) so .go files get all 4 passes
@@ -579,7 +579,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	}
 
 	// All four passes should be invoked for a .go file
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if !invoked[ct] {
 			t.Errorf("pass %v was not invoked for .go file", ct)
 		}
@@ -606,7 +606,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		CheckTypeLint:    makeExec2(CheckTypeLint),
 		CheckTypeBuild:   makeExec2(CheckTypeBuild),
 		CheckTypeTest:    makeExec2(CheckTypeTest),
-		CheckTypeSemgrep: makeExec2(CheckTypeSemgrep),
+		CheckTypeFindings: makeExec2(CheckTypeFindings),
 	}
 
 	opts2 := RunOptions{
@@ -634,7 +634,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	if invoked2[CheckTypeTest] {
 		t.Error("test was invoked for .txt file")
 	}
-	if !invoked2[CheckTypeSemgrep] {
+	if !invoked2[CheckTypeFindings] {
 		t.Error("semgrep was NOT invoked for .txt file")
 	}
 
@@ -662,7 +662,7 @@ func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
 	}
 	executors := buildDefaultExecutors(opts)
 
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if _, ok := executors[ct]; ok {
 			t.Errorf("the Go stack must NOT construct a native %v executor; that pass runs through a pack engine", ct)
 		}
@@ -800,8 +800,8 @@ func TestCodeCheck_RunPasses_ExecutorError(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -875,8 +875,8 @@ func TestCodeCheck_RunPasses_ContextCancelledBeforePass(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 
@@ -919,8 +919,8 @@ func TestCodeCheck_RunWith_NoBackstopDir(t *testing.T) {
 		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return &PassResult{Pass: CheckTypeTest}, nil
 		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeFindings}, nil
 		}},
 	}
 

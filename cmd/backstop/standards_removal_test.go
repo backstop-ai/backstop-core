@@ -180,7 +180,7 @@ func assertGoRoutingPreserved(t *testing.T, manifest *check.Manifest) {
 		check.CheckTypeLint:    true,
 		check.CheckTypeBuild:   true,
 		check.CheckTypeTest:    true,
-		check.CheckTypeSemgrep: true,
+		check.CheckTypeFindings: true,
 	}
 	for _, ct := range routes {
 		delete(want, ct)

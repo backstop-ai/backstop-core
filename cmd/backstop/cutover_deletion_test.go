@@ -109,7 +109,7 @@ func TestProvision_EnsureSemgrepBespokeInstallRetired(t *testing.T) {
 	// (b) semgrep REMAINS provisioned through the declared model: its engine
 	// binding keeps a pinned Provision record (auto-provisioned), so retiring the
 	// ladder did not silently drop semgrep.
-	bind := resolveEngineRegistry()["semgrep"]
+	bind := resolveEngineRegistry(nil)["semgrep"]
 	if bind.Provision == nil || bind.Provision.Tool != "semgrep" || bind.Provision.Version == "" {
 		t.Fatalf("semgrep must remain pinned + auto-provisioned through declared provisioning, got %+v", bind.Provision)
 	}

@@ -635,7 +635,7 @@ enforcement:
 	// Semgrep must not have produced a pass result that executed: it is either
 	// absent or skipped (not routed). Test pass ran the exit-0 fake: no violations.
 	for _, pr := range captured.PassResults {
-		if pr.Pass == check.CheckTypeSemgrep && !pr.Skipped && len(pr.Violations) > 0 {
+		if pr.Pass == check.CheckTypeFindings && !pr.Skipped && len(pr.Violations) > 0 {
 			t.Errorf("semgrep unexpectedly executed with violations: %+v", pr.Violations)
 		}
 		if pr.Pass == check.CheckTypeTest && len(pr.Violations) > 0 {
@@ -700,5 +700,30 @@ func TestCodeCheck_PackOnly_RulesDispatchViaEnginePath(t *testing.T) {
 	// field at all post-ISSUE-018).
 	if filepath.Base(captured.BackstopDir) != ".backstop" {
 		t.Errorf("BackstopDir = %q, want the project .backstop directory (routing), not a rules-as-config wiring", captured.BackstopDir)
+	}
+}
+
+// TestCodeCheck_PackViolationsStampedWithNeutralFindings asserts the cmd-side
+// pack-findings stamp uses the tool-NEUTRAL check.CheckTypeFindings, not a
+// tool-named tag (SPEC-035 CLM-022/CLM-032). gateViolationsToCheck is the
+// surviving cmd stamp site that converts pack engine violations into check
+// violations; every stamped violation must carry the neutral findings tag and
+// render with the neutral "findings" string.
+func TestCodeCheck_PackViolationsStampedWithNeutralFindings(t *testing.T) {
+	in := []gate.Violation{
+		{File: "pkg/widget/widget.go", Message: "panic is forbidden", Severity: "error"},
+		{File: "pkg/widget/other.go", Message: "no globals", Severity: "warning"},
+	}
+	out := gateViolationsToCheck(in)
+	if len(out) != len(in) {
+		t.Fatalf("gateViolationsToCheck returned %d, want %d", len(out), len(in))
+	}
+	for i, v := range out {
+		if v.Pass != check.CheckTypeFindings {
+			t.Errorf("violation[%d].Pass = %v, want check.CheckTypeFindings (neutral pack-findings tag)", i, v.Pass)
+		}
+		if v.Pass.String() != "findings" {
+			t.Errorf("violation[%d].Pass.String() = %q, want \"findings\"", i, v.Pass.String())
+		}
 	}
 }

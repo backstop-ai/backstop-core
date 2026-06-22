@@ -12,14 +12,46 @@ import (
 
 // Manifest is the top-level pack manifest.
 type Manifest struct {
-	Name           string            `yaml:"name"`
-	NormalizedName string            `yaml:"-"`
-	Version        string            `yaml:"version"`
-	Language       string            `yaml:"language"`
-	Archetype      string            `yaml:"archetype"`
-	Description    string            `yaml:"description"`
-	Content        Content           `yaml:"content"`
-	ToolConfig     []ToolConfigEntry `yaml:"tool_config"`
+	Name           string                `yaml:"name"`
+	NormalizedName string                `yaml:"-"`
+	Version        string                `yaml:"version"`
+	Language       string                `yaml:"language"`
+	Archetype      string                `yaml:"archetype"`
+	Description    string                `yaml:"description"`
+	Content        Content               `yaml:"content"`
+	ToolConfig     []ToolConfigEntry     `yaml:"tool_config"`
+	// Engines holds the pack-declared engine bindings parsed from the top-level
+	// `engines:` block (SPEC-035 REQ-001/CLM-001). Each EngineSpec carries the
+	// yaml-tagged binding fields and is converted to an engine.EngineBinding at
+	// load (EngineSpec.Binding). resolveEngineRegistry merges these over the
+	// fallback registry so a rule's declared engine resolves to the pack-declared
+	// binding when present.
+	Engines map[string]EngineSpec `yaml:"engines"`
+}
+
+// EngineSpec is one entry in a pack manifest's top-level `engines:` block: the
+// yaml-tagged surface a pack declares an execution engine with (SPEC-035
+// REQ-001/CLM-001). The string-valued scope_kind / category / input_mode /
+// gate_type spellings are parsed into the engine package's enum types at load
+// (parseEngineSpec); the resolved engine.EngineBinding is stored on Binding so
+// every consumer reads ONE converted binding, never the raw spec.
+type EngineSpec struct {
+	Command       string                `yaml:"command"`
+	InputMode     string                `yaml:"input_mode"`
+	InputFlag     string                `yaml:"input_flag"`
+	Convert       string                `yaml:"convert"`
+	ScopeKind     string                `yaml:"scope_kind"`
+	Category      string                `yaml:"category"`
+	GateType      string                `yaml:"gate_type"`
+	StrictSarif   bool                  `yaml:"strict_sarif"`
+	PackageScoped bool                  `yaml:"package_scoped"`
+	ProjectTarget string                `yaml:"project_target"`
+	Provision     *engine.Provision     `yaml:"provision"`
+	FieldContract *engine.FieldContract `yaml:"field_contract"`
+	// Binding is the engine.EngineBinding the spec converts to at load. It is
+	// populated by parseEngineSpec during ParseManifest, not parsed directly from
+	// yaml, so the string-enum spellings resolve through the fail-loud parsers.
+	Binding engine.EngineBinding `yaml:"-"`
 }
 
 // Content contains rulesets, scaffolds, and SDK metadata.
@@ -46,6 +78,11 @@ type Rule struct {
 	Engine        string    `yaml:"engine"`
 	Standard      string    `yaml:"standard"`
 	RulePath      string    `yaml:"rule_path"`
+	// Pattern is the inline rule pattern a pattern-arg engine passes as a command
+	// argument instead of resolving a rule file on disk (SPEC-035 REQ-004). Empty
+	// for non-pattern-arg engines; an empty Pattern under a pattern-arg engine is
+	// a blocking broken-pack config error at gather time (CLM-017).
+	Pattern       string    `yaml:"pattern"`
 	RiskClass     string    `yaml:"risk_class"`
 	Claims        []Claim   `yaml:"claims"`
 	Category      string    `yaml:"category"`
@@ -187,6 +224,20 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		return nil, fmt.Errorf("invalid version: %w", err)
 	}
 
+	// Convert each pack-declared engines: spec into a resolved engine.EngineBinding,
+	// fail-louding on any unknown string-enum spelling (input_mode / scope_kind /
+	// category / gate_type). This is the REQ-001/CLM-001 parse and the CLM-021
+	// fail-loud on an unrecognized gate_type.
+	for name := range manifest.Engines {
+		spec := manifest.Engines[name]
+		binding, err := parseEngineSpec(spec)
+		if err != nil {
+			return nil, fmt.Errorf("engine %q: %w", name, err)
+		}
+		spec.Binding = binding
+		manifest.Engines[name] = spec
+	}
+
 	if manifest.Content.Ruleset.Version == "" && manifest.Archetype == "enforcement" {
 		manifest.Content.Ruleset.Version = manifest.Version
 	}
@@ -196,6 +247,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		}
 	}
 
+	declaredBindings := declaredEngineBindings(&manifest)
 	for i := range manifest.Content.Ruleset.Rules {
 		rule := &manifest.Content.Ruleset.Rules[i]
 		if err := ValidateRuleID(rule.ID); err != nil {
@@ -204,7 +256,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		if err := validateRiskClass(rule.RiskClass); err != nil {
 			return nil, err
 		}
-		if err := validateEngine(rule.Engine); err != nil {
+		if err := validateEngine(rule.Engine, declaredBindings); err != nil {
 			return nil, fmt.Errorf("rule %q: %w", rule.ID, err)
 		}
 		for j := range rule.Claims {
@@ -326,18 +378,139 @@ func validateRiskClass(rc string) error {
 	}
 }
 
+// declaredEngineBindings collects the pack-declared engines: block into a
+// {name -> resolved EngineBinding} map for validateEngine's union lookup. The
+// bindings are already converted (EngineSpec.Binding) by the engines-parse loop
+// in ParseManifest, so this just projects them.
+func declaredEngineBindings(m *Manifest) map[string]engine.EngineBinding {
+	declared := make(map[string]engine.EngineBinding, len(m.Engines))
+	for name, spec := range m.Engines {
+		declared[name] = spec.Binding
+	}
+	return declared
+}
+
 // validateEngine fail-louds on a rule whose engine is empty (a layer-only rule
-// under the migrated reader) or unknown to the built-in registry. There is no
-// layer:2 -> engine:semgrep aliasing: a layer-only rule is a blocking config
-// error (REQ-002/REQ-015).
-func validateEngine(name string) error {
+// under the migrated reader) or unknown to BOTH the pack-declared engines: block
+// (declared) and the fallback registry (SPEC-035 REQ-003/CLM-010..012). When the
+// engine IS known, its tool must additionally pass the trusted-tool allowlist:
+// the validation-time half of the trust gate (Sharp Edge 1). A pack-declared
+// binding overrides a same-named built-in (the deterministic merge, CLM-004), so
+// the declared map is consulted FIRST. There is no layer:2 -> engine:semgrep
+// aliasing: a layer-only rule is a blocking config error (REQ-002/REQ-015).
+//
+// The allowlist trust gate only applies to a binding with a non-nil Provision —
+// the backstop-introduced tools that ride the backstop.lock pin (semgrep,
+// ast-grep, or any pack-declared provisioned tool). A nil-Provision binding is an
+// assume-present Layer-0 toolchain engine (go build/test, golangci) or the
+// sandbox/config-file shape: it carries no provisioned tool, so it is governed by
+// the assume-present-on-PATH provisioning model, not the allowlist+lock-pin
+// (CLM-011 still accepts it as a known engine). The lockedVersion passed to
+// CheckToolAllowed is the binding's Provision.Version (the lock-resolved pin),
+// NOT a second literal (CLM-029).
+func validateEngine(name string, declared map[string]engine.EngineBinding) error {
 	if name == "" {
 		return fmt.Errorf("engine is required (the retired layer field is no longer read; declare engine explicitly)")
 	}
-	if _, err := engine.DefaultRegistry().Lookup(name); err != nil {
-		return err
+
+	binding, ok := declared[name]
+	if !ok {
+		var err error
+		binding, err = engine.DefaultRegistry().Lookup(name)
+		if err != nil {
+			return err
+		}
+	}
+
+	if binding.Provision != nil {
+		if err := engine.CheckToolAllowed(
+			engine.TrustedToolAllowlist(),
+			binding.Provision.Tool,
+			binding.Provision.Version,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// parseEngineSpec converts a pack-declared EngineSpec (the yaml-tagged engines:
+// block surface) into a resolved engine.EngineBinding, resolving every
+// string-enum spelling through its fail-loud parser (SPEC-035 REQ-001/CLM-001).
+// An unrecognized input_mode, scope_kind, category, or gate_type is a blocking
+// config error — no silent default (CLM-021 for gate_type).
+func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
+	binding := engine.EngineBinding{
+		Command:       spec.Command,
+		InputFlag:     spec.InputFlag,
+		Convert:       spec.Convert,
+		StrictSarif:   spec.StrictSarif,
+		PackageScoped: spec.PackageScoped,
+		ProjectTarget: spec.ProjectTarget,
+		Provision:     spec.Provision,
+	}
+
+	inputMode, err := engine.ParseInputMode(spec.InputMode)
+	if err != nil {
+		return engine.EngineBinding{}, err
+	}
+	binding.InputMode = inputMode
+
+	scopeKind, err := parseScopeKind(spec.ScopeKind)
+	if err != nil {
+		return engine.EngineBinding{}, err
+	}
+	binding.ScopeKind = scopeKind
+
+	category, err := parseEngineCategory(spec.Category)
+	if err != nil {
+		return engine.EngineBinding{}, err
+	}
+	binding.Category = category
+
+	gateType, err := engine.ParseGateType(spec.GateType)
+	if err != nil {
+		return engine.EngineBinding{}, err
+	}
+	binding.GateType = gateType
+
+	if spec.FieldContract != nil {
+		binding.FieldContract = *spec.FieldContract
+	}
+
+	return binding, nil
+}
+
+// parseScopeKind resolves the pack-declared scope_kind spelling (file-args |
+// project-wide) into engine.ScopeKind, fail-louding on an unrecognized value. An
+// empty value defaults to file-args (the scoped-file-args attachment), matching
+// the binding's zero value.
+func parseScopeKind(s string) (engine.ScopeKind, error) {
+	switch s {
+	case "", "file-args":
+		return engine.ScopeKindFileArgs, nil
+	case "project-wide":
+		return engine.ScopeKindProjectWide, nil
+	default:
+		return 0, fmt.Errorf("unknown scope_kind %q: must be one of file-args, project-wide", s)
+	}
+}
+
+// parseEngineCategory resolves the pack-declared category spelling (opinion |
+// mechanism) into engine.EngineCategory, fail-louding on an unrecognized value.
+// An empty value defaults to EngineCategoryUnset (neither mechanism nor opinion,
+// invisible to the pack-separation boundary check).
+func parseEngineCategory(s string) (engine.EngineCategory, error) {
+	switch s {
+	case "":
+		return engine.EngineCategoryUnset, nil
+	case "mechanism":
+		return engine.EngineCategoryMechanism, nil
+	case "opinion":
+		return engine.EngineCategoryOpinion, nil
+	default:
+		return 0, fmt.Errorf("unknown category %q: must be one of mechanism, opinion", s)
+	}
 }
 
 func validateSemver(v string) error {

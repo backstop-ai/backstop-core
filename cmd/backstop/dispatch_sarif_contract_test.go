@@ -35,7 +35,7 @@ func TestGateDispatch_SarifNativeNoConvert(t *testing.T) {
 	// semgrep is the built-in SARIF-native engine (Convert == ""). Confirm the
 	// binding really carries no convert script, so this test asserts the
 	// no-convert path and not an accidental convert.
-	if b := resolveEngineRegistry()["semgrep"]; b.Convert != "" {
+	if b := resolveEngineRegistry(nil)["semgrep"]; b.Convert != "" {
 		t.Fatalf("test precondition: semgrep must be SARIF-native (empty Convert), got %q", b.Convert)
 	}
 	// Inject a convert seam that records calls; for the empty-Convert path it must

@@ -18,7 +18,7 @@ import (
 func TestCLI_GateBridge_PreservesRuleAndSourcePack(t *testing.T) {
 	in := []check.Violation{
 		{
-			Pass:     check.CheckTypeSemgrep,
+			Pass:     check.CheckTypeFindings,
 			File:     "pkg/server/handler.go",
 			Line:     31,
 			Message:  "panic() is disallowed",
@@ -43,7 +43,7 @@ func TestCLI_GateBridge_PreservesRuleAndSourcePack(t *testing.T) {
 	// Pack-namespaced semgrep violation.
 	packV := out[0]
 	if packV.Rule != "org/pack/rule-id" {
-		t.Errorf("Rule = %q, want the verbatim namespaced ID org/pack/rule-id (not %q)", packV.Rule, check.CheckTypeSemgrep.String())
+		t.Errorf("Rule = %q, want the verbatim namespaced ID org/pack/rule-id (not %q)", packV.Rule, check.CheckTypeFindings.String())
 	}
 	if packV.SourcePack != "org/pack" {
 		t.Errorf("SourcePack = %q, want org/pack (everything before the LAST slash, two-segment pack name)", packV.SourcePack)

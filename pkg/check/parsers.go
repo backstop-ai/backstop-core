@@ -40,14 +40,14 @@ func lookupParser(format string) (Parser, error) {
 // engine dispatch path (SPEC-031 REQ-005/REQ-006/CLM-019/CLM-036). It resolves
 // the parser exclusively through lookupParser("sarif") — the dispatch path owns
 // no engine enumeration and never references golangci-json/eslint-json. The
-// returned violations are stamped with CheckTypeSemgrep, the pack-findings pass.
+// returned violations are stamped with CheckTypeFindings, the pack-findings pass.
 // A non-SARIF input fails loud via parseSarif's JSON rejection.
 func ParsePackFindings(out []byte) ([]Violation, error) {
 	parser, err := lookupParser("sarif")
 	if err != nil {
 		return nil, fmt.Errorf("resolving sarif parser for pack findings: %w", err)
 	}
-	return parser(out, CheckTypeSemgrep)
+	return parser(out, CheckTypeFindings)
 }
 
 // eslintFile is one entry of eslint's JSON array output.

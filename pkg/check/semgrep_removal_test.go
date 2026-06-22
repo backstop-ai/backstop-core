@@ -217,13 +217,15 @@ func TestConfig_SemgrepVersion_Removed(t *testing.T) {
 	}
 }
 
-// TestCheckTypeSemgrep_StillPresent guards against over-deletion: the
-// CheckTypeSemgrep enum is the live pack-findings pass tag (renamed, not deleted,
-// by SPEC-035) and MUST survive Section B. CLM-011.
-func TestCheckTypeSemgrep_StillPresent(t *testing.T) {
+// TestCheckTypeFindings_StillPresent guards against over-deletion: the
+// pack-findings pass-tag enum is the live findings tag and MUST survive Section
+// B. SPEC-035 renamed it from the tool-named CheckTypeSemgrep to the neutral
+// CheckTypeFindings (String() "findings"), so this guard tracks the neutral
+// name. CLM-011 (survival) / CLM-022+CLM-032 (neutral name+string).
+func TestCheckTypeFindings_StillPresent(t *testing.T) {
 	// Compile-time reference: if the enum were deleted this file would not build.
-	if CheckTypeSemgrep.String() != "semgrep" {
-		t.Errorf("CheckTypeSemgrep.String() = %q, want \"semgrep\"; the live pack-findings pass tag must survive", CheckTypeSemgrep.String())
+	if CheckTypeFindings.String() != "findings" {
+		t.Errorf("CheckTypeFindings.String() = %q, want \"findings\"; the live pack-findings pass tag must survive under its neutral name", CheckTypeFindings.String())
 	}
 }
 
@@ -256,8 +258,8 @@ func TestParsePackFindings_SurvivesExecutorRemoval(t *testing.T) {
 		t.Fatalf("expected exactly 1 violation from the live SARIF path, got %d: %+v", len(vs), vs)
 	}
 	v := vs[0]
-	if v.Pass != CheckTypeSemgrep {
-		t.Errorf("violation Pass = %v, want CheckTypeSemgrep (the pack-findings tag)", v.Pass)
+	if v.Pass != CheckTypeFindings {
+		t.Errorf("violation Pass = %v, want CheckTypeFindings (the pack-findings tag)", v.Pass)
 	}
 	if v.Rule != "org/pack/no-panic" || v.File != "pkg/widget/widget.go" || v.Line != 42 {
 		t.Errorf("live SARIF finding not parsed correctly, got %+v", v)

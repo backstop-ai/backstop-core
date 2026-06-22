@@ -93,7 +93,7 @@ func TestCodeCheck_Executors_ContextCancellationSurfacesTimeout(t *testing.T) {
 			CheckTypeLint:    regexLinesExecutor(CheckTypeLint, runner),
 			CheckTypeBuild:   regexLinesExecutor(CheckTypeBuild, runner),
 			CheckTypeTest:    regexLinesExecutor(CheckTypeTest, runner),
-			CheckTypeSemgrep: regexLinesExecutor(CheckTypeSemgrep, runner),
+			CheckTypeFindings: regexLinesExecutor(CheckTypeFindings, runner),
 		},
 		Manifest: defaultManifest(),
 	}
@@ -145,7 +145,7 @@ func TestCodeCheck_Executors_UnavailableToolSkipsWithWarning(t *testing.T) {
 		CheckTypeLint:    &unavailableExecutor{pass: CheckTypeLint, reason: "golangci-lint not found on PATH"},
 		CheckTypeBuild:   regexLinesExecutor(CheckTypeBuild, runner),
 		CheckTypeTest:    regexLinesExecutor(CheckTypeTest, runner),
-		CheckTypeSemgrep: regexLinesExecutor(CheckTypeSemgrep, runner),
+		CheckTypeFindings: regexLinesExecutor(CheckTypeFindings, runner),
 	}
 	engine := &Engine{Executors: executors, Manifest: defaultManifest()}
 
@@ -176,7 +176,7 @@ func TestCodeCheck_Executors_UnavailableToolSkipsWithWarning(t *testing.T) {
 	}
 
 	// No short-circuit: build, test, and semgrep passes must still have run.
-	for _, ct := range []CheckType{CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		pr := findPassResult(result, ct)
 		if pr == nil {
 			t.Errorf("%v pass result missing — earlier skip must not short-circuit later passes", ct)

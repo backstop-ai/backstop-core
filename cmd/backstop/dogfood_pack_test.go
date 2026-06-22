@@ -75,7 +75,7 @@ func assertDogfoodRoutingHasSemgrep(t *testing.T, manifest *check.Manifest) {
 	t.Helper()
 	routes := manifest.RouteFile("main.go")
 	for _, ct := range routes {
-		if ct == check.CheckTypeSemgrep {
+		if ct == check.CheckTypeFindings {
 			return
 		}
 	}

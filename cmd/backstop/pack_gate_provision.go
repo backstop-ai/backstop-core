@@ -65,9 +65,20 @@ func provisionEngines(packs []*pack.Manifest) error {
 			}
 			seenEngine[rule.Engine] = struct{}{}
 
-			binding, lookupErr := resolveEngineRegistry().Lookup(rule.Engine)
+			binding, lookupErr := resolveEngineRegistry(manifest).Lookup(rule.Engine)
 			if lookupErr != nil {
 				return fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+			}
+			// TRUST GATE (SPEC-035 REQ-003/CLM-030) — provisionEngines is the
+			// EARLIEST resolveEngineRegistry caller that leads to running a tool, so
+			// the allowlist check is routed HERE too: an un-allowlisted (or
+			// version-divergent) provisioned tool fails loud with a *check.ConfigError
+			// BEFORE provisioning, the natural chokepoint ahead of validate + dispatch.
+			// It is the SAME engine.CheckToolAllowed the dispatch gate runs, via the
+			// shared checkEngineToolAllowed (a nil-Provision binding is exempt here —
+			// its on-PATH fail-loud below governs it, not the allowlist+lock pin).
+			if gateErr := checkEngineToolAllowed(manifest, binding); gateErr != nil {
+				return gateErr
 			}
 			// Non-nil Provision => backstop-introduced, pinned + auto-provisioned;
 			// not subject to the assume-present fail-loud (CLM-028).

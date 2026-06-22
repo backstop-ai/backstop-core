@@ -134,7 +134,7 @@ func TestCodeCheck_Routing_TSFilesRouteAllPasses(t *testing.T) {
 
 	for _, path := range []string{"src/app.ts", "src/widget.tsx"} {
 		checks := m.RouteFile(path)
-		want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+		want := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 		if len(checks) != len(want) {
 			t.Fatalf("%s routed %d checks, want 4: %v", path, len(checks), checks)
 		}
@@ -180,7 +180,7 @@ func TestCodeCheck_Routing_DeclaredStackExtensionsRoute(t *testing.T) {
 		!containsCheckType(checks, CheckTypeTest) {
 		t.Errorf("declared .rs routing = %v, want at least lint/build/test", checks)
 	}
-	if !containsCheckType(checks, CheckTypeSemgrep) {
+	if !containsCheckType(checks, CheckTypeFindings) {
 		t.Errorf("declared .rs routing = %v, want semgrep (signal present)", checks)
 	}
 

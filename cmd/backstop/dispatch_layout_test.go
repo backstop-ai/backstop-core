@@ -18,7 +18,7 @@ func TestPackLayout_EngineDirResolvesInputs(t *testing.T) {
 	packRoot := filepath.Join(engineDispatchPacksDir(t), "test-org", "engine-pack")
 	manifest := &pack.Manifest{NormalizedName: "test-org/engine-pack"}
 
-	reg := resolveEngineRegistry()
+	reg := resolveEngineRegistry(nil)
 
 	// rule-flags engine (semgrep): inputs are `--config <packRoot>/semgrep/no-eval.yml`.
 	semgrepInputs, err := gatherEngineInputs(manifest, packRoot, reg["semgrep"], []pack.Rule{
@@ -66,7 +66,7 @@ func TestPackLayout_MissingInputPathFailsLoud(t *testing.T) {
 	packRoot := filepath.Join(engineDispatchPacksDir(t), "test-org", "engine-pack")
 	manifest := &pack.Manifest{NormalizedName: "test-org/engine-pack"}
 
-	_, err := gatherEngineInputs(manifest, packRoot, resolveEngineRegistry()["semgrep"], []pack.Rule{
+	_, err := gatherEngineInputs(manifest, packRoot, resolveEngineRegistry(nil)["semgrep"], []pack.Rule{
 		{ID: "ghost", Engine: "semgrep", RulePath: "semgrep/does-not-exist.yml"},
 	})
 	if err == nil {

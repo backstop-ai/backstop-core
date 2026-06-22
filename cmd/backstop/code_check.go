@@ -181,7 +181,7 @@ dispatch with a 2-second execution budget.`,
 				}
 				if len(packViolations) > 0 {
 					result.PassResults = append(result.PassResults, check.PassResult{
-						Pass:       check.CheckTypeSemgrep,
+						Pass:       check.CheckTypeFindings,
 						Violations: gateViolationsToCheck(packViolations),
 					})
 				}
@@ -223,7 +223,7 @@ func gateViolationsToCheck(violations []gate.Violation) []check.Violation {
 	out := make([]check.Violation, 0, len(violations))
 	for _, violation := range violations {
 		out = append(out, check.Violation{
-			Pass:     check.CheckTypeSemgrep,
+			Pass:     check.CheckTypeFindings,
 			File:     violation.File,
 			Message:  violation.Message,
 			Severity: violation.Severity,

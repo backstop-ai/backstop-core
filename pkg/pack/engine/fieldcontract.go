@@ -24,7 +24,15 @@ const (
 )
 
 // DefaultFieldContracts returns the built-in engine field-contracts keyed by
-// engine name. Re-keyed from the live per-layer requirements:
+// engine name. These travel under the SAME OQ-1 disposition as DefaultRegistry
+// (SPEC-035 REQ-003/CLM-037, resolved to OPTION i): this name-keyed map is the
+// FALLBACK a pack-declared field-contract OVERRIDES for the same engine name (the
+// resolution lives in contractForEngine — a binding's declared FieldContract wins,
+// this map is the default when the binding declares none). It is NOT an
+// independent unscoped baked map immune to pack override; it is the overridable
+// default for the built-ins, mirroring DefaultRegistry's fallback role.
+//
+// Re-keyed from the live per-layer requirements:
 //   - semgrep (ex-layer-2): requires rule_path+standard; forbids
 //     category/input_scope/validator.
 //   - ast-grep: requires rule_path; forbids category/input_scope/validator

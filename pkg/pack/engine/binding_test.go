@@ -119,6 +119,40 @@ func TestInputMode_UnknownValueFailsLoud(t *testing.T) {
 	}
 }
 
+// TestParseInputMode_PatternArgAccepted asserts ParseInputMode resolves the new
+// fifth value "pattern-arg" to InputModePatternArg with no error — the seam
+// BUNDLE-009 needs for pattern-as-argument engines. CLM-014.
+func TestParseInputMode_PatternArgAccepted(t *testing.T) {
+	got, err := ParseInputMode("pattern-arg")
+	if err != nil {
+		t.Fatalf("ParseInputMode(pattern-arg): %v", err)
+	}
+	if got != InputModePatternArg {
+		t.Errorf("got %q, want pattern-arg", got)
+	}
+	if string(InputModePatternArg) != "pattern-arg" {
+		t.Errorf("InputModePatternArg string = %q, want pattern-arg", InputModePatternArg)
+	}
+}
+
+// TestParseInputMode_UnknownStillFailsLoud asserts that adding pattern-arg did
+// not open a silent-default hole: an unrecognized input_mode still errors and
+// names the offending value. CLM-015.
+func TestParseInputMode_UnknownStillFailsLoud(t *testing.T) {
+	_, err := ParseInputMode("pattern-glob")
+	if err == nil {
+		t.Fatal("expected error for unknown input_mode after pattern-arg added, got nil")
+	}
+	if !strings.Contains(err.Error(), "pattern-glob") {
+		t.Errorf("error must name the offending value, got: %v", err)
+	}
+	// pattern-arg must appear in the accepted-values message so the enum stays
+	// exhaustively documented in the fail-loud surface.
+	if !strings.Contains(err.Error(), "pattern-arg") {
+		t.Errorf("fail-loud message must list pattern-arg as an accepted value, got: %v", err)
+	}
+}
+
 // TestRegistry_SeedsBuiltins asserts the default registry seeds the built-in
 // engines (semgrep, ast-grep, sandbox, config-file) with their declared shapes.
 func TestRegistry_SeedsBuiltins(t *testing.T) {

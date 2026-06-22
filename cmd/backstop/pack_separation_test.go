@@ -85,10 +85,10 @@ func TestGoToolchainPack_MechanismOnlyNoStandards(t *testing.T) {
 	// Direct structural restatement of the contract: every rule is a toolchain
 	// mechanism engine; none is a standards engine; none has a `standard:` field.
 	for _, r := range rules {
-		if !isToolchainMechanismEngine(r.Engine) {
+		if !isToolchainMechanismEngine(nil, r.Engine) {
 			t.Errorf("rule %q binds engine %q, which is not a toolchain mechanism engine — standards opinion must not live in the toolchain pack", r.ID, r.Engine)
 		}
-		if isStandardsOpinionEngine(r.Engine) {
+		if isStandardsOpinionEngine(nil, r.Engine) {
 			t.Errorf("rule %q binds standards engine %q in the toolchain pack (opinion bleed)", r.ID, r.Engine)
 		}
 		if r.Standard != "" {
@@ -114,10 +114,10 @@ func TestGoStandardsPack_OpinionOnlyNoToolchain(t *testing.T) {
 	}
 
 	for _, r := range rules {
-		if isToolchainMechanismEngine(r.Engine) {
+		if isToolchainMechanismEngine(nil, r.Engine) {
 			t.Errorf("rule %q binds toolchain mechanism engine %q in the standards pack (mechanism bleed)", r.ID, r.Engine)
 		}
-		if !isStandardsOpinionEngine(r.Engine) {
+		if !isStandardsOpinionEngine(nil, r.Engine) {
 			t.Errorf("rule %q binds engine %q, which is not a standards opinion engine — the standards pack carries opinion only", r.ID, r.Engine)
 		}
 	}
@@ -132,7 +132,7 @@ func TestGoStandardsPack_OpinionOnlyNoToolchain(t *testing.T) {
 // engine set, so the pack is dispatchable the moment it is installed.
 func TestGoToolchainPack_LandsInLockstepWithBridge(t *testing.T) {
 	m := goToolchainManifest(t)
-	reg := resolveEngineRegistry()
+	reg := resolveEngineRegistry(nil)
 
 	var sawBuild, sawTest, sawLint bool
 	for _, r := range m.Content.Ruleset.Rules {
@@ -261,24 +261,24 @@ func TestPackSeparation_CategoryDrivesClassification(t *testing.T) {
 
 	// The classifiers read Category off the registry, so the new engines are
 	// classified with no change to the helpers themselves.
-	if !isToolchainMechanismEngine("newmech") {
+	if !isToolchainMechanismEngine(nil, "newmech") {
 		t.Error("an engine declared EngineCategoryMechanism must classify as toolchain mechanism")
 	}
-	if isStandardsOpinionEngine("newmech") {
+	if isStandardsOpinionEngine(nil, "newmech") {
 		t.Error("a mechanism engine must NOT classify as opinion")
 	}
-	if !isStandardsOpinionEngine("newopinion") {
+	if !isStandardsOpinionEngine(nil, "newopinion") {
 		t.Error("an engine declared EngineCategoryOpinion must classify as standards opinion")
 	}
-	if isToolchainMechanismEngine("newopinion") {
+	if isToolchainMechanismEngine(nil, "newopinion") {
 		t.Error("an opinion engine must NOT classify as mechanism")
 	}
 	// EngineCategoryUnset => neither (same as the pre-ISSUE-015 false/false), and an
 	// engine absent from the registry resolves the same neutral way.
-	if isToolchainMechanismEngine("newneutral") || isStandardsOpinionEngine("newneutral") {
+	if isToolchainMechanismEngine(nil, "newneutral") || isStandardsOpinionEngine(nil, "newneutral") {
 		t.Error("an EngineCategoryUnset engine must classify as neither mechanism nor opinion")
 	}
-	if isToolchainMechanismEngine("does-not-exist") || isStandardsOpinionEngine("does-not-exist") {
+	if isToolchainMechanismEngine(nil, "does-not-exist") || isStandardsOpinionEngine(nil, "does-not-exist") {
 		t.Error("an unregistered engine must classify as neither mechanism nor opinion")
 	}
 
@@ -324,5 +324,58 @@ func TestPackSeparation_NilAndEmptySafe(t *testing.T) {
 	}
 	if v := packSeparationViolations(empty); len(v) != 0 {
 		t.Errorf("empty pack must produce no violations, got %v", v)
+	}
+}
+
+// TestPackSeparation_ReaderRunsNoCommandNoAllowlistNeeded proves the
+// pack-separation reader (the THIRD resolveEngineRegistry caller) looks up only a
+// binding's Category and runs NO command, so it is explicitly EXEMPT from the
+// trusted-tool allowlist gate (SPEC-035 REQ-003/CLM-031). With the allowlist
+// stubbed EMPTY — under which ANY tool would fail an allowlist check — the
+// separation classification of a pack binding an un-allowlisted engine still
+// succeeds and runs no command: an un-allowlisted engine here is not an execution
+// path, so gating it would be wrong.
+func TestPackSeparation_ReaderRunsNoCommandNoAllowlistNeeded(t *testing.T) {
+	// Empty allowlist: if the separation reader consulted the allowlist, every
+	// tool would be rejected. It must not consult it at all.
+	orig := trustedToolAllowlist
+	trustedToolAllowlist = func() map[string]string { return map[string]string{} }
+	t.Cleanup(func() { trustedToolAllowlist = orig })
+
+	// A pack declaring a provisioned engine whose tool is absent from the (empty)
+	// allowlist. The separation reader classifies it by Category only.
+	m := &pack.Manifest{
+		Name:           "acme/separation-reader",
+		NormalizedName: "acme/separation-reader",
+		Engines: map[string]pack.EngineSpec{
+			"acme-opinion": {Binding: engine.EngineBinding{
+				Command:   "acme-never-allowlisted scan",
+				InputMode: engine.InputModeRuleFlags,
+				InputFlag: "--config",
+				ScopeKind: engine.ScopeKindFileArgs,
+				Provision: &engine.Provision{Tool: "acme-never-allowlisted", Version: "1.0.0"},
+				Category:  engine.EngineCategoryOpinion,
+			}},
+		},
+		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
+			{ID: "r", Engine: "acme-opinion", Standard: "x"},
+		}}},
+	}
+
+	// The reader resolves the engine's Category — NO command run, NO allowlist
+	// consulted — and classifies the pack as opinion. It must not panic or error
+	// on the un-allowlisted tool, because it never tries to run it.
+	if !isStandardsOpinionEngine(m, "acme-opinion") {
+		t.Error("the separation reader must classify the engine by its declared Category (opinion), reading no command and no allowlist")
+	}
+	if isToolchainMechanismEngine(m, "acme-opinion") {
+		t.Error("an opinion-category engine must not classify as mechanism")
+	}
+	cls := classifyPack(m)
+	if !cls.HasOpinion {
+		t.Errorf("the pack must classify as opinion via the Category-only reader, got %+v", cls)
+	}
+	if v := packSeparationViolations(m); len(v) != 0 {
+		t.Errorf("a single-opinion pack produces no separation violations regardless of the (empty) allowlist, got %v", v)
 	}
 }

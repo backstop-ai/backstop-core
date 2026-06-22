@@ -304,10 +304,11 @@ func resolveToolchain(language string, cfg *config.Config) (Toolchain, error) {
 // validateToolchainKeys is the single source of truth for enforcement.toolchain
 // key validity (ISSUE-008 / REQ-001). It returns a *ConfigError for the FIRST
 // key that parseCheckType does not recognize, naming the offending key and
-// enumerating the allowed vocabulary (lint/build/test/semgrep) so the author
-// can self-correct a typo. A `semgrep:` key is accepted as in-vocabulary even
-// though it has no toolchain-overlay effect today (semgrep stays the shared
-// executor). A nil cfg or empty toolchain map is valid (returns nil).
+// enumerating the allowed vocabulary (lint/build/test/findings) so the author
+// can self-correct a typo. A `findings:` key is accepted as in-vocabulary even
+// though it has no toolchain-overlay effect today (the rule-fed findings pass
+// runs through the pack engine, not a pkg/check executor). A nil cfg or empty
+// toolchain map is valid (returns nil).
 func validateToolchainKeys(cfg *config.Config) error {
 	if cfg == nil {
 		return nil
@@ -315,7 +316,7 @@ func validateToolchainKeys(cfg *config.Config) error {
 	for pass := range cfg.Enforcement.Toolchain {
 		if _, ok := parseCheckType(pass); !ok {
 			return &ConfigError{Message: fmt.Sprintf(
-				"unknown enforcement.toolchain pass key %q in backstop.yml: allowed keys are lint, build, test, semgrep", pass)}
+				"unknown enforcement.toolchain pass key %q in backstop.yml: allowed keys are lint, build, test, findings", pass)}
 		}
 	}
 	return nil

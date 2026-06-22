@@ -11,7 +11,7 @@ import (
 )
 
 // passOrder defines the fixed execution order for validation passes.
-var passOrder = []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+var passOrder = []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 
 // Options configures a check run.
 type Options struct {

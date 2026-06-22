@@ -10,6 +10,7 @@ import (
 
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 func TestGateIntegration_LoadsPacksFromConfig(t *testing.T) {
@@ -414,6 +415,141 @@ func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 		if v.SourcePack != "test-org/sf-pack" {
 			t.Errorf("expected SourcePack 'test-org/sf-pack', got %q", v.SourcePack)
 		}
+	}
+}
+
+// packDeclaredFindingsManifest builds an in-memory manifest carrying a top-level
+// engines: block that declares a NEW findings engine ("acme-findings") plus one
+// rule bound to it. The engine is SARIF-native (no Convert) and provisioned via a
+// pinned record whose tool is on the test allowlist, so the dispatch trust gate
+// passes when the lock matches the pin. This is the SPEC-035 pack-declared-binding
+// fixture: the engine exists ONLY in the manifest's engines block, never in
+// DefaultRegistry, so a successful dispatch proves the merge made it reachable.
+func packDeclaredFindingsManifest(t *testing.T, packDir string, command, tool, version string) *pack.Manifest {
+	t.Helper()
+	packRoot := filepath.Join(packDir, "acme", "pack")
+	if err := os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755); err != nil {
+		t.Fatalf("mkdir pack rules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packRoot, "rules", "r.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+	return &pack.Manifest{
+		NormalizedName: "acme/pack",
+		Engines: map[string]pack.EngineSpec{
+			"acme-findings": {
+				Binding: engineBindingForTest(command, tool, version),
+			},
+		},
+		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
+			{ID: "r", Engine: "acme-findings", RulePath: "rules/r.yml", Standard: "x"},
+		}}},
+	}
+}
+
+// engineBindingForTest constructs an engine.EngineBinding for a pack-declared
+// rule-flags findings engine, mirroring what parseEngineSpec would yield, with a
+// pinned Provision so the dispatch trust gate has a tool+version to check.
+func engineBindingForTest(command, tool, version string) engine.EngineBinding {
+	return engine.EngineBinding{
+		Command:   command,
+		InputMode: engine.InputModeRuleFlags,
+		InputFlag: "--config",
+		ScopeKind: engine.ScopeKindFileArgs,
+		Provision: &engine.Provision{Tool: tool, Version: version},
+		Category:  engine.EngineCategoryOpinion,
+	}
+}
+
+// TestResolveRegistry_PackDeclaredBindingMerged proves a pack-declared engine
+// binding is merged into the registry resolveEngineRegistry returns, so a rule on
+// that engine resolves to the pack-declared binding (SPEC-035 CLM-002). The engine
+// "acme-findings" exists ONLY in the manifest's engines: block — never in
+// DefaultRegistry — so its presence in the resolved registry proves the merge.
+func TestResolveRegistry_PackDeclaredBindingMerged(t *testing.T) {
+	m := packDeclaredFindingsManifest(t, t.TempDir(), "acme-scan --sarif", "acme-scan", "2.3.1")
+
+	// Precondition: the engine is genuinely absent from the fallback registry, so a
+	// hit can only come from the merge.
+	if _, err := engine.DefaultRegistry().Lookup("acme-findings"); err == nil {
+		t.Fatal("test precondition: acme-findings must NOT be a built-in engine")
+	}
+
+	reg := resolveEngineRegistry(m)
+	binding, err := reg.Lookup("acme-findings")
+	if err != nil {
+		t.Fatalf("pack-declared engine must be merged into the resolved registry: %v", err)
+	}
+	if binding.Command != "acme-scan --sarif" {
+		t.Errorf("resolved binding must be the pack-declared one, got Command=%q", binding.Command)
+	}
+}
+
+// TestResolveRegistry_PackBindingResolutionIsDeterministic proves a pack engines:
+// block redeclaring a built-in name resolves to a WELL-DEFINED binding (the decided
+// merge rule: pack-declared OVERRIDES the same-named built-in), not map-iteration
+// order (SPEC-035 CLM-004 / Sharp Edge 9). The redeclared command differs from the
+// DefaultRegistry "semgrep --sarif --quiet" so the winner is observable.
+func TestResolveRegistry_PackBindingResolutionIsDeterministic(t *testing.T) {
+	const redeclared = "acme-vendored-semgrep --sarif --quiet --extra"
+	m := &pack.Manifest{
+		NormalizedName: "acme/redeclares",
+		Engines: map[string]pack.EngineSpec{
+			"semgrep": {Binding: engine.EngineBinding{
+				Command:   redeclared,
+				InputMode: engine.InputModeRuleFlags,
+				InputFlag: "--config",
+				Provision: &engine.Provision{Tool: "semgrep", Version: "1.96.0"},
+				Category:  engine.EngineCategoryOpinion,
+			}},
+		},
+	}
+
+	builtin := engine.DefaultRegistry()["semgrep"].Command
+
+	// Resolve repeatedly: the result must be stable AND the pack-declared command,
+	// never the built-in (proving a decided override, not iteration order).
+	for i := 0; i < 8; i++ {
+		got, err := resolveEngineRegistry(m).Lookup("semgrep")
+		if err != nil {
+			t.Fatalf("redeclared engine must resolve: %v", err)
+		}
+		if got.Command == builtin {
+			t.Fatalf("pack-declared binding must OVERRIDE the same-named built-in (got the built-in %q)", builtin)
+		}
+		if got.Command != redeclared {
+			t.Fatalf("merge resolution is not deterministic: got %q, want %q", got.Command, redeclared)
+		}
+	}
+}
+
+// TestDispatch_PackDeclaredEngineRunsViaGenericDispatch proves a pack-declared
+// engine dispatches through the EXISTING runFindingsEngine/gatherEngineInputs with
+// no dispatcher change — the binding fields drive it (SPEC-035 CLM-003). The
+// engine's tool is allowlisted+lock-pinned so the trust gate passes and the command
+// reaches the recording runner.
+func TestDispatch_PackDeclaredEngineRunsViaGenericDispatch(t *testing.T) {
+	withTestAllowlist(t)
+	packDir := t.TempDir()
+	m := packDeclaredFindingsManifest(t, packDir, "acme-scan --sarif", "acme-scan", "2.3.1")
+
+	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
+	if _, err := dispatchPackEngines([]*pack.Manifest{m}, packDir, t.TempDir(), nil, rec); err != nil {
+		t.Fatalf("dispatchPackEngines for a pack-declared engine: %v", err)
+	}
+	if rec.lastName != "acme-scan" {
+		t.Errorf("the pack-declared engine's command must run via the generic dispatch, got runner name %q", rec.lastName)
+	}
+	// The rule's --config rule file must have been gathered by the unchanged
+	// gatherEngineInputs (rule-flags mode).
+	sawConfig := false
+	for i := 0; i+1 < len(rec.lastArgs); i++ {
+		if rec.lastArgs[i] == "--config" && strings.HasSuffix(rec.lastArgs[i+1], "rules/r.yml") {
+			sawConfig = true
+		}
+	}
+	if !sawConfig {
+		t.Errorf("generic gatherEngineInputs must feed the pack-declared engine its rule file, got args %v", rec.lastArgs)
 	}
 }
 

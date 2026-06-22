@@ -38,11 +38,12 @@ enforcement:
       format: regex-lines
 `
 
-// semgrepKeyRustBackstopYML declares an in-vocabulary `semgrep:` key alongside a
-// valid `lint:` entry for a non-go language. parseCheckType accepts "semgrep",
-// so the guard must accept it (accept-semgrep decision) even though it has no
-// toolchain-overlay effect today.
-const semgrepKeyRustBackstopYML = `project: rust-example
+// findingsKeyRustBackstopYML declares an in-vocabulary `findings:` key alongside
+// a valid `lint:` entry for a non-go language. parseCheckType accepts the
+// tool-NEUTRAL "findings" (SPEC-035 renamed the former tool-named "semgrep"
+// gate-type to "findings"), so the guard must accept it even though it has no
+// toolchain-overlay effect today (pack findings run through the engine path).
+const findingsKeyRustBackstopYML = `project: rust-example
 language: rust
 enforcement:
   toolchain:
@@ -50,7 +51,7 @@ enforcement:
       command: "cargo clippy --message-format short"
       format: regex-lines
       extensions: [".rs"]
-    semgrep:
+    findings:
       command: "semgrep --config auto"
       format: regex-lines
 `
@@ -95,8 +96,8 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	if _, ok := tsExec[CheckTypeTest].(*commandExecutor); !ok {
 		t.Errorf("TS test executor type = %T, want *commandExecutor", tsExec[CheckTypeTest])
 	}
-	if _, ok := tsExec[CheckTypeSemgrep]; ok {
-		t.Errorf("TS stack must construct no semgrep executor (it runs through the pack engine), got %T", tsExec[CheckTypeSemgrep])
+	if _, ok := tsExec[CheckTypeFindings]; ok {
+		t.Errorf("TS stack must construct no semgrep executor (it runs through the pack engine), got %T", tsExec[CheckTypeFindings])
 	}
 
 	// The TS lint command must be eslint-derived, distinct from golangci-lint.
@@ -117,7 +118,7 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 // the pack engine too — so the registry's Go executor map is empty.
 func assertGoStackConstructsNoExecutors(t *testing.T, ctx string, execs map[CheckType]PassExecutor) {
 	t.Helper()
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if _, ok := execs[ct]; ok {
 			t.Errorf("%s: Go stack must construct no native %v executor (it runs through a pack engine), got %T", ctx, ct, execs[ct])
 		}
@@ -199,7 +200,7 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 			t.Errorf("message %q must name the offending key %q", cfgErr.Message, "typecheck")
 		}
 		// Must enumerate the allowed vocabulary.
-		for _, allowed := range []string{"lint", "build", "test", "semgrep"} {
+		for _, allowed := range []string{"lint", "build", "test", "findings"} {
 			if !strings.Contains(cfgErr.Message, allowed) {
 				t.Errorf("message %q must enumerate allowed vocabulary value %q", cfgErr.Message, allowed)
 			}
@@ -232,21 +233,23 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 		}
 	})
 
-	// --- Accept-semgrep decision: `semgrep:` is in parseCheckType's vocabulary
-	// and must NOT be rejected, even though it has no toolchain-overlay effect
-	// today (semgrep runs through the pack engine, not a pkg/check executor). Pins
-	// the decision so a future tightening that wrongly rejects it fails loud here. ---
-	t.Run("semgrep_key_is_accepted", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, semgrepKeyRustBackstopYML)
+	// --- Accept-findings decision: the tool-NEUTRAL `findings:` key is in
+	// parseCheckType's vocabulary (SPEC-035 renamed the former tool-named
+	// "semgrep" gate-type to "findings") and must NOT be rejected, even though it
+	// has no toolchain-overlay effect today (pack findings run through the engine
+	// path, not a pkg/check executor). Pins the decision so a future tightening
+	// that wrongly rejects it fails loud here. ---
+	t.Run("findings_key_is_accepted", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, findingsKeyRustBackstopYML)
 
 		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
 		if err != nil {
-			t.Fatalf("a `semgrep:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
+			t.Fatalf("a `findings:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
 		}
-		// The semgrep key has no toolchain-overlay effect: it constructs no
-		// pkg/check executor (semgrep runs through the pack engine).
-		if _, ok := execs[CheckTypeSemgrep]; ok {
-			t.Errorf("semgrep key must construct no pkg/check executor, got %T", execs[CheckTypeSemgrep])
+		// The findings key has no toolchain-overlay effect: it constructs no
+		// pkg/check executor (pack findings run through the pack engine).
+		if _, ok := execs[CheckTypeFindings]; ok {
+			t.Errorf("findings key must construct no pkg/check executor, got %T", execs[CheckTypeFindings])
 		}
 		// The valid lint entry alongside it still builds.
 		if _, ok := execs[CheckTypeLint].(*commandExecutor); !ok {

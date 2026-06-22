@@ -28,7 +28,25 @@ var (
 	sandboxedRun       func(cmd string, args []string, packDir string) ([]byte, error)
 	sandboxedRunStdout func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error)
 	engineRegistry     engine.Registry
+	// trustedToolAllowlist is a test seam for the backstop-owned trusted-tool
+	// allowlist (SPEC-035 REQ-002): nil in production (resolveTrustedToolAllowlist
+	// falls back to engine.TrustedToolAllowlist), overridden by tests to drive the
+	// allowlist matrix from a fixture WITHOUT stubbing the allowlist OPEN on the
+	// dispatch path (Sharp Edge 3 forbids a stub-open allowlist). Declared WITHOUT
+	// an initializer so it holds no package-level mutable default; the real
+	// allowlist is resolved lazily at the call site (same shape as the other seams).
+	trustedToolAllowlist func() map[string]string
 )
+
+// resolveTrustedToolAllowlist returns the injected allowlist seam or the concrete
+// engine.TrustedToolAllowlist — the backstop-owned trust floor every pack-declared
+// command's tool must satisfy before backstop runs it (SPEC-035 REQ-002).
+func resolveTrustedToolAllowlist() map[string]string {
+	if trustedToolAllowlist != nil {
+		return trustedToolAllowlist()
+	}
+	return engine.TrustedToolAllowlist()
+}
 
 // resolveSandboxedRun returns the injected sandbox seam or the concrete
 // packval.SandboxedRun.
@@ -48,14 +66,30 @@ func resolveSandboxedRunStdout() func(cmd string, args []string, packDir string,
 	return packval.SandboxedRunStdout
 }
 
-// resolveEngineRegistry returns the injected engine registry seam or the
-// concrete engine.DefaultRegistry, so tests can register a new engine binding
-// and prove it dispatches without an executor edit (CLM-003).
-func resolveEngineRegistry() engine.Registry {
-	if engineRegistry != nil {
-		return engineRegistry
+// resolveEngineRegistry returns the registry a rule's engine resolves through:
+// the fallback registry (the injected engineRegistry seam or engine.DefaultRegistry)
+// MERGED with the manifest's pack-declared engines: block, with a pack-declared
+// binding OVERRIDING a same-named built-in (SPEC-035 REQ-001/CLM-002/CLM-004). The
+// merge is what makes a pack-declared command REACHABLE; it ships ATOMICALLY with
+// the dispatch trust gate (runFindingsEngine) so no pack-declared command is ever
+// runnable without the gate (Sharp Edge 1). A nil manifest yields just the fallback
+// registry (the callers that only inspect built-in bindings pass nil). The result
+// is a fresh map so a merge never mutates the seam or the DefaultRegistry.
+func resolveEngineRegistry(manifest *pack.Manifest) engine.Registry {
+	base := engineRegistry
+	if base == nil {
+		base = engine.DefaultRegistry()
 	}
-	return engine.DefaultRegistry()
+	merged := make(engine.Registry, len(base))
+	for name, binding := range base {
+		merged[name] = binding
+	}
+	if manifest != nil {
+		for name, spec := range manifest.Engines {
+			merged[name] = spec.Binding
+		}
+	}
+	return merged
 }
 
 func loadInstalledPacks(projectRoot string) ([]*pack.Manifest, error) {
@@ -177,8 +211,9 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 			grouped[rule.Engine] = append(grouped[rule.Engine], rule)
 		}
 
+		registry := resolveEngineRegistry(manifest)
 		for _, engineName := range order {
-			binding, lookupErr := resolveEngineRegistry().Lookup(engineName)
+			binding, lookupErr := registry.Lookup(engineName)
 			if lookupErr != nil {
 				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
 			}
@@ -274,6 +309,23 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 			args = append(args, binding.InputFlag, d)
 		}
 		return args, nil
+	case engine.InputModePatternArg:
+		// Pattern-arg engines pass each rule's inline pattern as a command
+		// argument via InputFlag (the BUNDLE-009 seam, REQ-004/CLM-016). The
+		// pattern is the literal value — NOT a rule-file path — so this case does
+		// NO filesystem rule-path resolution and never os.Stats a path
+		// (CLM-018): a rule carrying a rule_path is ignored here. An EMPTY pattern
+		// is a broken-pack config error naming pack + rule, parallel to
+		// resolveRulePath's missing-path fail-loud (CLM-017) — never a silently
+		// emitted empty arg.
+		args := make([]string, 0, len(rules)*2)
+		for _, rule := range rules {
+			if rule.Pattern == "" {
+				return nil, fmt.Errorf("broken pack %s: pattern-arg rule %s declares no pattern", manifest.NormalizedName, rule.ID)
+			}
+			args = append(args, binding.InputFlag, rule.Pattern)
+		}
+		return args, nil
 	case engine.InputModeNone:
 		return nil, nil
 	default:
@@ -308,6 +360,18 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering engine inputs for pack %s: %w", manifest.NormalizedName, err)
+	}
+
+	// TRUST GATE (SPEC-035 REQ-002, Sharp Edge 1) — the ATOMIC half that makes a
+	// pack-declared command SAFE. This sits BEFORE splitCommand(binding.Command) ->
+	// runner.RunStdout so an un-allowlisted/unpinned tool's command is NEVER handed
+	// to the runner (CLM-005..008): the merge above (resolveEngineRegistry) makes a
+	// pack-declared command reachable, and this gate ensures it cannot run un-trusted.
+	// The lockedVersion fed into CheckToolAllowed is the binding's Provision.Version
+	// — the version the backstop.lock / VerifyLock / Provision path pins — NOT a
+	// second literal, so the pin rides the lock and cannot drift (CLM-029).
+	if gateErr := checkEngineToolAllowed(manifest, binding); gateErr != nil {
+		return nil, gateErr
 	}
 
 	cmdName, cmdArgs := splitCommand(binding.Command)
@@ -404,6 +468,38 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		})
 	}
 	return out, nil
+}
+
+// checkEngineToolAllowed is the dispatch-time trust gate (SPEC-035 REQ-002): it
+// returns a *check.ConfigError (exit 2) naming the tool and pack when the engine's
+// tool is not on the trusted-tool allowlist OR is not lock-pinned to its
+// allowlisted version, and nil when the gate passes. It is the dispatch half of the
+// SAME engine.CheckToolAllowed check validateEngine and provisionEngines run, so an
+// un-allowlisted tool is rejected at every resolveEngineRegistry caller that leads
+// to running a command.
+//
+// The gate is keyed on the binding carrying a non-nil Provision — the
+// backstop-introduced tools that ride the backstop.lock pin (semgrep, ast-grep, or
+// any pack-declared provisioned tool). A nil-Provision binding is either the
+// sandbox engine (no command at all — exempt, CLM-009), an assume-present Layer-0
+// toolchain engine (go build/test, golangci — governed by provisionEngines'
+// on-PATH fail-loud, not the allowlist+lock-pin), or the config-file shape with no
+// command. The lockedVersion passed to CheckToolAllowed is Provision.Version (the
+// lock-resolved pin), NOT a second literal (CLM-029).
+func checkEngineToolAllowed(manifest *pack.Manifest, binding engine.EngineBinding) error {
+	if binding.Provision == nil {
+		return nil
+	}
+	if err := engine.CheckToolAllowed(
+		resolveTrustedToolAllowlist(),
+		binding.Provision.Tool,
+		binding.Provision.Version,
+	); err != nil {
+		return &check.ConfigError{Message: fmt.Sprintf(
+			"pack %s: %s", manifest.NormalizedName, err.Error(),
+		)}
+	}
+	return nil
 }
 
 // runSandboxEngine is the exit-code terminal branch relocated from

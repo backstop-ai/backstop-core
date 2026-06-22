@@ -1,0 +1,18 @@
+# Fixture (SPEC-035 TASK-001): a pack manifest whose engines: block declares an
+# UNKNOWN gate_type value. Feeds the fail-loud parse test
+# (TestManifest_UnknownGateTypeFailsLoud, CLM-021): ParseGateType must reject
+# "teleport" as a blocking config error, no silent default. The seven valid
+# values are lint/build/test/findings/coverage/substantiveness/contracts.
+name: acme/bad-gatetype-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack whose engine declares an unrecognized gate_type.
+engines:
+  acme-bogus:
+    command: acme-scan --sarif
+    input_mode: rule-flags
+    input_flag: --config
+    scope_kind: file-args
+    category: opinion
+    gate_type: teleport

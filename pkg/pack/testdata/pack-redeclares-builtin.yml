@@ -1,0 +1,40 @@
+# Fixture (SPEC-035 TASK-001 / Sharp Edge 9): a pack engines: block that
+# REDECLARES a built-in engine name ("semgrep") with a DIFFERENT command. Feeds
+# the merge-determinism test
+# (TestResolveRegistry_PackBindingResolutionIsDeterministic, CLM-004): the
+# resolved binding must be well-defined under the spec's merge semantics, not
+# left to map-iteration order. The redeclared command differs from the built-in
+# DefaultRegistry "semgrep --sarif --quiet" so the test can assert WHICH binding
+# wins.
+name: acme/redeclares-builtin-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack redeclaring the built-in semgrep engine with a different command.
+engines:
+  semgrep:
+    command: acme-vendored-semgrep --sarif --quiet --extra
+    input_mode: rule-flags
+    input_flag: --config
+    scope_kind: file-args
+    category: opinion
+    gate_type: findings
+    provision:
+      tool: semgrep
+      version: 1.96.0
+content:
+  ruleset:
+    rules:
+      - id: uses-redeclared-semgrep
+        engine: semgrep
+        standard: standards/go/x.standard.md
+        rule_path: rules/x.yml
+        risk_class: security
+        claims:
+          - id: uses-redeclared-semgrep-claim
+            text: Rule bound to the pack-redeclared semgrep engine.
+            fixtures:
+              positive:
+                - fixtures/positive/ok.go
+              negative:
+                - path: fixtures/negative/bad.go

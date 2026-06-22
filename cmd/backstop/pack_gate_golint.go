@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -27,19 +26,6 @@ import (
 // SARIF parser would unmarshal into zero findings and read as a silent green. The
 // guard rejects non-SARIF lint output as a fail-loud, engine-attributed error.
 
-// isNativeSarifLintEngine reports whether a binding is the golangci-lint
-// config-file engine that assumes NATIVE v2 SARIF on stdout: a config-file engine
-// with no Convert script whose command runs golangci-lint. Such an engine is the
-// one that must fail loud on non-SARIF output (a v1/too-old binary), since its
-// converter-free stdout is parsed directly as SARIF. Keyed off the binding's
-// declared command/shape so the guard needs no extra EngineBinding field
-// (the binding table stays an immutable lookup table).
-func isNativeSarifLintEngine(binding engine.EngineBinding) bool {
-	return binding.Convert == "" &&
-		binding.InputMode == engine.InputModeConfigFile &&
-		strings.HasPrefix(strings.TrimSpace(binding.Command), "golangci-lint")
-}
-
 // requireLintSarifShape fail-louds when the native-SARIF lint engine's stdout is
 // not a well-formed SARIF log (no `runs` array). It is the v1/too-old golangci
 // guard (SPEC-034 REQ-005/CLM-019, Sharp Edge 5): without it, golangci v1 JSON
@@ -51,7 +37,11 @@ func isNativeSarifLintEngine(binding engine.EngineBinding) bool {
 // emit an empty/whitespace document; the crash-vs-findings discipline for an
 // unexpected empty result belongs to the runErr path, not the SARIF-shape check.
 func requireLintSarifShape(manifest *pack.Manifest, binding engine.EngineBinding, stdout []byte) error {
-	if !isNativeSarifLintEngine(binding) {
+	// The guard fires off the binding's DECLARED StrictSarif flag (REQ-006a/
+	// CLM-023), NOT a "golangci-lint" command-prefix sniff: a pack declares which
+	// of its engines emit strict native SARIF, so the shape guard rides the
+	// declaration and no tool-name literal drives this control flow (Sharp Edge 5).
+	if !binding.StrictSarif {
 		return nil
 	}
 	trimmed := bytes.TrimSpace(stdout)

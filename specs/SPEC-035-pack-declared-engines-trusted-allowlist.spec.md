@@ -4,7 +4,7 @@ number: SPEC-035
 created: "2026-06-20"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -464,14 +464,6 @@ contracts:
         kind: constant
         signature: "const InputModePatternArg InputMode = \"pattern-arg\""
         notes: "Fifth InputMode value (REQ-004/CLM-014). ParseInputMode adds it to the accepted switch and keeps failing loud on any other value (CLM-015). gatherEngineInputs emits [InputFlag, pattern] for this mode (CLM-016) — no filesystem rule-path resolution (CLM-018)."
-      - name: GateType
-        kind: type
-        signature: "type GateType int"
-        notes: "Backstop-owned, tool-NEUTRAL gate-type enum (REQ-005). Exactly seven values: lint, build, test, findings, coverage, substantiveness, contracts (CLM-019). Defined in pkg/pack/engine so it carries no pkg/check import (leaf-package placement, mirrors EngineCategory/ScopeKind). An unrecognized declared gate_type fails loud (CLM-021)."
-      - name: ParseGateType
-        kind: function
-        signature: "func ParseGateType(s string) (GateType, error)"
-        notes: "Fail-loud parser for the declared gate_type (CLM-021), mirroring ParseInputMode — no silent default."
       - name: EngineBinding
         kind: type
         signature: "type EngineBinding struct { Command string; InputMode InputMode; InputFlag string; ScopeKind ScopeKind; Convert string; Provision *Provision; CrashGuard bool; Category EngineCategory; ProjectTarget string; GateType GateType; StrictSarif bool; PackageScoped bool; FieldContract FieldContract }"
@@ -480,6 +472,20 @@ contracts:
         kind: function
         signature: "func ParseInputMode(s string) (InputMode, error)"
         notes: "Accepts pattern-arg as the fifth value; unchanged fail-loud contract on unknown values (REQ-004/CLM-014/CLM-015)."
+    consumes: []
+  - file: pkg/pack/engine/gatetype.go
+    provides:
+      - name: GateType
+        kind: type
+        signature: "type GateType int"
+        notes: "Backstop-owned, tool-NEUTRAL gate-type enum (REQ-005). Exactly seven values: lint, build, test, findings, coverage, substantiveness, contracts (CLM-019). Defined in pkg/pack/engine so it carries no pkg/check import (leaf-package placement, mirrors EngineCategory/ScopeKind). An unrecognized declared gate_type fails loud (CLM-021)."
+      - name: ParseGateType
+        kind: function
+        signature: "func ParseGateType(s string) (GateType, error)"
+        notes: "Fail-loud parser for the declared gate_type (CLM-021), mirroring ParseInputMode — no silent default."
+    consumes: []
+  - file: pkg/pack/engine/fieldcontract.go
+    provides:
       - name: FieldContract
         kind: type
         signature: "type FieldContract struct { Requires []string; Forbids []string }"
@@ -1253,6 +1259,7 @@ requirements and claims above are written to hold under EITHER resolution.
 
 ## Version History
 
+- **1.1.1** (2026-06-22) — Contract file-path correction (Phase 7 verification). `GateType` and `ParseGateType` moved to their own `pkg/pack/engine/gatetype.go` contract entry, and `FieldContract` to a `pkg/pack/engine/fieldcontract.go` entry, matching the actual source layout; the file-scoped `contract_signature` extractor was reporting "symbol not found in binding.go" false-positives because these three symbols live in sibling files of the same package. No requirement, claim, or signature changed.
 - **1.1.0** (2026-06-21) — Corrective pass closing the re-review FAIL. (1) REQ-003
   extended to fold the engine FIELD-CONTRACT (`DefaultFieldContracts()` +
   `engineFieldClaim`) onto the pack-declared `EngineBinding` under the SAME OQ-1

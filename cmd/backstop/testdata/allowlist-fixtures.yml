@@ -1,0 +1,38 @@
+# Fixture (SPEC-035 TASK-002): a REAL stub trusted-tool allowlist + a stub
+# lock-pinned-version source for driving the allowlist matrix WITHOUT a live tool
+# and WITHOUT stubbing the allowlist OPEN (Sharp Edge 3 / the Verification
+# section forbids a stub-open allowlist on the dispatch path under test).
+#
+# The test harness (allowlist_test_helpers_test.go) loads this file and drives:
+#   - CLM-005 allowlisted + lock-pinned-matching       -> command RUNS
+#   - CLM-006 ABSENT from the allowlist                 -> loud ConfigError
+#   - CLM-007 allowlisted but lock pin does NOT match   -> loud ConfigError
+#   - CLM-008 (gate-before-RunStdout) uses the absent cell + the recording runner
+#   - CLM-029 allowlisted-at-vX / locked-at-vY          -> loud ConfigError
+#
+# `allowlist` is the backstop-owned {tool -> pinned version} trust floor (a stub
+# standing in for engine.TrustedToolAllowlist()). `lock` is the stub
+# lock-pinned-version source mirroring the backstop.lock / VerifyLock read that
+# the dispatch/validate/provision gates feed into CheckToolAllowed as the
+# `lockedVersion` argument — so the pin rides the lock, never a second literal.
+allowlist:
+  # Allowlisted + the lock below pins the SAME version: the gate-passes cell.
+  acme-scan: "2.3.1"
+  # Allowlisted at vX (1.0.0), but the lock below pins vY (9.9.9): the
+  # allowlisted-but-unpinned / version-divergence cell (CLM-007 / CLM-029).
+  acme-drift: "1.0.0"
+  # Allowlisted but ABSENT from the lock entirely: present-but-unpinned cell
+  # (CLM-007) — on the allowlist, no lock pin at all.
+  acme-unlocked: "4.5.6"
+  # NOTE: there is deliberately NO `acme-absent` key here. The harness exposes
+  # "acme-absent" as the genuine ABSENT-tool cell (CLM-006 / CLM-008): a tool the
+  # allowlist does not contain at all.
+
+lock:
+  # Matches its allowlist pin -> CLM-005 passes.
+  acme-scan: "2.3.1"
+  # DIVERGES from its allowlist pin (allowlist 1.0.0, lock 9.9.9) -> CLM-007 /
+  # CLM-029 fail loud, proving the comparison reads the lock, not the literal.
+  acme-drift: "9.9.9"
+  # acme-unlocked is intentionally absent from the lock (allowlisted, never
+  # lock-pinned) -> CLM-007 fails loud.

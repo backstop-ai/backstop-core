@@ -32,21 +32,16 @@ func fileModeTestTarget(binding engine.EngineBinding, scope *gate.GateScope) (st
 	if scope == nil || scope.Mode != gate.GateScopeModeFile || len(scope.Files) == 0 {
 		return "", false
 	}
-	if !isNativeGoTestEngine(binding) {
+	// File-mode package scoping applies to an engine that DECLARES PackageScoped
+	// (REQ-006b/CLM-024), NOT a "go test" command-prefix sniff: a pack declares
+	// which of its toolchain engines run per Go package, so the override rides the
+	// declaration and no tool-name literal drives this control flow (Sharp Edge 5).
+	// go-build is project-wide too but does NOT declare PackageScoped, so only the
+	// declared-package-scoped test engine is file-scoped here.
+	if !binding.PackageScoped {
 		return "", false
 	}
 	return goTestPackageSelector(scope.Files[0]), true
-}
-
-// isNativeGoTestEngine reports whether a binding is the native go-test pass: a
-// project-wide findings engine whose command runs `go test`. Keyed off the
-// declared command/shape so no extra EngineBinding field is needed (the binding
-// table stays an immutable lookup table). go-build is project-wide too but is NOT
-// file-scoped: only `go test` carried the file-mode package scoping in the
-// bespoke path (REQ-010).
-func isNativeGoTestEngine(binding engine.EngineBinding) bool {
-	return binding.ScopeKind == engine.ScopeKindProjectWide &&
-		strings.HasPrefix(strings.TrimSpace(binding.Command), "go test")
 }
 
 // goTestPackageSelector returns the `go test` package selector for a single

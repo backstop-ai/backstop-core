@@ -14,7 +14,7 @@ func TestCodeCheck_FileMode_CompletesWithinBudget(t *testing.T) {
 		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
 		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
 		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeFindings}, nil }},
 	}
 
 	engine := &Engine{
@@ -55,7 +55,7 @@ func TestCodeCheck_FileMode_TimeoutReturnsViolation(t *testing.T) {
 		}},
 		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
 		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeFindings}, nil }},
 	}
 
 	engine := &Engine{
@@ -132,7 +132,7 @@ func TestCodeCheck_Concurrent_NoSharedStateCorruption(t *testing.T) {
 				CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint, Violations: []Violation{{Pass: CheckTypeLint, File: "a.go", Message: "lint"}}}, nil }},
 				CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
 				CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-				CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+				CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeFindings}, nil }},
 			}
 
 			engine := &Engine{
@@ -177,7 +177,7 @@ func TestCodeCheck_Concurrent_IndependentOutput(t *testing.T) {
 				CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
 				CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
 				CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-				CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+				CheckTypeFindings: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeFindings}, nil }},
 			}
 
 			engine := &Engine{

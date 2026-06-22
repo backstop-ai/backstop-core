@@ -2,11 +2,66 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
+
+// divergentFlagsManifest loads the SPEC-035 Sharp-Edge-6 divergent-flags fixture
+// (pkg/pack/testdata/pack-divergent-flags.yml) whose engine bindings' DECLARED
+// flags deliberately DISAGREE with their command names — the only fixtures that
+// can prove CLM-023/CLM-024 (a name-sniff and a flag-key would give opposite
+// answers). It returns the parsed manifest; each test pulls the binding it needs.
+func divergentFlagsManifest(t *testing.T) *pack.Manifest {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), "pkg", "pack", "testdata", "pack-divergent-flags.yml")
+	m, err := pack.ParseManifestFile(path)
+	if err != nil {
+		t.Fatalf("divergent-flags fixture must parse: %v", err)
+	}
+	return m
+}
+
+// TestStrictSarif_GuardKeyedOnDeclaredFlagNotName proves the strict-SARIF shape
+// guard fires off the binding's DECLARED StrictSarif flag, NOT a "golangci-lint"
+// command-prefix sniff (SPEC-035 REQ-006a/CLM-023, Sharp Edge 6):
+//
+//   - a NON-golangci command (acme-lint) with StrictSarif:true IS guarded — v1
+//     JSON fed to it fails loud (a name-sniff would have skipped it), and
+//   - a golangci-NAMED command with StrictSarif:false is NOT guarded — the same v1
+//     JSON passes (a name-sniff would have wrongly guarded it).
+func TestStrictSarif_GuardKeyedOnDeclaredFlagNotName(t *testing.T) {
+	m := divergentFlagsManifest(t)
+	v1JSON := readFixture(t, "golangci-v1.json") // well-formed JSON, NOT SARIF
+
+	// Positive half: non-golangci command, StrictSarif TRUE -> guarded -> v1 JSON
+	// fails loud. A "golangci-lint" prefix sniff would have skipped this binding.
+	strictDivergent := m.Engines["strict-sarif-divergent"].Binding
+	if strings.HasPrefix(strings.TrimSpace(strictDivergent.Command), "golangci-lint") {
+		t.Fatalf("fixture invariant: strict-sarif-divergent must NOT be a golangci-lint command, got %q", strictDivergent.Command)
+	}
+	if !strictDivergent.StrictSarif {
+		t.Fatal("fixture invariant: strict-sarif-divergent must declare StrictSarif:true")
+	}
+	if err := requireLintSarifShape(m, strictDivergent, v1JSON); err == nil {
+		t.Error("a non-golangci command with StrictSarif:true must be guarded — v1 JSON must fail loud (keyed off the flag, not the name)")
+	}
+
+	// Negative half: golangci-NAMED command, StrictSarif FALSE -> NOT guarded ->
+	// the same v1 JSON passes. A "golangci-lint" prefix sniff would have guarded it.
+	golangciNamed := m.Engines["golangci-named-no-strict"].Binding
+	if !strings.HasPrefix(strings.TrimSpace(golangciNamed.Command), "golangci-lint") {
+		t.Fatalf("fixture invariant: golangci-named-no-strict must be a golangci-lint command, got %q", golangciNamed.Command)
+	}
+	if golangciNamed.StrictSarif {
+		t.Fatal("fixture invariant: golangci-named-no-strict must declare StrictSarif:false")
+	}
+	if err := requireLintSarifShape(m, golangciNamed, v1JSON); err != nil {
+		t.Errorf("a golangci-named command with StrictSarif:false must NOT be guarded — the guard keys off the declared flag, not the name; got: %v", err)
+	}
+}
 
 // lintRunner is a CommandRunner that returns the golangci v2 SARIF fixture ONLY
 // through RunStdout (clean stdout), recording every RunStdout invocation so a
@@ -59,7 +114,7 @@ func TestGoLint_ConfigFileEngineNativeSarif(t *testing.T) {
 	// SARIF. Assert by confirming dispatch produced findings without a convert stub
 	// being installed (sandboxedRunStdout is nil here; a Convert would have nil-pivoted
 	// to the real sandbox and failed in this unit test).
-	bind := resolveEngineRegistry()["golangci"]
+	bind := resolveEngineRegistry(nil)["golangci"]
 	if bind.Convert != "" {
 		t.Errorf("the golangci config-file engine must declare NO converter (v2 native SARIF), got Convert=%q", bind.Convert)
 	}

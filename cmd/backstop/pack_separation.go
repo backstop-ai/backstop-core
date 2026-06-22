@@ -30,8 +30,8 @@ import (
 // "neither mechanism nor opinion" — identical to the pre-ISSUE-015 switches
 // returning false for both, so a mis-bound rule trips no boundary check here and
 // is caught instead by the gate's fail-loud Lookup at dispatch).
-func engineCategory(engineName string) engine.EngineCategory {
-	bind, err := resolveEngineRegistry().Lookup(engineName)
+func engineCategory(m *pack.Manifest, engineName string) engine.EngineCategory {
+	bind, err := resolveEngineRegistry(m).Lookup(engineName)
 	if err != nil {
 		return engine.EngineCategoryUnset
 	}
@@ -43,16 +43,16 @@ func engineCategory(engineName string) engine.EngineCategory {
 // from the engine's EngineBinding.Category in the registry (ISSUE-015), not a
 // hardcoded engine set: a rule binding a mechanism engine is toolchain mechanism,
 // not coding-standards opinion.
-func isToolchainMechanismEngine(engineName string) bool {
-	return engineCategory(engineName) == engine.EngineCategoryMechanism
+func isToolchainMechanismEngine(m *pack.Manifest, engineName string) bool {
+	return engineCategory(m, engineName) == engine.EngineCategoryMechanism
 }
 
 // isStandardsOpinionEngine reports whether engine is a coding-standards opinion
 // engine (rule-fed semgrep/ast-grep): a rule binding one of these is opinion, not
 // toolchain mechanism. The classification is read from the engine's
 // EngineBinding.Category in the registry (ISSUE-015).
-func isStandardsOpinionEngine(engineName string) bool {
-	return engineCategory(engineName) == engine.EngineCategoryOpinion
+func isStandardsOpinionEngine(m *pack.Manifest, engineName string) bool {
+	return engineCategory(m, engineName) == engine.EngineCategoryOpinion
 }
 
 // packClassification is the mechanism/opinion character a pack's rules carry.
@@ -69,10 +69,10 @@ func classifyPack(m *pack.Manifest) packClassification {
 		return c
 	}
 	for _, r := range m.Content.Ruleset.Rules {
-		if isToolchainMechanismEngine(r.Engine) {
+		if isToolchainMechanismEngine(m, r.Engine) {
 			c.HasMechanism = true
 		}
-		if isStandardsOpinionEngine(r.Engine) {
+		if isStandardsOpinionEngine(m, r.Engine) {
 			c.HasOpinion = true
 		}
 	}
@@ -105,7 +105,7 @@ func packSeparationViolations(m *pack.Manifest) []string {
 	// single rule can introduce WITHOUT flipping the pack's classification is a
 	// `standard:` opinion marker on a rule in a purely-mechanism pack.
 	for _, r := range m.Content.Ruleset.Rules {
-		mechanism := isToolchainMechanismEngine(r.Engine)
+		mechanism := isToolchainMechanismEngine(m, r.Engine)
 
 		// In a mechanism-bearing pack, no rule may carry the `standard:` opinion
 		// marker (a mechanism rule normalizes tool output; it has no opinion text).

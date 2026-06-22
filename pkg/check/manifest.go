@@ -18,8 +18,10 @@ const (
 	CheckTypeBuild
 	// CheckTypeTest runs go test.
 	CheckTypeTest
-	// CheckTypeSemgrep runs semgrep rules.
-	CheckTypeSemgrep
+	// CheckTypeFindings is the tool-neutral rule-fed findings pass (fed by a
+	// pack engine such as semgrep or ast-grep). The gate-type identity is
+	// neutral; the engine is a pack detail, never baked into this name.
+	CheckTypeFindings
 )
 
 // String returns the string representation of a CheckType.
@@ -31,8 +33,8 @@ func (ct CheckType) String() string {
 		return "build"
 	case CheckTypeTest:
 		return "test"
-	case CheckTypeSemgrep:
-		return "semgrep"
+	case CheckTypeFindings:
+		return "findings"
 	default:
 		return fmt.Sprintf("unknown(%d)", int(ct))
 	}
@@ -47,8 +49,8 @@ func parseCheckType(s string) (CheckType, bool) {
 		return CheckTypeBuild, true
 	case "test":
 		return CheckTypeTest, true
-	case "semgrep":
-		return CheckTypeSemgrep, true
+	case "findings":
+		return CheckTypeFindings, true
 	default:
 		return 0, false
 	}
@@ -160,7 +162,7 @@ func (f *compiledManifestFile) deriveRules() []ManifestRule {
 	if len(exts) > 0 {
 		checks := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest}
 		if f.hasSemgrepSignal() {
-			checks = append(checks, CheckTypeSemgrep)
+			checks = append(checks, CheckTypeFindings)
 		}
 		return []ManifestRule{{
 			Extensions: append([]string(nil), exts...),
@@ -171,7 +173,7 @@ func (f *compiledManifestFile) deriveRules() []ManifestRule {
 	if f.hasSemgrepSignal() {
 		return []ManifestRule{{
 			PathPatterns: []string{"**"},
-			parsed:       []CheckType{CheckTypeSemgrep},
+			parsed:       []CheckType{CheckTypeFindings},
 		}}
 	}
 
@@ -272,10 +274,10 @@ func (m *Manifest) RouteFile(path string) []CheckType {
 func (m *Manifest) routeFileDefaults(path string) []CheckType {
 	switch filepath.Ext(path) {
 	case ".go", ".ts", ".tsx":
-		return []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep}
+		return []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
 	default:
-		// All other files get semgrep only
-		return []CheckType{CheckTypeSemgrep}
+		// All other files get findings only
+		return []CheckType{CheckTypeFindings}
 	}
 }
 

@@ -27,16 +27,22 @@ const (
 	// InputModeNone injects no rules or config; the executable is the logic
 	// (the sandbox engine).
 	InputModeNone InputMode = "none" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
+	// InputModePatternArg passes each rule's inline pattern as a command argument
+	// (via InputFlag) instead of resolving a rule file on disk — the BUNDLE-009
+	// seam for pattern-as-argument engines (REQ-004/CLM-014). gatherEngineInputs
+	// emits [InputFlag, rule.Pattern] per rule and never os.Stats a rule path
+	// (CLM-016/CLM-018).
+	InputModePatternArg InputMode = "pattern-arg" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 )
 
 // ParseInputMode resolves a raw string to an InputMode, fail-louding on an
 // unrecognized value (REQ-020 / CLM-048). It never defaults silently.
 func ParseInputMode(s string) (InputMode, error) {
 	switch InputMode(s) {
-	case InputModeConfigFile, InputModeRuleFlags, InputModeRuleDir, InputModeNone:
+	case InputModeConfigFile, InputModeRuleFlags, InputModeRuleDir, InputModeNone, InputModePatternArg:
 		return InputMode(s), nil
 	default:
-		return "", fmt.Errorf("unknown input_mode %q: must be one of config-file, rule-flags, rule-dir, none", s)
+		return "", fmt.Errorf("unknown input_mode %q: must be one of config-file, rule-flags, rule-dir, none, pattern-arg", s)
 	}
 }
 
@@ -99,21 +105,21 @@ type Provision struct {
 // script that transforms its stdout to SARIF.
 type EngineBinding struct {
 	// Command is the engine invocation prefix (e.g. "semgrep scan").
-	Command string
+	Command string `yaml:"command"`
 	// InputMode declares how rule/config inputs are gathered (REQ-020).
-	InputMode InputMode
+	InputMode InputMode `yaml:"input_mode"`
 	// InputFlag is the flag used to inject inputs per InputMode (e.g. "--config",
 	// "--rule"). Empty for InputModeNone.
-	InputFlag string
+	InputFlag string `yaml:"input_flag"`
 	// ScopeKind governs how the engine attaches scoped files (Sharp Edge 7).
-	ScopeKind ScopeKind
+	ScopeKind ScopeKind `yaml:"scope_kind"`
 	// Convert is an optional pack-relative stdin->SARIF converter script. Empty
 	// for a SARIF-native engine; non-empty for a tool whose native output is not
 	// SARIF (e.g. ast-grep). REQ-007/REQ-008.
-	Convert string
+	Convert string `yaml:"convert"`
 	// Provision is an optional pinned install descriptor. Nil => assumed-present
 	// Layer-0 engine (REQ-019).
-	Provision *Provision
+	Provision *Provision `yaml:"provision"`
 	// CrashGuard, when true, marks a findings engine whose tool run exiting
 	// non-zero with NO parseable findings is a CRASH (a broken tool/infra error
 	// naming the engine), not a finding-free green (SPEC-034 REQ-003/CLM-010).
@@ -121,20 +127,40 @@ type EngineBinding struct {
 	// never read as a silent pass. semgrep/ast-grep/golangci leave it false —
 	// they legitimately exit non-zero WHEN they report findings, so the SARIF on
 	// stdout, not the exit code, is their contract.
-	CrashGuard bool
+	CrashGuard bool `yaml:"crash_guard"`
 	// Category classifies the engine as toolchain MECHANISM or coding-standards
 	// OPINION for the pack-separation enforcer (ISSUE-015 / SPEC-034 REQ-007). The
 	// zero value EngineCategoryUnset means neither, so a rule binding the engine is
 	// invisible to the boundary check. This is the single source of truth for the
 	// classification: the enforcer reads it here rather than mirroring an engine set.
-	Category EngineCategory
+	Category EngineCategory `yaml:"category"`
 	// ProjectTarget, when non-empty, is the project-wide scan target a toolchain
 	// pass shapes for ITSELF (e.g. "./..." for `go build ./...`) INSTEAD of having
 	// the project root appended as a scan argument the way rule-fed findings
 	// engines do (SPEC-034 REQ-010/CLM-034, N1). It is the scope-kind-aware
 	// arg-shaping notion: a ScopeKindProjectWide engine with a ProjectTarget runs
 	// `<command> <ProjectTarget>` and never gets projectRoot bolted on.
-	ProjectTarget string
+	ProjectTarget string `yaml:"project_target"`
+	// GateType is the backstop-owned, tool-NEUTRAL gate-type this engine fills
+	// (lint/build/test/findings/coverage/substantiveness/contracts) — REQ-005/
+	// CLM-019/CLM-020. The zero value is GateTypeLint; a pack declares the value
+	// explicitly via gate_type. Defined in this leaf package so the binding carries
+	// no pkg/check import.
+	GateType GateType `yaml:"gate_type"`
+	// StrictSarif, when true, marks an engine whose stdout must be strictly valid
+	// SARIF (the declared output-contract flag that REPLACES the isNativeSarifLint
+	// Engine "golangci-lint" command-prefix sniff — REQ-006a/CLM-023). The strict-
+	// SARIF shape guard keys off this declared flag, never a tool-name prefix.
+	StrictSarif bool `yaml:"strict_sarif"`
+	// PackageScoped, when true, marks an engine that runs per Go package rather
+	// than over a flat file list (the declared file-mode capability that REPLACES
+	// the isNativeGoTestEngine "go test" command-prefix sniff — REQ-006b/CLM-024).
+	PackageScoped bool `yaml:"package_scoped"`
+	// FieldContract is the engine's DECLARED field-contract: the Rule field names
+	// it requires and forbids (REQ-003/CLM-036). A pack-declared engine supplies
+	// this inline in the engines: block; the validator reads it FROM the binding,
+	// not from a name-keyed map. The zero value (empty lists) imposes no contract.
+	FieldContract FieldContract `yaml:"field_contract"`
 }
 
 // Registry maps an engine name to its EngineBinding. The gate looks up a rule's
@@ -157,6 +183,16 @@ func (r Registry) Lookup(name string) (EngineBinding, error) {
 // sandbox, and the config-file native-linter shape. Registering a new engine is
 // a declaration here (an EngineBinding record), not an edit to the gate's
 // executor switch (REQ-001/REQ-003/CLM-003).
+//
+// OQ-1 disposition (SPEC-035 REQ-007, resolved to OPTION i — incremental
+// overridable fallback): this table is the FALLBACK the stage-1 registry merge
+// (resolveEngineRegistry) overrides and extends. A pack-declared binding of the
+// SAME engine name WINS over the same-named built-in here, while the built-ins
+// stay available to dispatch (CLM-027/CLM-004). It is NOT a frozen baked table:
+// the merge makes pack-declared engines first-class and lets a pack vendor its
+// own same-named engine. Full eradication of this fallback into a default pack is
+// entangled with BUNDLE-011's toolchain-pack collapse and is tracked separately;
+// option (i) ships SPEC-035 complete with the built-ins overridable, not deleted.
 //
 // Output contract: every findings engine's normalized output is SARIF
 // (REQ-006). semgrep emits SARIF natively via its --sarif flag, so it carries no
@@ -223,6 +259,10 @@ func DefaultRegistry() Registry {
 			ScopeKind:     ScopeKindProjectWide,
 			ProjectTarget: "./...",
 			Category:      EngineCategoryMechanism,
+			// Declares strict native v2 SARIF on stdout: the strict-SARIF shape
+			// guard keys off THIS flag, not a "golangci-lint" name sniff (REQ-006a/
+			// CLM-023). A v1/too-old binary emitting non-SARIF JSON fails loud.
+			StrictSarif: true,
 		},
 		// go-build / go-test are findings engines: their stdout is normalized to
 		// SARIF by the pack-relative convert script (the retired
@@ -246,6 +286,10 @@ func DefaultRegistry() Registry {
 			Convert:       "scripts/test-to-sarif.sh",
 			CrashGuard:    true,
 			Category:      EngineCategoryMechanism,
+			// Runs per Go package: the file-mode package scoping (`code check
+			// --file`) keys off THIS flag, not a "go test" name sniff (REQ-006b/
+			// CLM-024). go-build is project-wide too but does NOT set it.
+			PackageScoped: true,
 		},
 	}
 }

@@ -77,14 +77,14 @@ func TestResolveEngineRegistry_FallsBackToDefaultWhenSeamNil(t *testing.T) {
 	t.Cleanup(func() { engineRegistry = orig })
 
 	engineRegistry = nil
-	got := resolveEngineRegistry()
+	got := resolveEngineRegistry(nil)
 	if _, err := got.Lookup("semgrep"); err != nil {
 		t.Fatalf("nil seam must resolve to the default registry with semgrep registered: %v", err)
 	}
 
-	engineRegistry = resolveEngineRegistry()
+	engineRegistry = resolveEngineRegistry(nil)
 	engineRegistry["custom-engine"] = orig["semgrep"]
-	if _, err := resolveEngineRegistry().Lookup("custom-engine"); err != nil {
+	if _, err := resolveEngineRegistry(nil).Lookup("custom-engine"); err != nil {
 		t.Fatalf("set seam must resolve to the injected registry: %v", err)
 	}
 }

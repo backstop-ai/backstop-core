@@ -1,0 +1,59 @@
+# Fixture (SPEC-035 TASK-001): a pack declaring a pattern-arg engine plus two
+# rules — one carrying a non-empty `pattern:` and a SECOND carrying an EMPTY
+# pattern. Feeds the pattern-arg gather tests:
+#   - TestGatherInputs_PatternArgEmitsFlagAndPattern (CLM-016): the non-empty
+#     pattern rule emits [input_flag, pattern].
+#   - TestGatherInputs_PatternArgEmptyPatternFailsLoud (CLM-017): the empty
+#     pattern rule is a blocking broken-pack config error naming pack + rule.
+#   - TestGatherInputs_PatternArgIgnoresRulePath (CLM-018): the non-empty pattern
+#     rule carries NO rule_path and must still gather inputs (no filesystem
+#     rule-path resolution for a pattern-arg engine).
+# The pattern-arg engine itself is pack-declared in the engines: block.
+name: acme/pattern-arg-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack exercising the pattern-arg input mode.
+engines:
+  acme-query:
+    command: acme-query --json
+    input_mode: pattern-arg
+    input_flag: --pattern
+    scope_kind: file-args
+    category: opinion
+    gate_type: findings
+    convert: acme-query/to-sarif.sh
+content:
+  ruleset:
+    rules:
+      # Non-empty pattern, NO rule_path: proves pattern-arg ignores rule-path
+      # resolution (CLM-018) and emits [--pattern, <pattern>] (CLM-016).
+      - id: forbid-todo-comment
+        engine: acme-query
+        standard: inline standard text
+        risk_class: style
+        pattern: "comment.contains('TODO')"
+        claims:
+          - id: forbid-todo-comment-claim
+            text: TODO comments should not ship.
+            fixtures:
+              positive:
+                - fixtures/positive/clean.go
+              negative:
+                - path: fixtures/negative/has-todo.go
+      # EMPTY pattern under a pattern-arg engine: blocking broken-pack config
+      # error (CLM-017). The empty value is explicit so the fixture forces the
+      # edge rather than relying on an omitted key.
+      - id: empty-pattern-rule
+        engine: acme-query
+        standard: inline standard text
+        risk_class: style
+        pattern: ""
+        claims:
+          - id: empty-pattern-rule-claim
+            text: This rule has no pattern and must fail loud.
+            fixtures:
+              positive:
+                - fixtures/positive/clean.go
+              negative:
+                - path: fixtures/negative/has-todo.go
