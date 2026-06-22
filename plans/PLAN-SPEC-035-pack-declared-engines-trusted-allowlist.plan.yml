@@ -1,0 +1,1123 @@
+---
+plan_id: PLAN-SPEC-035
+spec_id: SPEC-035
+spec_version: 1.1.0
+created: "2026-06-21"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/pack/ ./pkg/pack/engine/ ./pkg/check/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-035 (BUNDLE-010 "first-class / pluggable engines" finisher):
+  move the engine BINDINGS out of hardcoded backstop Go into a pack-declared
+  `engines:` block, and — IN THE SAME SPEC as a non-negotiable security gate —
+  add a backstop-owned trusted-tool ALLOWLIST that every pack-declared command's
+  tool must satisfy (allowlisted AND lock-pinned) before backstop will run it.
+  Plus: the `pattern-arg` input mode (BUNDLE-009's seam), a tool-NEUTRAL gate-TYPE
+  enum on the binding (renaming CheckTypeSemgrep -> CheckTypeFindings, string
+  surface included), and the retirement of the three engine-NAME special-cases
+  (isNativeSarifLintEngine / isNativeGoTestEngine / the layout name-switch) into
+  DECLARED binding flags + InputMode/ScopeKind-derived layout.
+
+  CARDINAL CONSTRAINT (Sharp Edge 1 — the cardinal sin of this spec): the
+  pack-declared bindings (REQ-001) and the trusted-tool allowlist (REQ-002) are
+  ONE ATOMIC CHANGE. There must be NO phase, task, or commit where a pack-declared
+  command can run before the allowlist gate exists. This plan ENCODES that: the
+  dispatch trust gate (Phase 4) and the merge that makes pack-declared commands
+  reachable (also Phase 4) land together, and the allowlist primitive (Phase 2) is
+  a strict prerequisite of BOTH. No middle-phase verification declares the pack-
+  declared-engines path "done" without the allowlist task in the same phase.
+
+  DO-NOT-CHURN CONSTRAINT (Review Q10): the generic dispatch (runFindingsEngine /
+  gatherEngineInputs) and the EngineBinding struct are ALREADY correct (SPEC-031/
+  SPEC-034). This plan EXTENDS the struct (appends GateType / StrictSarif /
+  PackageScoped / FieldContract fields + yaml tags) and FEEDS the dispatch from
+  pack data + the trust gate. It does NOT rewrite the struct or the dispatcher.
+  The only dispatch edits are the new pattern-arg gather case and the trust gate
+  inserted BEFORE splitCommand/RunStdout.
+
+  ISSUE-018 SEQUENCING (Sharp Edge 11 — load-bearing for Phase 5): ISSUE-018 lands
+  FIRST and deletes the in-process semgrepExecutor. Two CheckTypeSemgrep sites live
+  INSIDE that executor — `delete(opts.Executors, CheckTypeSemgrep)` (pkg/check/
+  check.go) and `execs[CheckTypeSemgrep] = &semgrepExecutor{...}` (pkg/check/
+  registry.go) — and are GONE after ISSUE-018. THIS PLAN ASSUMES ISSUE-018 IS DONE:
+  Phase 5's rename targets ONLY the references that REMAIN (the const decl,
+  String()/parseCheckType cases, the []CheckType slices, passOrder, the parsers.go
+  stamp, the code_check.go PassResult sites). The implementer MUST NOT re-rename or
+  re-create the two executor-internal sites; if they still exist, ISSUE-018 has not
+  landed and this plan is blocked. The old SemgrepVersion / PinnedSemgrepVersion
+  per-tool pin that the allowlist supersedes also dies with that executor under
+  ISSUE-018 — this plan does NOT remove it (REQ-002 note).
+
+  ===================================================================
+  OPEN QUESTION — OQ-1 — USER MUST DECIDE; ISOLATED IN PHASE 6
+  ===================================================================
+  OQ-1 (REQ-007 + REQ-003/CLM-037): keep DefaultRegistry() (and the name-keyed
+  DefaultFieldContracts() + engineFieldClaim CLM-id map) as an INCREMENTAL FALLBACK
+  a pack overrides (option i), OR fully ERADICATE them into a default pack so
+  backstop knows ZERO engines (option ii). The spec is written so REQ-001 merge
+  semantics and REQ-002 allowlist gate hold IDENTICALLY under either option — so
+  the fork is confined to ONE phase. This plan ISOLATES the OQ into Phase 6:
+  Phases 1-5 hold under either resolution (they assert the merge + allowlist
+  INVARIANTS, not a binding source), and ONLY Phase 6 differs by option. The
+  default-tasks below describe option (i) (incremental fallback — the smaller,
+  stageable-first change, matching "land the allowlist + pack-declared bindings
+  safely first"). If the user picks (ii), Phase 6's implementation/refactor tasks
+  swap to deleting DefaultRegistry()/DefaultFieldContracts() and shipping a default
+  pack; the CLAIMS, file scope at the engine layer, and Phase 7 gate are unchanged.
+  The implementer MUST NOT proceed past Phase 5 into Phase 6 without the user's
+  OQ-1 selection.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures for pack engines:, allowlist, divergent flags
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the shared testdata that the TDD phases consume: pack manifests
+      carrying a top-level `engines:` block (valid + invalid), a pattern-arg
+      engine fixture, divergent-flag fixtures (a non-golangci command with
+      StrictSarif:true and a non-"go test" command with PackageScoped:true — the
+      ONLY fixtures that can prove CLM-023/CLM-024 per Sharp Edge 6), and a stub
+      allowlist + stub lock-pin harness so the trust gate can be driven without
+      live tools. No production code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold pack engines: block + pattern-arg + divergent-flag fixtures"
+        description: |
+          Create pack manifest fixtures under pkg/pack/engine/testdata and
+          pkg/pack/testdata supporting the binding/parse/validate phases:
+            - a manifest with a valid top-level `engines:` block declaring each
+              binding field (command, input_mode, input_flag, convert, provision,
+              scope_kind, category, gate_type, strict_sarif, package_scoped,
+              field_contract) — feeds CLM-001/CLM-020.
+            - a manifest with an unknown gate_type value (fail-loud fixture) —
+              CLM-021.
+            - a pattern-arg engine fixture + a rule carrying `pattern:` and a
+              second rule with an EMPTY pattern — CLM-016/CLM-017.
+            - DIVERGENT-FLAG fixtures (Sharp Edge 6): a binding whose command is
+              NOT "golangci-lint" but StrictSarif:true, and a binding whose command
+              is NOT "go test" but PackageScoped:true — CLM-023/CLM-024.
+            - a pack engines: block redeclaring a built-in engine name (e.g.
+              `semgrep`) with a different command — the merge-determinism fixture
+              CLM-004.
+          Fixtures only; assertions live in the test tasks that consume them.
+        files:
+          - pkg/pack/engine/testdata/engines-block-valid.yml
+          - pkg/pack/engine/testdata/engines-block-bad-gatetype.yml
+          - pkg/pack/testdata/pack-pattern-arg.yml
+          - pkg/pack/testdata/pack-divergent-flags.yml
+          - pkg/pack/testdata/pack-redeclares-builtin.yml
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-016
+          - CLM-017
+          - CLM-020
+          - CLM-021
+          - CLM-023
+          - CLM-024
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold trusted-tool allowlist + lock-pin test harness"
+        description: |
+          Create the test harness that drives the allowlist matrix WITHOUT a live
+          tool and WITHOUT stubbing the allowlist OPEN (Sharp Edge 3 / Verification
+          forbids a stub-open allowlist on the dispatch path under test):
+            - a real stub allowlist map {tool -> pinned version} with a genuine
+              ABSENT-tool cell and a genuine present-but-unpinned cell.
+            - a stub lock-pinned-version source (mirroring the backstop.lock /
+              VerifyLock read) so CLM-029 can drive allowlisted-at-vX / locked-at-vY.
+            - a fake CommandRunner that RECORDS whether RunStdout was ever called,
+              so CLM-008 can assert the command was NEVER handed to the runner.
+          Harness fixtures/helpers only; the allowlist production code is Phase 2.
+        files:
+          - cmd/backstop/testdata/allowlist-fixtures.yml
+          - cmd/backstop/allowlist_test_helpers_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-029
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Engine leaf-package — binding fields, enums, allowlist primitive
+  # (pkg/pack/engine only — disjoint from Phase 5's pkg/check work)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Engine Binding Extensions, Enums, and Allowlist Primitive"
+    description: |
+      Extend the leaf package pkg/pack/engine: append the new EngineBinding fields
+      (GateType, StrictSarif, PackageScoped, FieldContract) WITHOUT churning the
+      struct, add InputModePatternArg + the seven-value GateType enum (both
+      fail-loud parsers), make FieldContract a declared property of the binding,
+      and add the backstop-owned TrustedToolAllowlist + the pure CheckToolAllowed
+      gate function. This is the trust-floor primitive every command-running caller
+      will share. Leaf placement keeps zero pkg/check import.
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Write InputModePatternArg + GateType enum tests (fail-loud)"
+        description: |
+          pkg/pack/engine/binding_test.go (+ a gatetype_test.go):
+            - TestParseInputMode_PatternArgAccepted: ParseInputMode("pattern-arg")
+              returns InputModePatternArg, no error (CLM-014).
+            - TestParseInputMode_UnknownStillFailsLoud: an unrecognized input_mode
+              still errors after pattern-arg is added — no silent default (CLM-015).
+            - TestGateType_SevenNeutralValuesNoCheckImport: the GateType enum has
+              EXACTLY the seven neutral values lint/build/test/findings/coverage/
+              substantiveness/contracts and the package imports no pkg/check
+              (assert via go/packages or a build-tag-free import audit) (CLM-019).
+            - TestManifest_UnknownGateTypeFailsLoud: ParseGateType on an
+              unrecognized value errors (fail-loud, parallel to ParseInputMode)
+              (CLM-021).
+          Tests must fail (red) — the enum values/parsers do not exist yet.
+        files:
+          - pkg/pack/engine/binding_test.go
+          - pkg/pack/engine/gatetype_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Add InputModePatternArg, GateType enum, ParseGateType, binding fields"
+        description: |
+          pkg/pack/engine/binding.go + a new gatetype.go:
+            - add InputModePatternArg ("pattern-arg") to the InputMode set and to
+              ParseInputMode's accepted switch, keeping fail-loud on others.
+            - add `type GateType` with the seven tool-neutral values and a
+              fail-loud ParseGateType (leaf placement, no pkg/check import).
+            - EXTEND EngineBinding (append, do NOT rewrite) with GateType,
+              StrictSarif bool, PackageScoped bool, and a FieldContract field; add
+              yaml tags to every binding field so the pack engines: block parses.
+          Make TASK-003 green. The struct keeps all existing fields and meanings.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/gatetype.go
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: test
+        title: "Write FieldContract-on-binding tests (declared, not name-keyed)"
+        description: |
+          pkg/pack/engine/fieldcontract_test.go:
+            - TestFieldContract_DeclaredOnBindingNotNameKeyed: an EngineBinding
+              carries its own FieldContract (Requires/Forbids Rule-field lists) as
+              declared data; a binding's contract is read FROM the binding, not from
+              a map keyed by engine name (CLM-036).
+          The disposition of the DEFAULT name-keyed contracts (CLM-037) is verified
+          in Phase 6 under OQ-1; this task pins only that the binding CARRIES a
+          declared contract. Red first.
+        files:
+          - pkg/pack/engine/fieldcontract_test.go
+        claims:
+          - CLM-036
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Make FieldContract a declared property of EngineBinding"
+        description: |
+          pkg/pack/engine/fieldcontract.go + binding.go: define/keep the
+          FieldContract type (Requires []string; Forbids []string) and wire it as a
+          declared field on EngineBinding (field added in TASK-004), so a pack-
+          declared engine carries its own Requires/Forbids lists parsed from the
+          engines: block rather than looked up by engine name. Do NOT yet decide the
+          fate of DefaultFieldContracts() (that is OQ-1 / Phase 6) — only make the
+          binding the authoritative source of a declared contract. Make TASK-005
+          green.
+        files:
+          - pkg/pack/engine/fieldcontract.go
+          - pkg/pack/engine/binding.go
+        claims:
+          - CLM-036
+        depends_on:
+          - TASK-005
+          - TASK-004
+
+      - id: TASK-007
+        type: test
+        title: "Write trusted-tool allowlist tests (every matrix cell, lock-pin)"
+        description: |
+          pkg/pack/engine/allowlist_test.go — drive a REAL allowlist (Sharp Edge 3,
+          no stub-open):
+            - TestAllowlist_AllowlistedPinnedToolRuns: CheckToolAllowed returns nil
+              when tool is on the allowlist AND lockedVersion matches the pinned
+              version (CLM-005, gate-passes half).
+            - TestAllowlist_UnallowlistedToolFailsLoud: a tool ABSENT from the
+              allowlist yields a non-nil error naming the tool (CLM-006).
+            - TestAllowlist_AllowlistedButUnpinnedToolFailsLoud: a tool on the
+              allowlist whose lockedVersion does NOT match the pinned version yields
+              a non-nil error (CLM-007).
+            - TestAllowlist_VersionPinReadsFromLockNotSecondSource: CheckToolAllowed
+              compares the caller-supplied lockedVersion (the lock value) against the
+              allowlist pin — allowlisted-at-vX / locked-at-vY fails loud, proving the
+              pin rides the lock argument and is not a second literal (CLM-029).
+          Red first — allowlist.go does not exist.
+        files:
+          - pkg/pack/engine/allowlist_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-029
+        depends_on:
+          - TASK-001
+
+      - id: TASK-008
+        type: implementation
+        title: "Add TrustedToolAllowlist + CheckToolAllowed primitive"
+        description: |
+          pkg/pack/engine/allowlist.go: backstop-owned TrustedToolAllowlist()
+          returning the {tool -> pinned version} map (the trust floor), plus the
+          PURE CheckToolAllowed(allowlist, tool, lockedVersion) returning an error
+          when the tool is absent OR lockedVersion does not match the pin. Pure
+          function so all command-running callers (validateEngine, provisionEngines,
+          dispatch) share ONE check. The lockedVersion is the caller's lock read —
+          this primitive holds no second version source. Make TASK-007 green.
+        files:
+          - pkg/pack/engine/allowlist.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-029
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify engine leaf-package additions (code check)"
+        description: |
+          Run `backstop code check` over the pkg/pack/engine changes (binding/enum/
+          fieldcontract/allowlist). Confirms lint, build, and the Phase-2 unit tests
+          pass before downstream phases consume these primitives. Middle-phase
+          verification — not the full gate.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/gatetype.go
+          - pkg/pack/engine/fieldcontract.go
+          - pkg/pack/engine/allowlist.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-014
+          - CLM-019
+          - CLM-029
+          - CLM-036
+        depends_on:
+          - TASK-004
+          - TASK-006
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: CheckTypeSemgrep -> CheckTypeFindings rename (pkg/check)
+  # Runs in PARALLEL with Phase 2 — disjoint file set (pkg/check vs
+  # pkg/pack/engine). Assumes ISSUE-018 has deleted the in-process executor.
+  # (Numbered 5 in the spec's stage list; placed here for parallelism.)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 5 (parallel): Neutral gate-type rename in pkg/check"
+    description: |
+      Rename the tool-named CheckTypeSemgrep to the neutral CheckTypeFindings
+      across the references that REMAIN after ISSUE-018 deletes the in-process
+      semgrepExecutor, AND neutralize the gate-type STRING surface (String() ->
+      "findings", parseCheckType accepts "findings"). Disjoint from Phase 2's
+      pkg/pack/engine files, so this phase is parallel-eligible with Phase 2.
+      ISSUE-018 PRECONDITION: the delete(opts.Executors, CheckTypeSemgrep) and
+      execs[CheckTypeSemgrep] sites are already gone — do NOT re-rename them.
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Write CheckType neutral-rename + string-surface tests"
+        description: |
+          Migrate/add the serialized-surface tests that assert the gate-type
+          identifier and string (in pkg/check and cmd/backstop):
+            - TestCheckType_SemgrepRenamedToNeutralFindings: the neutral
+              CheckTypeFindings is referenced at the surviving (post-ISSUE-018)
+              identifier sites — const decl, String() case, parseCheckType case, the
+              []CheckType slices, passOrder, parsers.go stamp, code_check.go
+              PassResult sites — and no `CheckTypeSemgrep` identifier remains
+              (CLM-022).
+            - TestCheckType_StringAndParseUseNeutralFindingsNotSemgrep:
+              CheckType.String() returns "findings" (not "semgrep") and
+              parseCheckType("findings") parses, while "semgrep" no longer maps to
+              this type (CLM-032).
+          These are red against the current "semgrep" identifier/string surface.
+        files:
+          - pkg/check/manifest_test.go
+          - cmd/backstop/code_check_test.go
+        claims:
+          - CLM-022
+          - CLM-032
+        depends_on:
+          - TASK-001
+
+      - id: TASK-011
+        type: refactor
+        title: "Rename CheckTypeSemgrep -> CheckTypeFindings (identifier + strings)"
+        description: |
+          Rename across the post-ISSUE-018 surviving sites in five files:
+            - pkg/check/manifest.go: const decl; String() case -> "findings";
+              parseCheckType case accepting "findings" (was "semgrep"); the three
+              []CheckType{...} slices.
+            - pkg/check/check.go: passOrder (the delete(opts.Executors,...) site is
+              GONE under ISSUE-018 — do NOT touch/recreate it).
+            - pkg/check/parsers.go: stamp comment + parser(out, CheckTypeFindings).
+            - pkg/check/registry.go: any surviving CheckTypeFindings reference (the
+              execs[CheckTypeSemgrep] semgrepExecutor assignment is GONE under
+              ISSUE-018 — do NOT recreate it).
+            - cmd/backstop/code_check.go: the two Pass: check.CheckTypeFindings sites.
+          Refactor of existing code with tests written first (TASK-010). Build must
+          compile with zero references to the old identifier and the string surface
+          neutral. If a delete/execs semgrepExecutor site still exists, ISSUE-018 has
+          not landed — STOP (this plan assumes it has).
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/check.go
+          - pkg/check/parsers.go
+          - pkg/check/registry.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-022
+          - CLM-032
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Verify gate-type rename (code check)"
+        description: |
+          Run `backstop code check` over the pkg/check + code_check.go rename.
+          Confirms the build compiles with the neutral identifier/string surface and
+          the migrated serialized-surface tests pass. Middle-phase verification.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/check.go
+          - pkg/check/parsers.go
+          - pkg/check/registry.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-022
+          - CLM-032
+        depends_on:
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Manifest engines: parsing + validateEngine widening + layout
+  # (pkg/pack — depends on Phase 2 engine primitives)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 3: Manifest engines: Parsing, validateEngine Widening, Layout"
+    description: |
+      In pkg/pack: parse the top-level `engines:` block into the manifest
+      (EngineSpec -> engine.EngineBinding), add Rule.Pattern, widen validateEngine
+      to "known in pack-declared UNION fallback registry AND tool allowlisted", and
+      retire the engine-NAME layout switch in ExpectedLayout into an InputMode/
+      ScopeKind derivation. The field-contract validation now reads the binding's
+      DECLARED contract. validateEngine's signature gains the declared registry +
+      calls the shared CheckToolAllowed (Phase 2). This phase is the first
+      command-running caller to be allowlist-gated at validation time.
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Write engines: parse + Rule.Pattern + gate_type-value tests"
+        description: |
+          pkg/pack/manifest_test.go (+ engines parsing tests):
+            - TestManifest_EnginesBlockParsesBindingFields: a manifest with an
+              engines: block parses each binding spec into an EngineBinding via yaml
+              tags (Command, InputMode, InputFlag, Convert, Provision, ScopeKind,
+              Category) (CLM-001).
+            - TestManifest_GateTypeParsesAllSevenValues: each of the seven valid
+              gate_type values parses into the binding's GateType (CLM-020).
+            - TestManifest_UnknownGateTypeFailsLoud: an unrecognized gate_type in an
+              engines: block is a blocking config error (CLM-021).
+          Red against the not-yet-existing Engines map / Pattern field.
+        files:
+          - pkg/pack/engines_parse_test.go
+        claims:
+          - CLM-001
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-001
+          - TASK-009
+
+      - id: TASK-014
+        type: implementation
+        title: "Add Engines map, EngineSpec, Rule.Pattern; parse engines: block"
+        description: |
+          pkg/pack/manifest.go: add `Engines map[string]EngineSpec` to Manifest and
+          an EngineSpec carrying the yaml-tagged binding fields (command, input_mode,
+          input_flag, convert, provision, scope_kind, category, gate_type,
+          strict_sarif, package_scoped, field_contract), converting to
+          engine.EngineBinding at load; add `Pattern string` (yaml: pattern) to Rule.
+          A bad gate_type fails loud via ParseGateType. Make TASK-013 green.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-001
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: test
+        title: "Write validateEngine widening + field-contract validation tests"
+        description: |
+          pkg/pack/manifest_test.go + validate_manifest_test.go:
+            - TestValidateEngine_PackDeclaredEngineKnown: accepts a rule whose engine
+              is declared in the manifest's own engines: block (not the built-in
+              registry) when its tool is allowlisted (CLM-010).
+            - TestValidateEngine_BuiltinEngineKnown: accepts a rule on a built-in/
+              fallback engine whose tool is allowlisted (CLM-011).
+            - TestValidateEngine_UnknownEngineRejected: rejects (blocking config
+              error) an engine unknown to BOTH pack-declared and fallback (CLM-012).
+            - TestValidateEngine_KnownEngineUnallowlistedToolRejected: rejects a
+              known engine whose tool is NOT allowlisted (CLM-013).
+          Red against the current DefaultRegistry-only validateEngine.
+        files:
+          - pkg/pack/validate_engine_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-001
+          - TASK-009
+
+      - id: TASK-016
+        type: implementation
+        title: "Widen validateEngine to pack-declared UNION fallback + allowlist gate"
+        description: |
+          pkg/pack/manifest.go: change validateEngine from a DefaultRegistry-only
+          lookup to: known in the pack-declared registry (the manifest's engines:
+          block) UNION the fallback registry, AND the engine's tool passes the shared
+          CheckToolAllowed (allowlist + lock-pin). Unknown engine -> blocking config
+          error (existing). Known engine, un-allowlisted tool -> blocking config
+          error (new). validateEngine gains the declared-bindings parameter. Make
+          TASK-015 green. This is the validation-time half of the trust gate
+          (Sharp Edge 1 — it ships in the SAME phase set as the dispatch gate).
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-015
+          - TASK-014
+
+      - id: TASK-017
+        type: test
+        title: "Write ExpectedLayout derivation + declared-field-contract tests"
+        description: |
+          pkg/pack/validate_manifest_test.go:
+            - TestExpectedLayout_DerivedFromInputModeNotEngineName: ExpectedLayout
+              derives rules/ vs validators/ from each rule's resolved binding
+              InputMode/ScopeKind (rule-fed modes -> rules/; input_mode none ->
+              validators/), with NO "semgrep"/"ast-grep" name switch (CLM-025).
+            - TestFieldContract_DeclaredOnBindingNotNameKeyed (pkg/pack level): the
+              validator verifies a rule's populated fields against its declared
+              engine's DECLARED FieldContract on the binding, not a name-keyed map
+              (CLM-036).
+          Red against the current engine-name switch and name-keyed claimFor lookup.
+        files:
+          - pkg/pack/validate_manifest_test.go
+        claims:
+          - CLM-025
+          - CLM-036
+        depends_on:
+          - TASK-001
+          - TASK-009
+
+      - id: TASK-018
+        type: refactor
+        title: "Derive ExpectedLayout from InputMode/ScopeKind; validate declared contract"
+        description: |
+          pkg/pack/validate_manifest.go: delete the "semgrep"/"ast-grep" engine-name
+          switch in ExpectedLayout/validateEngineFields and DERIVE the expected
+          layout from each rule's resolved binding InputMode/ScopeKind. Route
+          field-contract validation through the binding's DECLARED FieldContract
+          (claimFor's name-keyed engineFieldClaim map no longer drives validation for
+          a pack-declared engine; its DEFAULT disposition is OQ-1/Phase 6). Refactor
+          of existing code; tests first (TASK-017). Make TASK-017 green.
+        files:
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-025
+          - CLM-036
+        depends_on:
+          - TASK-017
+          - TASK-016
+
+      - id: TASK-019
+        type: verification
+        title: "Verify manifest parsing + validateEngine + layout (code check)"
+        description: |
+          Run `backstop code check` over the pkg/pack changes (engines: parsing,
+          validateEngine widening, layout derivation, declared-contract validation).
+          Middle-phase verification confirming pkg/pack builds and unit tests pass
+          before the cmd/backstop dispatch phase consumes these.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-001
+          - CLM-010
+          - CLM-012
+          - CLM-013
+          - CLM-025
+          - CLM-036
+        depends_on:
+          - TASK-016
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Dispatch trust gate + merge + pattern-arg + name-special-cases
+  # (cmd/backstop) — THE ATOMIC SECURITY PHASE. The merge that makes pack-
+  # declared commands reachable (CLM-002/003/004) and the dispatch trust gate
+  # (CLM-005..009) land in the SAME phase. No task here exposes a pack-declared
+  # command without the gate (Sharp Edge 1).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 4: Dispatch Trust Gate, Registry Merge, pattern-arg, Name Retirement"
+    description: |
+      In cmd/backstop: make resolveEngineRegistry merge pack-declared bindings with
+      the fallback registry (deterministic merge, CLM-004), insert the trust gate
+      BEFORE splitCommand/RunStdout in runFindingsEngine (CLM-005..008), exempt the
+      sandbox engine (CLM-009), route the allowlist check through provisionEngines as
+      the earliest chokepoint (CLM-030) while leaving pack_separation exempt
+      (CLM-031), add the pattern-arg gather case (CLM-016..018), retire the two
+      command-prefix name sniffs into declared StrictSarif/PackageScoped flags
+      (CLM-023/CLM-024), prove the no-tool-name-discriminator end state (CLM-026),
+      and assert the convert/validator sandbox posture (CLM-033..035). The merge and
+      the gate are ATOMIC — this phase never lands one without the other.
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Write registry-merge + generic-dispatch reuse tests"
+        description: |
+          cmd/backstop/pack_gate_test.go:
+            - TestResolveRegistry_PackDeclaredBindingMerged: a pack-declared binding
+              is merged into the registry resolveEngineRegistry returns; a rule on
+              that engine resolves to the pack-declared binding (CLM-002).
+            - TestResolveRegistry_PackBindingResolutionIsDeterministic: a pack
+              engines: block redeclaring a built-in name resolves to a WELL-DEFINED
+              binding (the decided merge rule), not map-iteration order (CLM-004).
+            - TestDispatch_PackDeclaredEngineRunsViaGenericDispatch: a pack-declared
+              engine dispatches through the EXISTING runFindingsEngine/
+              gatherEngineInputs with no dispatcher change — binding fields drive it
+              (CLM-003).
+          Red against the current arg-less resolveEngineRegistry.
+        files:
+          - cmd/backstop/pack_gate_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-021
+        type: test
+        title: "Write dispatch trust-gate matrix + sandbox-exempt tests"
+        description: |
+          cmd/backstop/pack_gate_allowlist_test.go — drive a REAL allowlist
+          (Sharp Edge 3, no stub-open on the dispatch path):
+            - TestAllowlist_AllowlistedPinnedToolRuns: an allowlisted+lock-pinned
+              tool's command reaches RunStdout (CLM-005).
+            - TestAllowlist_UnallowlistedToolFailsLoud: an un-allowlisted tool yields
+              a *check.ConfigError (exit 2) naming tool+pack; command never runs
+              (CLM-006).
+            - TestAllowlist_AllowlistedButUnpinnedToolFailsLoud: allowlisted but not
+              lock-pinned -> ConfigError, never runs (CLM-007).
+            - TestAllowlist_GateBlocksBeforeRunStdout: using the recording fake
+              CommandRunner, an un-allowlisted tool's command is NEVER handed to
+              RunStdout — the gate sits BEFORE splitCommand/RunStdout (CLM-008).
+            - TestAllowlist_SandboxEngineNotSubjectToToolAllowlist: the sandbox engine
+              (no command, input_mode none) is not subject to the command-allowlist
+              and runs as before (CLM-009).
+            - TestAllowlist_VersionPinReadsFromLockNotSecondSource: the dispatch
+              gate's version comparison reads the lock-pinned version, not a literal
+              in TrustedToolAllowlist (allowlisted-at-vX/locked-at-vY fails) (CLM-029).
+          Red — runFindingsEngine has no trust gate yet.
+        files:
+          - cmd/backstop/pack_gate_allowlist_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-029
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-022
+        type: implementation
+        title: "Merge pack-declared bindings + insert dispatch trust gate (ATOMIC)"
+        description: |
+          cmd/backstop/pack_gate.go — the ATOMIC security change (Sharp Edge 1):
+            - change resolveEngineRegistry to take the manifest and return the
+              pack-declared engines: bindings MERGED with the fallback registry, with
+              the DECIDED deterministic resolution for a redeclared built-in name
+              (CLM-002/CLM-004). Update its in-file callers' call sites.
+            - in runFindingsEngine, BEFORE splitCommand(binding.Command) ->
+              runner.RunStdout, resolve the tool name and call the shared
+              CheckToolAllowed against TrustedToolAllowlist + the lock-pinned version
+              (read via the existing VerifyLock/Provision path, NOT a literal). On
+              failure return a *check.ConfigError (exit 2) naming tool+pack; the
+              command is NEVER handed to the runner (CLM-005..008/CLM-029).
+            - the sandbox engine (no command) is exempt (CLM-009).
+          The generic gather/run/convert/parseSarif flow is otherwise UNCHANGED — do
+          NOT churn the dispatcher (Review Q10). Make TASK-020 and TASK-021 green.
+          The merge (makes pack commands reachable) and the gate (makes them safe)
+          land together in THIS task — never apart.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-029
+        depends_on:
+          - TASK-020
+          - TASK-021
+
+      - id: TASK-023
+        type: test
+        title: "Write pattern-arg gather tests (emit, empty-fail, no-fs-touch)"
+        description: |
+          cmd/backstop/pack_gate_patternarg_test.go:
+            - TestGatherInputs_PatternArgEmitsFlagAndPattern: for a pattern-arg
+              engine, gatherEngineInputs emits [binding.InputFlag, rule.Pattern] per
+              rule (CLM-016).
+            - TestGatherInputs_PatternArgEmptyPatternFailsLoud: a pattern-arg rule
+              with an empty pattern is a blocking broken-pack config error naming the
+              pack and rule (CLM-017).
+            - TestGatherInputs_PatternArgIgnoresRulePath: a pattern-arg rule with a
+              pattern but no rule_path gathers inputs successfully and does NOT
+              os.Stat a rule path (CLM-018).
+          Red — the InputModePatternArg gather case does not exist yet.
+        files:
+          - cmd/backstop/pack_gate_patternarg_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-024
+        type: implementation
+        title: "Add InputModePatternArg gather case to gatherEngineInputs"
+        description: |
+          cmd/backstop/pack_gate.go: add the InputModePatternArg case to
+          gatherEngineInputs emitting [binding.InputFlag, rule.Pattern] per rule,
+          with an empty-pattern fail-loud naming pack+rule and NO filesystem rule-path
+          resolution. The four existing cases are unchanged. Make TASK-023 green.
+          (Separate task from TASK-022 so the dispatcher's gather extension is
+          test-driven independently of the trust gate.)
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-023
+          - TASK-022
+
+      - id: TASK-025
+        type: test
+        title: "Write provisionEngines allowlist-gate + pack_separation-exempt tests"
+        description: |
+          cmd/backstop/pack_gate_provision_test.go + pack_separation_test.go:
+            - TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision:
+              provisionEngines (the earliest resolveEngineRegistry walk) fails loud on
+              an un-allowlisted tool BEFORE provisioning, via the shared
+              CheckToolAllowed (CLM-030).
+            - TestPackSeparation_ReaderRunsNoCommandNoAllowlistNeeded: the
+              pack_separation reader looks up only a binding's Category and runs no
+              command, so it is explicitly EXEMPT from the allowlist gate (CLM-031).
+          Red against the un-gated provisionEngines.
+        files:
+          - cmd/backstop/pack_gate_provision_test.go
+          - cmd/backstop/pack_separation_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-026
+        type: implementation
+        title: "Route allowlist gate through provisionEngines; keep separation exempt"
+        description: |
+          cmd/backstop/pack_gate_provision.go: at the earliest tool-resolution walk
+          (it already resolves each engine's tool via engineToolName(binding.Command)
+          and resolves the registry), call the shared CheckToolAllowed so an
+          un-allowlisted tool fails loud with a *check.ConfigError BEFORE provisioning
+          (CLM-030). Pass the manifest into resolveEngineRegistry per TASK-022's new
+          signature. Do NOT add a gate to pack_separation.go — it runs no command and
+          is exempt by design (CLM-031, verified, no code change there). Make TASK-025
+          green.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+        claims:
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-025
+          - TASK-022
+
+      - id: TASK-027
+        type: test
+        title: "Write declared-flag (StrictSarif/PackageScoped) divergence tests"
+        description: |
+          cmd/backstop/pack_gate_golint_test.go + pack_gate_filemode_test.go — use
+          the DIVERGENT fixtures (Sharp Edge 6, flag DISAGREES with command name):
+            - TestStrictSarif_GuardKeyedOnDeclaredFlagNotName: a NON-golangci command
+              with StrictSarif:true IS guarded, and a golangci-named command with
+              StrictSarif:false is NOT — the guard keys off the declared flag, not a
+              "golangci-lint" prefix sniff (CLM-023).
+            - TestPackageScoped_KeyedOnDeclaredFlagNotName: a NON-"go test" command
+              with PackageScoped:true IS package-scoped, and a "go test"-named command
+              with PackageScoped:false is NOT (CLM-024).
+          Red — guards still sniff command prefixes.
+        files:
+          - cmd/backstop/pack_gate_golint_test.go
+          - cmd/backstop/pack_gate_filemode_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-028
+        type: refactor
+        title: "Retire isNativeSarifLintEngine / isNativeGoTestEngine into declared flags"
+        description: |
+          Delete the two command-prefix sniffs and key off the declared flags:
+            - pack_gate_golint.go: delete isNativeSarifLintEngine's "golangci-lint"
+              sniff; key requireLintSarifShape off binding.StrictSarif (CLM-023).
+            - pack_gate_filemode.go: delete isNativeGoTestEngine's "go test" sniff;
+              key fileModeTestTarget off binding.PackageScoped (CLM-024).
+          NO command-prefix sniff may survive "as a fallback" (Sharp Edge 5).
+          Refactor of existing code; tests first (TASK-027). Make TASK-027 green.
+        files:
+          - cmd/backstop/pack_gate_golint.go
+          - cmd/backstop/pack_gate_filemode.go
+        claims:
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-027
+          - TASK-022
+
+      - id: TASK-029
+        type: test
+        title: "Write no-tool-name-discriminator + convert/validator posture tests"
+        description: |
+          cmd/backstop/pack_gate_endstate_test.go + pack_gate_sandbox_test.go:
+            - TestEndState_NoToolNameUsedAsDispatchDiscriminator: a grep of
+              cmd/backstop and pkg/pack NON-test source finds no tool-name literal
+              ("golangci-lint", "go test", "semgrep", "ast-grep") used as a dispatch/
+              layout discriminator in Go control flow (string literals in default-pack
+              data/docs exempt) (CLM-026).
+            - TestConvert_ScriptIsSandboxTrustedNotToolAllowlisted: a non-SARIF
+              findings engine's convert script (binding.Convert via
+              SandboxedRunStdout) runs WITHOUT a tool-allowlist check on the script —
+              sandbox-trusted, allowlist-exempt (CLM-033).
+            - TestValidator_IsSandboxTrustedNotToolAllowlisted: rule.Validator (via
+              SandboxedRun) is arbitrary pack code trusted by the sandbox, not a named
+              tool, allowlist-exempt (CLM-034).
+            - TestSandbox_PlatformUnavailableSurfacedNotSilent: on a platform where
+              the sandbox is unavailable, the convert/validator path surfaces the
+              platform limitation LOUDLY rather than silently running unconfined or
+              silently passing (CLM-035).
+          Red/assertive against the end state.
+        files:
+          - cmd/backstop/pack_gate_endstate_test.go
+          - cmd/backstop/pack_gate_sandbox_test.go
+        claims:
+          - CLM-026
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-002
+          - TASK-019
+          - TASK-009
+
+      - id: TASK-030
+        type: implementation
+        title: "Surface sandbox platform-limitation loudly; assert exempt posture"
+        description: |
+          cmd/backstop (pack_gate.go / runSandboxEngine path): the convert/validator
+          paths are allowlist-EXEMPT, sandbox-trusted (REQ-008) — confirm runFindings/
+          runSandbox do NOT route binding.Convert or rule.Validator through the tool-
+          allowlist (CLM-033/CLM-034). Where the sandbox is unavailable (non-macOS,
+          sandbox-exec absent), surface the platform limitation LOUDLY rather than
+          silently running unconfined or silently passing (CLM-035). Make the CLM-035
+          loud-surface assertions in TASK-029 green; the exempt-posture tests
+          (CLM-033/034) and the grep guard (CLM-026) pass against the end state once
+          TASK-028 removes the name sniffs. (Implementation depends on the name-sniff
+          retirement so CLM-026's grep is genuinely clean.)
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-026
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-029
+          - TASK-028
+          - TASK-024
+          - TASK-026
+
+      - id: TASK-031
+        type: verification
+        title: "Verify dispatch gate + pattern-arg + name retirement (code check)"
+        description: |
+          Run `backstop code check` over the cmd/backstop changes (merge + trust
+          gate, pattern-arg gather, provisionEngines gate, declared-flag retirement,
+          sandbox posture). Middle-phase verification confirming the security phase
+          builds and all Phase-4 tests pass before the OQ-forked Phase 6 and the
+          final gate.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_provision.go
+          - cmd/backstop/pack_gate_golint.go
+          - cmd/backstop/pack_gate_filemode.go
+        claims:
+          - CLM-002
+          - CLM-005
+          - CLM-008
+          - CLM-016
+          - CLM-023
+          - CLM-026
+          - CLM-030
+          - CLM-035
+        depends_on:
+          - TASK-022
+          - TASK-024
+          - TASK-026
+          - TASK-028
+          - TASK-030
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: DefaultRegistry / DefaultFieldContracts migration — OQ-1 FORK
+  # *** BLOCKED ON USER OQ-1 SELECTION. Do not start without it. ***
+  # Default tasks below describe option (i) incremental fallback. Under option
+  # (ii) the impl/refactor tasks swap to DELETING DefaultRegistry()/
+  # DefaultFieldContracts() and shipping a default pack; the CLAIMS and the
+  # final gate are identical.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6 (OQ-1 fork): DefaultRegistry + FieldContract Disposition"
+    description: |
+      Resolve OQ-1: migrate the seven built-in bindings (and the name-keyed
+      DefaultFieldContracts/engineFieldClaim) per the user's selected option. The
+      INVARIANTS the claims assert (the built-ins remain available to dispatch, and
+      the allowlist gates a built-in tool exactly as a pack-declared tool) hold under
+      EITHER option — the tests assert the invariant, not the binding source. Option
+      (i): keep DefaultRegistry as the incremental fallback the merge overrides, and
+      keep DefaultFieldContracts as the default a declared contract overrides. Option
+      (ii): delete both and ship a default pack. THIS PHASE IS BLOCKED until the user
+      selects an option.
+    tasks:
+      - id: TASK-032
+        type: test
+        title: "Write DefaultRegistry-migration invariant tests (option-agnostic)"
+        description: |
+          pkg/pack/engine/migration_test.go (+ cmd/backstop coverage):
+            - TestMigration_BuiltinBindingsRemainAvailable: under the resolved merge
+              semantics, the built-in bindings (commands + pinned versions) are
+              available to dispatch — whether sourced from DefaultRegistry fallback
+              (i) or a default pack (ii) — so go-toolchain/go-standards rules still
+              dispatch (CLM-027).
+            - TestMigration_AllowlistAppliesToBuiltinBindingsToo: the allowlist trust
+              gate applies to a built-in/fallback binding's tool exactly as to a
+              pack-declared binding's tool — the allowlist is the trust floor
+              regardless of source (CLM-028).
+            - TestFieldContract_DefaultsFollowRegistryDisposition:
+              DefaultFieldContracts() + the name-keyed engineFieldClaim CLM-id map
+              travel under the SAME OQ-1 disposition as DefaultRegistry — a pack-
+              declared field-contract overrides the baked default for the same engine
+              name (i), or they are eradicated into default-pack data (ii); not an
+              independent unscoped baked map (CLM-037).
+          These assert INVARIANTS that hold under either option. Red first.
+        files:
+          - pkg/pack/engine/migration_test.go
+          - cmd/backstop/migration_test.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-037
+        depends_on:
+          - TASK-031
+          - TASK-012
+
+      - id: TASK-033
+        type: implementation
+        title: "Implement OQ-1 disposition (default: option i incremental fallback)"
+        description: |
+          Per the user's OQ-1 selection:
+            - OPTION (i) DEFAULT: keep DefaultRegistry() as the fallback the stage-1
+              merge overrides/extends; keep DefaultFieldContracts() + engineFieldClaim
+              as the baked default a pack-declared field-contract overrides for the
+              same engine name. New code: the override/precedence wiring so a pack-
+              declared binding/contract wins over the same-named default, while
+              built-ins stay available (CLM-027/CLM-037), and the allowlist gates the
+              built-in tool the same as any (CLM-028).
+            - OPTION (ii): this task instead becomes a refactor/deletion of
+              DefaultRegistry()/DefaultFieldContracts() with the built-ins shipped as
+              a default pack — same claims, same gate.
+          Make TASK-032 green. The merge semantics (Phase 4) and allowlist gate
+          (Phase 2/4) are UNCHANGED — this only decides where built-in bindings live.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/fieldcontract.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-037
+        depends_on:
+          - TASK-032
+
+      - id: TASK-034
+        type: verification
+        title: "Verify OQ-1 migration (code check)"
+        description: |
+          Run `backstop code check` over the DefaultRegistry/DefaultFieldContracts
+          disposition changes. Confirms the built-ins remain dispatchable and the
+          allowlist invariant holds under the selected option. Middle-phase
+          verification ahead of the final gate.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/fieldcontract.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-037
+        depends_on:
+          - TASK-033
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Final comprehensive verification (full kill chain)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code
+      check, test verification, substantiveness, coverage (>=80%), contracts. This
+      is the only phase that runs `backstop gate`. Confirms every claim's tests are
+      green, no tool name survives as a dispatch discriminator, the trust gate holds,
+      and the do-not-churn constraint was respected.
+    tasks:
+      - id: TASK-035
+        type: verification
+        title: "Run full gate over the complete SPEC-035 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) across
+          cmd/backstop, pkg/pack, pkg/pack/engine, and pkg/check at >=80% coverage.
+          Confirm: the pack-declared bindings + allowlist landed ATOMICALLY (no
+          un-gated pack-command path), the gate sits before RunStdout, every allowlist
+          matrix cell is exercised with a real (non-stub-open) allowlist, the
+          pattern-arg/name-retirement/rename claims are green, the convert/validator
+          sandbox posture is asserted, and the EngineBinding struct + generic
+          dispatch were extended/fed, not churned. Also runs `backstop artifact
+          validate` to confirm this plan + the spec validate.
+        files:
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/manifest.go
+          - pkg/pack/engine/binding.go
+          - pkg/check/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-009
+          - TASK-012
+          - TASK-019
+          - TASK-031
+          - TASK-034
+          - TASK-022
+          - TASK-033

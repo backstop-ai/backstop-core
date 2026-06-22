@@ -4,7 +4,7 @@ number: SPEC-035
 created: "2026-06-20"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -84,6 +84,16 @@ requirements:
       allowlist gate covers the TOOL command only; the pack `convert` script and the
       sandbox `validator` are arbitrary pack code governed by REQ-008's sandbox
       posture, not this tool-allowlist.
+
+      This allowlist's `{tool → pinned version}` map is the REPLACEMENT mechanism for
+      per-tool version pinning: the old single-tool `SemgrepVersion`
+      (pkg/config/config.go) → `opts.PinnedSemgrepVersion` →
+      `semgrepExecutor.pinnedVersion` (pkg/check/registry.go) plumbing is superseded by
+      this general allowlist pin. That old config + plumbing is NOT removed by this spec —
+      it dies with the in-process `semgrepExecutor` that ISSUE-018 deletes (it has no
+      other consumer). This spec adds the allowlist as the going-forward pin; ISSUE-018
+      removes the superseded `SemgrepVersion`/`PinnedSemgrepVersion` path. See the Sharp
+      Edges sequencing note.
     supports: pluggable-pack-engines:REQ-019
     follows: STD-GO-001:GO-010
   - id: REQ-003
@@ -104,6 +114,28 @@ requirements:
       REQ-002). The pack-separation reader (`pack_separation.go`) only looks up a
       binding's Category and never runs a command, so it needs no allowlist gate; that
       exemption is explicit, not an oversight.
+
+      ADDITIONALLY, the engine FIELD-CONTRACT (the Requires/Forbids Rule-field lists)
+      is baked engine knowledge of exactly the same shape as the hardcoded registry
+      this spec moves to pack declaration, and must fold into the SAME pack-declared
+      binding model. `engine.DefaultFieldContracts()`
+      (pkg/pack/engine/fieldcontract.go) returns a `map[string]FieldContract` keyed by
+      engine NAME — and `engineFieldClaim` (pkg/pack/validate_manifest.go, the
+      `"semgrep|rule_path|requires"` → CLM-007 / `"semgrep|standard|requires"` →
+      CLM-008 / etc. map consulted by `claimFor`) is a SECOND name-keyed map keyed on
+      `"semgrep"` / `"ast-grep"` / `"sandbox"` / `"config-file"`. Both are contracts
+      keyed by engine name, structurally identical to `DefaultRegistry()`. This spec
+      makes the FieldContract (its Requires/Forbids field lists) a DECLARED property of
+      the pack-declared `EngineBinding` — an engine's field-contract is parsed from the
+      pack `engines:` block alongside its Command/InputMode/GateType, NOT looked up by
+      engine name in a baked map. The validator verifies a rule's populated fields
+      satisfy its declared engine's DECLARED field-contract (verify, not guide). The
+      backstop-owned-DEFAULT disposition of `DefaultFieldContracts()` AND the
+      name-keyed CLM-id mapping `engineFieldClaim` falls under the SAME fallback-vs-
+      eradicate Open Question as `DefaultRegistry()` (OQ-1): under option (i) they
+      survive as an incremental fallback the pack overrides; under option (ii) they are
+      eradicated and shipped as default-pack data. They are NOT left as an unscoped
+      baked map — they move with the registry under one resolution.
     supports: pluggable-pack-engines:REQ-001
     follows: STD-GO-001:GO-010
   - id: REQ-004
@@ -146,6 +178,17 @@ requirements:
       migrate with it. An engine's declared gate-type is data on the binding, parsed
       from the pack `engines:` block; an unrecognized gate-type value is a blocking
       config error (fail-loud, parallel to ParseInputMode).
+
+      SEQUENCING (ISSUE-018 lands FIRST): two of the sites enumerated above — the
+      `delete(opts.Executors, CheckTypeSemgrep)` site (pkg/check/check.go) and the
+      `execs[CheckTypeSemgrep] = &semgrepExecutor{...}` assignment (pkg/check/registry.go)
+      — are INSIDE the in-process `semgrepExecutor` that ISSUE-018 DELETES. ISSUE-018 is
+      sequenced ahead of this spec; after it lands those two sites are GONE, so this
+      spec's rename applies only to the `CheckTypeSemgrep` references that REMAIN
+      (the const decl, `String()`/`parseCheckType`, the `[]CheckType` slices, `passOrder`,
+      the parsers.go stamp, the code_check.go `PassResult` sites). The ~11-site count is
+      the CURRENT full grep; the post-ISSUE-018 rename footprint is smaller. This is an
+      ORDERING dependency, not a conflict — see the Sharp Edges sequencing note.
     supports: pluggable-pack-engines:REQ-001
     follows: STD-GO-001:GO-010
   - id: REQ-006
@@ -298,6 +341,16 @@ claims:
     text: The pack-separation reader (pack_separation.go, the third resolveEngineRegistry caller) looks up only a binding's Category and runs no command, so it is explicitly exempt from the allowlist gate — an un-allowlisted engine there is not an execution path
     tests:
       - TestPackSeparation_ReaderRunsNoCommandNoAllowlistNeeded
+  - id: CLM-036
+    requirement: REQ-003
+    text: An engine's field-contract (Requires/Forbids Rule-field lists) is a DECLARED property of the pack-declared EngineBinding parsed from the pack engines block — a pack-declared engine carries its own field-contract and the validator verifies a rule's fields against the DECLARED contract, NOT against a map keyed by engine name
+    tests:
+      - TestFieldContract_DeclaredOnBindingNotNameKeyed
+  - id: CLM-037
+    requirement: REQ-003
+    text: DefaultFieldContracts() and the name-keyed engineFieldClaim CLM-id map (keyed on "semgrep"/"ast-grep"/"sandbox"/"config-file") fall under the SAME OQ-1 fallback-vs-eradicate disposition as DefaultRegistry — under the incremental-fallback option a pack-declared field-contract overrides the baked default for the same engine name; they are not an independent unscoped baked map
+    tests:
+      - TestFieldContract_DefaultsFollowRegistryDisposition
 
   # REQ-004 — pattern-arg input mode (parse-accept, emit, empty-fail) + enum exhaustiveness
   - id: CLM-014
@@ -421,12 +474,16 @@ contracts:
         notes: "Fail-loud parser for the declared gate_type (CLM-021), mirroring ParseInputMode — no silent default."
       - name: EngineBinding
         kind: type
-        signature: "type EngineBinding struct { Command string; InputMode InputMode; InputFlag string; ScopeKind ScopeKind; Convert string; Provision *Provision; CrashGuard bool; Category EngineCategory; ProjectTarget string; GateType GateType; StrictSarif bool; PackageScoped bool }"
-        notes: "EXTENDED, not rewritten (constraint: do not churn the struct). Adds GateType (REQ-005), StrictSarif (REQ-006a — declared output-contract flag replacing the isNativeSarifLintEngine name-sniff; the pack_gate.go comment already references binding.StrictSarif), and PackageScoped (REQ-006b — declared file-mode package-scope capability replacing the isNativeGoTestEngine name-sniff). All existing fields keep their meaning. yaml tags are added to every field so the pack engines block parses into this struct (REQ-001/CLM-001)."
+        signature: "type EngineBinding struct { Command string; InputMode InputMode; InputFlag string; ScopeKind ScopeKind; Convert string; Provision *Provision; CrashGuard bool; Category EngineCategory; ProjectTarget string; GateType GateType; StrictSarif bool; PackageScoped bool; FieldContract FieldContract }"
+        notes: "EXTENDED, not rewritten (constraint: do not churn the struct). Adds GateType (REQ-005), StrictSarif (REQ-006a — declared output-contract flag replacing the isNativeSarifLintEngine name-sniff; the pack_gate.go comment already references binding.StrictSarif), PackageScoped (REQ-006b — declared file-mode package-scope capability replacing the isNativeGoTestEngine name-sniff), and FieldContract (REQ-003/CLM-036 — the engine's declared Requires/Forbids Rule-field lists, folding DefaultFieldContracts off a name-keyed map onto the binding). All existing fields keep their meaning. yaml tags are added to every field so the pack engines block parses into this struct (REQ-001/CLM-001)."
       - name: ParseInputMode
         kind: function
         signature: "func ParseInputMode(s string) (InputMode, error)"
         notes: "Accepts pattern-arg as the fifth value; unchanged fail-loud contract on unknown values (REQ-004/CLM-014/CLM-015)."
+      - name: FieldContract
+        kind: type
+        signature: "type FieldContract struct { Requires []string; Forbids []string }"
+        notes: "The engine's declared field-contract (REQ-003/CLM-036). Becomes a DECLARED property of the pack-declared EngineBinding — its Requires/Forbids Rule-field lists are parsed from the pack engines block, NOT looked up by engine name. DefaultFieldContracts() (pkg/pack/engine/fieldcontract.go), the existing name-keyed map of these, falls under the same OQ-1 fallback-vs-eradicate disposition as DefaultRegistry (CLM-037)."
     consumes: []
 
   - file: pkg/pack/engine/allowlist.go
@@ -534,9 +591,16 @@ contracts:
         kind: function
         signature: "func ExpectedLayout(m *Manifest) []string"
         notes: "The engine-NAME switch on \"semgrep\"/\"ast-grep\" is DELETED; the expected rules/ vs validators/ layout is DERIVED from each rule's resolved binding InputMode/ScopeKind (rule-fed input modes => rules/; input_mode none => validators/) (REQ-006c/CLM-025)."
+      - name: claimFor
+        kind: function
+        signature: "func claimFor(engineName, field, kind string) string"
+        notes: "Resolves the field-contract CLM-id via the engineFieldClaim map keyed on engine name (\"semgrep|rule_path|requires\" => CLM-007, etc.). Under REQ-003/CLM-037 this name-keyed map folds onto the pack-declared binding's FieldContract under the SAME OQ-1 fallback-vs-eradicate disposition as DefaultRegistry — it is NOT an independent baked map. A pack-declared engine's field-contract drives validation from the binding, not this name-keyed lookup."
     consumes:
       - source: pkg/pack/engine/binding.go
         name: InputMode
+        kind: type
+      - source: pkg/pack/engine/binding.go
+        name: FieldContract
         kind: type
 
   - file: pkg/check/manifest.go
@@ -664,6 +728,19 @@ The tool-allowlist must hold at every non-test caller that leads to running a co
 | `runFindingsEngine` (pack_gate.go) | yes (dispatch) | YES — gate before RunStdout (CLM-008) |
 | `pack_separation.go` | no (reads Category only) | EXEMPT — no execution path (CLM-031) |
 
+### Engine field-contract folds onto the binding (REQ-003)
+
+REQ-003 also folds the engine FIELD-CONTRACT off its name-keyed baked maps onto the
+pack-declared binding. The `FieldContract` (Requires/Forbids Rule-field lists) becomes a
+DECLARED property of the `EngineBinding`; the validator verifies against the DECLARED
+contract, not a name-keyed lookup. Both name-keyed maps travel under OQ-1 with
+`DefaultRegistry`.
+
+| Baked name-keyed map | Location | Keyed on | Disposition |
+|---|---|---|---|
+| `DefaultFieldContracts()` | pkg/pack/engine/fieldcontract.go | engine name (`"semgrep"`, …) | declared on binding; default follows OQ-1 (CLM-036/CLM-037) |
+| `engineFieldClaim` (via `claimFor`) | pkg/pack/validate_manifest.go | `"semgrep\|rule_path\|requires"` → CLM-007, … | follows OQ-1 with `DefaultRegistry` (CLM-037) |
+
 ### Pack-supplied executables and their trust mechanism (REQ-002, REQ-008)
 
 Three pack-supplied executables can reach execution; each has exactly one trust
@@ -777,6 +854,19 @@ un-allowlisted:
 
 All callers that run a command call the SAME `CheckToolAllowed`.
 
+This stage also FOLDS the engine field-contract off its name-keyed baked maps and onto
+the pack-declared binding (REQ-003/CLM-036). The `FieldContract` (Requires/Forbids
+Rule-field lists) becomes a DECLARED property of the `EngineBinding`, parsed from the
+pack `engines:` block; the validator verifies a rule's populated fields against its
+declared engine's DECLARED contract rather than looking the contract up by engine name.
+`engine.DefaultFieldContracts()` (pkg/pack/engine/fieldcontract.go) and the name-keyed
+CLM-id map `engineFieldClaim` (pkg/pack/validate_manifest.go, consulted by `claimFor`,
+keyed `"semgrep|rule_path|requires"` → CLM-007, etc.) are exactly the same shape of
+baked engine knowledge as `DefaultRegistry()`, so they travel under the SAME OQ-1
+fallback-vs-eradicate disposition (CLM-037) — under option (i) a pack-declared
+field-contract overrides the baked default for the same engine name; under option (ii)
+they are eradicated into default-pack data. They are NOT left as an unscoped baked map.
+
 ### 4. `pattern-arg` input mode (REQ-004)
 
 Add `InputModePatternArg` to the InputMode enum (binding.go) and accept it in
@@ -839,6 +929,17 @@ code change is mandated to the sandbox itself here — the deliverable is the st
 tested posture plus the loud platform-limitation surface; the spec must not over-claim
 the convert/validator paths as allowlist-gated.
 
+### Explicitly OUT OF SCOPE
+
+- **The compiled-standards-manifest semgrep ROUTING is NOT this spec's concern.**
+  `pkg/check/manifest.go`'s `hasSemgrepSignal()` / `deriveRules()` / `compiledManifestFile`
+  is the legacy compiled-standards-manifest RUNTIME routing — the
+  `.standard.md` → compiler → manifest native-standards path slated for removal under the
+  packs-only directive. It is a DIFFERENT subsystem from this spec's pack-declared engine
+  bindings, and it belongs to the native-standards-path eradication (the ISSUE-018 family
+  / standards removal), NOT SPEC-035. This spec does not touch, gate, or over-claim that
+  routing.
+
 ## Verification
 
 Verification is defined in frontmatter. Integration-level testing at 80% coverage
@@ -889,6 +990,17 @@ requirements and claims above are written to hold under EITHER resolution.
   choice is stageable: option (i) first to land the allowlist + pack-declared
   bindings safely, option (ii) later as a follow-up if "zero baked-in engines" is
   wanted. Recording it here so the spec does not silently assume one.
+
+  **OQ-1 covers ALL the name-keyed baked engine maps, not just `DefaultRegistry()`.**
+  The engine FIELD-CONTRACT defaults are the same shape of baked engine knowledge and
+  resolve under the SAME option (REQ-003/CLM-037): `engine.DefaultFieldContracts()`
+  (pkg/pack/engine/fieldcontract.go, keyed `"semgrep"`/`"ast-grep"`/`"sandbox"`/
+  `"config-file"`) and the name-keyed CLM-id map `engineFieldClaim`
+  (pkg/pack/validate_manifest.go, keyed `"semgrep|rule_path|requires"` → CLM-007, etc.)
+  travel with `DefaultRegistry`. Under option (i) they survive as the incremental
+  fallback a pack-declared field-contract overrides; under option (ii) they are
+  eradicated and shipped as default-pack data. They are NOT a separate decision and
+  NOT left as an unscoped baked map.
 
 ## Sharp Edges
 
@@ -992,6 +1104,25 @@ requirements and claims above are written to hold under EITHER resolution.
     The danger is asserting "every pack-supplied executable is allowlisted" — false;
     only the tool command is, and the rest is the sandbox's job.
 
+11. **ISSUE-018 lands FIRST — REQ-005's rename surface is "post-ISSUE-018," not the
+    current full grep.** REQ-005's `CheckTypeSemgrep` rename and ISSUE-018's in-process
+    `semgrepExecutor` deletion both touch the SAME sites: `pkg/check/check.go`'s
+    `delete(opts.Executors, CheckTypeSemgrep)` and `pkg/check/registry.go`'s
+    `execs[CheckTypeSemgrep] = &semgrepExecutor{...}` are INSIDE the in-process executor
+    ISSUE-018 deletes. This is an ORDERING dependency, not a conflict: **ISSUE-018 lands
+    first and deletes that executor**, so this spec's REQ-005 rename then applies ONLY to
+    the `CheckTypeSemgrep` references that REMAIN after that deletion (the const decl,
+    `String()`/`parseCheckType` cases, the `[]CheckType` slices, `passOrder`, the
+    parsers.go stamp, the cmd/backstop/code_check.go `PassResult` sites). The "~11
+    non-test sites" enumeration in REQ-005 is the CURRENT full grep; after ISSUE-018
+    deletes the in-process executor, the `delete(opts.Executors,...)` and
+    `execs[CheckTypeSemgrep]` sites are GONE and the rename footprint shrinks
+    accordingly. A planner must sequence ISSUE-018 ahead of this spec's rename and treat
+    the executor-internal sites as already-removed, not re-rename them. Likewise (Sharp
+    Edge note for REQ-002): the old `SemgrepVersion`/`PinnedSemgrepVersion` version-pin
+    plumbing this spec's allowlist supersedes is deleted by ISSUE-018 with that same
+    executor, NOT by this spec.
+
 ## Review Questions
 
 1. Do the pack-declared `engines:` block (REQ-001) and the trusted-tool allowlist
@@ -1088,6 +1219,19 @@ requirements and claims above are written to hold under EITHER resolution.
   (REQ-004): its parameterized contract/absence queries pass a literal pattern as a
   flag value. Locked as a seam by BUNDLE-010 REQ-017; this spec ships the mode, not
   the rule packs.
+- **ISSUE-018** (in-process executor deletion) — the SEQUENCING dependency. ISSUE-018
+  lands FIRST and DELETES the in-process `semgrepExecutor`. That deletion (a) removes the
+  superseded `SemgrepVersion` (pkg/config/config.go) / `opts.PinnedSemgrepVersion` /
+  `semgrepExecutor.pinnedVersion` (pkg/check/registry.go) version-pin plumbing that this
+  spec's REQ-002 trusted-tool allowlist REPLACES — it is NOT removed by this spec; and
+  (b) removes the two REQ-005 rename sites that live inside that executor
+  (`delete(opts.Executors, CheckTypeSemgrep)` in pkg/check/check.go and
+  `execs[CheckTypeSemgrep] = &semgrepExecutor{...}` in pkg/check/registry.go), so this
+  spec's rename applies only to the references that REMAIN post-ISSUE-018. The
+  compiled-standards-manifest semgrep ROUTING (`hasSemgrepSignal()` / `deriveRules()` /
+  `compiledManifestFile`, pkg/check/manifest.go) is the legacy native-standards path and
+  belongs to the ISSUE-018 family / standards removal — explicitly OUT OF SCOPE for this
+  spec.
 - Code: pkg/pack/engine/binding.go (`EngineBinding`, `DefaultRegistry`, `InputMode` /
   `ParseInputMode`, `ScopeKind`, `EngineCategory`, `Provision`, `Registry.Lookup`);
   pkg/pack/manifest.go (`Manifest`, `Rule`, `validateEngine`); cmd/backstop/pack_gate.go
@@ -1101,4 +1245,25 @@ requirements and claims above are written to hold under EITHER resolution.
   engine-name layout switch); pkg/check/manifest.go (`CheckType`, `CheckTypeSemgrep` →
   `CheckTypeFindings`); pkg/check/check.go (`passOrder`); pkg/pack/distribution/verify.go
   + lockfile.go (`VerifyLock` / `Lockfile` — the version-pin the allowlist rides);
-  pkg/check/semgrep.go (`ConfigError` — the exit-2 fail-loud type).
+  pkg/check/semgrep.go (`ConfigError` — the exit-2 fail-loud type);
+  pkg/pack/engine/fieldcontract.go (`FieldContract` / `DefaultFieldContracts` — the
+  name-keyed engine field-contract folded onto the binding by REQ-003);
+  pkg/pack/validate_manifest.go (`engineFieldClaim` / `claimFor` — the name-keyed
+  CLM-id map that travels under OQ-1 with `DefaultRegistry`).
+
+## Version History
+
+- **1.1.0** (2026-06-21) — Corrective pass closing the re-review FAIL. (1) REQ-003
+  extended to fold the engine FIELD-CONTRACT (`DefaultFieldContracts()` +
+  `engineFieldClaim`) onto the pack-declared `EngineBinding` under the SAME OQ-1
+  fallback-vs-eradicate disposition as `DefaultRegistry()` — no longer an unscoped baked
+  map (CLM-036/CLM-037 added). (2) REQ-002 notes its `{tool → pinned version}` allowlist
+  REPLACES the per-tool `SemgrepVersion`/`PinnedSemgrepVersion` pin, which ISSUE-018 (not
+  this spec) deletes with the in-process executor. (3) REQ-005 + a Sharp Edge state the
+  ISSUE-018→SPEC-035 SEQUENCING dependency: ISSUE-018 lands first and deletes the two
+  rename sites inside the in-process executor, so the rename footprint is "post-ISSUE-018."
+  (4) Added an explicit OUT-OF-SCOPE exclusion for the compiled-standards-manifest
+  semgrep routing (`hasSemgrepSignal`/`deriveRules`/`compiledManifestFile`), which belongs
+  to the native-standards-path eradication. The pack-declared-engines + trusted-allowlist
+  core (REQ-001/REQ-002) and the generic dispatch + `EngineBinding` struct are unchanged.
+- **1.0.0** (2026-06-20) — Initial spec authored from BUNDLE-010 (pluggable-pack-engines).
