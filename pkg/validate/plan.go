@@ -695,7 +695,7 @@ func validateFinalPhase(filename string, phases []interface{}, allTasks []planTa
 
 // fileCategory maps a file path to a work category based on extension.
 func fileCategory(path string) string {
-	artifactExts := []string{".spec.md", ".plan.yml", ".adr.md", ".bundle.md", ".issue.md", ".standard.md"}
+	artifactExts := []string{".spec.md", ".plan.yml", ".adr.md", ".bundle.md", ".issue.md"}
 	for _, ext := range artifactExts {
 		if strings.HasSuffix(path, ext) {
 			return "artifact"
@@ -1001,4 +1001,20 @@ func validateTestTaskDeps(filename string, tasks []planTask, typeMap map[string]
 		}
 	}
 	return violations
+}
+
+// getFrontmatterString returns a string-typed frontmatter value by key, or ""
+// when the key is absent or non-string. Relocated here from the deleted
+// native-standards validator (ISSUE-018 Section F) as its sole surviving caller
+// lives in this file.
+func getFrontmatterString(art *artifact.ParsedArtifact, key string) string {
+	val, ok := art.Frontmatter[key]
+	if !ok {
+		return ""
+	}
+	s, ok := val.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }

@@ -81,22 +81,21 @@ func TestDogfoodPack_FlagsKnownGoViolation(t *testing.T) {
 
 	// runFixture runs a REAL semgrep pass directly over a single fixture with the
 	// consumed pack's engine:semgrep rule --config set — the same paths the gate
-	// dispatches to the semgrep engine — and parses the JSON findings via the
-	// production parseSemgrepJSON path through check.ParsePackFindings is not
-	// applicable here (semgrep emits its own JSON, not SARIF), so we run semgrep
-	// --json and parse with the production semgrep executor by feeding the
-	// fixture as the sole scoped file. We invoke semgrep directly to avoid the
-	// retired ExtraSemgrepConfigs option.
+	// dispatches to the semgrep engine — and parses the SARIF findings via the
+	// SURVIVING production check.ParsePackFindings path (the in-process JSON
+	// parser was removed by ISSUE-018). We invoke semgrep with --sarif so its
+	// output matches the engine-aligned SARIF path the gate dispatch uses,
+	// preserving the GO-060 enforcement-transfer coverage.
 	runFixture := func(fixture string) []check.Violation {
-		args := []string{"--json", "--quiet"}
+		args := []string{"--sarif", "--quiet"}
 		for _, cfg := range ruleConfigs {
 			args = append(args, "--config", cfg)
 		}
 		args = append(args, fixture)
 		out, _ := exec.Command(semgrepBin, args...).Output()
-		violations, parseErr := check.ParseSemgrepJSONForTest(out)
+		violations, parseErr := check.ParsePackFindings(out)
 		if parseErr != nil {
-			t.Fatalf("parse semgrep json over %s: %v", fixture, parseErr)
+			t.Fatalf("parse semgrep sarif over %s: %v", fixture, parseErr)
 		}
 		return violations
 	}

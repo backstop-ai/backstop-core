@@ -330,9 +330,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
 	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll. Pack
-	// rule findings no longer feed the in-process semgrepExecutor via
-	// ExtraSemgrepConfigs; they are dispatched group-by-engine in the pack
-	// engine step below (SPEC-031 REQ-011).
+	// rule findings are dispatched group-by-engine in the pack engine step below
+	// (SPEC-031 REQ-011), not through an in-process rule-config feed.
 	// One shared runner so the whole-module `go test ./...` executes ONCE and
 	// feeds both code_check (test FAILs) and coverage_threshold (per-package
 	// coverage), instead of running the suite twice (~94s of duplicate work).
@@ -544,12 +543,11 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 // realCodeChecker implements gate.CodeChecker by calling pkg/check.Run.
 type realCodeChecker struct {
 	projectRoot string
-	// runnerForTest / ensurerForTest are test-only injection seams: when set,
-	// runCheck routes through check.RunWith with these hermetic dependencies so
-	// gate-layer scope-semantics tests can drive CheckScoped without shelling
-	// out to live tools or installing semgrep. Nil in production (check.Run).
-	runnerForTest  check.CommandRunner
-	ensurerForTest check.SemgrepEnsurer
+	// runnerForTest is a test-only injection seam: when set, runCheck routes
+	// through check.RunWith with this hermetic runner so gate-layer
+	// scope-semantics tests can drive CheckScoped without shelling out to live
+	// tools. Nil in production (check.Run).
+	runnerForTest check.CommandRunner
 	// sharedRunner, if set, is a PRODUCTION runner injected so the whole-module
 	// `go test ./...` pass is shared with the coverage step (run once, not
 	// twice). Non-go-test commands delegate to a plain exec, so lint/build/
@@ -607,17 +605,14 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 		opts.Files = files
 	}
 
-	// Load config to select the toolchain stack (language) and extract the
-	// semgrep version pin. The Language/Config fields drive registry selection;
-	// a declared language with no toolchain surfaces as a *check.ConfigError
-	// from check.Run, wrapped below into gate.ConfigError for exit 2.
+	// Load config to select the toolchain stack (language). The Language/Config
+	// fields drive registry selection; a declared language with no toolchain
+	// surfaces as a *check.ConfigError from check.Run, wrapped below into
+	// gate.ConfigError for exit 2.
 	cfg, err := config.LoadConfig()
 	if err == nil {
 		opts.Language = cfg.Language
 		opts.Config = cfg
-		if cfg.Enforcement.SemgrepVersion != "" {
-			opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
-		}
 	}
 
 	result, runErr := c.runWithOpts(ctx, opts)
@@ -629,20 +624,18 @@ func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, fi
 }
 
 // runWithOpts dispatches to check.Run in production, or to check.RunWith with
-// the injected hermetic runner/ensurer when the test seams are set. This keeps
-// the gate's scope-semantics tests bounded (no live tool, no semgrep install)
-// while production keeps the exact check.Run path.
+// the injected hermetic runner when the test seam is set. This keeps the gate's
+// scope-semantics tests bounded (no live tool) while production keeps the exact
+// check.Run path.
 func (c *realCodeChecker) runWithOpts(ctx context.Context, opts check.Options) (*check.Result, error) {
-	if c.runnerForTest != nil || c.ensurerForTest != nil {
+	if c.runnerForTest != nil {
 		return check.RunWith(ctx, check.RunOptions{
-			Options:        opts,
-			Runner:         c.runnerForTest,
-			SemgrepEnsurer: c.ensurerForTest,
+			Options: opts,
+			Runner:  c.runnerForTest,
 		})
 	}
 	// Production with a shared runner: route through RunWith so the whole-module
-	// go test pass goes through sharedRunner (deduped with coverage). Ensurer is
-	// left nil so RunWith defaults to the real DefaultSemgrepEnsurer.
+	// go test pass goes through sharedRunner (deduped with coverage).
 	if c.sharedRunner != nil {
 		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: c.sharedRunner})
 	}

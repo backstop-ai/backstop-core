@@ -57,8 +57,8 @@ enforcement:
 
 // TestCodeCheck_Registry_SelectsToolchainByLanguage pins CLM-001: the registry
 // selects the toolchain by Config.Language; "go" and an absent language bind
-// the Go built-in entries (the bespoke lint/build/test/semgrep executors),
-// while "typescript" binds the TS built-in entries (distinct commands via the
+// the Go built-in entries (which, post-cutover, construct no pkg/check
+// executors), while "typescript" binds the TS built-in entries (distinct commands via the
 // generic commandExecutor). Asserts on the constructed executors' identity, not
 // live execution.
 func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
@@ -68,14 +68,15 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	// constructs ONLY the shared semgrep executor — build/test/lint run through
 	// the go-toolchain pack engines, not pkg/check.
 	goExec := buildExecutorsForConfig(Options{Language: "go"}, runner)
-	assertGoStackSemgrepOnly(t, "language=go", goExec)
+	assertGoStackConstructsNoExecutors(t, "language=go", goExec)
 
 	// Absent language defaults to the Go stack (preserves current behavior).
 	defaultExec := buildExecutorsForConfig(Options{Language: ""}, runner)
-	assertGoStackSemgrepOnly(t, "language absent", defaultExec)
+	assertGoStackConstructsNoExecutors(t, "language absent", defaultExec)
 
 	// TypeScript stack: distinct executor types from Go (generic commandExecutor
-	// bound to eslint/tsc/declared-test) plus the shared semgrep executor.
+	// bound to eslint/tsc/declared-test). Semgrep runs through the pack engine,
+	// so the registry constructs no semgrep executor.
 	tsExec := buildExecutorsForConfig(Options{
 		Language: "typescript",
 		Config: &config.Config{
@@ -94,8 +95,8 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	if _, ok := tsExec[CheckTypeTest].(*commandExecutor); !ok {
 		t.Errorf("TS test executor type = %T, want *commandExecutor", tsExec[CheckTypeTest])
 	}
-	if _, ok := tsExec[CheckTypeSemgrep].(*semgrepExecutor); !ok {
-		t.Errorf("TS semgrep executor type = %T, want shared *semgrepExecutor", tsExec[CheckTypeSemgrep])
+	if _, ok := tsExec[CheckTypeSemgrep]; ok {
+		t.Errorf("TS stack must construct no semgrep executor (it runs through the pack engine), got %T", tsExec[CheckTypeSemgrep])
 	}
 
 	// The TS lint command must be eslint-derived, distinct from golangci-lint.
@@ -109,17 +110,16 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	}
 }
 
-// assertGoStackSemgrepOnly pins the post-cutover Go stack shape: the shared
-// semgrep executor is present and NO native lint/build/test executor is
-// constructed (those passes run through the go-toolchain pack engines).
-func assertGoStackSemgrepOnly(t *testing.T, ctx string, execs map[CheckType]PassExecutor) {
+// assertGoStackConstructsNoExecutors pins the post-cutover + post-ISSUE-018 Go
+// stack shape: the registry constructs NO pkg/check executor for any pass. The
+// lint/build/test passes run through the go-toolchain pack engines, and after the
+// in-process semgrep path was removed (ISSUE-018) the semgrep pass runs through
+// the pack engine too — so the registry's Go executor map is empty.
+func assertGoStackConstructsNoExecutors(t *testing.T, ctx string, execs map[CheckType]PassExecutor) {
 	t.Helper()
-	if _, ok := execs[CheckTypeSemgrep].(*semgrepExecutor); !ok {
-		t.Errorf("%s: semgrep executor = %T, want shared *semgrepExecutor", ctx, execs[CheckTypeSemgrep])
-	}
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
 		if _, ok := execs[ct]; ok {
-			t.Errorf("%s: Go stack must construct no native %v executor after the cutover (it runs through the go-toolchain pack engine), got %T", ctx, ct, execs[ct])
+			t.Errorf("%s: Go stack must construct no native %v executor (it runs through a pack engine), got %T", ctx, ct, execs[ct])
 		}
 	}
 }
@@ -234,8 +234,8 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 
 	// --- Accept-semgrep decision: `semgrep:` is in parseCheckType's vocabulary
 	// and must NOT be rejected, even though it has no toolchain-overlay effect
-	// today (semgrep stays the shared executor). Pins the decision so a future
-	// tightening that wrongly rejects it fails loud here. ---
+	// today (semgrep runs through the pack engine, not a pkg/check executor). Pins
+	// the decision so a future tightening that wrongly rejects it fails loud here. ---
 	t.Run("semgrep_key_is_accepted", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, semgrepKeyRustBackstopYML)
 
@@ -243,9 +243,10 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a `semgrep:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
 		}
-		// semgrep stays the shared executor (no toolchain overlay effect today).
-		if _, ok := execs[CheckTypeSemgrep].(*semgrepExecutor); !ok {
-			t.Errorf("semgrep executor = %T, want shared *semgrepExecutor", execs[CheckTypeSemgrep])
+		// The semgrep key has no toolchain-overlay effect: it constructs no
+		// pkg/check executor (semgrep runs through the pack engine).
+		if _, ok := execs[CheckTypeSemgrep]; ok {
+			t.Errorf("semgrep key must construct no pkg/check executor, got %T", execs[CheckTypeSemgrep])
 		}
 		// The valid lint entry alongside it still builds.
 		if _, ok := execs[CheckTypeLint].(*commandExecutor); !ok {

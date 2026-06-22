@@ -1,9 +1,7 @@
 package check
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -17,13 +15,11 @@ var passOrder = []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckT
 
 // Options configures a check run.
 type Options struct {
-	Mode                  ScopeMode
-	FilePath              string
-	BackstopDir           string
-	PinnedSemgrepVersion  string
-	Timeout               time.Duration
-	ProjectDir            string
-	GolangciLintAvailable bool
+	Mode        ScopeMode
+	FilePath    string
+	BackstopDir string
+	Timeout     time.Duration
+	ProjectDir  string
 	// Language selects the toolchain stack (go, typescript, or a declared
 	// stack). Empty defaults to the Go stack, preserving prior behavior.
 	Language string
@@ -225,9 +221,8 @@ func (e *Engine) applicableChecks(files []string) map[CheckType]bool {
 // RunOptions extends Options with injectable dependencies for testing.
 type RunOptions struct {
 	Options
-	Git             GitExecutor
-	Executors       map[CheckType]PassExecutor
-	SemgrepEnsurer  SemgrepEnsurer
+	Git       GitExecutor
+	Executors map[CheckType]PassExecutor
 	// Runner, if set, replaces the ExecCommandRunner inside the default
 	// executors when Executors is nil. Lets tests exercise the
 	// default-executor construction path without shelling out to live tools.
@@ -238,19 +233,6 @@ type RunOptions struct {
 // aggregated results. This is the top-level entry point.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	return RunWith(ctx, RunOptions{Options: opts})
-}
-
-// SemgrepEnsurer abstracts semgrep availability checking for testability.
-type SemgrepEnsurer interface {
-	EnsureSemgrep(backstopDir string, pinnedVersion string) (string, error)
-}
-
-// DefaultSemgrepEnsurer uses the real EnsureSemgrep function.
-type DefaultSemgrepEnsurer struct{}
-
-// EnsureSemgrep calls the package-level EnsureSemgrep function.
-func (d *DefaultSemgrepEnsurer) EnsureSemgrep(backstopDir string, pinnedVersion string) (string, error) {
-	return EnsureSemgrep(backstopDir, pinnedVersion)
 }
 
 // RunWith is the testable entry point with injectable dependencies.
@@ -301,30 +283,6 @@ func RunWith(ctx context.Context, opts RunOptions) (*Result, error) {
 		return nil, err
 	}
 
-	// Ensure semgrep is available before running passes (Fix #1)
-	ensurer := opts.SemgrepEnsurer
-	if ensurer == nil {
-		ensurer = &DefaultSemgrepEnsurer{}
-	}
-
-	if opts.BackstopDir != "" {
-		_, semgrepErr := ensurer.EnsureSemgrep(opts.BackstopDir, opts.PinnedSemgrepVersion)
-		if semgrepErr != nil {
-			switch semgrepErr.(type) {
-			case *ConfigError:
-				// Version mismatch — hard stop, propagate
-				return nil, semgrepErr
-			case *DegradedError:
-				// Install failure — skip semgrep with warning
-				result.Warnings = append(result.Warnings, semgrepErr.Error())
-				// Remove semgrep executor so the engine skips it
-				if opts.Executors != nil {
-					delete(opts.Executors, CheckTypeSemgrep)
-				}
-			}
-		}
-	}
-
 	// Build engine. Registry construction selects the toolchain by language; a
 	// declared language with no built-in stack and no enforcement.toolchain
 	// declaration (or an unknown format, or a TS stack missing its test command)
@@ -370,136 +328,6 @@ func buildDefaultExecutors(opts Options) map[CheckType]PassExecutor {
 func buildDefaultExecutorsWithRunner(opts Options, runner CommandRunner) map[CheckType]PassExecutor {
 	execs, _ := buildExecutorsForConfigErr(opts, runner)
 	return execs
-}
-
-// semgrepExecutor runs the project's own semgrep pass over scoped files. After
-// SPEC-031 it carries NO pack rule-config feeder: installed-pack semgrep rules
-// are dispatched group-by-engine in cmd/backstop's dispatchPackEngines, not fed
-// into this in-process executor. This executor invokes semgrep with no --config
-// (just --json --quiet <files>), surfacing only the project's native semgrep
-// findings.
-type semgrepExecutor struct {
-	runner        CommandRunner
-	ensurer       SemgrepEnsurer
-	backstopDir   string
-	pinnedVersion string
-}
-
-func (e *semgrepExecutor) Execute(ctx context.Context, files []string) (*PassResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	// Resolve the semgrep binary. Run() already ensures semgrep before passes,
-	// but resolving here yields the concrete binary path to invoke.
-	ensurer := e.ensurer
-	if ensurer == nil {
-		ensurer = &DefaultSemgrepEnsurer{}
-	}
-	binPath, ensureErr := ensurer.EnsureSemgrep(e.backstopDir, e.pinnedVersion)
-	if ensureErr != nil {
-		return nil, ensureErr
-	}
-
-	// The project semgrep pass carries NO --config: installed-pack semgrep rules
-	// are dispatched group-by-engine elsewhere (SPEC-031 REQ-011), not merged
-	// here. semgrep is invoked with --json --quiet <files...>.
-	// --quiet suppresses semgrep's non-JSON banner/progress output (the primary
-	// fix for the live `invalid character 'â'` parse failure). JSON-document
-	// extraction below is the belt-and-suspenders safety net for any stray
-	// preamble byte a future semgrep emits despite --quiet (ISSUE-006).
-	args := []string{"--json", "--quiet"}
-	args = append(args, files...)
-
-	out, _ := e.runner.Run(ctx, binPath, args...)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-
-	violations, parseErr := parseSemgrepJSON(extractJSONDocument(out))
-	if parseErr != nil {
-		return nil, fmt.Errorf("parsing semgrep output: %w", parseErr)
-	}
-	return &PassResult{Pass: CheckTypeSemgrep, Violations: violations}, nil
-}
-
-func (e *semgrepExecutor) IsAvailable() (bool, string) {
-	return true, "" // handled by EnsureSemgrep
-}
-
-// semgrepJSON is the subset of semgrep `--json` output the executor consumes.
-type semgrepJSON struct {
-	Results []struct {
-		CheckID string `json:"check_id"`
-		Path    string `json:"path"`
-		Start   struct {
-			Line int `json:"line"`
-		} `json:"start"`
-		Extra struct {
-			Message  string `json:"message"`
-			Severity string `json:"severity"`
-		} `json:"extra"`
-	} `json:"results"`
-}
-
-// extractJSONDocument returns the slice of out from the first '{' to the end,
-// stripping any non-JSON preamble (banner/progress bytes) real semgrep emits
-// before the top-level results object. If no '{' is present it returns out
-// unchanged, so the existing empty-input and parse-error paths still fire
-// (e.g. "{not json" slices to itself and still fails to unmarshal). Keep it
-// simple per ISSUE-006: first '{', not balanced-brace scanning.
-func extractJSONDocument(out []byte) []byte {
-	if i := bytes.IndexByte(out, '{'); i >= 0 {
-		return out[i:]
-	}
-	return out
-}
-
-// ParseSemgrepJSONForTest parses raw `semgrep --json` output (tolerating a
-// non-JSON preamble via the same extractJSONDocument path the executor uses)
-// into violations. It is exported so the dogfood enforcement-transfer test can
-// run a real semgrep pass over the consumed pack's rule paths and assert on the
-// findings without reconstructing the executor's parsing.
-func ParseSemgrepJSONForTest(out []byte) ([]Violation, error) {
-	return parseSemgrepJSON(extractJSONDocument(out))
-}
-
-// parseSemgrepJSON unmarshals semgrep JSON output into semgrep violations,
-// preserving each finding's check_id verbatim (including pack-namespaced IDs)
-// on Violation.Rule and mapping ERROR->error, WARNING->warning.
-func parseSemgrepJSON(out []byte) ([]Violation, error) {
-	trimmed := bytes.TrimSpace(out)
-	if len(trimmed) == 0 {
-		return nil, nil
-	}
-	var parsed semgrepJSON
-	if err := json.Unmarshal(trimmed, &parsed); err != nil {
-		return nil, err
-	}
-	violations := make([]Violation, 0, len(parsed.Results))
-	for _, r := range parsed.Results {
-		violations = append(violations, Violation{
-			Pass:     CheckTypeSemgrep,
-			File:     r.Path,
-			Line:     r.Start.Line,
-			Message:  r.Extra.Message,
-			Severity: semgrepSeverity(r.Extra.Severity),
-			Rule:     r.CheckID,
-		})
-	}
-	return violations, nil
-}
-
-// semgrepSeverity normalizes a semgrep severity to the check severity vocabulary.
-func semgrepSeverity(s string) string {
-	switch s {
-	case "ERROR":
-		return "error"
-	case "WARNING":
-		return "warning"
-	default:
-		return strings.ToLower(s)
-	}
 }
 
 // firstOutputLine returns the first non-empty line of tool output, for use in

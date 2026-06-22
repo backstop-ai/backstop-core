@@ -4,15 +4,19 @@ number: SPEC-030
 created: "2026-06-16"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.3.0
 
 implementation:
   summary: >
     Rip out the legacy native-standards execution arm so the gate is
     packs-only. Delete the `.standard.md → standards-compiler → manifestDir`
-    rule-config path: remove the `manifestDir` `--config` arm from
-    `semgrepExecutor` (pkg/check), remove the `ManifestDir` field and its
-    callers that feed compiled-standards rules into the semgrep pass, retire
+    rule-config path: under the thin-executor strategy the in-process
+    `semgrepExecutor` is deleted ENTIRELY by ISSUE-018 (it scanned zero rules
+    and is redundant with the engine dispatch), so a fortiori there is no
+    `manifestDir` `--config` arm and no compiled-standards feed left on any
+    in-process semgrep pass. Remove the `ManifestDir` field from `check.Options`
+    and its callers that fed compiled-standards rules into the (now-deleted)
+    semgrep pass, retire
     the `pkg/compile` standards compiler from core, delete the `STD-GO-001`
     source standard and its compiled outputs under `.backstop/rules/`, and
     have backstop-core dogfood-consume the already-published
@@ -36,28 +40,38 @@ verification:
 requirements:
   - id: REQ-001
     text: >
-      The `semgrepExecutor` (pkg/check/check.go) must no longer carry or
-      consume a `manifestDir` field for assembling semgrep `--config`
-      arguments. The compiled-standards `--config <manifestDir>` argument
-      (the `if e.manifestDir != ""` arm) must be deleted. After this change
-      the executor's `--config` set is composed solely from
-      `extraSemgrepConfigs` (the pack-supplied rule paths). The struct field
-      `manifestDir` is removed, not merely left unset.
+      No compiled-standards / `.standard.md` rule config may feed any in-process
+      semgrep pass in pkg/check. Under the thin-executor strategy this is
+      realized by the ABSENCE of any in-process semgrep `--config` arm: ISSUE-018
+      deletes the in-process `semgrepExecutor` (pkg/check/check.go) ENTIRELY —
+      together with `semgrepJSON` / `EnsureSemgrep` — so there is no
+      `manifestDir`-bearing executor for a compiled-standards
+      `--config <manifestDir>` arm to live on at all. There is therefore no
+      `if e.manifestDir != ""` arm and no `manifestDir` struct field on any
+      in-process semgrep executor, because there is no in-process semgrep
+      executor. Real semgrep enforcement of pack rules dispatches group-by-engine
+      through `dispatchPackEngines` (SPEC-031), never an in-process semgrep
+      `--config` feed. No pkg/check production code path assembles a semgrep
+      `--config` argument from a compiled-standards manifest directory.
     supports: pluggable-pack-engines:REQ-016
   - id: REQ-002
     text: >
       The `ManifestDir` field on `check.Options` (pkg/check/check.go), and
       every assignment that wires the compiled-standards directory into the
-      semgrep pass, must be removed in the SAME change as REQ-001 so no caller
-      can re-introduce the standards `--config` arm. Specifically: the
-      `manifestDir: opts.ManifestDir` assignments in both executor
-      construction sites (`goBuiltinExecutors` in check.go and the shared
-      semgrep executor in registry.go) are deleted, and the
-      `ManifestDir: filepath.Join(...,"rules")` assignments in the gate
-      (cmd/backstop/gate.go) and code-check (cmd/backstop/code_check.go)
-      Options construction are deleted. Removing `ManifestDir` must not break
-      compilation: any remaining reader of `Options.ManifestDir` is updated or
-      removed.
+      semgrep pass, must be removed so no caller can re-introduce the standards
+      `--config` arm. The executor-side `manifestDir: opts.ManifestDir`
+      assignments that historically fed the in-process semgrep executor
+      (`goBuiltinExecutors` in check.go and the shared semgrep executor in
+      registry.go) are gone a fortiori — ISSUE-018 deletes the in-process
+      `semgrepExecutor` and its construction sites entirely, so under the
+      thin-executor strategy those assignments no longer exist; the surviving
+      REQ-002 obligation is solely on the `check.Options` field and its caller
+      wiring. Specifically: the `ManifestDir: filepath.Join(...,"rules")`
+      assignments in the gate (cmd/backstop/gate.go) and code-check
+      (cmd/backstop/code_check.go) Options construction are deleted, and the
+      `ManifestDir` field is removed from the `check.Options` struct. Removing
+      `ManifestDir` must not break compilation: any remaining reader of
+      `Options.ManifestDir` is updated or removed.
     supports: pluggable-pack-engines:REQ-016
   - id: REQ-003
     text: >
@@ -167,49 +181,70 @@ requirements:
     supports: pluggable-pack-engines:REQ-016
 
 claims:
-  # REQ-001 — semgrepExecutor manifestDir arm deleted
-  - id: CLM-001
-    requirement: REQ-001
-    text: >
-      semgrepExecutor with pack-supplied extraSemgrepConfigs and no
-      manifestDir assembles --config args containing only the pack paths
-      (one --config per pack path, no standards-dir --config).
-    tests:
-      - TestSemgrepExecutor_ConfigArgsFromPacksOnly
+  # REQ-001 — compiled-standards --config arm gone (no in-process semgrep
+  # manifestDir feed survives). Repointed at spec_version 1.1.0: the surviving
+  # realization of REQ-001's intent under the thin-executor strategy is that
+  # there is NO in-process semgrep executor at all (ISSUE-018 deletes
+  # semgrepExecutor/EnsureSemgrep), so a fortiori no compiled-standards
+  # manifestDir --config arm exists. These claims assert the SURVIVING truth —
+  # the absence of any in-process semgrep compiled-standards feed — and must NOT
+  # assert that an in-process semgrep invocation occurs.
+  # CLM-001 (was: no pkg/check production path assembles a semgrep `--config`
+  # from a compiled-standards manifest directory →
+  # TestPkgCheck_NoCompiledStandardsConfigArm) was RETIRED at spec_version 1.3.0
+  # as a near-duplicate. As scoped it is a THIRD pkg/check production-source
+  # absence self-check whose assertion ("no `--config` sourced from a standards
+  # dir; no `manifestDir`-style field; no in-process semgrep executor") is
+  # already made, token-for-token, by CLM-002
+  # (TestPkgCheck_NoResidualStandardsConfigWhenNoPacks — scans production source
+  # for `ExtraSemgrepConfigs` / `manifestDir` / `ManifestDir` absent) and CLM-003
+  # (TestPkgCheck_NoManifestDirFieldOnSemgrepFeed — scans for `semgrepExecutor` /
+  # `manifestDir` / `ManifestDir` absent). Writing TestPkgCheck_
+  # NoCompiledStandardsConfigArm would mandate a redundant third token scan over
+  # the same production source asserting the same structural absence — the
+  # near-duplicate-claim pattern this reconciliation exists to eliminate. Its one
+  # distinct token (a `--config` sourced from a `.backstop/rules` standards dir)
+  # is folded into CLM-002's scan set below. REQ-001 retains CLM-002, CLM-003,
+  # and CLM-023 — no requirement is left claim-less. Retired rather than
+  # repointed to keep the claim set minimal and non-overlapping.
   - id: CLM-002
     requirement: REQ-001
     text: >
-      semgrepExecutor with zero extraSemgrepConfigs assembles semgrep args
-      with no --config flag at all (the deleted manifestDir arm leaves no
-      residual standards --config).
+      No compiled-standards `--config` source survives in pkg/check production
+      source: with the in-process semgrep pass deleted there is no leftover
+      standards-dir feed assembled into a semgrep `--config`. A source self-check
+      over pkg/check production source asserts none of the deleted compiled-
+      standards arm symbols survive — `ExtraSemgrepConfigs`, `manifestDir`,
+      `ManifestDir` — and that no `--config` argument is sourced from a
+      `.backstop/rules` standards directory (the distinct token folded in from
+      retired CLM-001). The claim asserts the ABSENCE of the deleted
+      compiled-standards arm and does NOT assert that any in-process semgrep pass
+      is invoked (no in-process semgrep pass exists under the thin-executor
+      strategy).
     tests:
-      - TestSemgrepExecutor_NoConfigWhenNoPacks
+      - TestPkgCheck_NoResidualStandardsConfigWhenNoPacks
   - id: CLM-003
     requirement: REQ-001
     text: >
-      The semgrepExecutor struct's field set is exactly
-      runner/ensurer/backstopDir/pinnedVersion/extraSemgrepConfigs with no
-      manifestDir field. The test asserts this with an UNKEYED (positional)
-      composite literal constructing the struct with exactly five field
-      values, so the test fails to compile if manifestDir (or any other
-      field) is re-added or removed — not a mere recompile that a keyed
-      literal would silently tolerate.
+      No `manifestDir` field (or any compiled-standards `--config` field)
+      survives on any in-process semgrep executor in pkg/check, because the
+      in-process semgrep executor type itself is gone under the thin-executor
+      strategy (ISSUE-018 removes `semgrepExecutor`). A source/symbol self-check
+      asserts no `semgrepExecutor.manifestDir`-style field exists to feed a
+      compiled-standards `--config`.
     tests:
-      - TestSemgrepExecutor_StructHasNoManifestDir
+      - TestPkgCheck_NoManifestDirFieldOnSemgrepFeed
   - id: CLM-023
     requirement: REQ-001
     text: >
-      No remaining test in pkg/check constructs semgrepExecutor with a
-      manifestDir field or asserts a standards-dir (.backstop/rules) --config
-      path. The pre-existing
-      TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs (which both
-      constructed manifestDir and asserted the standards-dir --config) is
-      deleted or rewritten to packs-only behavior, and the remaining
-      semgrep_executor_test.go cases drop the manifestDir field and the
-      standards-dir --config assertion. A source self-check over pkg/check test
-      files asserts neither the token "manifestDir:" in a semgrepExecutor
-      literal nor a containsConfigFor(..., ".../rules") standards-dir assertion
-      survives, so the green go-test guarantee is enforced rather than assumed.
+      No remaining test in pkg/check constructs an in-process semgrep executor
+      with a `manifestDir` field or asserts a standards-dir (`.backstop/rules`)
+      `--config` path. A source self-check over pkg/check test files asserts
+      neither the token "manifestDir:" in a semgrep-feed literal nor a
+      `containsConfigFor(..., ".../rules")` standards-dir assertion survives, so
+      the green `go test ./...` guarantee is enforced rather than assumed. No
+      test re-introduces a standards-dir `--config` assertion against an
+      (now-absent) in-process semgrep pass.
     tests:
       - TestNoTestRequiresManifestDirOrStandardsConfig
 
@@ -222,13 +257,20 @@ claims:
       package still compiles.
     tests:
       - TestOptions_NoManifestDirField
-  - id: CLM-005
-    requirement: REQ-002
-    text: >
-      goBuiltinExecutors and the registry shared-semgrep construction build a
-      semgrepExecutor without referencing any compiled-standards directory.
-    tests:
-      - TestBuildExecutors_SemgrepHasNoManifestDir
+  # CLM-005 (was: goBuiltinExecutors / registry build a semgrepExecutor without
+  # a compiled-standards directory → TestBuildExecutors_SemgrepHasNoManifestDir)
+  # was RETIRED at spec_version 1.2.0. Its premise — that an in-process
+  # semgrepExecutor is still BUILT — is reversed by ISSUE-018, which deletes the
+  # in-process semgrepExecutor and its construction sites (goBuiltinExecutors /
+  # registry.go) ENTIRELY. There is no executor build left to assert a
+  # manifestDir-free shape on, so the claim has no surviving subject. The
+  # structural absence it gestured at is fully covered by CLM-003
+  # (TestPkgCheck_NoManifestDirFieldOnSemgrepFeed — no manifestDir field on any
+  # in-process semgrep feed, the executor type itself being gone). REQ-002's
+  # surviving obligations are covered by CLM-004 (Options field absent), CLM-006
+  # (gate Options no ManifestDir), and CLM-024 (no test constructs Options with
+  # ManifestDir). Retired rather than repointed to avoid a vacuous "assert a
+  # build that no longer happens" test.
   - id: CLM-006
     requirement: REQ-002
     text: >
@@ -240,13 +282,25 @@ claims:
       constructs no check.Options carrying ManifestDir).
     tests:
       - TestRunCheckOptions_NoManifestDir
-  - id: CLM-007
-    requirement: REQ-002
-    text: >
-      The code-check Options construction produces Options with no
-      compiled-standards manifest directory wired in.
-    tests:
-      - TestCodeCheckOptions_NoManifestDir
+  # CLM-007 (was: code-check Options carry no compiled-standards manifest
+  # directory → TestCodeCheckOptions_NoManifestDir) was RETIRED at spec_version
+  # 1.2.0. Post-ISSUE-018 the `Options.ManifestDir` field does not exist (CLM-004
+  # / TestOptions_NoManifestDirField asserts that structurally), so code-check
+  # Options provably CANNOT wire a compiled-standards manifest directory — there
+  # is no field to carry one and no in-process semgrep pass to consume it. The
+  # 1.1.0 repoint had reworked TestCodeCheckOptions_NoManifestDir to inspect a
+  # captured check.Options via the checkRunFn stub WITHOUT calling pkg/check,
+  # which is non-substantive against this spec's target package (pkg/check): the
+  # test_substantiveness gate flags it "does not call package check." Repointing
+  # it to actually call check.Run would manufacture a vacuous test — no code path
+  # could ever produce the forbidden ManifestDir wiring, so the assertion can
+  # never fail. The surviving property (no compiled-standards manifest directory
+  # on the code-check path) is a STRUCTURAL absence already covered by CLM-004
+  # (Options field gone) and CLM-002/003 (no compiled-standards `--config` arm /
+  # manifestDir field in pkg/check). Retired rather than repointed to keep the
+  # substrate honest (no vacuous green). Its mandated test
+  # TestCodeCheckOptions_NoManifestDir is removed by the planner/implementer so
+  # nothing mandates a retired test.
   - id: CLM-024
     requirement: REQ-002
     text: >
@@ -310,21 +364,39 @@ claims:
       - TestRouting_ReadsBackstopDirManifestWhenPresent
 
   # REQ-004 — locus A single source
-  - id: CLM-010
-    requirement: REQ-004
-    text: >
-      A code-check run with zero installed packs invokes semgrep with zero
-      rule --config paths (the recorded runner args contain no --config).
-    tests:
-      - TestCodeCheck_NoPacks_NoSemgrepConfig
+  # CLM-010 (was: a zero-packs code-check run feeds no compiled-standards
+  # `--config` into rule enforcement → TestCodeCheck_NoPacks_NoSemgrepConfig) was
+  # RETIRED at spec_version 1.2.0. Post-ISSUE-018 there is no in-process semgrep
+  # `--config` feed at all and no `Options.ManifestDir` field, so the entire
+  # compiled-standards arm is STRUCTURALLY gone; a "run code-check with zero packs
+  # and assert no compiled-standards `--config`" test exercises a code path that
+  # can never produce the forbidden output, so the assertion can never fail —
+  # exactly the manufactured-vacuous test this substrate exists to prevent. The
+  # 1.1.0 repoint had reworked TestCodeCheck_NoPacks_NoSemgrepConfig to inspect a
+  # captured check.Options via the checkRunFn stub WITHOUT calling pkg/check; the
+  # test_substantiveness gate flags it "does not call package check." The
+  # surviving zero-packs / no-residual-source property is covered as a pkg/check
+  # self-check by CLM-002 (TestPkgCheck_NoResidualStandardsConfigWhenNoPacks) and
+  # by CLM-018 (REQ-008, populated rules dir is not a source). REQ-004's positive
+  # single-source proof is carried substantively by CLM-011 (one pack dispatches
+  # via the engine path). Retired rather than repointed to keep the substrate
+  # honest. Its mandated test TestCodeCheck_NoPacks_NoSemgrepConfig is removed by
+  # the planner/implementer so nothing mandates a retired test.
   - id: CLM-011
     requirement: REQ-004
     text: >
-      A code-check run with one installed pack invokes semgrep with exactly
-      the pack's rule paths as --config and nothing from a standards
-      directory.
+      A code-check run with one installed pack dispatches that pack's rules via
+      the engine path (`dispatchPackEngines`), NOT via an in-process semgrep
+      `--config` feed: the pack's rule paths reach the pack-engine dispatch and
+      no compiled-standards directory is wired in as a rule-config source.
+      Repointed at spec_version 1.1.0 from the retired assertion "an in-process
+      semgrep invocation carries the pack's rule paths as --config" — under the
+      thin-executor strategy pack rules dispatch group-by-engine (SPEC-031), so
+      the claim asserts pack rules flow through the engine path and that no
+      compiled-standards `--config` arm exists, WITHOUT asserting an in-process
+      semgrep invocation occurs. Test renamed to reflect the surviving truth.
     tests:
-      - TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly
+      - TestCodeCheck_PackOnly_RulesDispatchViaEnginePath
 
   # REQ-005 — pkg/compile retired, compiled artifacts deleted
   - id: CLM-012
@@ -410,23 +482,54 @@ claims:
     tests:
       - TestDogfoodPack_FlagsKnownGoViolation
 
-  # REQ-008 — flag-day, no alias / fallback
+  # REQ-008 — flag-day, no alias / fallback.
+  # CLM-018 repointed at spec_version 1.3.0 off the stale pre-strategy assumption
+  # that an in-process semgrep invocation's runner args could be recorded and
+  # inspected for a `.backstop/rules/` path. Post-ISSUE-018 there is NO in-process
+  # semgrep executor, so no such invocation or recorded args exist. The SURVIVING
+  # realization of REQ-008's intent — a populated `.backstop/rules/` directory is
+  # NOT an implicit rule/route source — is now BEHAVIORAL and structural: the SOLE
+  # production reader of `.backstop/rules/` is `LoadManifest` (pkg/check/manifest.go,
+  # called from check.go via `LoadManifest(filepath.Join(opts.BackstopDir, "rules"))`),
+  # which collects ONLY `*.manifest.json` files and skips every other entry — so a
+  # leftover `STD-*.semgrep.yml` is never picked up, and a dir holding only
+  # `*.semgrep.yml` (no `.manifest.json`) yields the built-in default manifest. This
+  # is a distinct, non-vacuous BEHAVIORAL assertion (it exercises LoadManifest and
+  # fails if LoadManifest is ever made to treat `.semgrep.yml` as a source), NOT a
+  # third copy of the CLM-002/003 production-source token scans.
   - id: CLM-018
     requirement: REQ-008
     text: >
-      A leftover STD-*.semgrep.yml planted in .backstop/rules/ is NOT
-      collected as a semgrep --config path by the code-check / gate path
-      (the recorded runner args contain no path under .backstop/rules/).
-    tests:
-      - TestNoFallback_LeftoverCompiledRulesIgnored
-  - id: CLM-019
-    requirement: REQ-008
-    text: >
-      A populated .backstop/rules/ standards directory does not become an
-      implicit second rule source: with zero packs, semgrep still runs with
-      no --config even when .backstop/rules/ contains files.
+      A populated `.backstop/rules/` directory is NOT an implicit rule/route
+      source: a leftover `STD-*.semgrep.yml` planted there is never collected by
+      the sole production reader of that directory. With a `.backstop/rules/`
+      directory containing only `STD-*.semgrep.yml` file(s) and NO
+      `*.manifest.json`, `LoadManifest(filepath.Join(opts.BackstopDir, "rules"))`
+      returns the built-in default manifest (`defaultManifest()`) — the populated
+      directory contributes zero rules and zero routes, proving the leftover
+      compiled-standards file did not resurrect a second rule source nor alter
+      routing. The assertion is behavioral over `LoadManifest`; it does NOT assert
+      that any in-process semgrep invocation occurs (none exists under the
+      thin-executor strategy), and is distinct from the CLM-002/003
+      production-source token scans.
     tests:
       - TestNoFallback_PopulatedRulesDirNotASource
+  # CLM-019 (was: with zero packs semgrep still runs with no --config even when
+  # .backstop/rules/ contains files → TestNoFallback_PopulatedRulesDirNotASource)
+  # was RETIRED at spec_version 1.3.0. It directly asserted that the deleted
+  # in-process semgrep pass STILL RUNS — its premise ("semgrep still runs with no
+  # --config") has no surviving subject post-ISSUE-018 (the in-process semgrep
+  # executor is gone; pack rules dispatch via dispatchPackEngines). Its distinct
+  # intent — a populated `.backstop/rules/` does not become an implicit second
+  # rule source — is identical to repointed CLM-018's surviving behavioral
+  # property and is fully covered there (LoadManifest collects only
+  # `*.manifest.json` and falls back to the default manifest when the dir holds
+  # only `*.semgrep.yml`). Folded into CLM-018 (which inherits CLM-019's mandated
+  # test name TestNoFallback_PopulatedRulesDirNotASource, since that name still
+  # describes the surviving behavioral assertion) rather than mandating a second
+  # near-duplicate test. REQ-008 retains exactly one claim (CLM-018), behavioral
+  # and distinct. Retired rather than repointed to keep the substrate honest (no
+  # vacuous "assert the deleted semgrep pass runs" test, no near-duplicate claim).
 
 contracts:
   - file: pkg/check/check.go
@@ -435,16 +538,29 @@ contracts:
         kind: type
         signature: "type Options struct"
         notes: >
-          ManifestDir field removed. Remaining fields: Mode, FilePath,
-          BackstopDir, PinnedSemgrepVersion, Timeout, ProjectDir,
-          GolangciLintAvailable, ExtraSemgrepConfigs, Language, Config, Files.
+          ManifestDir field removed. Remaining fields (post-ISSUE-018, which also
+          deleted PinnedSemgrepVersion, GolangciLintAvailable, and the
+          SemgrepEnsurer/DefaultSemgrepEnsurer wiring along with the in-process
+          semgrep path): Mode, FilePath, BackstopDir, Timeout, ProjectDir,
+          Language, Config, Files.
       - name: semgrepExecutor
         kind: type
+        absent: true
         signature: "type semgrepExecutor struct"
         notes: >
-          manifestDir field removed. Remaining fields: runner, ensurer,
-          backstopDir, pinnedVersion, extraSemgrepConfigs. Execute assembles
-          --config solely from extraSemgrepConfigs.
+          ABSENCE assertion (absent: true): this entry asserts semgrepExecutor
+          is GONE from pkg/check/check.go and fails if it reappears (a deletion
+          regression guard). The signature value is documentary only — the gate
+          ignores it for an absent entry; the schema requires a non-empty
+          signature on every provides entry.
+          Under the thin-executor strategy the in-process semgrep executor is
+          REMOVED entirely (ISSUE-018 deletes semgrepExecutor / semgrepJSON /
+          EnsureSemgrep). This spec's REQ-001 intent — no compiled-standards
+          manifestDir --config arm — is realized by the absence of any in-process
+          semgrep feed: there is no semgrepExecutor.manifestDir to delete because
+          there is no semgrepExecutor. Rule enforcement dispatches through the
+          pack-engine path (SPEC-031 dispatchPackEngines), not an in-process
+          semgrep --config feed.
     consumes:
       - source: pkg/check/manifest.go
         name: LoadManifest
@@ -533,66 +649,126 @@ DIR-005 (published `backstop-go-pack`).
 
 Requirements and claims are defined in frontmatter.
 
+### Strategy repoint (spec_version 1.1.0 → 1.2.0)
+
+> **Why this repoint:** This spec was authored when the gate still ran a bespoke
+> **in-process `semgrepExecutor`** (pkg/check) that shelled out to
+> `semgrep --json --quiet`, and the spec described removing the
+> compiled-standards `--config` arm *from that executor*. Under the now-coherent
+> thin-executor strategy the in-process semgrep executor is **removed entirely**
+> (ISSUE-018 deletes `semgrepExecutor` / `semgrepJSON` / `EnsureSemgrep`; it
+> scanned zero rules and is redundant with the engine dispatch). All real semgrep
+> enforcement runs through the data-driven engine path
+> (`pkg/pack/engine` + `cmd/backstop/dispatchPackEngines` → SARIF, SPEC-031).
+>
+> **The INTENT of this spec survives and is MORE completely realized.** REQ-001's
+> goal — *no compiled-standards / `.standard.md` rule config feeds the semgrep
+> pass* — holds harder than before: there is no compiled-standards `--config` arm
+> because (a) no compiled-standards manifest directory is wired into check
+> `Options`, and (b) there is no in-process semgrep executor for such an arm to
+> live on at all; pack rules dispatch group-by-engine through
+> `dispatchPackEngines`, not through an in-process semgrep `--config` feed.
+>
+> Accordingly the claims that previously asserted an **in-process semgrep
+> invocation** (CLM-001, CLM-002, CLM-003, CLM-011) are repointed to assert the
+> **surviving truth** — that check `Options` carry no compiled-standards manifest
+> directory, and that pack rules flow through the engine path rather than an
+> in-process semgrep `--config` feed — **without** asserting that any in-process
+> semgrep invocation occurs. CLM-011's mandated test is renamed
+> (`TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly` →
+> `TestCodeCheck_PackOnly_RulesDispatchViaEnginePath`) because its old name
+> described an in-process pack-config feed that no longer exists; the other
+> repointed claims keep their test names (the surviving assertion still fits).
+>
+> **At 1.2.0, CLM-005, CLM-007, and CLM-010 are RETIRED** rather than repointed:
+> they were redundant structural-absence echoes (covered by CLM-003/CLM-004/CLM-002)
+> and, for CLM-007/CLM-010, repointing them to call `pkg/check` would have
+> manufactured vacuous tests against a code path that — post-ISSUE-018 — can never
+> produce the forbidden compiled-standards wiring. See **Version History (1.2.0)**.
+>
+> **At 1.3.0, the REQ-008 pair (CLM-018, CLM-019) is reconciled and the REQ-001
+> claim set is de-duplicated.** The 1.2.0 pass repointed the REQ-001 / REQ-004
+> claims off any in-process semgrep invocation but MISSED the REQ-008 pair, which
+> still carried the pre-strategy assumption that a deleted in-process semgrep
+> invocation's runner args could be recorded and checked for a `.backstop/rules/`
+> path. **CLM-018 is repointed** to the surviving BEHAVIORAL property — the sole
+> production reader of `.backstop/rules/` is `LoadManifest`, which collects only
+> `*.manifest.json` and skips a leftover `STD-*.semgrep.yml`, so a populated rules
+> dir holding only `*.semgrep.yml` yields the default manifest (zero rules, zero
+> routes). **CLM-019 is RETIRED** (folded into CLM-018): it directly asserted the
+> deleted in-process semgrep pass still runs, which has no surviving subject; its
+> distinct intent is identical to repointed CLM-018's. Separately, **CLM-001 is
+> RETIRED** as a near-duplicate: as scoped it is a third pkg/check
+> production-source absence token-scan already covered token-for-token by CLM-002
+> and CLM-003; its one distinct token (a `--config` from a standards dir) is folded
+> into CLM-002. After 1.3.0 the "compiled-standards / in-process-semgrep path is
+> gone" area is a MINIMAL, non-overlapping set — see **Version History (1.3.0)**.
+
 ### What is removed vs. what stays
 
 | Concern | Today | After this spec |
 |---|---|---|
-| semgrep `--config` from compiled standards (`manifestDir`) | present (`if e.manifestDir != ""`) | **removed** (REQ-001) |
+| compiled-standards rule config feeding the semgrep pass (`manifestDir`) | present (in-process `semgrepExecutor`'s `if e.manifestDir != ""` arm) | **gone** — no compiled-standards `--config` arm; under the thin-executor strategy the in-process executor itself is removed (REQ-001) |
 | `Options.ManifestDir` field + caller wiring | present | **removed** (REQ-002) |
-| semgrep `--config` from packs (`extraSemgrepConfigs`) | present | **stays — the only source** (REQ-004) |
+| pack rule enforcement | fed into the in-process semgrep pass | **dispatched group-by-engine via `dispatchPackEngines`** (engine path, SPEC-031) — the only rule source; no compiled-standards source (REQ-004) |
 | File-type routing (`RouteFile`) | from compiled `.manifest.json` or defaults | **default manifest** — `.go` unchanged (4 passes), non-Go → `[semgrep]` (additive, no pass dropped) (REQ-003) |
 | `pkg/compile` reachable from core | orphaned at CLI, output checked in | **retired; output deleted** (REQ-005) |
 | `STD-GO-001` source standard | present | **dropped** (REQ-006) |
 | backstop-core's own enforcement | compiled `STD-GO-001` rules | **consumed `backstop/go-standards` pack** (REQ-007) |
 | leftover `.backstop/rules/*.semgrep.yml` fallback | implicitly picked up | **never a rule source** (REQ-008) |
 
-The pack source (`ExtraSemgrepConfigs` / `mergePackRules`) and the routing
-default-manifest fallback are **untouched behavior** that this spec relies on;
-only the compiled-standards arm is removed.
+The pack rule source (consumed via the engine dispatch path) and the routing
+default-manifest fallback are the surviving behavior this spec relies on; only
+the compiled-standards arm — and, under the thin-executor strategy, the entire
+in-process semgrep executor — is removed.
 
 ## Implementation
 
 The change is a deletion plus a dogfood re-wire, in four coordinated edits.
 
-### Edit 1 — Delete the `manifestDir` arm from `semgrepExecutor` (REQ-001)
+### Edit 1 — No compiled-standards `--config` arm survives (REQ-001)
 
-In `pkg/check/check.go`:
+REQ-001's intent is that **no compiled-standards / `.standard.md` rule config
+feeds the semgrep pass.** Under the thin-executor strategy this is realized by
+the *absence* of any in-process semgrep `--config` arm:
 
-- Remove the `manifestDir string` field from the `semgrepExecutor` struct.
-- In `Execute`, delete the block:
-  ```go
-  if e.manifestDir != "" {
-      args = append(args, "--config", e.manifestDir)
-  }
-  ```
-  The `--config` set is now assembled solely by the loop over
-  `e.extraSemgrepConfigs`. When that slice is empty, semgrep is invoked with
-  `--json --quiet <files...>` and **no** `--config`.
-- **Delete or rewrite the existing in-package tests that depend on the removed
-  arm.** `pkg/check/semgrep_executor_test.go` currently constructs
-  `semgrepExecutor{... manifestDir: "/proj/.backstop/rules" ...}` (lines 42–48,
-  112–117, 148–153, 181–186) and asserts
-  `containsConfigFor(call.args, "/proj/.backstop/rules")` (lines 66–67, 167–168).
-  Those constructions will not compile once the `manifestDir` field is gone, and
-  those assertions demand exactly the standards-dir `--config` that REQ-004
-  deletes. `TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs` in
-  particular must be **deleted or rewritten** to the packs-only behavior (assert
-  `--config` is composed solely from `extraSemgrepConfigs`, with no
-  standards-dir `--config`); the three other tests
-  (`...ToleratesNonJSONPreamble`, `...QuietFlagPassed`,
-  `...PreservesPackNamespacedRuleIDs`) must drop the `manifestDir:` field from
-  their `semgrepExecutor` literals and any `containsConfigFor(..., ".../rules")`
-  assertion. No remaining `pkg/check` test may construct
-  `semgrepExecutor.manifestDir` or assert a standards-dir `--config`, or the
-  green `go test ./...` guarantee (REQ-005, CLM-021) is defeated by a red build.
+- There is **no in-process `semgrepExecutor`** for a compiled-standards
+  `manifestDir` arm to live on. ISSUE-018 removes the vestigial in-process
+  semgrep path (`semgrepExecutor` / `semgrepJSON` / `EnsureSemgrep`) entirely; it
+  scanned zero rules and is redundant with the engine dispatch. This spec's
+  REQ-001 post-condition is therefore satisfied a fortiori: there is no
+  `manifestDir` field, and no `if e.manifestDir != "" { args += --config }` arm,
+  because there is no in-process semgrep executor at all.
+- Real semgrep enforcement of pack rules runs through the data-driven engine
+  path (`cmd/backstop/dispatchPackEngines` → SARIF, SPEC-031), not an in-process
+  `--config` feed.
+- **Tests must not assert an in-process semgrep invocation.** No `pkg/check`
+  test may construct a `manifestDir`-bearing in-process semgrep feed or assert a
+  standards-dir (`.backstop/rules`) `--config` against an in-process semgrep
+  pass. The REQ-001 claims (CLM-002/003/023) assert the *absence*
+  of the compiled-standards `--config` arm — via source/symbol self-checks that
+  no such arm or `manifestDir`-style field survives — rather than the presence of
+  any in-process semgrep invocation. No remaining `pkg/check` test may assert a
+  standards-dir `--config`, or the green `go test ./...` guarantee (REQ-005,
+  CLM-021) is defeated.
+
+> The actual test rework (replacing any surviving `TestSemgrepExecutor_*` /
+> `semgrepCalls`-based assertions with the absence-of-arm self-checks named in
+> the repointed claims) is performed by the planner/implementer against these
+> claims. The claims are corrected so the tests can be reworked to the surviving
+> truth, not deleted under claim-drift.
 
 ### Edit 2 — Remove `Options.ManifestDir` and all callers (REQ-002)
 
 - Remove the `ManifestDir string` field from `check.Options`
   (pkg/check/check.go).
-- Remove the `manifestDir: opts.ManifestDir` assignment in **both**
-  semgrepExecutor construction sites: `goBuiltinExecutors` (pkg/check/check.go)
-  and the shared semgrep executor in `pkg/check/registry.go`.
+- Remove any `manifestDir: opts.ManifestDir` assignment that fed a
+  compiled-standards directory into a semgrep feed (the `goBuiltinExecutors` /
+  `registry.go` construction sites). Note: under the thin-executor strategy the
+  in-process `semgrepExecutor` and its construction sites are removed by
+  ISSUE-018, so this assignment may already be gone; the surviving REQ-002
+  obligation is solely that no caller wires a compiled-standards directory into
+  rule config.
 - Remove the `ManifestDir: filepath.Join(..., "rules")` assignment in the gate
   Options construction (`cmd/backstop/gate.go`) and in the code-check Options
   construction (`cmd/backstop/code_check.go`).
@@ -705,17 +881,19 @@ Steps:
 ```
 backstop gate / code check
   → loadInstalledPacks(projectRoot)            # backstop.yml packs
-  → mergePackRules(packs, .backstop/packs)     # → ExtraSemgrepConfigs
-  → Options{ ExtraSemgrepConfigs, BackstopDir, ... }   # no ManifestDir
-  → semgrepExecutor.Execute:
-        args = [--json --quiet]
-        args += (--config <p>) for p in extraSemgrepConfigs   # ONLY source
-        args += files
+  → dispatchPackEngines(packs, ...)            # group rules by declared engine,
+                                               #   run each engine → SARIF
+                                               #   (SPEC-031; the ONLY rule source)
+  → Options{ BackstopDir, ... }                # no ManifestDir, no
+                                               #   compiled-standards rule config
   → routing: LoadManifest(.backstop/rules) → defaultManifest() when empty
 ```
 
-With zero packs, `ExtraSemgrepConfigs` is empty and semgrep runs with no
-`--config` (REQ-004 / CLM-002 / CLM-010).
+There is **no in-process semgrep `--config` feed**: under the thin-executor
+strategy the in-process `semgrepExecutor` is removed (ISSUE-018) and pack rule
+enforcement flows through `dispatchPackEngines`. With zero packs, no rule source
+is dispatched and no compiled-standards `--config` is assembled
+(REQ-004 / CLM-002 / CLM-018).
 
 ## Verification
 
@@ -772,18 +950,23 @@ distinguish "rules enforced" from "rules vanished".
    deletes the artifacts but leaves `pkg/compile` (or who deletes the source
    standard without deleting the package) breaks the dogfood gate.
 
-   There is a SYMMETRIC in-package test coupling in `pkg/check` itself:
-   `pkg/check/semgrep_executor_test.go` constructs
-   `semgrepExecutor{... manifestDir: "/proj/.backstop/rules" ...}` and asserts
-   `containsConfigFor(call.args, "/proj/.backstop/rules")`. Removing the
-   `manifestDir` struct field (REQ-001) makes those literals fail to compile,
-   and the standards-dir `--config` assertions directly contradict REQ-004.
-   Edit 1 mandates deleting/rewriting those tests (notably
-   `TestCodeCheck_SemgrepExecutor_RunsProjectAndPackConfigs`) to packs-only
-   behavior; CLM-023 enforces that no `pkg/check` test still requires a
-   `manifestDir` or a standards-dir `--config`. An implementer who removes the
-   field but leaves these tests produces a red build, defeating the
-   single-source guarantee exactly as a left-behind `pkg/compile` would.
+   There is a SYMMETRIC in-package test coupling in `pkg/check` itself: any test
+   that asserts an in-process semgrep invocation carrying (or NOT carrying) a
+   standards-dir `--config` — historically `semgrep_executor_test.go`'s
+   `semgrepExecutor{... manifestDir: ... }` literals and
+   `containsConfigFor(call.args, ".../rules")` assertions, and the
+   `semgrepCalls(runner)` + `t.Fatal("semgrep was never invoked")` pattern in the
+   code-check tests. **Under the thin-executor strategy the in-process
+   `semgrepExecutor` is removed entirely (ISSUE-018), so any test asserting that
+   an in-process semgrep invocation OCCURS would fail at runtime** (the semgrep
+   pass is never invoked). Edit 1 and the REQ-001 claims
+   (CLM-002/003/023) mandate that these tests assert the *absence* of the
+   compiled-standards `--config` arm via source/symbol self-checks, not the
+   presence of any in-process semgrep invocation; CLM-023 enforces that no
+   `pkg/check` test still requires a `manifestDir` or a standards-dir `--config`.
+   An implementer who leaves a test asserting an in-process semgrep invocation
+   produces a red build, defeating the single-source guarantee exactly as a
+   left-behind `pkg/compile` would.
 
    There is a THIRD symmetric coupling in `pkg/check/check_test.go` itself, on
    the `Options.ManifestDir` side (REQ-002): 11 keyed `Options{ManifestDir: dir}`
@@ -802,8 +985,11 @@ distinguish "rules enforced" from "rules vanished".
    NO fallback that re-reads a leftover `STD-*.semgrep.yml` as a `--config`
    path. If such a file lingers in `.backstop/rules/` (stale checkout, partial
    migration), it must be silently ignored as a rule source, not grandfathered.
-   CLM-018/019 guard this — a leftover compiled rule file must not resurrect the
-   removed arm.
+   CLM-018 guards this behaviorally — the sole production reader of
+   `.backstop/rules/` (`LoadManifest`) collects only `*.manifest.json` and skips a
+   leftover `STD-*.semgrep.yml`, so a populated rules dir holding only
+   `*.semgrep.yml` yields the default manifest (zero rules, zero routes) and the
+   removed arm is not resurrected.
 
 4. **Dogfood lock drift + a pre-existing stale entry.** The repo's
    `backstop.lock` already carries a defunct `slotly/go-standards` entry with
@@ -832,12 +1018,18 @@ distinguish "rules enforced" from "rules vanished".
    could lose that specific route; this is called out so SPEC-031 does not
    assume compiled-standards routing exists.
 
-6. **Empty `--config` semgrep invocation.** With zero packs, semgrep now runs
-   with no `--config` at all. Verify semgrep treats "no rules" as a clean pass
-   (zero findings) rather than an error — the executor must not interpret an
-   empty rule set as a failure. CLM-002/010 cover the no-config argv; the
-   executor's existing JSON-parse path already yields zero violations on empty
-   output.
+6. **No in-process semgrep `--config` source survives, and tests must not
+   demand one.** Under the thin-executor strategy there is no in-process semgrep
+   executor and no compiled-standards `--config` source: with zero packs no rule
+   source is dispatched. CLM-002 (production-source token scan) and CLM-018
+   (behavioral: a populated `.backstop/rules/` is not a rule/route source) assert
+   the *absence* of a
+   compiled-standards `--config` source — they must NOT assert that an in-process
+   semgrep pass is invoked, because none is. The pre-repoint trap was a test that
+   did `semgrepCalls(runner)` then `t.Fatal` when the slice was empty: post-
+   ISSUE-018 that fatal fires because the in-process semgrep pass is gone. The
+   surviving assertion is "no compiled-standards `--config` source is wired in,"
+   not "semgrep ran with an empty `--config`."
 
 7. **Vacuous green: install ≠ enforce.** The most dangerous failure of this
    spec is the one it exists to prevent — passing all of CLM-016/017 (pack
@@ -918,13 +1110,177 @@ distinguish "rules enforced" from "rules vanished".
 - **DIR-005** — published `backstop-go-pack` (the pack backstop-core now
   dogfood-consumes).
 - **SPEC-031** — Seed 2 (engine field + dispatch), the consumer of this
-  single-source foundation. This spec does not implement any of it.
+  single-source foundation. The pack-engine dispatch path (`dispatchPackEngines`)
+  is where pack rule enforcement now flows under the thin-executor strategy.
+- **ISSUE-018** — removes the vestigial in-process semgrep path
+  (`semgrepExecutor` / `semgrepJSON` / `EnsureSemgrep`). Its deletion is why this
+  spec's REQ-001 claims are repointed off any in-process semgrep invocation
+  assertion (see Version History 1.1.0); the two artifacts are reconciled so they
+  no longer conflict.
 - [[feedback_integration_gap]] — two coexisting semgrep rule sources is the
   drift risk this collapse removes.
 - [[feedback_loud_not_blocking]] — vacuous-green guard: routing must not be
   silently emptied by the removal (Sharp Edge 1).
-- Code: pkg/check/check.go (`semgrepExecutor`, `Options`,
-  `goBuiltinExecutors`), pkg/check/registry.go (shared semgrep construction),
-  pkg/check/manifest.go (`LoadManifest`, `defaultManifest`, `RouteFile`),
-  cmd/backstop/gate.go (Options construction), cmd/backstop/code_check.go
-  (Options construction), pkg/compile/ (retired compiler).
+- Code: pkg/check/check.go (`Options`, `goBuiltinExecutors`),
+  pkg/check/registry.go, pkg/check/manifest.go (`LoadManifest`,
+  `defaultManifest`, `RouteFile`), cmd/backstop/gate.go (Options construction),
+  cmd/backstop/code_check.go (Options construction),
+  cmd/backstop/pack_gate.go (`dispatchPackEngines` — the surviving rule-enforcement
+  path), pkg/compile/ (retired compiler).
+
+## Version History
+
+- **1.3.0** (2026-06-21) — Completes the thin-executor reconciliation the 1.1.0/1.2.0
+  passes started: those passes repointed the REQ-001 / REQ-004 claims off any
+  in-process semgrep invocation (the executor ISSUE-018 fully deletes), but MISSED
+  the **REQ-008 pair (CLM-018, CLM-019)**, which still carried the pre-strategy
+  assumption that a deleted in-process semgrep invocation's recorded runner args
+  could be inspected for a `.backstop/rules/` path. This pass reconciles that pair
+  and de-duplicates the REQ-001 claim set. Changes:
+  (1) **CLM-018 REPOINTED** off the "recorded runner args contain no `.backstop/rules/`
+  path" assertion (no in-process semgrep invocation exists to record args) to the
+  surviving BEHAVIORAL property: the SOLE production reader of `.backstop/rules/` is
+  `LoadManifest` (pkg/check/manifest.go, invoked from check.go via
+  `LoadManifest(filepath.Join(opts.BackstopDir, "rules"))`), which collects ONLY
+  `*.manifest.json` files and skips every other entry — so a leftover
+  `STD-*.semgrep.yml` is never picked up, and a `.backstop/rules/` dir holding only
+  `*.semgrep.yml` (no `.manifest.json`) yields the built-in default manifest (zero
+  rules, zero routes). This is a distinct, non-vacuous behavioral assertion over
+  `LoadManifest` — it fails if `LoadManifest` is ever made to treat `.semgrep.yml`
+  as a source — NOT a third copy of the CLM-002/003 production-source token scans.
+  CLM-018 keeps the mandated test name `TestNoFallback_PopulatedRulesDirNotASource`
+  (inherited from CLM-019, since that name still describes the surviving behavioral
+  assertion); the old CLM-018 test name `TestNoFallback_LeftoverCompiledRulesIgnored`
+  (which named the deleted in-process-semgrep arg-recording check) is dropped.
+  (2) **CLM-019 RETIRED** (folded into CLM-018). It directly asserted "with zero
+  packs, semgrep still runs with no `--config`" — i.e. that the deleted in-process
+  semgrep pass STILL RUNS; that premise has no surviving subject post-ISSUE-018
+  (pack rules dispatch via `dispatchPackEngines`, no in-process semgrep pass exists).
+  Its distinct intent — a populated `.backstop/rules/` does not become an implicit
+  second rule source — is identical to repointed CLM-018's behavioral property and
+  is fully covered there. Retired rather than repointed to avoid a vacuous "assert
+  the deleted semgrep pass runs" test and a near-duplicate claim. REQ-008 now
+  retains exactly one claim (CLM-018), behavioral and distinct.
+  (3) **CLM-001 RETIRED** as a near-duplicate of CLM-002/CLM-003. As scoped, CLM-001
+  (`TestPkgCheck_NoCompiledStandardsConfigArm`) is a THIRD pkg/check
+  production-source absence token-scan asserting the same structural absence ("no
+  `--config` from a standards dir; no `manifestDir`-style field; no in-process
+  semgrep executor") that CLM-002 (`TestPkgCheck_NoResidualStandardsConfigWhenNoPacks`
+  — scans for `ExtraSemgrepConfigs` / `manifestDir` / `ManifestDir` absent) and
+  CLM-003 (`TestPkgCheck_NoManifestDirFieldOnSemgrepFeed` — scans for
+  `semgrepExecutor` / `manifestDir` / `ManifestDir` absent) already make
+  token-for-token. Writing the CLM-001 test would mandate a redundant third token
+  scan over the same source — the near-duplicate-claim pattern this reconciliation
+  exists to eliminate. CLM-001's one distinct token (a `--config` argument sourced
+  from a `.backstop/rules` standards dir) is folded into CLM-002's scan set. REQ-001
+  retains CLM-002, CLM-003, CLM-023 — no requirement is left claim-less.
+  (4) **Minimal non-overlapping claim set for "the compiled-standards /
+  in-process-semgrep path is gone"** after this pass: **CLM-002**
+  (`TestPkgCheck_NoResidualStandardsConfigWhenNoPacks`) — production-source token
+  scan: no `ExtraSemgrepConfigs` / `manifestDir` / `ManifestDir` / standards-dir
+  `--config` token survives; **CLM-003** (`TestPkgCheck_NoManifestDirFieldOnSemgrepFeed`)
+  — production-source/symbol scan: no `semgrepExecutor` type and no `manifestDir`
+  field survive; **CLM-023** (`TestNoTestRequiresManifestDirOrStandardsConfig`) —
+  TEST-source scan: no test reintroduces a `manifestDir:` literal or a standards-dir
+  `--config` assertion; **CLM-011** (`TestCodeCheck_PackOnly_RulesDispatchViaEnginePath`)
+  — behavioral: one installed pack's rules dispatch via `dispatchPackEngines`, not an
+  in-process `--config` feed; **CLM-018** (`TestNoFallback_PopulatedRulesDirNotASource`)
+  — behavioral: a populated `.backstop/rules/` (only `*.semgrep.yml`) is not a
+  rule/route source (`LoadManifest` returns the default manifest). Each asserts a
+  distinct, writable, non-vacuous property; none overlaps another.
+  No requirement, contract, or other claim is changed; REQ-001/REQ-004/REQ-008 text
+  is unchanged (the repoint is at the claim/realization layer, consistent with the
+  1.1.0/1.2.0 strategy). All other claims (CLM-002…CLM-004, CLM-006, CLM-008…CLM-017,
+  CLM-020…CLM-025) are unchanged.
+- **1.2.0** (2026-06-21) — Completes the thin-executor alignment the 1.1.0 repoint
+  started, reconciling this spec with **ISSUE-018**'s FULL deletion of the in-process
+  `semgrepExecutor` (the 1.1.0 prose acknowledged the deletion but several REQ/CLM/
+  contract elements still assumed the executor SURVIVED minus its `ManifestDir` field).
+  Changes:
+  (1) **Contract fix (the gate-blocking conflict).** The `semgrepExecutor` contract
+  entry used `signature: "absent"` — a literal expected-signature string the
+  `contract_signature` gate step tried to MATCH, producing `symbol semgrepExecutor not
+  found`. Converted to the proper absence-assertion form: `absent: true` (maps to
+  `ContractEntry.Absent` per pkg/gate/step_contract.go — passes when the symbol is gone,
+  fails if it reappears) plus a documentary `signature` (the schema requires a non-empty
+  signature on every provides entry; the gate ignores it for an absent entry). No
+  contract now mandates the deleted `semgrepExecutor` as PRESENT. (SPEC-031 was checked:
+  it references `semgrepExecutor` only in REQ/prose/References as "the thing being
+  replaced," never in a `provides` contract, so it needs no change.)
+  (2) **Options contract notes** corrected to the actual post-ISSUE-018 `check.Options`
+  struct (Mode, FilePath, BackstopDir, Timeout, ProjectDir, Language, Config, Files);
+  dropped `PinnedSemgrepVersion`, `GolangciLintAvailable`, and `ExtraSemgrepConfigs`,
+  which ISSUE-018 removed (or which never existed on the struct).
+  (3) **REQ-001 / REQ-002 / impl summary** reframed off the "keep the executor, drop one
+  field" premise to "the in-process `semgrepExecutor` is deleted ENTIRELY by ISSUE-018;
+  a fortiori no `manifestDir` field and no compiled-standards `--config` arm." REQ-002's
+  surviving obligation is solely the `check.Options` field and its gate/code-check caller
+  wiring — the executor-side `manifestDir: opts.ManifestDir` construction assignments are
+  gone a fortiori.
+  (4) **CLM-005, CLM-007, CLM-010 RETIRED** (not repointed). Reasoning — keeping the
+  substrate honest (no vacuous green, no redundant overlapping claims): **CLM-005** (build
+  a `semgrepExecutor` without a `manifestDir`) has no surviving subject — ISSUE-018 deletes
+  the executor and its construction sites, so there is no build to assert on; its structural
+  intent is fully covered by CLM-003 (`TestPkgCheck_NoManifestDirFieldOnSemgrepFeed`).
+  **CLM-007** (code-check Options carry no compiled-standards manifest dir) and **CLM-010**
+  (zero-packs run feeds no compiled-standards `--config`) had been reworked at 1.1.0 to
+  inspect a captured `check.Options` via the `checkRunFn` stub WITHOUT calling `pkg/check`,
+  so the `test_substantiveness` gate flagged both "does not call package check." Repointing
+  them to actually call `check.Run` would manufacture a VACUOUS test: post-ISSUE-018 the
+  `Options.ManifestDir` field and the in-process semgrep `--config` arm are structurally
+  gone, so no code path could ever produce the forbidden wiring and the assertion could
+  never fail. Their surviving properties are STRUCTURAL absences already covered — CLM-007
+  by CLM-004 (Options field gone) + CLM-001/003 (no compiled-standards arm); CLM-010 by
+  CLM-002 (no residual standards source with zero packs) + CLM-019 (populated rules dir not
+  a source), with REQ-004's positive single-source proof carried substantively by CLM-011
+  (one pack dispatches via the engine path). REQ-002 retains CLM-004/006/024; REQ-004
+  retains CLM-011 — no requirement is left claim-less. The retired claims' mandated tests
+  (`TestBuildExecutors_SemgrepHasNoManifestDir`, `TestCodeCheckOptions_NoManifestDir`,
+  `TestCodeCheck_NoPacks_NoSemgrepConfig`) are removed by the planner/implementer so nothing
+  mandates a retired test; `PLAN-ISSUE-018` is updated to match. All other requirements and
+  claims (REQ-003, REQ-005…REQ-008; CLM-001…CLM-004, CLM-006, CLM-008…CLM-009, CLM-011…CLM-025)
+  are unchanged.
+- **1.1.0** (2026-06-21) — Deliberate cross-artifact repoint reconciling this spec
+  with the now-coherent thin-executor strategy and resolving the conflict with
+  **ISSUE-018**. ISSUE-018 removes the vestigial in-process semgrep pass
+  (`semgrepExecutor` / `EnsureSemgrep`), which scanned zero rules and is redundant
+  with the engine dispatch — so the SPEC-030 claims that mandated tests asserting
+  an in-process semgrep *invocation* (those tests do
+  `len(semgrepCalls(runner)) == 0 → t.Fatal`) would fail at runtime post-ISSUE-018.
+  This spec's INTENT (no compiled-standards / `.standard.md` rule config feeds the
+  checks) SURVIVES and is more completely realized: there is no compiled-standards
+  `--config` arm because no compiled-standards manifest directory is wired into
+  check `Options` and pack rules dispatch group-by-engine via `dispatchPackEngines`
+  rather than an in-process semgrep `--config` feed. Repointed claims, none of
+  which may now assert that an in-process semgrep invocation occurs:
+  **CLM-001** (was: `semgrepExecutor` assembles pack-only `--config` →
+  `TestSemgrepExecutor_ConfigArgsFromPacksOnly`; now: no compiled-standards
+  `--config` arm survives in pkg/check →
+  `TestPkgCheck_NoCompiledStandardsConfigArm`);
+  **CLM-002** (was: `TestSemgrepExecutor_NoConfigWhenNoPacks`; now: no residual
+  standards `--config` source with zero packs →
+  `TestPkgCheck_NoResidualStandardsConfigWhenNoPacks`);
+  **CLM-003** (was: `semgrepExecutor` struct field set →
+  `TestSemgrepExecutor_StructHasNoManifestDir`; now: no `manifestDir`-style field
+  on any in-process semgrep feed, the executor type itself being gone →
+  `TestPkgCheck_NoManifestDirFieldOnSemgrepFeed`);
+  **CLM-007** (`TestCodeCheckOptions_NoManifestDir`, name kept) repointed to assert
+  Options carry no compiled-standards manifest directory, dropping the in-process
+  semgrep end-to-end assertion;
+  **CLM-010** (`TestCodeCheck_NoPacks_NoSemgrepConfig`, name kept) repointed to
+  assert no compiled-standards rule-config source with zero packs, dropping the
+  "in-process semgrep invoked" assertion;
+  **CLM-011** repointed from "in-process semgrep invoked with the pack's rule
+  paths as `--config`" to "pack rules dispatch via the engine path, not an
+  in-process semgrep `--config` feed," and its mandated test RENAMED
+  `TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly` →
+  `TestCodeCheck_PackOnly_RulesDispatchViaEnginePath` (old name described a feed
+  that no longer exists). **CLM-023** clarified to the same surviving truth (name
+  kept). The `semgrepExecutor` contract entry is marked `absent`. The actual test
+  rework is performed by the planner/implementer against these repointed claims —
+  the claims are corrected so the tests can be reworked, not deleted under
+  claim-drift. All other requirements, claims, and the dogfood/enforcement-transfer
+  spine (REQ-005…REQ-008, CLM-012…CLM-025) are unchanged.
+- **1.0.0** (2026-06-16) — Initial spec authored from BUNDLE-010
+  (pluggable-pack-engines), Spec Seed 1 (Pillar 2): packs-only native-standards
+  removal.

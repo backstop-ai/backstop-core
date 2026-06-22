@@ -145,9 +145,8 @@ func TestGate_SucceedsWithoutStandards(t *testing.T) {
 
 	runner := &recordingRunner{}
 	checker := &realCodeChecker{
-		projectRoot:    dir,
-		runnerForTest:  runner,
-		ensurerForTest: stubEnsurer{},
+		projectRoot:   dir,
+		runnerForTest: runner,
 	}
 
 	violations, err := checker.runCheck(context.Background(), check.ScopeModeFile, []string{filepath.Join(dir, "main.go")})

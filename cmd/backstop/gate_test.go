@@ -671,10 +671,14 @@ func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit(t *testing.T) {
 
 // TestRunCheckOptions_NoManifestDir exercises (*realCodeChecker).runCheck — the
 // gate's check.Options construction site that previously set
-// ManifestDir: filepath.Join(backstopDir, "rules"). After SPEC-030 the
-// constructed Options carries no compiled-standards manifest directory: with
-// zero installed packs and a populated .backstop/rules/ (a leftover compiled
-// STD file), the semgrep pass invokes the tool with NO --config at all. (CLM-006)
+// ManifestDir: filepath.Join(backstopDir, "rules"). After SPEC-030 (and the
+// ISSUE-018 in-process semgrep removal) the constructed Options carry no
+// compiled-standards manifest directory: with zero installed packs and a
+// populated .backstop/rules/ (a leftover compiled STD file), no recorded tool
+// invocation is fed a --config path under .backstop/rules/. The surviving
+// CLM-006 property is asserted on the recorded runner args (no standards-dir
+// rule-config is wired in), NOT on an in-process semgrep invocation — there is
+// no in-process semgrep pass under the thin-executor strategy. (CLM-006)
 func TestRunCheckOptions_NoManifestDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: gate-opts\nlanguage: go\n"), 0o644); err != nil {
@@ -696,9 +700,8 @@ func TestRunCheckOptions_NoManifestDir(t *testing.T) {
 
 	runner := &recordingRunner{}
 	checker := &realCodeChecker{
-		projectRoot:    dir,
-		runnerForTest:  runner,
-		ensurerForTest: stubEnsurer{},
+		projectRoot:   dir,
+		runnerForTest: runner,
 	}
 
 	// Precondition: the project's .backstop directory is valid, so runCheck's
@@ -712,32 +715,15 @@ func TestRunCheckOptions_NoManifestDir(t *testing.T) {
 		t.Fatalf("runCheck: %v", err)
 	}
 
-	// The semgrep pass is identified by its --json/--quiet argv signature
-	// (EnsureSemgrep resolves a real binary path inside the executor). It must
-	// carry no --config (no packs), and in particular nothing under
-	// .backstop/rules/.
-	var sawSemgrep bool
+	// No recorded tool invocation may be fed a --config path under
+	// .backstop/rules/: runCheck's Options wire no compiled-standards directory as
+	// a rule-config source. (There is no in-process semgrep pass to assert on.)
+	rulesPrefix := filepath.Join(".backstop", "rules")
 	for _, c := range runner.calls {
-		hasJSON, hasQuiet := false, false
-		for _, a := range c.args {
-			if a == "--json" {
-				hasJSON = true
-			}
-			if a == "--quiet" {
-				hasQuiet = true
-			}
-		}
-		if !hasJSON || !hasQuiet {
-			continue
-		}
-		sawSemgrep = true
 		for i := 0; i+1 < len(c.args); i++ {
-			if c.args[i] == "--config" {
-				t.Errorf("semgrep invoked with --config %q; runCheck Options must wire no manifest/standards directory", c.args[i+1])
+			if c.args[i] == "--config" && strings.Contains(c.args[i+1], rulesPrefix) {
+				t.Errorf("a tool was invoked with --config %q under .backstop/rules; runCheck Options must wire no compiled-standards directory", c.args[i+1])
 			}
 		}
-	}
-	if !sawSemgrep {
-		t.Fatal("semgrep pass was never invoked; expected one finding-free invocation with no --config")
 	}
 }

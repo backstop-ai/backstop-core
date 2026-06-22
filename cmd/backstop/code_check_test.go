@@ -316,8 +316,7 @@ func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit(t *testing.
 	defer func() { checkRunFn = origRun }()
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		return check.RunWith(ctx, check.RunOptions{
-			Options:        opts,
-			SemgrepEnsurer: stubEnsurer{},
+			Options: opts,
 		})
 	}
 
@@ -337,13 +336,6 @@ func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit(t *testing.
 	if !strings.Contains(exitErr.Message, "routable") {
 		t.Errorf("message %q should name the zero-routable condition", exitErr.Message)
 	}
-}
-
-// stubEnsurer satisfies check.SemgrepEnsurer without installing anything.
-type stubEnsurer struct{}
-
-func (stubEnsurer) EnsureSemgrep(backstopDir, pinnedVersion string) (string, error) {
-	return "/usr/bin/true", nil
 }
 
 // missingToolchainProject scaffolds a temp project whose backstop.yml declares a
@@ -392,8 +384,7 @@ func TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError(t *testing.T) 
 		defer func() { checkRunFn = origRun }()
 		checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 			return check.RunWith(ctx, check.RunOptions{
-				Options:        opts,
-				SemgrepEnsurer: stubEnsurer{},
+				Options: opts,
 			})
 		}
 
@@ -507,8 +498,7 @@ func TestCodeCheck_Registry_UnknownPassKeyPropagatesExitTwo(t *testing.T) {
 			defer func() { checkRunFn = origRun }()
 			checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 				return check.RunWith(ctx, check.RunOptions{
-					Options:        opts,
-					SemgrepEnsurer: stubEnsurer{},
+					Options: opts,
 				})
 			}
 
@@ -601,8 +591,7 @@ enforcement:
 	var captured *check.Result
 	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
 		result, err := check.RunWith(ctx, check.RunOptions{
-			Options:        opts,
-			SemgrepEnsurer: stubEnsurer{},
+			Options: opts,
 		})
 		captured = result
 		return result, err
@@ -655,236 +644,61 @@ enforcement:
 	}
 }
 
-// configCount returns the number of --config flags in args.
-func configCount(args []string) int {
-	n := 0
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "--config" {
-			n++
-		}
-	}
-	return n
-}
+// TestCodeCheckOptions_NoManifestDir and TestCodeCheck_NoPacks_NoSemgrepConfig
+// were RETIRED at SPEC-030 spec_version 1.2.0. Their surviving property (no
+// compiled-standards manifest directory / rule-config source feeds the checks)
+// is, post-ISSUE-018, a structural absence guaranteed by the deletion of the
+// in-process semgrepExecutor itself — covered substantively by CLM-003
+// (TestPkgCheck_NoManifestDirFieldOnSemgrepFeed) and CLM-004. Repointing these
+// captured-Options inspections to call pkg/check would be vacuous, so they were
+// retired rather than kept.
 
-// configValues returns every value following a --config flag in args.
-func configValues(args []string) []string {
-	var out []string
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "--config" {
-			out = append(out, args[i+1])
-		}
-	}
-	return out
-}
-
-// semgrepCalls returns every recorded invocation whose argv carries the
-// semgrepExecutor signature (--json and --quiet), regardless of which binary
-// path EnsureSemgrep resolved. The executor uses its own DefaultSemgrepEnsurer,
-// so the recorded binary is the real semgrep path, not the injected stub; the
-// argv signature is the stable way to identify the semgrep pass.
-func semgrepCalls(r *recordingRunner) []recordedCall {
-	var out []recordedCall
-	for _, c := range r.calls {
-		hasJSON, hasQuiet := false, false
-		for _, a := range c.args {
-			if a == "--json" {
-				hasJSON = true
-			}
-			if a == "--quiet" {
-				hasQuiet = true
-			}
-		}
-		if hasJSON && hasQuiet {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// TestCodeCheckOptions_NoManifestDir verifies the code-check Options
-// construction produces Options with no compiled-standards manifest directory
-// wired in. The Options reach check.Run via the checkRunFn seam; after SPEC-031
-// the retired ExtraSemgrepConfigs pack feeder is gone entirely, and no field
-// carries a .backstop/rules standards directory. (CLM-007)
-func TestCodeCheckOptions_NoManifestDir(t *testing.T) {
+// TestCodeCheck_PackOnly_RulesDispatchViaEnginePath is the SPEC-030 CLM-011
+// check (repointed at spec_version 1.1.0): a code-check run with one installed
+// pack dispatches that pack's rules via the engine path (dispatchPackEngines),
+// NOT via an in-process semgrep `--config` feed. It asserts the pack reaches the
+// engine dispatch and that no compiled-standards directory is wired into the
+// check Options as a rule-config source — WITHOUT asserting any in-process
+// semgrep invocation occurs (none exists under the thin-executor strategy).
+func TestCodeCheck_PackOnly_RulesDispatchViaEnginePath(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-opts\nlanguage: go\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-pack\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
+		t.Fatalf("mkdir .backstop: %v", err)
 	}
-	restore := chdirTemp(t, dir)
-	defer restore()
+	defer chdirTemp(t, dir)()
 
-	origRun := checkRunFn
-	defer func() { checkRunFn = origRun }()
+	onePack := []*pack.Manifest{{Name: "acme/go-standards", Language: "go"}}
 	var captured check.Options
-	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-		captured = opts
-		return &check.Result{}, nil
-	}
+	var dispatchedPacks []*pack.Manifest
+	stubCodeCheckFns(t,
+		func(string) ([]*pack.Manifest, error) { return onePack, nil },
+		func(_ context.Context, opts check.Options) (*check.Result, error) {
+			captured = opts
+			return &check.Result{}, nil
+		},
+		func(packs []*pack.Manifest, _ string, _ string, _ *gate.GateScope, _ check.CommandRunner) ([]gate.Violation, error) {
+			dispatchedPacks = packs
+			return nil, nil
+		},
+	)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"code", "check", "--all"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("code check: %v", err)
+		t.Fatalf("code check --all: %v", err)
 	}
 
-	// BackstopDir is the only directory the Options carry; it drives routing, not
-	// rule config. Confirm it points at .backstop (not a rules-as-config wiring).
+	// The installed pack's rules flow through the engine dispatch path...
+	if len(dispatchedPacks) != 1 || dispatchedPacks[0].Name != "acme/go-standards" {
+		t.Errorf("pack rules did not reach dispatchPackEngines; got %v, want the one installed pack dispatched via the engine path", dispatchedPacks)
+	}
+	// ...and no compiled-standards directory is wired into the check Options as a
+	// rule-config source (BackstopDir is routing only; Options has no ManifestDir
+	// field at all post-ISSUE-018).
 	if filepath.Base(captured.BackstopDir) != ".backstop" {
-		t.Errorf("BackstopDir = %q, want the project .backstop directory", captured.BackstopDir)
-	}
-
-	// End-to-end confirmation at the check-package level: feeding the captured
-	// Options through check.RunWith with a recording runner must invoke semgrep
-	// with no --config (no manifest/standards directory wired in). This exercises
-	// pkg/check directly, proving the Options carry no rule-config source.
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-	captured.Mode = check.ScopeModeFile
-	captured.FilePath = filepath.Join(dir, "main.go")
-	runner := &recordingRunner{}
-	if _, err := check.RunWith(context.Background(), check.RunOptions{
-		Options:        captured,
-		Runner:         runner,
-		SemgrepEnsurer: stubEnsurer{},
-	}); err != nil {
-		t.Fatalf("check.RunWith with captured Options: %v", err)
-	}
-	for _, c := range semgrepCalls(runner) {
-		if configCount(c.args) != 0 {
-			t.Errorf("semgrep invoked with --config %v from captured Options; expected none", configValues(c.args))
-		}
-	}
-}
-
-// TestCodeCheck_NoPacks_NoSemgrepConfig verifies a code-check run with zero
-// installed packs invokes semgrep with zero rule --config paths (the recorded
-// runner argv contains no --config), even with a populated .backstop/rules/.
-// (CLM-010)
-func TestCodeCheck_NoPacks_NoSemgrepConfig(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-nopacks\nlanguage: go\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write leftover: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-	restore := chdirTemp(t, dir)
-	defer restore()
-
-	runner := &recordingRunner{}
-	origRun := checkRunFn
-	defer func() { checkRunFn = origRun }()
-	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: runner, SemgrepEnsurer: stubEnsurer{}})
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"code", "check", "--all"})
-	_ = root.Execute()
-
-	calls := semgrepCalls(runner)
-	if len(calls) == 0 {
-		t.Fatal("semgrep was never invoked; expected one finding-free invocation with no --config")
-	}
-	for _, c := range calls {
-		if n := configCount(c.args); n != 0 {
-			t.Errorf("semgrep invoked with %d --config paths, want 0 (no packs): %v", n, c.args)
-		}
-	}
-}
-
-// TestCodeCheck_PackOnly_SemgrepPassCarriesNoPackConfig verifies that after
-// SPEC-031 an installed semgrep pack does NOT feed the in-process semgrep pass
-// via --config: the project semgrep invocation carries zero --config paths
-// because pack rules are dispatched group-by-engine through dispatchPackEngines
-// instead. Re-keyed from the retired
-// TestCodeCheck_PackOnly_SemgrepConfigIsPackPathsOnly (which asserted the old
-// in-process pack-config feeder). The pack.yml below declares engine: semgrep
-// under the migrated reader. (REQ-011)
-func TestCodeCheck_PackOnly_SemgrepPassCarriesNoPackConfig(t *testing.T) {
-	dir := t.TempDir()
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// A leftover compiled-standards file that must NOT become a --config.
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write leftover: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-
-	// Install one pack on disk with a single layer-2 rule file.
-	packRoot := filepath.Join(dir, ".backstop", "packs", "acme", "go-standards")
-	if err := os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755); err != nil {
-		t.Fatalf("mkdir pack rules: %v", err)
-	}
-	ruleFile := filepath.Join(packRoot, "rules", "no-panic.yml")
-	if err := os.WriteFile(ruleFile, []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write rule: %v", err)
-	}
-	packYml := `name: acme/go-standards
-version: "1.0.0"
-language: go
-archetype: enforcement
-description: "test pack"
-content:
-  ruleset:
-    version: "1.0.0"
-    rules:
-      - id: no-panic
-        standard: "no panic"
-        rule_path: rules/no-panic.yml
-        risk_class: correctness
-        engine: semgrep
-`
-	_ = ruleFile
-	if err := os.WriteFile(filepath.Join(packRoot, "pack.yml"), []byte(packYml), 0o644); err != nil {
-		t.Fatalf("write pack.yml: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: cc-pack\nlanguage: go\npacks:\n  acme/go-standards: \"1.0.0\"\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	restore := chdirTemp(t, dir)
-	defer restore()
-
-	runner := &recordingRunner{}
-	origRun := checkRunFn
-	origDispatch := dispatchPackEnginesFn
-	defer func() { checkRunFn = origRun; dispatchPackEnginesFn = origDispatch }()
-	// Stub dispatch so the pack-engine path does not shell out to a live engine;
-	// this test asserts the IN-PROCESS semgrep pass carries no pack --config.
-	dispatchPackEnginesFn = func(packs []*pack.Manifest, packDir, root string, scope *gate.GateScope, r check.CommandRunner) ([]gate.Violation, error) {
-		return nil, nil
-	}
-	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: runner, SemgrepEnsurer: stubEnsurer{}})
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"code", "check", "--all"})
-	_ = root.Execute()
-
-	calls := semgrepCalls(runner)
-	if len(calls) == 0 {
-		t.Fatal("semgrep was never invoked; expected one finding-free in-process invocation")
-	}
-	for _, c := range calls {
-		if n := configCount(c.args); n != 0 {
-			t.Errorf("in-process semgrep invoked with %d --config paths, want 0 (pack rules dispatch separately): %v", n, c.args)
-		}
+		t.Errorf("BackstopDir = %q, want the project .backstop directory (routing), not a rules-as-config wiring", captured.BackstopDir)
 	}
 }

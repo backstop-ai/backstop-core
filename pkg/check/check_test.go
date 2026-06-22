@@ -9,8 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // TestCodeCheck_AllPassesRun verifies all four validation passes (lint, build,
@@ -20,10 +18,30 @@ func TestCodeCheck_AllPassesRun(t *testing.T) {
 	var mu sync.Mutex
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeLint] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeLint, Violations: []Violation{{Pass: CheckTypeLint, File: "a.go", Message: "lint-err"}}}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeBuild] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeBuild, Violations: []Violation{{Pass: CheckTypeBuild, File: "a.go", Message: "build-err"}}}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeTest] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeTest, Violations: []Violation{{Pass: CheckTypeTest, File: "a.go", Message: "test-err"}}}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeSemgrep] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeSemgrep, Violations: []Violation{{Pass: CheckTypeSemgrep, File: "a.go", Message: "semgrep-err"}}}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeLint] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeLint, Violations: []Violation{{Pass: CheckTypeLint, File: "a.go", Message: "lint-err"}}}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeBuild] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeBuild, Violations: []Violation{{Pass: CheckTypeBuild, File: "a.go", Message: "build-err"}}}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeTest] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeTest, Violations: []Violation{{Pass: CheckTypeTest, File: "a.go", Message: "test-err"}}}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeSemgrep] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeSemgrep, Violations: []Violation{{Pass: CheckTypeSemgrep, File: "a.go", Message: "semgrep-err"}}}, nil
+		}},
 	}
 
 	engine := &Engine{
@@ -103,10 +121,30 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 	var mu sync.Mutex
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeLint] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeBuild] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeTest] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { mu.Lock(); invoked[CheckTypeSemgrep] = true; mu.Unlock(); return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeLint] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeBuild] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeTest] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			mu.Lock()
+			invoked[CheckTypeSemgrep] = true
+			mu.Unlock()
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	// Manifest that only routes .py to semgrep
@@ -204,10 +242,16 @@ func TestCodeCheck_PassOrderLintBuildTestSemgrep(t *testing.T) {
 // skipped with warning when golangci-lint is not on PATH. (CLM-042)
 func TestCodeCheck_Lint_SkippedWhenGolangciLintMissing(t *testing.T) {
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{available: false, unavailableMsg: "golangci-lint not found on PATH"},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{available: false, unavailableMsg: "golangci-lint not found on PATH"},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	engine := &Engine{
@@ -286,10 +330,18 @@ func TestCodeCheck_RunWith_Integration(t *testing.T) {
 	dir := t.TempDir()
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	git := &mockGitExecutor{
@@ -373,9 +425,15 @@ func TestCodeCheck_RunWith_Timeout(t *testing.T) {
 				return &PassResult{Pass: CheckTypeLint}, nil
 			}
 		}},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	dir := t.TempDir()
@@ -406,10 +464,18 @@ func TestCodeCheck_RunWith_FileMode(t *testing.T) {
 	os.WriteFile(f, []byte("package main"), 0o644)
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	opts := RunOptions{
@@ -437,10 +503,18 @@ func TestCodeCheck_RunWith_AllMode(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	opts := RunOptions{
@@ -496,8 +570,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
-		Executors:      executors,
-		SemgrepEnsurer: &mockSemgrepEnsurer{},
+		Executors: executors,
 	}
 
 	result, err := RunWith(context.Background(), opts)
@@ -543,8 +616,7 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 			BackstopDir: dir, // empty dir/rules, routing uses defaults
 			ProjectDir:  dir,
 		},
-		Executors:      executors2,
-		SemgrepEnsurer: &mockSemgrepEnsurer{},
+		Executors: executors2,
 	}
 
 	result2, err := RunWith(context.Background(), opts2)
@@ -578,122 +650,11 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_RunWith_SemgrepConfigError verifies that RunWith propagates
-// ConfigError from EnsureSemgrep (version mismatch = hard stop).
-func TestCodeCheck_RunWith_SemgrepConfigError(t *testing.T) {
-	dir := t.TempDir()
-	goFile := filepath.Join(dir, "main.go")
-	os.WriteFile(goFile, []byte("package main"), 0o644)
-
-	ensurer := &mockSemgrepEnsurer{
-		fn: func(backstopDir, pinnedVersion string) (string, error) {
-			return "", &ConfigError{Message: "semgrep version mismatch: installed 1.40.0, pinned 1.50.0"}
-		},
-	}
-
-	opts := RunOptions{
-		Options: Options{
-			Mode:        ScopeModeFile,
-			FilePath:    goFile,
-			ProjectDir:  dir,
-			BackstopDir: filepath.Join(dir, ".backstop"),
-		},
-		Executors:      map[CheckType]PassExecutor{},
-		SemgrepEnsurer: ensurer,
-	}
-
-	_, err := RunWith(context.Background(), opts)
-	if err == nil {
-		t.Fatal("expected ConfigError, got nil")
-	}
-	var cfgErr *ConfigError
-	if !asConfigError(err, &cfgErr) {
-		t.Errorf("expected ConfigError, got %T: %v", err, err)
-	}
-}
-
-// TestCodeCheck_RunWith_SemgrepDegradedMode verifies that RunWith skips semgrep
-// with a warning when EnsureSemgrep returns DegradedError (install failure).
-func TestCodeCheck_RunWith_SemgrepDegradedMode(t *testing.T) {
-	dir := t.TempDir()
-	goFile := filepath.Join(dir, "main.go")
-	os.WriteFile(goFile, []byte("package main"), 0o644)
-
-	ensurer := &mockSemgrepEnsurer{
-		fn: func(backstopDir, pinnedVersion string) (string, error) {
-			return "", &DegradedError{Message: "semgrep auto-install failed: network timeout"}
-		},
-	}
-
-	invoked := map[CheckType]bool{}
-	var mu sync.Mutex
-	executors := map[CheckType]PassExecutor{
-		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			mu.Lock()
-			invoked[CheckTypeLint] = true
-			mu.Unlock()
-			return &PassResult{Pass: CheckTypeLint}, nil
-		}},
-		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			mu.Lock()
-			invoked[CheckTypeBuild] = true
-			mu.Unlock()
-			return &PassResult{Pass: CheckTypeBuild}, nil
-		}},
-		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			mu.Lock()
-			invoked[CheckTypeTest] = true
-			mu.Unlock()
-			return &PassResult{Pass: CheckTypeTest}, nil
-		}},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
-			mu.Lock()
-			invoked[CheckTypeSemgrep] = true
-			mu.Unlock()
-			return &PassResult{Pass: CheckTypeSemgrep}, nil
-		}},
-	}
-
-	opts := RunOptions{
-		Options: Options{
-			Mode:        ScopeModeFile,
-			FilePath:    goFile,
-			ProjectDir:  dir,
-			BackstopDir: filepath.Join(dir, ".backstop"),
-		},
-		Executors:      executors,
-		SemgrepEnsurer: ensurer,
-	}
-
-	result, err := RunWith(context.Background(), opts)
-	if err != nil {
-		t.Fatalf("RunWith should not fail on degraded semgrep: %v", err)
-	}
-
-	// Semgrep should NOT be invoked (removed from executors by RunWith)
-	if invoked[CheckTypeSemgrep] {
-		t.Error("semgrep executor was invoked despite degraded mode")
-	}
-
-	// Warning should be present
-	foundWarning := false
-	for _, w := range result.Warnings {
-		if contains(w, "semgrep") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Errorf("expected warning about semgrep install failure, got: %v", result.Warnings)
-	}
-}
-
-// TestCodeCheck_BuildDefaultExecutors verifies buildDefaultExecutors creates
-// all four executors.
 // TestCodeCheck_BuildDefaultExecutors verifies that after the SPEC-034 cutover
-// the default (Go) executor map carries ONLY the shared semgrep executor: the Go
-// build/test/lint passes run through the go-toolchain pack engines, so no native
-// lint/build/test executor is constructed in pkg/check. (CLM-005)
+// and the ISSUE-018 in-process-semgrep removal, the default (Go) executor map is
+// empty: the build/test/lint passes run through the go-toolchain pack engines and
+// the semgrep pass runs through the pack engine, so no executor is constructed in
+// pkg/check. (CLM-005)
 func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
 	opts := Options{
 		Mode:        ScopeModeDiff,
@@ -701,46 +662,10 @@ func TestCodeCheck_BuildDefaultExecutors(t *testing.T) {
 	}
 	executors := buildDefaultExecutors(opts)
 
-	if _, ok := executors[CheckTypeSemgrep]; !ok {
-		t.Error("the Go stack must retain the shared semgrep executor")
-	}
-	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeSemgrep} {
 		if _, ok := executors[ct]; ok {
-			t.Errorf("the Go stack must NOT construct a native %v executor after the cutover; that pass runs through the go-toolchain pack engine", ct)
+			t.Errorf("the Go stack must NOT construct a native %v executor; that pass runs through a pack engine", ct)
 		}
-	}
-}
-
-// TestCodeCheck_DefaultExecutors_IsAvailable verifies IsAvailable for the
-// surviving shared semgrep executor (the bespoke build/test/lint executors were
-// deleted in the cutover).
-func TestCodeCheck_DefaultExecutors_IsAvailable(t *testing.T) {
-	// Semgrep executor — always reports available (handled by EnsureSemgrep)
-	se := &semgrepExecutor{}
-	avail, _ := se.IsAvailable()
-	if !avail {
-		t.Error("semgrepExecutor should be available")
-	}
-}
-
-// TestCodeCheck_DefaultExecutors_Execute verifies that the surviving shared
-// semgrep executor, driven by a fake CommandRunner returning CLEAN (no-finding)
-// output, produces a passing PassResult tagged with CheckTypeSemgrep and zero
-// violations. Injecting a fake runner (and a fake SemgrepEnsurer) keeps it
-// offline while exercising the real Execute code path.
-func TestCodeCheck_DefaultExecutors_Execute(t *testing.T) {
-	ctx := context.Background()
-	files := []string{"main.go"}
-
-	cleanRunner := &fakeRunner{outputs: map[string][]byte{
-		"semgrep": []byte(`{"results":[]}`),
-	}}
-	ensurer := &mockSemgrepEnsurer{}
-
-	se := &semgrepExecutor{runner: cleanRunner, ensurer: ensurer}
-	r, err := se.Execute(ctx, files)
-	if err != nil || r.Pass != CheckTypeSemgrep || len(r.Violations) != 0 {
-		t.Errorf("semgrepExecutor: pass=%v violations=%d err=%v", r.Pass, len(r.Violations), err)
 	}
 }
 
@@ -843,18 +768,6 @@ func (f *fakeRunner) lastCall() runnerCall {
 	return f.calls[len(f.calls)-1]
 }
 
-// mockSemgrepEnsurer is a test double for SemgrepEnsurer.
-type mockSemgrepEnsurer struct {
-	fn func(backstopDir, pinnedVersion string) (string, error)
-}
-
-func (m *mockSemgrepEnsurer) EnsureSemgrep(backstopDir, pinnedVersion string) (string, error) {
-	if m.fn != nil {
-		return m.fn(backstopDir, pinnedVersion)
-	}
-	return "/fake/semgrep", nil
-}
-
 // TestCodeCheck_Run_DelegatesToRunWith verifies Run delegates to RunWith.
 func TestCodeCheck_Run_DelegatesToRunWith(t *testing.T) {
 	// Run calls RunWith which calls ResolveScope (real git). We just verify
@@ -874,18 +787,6 @@ func TestCodeCheck_Run_DelegatesToRunWith(t *testing.T) {
 	_ = result
 }
 
-// TestCodeCheck_DefaultSemgrepEnsurer verifies the DefaultSemgrepEnsurer
-// delegates to EnsureSemgrep.
-func TestCodeCheck_DefaultSemgrepEnsurer(t *testing.T) {
-	e := &DefaultSemgrepEnsurer{}
-	// Calling with a nonexistent backstop dir should return a DegradedError
-	// since semgrep won't be on PATH in test environments reliably
-	_, err := e.EnsureSemgrep(t.TempDir(), "")
-	// It's OK if this succeeds (semgrep on PATH) or fails (degraded/not found)
-	// — we just verify the function doesn't panic.
-	_ = err
-}
-
 // TestCodeCheck_RunPasses_ExecutorError verifies that a non-timeout executor
 // error is recorded as a violation.
 func TestCodeCheck_RunPasses_ExecutorError(t *testing.T) {
@@ -893,9 +794,15 @@ func TestCodeCheck_RunPasses_ExecutorError(t *testing.T) {
 		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
 			return nil, fmt.Errorf("lint binary crashed")
 		}},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	engine := &Engine{
@@ -959,10 +866,18 @@ func TestCodeCheck_RunPasses_NoExecutorConfigured(t *testing.T) {
 // violation and breaks.
 func TestCodeCheck_RunPasses_ContextCancelledBeforePass(t *testing.T) {
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	engine := &Engine{
@@ -995,10 +910,18 @@ func TestCodeCheck_RunWith_NoBackstopDir(t *testing.T) {
 	os.WriteFile(goFile, []byte("package main"), 0o644)
 
 	executors := map[CheckType]PassExecutor{
-		CheckTypeLint:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeLint}, nil }},
-		CheckTypeBuild:   &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeBuild}, nil }},
-		CheckTypeTest:    &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeTest}, nil }},
-		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) { return &PassResult{Pass: CheckTypeSemgrep}, nil }},
+		CheckTypeLint: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeLint}, nil
+		}},
+		CheckTypeBuild: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeBuild}, nil
+		}},
+		CheckTypeTest: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeTest}, nil
+		}},
+		CheckTypeSemgrep: &mockPassExecutor{fn: func(ctx context.Context, files []string) (*PassResult, error) {
+			return &PassResult{Pass: CheckTypeSemgrep}, nil
+		}},
 	}
 
 	opts := RunOptions{
@@ -1051,51 +974,6 @@ func TestCodeCheck_RunWith_ScopeError(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors verifies degraded
-// semgrep mode with nil executors map doesn't panic. The nil Executors path
-// constructs the default executors, so a fake Runner is injected to keep the
-// test hermetic — without it the real executors would shell out to live
-// go build / go test.
-func TestCodeCheck_RunWith_SemgrepDegradedWithNilExecutors(t *testing.T) {
-	dir := t.TempDir()
-	goFile := filepath.Join(dir, "main.go")
-	os.WriteFile(goFile, []byte("package main"), 0o644)
-
-	ensurer := &mockSemgrepEnsurer{
-		fn: func(backstopDir, pinnedVersion string) (string, error) {
-			return "", &DegradedError{Message: "semgrep install failed"}
-		},
-	}
-
-	opts := RunOptions{
-		Options: Options{
-			Mode:        ScopeModeFile,
-			FilePath:    goFile,
-			ProjectDir:  dir,
-			BackstopDir: filepath.Join(dir, ".backstop"),
-		},
-		Executors:      nil, // nil executors — will use buildDefaultExecutors
-		SemgrepEnsurer: ensurer,
-		Runner:         &fakeRunner{outputs: map[string][]byte{"go": []byte("ok\n")}},
-	}
-
-	result, err := RunWith(context.Background(), opts)
-	if err != nil {
-		t.Fatalf("RunWith: %v", err)
-	}
-	// Should have warning about semgrep
-	foundWarning := false
-	for _, w := range result.Warnings {
-		if contains(w, "semgrep") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Errorf("expected semgrep warning, got: %v", result.Warnings)
-	}
-}
-
 // TestCodeCheck_Result_Methods verifies Result helper methods.
 func TestCodeCheck_Result_Methods(t *testing.T) {
 	// Empty result
@@ -1143,74 +1021,18 @@ func TestCodeCheck_Result_Methods(t *testing.T) {
 func TestOptions_NoManifestDirField(t *testing.T) {
 	dir := t.TempDir()
 	opts := Options{
-		Mode:                 ScopeModeAll,
-		FilePath:             "",
-		BackstopDir:          dir,
-		PinnedSemgrepVersion: "",
-		Timeout:              0,
-		ProjectDir:           dir,
-		Language:             "",
-		Config:               nil,
-		Files:                nil,
+		Mode:        ScopeModeAll,
+		FilePath:    "",
+		BackstopDir: dir,
+		Timeout:     0,
+		ProjectDir:  dir,
+		Language:    "",
+		Config:      nil,
+		Files:       nil,
 	}
 	if opts.BackstopDir != dir {
 		t.Fatalf("BackstopDir = %q, want %q", opts.BackstopDir, dir)
 	}
-}
-
-// TestBuildExecutors_SemgrepHasNoManifestDir verifies that both the Go-default
-// construction and the registry shared-semgrep construction build a
-// semgrepExecutor that references no compiled-standards directory: with an empty
-// ExtraSemgrepConfigs and a populated .backstop/rules/ on disk, the semgrep pass
-// invokes the tool with NO --config at all. After the SPEC-034 cutover the Go
-// default path constructs ONLY the shared semgrep executor (the bespoke Go
-// builtin construction was deleted), so the same shared-semgrep contract is
-// asserted on the generic construction path every stack uses. (CLM-005)
-func TestBuildExecutors_SemgrepHasNoManifestDir(t *testing.T) {
-	dir := t.TempDir()
-	backstopDir := filepath.Join(dir, ".backstop")
-	rulesDir := filepath.Join(backstopDir, "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// Plant a leftover compiled-standards file to prove it is never sourced.
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write leftover: %v", err)
-	}
-
-	const binPath = "/fake/tools/semgrep"
-	opts := Options{
-		Mode:        ScopeModeAll,
-		BackstopDir: backstopDir,
-		ProjectDir:  dir,
-	}
-
-	assertNoConfig := func(label string, execs map[CheckType]PassExecutor) {
-		runner := &fakeRunner{outputs: map[string][]byte{binPath: []byte(`{"results":[]}`)}}
-		se, ok := execs[CheckTypeSemgrep].(*semgrepExecutor)
-		if !ok {
-			t.Fatalf("%s: semgrep executor is not *semgrepExecutor", label)
-		}
-		se.runner = runner
-		se.ensurer = &mockSemgrepEnsurer{fn: func(_, _ string) (string, error) { return binPath, nil }}
-		if _, err := se.Execute(context.Background(), []string{"main.go"}); err != nil {
-			t.Fatalf("%s: Execute: %v", label, err)
-		}
-		if containsArg(runner.lastCall().args, "--config") {
-			t.Errorf("%s: semgrep invoked with a --config despite zero packs: %v", label, runner.lastCall().args)
-		}
-	}
-
-	assertNoConfig("go default (shared semgrep)", buildDefaultExecutorsWithRunner(opts, &fakeRunner{}))
-
-	tsOpts := opts
-	tsOpts.Language = "typescript"
-	tsOpts.Config = &config.Config{Enforcement: config.Enforcement{TestCommand: "npm test"}}
-	registryExecs, regErr := buildExecutorsForConfigErr(tsOpts, &fakeRunner{})
-	if regErr != nil {
-		t.Fatalf("buildExecutorsForConfigErr: %v", regErr)
-	}
-	assertNoConfig("registry shared semgrep", registryExecs)
 }
 
 // TestNoTestRequiresOptionsManifestDir is a source self-check over the pkg/check

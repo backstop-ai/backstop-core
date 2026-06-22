@@ -124,8 +124,8 @@ dispatch with a 2-second execution budget.`,
 			}
 
 			// Step 6: Build check options. Pack rule findings are dispatched
-			// group-by-engine in step 9 (SPEC-031 REQ-011), not fed into the
-			// in-process semgrepExecutor via ExtraSemgrepConfigs.
+			// group-by-engine in step 9 (SPEC-031 REQ-011) through the declared
+			// engine path, not fed into any in-process semgrep executor.
 			opts := check.Options{
 				Mode:        mode,
 				FilePath:    fileFlag,
@@ -133,11 +133,6 @@ dispatch with a 2-second execution budget.`,
 				ProjectDir:  projectRoot,
 				Language:    cfg.Language,
 				Config:      cfg,
-			}
-
-			// Extract semgrep version pin from config
-			if cfg.Enforcement.SemgrepVersion != "" {
-				opts.PinnedSemgrepVersion = cfg.Enforcement.SemgrepVersion
 			}
 
 			// Step 7: Set 2-second timeout for --file mode

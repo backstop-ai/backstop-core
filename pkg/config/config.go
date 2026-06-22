@@ -21,7 +21,6 @@ type Config struct {
 	Project       string            `yaml:"project" json:"project"`
 	Language      string            `yaml:"language" json:"language"`
 	Runtimes      []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
-	StandardsDirs []string          `yaml:"standards_dirs,omitempty" json:"standards_dirs,omitempty"`
 	Enforcement   Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
 	Packs         Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
 	Registries    map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
@@ -31,7 +30,6 @@ type Config struct {
 type Enforcement struct {
 	Security          Security                  `yaml:"security,omitempty" json:"security,omitempty"`
 	WaiverWarningDays int                       `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
-	SemgrepVersion    string                    `yaml:"semgrep_version,omitempty" json:"semgrep_version,omitempty"`
 	BaselineTTL       string                    `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
 	TestCommand       string                    `yaml:"test_command,omitempty" json:"test_command,omitempty"`
 	Toolchain         map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`

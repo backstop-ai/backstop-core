@@ -3,6 +3,7 @@ package check
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,7 +216,7 @@ func TestCodeCheck_ExitCode_2OnMissingBackstopDir(t *testing.T) {
 	}
 
 	var cfgErr *ConfigError
-	if !asConfigError(err, &cfgErr) {
+	if !errors.As(err, &cfgErr) {
 		t.Errorf("expected ConfigError, got %T: %v", err, err)
 	}
 }
@@ -234,7 +235,7 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 	}
 
 	var cfgErr *ConfigError
-	if !asConfigError(err, &cfgErr) {
+	if !errors.As(err, &cfgErr) {
 		t.Fatalf("expected ConfigError, got %T: %v", err, err)
 	}
 
@@ -273,9 +274,8 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 			Mode:       ScopeModeAll,
 			ProjectDir: validDir,
 		},
-		Git:            &mockGitExecutor{isGitRepo: false},
-		Executors:      executors,
-		SemgrepEnsurer: &mockSemgrepEnsurer{},
+		Git:       &mockGitExecutor{isGitRepo: false},
+		Executors: executors,
 	}
 
 	_, runErr := RunWith(context.Background(), opts)
@@ -300,7 +300,7 @@ func TestCodeCheck_Config_MissingYmlExitCode2(t *testing.T) {
 	}
 
 	var cfgErr *ConfigError
-	if !asConfigError(err, &cfgErr) {
+	if !errors.As(err, &cfgErr) {
 		t.Fatalf("expected ConfigError, got %T: %v", err, err)
 	}
 

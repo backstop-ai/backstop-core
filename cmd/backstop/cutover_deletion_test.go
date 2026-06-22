@@ -101,18 +101,10 @@ func TestCutover_BespokeLintPathRemoved(t *testing.T) {
 // Run path, AND (b) semgrep REMAINS provisioned through the declared model. NOT a
 // bare symbol-absent grep — the provisioning-still-present assertion is mandatory.
 func TestProvision_EnsureSemgrepBespokeInstallRetired(t *testing.T) {
-	semgrepSrc := readCheckSource(t, "semgrep.go")
-	// (a) The bespoke install ladder is retired from the native Run path. The ad
-	// hoc installer (Install via `pip install`, the .backstop/tools ExistsAt probe)
-	// must no longer be wired into EnsureSemgrep's Run-path call chain.
-	for _, marker := range []string{`"pip"`, `"install"`} {
-		if strings.Contains(semgrepSrc, marker) {
-			t.Errorf("semgrep.go still contains the bespoke pip-install ladder (%s); it must retire into declared provisioning", marker)
-		}
-	}
-	if strings.Contains(semgrepSrc, `"tools"`) {
-		t.Error("semgrep.go still references the .backstop/tools install probe; the ad hoc ladder must be removed")
-	}
+	// (a) is subsumed by the outright deletion of pkg/check/semgrep.go (ISSUE-018):
+	// the bespoke install ladder cannot survive in a file that no longer exists.
+	// That absence is pinned by pkg/check's TestInProcessSemgrepExecutor_Removed,
+	// so this test no longer source-greps the deleted file.
 
 	// (b) semgrep REMAINS provisioned through the declared model: its engine
 	// binding keeps a pinned Provision record (auto-provisioned), so retiring the

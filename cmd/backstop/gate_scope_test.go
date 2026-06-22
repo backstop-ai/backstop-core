@@ -50,15 +50,20 @@ func (r *recordingRunner) callsFor(name string) []recordedCall {
 // native lint/build/test passes no longer run through realCodeChecker -> check.Run
 // (they run through the go-toolchain pack engines / dispatchPackEngines, covered by
 // TestGoLint_NoVersionProbeOrV1Branch + TestPackEngines_ProjectWideToolchainStaysProjectWide).
-// So check.Run for Go must (a) invoke NO golangci-lint / go build / go test, and
-// (b) still carry the whole MULTI-FILE diff scope through ONE Run for the surviving
-// shared semgrep pass — never a per-file loop (the CLM-008 single-Run property).
+// So check.Run for Go invokes NO golangci-lint / go build / go test (part a).
+//
+// The former part (b) — that the whole multi-file diff scope was threaded through ONE
+// in-process semgrep Run — is no longer assertable here: ISSUE-018 removed the
+// in-process semgrep pass entirely, so check.Run for Go shells out to no engine at all
+// and pack-rule enforcement (with its single-Run / whole-scope semantics) now flows
+// through dispatchPackEngines, where that property is owned and tested. This test thus
+// asserts only the surviving live behavior: the bespoke Go toolchain is not invoked
+// through check.Run.
 //
 // This is the migration of the former ScopeSemantics_LintFileArgsBuildProjectWide
 // test: that test asserted the bespoke Go lint/build invocations, which the cutover
 // deleted by design; the per-pass scope semantics it pinned are now owned and tested
-// on the engine path, while the no-per-file-loop property is re-pinned here on the
-// surviving semgrep pass.
+// on the engine path.
 func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: scope-test\nlanguage: go\n"), 0o644); err != nil {
@@ -82,9 +87,8 @@ func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
 
 	runner := &recordingRunner{}
 	checker := &realCodeChecker{
-		projectRoot:    dir,
-		runnerForTest:  runner,
-		ensurerForTest: stubEnsurer{},
+		projectRoot:   dir,
+		runnerForTest: runner,
 	}
 
 	scope := &gate.GateScope{Mode: gate.GateScopeModeDiff, Files: files}
@@ -101,33 +105,6 @@ func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
 		if len(c.args) > 0 && (c.args[0] == "build" || c.args[0] == "test") {
 			t.Errorf("`go %s` invoked through check.Run; build/test run on the engine path now (args=%v)", c.args[0], c.args)
 		}
-	}
-
-	// (b) The surviving shared semgrep pass runs EXACTLY ONCE carrying BOTH scoped
-	// files in a single invocation — proving the whole-scope set is threaded through
-	// one Run, not a per-file loop (CLM-008). The stub ensurer resolves the binary
-	// to /usr/bin/true, so that is the recorded command for the semgrep pass; it is
-	// invoked with `--json --quiet <files...>`.
-	var semgrepCalls []recordedCall
-	for _, c := range runner.calls {
-		if len(c.args) >= 2 && c.args[0] == "--json" && c.args[1] == "--quiet" {
-			semgrepCalls = append(semgrepCalls, c)
-		}
-	}
-	if len(semgrepCalls) != 1 {
-		t.Fatalf("semgrep pass invoked %d times, want exactly 1 (whole scope in one Run, not per file)", len(semgrepCalls))
-	}
-	gotA, gotB := false, false
-	for _, a := range semgrepCalls[0].args {
-		if filepath.Base(a) == "a.go" {
-			gotA = true
-		}
-		if filepath.Base(a) == "b.go" {
-			gotB = true
-		}
-	}
-	if !gotA || !gotB {
-		t.Errorf("semgrep args %v must include BOTH scoped files a.go and b.go in one invocation", semgrepCalls[0].args)
 	}
 }
 

@@ -61,7 +61,9 @@ func TestCodeCheck_PackLoadingError_ExitConfig(t *testing.T) {
 	stubCodeCheckFns(t,
 		func(string) ([]*pack.Manifest, error) { return nil, errors.New("boom loading packs") },
 		func(context.Context, check.Options) (*check.Result, error) { return &check.Result{}, nil },
-		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+			return nil, nil
+		},
 	)
 
 	root := NewRootCommand()
@@ -117,7 +119,9 @@ func TestCodeCheck_CheckRunConfigError_PropagatesConfigError(t *testing.T) {
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, &check.ConfigError{Message: "manifest has zero routable rules"}
 		},
-		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+			return nil, nil
+		},
 	)
 
 	root := NewRootCommand()
@@ -143,7 +147,9 @@ func TestCodeCheck_CheckRunGenericError_ExitConfig(t *testing.T) {
 		func(context.Context, check.Options) (*check.Result, error) {
 			return nil, errors.New("toolchain exploded")
 		},
-		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+			return nil, nil
+		},
 	)
 
 	root := NewRootCommand()
@@ -219,13 +225,13 @@ func TestCodeCheck_PackEngineViolations_BecomeExitViolations(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep verifies that --file mode
-// selects ScopeModeFile, applies the 2-second hook-dispatch timeout, and passes
-// the config-pinned semgrep version through to the check engine options.
-func TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep(t *testing.T) {
+// TestCodeCheck_FileMode_SetsTimeout verifies that --file mode selects
+// ScopeModeFile and applies the 2-second hook-dispatch timeout. (The config
+// semgrep_version pin was removed with the in-process semgrep pass, ISSUE-018.)
+func TestCodeCheck_FileMode_SetsTimeout(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(
-		"project: p\nlanguage: go\nenforcement:\n  semgrep_version: \"1.55.0\"\n"), 0o644); err != nil {
+		"project: p\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
@@ -240,7 +246,9 @@ func TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep(t *testing.T) {
 			captured = opts
 			return &check.Result{}, nil
 		},
-		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) { return nil, nil },
+		func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+			return nil, nil
+		},
 	)
 
 	root := NewRootCommand()
@@ -256,9 +264,6 @@ func TestCodeCheck_FileMode_SetsTimeoutAndPinnedSemgrep(t *testing.T) {
 	}
 	if captured.Timeout != 2*time.Second {
 		t.Errorf("Timeout = %v, want 2s", captured.Timeout)
-	}
-	if captured.PinnedSemgrepVersion != "1.55.0" {
-		t.Errorf("PinnedSemgrepVersion = %q, want 1.55.0", captured.PinnedSemgrepVersion)
 	}
 }
 
@@ -283,4 +288,3 @@ func TestCodeCheck_MissingBackstopDir_ExitConfig(t *testing.T) {
 		t.Errorf("message = %q, want it to mention the missing .backstop dir", ece.Message)
 	}
 }
-

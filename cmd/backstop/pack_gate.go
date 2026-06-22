@@ -136,10 +136,10 @@ func declaredPackNames(cfg *config.Config) []string {
 }
 
 // dispatchPackEngines is the group-by-engine gate-time dispatch (SPEC-031
-// REQ-001/REQ-011/REQ-014). It replaces BOTH the layer-2 mergePackRules ->
-// ExtraSemgrepConfigs -> semgrepExecutor findings feeder AND the layer-3
-// runPackValidators sandbox feeder, re-keyed from rule.Layer to the rule's
-// declared engine. It groups every installed-pack rule by its declared engine,
+// REQ-001/REQ-011/REQ-014). It replaces BOTH the layer-2 mergePackRules
+// in-process findings feeder AND the layer-3 runPackValidators sandbox feeder,
+// re-keyed from rule.Layer to the rule's declared engine. It groups every
+// installed-pack rule by its declared engine,
 // looks up each EngineBinding, and runs each engine once:
 //   - findings engines (semgrep, ast-grep, config-file): gather inputs per
 //     input_mode, run the command via the clean-stdout runner, pipe through the

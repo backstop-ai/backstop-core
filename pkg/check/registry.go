@@ -245,14 +245,6 @@ func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckTy
 		}
 	}
 
-	// Semgrep stays the shared executor for all stacks.
-	execs[CheckTypeSemgrep] = &semgrepExecutor{
-		runner:        runner,
-		ensurer:       &DefaultSemgrepEnsurer{},
-		backstopDir:   opts.BackstopDir,
-		pinnedVersion: opts.PinnedSemgrepVersion,
-	}
-
 	return execs, nil
 }
 
