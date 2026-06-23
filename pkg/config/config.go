@@ -46,6 +46,17 @@ type ToolchainPass struct {
 	Format                string   `yaml:"format" json:"format"`
 	Extensions            []string `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 	TestDependencyCommand string   `yaml:"test_dependency_command,omitempty" json:"test_dependency_command,omitempty"`
+	// GateType names the traceability dimension this toolchain entry declares
+	// (substantiveness | coverage | contracts). Its presence with a matching
+	// value is what makes a dimension DECLARED for the SPEC-036 polarity
+	// classifier. Optional; the zero value ("") means the entry declares no
+	// traceability dimension.
+	GateType string `yaml:"gate_type,omitempty" json:"gate_type,omitempty"`
+	// Waived opts a declared dimension out of its class-2 capability-absent
+	// advisory (SPEC-036 REQ-007). A waive silences ONLY the class-2 warning; it
+	// never silences a class-1 broken-declared or class-3 declared-intent-unmet
+	// failure. Optional; the zero value (false) means not waived.
+	Waived bool `yaml:"waived,omitempty" json:"waived,omitempty"`
 }
 
 // Security holds the security enforcement settings.

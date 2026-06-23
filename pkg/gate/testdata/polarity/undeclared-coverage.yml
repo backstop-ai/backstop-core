@@ -1,0 +1,7 @@
+project: undeclared-coverage
+language: go
+enforcement:
+  toolchain:
+    lint:
+      command: "golangci-lint run"
+      format: "sarif"

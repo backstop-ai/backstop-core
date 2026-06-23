@@ -1,0 +1,8 @@
+project: declared-unknown-key
+language: go
+enforcement:
+  toolchain:
+    lint:
+      command: "golangci-lint run"
+      format: "sarif"
+      gate_type: "bogus-dimension"

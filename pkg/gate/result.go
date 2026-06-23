@@ -70,14 +70,20 @@ type StepResult struct {
 
 // GateResult holds the unified gate output including all step results.
 type GateResult struct {
-	SchemaVersion   string       `json:"schema_version"`
-	Scope           *GateScope   `json:"scope,omitempty"`
-	Pass            bool         `json:"pass"`
-	TotalViolations int          `json:"total_violations"`
-	StepsPassed     int          `json:"steps_passed"`
-	StepsFailed     int          `json:"steps_failed"`
-	StepsSkipped    int          `json:"steps_skipped"`
-	Steps           []StepResult `json:"steps"`
+	SchemaVersion   string     `json:"schema_version"`
+	Scope           *GateScope `json:"scope,omitempty"`
+	Pass            bool       `json:"pass"`
+	TotalViolations int        `json:"total_violations"`
+	StepsPassed     int        `json:"steps_passed"`
+	StepsFailed     int        `json:"steps_failed"`
+	StepsSkipped    int        `json:"steps_skipped"`
+	// StepsWarned counts steps with the non-failing "warning" status (SPEC-036
+	// REQ-005). A warning is loud-but-passing: it is counted here and rendered in
+	// the FormatHuman summary line so a class-2 capability-absent advisory cannot
+	// vanish from the at-a-glance summary on a green run, but it does NOT flip
+	// Pass.
+	StepsWarned int          `json:"steps_warned"`
+	Steps       []StepResult `json:"steps"`
 }
 
 // StepFunc is the common signature for gate step functions.
@@ -132,6 +138,10 @@ func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 			r.Pass = false
 		case "skipped":
 			r.StepsSkipped++
+		case "warning":
+			// Non-failing (Sharp Edge 3): a warning is counted but MUST NOT flip
+			// Pass — class 2 (capability-absent) warns-and-passes (exit 0).
+			r.StepsWarned++
 		}
 		r.TotalViolations += len(s.Violations)
 		r.Steps = append(r.Steps, s)

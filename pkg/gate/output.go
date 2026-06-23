@@ -98,9 +98,11 @@ func FormatHuman(result GateResult, noColor bool) string {
 
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
-	// Summary counts
-	sb.WriteString(fmt.Sprintf("  Steps: %d passed, %d failed, %d skipped\n",
-		result.StepsPassed, result.StepsFailed, result.StepsSkipped))
+	// Summary counts. The warned count is rendered alongside passed/failed/
+	// skipped (SPEC-036 CLM-030) so a class-2 capability-absent advisory cannot
+	// vanish from the at-a-glance summary on a green run.
+	sb.WriteString(fmt.Sprintf("  Steps: %d passed, %d failed, %d skipped, %d warned\n",
+		result.StepsPassed, result.StepsFailed, result.StepsSkipped, result.StepsWarned))
 	sb.WriteString(fmt.Sprintf("  Total violations: %d\n", result.TotalViolations))
 
 	// Overall verdict
@@ -134,6 +136,11 @@ func formatStatus(status string, noColor bool) string {
 		return fmt.Sprintf("%s%s%s", colorRed, status, colorReset)
 	case "skipped":
 		return fmt.Sprintf("%s%s%s", colorYellow, status, colorReset)
+	case "warning":
+		// Conspicuous, visually distinct from a silent pass (SPEC-036 REQ-005 /
+		// CLM-015): bold yellow with a bang prefix so a reviewer notices the
+		// class-2 advisory on an otherwise-green run.
+		return fmt.Sprintf("%s%s⚠ %s%s", colorBold, colorYellow, status, colorReset)
 	default:
 		return status
 	}

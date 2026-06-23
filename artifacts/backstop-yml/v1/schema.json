@@ -95,6 +95,14 @@
                 "test_dependency_command": {
                   "type": "string",
                   "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                },
+                "gate_type": {
+                  "type": "string",
+                  "description": "Traceability dimension this toolchain entry declares (substantiveness | coverage | contracts); presence with a matching value makes the dimension DECLARED for the SPEC-036 polarity classifier"
+                },
+                "waived": {
+                  "type": "boolean",
+                  "description": "Opt the declared dimension out of its class-2 capability-absent advisory; silences ONLY the class-2 warning, never a class-1 or class-3 failure"
                 }
               }
             },
@@ -124,6 +132,14 @@
                 "test_dependency_command": {
                   "type": "string",
                   "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                },
+                "gate_type": {
+                  "type": "string",
+                  "description": "Traceability dimension this toolchain entry declares (substantiveness | coverage | contracts); presence with a matching value makes the dimension DECLARED for the SPEC-036 polarity classifier"
+                },
+                "waived": {
+                  "type": "boolean",
+                  "description": "Opt the declared dimension out of its class-2 capability-absent advisory; silences ONLY the class-2 warning, never a class-1 or class-3 failure"
                 }
               }
             },
@@ -153,6 +169,14 @@
                 "test_dependency_command": {
                   "type": "string",
                   "description": "Optional dependency-mapped test command; full-suite command is the fallback"
+                },
+                "gate_type": {
+                  "type": "string",
+                  "description": "Traceability dimension this toolchain entry declares (substantiveness | coverage | contracts); presence with a matching value makes the dimension DECLARED for the SPEC-036 polarity classifier"
+                },
+                "waived": {
+                  "type": "boolean",
+                  "description": "Opt the declared dimension out of its class-2 capability-absent advisory; silences ONLY the class-2 warning, never a class-1 or class-3 failure"
                 }
               }
             }

@@ -248,6 +248,72 @@ func gateLanguage(projectRoot string) string {
 // package-level mutable state.
 func nativeToolchainPackName() string { return "backstop/go-toolchain" }
 
+// gateConfig loads the project's backstop.yml for the gate wiring, returning a
+// zero-value-safe config. An unreadable config yields a minimal config defaulting
+// to the Go stack (mirroring gateLanguage), so the traceability classifier still
+// derives a concrete CapabilityState rather than panicking.
+func gateConfig(projectRoot string) *config.Config {
+	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
+	if err != nil || cfg == nil {
+		return &config.Config{Language: "go"}
+	}
+	return cfg
+}
+
+// deriveCapabilityState computes the CapabilityState for a traceability
+// dimension on the EXISTING binary from cfg.Language + baked-Go-analyzer presence
+// ONLY — no pack, no engine (SPEC-036 REQ-003/CLM-029). The only traceability
+// capability that exists on the existing binary is the baked Go analyzers
+// (step_testverify / step_coverage / step_contract), which are Go-specific. So a
+// dimension is Present/Working iff cfg.Language == "go" (the baked analyzer
+// applies); for any non-Go stack the capability is Absent, so an undeclared
+// dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
+// mis-applied Go analyzer.
+func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
+	lang := "go"
+	if cfg != nil && cfg.Language != "" {
+		lang = cfg.Language
+	}
+	if lang == "go" {
+		// The baked Go analyzer for this dimension is compiled into the binary
+		// and applies to a Go project. Present and Working.
+		return gate.CapabilityState{
+			Present:       true,
+			Working:       true,
+			PackOrCommand: "the baked Go " + string(dim) + " analyzer",
+		}
+	}
+	// Non-Go stack: no baked Go analyzer applies and no pack provides the
+	// dimension on the existing binary — capability Absent.
+	return gate.CapabilityState{
+		Present:       false,
+		Working:       false,
+		PackOrCommand: "a " + lang + " " + string(dim) + " pack",
+	}
+}
+
+// wrapTraceabilityStep wraps a traceability analyzer step (the delegate) with
+// the SPEC-036 polarity classifier so the classifier runs IN FRONT OF the
+// analyzer: it derives the CapabilityState (cfg.Language + baked-analyzer
+// presence), classifies the dimension, and for class 1/2/3 returns
+// PolarityStepResult WITHOUT reaching the analyzer (intercept). Only the
+// none/proceed outcome (declared-and-working or undeclared-but-present) falls
+// through to the unchanged delegate (REQ-008). The delegate is taken as a
+// parameter so the wiring test can spy on whether the analyzer is reached
+// (CLM-028).
+func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, delegate gate.StepFunc) gate.StepFunc {
+	return func(ctx context.Context) gate.StepResult {
+		cap := deriveCapabilityState(cfg, dim)
+		class := gate.ClassifyDimension(cfg, dim, cap)
+		if class != gate.ClassNone {
+			// Intercept — do NOT reach the analyzer.
+			return gate.PolarityStepResult(stepName, dim, class, cfg, cap)
+		}
+		// Fall through to the unchanged analyzer.
+		return delegate(ctx)
+	}
+}
+
 // loadBridgedToolchainPacks resolves the native <lang>-toolchain mechanism pack
 // the bridge routes the native lint/build/test passes through (SPEC-034
 // REQ-001/REQ-007). It is loaded from .backstop/packs/<name> on disk (so its
@@ -353,6 +419,18 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
+
+	// SPEC-036: wrap the three traceability analyzer steps with the polarity
+	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
+	// CapabilityState from cfg.Language + baked-Go-analyzer presence (no pack, no
+	// engine), classifies the dimension, and intercepts for class 1/2/3 (analyzer
+	// not reached); only declared-and-working / undeclared-but-present fall
+	// through to the UNCHANGED analyzer (REQ-008). The analyzer files themselves
+	// are untouched — the wrapper intercepts at the wiring boundary.
+	traceabilityCfg := gateConfig(projectRoot)
+	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, testSubstantivenessStep)
+	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, coverageStep)
+	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, contractStep)
 
 	steps := []gate.StepFunc{
 		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
