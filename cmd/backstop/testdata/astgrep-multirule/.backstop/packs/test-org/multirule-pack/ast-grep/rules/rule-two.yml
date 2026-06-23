@@ -1,0 +1,5 @@
+id: rule-two
+language: go
+rule:
+  pattern: forbiddenCallTwo($$$)
+message: forbiddenCallTwo is not allowed

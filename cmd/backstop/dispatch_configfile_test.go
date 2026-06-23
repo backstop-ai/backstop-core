@@ -68,7 +68,7 @@ func TestGateDispatch_ConfigFileEngineRunsOwnRules(t *testing.T) {
 	if cfgCount != 1 {
 		t.Errorf("config-file engine must pass exactly one --config (its own rules, one optional config), got %d in %v", cfgCount, rec.lastArgs)
 	}
-	// It must NOT be fed rule files as inputs (that is the rule-flags/rule-dir
+	// It must NOT be fed rule files as inputs (that is the rule-flags
 	// shape, not config-file).
 	if strings.Contains(strings.Join(rec.lastArgs, " "), ".golangci.yml .golangci.yml") {
 		t.Errorf("config-file engine must inject a single config, not repeated rule files, got %v", rec.lastArgs)

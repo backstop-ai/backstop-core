@@ -1,0 +1,33 @@
+name: test-org/multirule-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Two-rule ast-grep fixture pack proving multi-rule config-file dispatch (ISSUE-028)
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: rule-one
+        engine: ast-grep
+        rule_path: ast-grep/sgconfig.yml
+        risk_class: correctness
+        claims:
+          - id: mp-rule-one
+            text: forbiddenCallOne is reported by the first ast-grep rule.
+            fixtures:
+              positive:
+                - fixtures/rules/rule-one/positive.go
+              negative:
+                - fixtures/rules/rule-one/negative.go
+      - id: rule-two
+        engine: ast-grep
+        rule_path: ast-grep/sgconfig.yml
+        risk_class: correctness
+        claims:
+          - id: mp-rule-two
+            text: forbiddenCallTwo is reported by the second ast-grep rule.
+            fixtures:
+              positive:
+                - fixtures/rules/rule-two/positive.go
+              negative:
+                - fixtures/rules/rule-two/negative.go

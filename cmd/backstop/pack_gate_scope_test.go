@@ -292,40 +292,42 @@ func TestPackEngines_DiffScope_IncludesUntrackedChangedFiles(t *testing.T) {
 	}
 }
 
-// astGrepLikeScopeManifest builds a one-rule manifest for a rule-dir engine
-// (ast-grep shape: InputModeRuleDir, ScopeKindFileArgs, no convert) registered
-// under a custom engine name, with its rule file on disk. The rule file lives in
-// a subdirectory so gatherEngineInputs' rule-dir branch (which passes the rule's
-// DIRECTORY, deduped) is exercised.
+// astGrepLikeScopeManifest builds a one-rule manifest for a config-file findings
+// engine (the ast-grep shape after ISSUE-028: InputModeConfigFile,
+// ScopeKindFileArgs, no convert) registered under a custom engine name, with its
+// pack-shipped config file on disk. It exercises gatherEngineInputs' config-file
+// branch (which emits [--config, <resolved path>]) together with the diff-scope
+// arg-shaping that applies to any file-args findings engine.
 func astGrepLikeScopeManifest(t *testing.T) ([]*pack.Manifest, string) {
 	t.Helper()
 	orig := engineRegistry
 	t.Cleanup(func() { engineRegistry = orig })
 	engineRegistry = engine.DefaultRegistry()
-	engineRegistry["ruledir-lint"] = engine.EngineBinding{
-		Command:   "ruledir-lint scan",
-		InputMode: engine.InputModeRuleDir,
-		InputFlag: "--rule-dir",
+	engineRegistry["configfile-lint"] = engine.EngineBinding{
+		Command:   "configfile-lint scan",
+		InputMode: engine.InputModeConfigFile,
+		InputFlag: "--config",
 		ScopeKind: engine.ScopeKindFileArgs,
 	}
 
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "pack")
 	mkDirAll(t, filepath.Join(packRoot, "rules", "go"))
-	writeFileStr(t, filepath.Join(packRoot, "rules", "go", "r.yml"), "id: r\n")
+	writeFileStr(t, filepath.Join(packRoot, "rules", "go", "sgconfig.yml"), "ruleDirs:\n  - .\n")
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "r", Engine: "ruledir-lint", RulePath: "rules/go/r.yml", Standard: "x"},
+			{ID: "r", Engine: "configfile-lint", RulePath: "rules/go/sgconfig.yml", Standard: "x"},
 		}}},
 	}}
 	return manifests, packsDir
 }
 
 // TestPackEngines_DiffScope_RuleDirEngineScansChangedFilesOnly (CLM-001 for the
-// rule-dir engine class): a rule-dir findings engine (ast-grep shape) under a
-// diff scope is pointed at EXACTLY the changed files after its --rule-dir input,
-// never at projectRoot. This also exercises gatherEngineInputs' rule-dir branch.
+// config-file findings engine class): a config-file findings engine (the ast-grep
+// shape after ISSUE-028) under a diff scope is pointed at EXACTLY the changed
+// files after its --config input, never at projectRoot. This also exercises
+// gatherEngineInputs' config-file branch.
 func TestPackEngines_DiffScope_RuleDirEngineScansChangedFilesOnly(t *testing.T) {
 	manifests, packsDir := astGrepLikeScopeManifest(t)
 	projectRoot := t.TempDir()
@@ -341,14 +343,14 @@ func TestPackEngines_DiffScope_RuleDirEngineScansChangedFilesOnly(t *testing.T) 
 		t.Fatalf("expected one engine invocation, got %d", len(rec.calls))
 	}
 	args := rec.calls[0].args
-	// The --rule-dir input must be present (rule-dir gathering) AND the scan
+	// The --config input must be present (config-file gathering) AND the scan
 	// target must be the changed file, not projectRoot.
-	if !containsArg(args, "--rule-dir") {
-		t.Errorf("rule-dir engine must receive its --rule-dir input; args=%v", args)
+	if !containsArg(args, "--config") {
+		t.Errorf("config-file engine must receive its --config input; args=%v", args)
 	}
 	last := args[len(args)-1]
 	if last != "changed_a.go" {
-		t.Errorf("rule-dir engine scan target must be the changed file, got %q (args=%v)", last, args)
+		t.Errorf("ast-grep (config-file) engine scan target must be the changed file, got %q (args=%v)", last, args)
 	}
 	for _, a := range args {
 		if a == projectRoot {
@@ -358,8 +360,8 @@ func TestPackEngines_DiffScope_RuleDirEngineScansChangedFilesOnly(t *testing.T) 
 }
 
 // TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot (CLM-004 for the
-// rule-dir engine class): with a nil scope, the rule-dir engine restores the
-// whole-repo projectRoot scan target.
+// config-file findings engine class): with a nil scope, the config-file engine
+// (ast-grep shape) restores the whole-repo projectRoot scan target.
 func TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot(t *testing.T) {
 	manifests, packsDir := astGrepLikeScopeManifest(t)
 	projectRoot := t.TempDir()
@@ -370,7 +372,7 @@ func TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot(t *testing.T
 	}
 	args := rec.calls[0].args
 	if args[len(args)-1] != projectRoot {
-		t.Errorf("nil scope must scan projectRoot for a rule-dir engine, got %q", args[len(args)-1])
+		t.Errorf("nil scope must scan projectRoot for an ast-grep (config-file) engine, got %q", args[len(args)-1])
 	}
 }
 

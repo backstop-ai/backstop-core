@@ -9,14 +9,15 @@ import (
 )
 
 // astGrepDispatchManifest builds an in-memory manifest with a single ast-grep
-// rule pointing at the engine-dispatch fixture pack's proof rule, so the convert
+// rule pointing at the engine-dispatch fixture pack's PACK-SHIPPED sgconfig.yml
+// (the config-file input the dispatch now resolves — ISSUE-028), so the convert
 // pipe (ast-grep emits its own JSON, a convert script normalizes to SARIF) is
 // dispatched against the REAL ast-grep EngineBinding (which declares a Convert).
 func astGrepDispatchManifest() *pack.Manifest {
 	return &pack.Manifest{
 		NormalizedName: "test-org/engine-pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
-			{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/proof-rule.yml", Standard: "x"},
+			{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/sgconfig.yml", Standard: "x"},
 		}}},
 	}
 }

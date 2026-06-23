@@ -9,7 +9,7 @@ content:
     rules:
       - id: ast-grep-proof
         engine: ast-grep
-        rule_path: ast-grep/proof-rule.yml
+        rule_path: ast-grep/sgconfig.yml
         risk_class: correctness
         claims:
           - id: ep-ast-grep-proof

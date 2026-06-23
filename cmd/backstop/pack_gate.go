@@ -287,28 +287,6 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 			args = append(args, binding.InputFlag, p)
 		}
 		return args, nil
-	case engine.InputModeRuleDir:
-		// Collect each rule's directory; ast-grep scans a directory passed once.
-		seen := map[string]struct{}{}
-		dirs := []string{}
-		for _, rule := range rules {
-			path, err := resolveRulePath(manifest, packRoot, rule)
-			if err != nil {
-				return nil, fmt.Errorf("gathering rule-dir input for rule %s: %w", rule.ID, err)
-			}
-			dir := filepath.Dir(path)
-			if _, dup := seen[dir]; dup {
-				continue
-			}
-			seen[dir] = struct{}{}
-			dirs = append(dirs, dir)
-		}
-		sort.Strings(dirs)
-		args := make([]string, 0, len(dirs)*2)
-		for _, d := range dirs {
-			args = append(args, binding.InputFlag, d)
-		}
-		return args, nil
 	case engine.InputModePatternArg:
 		// Pattern-arg engines pass each rule's inline pattern as a command
 		// argument via InputFlag (the BUNDLE-009 seam, REQ-004/CLM-016). The
@@ -378,7 +356,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	cmdArgs = append(cmdArgs, inputs...)
 	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
 	// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
-	// --rule DIR <targets>) and config-file engines with no self-declared target
+	// --config sgconfig.yml <targets>) and config-file engines with no self-declared target
 	// scan the files they are pointed at. A project-wide toolchain pass (go build
 	// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
 	// ProjectTarget and must NOT have a scan target bolted on — appending <root>

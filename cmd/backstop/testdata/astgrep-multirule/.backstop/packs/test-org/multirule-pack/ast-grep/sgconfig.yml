@@ -1,0 +1,9 @@
+# PACK-AUTHORED ast-grep project config (ISSUE-028 / CLM-003).
+# Backstop never generates or parses this file; the pack author who wrote the
+# ast-grep rules also wrote this sgconfig. A single
+# `ast-grep scan --config <this file> --json` runs EVERY rule under ruleDirs in
+# one invocation, so a multi-rule pack reports findings from all of its rules.
+# ruleDirs is resolved relative to THIS file's directory (ast-grep/), so `rules`
+# is ast-grep/rules/.
+ruleDirs:
+  - rules

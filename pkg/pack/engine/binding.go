@@ -21,9 +21,6 @@ const (
 	// InputModeRuleFlags repeats input_flag once per rule file (e.g. semgrep's
 	// --config X --config Y).
 	InputModeRuleFlags InputMode = "rule-flags" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
-	// InputModeRuleDir collects rule files into one directory passed once via
-	// input_flag (e.g. ast-grep --rule DIR).
-	InputModeRuleDir InputMode = "rule-dir" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 	// InputModeNone injects no rules or config; the executable is the logic
 	// (the sandbox engine).
 	InputModeNone InputMode = "none" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
@@ -39,10 +36,10 @@ const (
 // unrecognized value (REQ-020 / CLM-048). It never defaults silently.
 func ParseInputMode(s string) (InputMode, error) {
 	switch InputMode(s) {
-	case InputModeConfigFile, InputModeRuleFlags, InputModeRuleDir, InputModeNone, InputModePatternArg:
+	case InputModeConfigFile, InputModeRuleFlags, InputModeNone, InputModePatternArg:
 		return InputMode(s), nil
 	default:
-		return "", fmt.Errorf("unknown input_mode %q: must be one of config-file, rule-flags, rule-dir, none, pattern-arg", s)
+		return "", fmt.Errorf("unknown input_mode %q: must be one of config-file, rule-flags, none, pattern-arg", s)
 	}
 }
 
@@ -218,10 +215,28 @@ func DefaultRegistry() Registry {
 			Provision: &Provision{Tool: "semgrep", Version: "1.96.0"},
 			Category:  EngineCategoryOpinion,
 		},
+		// ast-grep's multi-rule mechanism is a PACK-SHIPPED sgconfig.yml passed via
+		// --config: `ast-grep scan --config <pack>/ast-grep/sgconfig.yml --json`
+		// runs EVERY rule under the sgconfig's ruleDirs in ONE invocation, so a
+		// pack carrying more than one ast-grep rule reports findings from all of
+		// them (ISSUE-028). The retired rule-dir/"--rule" shape emitted `--rule
+		// <DIR>`, but `ast-grep scan --rule` takes a single rule FILE not a
+		// directory, so it errored and dropped every finding — a vacuous green.
+		// The sgconfig.yml is pack DATA the pack author writes; backstop NEITHER
+		// generates NOR parses it — it only resolves the rule's rule_path and emits
+		// it via the existing config-file input mode, staying tool-agnostic
+		// (zero-baked). ONLY the input mode/flag changed: ast-grep keeps its own
+		// Command, Convert, Provision, ScopeKind, and OPINION category.
 		"ast-grep": {
-			Command:   "ast-grep scan",
-			InputMode: InputModeRuleDir,
-			InputFlag: "--rule",
+			// --json makes ast-grep emit its machine-readable JSON array on stdout
+			// (the input the pack's to-sarif.sh converter normalizes to SARIF).
+			// Without it ast-grep prints a human-readable report the converter
+			// cannot parse — the prior stubbed tests supplied canned JSON and never
+			// exercised the real binary, so this gap rode along with the multi-rule
+			// drop (ISSUE-028).
+			Command:   "ast-grep scan --json",
+			InputMode: InputModeConfigFile,
+			InputFlag: "--config",
 			ScopeKind: ScopeKindFileArgs,
 			Convert:   "ast-grep/to-sarif.sh",
 			Provision: &Provision{Tool: "ast-grep", Version: "0.43.0"},

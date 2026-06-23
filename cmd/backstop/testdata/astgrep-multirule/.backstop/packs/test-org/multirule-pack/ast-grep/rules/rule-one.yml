@@ -1,0 +1,5 @@
+id: rule-one
+language: go
+rule:
+  pattern: forbiddenCallOne($$$)
+message: forbiddenCallOne is not allowed

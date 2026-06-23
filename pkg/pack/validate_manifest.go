@@ -59,7 +59,7 @@ func ExpectedLayout(m *Manifest) []string {
 			// Derive the rules/ vs validators/ layout from the rule's RESOLVED
 			// binding InputMode — NOT a "semgrep"/"ast-grep" engine-name switch
 			// (SPEC-035 REQ-006c/CLM-025). A rule-fed input mode (rule-flags /
-			// rule-dir / pattern-arg) ships rule files under rules/; an
+			// pattern-arg) ships rule files under rules/; an
 			// input_mode none engine (the sandbox shape) ships validators under
 			// validators/. An unknown engine is caught by validateEngineFields.
 			binding, ok := registry[rule.Engine]
@@ -67,7 +67,7 @@ func ExpectedLayout(m *Manifest) []string {
 				continue
 			}
 			switch binding.InputMode {
-			case engine.InputModeRuleFlags, engine.InputModeRuleDir, engine.InputModePatternArg:
+			case engine.InputModeRuleFlags, engine.InputModePatternArg:
 				hasRuleFiles = true
 			case engine.InputModeNone:
 				// input_mode none is BOTH the sandbox shape (ships validators) and
