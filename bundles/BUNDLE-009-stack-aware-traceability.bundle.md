@@ -5,7 +5,7 @@ schema_version: bundle/v2
 
 bundle:
   name: stack-aware-traceability
-  version: "0.6.0"
+  version: "0.6.1"
   created: "2026-06-13"
   updated: "2026-06-22"
   category: feature
@@ -140,8 +140,11 @@ requirements:
       allowlisted grep/ripgrep forbidden-pattern probe (`pattern-arg`; scope = file OR
       path as a parameter), where a match = symbol PRESENT and the GATE inverts
       polarity (a present-match is the violation), guarded by a thin gate-side
-      "was-the-file-actually-scanned?" check preserving ISSUE-013's loud
-      missing/non-`.go` error.
+      "was-the-scope-actually-scanned?" check preserving ISSUE-013's loud
+      missing/unscanned error. The guard is language-agnostic: the only loud-error
+      axis is missing / unscanned scope (the file or path the contract names does not
+      exist or was not scanned). A scanned non-Go scope is not an error — it is just
+      another stack the pack handles.
   - id: REQ-006
     text: >
       Stand up a grep/ripgrep engine for the absence probe without baking tool
@@ -336,7 +339,8 @@ will be refined into formal spec requirements at spec-authoring time.
   Seed 4).** Re-implement ISSUE-013 absence as a pack-declared, allowlisted grep/ripgrep
   forbidden-pattern probe (`pattern-arg`; scope = file OR path as a parameter): match =
   PRESENT, the GATE inverts polarity (present-match is the violation), guarded by a thin
-  gate-side file-scanned check preserving ISSUE-013's loud missing/non-`.go` error.
+  gate-side file-scanned check preserving ISSUE-013's loud missing/unscanned error
+  (language-agnostic: a scanned non-Go scope is a normal handled stack, not an error).
 - **REQ-006 — Stand up a grep engine, pack-declared not baked (from SD-1; Seed 4).**
   (a) The pack declares grep in its `engines:` block (`pattern-arg` + grep→SARIF
   convert) — no baked `DefaultRegistry` entry, no ISSUE-027 eradication debt; (b) add
@@ -626,7 +630,12 @@ Captured from the resolved OQs and scope decisions. Each records the choice and 
   ABSENT**. The **GATE inverts polarity** (a present-match *is* the violation: "X must
   be absent, found at L") **plus a thin gate-side "was-the-file-actually-scanned?"
   guard** so empty-because-absent is never confused with empty-because-not-scanned —
-  this preserves ISSUE-013's loud error when the file is missing/non-Go.
+  this preserves ISSUE-013's loud error when the scope is missing/unscanned. The
+    guard is **language-agnostic**: the only loud-error axis is **missing / unscanned
+    scope** (the file or path the contract names doesn't exist or wasn't scanned). A
+    **scanned non-Go scope is NOT an error** — it is just another stack the pack
+    handles; ISSUE-013's loud-on-missing semantics survive, the loud-on-non-Go
+    semantics are dissolved by the cross-stack contracts design (OQ-8 + SD-3).
   - **Engine-fit (key decision).** Absence uses **GREP** (text-presence — "does this
     token appear anywhere"), **NOT ast-grep.** ast-grep's structural granularity is the
     *wrong* tool for absence: it needs a per-language grammar and misses lingering
@@ -1028,6 +1037,13 @@ rule:
 
 ## Version History
 
+- **0.6.1 (2026-06-22)** — Wording alignment only (no scope/OQ/SD/maturity change; stays
+  `ready`). Updated the OQ-7 resolution, REQ-005, and the related design-decision prose so
+  the contract-absence file-scanned guard is framed as **language-agnostic missing/unscanned**
+  rather than the obsolete **missing/non-`.go`** error. Under the now-coherent cross-stack
+  contracts design (OQ-8 + SD-3, contracts work across stacks via ast-grep/grep), a scanned
+  non-Go scope is a normal handled stack, not an error; ISSUE-013's loud-on-missing/unscanned
+  semantics survive, the loud-on-non-Go half is dissolved. Surfaced during SPEC-038 authoring.
 - **0.6.0 (2026-06-22)** — **PROMOTED `defined` → `ready` (user signoff after an
   independent bundle-review verdict of PASS).** No OQ re-opened (OQ-1..8 stay resolved),
   no scope decision changed (SD-1..4 stay fixed), and no new scope invented — this
@@ -1142,8 +1158,9 @@ rule:
   (b) **OQ-7 RESOLVED — pack-declared forbidden-pattern GREP probe.** Absence is a
   PACK-DECLARED, allowlisted grep/ripgrep forbidden-pattern probe (`pattern-arg`,
   scope = file OR path as a parameter). Engine emits SARIF: match = PRESENT, empty =
-  ABSENT; GATE inverts polarity + a thin file-scanned guard (preserving ISSUE-013's
-  loud missing/non-Go error). Engine-fit: GREP (text-presence), NOT ast-grep —
+  ABSENT; GATE inverts polarity + a thin file-scanned guard (language-agnostic;
+  preserving ISSUE-013's loud missing/unscanned error — a scanned non-Go scope is a
+  normal handled stack, not an error). Engine-fit: GREP (text-presence), NOT ast-grep —
   ast-grep needs a per-language grammar and misses comment/string references.
   Explicitly a pack-declared engine, NOT a grep baked into the binary. Accepted trade:
   grep is coarser (comment/string/substring false-FAILs), mitigated by anchored
