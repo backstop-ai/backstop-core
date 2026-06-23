@@ -1,17 +1,17 @@
 ---
-title: Stack-Aware Traceability Steps — Substantiveness & Contracts beyond Go (coverage descoped)
+title: Stack-Aware Traceability — Substantiveness & Contracts beyond Go
 number: BUNDLE-009
 schema_version: bundle/v2
 
 bundle:
   name: stack-aware-traceability
-  version: "0.5.0"
+  version: "0.6.0"
   created: "2026-06-13"
   updated: "2026-06-22"
   category: feature
 
 status:
-  maturity: defined
+  maturity: ready
 
 problem:
   summary: >
@@ -37,6 +37,38 @@ problem:
     not re-implement coverage here, since coverage is test-runner-coupled,
     BUNDLE-011 territory; the substantiveness/contract checks ride the structural
     engines and need no toolchain.)
+  success_criteria:
+    - >
+      ZERO baked-in traceability analyzers remain in the gate: `step_testverify.go`,
+      `step_contract.go`, and `step_coverage.go` are all deleted. The only
+      language-agnostic gate logic that remains is the noTarget set-join, the
+      contract/absence polarity + match-verdict, and the shared file-scanned guard;
+      the backstop binary holds no language/tool specifics for traceability (REQ-010).
+    - >
+      Substantiveness and contracts are enforced via stack-locked PACKS on the
+      structural engines (ast-grep for structure, grep for absence), every check
+      emitting SARIF, with Go re-implemented as a pack (not a preserved native tier)
+      and proven equivalent to the deleted go/parser analyzers on real Go fixtures via
+      a strangler-equivalence pass before deletion (REQ-002..005, REQ-008).
+    - >
+      A traceability dimension that is DECLARED but broken blocks (exit 2); an
+      UNDECLARED / capability-absent dimension emits a conspicuous, specific
+      warn-with-how-to-adopt on the report surface and passes (exit 0) — loudness on
+      the report surface, not the exit code; no vacuous green (REQ-001).
+    - >
+      A second, stack-locked TypeScript traceability proof pack is authored —
+      hollow-test substantiveness on `.test.ts` (ast-grep) plus contracts (signature
+      presence via ast-grep, symbol absence via the grep engine) — substantiating the
+      "beyond Go" claim and beginning to unblock the TS runtime's self-gating (REQ-007).
+    - >
+      The grep/ripgrep absence engine is stood up pack-declared (its `engines:` block,
+      `pattern-arg` input mode, grep→SARIF convert) with `grep`/`rg` added only to the
+      backstop-owned trusted-tool allowlist — no baked `DefaultRegistry` entry, no
+      ISSUE-027-style eradication debt (REQ-006).
+    - >
+      `backstop gate` run on the backstop repo itself turns its own
+      `contract_signature` step green (the dual-substrate proof that the brittle
+      `formatFuncSignature`→`signaturesMatch` Go-source-string round-trip is dissolved).
 
 solution:
   approach: >
@@ -146,7 +178,7 @@ requirements:
       the backstop binary holds no language/tool specifics for traceability.
 ---
 
-# Stack-Aware Traceability Steps — Substantiveness & Contracts beyond Go (coverage descoped)
+# Stack-Aware Traceability — Substantiveness & Contracts beyond Go
 
 > **Scope note (2026-06-22):** the original title read "…Coverage, Substantiveness,
 > Contracts beyond Go." Per **Scope Decision #4** (see *Scope Decisions / Non-Goals*
@@ -154,7 +186,8 @@ requirements:
 > BUNDLE-009 only **deletes** the baked Go coverage analyzer (`step_coverage.go`) and
 > defers a language-agnostic coverage check to a future dedicated bundle. The title is
 > reconciled to reflect that the bundle delivers **substantiveness + contracts** (incl.
-> a TypeScript proof pack), not coverage. The user may finalize a rename at promotion.
+> a TypeScript proof pack), not coverage — finalized at the `ready` promotion (v0.6.0):
+> the delivered-dimensions framing names only substantiveness + contracts beyond Go.
 
 ## Current Thinking
 
@@ -995,6 +1028,25 @@ rule:
 
 ## Version History
 
+- **0.6.0 (2026-06-22)** — **PROMOTED `defined` → `ready` (user signoff after an
+  independent bundle-review verdict of PASS).** No OQ re-opened (OQ-1..8 stay resolved),
+  no scope decision changed (SD-1..4 stay fixed), and no new scope invented — this
+  version satisfies the `ready` gate purely from content the bundle already settled.
+  Two changes: (1) **Title fix (bundle-reviewer nit).** The title no longer frames
+  coverage as a delivered dimension — coverage was descoped by SD-4 (its baked Go
+  analyzer is deleted with no in-bundle replacement; re-implementation deferred near
+  BUNDLE-011; Seed 2 dropped). Title is now **"Stack-Aware Traceability — Substantiveness
+  & Contracts beyond Go"** (frontmatter `title` + H1 reconciled; the scope note finalized
+  to record the rename). The body already framed coverage as delete-and-defer
+  throughout (SD-4, DD-8, REQ-009, dropped Seed 2), so no other in-scope-delivered
+  coverage framing remained to reconcile. (2) **`problem.success_criteria` added** (the
+  one frontmatter field the `ready` gate requires that `defined` did not), derived from
+  the already-settled REQ-001..010 and the zero-baked-analyzer end-state: the
+  zero-baked-analyzer outcome, packs-on-structural-engines with strangler-equivalence,
+  the declared-blocks/undeclared-warns polarity, the TS proof pack, the pack-declared
+  grep engine, and backstop's own `contract_signature` step turning green.
+  `solution.assumptions` was already present. Maturity now `ready` — the bundle is
+  complete and ready for spec generation (Seeds 1, 3, 4).
 - **0.5.0 (2026-06-22)** — **PROMOTED `exploring` → `defined` (user-initiated).** No
   OQ re-opened (OQ-1..8 stay resolved) and no scope decision changed (SD-1..4 stay
   fixed); this version is purely the structural promotion, deriving formal content from
