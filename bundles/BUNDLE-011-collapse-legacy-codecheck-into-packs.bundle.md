@@ -6,8 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: collapse-legacy-codecheck-into-packs
-  version: "0.1.0"
+  version: "0.1.1"
   created: "2026-06-21"
+  updated: "2026-06-22"
   category: infrastructure
 
 status:
@@ -185,6 +186,38 @@ the project declares nothing. After cutover, what pack(s) supply that?
   convention; the no-pack case almost certainly must be **loud** (a config error or
   forced acknowledgment), not silently green — but whether "loud" means block or
   warn-with-guidance is a [[feedback_loud_not_blocking]] judgment the user owns.
+- **NOTE (recorded 2026-06-22, from a BUNDLE-009 scoping session — context, NOT a
+  resolution of this OQ; the user drives the toolchain-pack call when they work this
+  bundle):**
+  1. *The trusted-tool allowlist explodes TOGETHER WITH the toolchain packs, not ahead
+     of them.* The backstop-owned trusted-tool allowlist (the trust floor, the security
+     substrate from SPEC-035) today holds only **semgrep + ast-grep**. Populating it
+     (eslint/tsc/vitest/ruff/cargo/…) is **inert** without a pack that declares an engine
+     *using* each tool — allowlisting a tool pre-permits nothing until a pack uses it. So
+     the allowlist entries and the toolchain pack that needs them **ship as a PAIR, per
+     language**. This pairing belongs to **this bundle (+ ISSUE-027)**, not to any
+     consumer bundle (e.g. BUNDLE-009 does not own allowlist growth).
+  2. *TypeScript is the FIRST PROOF CASE and a LIVE PRIORITY — not hypothetical.* The
+     runtime (**backstop-runtime**, TypeScript) is currently **BLOCKED** by the
+     half-baked pack system: it cannot gate itself with packs because there is no
+     pack-based TS toolchain support — and the existing **baked TS built-in in
+     `pkg/check`** (eslint/tsc) is itself a zero-baked-checks violation slated for
+     eradication by this very cutover. So a **`typescript-toolchain` pack + its allowlist
+     entries** is the concrete near-term goal of OQ-2's per-language toolchain-pack
+     direction, not a someday example.
+  3. *Division of TS support across bundles (recorded so it's not lost):* **BUNDLE-009**
+     delivers the TS **TRACEABILITY** slice (substantiveness + contracts on
+     ast-grep/grep) — feasible *without* this bundle because traceability rides
+     **structural** engines, not the toolchain. **This bundle (BUNDLE-011)** owes the TS
+     **TOOLCHAIN** slice (lint/build/test + the test runner). **Together** they unblock
+     the runtime gating itself. BUNDLE-011 is the natural **NEXT-after-BUNDLE-009**.
+  4. *A future language-agnostic COVERAGE bundle is sequenced near this one.* BUNDLE-009
+     is **DELETING** the baked Go coverage analyzer (`pkg/gate/step_coverage.go`)
+     **without replacing it** — coverage was descoped from BUNDLE-009 because it is
+     **dynamic-toolchain** work, not structural. Coverage's language-agnostic
+     re-implementation needs the **test runner**, so it naturally rides **with / after**
+     this bundle's toolchain work (cf. OQ-6's shared test-runner / coverage re-routing).
+     Recorded here so the dropped-coverage thread stays tracked.
 
 **OQ-3 — The semgrep catch-all on non-Go files.** `routeFileDefaults` runs semgrep on
 *every* non-`.go/.ts/.tsx` file today (:276-279). What pack replaces that catch-all —
@@ -306,7 +339,16 @@ catalogs every consumer of `CheckType` and decides its post-cutover source; it i
 - ISSUE-018 (remove vestigial baked-in code, open) — ground-clearing; deletes dead
   in-process semgrep + native-standards validator but leaves Step 2 standing (OQ-4).
 - BUNDLE-009 (stack-aware-traceability, exploring) — sibling analyzer-eradication
-  (OQ-4).
+  (OQ-4). **Cross-bundle (recorded 2026-06-22):** BUNDLE-009 delivers the TS
+  *traceability* slice (structural engines, no toolchain dep) and is **deleting**
+  `pkg/gate/step_coverage.go` without replacement; this bundle (BUNDLE-011) owes the TS
+  *toolchain* slice (lint/build/test) + grows the trusted-tool allowlist (paired with
+  the `typescript-toolchain` pack, alongside ISSUE-027) — together they unblock
+  **backstop-runtime** gating itself, and the dropped language-agnostic **coverage**
+  re-impl rides with/after this bundle's toolchain work. See the OQ-2 NOTE.
+- ISSUE-027 — trusted-tool allowlist growth pairs with the per-language toolchain packs
+  here (see OQ-2 NOTE); allowlisting a tool is inert until a pack declares an engine
+  using it.
 
 ## Version History
 
@@ -322,5 +364,14 @@ catalogs every consumer of `CheckType` and decides its post-cutover source; it i
   everything from packs) is recorded as NOT an open question — only the migration
   mechanics are. No requirements, design decisions, or spec seeds yet; those follow
   OQ resolution. Maturity stays `exploring`.
+- **0.1.1 (2026-06-22, exploring)** — Added a recorded NOTE under OQ-2 (no resolution)
+  from a BUNDLE-009 scoping session: the trusted-tool allowlist grows paired-per-language
+  with the toolchain packs (this bundle + ISSUE-027), not ahead of them; `typescript-
+  toolchain` is the live first proof case unblocking backstop-runtime; the TS-support
+  division across BUNDLE-009 (traceability) vs BUNDLE-011 (toolchain); and the future
+  language-agnostic coverage re-impl rides with/after this bundle (BUNDLE-009 deletes
+  `step_coverage.go` without replacement). Mirrored as cross-bundle References entries
+  (BUNDLE-009, ISSUE-027). No OQ resolved, no requirements/decisions added, maturity
+  unchanged.
 </content>
 </invoke>

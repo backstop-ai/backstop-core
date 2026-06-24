@@ -1,0 +1,34 @@
+# Fixture (TASK-004): a pack manifest declaring the ast-grep contracts binding in
+# its engines: block — pattern-arg input mode (the compiled signature pattern is
+# passed as a command argument), the ast-grep->SARIF convert script, and
+# gate_type: contracts. Pairs with the grep engine fixture so the contracts pack
+# dispatches BOTH engines (signature presence via ast-grep, absence via grep).
+name: acme/contracts-astgrep-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack declaring ast-grep for contract signature presence.
+engines:
+  ast-grep-contracts:
+    command: ast-grep scan --json
+    input_mode: pattern-arg
+    input_flag: --pattern
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: ast-grep/to-sarif.sh
+content:
+  ruleset:
+    rules:
+      - id: contract-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "func RouteFile($$$) ($$$)"
+        claims:
+          - id: contract-signature-claim
+            text: A present declared signature matches; absent does not.
+            fixtures:
+              positive:
+                - fixtures/sig-mismatch.go
+              negative:
+                - fixtures/sig-present.go

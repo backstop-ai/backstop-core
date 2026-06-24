@@ -3,9 +3,6 @@ package gate
 import (
 	"bufio"
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,6 +46,9 @@ type specFrontmatter struct {
 			// Absent asserts the named symbol MUST NOT exist in File. Optional,
 			// defaults false; mutually exclusive with Signature.
 			Absent bool `yaml:"absent"`
+			// Scope is the absence file-OR-path the grep probe scans (REQ-012/
+			// CLM-040). Optional; when empty the absence verdict falls back to File.
+			Scope string `yaml:"scope"`
 		} `yaml:"provides"`
 	} `yaml:"contracts"`
 }
@@ -73,7 +73,7 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 			continue // skip unparseable specs
 		}
 
-		targetPkg := targetPackageName(fm.Implementation.Package)
+		targetPkg := TargetPackageName(fm.Implementation.Package)
 
 		for _, claim := range fm.Claims {
 			for _, testName := range claim.Tests {
@@ -228,209 +228,18 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope) map[string]str
 	return found
 }
 
-// StepTestSubstantivenessFunc returns a StepFunc that checks whether mandated
-// test functions are substantive (not hollow). Uses Go AST parsing.
-func StepTestSubstantivenessFunc(tests []MandatedTest) StepFunc {
-	return StepTestSubstantivenessScopedFunc(tests, nil)
-}
-
-// StepTestSubstantivenessScopedFunc checks only mandated tests in scoped files.
-func StepTestSubstantivenessScopedFunc(tests []MandatedTest, scope *GateScope) StepFunc {
-	return func(_ context.Context) StepResult {
-		var violations []Violation
-
-		for _, mt := range tests {
-			if mt.FilePath == "" {
-				continue // skip tests not found (already reported by verification)
-			}
-			if scope != nil && scope.Mode != GateScopeModeAll && !scope.Contains(mt.FilePath) {
-				continue
-			}
-
-			hollow, noTarget := checkSubstantiveness(mt.FilePath, mt.FuncName, mt.TargetPkg)
-			if hollow {
-				violations = append(violations, Violation{
-					Rule:     "test_substantiveness",
-					File:     mt.FilePath,
-					Message:  "test function " + mt.FuncName + " has no assertions (hollow)",
-					Severity: "error",
-				})
-			}
-			if noTarget {
-				violations = append(violations, Violation{
-					Rule:     "test_substantiveness",
-					File:     mt.FilePath,
-					Message:  "test function " + mt.FuncName + " does not call package " + mt.TargetPkg,
-					Severity: "error",
-				})
-			}
-		}
-
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
-		if violations == nil {
-			violations = []Violation{}
-		}
-		return StepResult{
-			StepName:   StepTestSubstantiveness,
-			Status:     status,
-			Violations: violations,
-		}
-	}
-}
-
-// checkSubstantiveness parses a Go file and checks if the named test function
-// has assertions and calls the target package. Returns (hollow, noTargetCall).
-func checkSubstantiveness(filePath, funcName, targetPkg string) (bool, bool) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
-	if err != nil {
-		return true, true // can't parse → treat as hollow
-	}
-
-	// If the test file's package matches the target package (or is the
-	// _test variant), the test IS in the target package — skip the
-	// target-call check. Same-package tests call functions directly
-	// without a package qualifier (Function() not pkg.Function()).
-	filePkg := ""
-	if file.Name != nil {
-		filePkg = file.Name.Name
-	}
-	samePackage := filePkg == targetPkg ||
-		filePkg == targetPkg+"_test" ||
-		strings.TrimSuffix(filePkg, "_test") == targetPkg
-
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != funcName || fn.Body == nil {
-			continue
-		}
-
-		hasAssertion := hasAssertions(fn.Body)
-
-		// Same-package tests don't need a qualified call to the target.
-		if samePackage {
-			return !hasAssertion, false
-		}
-		if targetPkg == "" {
-			return !hasAssertion, false
-		}
-
-		callsTarget := callsTargetPackage(fn.Body, targetPkg)
-		return !hasAssertion, !callsTarget
-	}
-
-	// Function not found in file
-	return true, true
-}
-
-func targetPackageName(implementationPackage string) string {
-	if strings.HasPrefix(implementationPackage, "cmd/") {
-		return ""
-	}
-	if !strings.HasPrefix(implementationPackage, "pkg/") {
-		return ""
-	}
-	return filepath.Base(implementationPackage)
-}
-
-// assertionSelectors are method names on *testing.T that count as assertions.
-var assertionSelectors = map[string]bool{
-	"Fatal":   true,
-	"Fatalf":  true,
-	"Error":   true,
-	"Errorf":  true,
-	"Fail":    true,
-	"FailNow": true,
-	"Skip":    true,
-	"Skipf":   true,
-	"Log":     true,
-	"Logf":    true,
-	"Run":     true, // subtests
-	"Helper":  true, // test helpers that delegate
-}
-
-// hasAssertions checks if a function body contains at least one assertion call.
-// Recognizes:
-//   - t.Fatal, t.Error, t.Run, etc. (selector expressions on *testing.T)
-//   - Helper functions whose names suggest assertions: require*, assert*,
-//     check*, verify*, expect*, must* (plain function calls)
-//   - Any function call that receives a *testing.T as first argument
-func hasAssertions(body *ast.BlockStmt) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		// Check selector expressions: t.Fatal, t.Error, etc.
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if assertionSelectors[sel.Sel.Name] {
-				found = true
-				return false
-			}
-		}
-
-		// Check plain function calls that look like assertion helpers.
-		if ident, ok := call.Fun.(*ast.Ident); ok {
-			name := strings.ToLower(ident.Name)
-			if strings.HasPrefix(name, "require") ||
-				strings.HasPrefix(name, "assert") ||
-				strings.HasPrefix(name, "check") ||
-				strings.HasPrefix(name, "verify") ||
-				strings.HasPrefix(name, "expect") ||
-				strings.HasPrefix(name, "must") {
-				found = true
-				return false
-			}
-			// Any function that takes t as first arg is likely an assertion helper.
-			if len(call.Args) > 0 {
-				if argIdent, ok := call.Args[0].(*ast.Ident); ok && argIdent.Name == "t" {
-					found = true
-					return false
-				}
-			}
-		}
-
-		return true
-	})
-	return found
-}
-
-// callsTargetPackage checks if a function body contains at least one call to
-// a function/method from the target package (identified by package name).
-func callsTargetPackage(body *ast.BlockStmt, pkg string) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		if ident.Name == pkg {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
+// SPEC-037 (BUNDLE-009 Seed 3): the baked go/parser substantiveness ANALYZER —
+// StepTestSubstantivenessFunc / StepTestSubstantivenessScopedFunc, checkSubstantiveness,
+// hasAssertions, the assertionSelectors vocabulary, callsTargetPackage, and the
+// lowercase targetPackageName helper — was DELETED here. Substantiveness is now an
+// INSTALLED ast-grep pack (Q1 hollow-test findings + Q2 referenced-symbol extraction)
+// consumed gate-side by the language-agnostic set-join in substantiveness_join.go and
+// wired through the real dispatch seam in cmd/backstop/gate.go. The relocation of the
+// target-package derivation lives there as the exported TargetPackageName (behavior-
+// preserving). The deletion was licensed by the strangler-equivalence pass
+// (substantiveness_strangler_test.go) proving the pack path reproduced this analyzer's
+// verdicts on real Go fixtures BEFORE removal. ExtractMandatedTests / MandatedTest /
+// ResolveMandatedTestPaths and the test-existence step are RETAINED.
 
 // ExtractSpecVerifications parses all spec files in specDir and extracts
 // verification metadata for the coverage threshold step. test_command is kept
@@ -493,11 +302,21 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 				filePath = filepath.Join(projectRoot, filePath)
 			}
 			for _, p := range c.Provides {
+				// Scope is the declared absence file-OR-path (REQ-012/CLM-040/041).
+				// Like File, a relative scope is joined onto projectRoot so the grep
+				// probe receives an absolute path through pattern-arg. Extraction stays
+				// a pure data-record builder — it reads the declared frontmatter field
+				// only; it does NOT parse, AST-walk, or compile (CLM-042).
+				scope := p.Scope
+				if scope != "" && !filepath.IsAbs(scope) {
+					scope = filepath.Join(projectRoot, scope)
+				}
 				contracts = append(contracts, ContractEntry{
 					File:      filePath,
 					Name:      p.Name,
 					Kind:      p.Kind,
 					Signature: p.Signature,
+					Scope:     scope,
 					Absent:    p.Absent,
 				})
 			}

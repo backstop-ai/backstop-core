@@ -1,0 +1,2 @@
+package fix
+func somethingElse() {}

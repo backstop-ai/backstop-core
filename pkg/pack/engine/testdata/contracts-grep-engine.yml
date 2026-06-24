@@ -1,0 +1,36 @@
+# Fixture (TASK-004): a pack manifest declaring the GREP engine in its top-level
+# engines: block — pattern-arg input mode, an input_flag, a grep-output->SARIF
+# convert script reference, and gate_type: contracts. There is NO baked
+# engine.DefaultRegistry entry for grep (CLM-015): the engine exists ONLY because
+# the pack declares it here. Feeds TestEngine_GrepPackDeclaredNotInDefaultRegistry
+# and the allowlist-gating matrix. The grep absence rule binds this pack-declared
+# engine and carries the forbidden symbol as its inline pattern (pattern-arg).
+name: acme/contracts-grep-pack
+version: 1.0.0
+language: go
+archetype: enforcement
+description: Pack declaring grep for contract absence via the engines block.
+engines:
+  grep:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: grep/to-sarif.sh
+content:
+  ruleset:
+    rules:
+      - id: contract-absence
+        engine: grep
+        risk_class: correctness
+        pattern: "legacyProbeSymbol"
+        claims:
+          - id: contract-absence-claim
+            text: A forbidden symbol present in scope is an absence violation.
+            fixtures:
+              positive:
+                - fixtures/absent-clean.go
+              negative:
+                - fixtures/absent-present.go

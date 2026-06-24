@@ -1,0 +1,24 @@
+id: hollow-test-go
+language: go
+# Q1 hollow-test rule. A Go test-declaration node (func Test*) that does NOT `has`
+# a descendant assertion-shaped call is hollow -> finding (RED). The assertion
+# vocabulary (require|assert|check|verify|expect|must + the *testing.T failure
+# methods) lives ENTIRELY in this rule YAML — the backstop binary carries no
+# hardcoded assertion-selector list (CLM-006). The message embeds the enclosing
+# test func name in the pinned `func=<FN>` shape so the gate can key the routed
+# hollow finding back to its mandated test, while preserving the deleted analyzer's
+# "test X has no assertions (hollow)" report-surface semantics (CLM-005).
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    pattern: $FN
+    regex: "^Test"
+  not:
+    has:
+      stopBy: end
+      kind: call_expression
+      has:
+        stopBy: end
+        regex: "require|assert|check|verify|expect|must|Fatal|Fatalf|Error|Errorf|Fail|FailNow|Skip|Skipf"
+message: "test function $FN has no assertions (hollow) func=$FN"

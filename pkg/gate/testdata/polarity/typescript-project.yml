@@ -1,0 +1,7 @@
+project: typescript-project
+language: typescript
+enforcement:
+  toolchain:
+    lint:
+      command: "eslint ."
+      format: "eslint-json"

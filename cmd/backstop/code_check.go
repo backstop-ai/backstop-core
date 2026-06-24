@@ -172,7 +172,10 @@ dispatch with a 2-second execution budget.`,
 			// pack-rule coverage on the unchanged-but-still-relevant codebase.
 			if len(packs) > 0 {
 				runner := &check.ExecCommandRunner{Dir: projectRoot}
-				packViolations, validatorErr := resolveDispatchPackEngines()(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, runner)
+				// Generic findings dispatch runs only the generic stages; rules bound to a
+				// dedicated-step gate_type (substantiveness/contracts/coverage) belong to
+				// their own gate step and would scan context-free here.
+				packViolations, validatorErr := resolveDispatchPackEngines()(excludeDedicatedStepRules(packs), filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, runner)
 				if validatorErr != nil {
 					return &ExitCodeError{
 						Code:    ExitConfigError,

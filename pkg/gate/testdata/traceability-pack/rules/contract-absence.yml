@@ -1,0 +1,11 @@
+# Go contract symbol-ABSENCE rule (SPEC-038 REQ-003). Absence uses the
+# pack-declared GREP engine (text-presence), NOT ast-grep (CLM-011): grep scans the
+# declared Scope (file OR path) for the forbidden symbol. A grep MATCH = forbidden
+# symbol PRESENT = absence VIOLATION (the polarity inversion is gate-side); an EMPTY
+# result over a confirmed-scanned scope = PASS. The forbidden symbol arrives via
+# pattern-arg (-e <symbol>); this rule records identity + engine binding.
+id: contract-absence
+language: go
+engine: grep
+pattern: "forbiddenSymbol"
+message: "contract absence probe (forbidden symbol text-presence via grep)"

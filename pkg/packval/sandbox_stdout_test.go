@@ -18,9 +18,6 @@ func TestSandboxedRunStdout_StdoutCleanOfStderr(t *testing.T) {
 	dir := t.TempDir()
 
 	out, err := SandboxedRunStdout("sh", []string{"-c", "echo 'WARNING: banner' 1>&2; printf '{\"sarif\":true}'"}, dir, nil)
-	if err != nil && strings.Contains(err.Error(), "abort trap") {
-		t.Skip("sandbox-exec profile unsupported in this environment")
-	}
 	if err != nil {
 		t.Fatalf("SandboxedRunStdout error: %v", err)
 	}
@@ -45,9 +42,6 @@ func TestSandboxedRunStdout_PipesStdin(t *testing.T) {
 
 	payload := []byte(`{"engine":"ast-grep","findings":1}`)
 	out, err := SandboxedRunStdout("cat", nil, dir, payload)
-	if err != nil && strings.Contains(err.Error(), "abort trap") {
-		t.Skip("sandbox-exec profile unsupported in this environment")
-	}
 	if err != nil {
 		t.Fatalf("SandboxedRunStdout error: %v", err)
 	}
@@ -67,8 +61,8 @@ func TestSandboxedRun_StillCombinesOutput(t *testing.T) {
 	dir := t.TempDir()
 
 	out, err := SandboxedRun("sh", []string{"-c", "echo 'stderr-line' 1>&2; echo 'stdout-line'"}, dir)
-	if err != nil && strings.Contains(err.Error(), "abort trap") {
-		t.Skip("sandbox-exec profile unsupported in this environment")
+	if err != nil {
+		t.Fatalf("SandboxedRun error: %v", err)
 	}
 	got := string(out)
 	if !strings.Contains(got, "stderr-line") {

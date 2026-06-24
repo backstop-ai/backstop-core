@@ -1,0 +1,622 @@
+---
+plan_id: PLAN-SPEC-036
+spec_id: SPEC-036
+spec_version: 1.1.0
+created: "2026-06-22"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./pkg/config/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements SPEC-036 (BUNDLE-009 Seed 1 — fail-loud polarity for the three
+  traceability dimensions: substantiveness / coverage / contracts). Ships ENTIRELY
+  on the existing binary: NO analyzer touched, NO engine, NO pack. The work is a
+  language-agnostic classification + report-surface layer that sits IN FRONT OF the
+  three existing traceability step builders and assigns each dimension to exactly one
+  of three classes (1 BROKEN-DECLARED → block exit 2; 2 CAPABILITY-ABSENT → warn-pass
+  exit 0; 3 DECLARED-INTENT-UNMET → block exit 2), with a waive that silences ONLY
+  class 2.
+
+  ===================================================================
+  REQ-008 IS A HARD FENCE (Sharp Edge 6) — DO NOT CROSS
+  ===================================================================
+  The traceability ANALYZERS — pkg/gate/step_testverify.go, pkg/gate/step_contract.go,
+  pkg/gate/step_coverage.go — MUST remain BYTE-FOR-BYTE unchanged by this plan. NO task
+  in this plan lists any of those three files in its `files` scope. The classification
+  layer WRAPS them at the cmd/backstop/gate.go wiring boundary; it never edits their
+  go/parser / go/ast verdict logic. Their existing passing tests are PRESERVED as the
+  REQ-008 evidence (CLM-025/026/027). Any temptation to "improve" the Go analyzer while
+  wiring the wrapper is out of scope and conflicts with the Seed 3/4 eradication.
+
+  ===================================================================
+  LOCKSTEP CONFIG CHANGE (Sharp Edge 4) — ONE ATOMIC TASK
+  ===================================================================
+  pkg/config/config.go decodes backstop.yml with KnownFields(true) (config.go:145) AND
+  validates against the EMBEDDED backstop-yml JSON schema (artifacts/backstop-yml/v1/
+  schema.json, additionalProperties:false on the toolchain object). The two NEW additive
+  fields `gate_type` and `waived` MUST be added to the ToolchainPass struct AND the
+  embedded schema's toolchain property block in the SAME task (TASK-101) — if they
+  diverge, either a backstop.yml that omits them stays valid while one that sets them
+  fails schema validation, or the strict-unknown-fields decode breaks. Both are optional,
+  default to zero value, so existing configs remain valid.
+
+  ===================================================================
+  THE "declared?" BOOLEAN IS THE WHOLE DISCRIMINATOR (Sharp Edge 2)
+  ===================================================================
+  Classes 1, 2, 3 all involve a missing/broken capability; the ONLY thing that flips
+  class 2 (warn-pass) into class 3 (block) is whether the project DECLARED the dimension
+  via an enforcement.toolchain entry whose gate_type EXACTLY equals the dimension name.
+  The join MUST be exact: a typo'd / unknown toolchain key on a declared entry is class 1
+  (BROKEN-DECLARED, blocks), NOT a silent fall-through to class 2 (CLM-008). A loose join
+  that reads a malformed key as "undeclared" silently degrades a broken promise into a
+  vacuous green. The waive suppression keys off the SAME exact join (CLM-022), so a waive
+  can only ever target a real declared dimension and can never reach a class-1/class-3
+  result (CLM-023/024).
+
+  ===================================================================
+  WIRING IS VERIFIED, NOT ASSUMED (Sharp Edge — v1.1.0 corrective; CLM-028)
+  ===================================================================
+  The classifier-in-front-of-the-analyzer wiring lives in cmd/backstop/gate.go
+  (buildGateSteps wrapping buildTestSubstantivenessStep:453 / buildCoverageStep:475 /
+  buildContractStep:496), OUTSIDE the pkg/gate unit scope — which is exactly why the
+  test_command adds ./cmd/backstop/. CLM-025/026/027 only assert the analyzer VERDICT is
+  preserved — an UNWIRED classifier satisfies those too. TASK-602's test (CLM-028) MUST
+  put a SENTINEL/SPY on the analyzer delegate and mechanically prove: for class 1/2/3 the
+  wrapper returns PolarityStepResult and the analyzer is NOT reached (spy not invoked);
+  for declared-and-working the wrapper falls through unchanged and the analyzer IS reached
+  (spy invoked). An unwired classifier (analyzer always reached) MUST fail that test.
+
+  ===================================================================
+  CapabilityState DERIVATION IS CONCRETE, NOT STUBBED (CLM-029)
+  ===================================================================
+  TASK-501 derives CapabilityState from cfg.Language (config.go:22) + baked-Go-analyzer
+  presence ONLY — no pack, no engine. The only traceability capability on the existing
+  binary is the baked Go analyzers (Go-specific), so a dimension is Present/Working only
+  when cfg.Language == "go" AND its baked analyzer exists (and isn't broken); it is Absent
+  when cfg.Language != "go". An UNDECLARED dimension on a non-Go project (language:
+  typescript, the runtime-unblock case) therefore lands in class 2 (warn, exit 0), NOT a
+  silent pass and NOT a mis-applied Go analyzer. CLM-029's test asserts the typescript
+  derivation directly so it cannot be stubbed.
+
+  ===================================================================
+  warning IS A NEW NON-FAILING STEP STATUS (Sharp Edge 3)
+  ===================================================================
+  NewGateResultWithScope (result.go:93) currently sets Pass=false only on "fail". The new
+  "warning" status MUST be counted into a NEW GateResult.StepsWarned counter (TASK-401)
+  but MUST NOT flip Pass. If "warning" were treated like "fail", class 2 would block — the
+  exact outcome the bundle prohibits. If it were silently dropped (no StepsWarned
+  increment), the advisory would vanish from the summary counts a reviewer reads on a green
+  run. FormatHuman's summary line (output.go:102) MUST render the warned count alongside
+  passed/failed/skipped (CLM-030) AND formatStatus (output.go:126) MUST render a distinct
+  warning marker per step (CLM-015); FormatJSON serializes Status + Violations[].Severity
+  already, so the warning-tagged entry is machine-readable via the new status string +
+  StepsWarned counter (CLM-016).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — shared testdata fixtures (configs per class / stack)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the shared backstop.yml fixtures the TDD phases consume: declared /
+      undeclared / waived toolchain entries, a typo'd (unknown) toolchain key, and
+      Go vs TypeScript language fixtures so the classifier and the CapabilityState
+      derivation can be table-driven without live tools. No production code here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold polarity test fixtures (per-class, per-stack backstop.yml)"
+        description: |
+          Create backstop.yml fixtures under pkg/gate/testdata/polarity/ covering every
+          classification input combination the TDD phases assert against:
+            - substantiveness DECLARED via enforcement.toolchain gate_type (CLM-001)
+            - no toolchain entry for coverage → coverage UNDECLARED (CLM-002)
+            - declared-and-working (CLM-003), declared with unknown toolchain key (CLM-008)
+            - waived dimension (CLM-022), language:go and language:typescript variants
+              for the CapabilityState derivation (CLM-005, CLM-029).
+          These fixtures are inert YAML/data only; they back the classifier, message,
+          waive, and capability-derivation tests in Phases 2-6.
+        files:
+          - pkg/gate/testdata/polarity/declared-substantiveness.yml
+          - pkg/gate/testdata/polarity/undeclared-coverage.yml
+          - pkg/gate/testdata/polarity/declared-working.yml
+          - pkg/gate/testdata/polarity/declared-unknown-key.yml
+          - pkg/gate/testdata/polarity/waived-dimension.yml
+          - pkg/gate/testdata/polarity/typescript-project.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-008
+          - CLM-022
+          - CLM-029
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Declaration surface — additive ToolchainPass fields (LOCKSTEP)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Declaration Surface Extension (config struct + schema lockstep)"
+    description: |
+      Add the two additive, optional ToolchainPass fields — gate_type and waived — that
+      make a dimension DECLARED and waivable. The struct AND the embedded backstop-yml
+      JSON schema change together in ONE task (strict KnownFields(true) decode + schema
+      additionalProperties:false). Tests prove existing configs still decode/validate and
+      that a config setting the new fields round-trips through the strict decode.
+    tasks:
+      - id: TASK-100
+        type: test
+        title: "Test additive gate_type/waived decode + schema validation"
+        description: |
+          Table-driven tests in pkg/config that a backstop.yml setting enforcement.toolchain
+          gate_type and waived decodes under KnownFields(true) AND passes embedded-schema
+          validation, AND that a config OMITTING both still decodes and validates (zero-value
+          backward compatibility). These tests exercise the DECLARED join inputs consumed by
+          the classifier (CLM-001 substantiveness-declared, CLM-002 coverage-undeclared).
+        files:
+          - pkg/config/toolchain_pass_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+      - id: TASK-101
+        type: implementation
+        title: "Add gate_type + waived to ToolchainPass struct AND embedded schema"
+        description: |
+          Add `GateType string yaml:"gate_type,omitempty"` and `Waived bool
+          yaml:"waived,omitempty"` to the ToolchainPass struct (pkg/config/config.go:44)
+          AND the matching optional properties to the toolchain object in the embedded
+          schema (artifacts/backstop-yml/v1/schema.json) — in this single task, because the
+          strict decode + additionalProperties:false require struct and schema to change in
+          lockstep (Sharp Edge 4). Both fields optional, default zero value. Makes the
+          tests in TASK-100 pass.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-100
+      - id: TASK-102
+        type: verification
+        title: "Verify declaration-surface change (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the additive config
+          fields and schema change build, lint clean, and the pkg/config decode/validation
+          tests pass. Confirms the strict-decode lockstep holds before the classifier builds
+          on these fields.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/config/toolchain_pass_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-101
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Classifier — ClassifyDimension over the three-class decision table
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Language-Agnostic Classifier (ClassifyDimension)"
+    description: |
+      Implement the dimension/constants/PolarityClass enum, the CapabilityState type, the
+      exact declaredDimension join, and ClassifyDimension over the complete three-class
+      decision table. The classifier is language-agnostic: it reads the declaration surface
+      and the supplied CapabilityState only — no baked language/tool branch. This phase
+      establishes WHICH class each dimension is; Phase 4 converts a class into a StepResult.
+    tasks:
+      - id: TASK-200
+        type: test
+        title: "Test ClassifyDimension decision table + exact gate_type join"
+        description: |
+          Table-driven tests for ClassifyDimension covering the full allowlist:
+          declared+present+clean → none/proceed (CLM-003); declared+present+broken-cmd,
+          unparseable-output, unknown-key → class 1 (CLM-006/007/008); declared+missing →
+          class 3 (CLM-013); undeclared+absent → class 2 (CLM-010 verdict input); undeclared+
+          present → none/proceed. Plus: exactly one class per dimension, never two (CLM-004);
+          language-agnostic — same undeclared input yields class 2 for go and typescript
+          alike (CLM-005); and the EXACT join — a typo'd/unknown declared key is class 1, not
+          a silent class-2 fall-through (CLM-008, Sharp Edge 2).
+        files:
+          - pkg/gate/traceability_polarity_classify_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-013
+        depends_on:
+          - TASK-001
+          - TASK-102
+      - id: TASK-201
+        type: implementation
+        title: "Implement dimension constants, PolarityClass, CapabilityState, ClassifyDimension"
+        description: |
+          New file pkg/gate/traceability_polarity.go: TraceabilityDimension type +
+          DimensionSubstantiveness/Coverage/Contracts constants; PolarityClass int enum;
+          CapabilityState{Present,Working,PackOrCommand,Detail} type; an exact declaredDimension
+          helper joining cfg.Enforcement.Toolchain entries' gate_type against a dimension; and
+          ClassifyDimension(cfg, dim, cap) implementing the decision table. No language- or
+          tool-specific branch — joins declaration surface against the supplied CapabilityState.
+          Makes TASK-200 pass.
+        files:
+          - pkg/gate/traceability_polarity.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-013
+        depends_on:
+          - TASK-200
+      - id: TASK-202
+        type: verification
+        title: "Verify classifier (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the classifier file
+          builds, lints clean, and the decision-table tests pass. Gate cadence for the
+          classifier phase.
+        files:
+          - pkg/gate/traceability_polarity.go
+          - pkg/gate/traceability_polarity_classify_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-201
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: report-surface result model — warning status + StepsWarned
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Non-Failing warning Status and StepsWarned Counter"
+    description: |
+      Extend the gate RESULT model so a class-2 advisory is non-failing yet visible: add
+      the GateResult.StepsWarned counter, make NewGateResultWithScope treat the new
+      "warning" status as non-failing for Pass while incrementing StepsWarned, and render
+      the warned count in the FormatHuman summary line + a distinct per-step warning marker
+      in formatStatus (FormatJSON carries it via Status/Severity automatically). This is the
+      pure result/output surface; it is independent of the classifier file (disjoint files
+      → parallel-eligible with Phase 3).
+    tasks:
+      - id: TASK-300
+        type: test
+        title: "Test warning is non-failing, counted, and rendered conspicuously"
+        description: |
+          Tests in pkg/gate that NewGateResultWithScope: a "warning"-status step does NOT
+          set Pass=false (gate exits 0) but DOES increment StepsWarned (CLM-011 no exit
+          contribution); that FormatHuman renders a distinct warning marker per step
+          (CLM-015) AND the warned count in the summary line alongside passed/failed/skipped
+          (CLM-030); that FormatJSON emits the warning-tagged entry (status + severity) and
+          StepsWarned, distinguishable from a plain pass (CLM-016); and that a passing gate
+          carrying warnings still surfaces them in both human and JSON output (CLM-017).
+        files:
+          - pkg/gate/result_warning_test.go
+          - pkg/gate/output_warning_test.go
+        claims:
+          - CLM-011
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-030
+        depends_on:
+          - TASK-001
+      - id: TASK-301
+        type: implementation
+        title: "Add StepsWarned to GateResult + non-failing warning in NewGateResultWithScope"
+        description: |
+          Add `StepsWarned int json:"steps_warned"` to GateResult (result.go:72) and a
+          "warning" case to the NewGateResultWithScope status switch (result.go:127) that
+          increments StepsWarned WITHOUT setting Pass=false (Sharp Edge 3). Does not touch
+          the analyzers. Makes the result half of TASK-300 pass.
+        files:
+          - pkg/gate/result.go
+        claims:
+          - CLM-011
+          - CLM-017
+        depends_on:
+          - TASK-300
+      - id: TASK-302
+        type: implementation
+        title: "Render warning in FormatHuman summary + formatStatus marker"
+        description: |
+          Add a "warning" branch to formatStatus (output.go:126) producing a distinct,
+          conspicuous marker (visually different from pass) and extend the FormatHuman
+          summary line (output.go:102) to render the warned count alongside passed/failed/
+          skipped (e.g. "Steps: N passed, M failed, K skipped, W warned"). FormatJSON already
+          serializes Status + Violations[].Severity + (now) StepsWarned, so no JSON
+          formatter change beyond the new status value. Makes the output half of TASK-300
+          pass. Depends on the StepsWarned field from TASK-301.
+        files:
+          - pkg/gate/output.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-030
+        depends_on:
+          - TASK-300
+          - TASK-301
+      - id: TASK-303
+        type: verification
+        title: "Verify result/output warning surface (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the result + output
+          changes build, lint clean, and the warning-surface tests pass. Gate cadence for
+          the report-surface phase.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - pkg/gate/result_warning_test.go
+          - pkg/gate/output_warning_test.go
+        claims:
+          - CLM-017
+          - CLM-030
+        depends_on:
+          - TASK-301
+          - TASK-302
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: PolarityStepResult — class → StepResult, messages, waive, exits
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Class→StepResult Mapping, Fail-Loud Messages, and Waive"
+    description: |
+      Implement PolarityStepResult: convert a PolarityClass into a StepResult — class 1/3
+      set ConfigErr=true (block exit 2), class 2 emits a non-failing "warning" status, and a
+      waived dimension's class-2 advisory is suppressed to a plain pass. Every message is
+      fail-loud AND useful (dimension + stack + exact pack/command + next step; class 1
+      carries expected-vs-got). Builds on the classifier (Phase 3) and the warning result
+      surface (Phase 4).
+    tasks:
+      - id: TASK-400
+        type: test
+        title: "Test class→StepResult exits, fail-loud messages, and waive scoping"
+        description: |
+          Table-driven tests for PolarityStepResult:
+            - class 1 broken-declared (command errors / unparseable output / unknown key) →
+              ConfigErr=true, status fail, blocks exit 2 (CLM-006/007/008); never downgraded
+              to warn / exit 0 (CLM-009).
+            - class 2 capability-absent → "warning" status, ConfigErr false, passes exit 0
+              (CLM-010); status not "fail", no exit contribution (CLM-011); repeated
+              classification stays class 2 with no escalation knob honored (CLM-012).
+            - class 3 declared-intent-unmet → ConfigErr=true, blocks exit 2 (CLM-013); not
+              downgraded to a class-2 warn-and-pass (CLM-014).
+            - waive: a waived dimension's class-2 advisory is suppressed and the gate still
+              passes (CLM-022); a waive does NOT silence class 1 (CLM-023) nor class 3
+              (CLM-024) — those still block at exit 2 (Sharp Edge 3 waive-hole).
+            - messages: class-2 names dimension+stack+pack/command+declare-or-waive (CLM-018);
+              class-1 carries expected-vs-got (CLM-019); class-3 names the missing capability
+              + fix (CLM-020); no path emits a bare exit code or unannotated "failed"
+              (CLM-021).
+        files:
+          - pkg/gate/traceability_polarity_step_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-014
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-202
+          - TASK-303
+      - id: TASK-401
+        type: implementation
+        title: "Implement PolarityStepResult (class→StepResult, messages, waive suppression)"
+        description: |
+          Add PolarityStepResult(stepName, dim, class, cfg, cap) to
+          pkg/gate/traceability_polarity.go: class 1/3 → Status "fail", ConfigErr true, with
+          a fail-loud-and-useful Violation (REQ-006: dimension + stack + exact pack/command +
+          next step; class 1 adds expected-vs-got). Class 2 → non-failing "warning" status,
+          ConfigErr false, conspicuous advisory Violation tagged Severity "warning"; if the
+          dimension is waived (same exact gate_type join as classification) the advisory is
+          suppressed to a plain "pass". A waive can NEVER reach a class-1/class-3 result.
+          Makes TASK-400 pass.
+        files:
+          - pkg/gate/traceability_polarity.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-014
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-400
+      - id: TASK-402
+        type: verification
+        title: "Verify PolarityStepResult mapping (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the class→StepResult
+          mapping, message construction, and waive scoping build, lint clean, and pass.
+          Gate cadence for the class-mapping phase.
+        files:
+          - pkg/gate/traceability_polarity.go
+          - pkg/gate/traceability_polarity_step_test.go
+        claims:
+          - CLM-021
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-401
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Wiring — capability derivation + intercept-vs-fall-through
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Gate Wiring (CapabilityState derivation + classifier in front of analyzers)"
+    description: |
+      Wire the classifier into cmd/backstop/gate.go's buildGateSteps so it runs IN FRONT OF
+      the three traceability analyzers: derive CapabilityState from cfg.Language +
+      baked-analyzer presence (no pack/engine), call ClassifyDimension, and for class 1/2/3
+      return PolarityStepResult (INTERCEPT — analyzer not reached); fall through to the
+      UNCHANGED analyzer only when declared-and-working. The analyzer files are NOT in scope
+      (REQ-008). CLM-028 spies the analyzer delegate so an unwired classifier fails. CLM-025/
+      026/027 preserve the analyzers' existing verdicts.
+    tasks:
+      - id: TASK-500
+        type: test
+        title: "Test CapabilityState derivation (go present / typescript absent → class 2)"
+        description: |
+          Tests in cmd/backstop that the wiring derives CapabilityState from cfg.Language
+          (config.go:22) + baked-Go-analyzer presence ONLY (no pack/engine): for
+          language:typescript an UNDECLARED traceability dimension derives Absent →
+          ClassifyDimension returns class 2 (warn, exit 0), NOT a silent pass and NOT a
+          mis-applied Go analyzer (CLM-029); for language:go with the baked analyzer present
+          the same undeclared dimension is capability-present (CLM-029 contrast). Also assert
+          a capability-absent dimension never auto-promotes to blocking across repeated runs
+          (CLM-012 wiring view).
+        files:
+          - cmd/backstop/gate_capability_test.go
+        claims:
+          - CLM-012
+          - CLM-029
+        depends_on:
+          - TASK-402
+      - id: TASK-501
+        type: test
+        title: "Test classifier intercepts class 1/2/3 and falls through when working (spy)"
+        description: |
+          Wiring test in cmd/backstop with a SENTINEL/SPY on the analyzer delegate proving
+          buildGateSteps wraps the three traceability builders correctly: for class 1/2/3 the
+          wrapper returns PolarityStepResult and the analyzer is NOT reached (spy not
+          invoked); for declared-and-working the wrapper falls through unchanged and the
+          analyzer IS reached (spy invoked) (CLM-028). An UNWIRED classifier (analyzer always
+          reached) MUST fail this test. Plus the REQ-008 verdict-preservation checks routed
+          through the unchanged analyzers: substantiveness verdict preserved (CLM-025),
+          contract verdict preserved (CLM-026), coverage verdict preserved (CLM-027) — the
+          analyzer files themselves are NOT edited.
+        files:
+          - cmd/backstop/gate_wiring_test.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-402
+      - id: TASK-502
+        type: implementation
+        title: "Wire classifier into buildGateSteps (derive capability, intercept, fall through)"
+        description: |
+          In cmd/backstop/gate.go: wrap buildTestSubstantivenessStep:453, buildCoverageStep:475,
+          buildContractStep:496 inside buildGateSteps:288. Derive CapabilityState from
+          cfg.Language (via the existing gateLanguage path, gate.go:234) + baked-Go-analyzer
+          presence (Present/Working only when language=="go" and the baked analyzer exists/
+          isn't broken; Absent when language!="go") — no pack, no engine (REQ-008). Call
+          ClassifyDimension; for class 1/2/3 return PolarityStepResult (intercept — do NOT run
+          the analyzer); fall through to the unchanged analyzer step when declared-and-working
+          or undeclared-but-present. Makes TASK-500 and TASK-501 pass. The three analyzer
+          files are NOT modified.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-012
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-500
+          - TASK-501
+      - id: TASK-503
+        type: verification
+        title: "Verify wiring (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the buildGateSteps wiring
+          builds, lints clean, and the cmd/backstop capability-derivation + intercept/
+          fall-through spy tests pass. Confirms the unit-green-but-unwired integration gap is
+          closed before the final full gate.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_capability_test.go
+          - cmd/backstop/gate_wiring_test.go
+        claims:
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-502
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Final comprehensive verification (full gate + artifact validate)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification (full gate + artifact validate)"
+    description: |
+      Final kill chain across all work categories. The plan touches .go files (pkg/gate,
+      pkg/config, cmd/backstop) AND an artifact (artifacts/backstop-yml/v1/schema.json),
+      so the final phase runs the full `backstop gate` (artifact validation, code check,
+      test verification, substantiveness, coverage, contracts) AND `backstop artifact
+      validate`. Confirms all 30 claims are satisfied, REQ-008 held (analyzers untouched),
+      the warning summary surface is conspicuous, and the classifier is wired in front of
+      the analyzers.
+    tasks:
+      - id: TASK-600
+        type: verification
+        title: "Run full backstop gate over the implementation"
+        description: |
+          Run `backstop gate` — the full kill chain — over the complete change: artifact
+          validation, code check, test verification, substantiveness, coverage (>=90 per the
+          spec threshold), and contracts. Confirms the class→exit polarities, the non-failing
+          warning surface, the waive scoping, the wiring intercept/fall-through, and the
+          CapabilityState derivation all hold end-to-end and that the three analyzers remain
+          untouched (REQ-008).
+        files:
+          - pkg/gate/traceability_polarity.go
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - cmd/backstop/gate.go
+          - pkg/config/config.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-009
+          - CLM-013
+          - CLM-014
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-502
+          - TASK-503
+      - id: TASK-601
+        type: verification
+        title: "Run backstop artifact validate on the schema change"
+        description: |
+          Run `backstop artifact validate` to confirm the embedded backstop-yml schema
+          change (gate_type / waived additive properties) is structurally valid and that no
+          existing artifact regressed. Covers the artifact work category in the final phase.
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-101
+          - TASK-503

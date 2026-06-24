@@ -1,0 +1,1199 @@
+---
+plan_id: PLAN-SPEC-037
+spec_id: SPEC-037
+spec_version: 1.2.1
+created: "2026-06-22"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-037 (BUNDLE-009 Seed 3 — substantiveness as a PACK). Eradicates the
+  baked-in Go substantiveness analyzer in pkg/gate/step_testverify.go and re-implements
+  its two questions across the PACK / GATE / BINARY split: Q1 hollow-test becomes an
+  ast-grep FINDINGS rule (per-language assertion vocabulary in YAML → SARIF); Q2 noTarget
+  becomes a pack EXTRACTION query (referenced symbols) PLUS a thin, language-agnostic GATE
+  SET-JOIN. The gate keeps only the noTarget set-membership test + SARIF consumption; the
+  binary learns zero language/tool specifics.
+
+  ===================================================================
+  STRANGLER ORDERING IS A HARD FENCE (Sharp Edge 3 / REQ-006 GATES REQ-001)
+  ===================================================================
+  The strangler-equivalence pass (REQ-006, Phase 4) MUST run and PASS over REAL Go
+  fixtures with REAL ast-grep — proving the pack path reproduces the still-present
+  analyzer's verdict on each verdict-matrix cell (hollow / substantive / no-target /
+  calls-target / same-package) — BEFORE the analyzer deletion (REQ-001, Phase 6). The
+  equivalence pass COMPARES the pack verdict against the LIVE pre-deletion analyzer, so
+  the analyzer symbols (checkSubstantiveness / hasAssertions / callsTargetPackage /
+  samePackage / StepTestSubstantiveness*) MUST still exist when Phase 4 runs. Phase 6's
+  deletion task depends on the Phase 4 equivalence IMPLEMENTATION (the harness that calls
+  the live analyzer). Deleting before parity is proven makes the equivalence claims vacuous
+  (nothing to compare against). Order: prove parity (Phase 4), THEN delete (Phase 6). The
+  deletion + the existing-test cleanup (REQ-008) happen in the SAME change so pkg/gate
+  keeps compiling.
+
+  ===================================================================
+  THE DISPATCH RETURNS A FLAT, gate_type-LESS, IDENTITY-LESS STREAM (Sharp Edge 5 / REQ-007)
+  ===================================================================
+  GROUND TRUTH: the flat-violation conversion (cmd/backstop/pack_gate.go:460-466) keeps
+  ONLY {Rule, File, Message, Severity, SourcePack} — Line/region is DROPPED, there is NO
+  FuncName field, and there is NO GateType field on gate.Violation / check.Violation.
+  Two consequences the implementer MUST honor exactly:
+    (1) ROUTING is by NAMESPACED RULE ID (pack.NamespacedRuleID, pkg/pack/coordinate.go:42),
+        NOT by a gate_type discriminator (none exists). RouteSubstantivenessFindings
+        partitions the flat []gate.Violation by matching the substantiveness pack's stable
+        hollow-rule-ID and extraction-rule-ID on each violation's Rule.
+    (2) PER-TEST KEYING comes from the extraction rule's EMBEDDED SARIF MESSAGE TEXT.
+        Because Line/region is dropped and there is no FuncName field, the Q2 extraction
+        rule MUST embed the enclosing test function name (and referenced symbol) INTO the
+        SARIF `message`, in a PINNED, parseable format; ReferencedSetForTest parses the
+        FuncName out of Message and joins by (FilePath, FuncName) — it MUST NOT rely on
+        Line/region and MUST NOT re-walk the test AST gate-side (Sharp Edge 2 forbids a
+        re-baked spec-aware gate-side analyzer).
+
+  ===================================================================
+  THE PINNED EXTRACTION MESSAGE FORMAT (REQ-007 / CLM-025)
+  ===================================================================
+  The Q2 extraction rule emits one SARIF result per (test, referenced-symbol). Its message
+  MUST carry, in a stable machine-parseable shape, BOTH the enclosing test function name and
+  the referenced symbol/package — e.g. "referenced-symbol func=<TestFuncName> symbol=<pkg>".
+  TASK-100 PINS the exact format string; ReferencedSetForTest parses func= and symbol= out
+  of Message. File comes from the violation's File field; FuncName comes ONLY from the
+  message (NOT from Line/region, which is dropped). This is a string/set operation over pack
+  SARIF — no go/parser, no go/ast, no per-(test,target) parameterized pack query.
+
+  ===================================================================
+  THE SET-JOIN STAYS GATE-SIDE + LANGUAGE-AGNOSTIC (Sharp Edge 1/2 / REQ-003)
+  ===================================================================
+  NoTargetViolation is the ONLY remaining noTarget logic and it is a set/string membership
+  test over pack-extracted data. The decision table (exhaustive, no fourth disposition):
+    targetPkg=="" (cmd/ or non-pkg/)         → SKIP (no violation)
+    targetPkg!="" && samePackage             → satisfied (no violation)
+    targetPkg!="" && !samePackage && in set  → satisfied (no violation)
+    targetPkg!="" && !samePackage && not set → noTarget violation
+  TargetPackageName is relocated behavior-preserving (pkg/... → last component; cmd/ and
+  non-pkg/ → ""). A subtle change (returning non-empty for cmd/) flips the empty-target SKIP
+  into a spurious noTarget — CLM-009/CLM-028 pin the empty-target skip and the relocation.
+  The pack stays spec-UNAWARE: the join knowledge (target package) lives ONLY in the gate.
+
+  ===================================================================
+  WIRING IS SPY-VERIFIED ON THE REAL SEAM (Sharp Edge 4 / REQ-005)
+  ===================================================================
+  buildTestSubstantivenessStep MUST NOT re-implement dispatch. It reaches the
+  substantiveness pack's findings + extraction through the EXISTING
+  resolveDispatchPackEngines() / dispatchPackEnginesFn seam (cmd/backstop/code_check.go:45-49,
+  the same dispatcher code check and the pack_engines step at gate.go:424 use), then routes
+  (RouteSubstantivenessFindings), keys (ReferencedSetForTest), and set-joins
+  (NoTargetViolation). A SPY installed on the REAL dispatchPackEnginesFn seam mechanically
+  proves the step reached the dispatcher with the substantiveness pack set (CLM-015); an
+  UNWIRED step (never reaches dispatchPackEnginesFn) records zero invocations and the test
+  asserts non-zero (CLM-016); no baked analyzer delegate is invoked — it no longer exists
+  (CLM-017). The wiring locus is in cmd/backstop/gate.go (OUTSIDE pkg/gate) — which is why
+  the test_command adds ./cmd/backstop/.
+
+  ===================================================================
+  THE TS PROOF PACK IS SHARED WITH SPEC-038 — ADDITIVE, NOT A FORK (Sharp Edge 6)
+  ===================================================================
+  This spec ADDS substantiveness rules + .test.ts fixtures to the SINGLE shared TypeScript
+  proof pack; SPEC-038 (Seed 4) adds the contract rules to the SAME pack. This plan creates
+  the TS pack under pkg/gate/testdata/ as a self-contained fixture pack for this spec's
+  integration tests; it MUST be authored as additive (a substantiveness rule + its fixtures)
+  so SPEC-038 can extend the same manifest, NOT a separate forked pack. The TS proof is
+  REAL: real ast-grep over real .test.ts fixtures riding the SAME dispatch path as the Go
+  rule — unsatisfiable by a stub (CLM-014).
+
+  ===================================================================
+  PROVISIONING — INSTALLED LOCAL PACK, NOT EMBEDDED, NOT TESTDATA-AS-PRODUCTION (REQ-009)
+  ===================================================================
+  The substantiveness pack is an ORDINARY INSTALLED pack — the binary ships ONLY a way to
+  install + execute packs. Two DISTINCT pack locations exist and must not be conflated:
+    (A) The pkg/gate/testdata/substantiveness-pack/ pack (Phase 1) is a TEST-ONLY fixture
+        the pkg/gate integration tests (Q1 / set-join / strangler) dispatch over directly.
+        testdata is a test convenience, NEVER the path a real gate run resolves the pack from.
+    (B) The pack SOURCE shipped in-repo at packs/substantiveness/ (REQ-009) is the REAL,
+        dogfood-installable pack. backstop-core installs it INTO ITSELF as a LOCAL pack via
+        the shipped distribution path: distribution.Add("packs/substantiveness", ...) records
+        it in backstop.yml as `backstop/substantiveness: local` and writes a `local`
+        SourceType lockfile entry (precedent: backstop/go-standards already declared `local`).
+        VerifyLock SKIPS `local` packs (verify.go:46-47), so no remote artifact is needed.
+  REQ-010's END-TO-END proof (CLM-032..034) resolves the pack from the INSTALLED (local)
+  declaration — location (B) — NOT from testdata. There MUST be NO //go:embed, no compiled-in
+  rule YAML, and no production code path that resolves the substantiveness pack from a
+  testdata directory (CLM-030 pins no-embed / no-testdata-in-production).
+
+  ===================================================================
+  REAL OVER-INSTALLED-PACK E2E — UNSTUBBABLE BY CONSTRUCTION (REQ-010 / CLM-032..034)
+  ===================================================================
+  REQ-005's spy proves the STEP calls the dispatch seam; it does NOT prove the whole pipeline
+  runs over a real INSTALLED pack. REQ-010 adds the over-installed-pack proof. The E2E test
+  (TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed) is structured to be
+  UNSTUBBABLE:
+    1. It first INSTALLS the pack as a local pack via the REAL distribution.Add path (pack
+       declared `backstop/substantiveness: local` in a temp backstop.yml + `local` lockfile
+       entry); the install is a PRECONDITION of the assertion, not mocked.
+    2. It runs the WHOLE production gate substantiveness path over a genuinely HOLLOW backstop
+       *_test.go source: real pack RESOLUTION from the installed declaration → real
+       dispatchPackEngines (NOT the test seam stub) → real ast-grep over the real source →
+       real convert (ast-grep→SARIF via the convert script under the REAL macOS sandbox) →
+       SARIF → RouteSubstantivenessFindings + NoTargetViolation set-join, and asserts a REAL
+       test_substantiveness violation is produced by the whole chain.
+    3. The NEGATIVE twin (TestE2E_SubstantivenessUninstalled_NoVacuousGreen) runs the SAME
+       hollow fixture through the SAME production path with the local pack declaration/lock
+       ABSENT and asserts NO substantiveness violation — so the test cannot pass vacuously: the
+       violation can ONLY come from the real installed pack actually running, not from a stub,
+       not from testdata-pointed-at-by-production, and not from the REQ-005 seam spy.
+    4. CLM-034 asserts the proof exercises BOTH multi-rule ast-grep dispatch (the pack carries
+       2 ast-grep rules, Q1 hollow + Q2 extraction; ISSUE-028 makes multi-rule dispatch real)
+       AND the convert script under the real macOS sandbox (ISSUE-029).
+  Substrate is FIXED: ISSUE-028 (multi-rule ast-grep dispatch via sgconfig) + ISSUE-029
+  (sandboxed convert) are SHIPPED, so the real ast-grep + real convert path genuinely runs.
+  Like all real-ast-grep tasks here, the E2E + Q1 + strangler MUST t.Fatal (NOT t.Skip) if
+  ast-grep is absent — a skipped real-engine test is a silent gap.
+
+  ===================================================================
+  CAPABILITY RE-KEY IS SUBSTANTIVENESS-DIMENSION-ONLY (REQ-009 / CLM-035 / CLM-036)
+  ===================================================================
+  SPEC-036 shipped deriveCapabilityState at cmd/backstop/gate.go:272, which keys EVERY
+  traceability dimension's CapabilityState on cfg.Language + baked-Go-analyzer presence. This
+  spec DELETES the baked substantiveness analyzer, so the SUBSTANTIVENESS arm of that function
+  MUST re-key onto the INSTALLED substantiveness pack (Present/Working iff the pack is
+  installed/resolvable; undeclared+absent → class-2, declared+absent → class-3 per SPEC-036).
+  The re-key is DIMENSION-ASYMMETRIC and this is a HARD FENCE: the COVERAGE and CONTRACTS arms
+  MUST stay on their existing keying UNCHANGED — coverage was descoped (analyzer deleted, no
+  in-bundle replacement) and contracts keeps its baked analyzer until SPEC-038/Seed 4 ships
+  its pack; re-keying contracts now would mark it capability-absent before its pack exists and
+  break the gate. CLM-036 pins the asymmetry. The shipped SPEC-036 test
+  TestCapabilityState_NonGoProject_DerivesAbsentClass2 (cmd/backstop/gate_capability_test.go:17)
+  currently LOOPS uniformly over all 3 dimensions asserting the OLD baked-analyzer keying — it
+  goes RED on ./cmd/backstop/ the moment substantiveness re-keys. It MUST be MIGRATED in the
+  SAME change (REQ-008 extended / CLM-037): split the substantiveness dimension out to assert
+  the INSTALLED-pack keying, keep the coverage/contracts arms on the baked-Go assertion. This
+  is an OPEN alignment of SPEC-036's derivation via implementation (align-predating-artifacts);
+  SPEC-036 itself is NOT revised.
+
+  ===================================================================
+  WIP REUSE — READ, DON'T CHERRY-PICK (commit 816fc64)
+  ===================================================================
+  A preserved wip branch wip/seed-3-substantiveness-eradication (commit 816fc64) carries
+  prior, impl-reviewed-sound implementations of the SOUND CORE: pkg/gate/substantiveness_join.go
+  (set-join + routing + keying), the strangler harness (substantiveness_strangler.go), the Q1
+  ast-grep dispatch glue (substantiveness_q1_dispatch.go), the analyzer deletion in
+  step_testverify.go, the spy wiring in cmd/backstop/gate.go, and the pack rules + Go/TS
+  fixtures. The implementer SHOULD READ those via `git show wip/seed-3-substantiveness-eradication:<path>`
+  to avoid re-deriving the sound core. DO NOT git cherry-pick — the wip predates ISSUE-028/029
+  and would conflict; reference-and-reapply only. The wip was BLOCKED on the now-fixed substrate
+  (multi-rule dispatch, sandboxed convert), and PREDATES the REQ-009/REQ-010 provisioning +
+  capability-re-key + E2E delta, so those tasks are NEW work with no wip to reuse.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — substantiveness pack rules + Go/TS fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Substantiveness Pack Rules and Fixtures (Go + shared TS proof pack)"
+    description: |
+      Author the substantiveness pack in TWO locations (see notes PROVISIONING): (A) the
+      pkg/gate/testdata/substantiveness-pack/ TEST-ONLY fixture pack the pkg/gate integration
+      tests dispatch over directly, and (B) the REAL in-repo pack SOURCE at packs/substantiveness/
+      that backstop-core dogfood-installs into itself as a LOCAL pack (REQ-009). Both carry the
+      Q1 hollow-test ast-grep FINDINGS rule (assertion vocabulary in YAML), the Q2 referenced-
+      symbol EXTRACTION ast-grep query (embedding the enclosing test func name + referenced
+      symbol into the SARIF message per the PINNED format), and the convert script. Also add the
+      real Go fixtures (hollow / substantive / no-target / calls-target / same-package) the Q1,
+      set-join, and strangler phases consume, and the REAL hollow-test substantiveness rule +
+      .test.ts fixtures (hollow / substantive) to the SHARED TypeScript proof pack (additive —
+      SPEC-038 extends the same manifest). Inert pack YAML + fixture source only; no production
+      Go here. REUSE: the wip branch (816fc64) carries prior pack rules + fixtures — READ via
+      `git show wip/seed-3-substantiveness-eradication:<path>`; do NOT cherry-pick (notes).
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author Go substantiveness pack (Q1 hollow rule + Q2 extraction rule + manifest)"
+        description: |
+          Create the Go substantiveness pack under pkg/gate/testdata/substantiveness-pack/
+          declaring ast-grep as its engine (per SPEC-035 pack-declared-engines):
+            - A Q1 hollow-test FINDINGS rule with a stable rule ID: a test-declaration node
+              that does NOT `has` a descendant assertion-shaped call, the assertion vocabulary
+              (require|assert|check|verify|expect|must …) expressed ENTIRELY in the rule YAML
+              (no hardcoded selector list in the binary — CLM-006). Hollow → finding (RED),
+              substantive → no finding (GREEN).
+            - A Q2 referenced-symbol EXTRACTION rule with a stable rule ID: a positive query
+              emitting one SARIF result per (test, referenced-symbol), its SARIF message
+              embedding the enclosing test function name AND referenced symbol in the PINNED
+              format pinned by TASK-100 (func=<TestFuncName> symbol=<pkg>). The pack is
+              spec-UNAWARE — it only reports what the test references.
+          The two rule IDs are the routing keys (pack.NamespacedRuleID form) consumed by
+          RouteSubstantivenessFindings (REQ-007). Pack/rules/manifest are inert YAML.
+          CONVERT SCRIPT IS MANDATORY: this fixture pack is dispatched through REAL ast-grep by the
+          Q1 (TASK-200/201) and strangler (TASK-300/301) phases, and a findings pack with a
+          `convert:` binding HARD-ERRORS "broken pack: missing convert script" at
+          cmd/backstop/pack_gate.go:414-416 if the script is absent. So this pack MUST ship its own
+          in-pack ast-grep→SARIF convert script (ast-grep/to-sarif.sh), and pack.yml's convert
+          binding MUST point at that in-pack path (resolved relative to THIS pack root — the
+          existing convention, e.g. cmd/backstop/testdata/astgrep-multirule/.../ast-grep/to-sarif.sh).
+        files:
+          - pkg/gate/testdata/substantiveness-pack/pack.yml
+          - pkg/gate/testdata/substantiveness-pack/ast-grep/hollow-test-go.yml
+          - pkg/gate/testdata/substantiveness-pack/ast-grep/referenced-symbol-go.yml
+          - pkg/gate/testdata/substantiveness-pack/ast-grep/to-sarif.sh
+        claims:
+          - CLM-006
+        depends_on: []
+      - id: TASK-002
+        type: setup
+        title: "Author real Go verdict-matrix fixtures (hollow/substantive/no-target/calls-target/same-package)"
+        description: |
+          Create the REAL Go test-file fixtures the Q1 pack rule, the gate set-join, and the
+          strangler-equivalence pass run real ast-grep over — one per verdict-matrix cell:
+            - hollow_test.go: a test that calls the subject but asserts nothing (Q1 RED).
+            - substantive_test.go: a test with at least one assertion-shaped call (Q1 GREEN).
+            - notarget_test.go: a substantive test that does NOT reference the target package
+              (Q2 noTarget RED).
+            - callstarget_test.go: a substantive test that references the target package via a
+              package-qualified call (Q2 GREEN).
+            - samepackage_test.go: a substantive test residing in the target package itself
+              (Q2 GREEN via same-package short-circuit).
+          Real .go fixtures (not stubs), backing CLM-003/004 (Q1), CLM-007..010 (set-join), and
+          CLM-018..023 (strangler). No production code.
+        files:
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/hollow_test.go
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/substantive_test.go
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/notarget_test.go
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/callstarget_test.go
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/samepackage_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on: []
+      - id: TASK-003
+        type: setup
+        title: "Add real hollow-test substantiveness rule + .test.ts fixtures to the SHARED TS proof pack"
+        description: |
+          Add a REAL ast-grep hollow-test substantiveness rule (per-language TS assertion
+          vocabulary in YAML; node = a TS test declaration that does NOT `has` an assertion-
+          shaped call such as expect/assert/verify) to the SHARED TypeScript proof pack under
+          pkg/gate/testdata/ts-proof-pack/, plus two REAL .test.ts fixtures — one hollow (calls
+          the subject, asserts nothing) and one substantive (uses expect/an assertion verb). The
+          pack is authored ADDITIVELY (a substantiveness rule with its own stable rule ID) so
+          SPEC-038 can add its contract rules to the SAME manifest without a fork (Sharp Edge 6).
+          Real rule + real fixtures (no stub): CLM-012/013/014 assert concrete findings through the
+          shared dispatch path.
+          CONVERT SCRIPT IS MANDATORY: this TS proof pack is dispatched through REAL ast-grep
+          (CLM-012/013/014), and a findings pack with a `convert:` binding HARD-ERRORS "broken pack:
+          missing convert script" at cmd/backstop/pack_gate.go:414-416 if the script is absent. So
+          this pack MUST ship its own in-pack ast-grep→SARIF convert script (ast-grep/to-sarif.sh),
+          and pack.yml's convert binding MUST point at that in-pack path (resolved relative to THIS
+          pack root — the existing convention). Authored additively so SPEC-038 reuses the same
+          convert script + manifest.
+        files:
+          - pkg/gate/testdata/ts-proof-pack/pack.yml
+          - pkg/gate/testdata/ts-proof-pack/ast-grep/hollow-test-ts.yml
+          - pkg/gate/testdata/ts-proof-pack/ast-grep/to-sarif.sh
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/hollow.test.ts
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/substantive.test.ts
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on: []
+      - id: TASK-004
+        type: setup
+        title: "Author the REAL installable pack SOURCE at packs/substantiveness/ (location B, not testdata, not embedded)"
+        description: |
+          Create the REAL, dogfood-installable substantiveness pack SOURCE in-repo at
+          packs/substantiveness/ — the pack a real gate run resolves from the INSTALLED (local)
+          declaration, NOT from testdata and NOT //go:embed-bundled (REQ-009 / CLM-030). This is
+          location (B) in the notes PROVISIONING section, distinct from the pkg/gate/testdata
+          fixture pack (location A, TASK-001). It declares ast-grep as its engine and carries the
+          SAME two stable-rule-ID ast-grep rules (Q1 hollow-test FINDINGS + Q2 referenced-symbol
+          EXTRACTION) plus the ast-grep→SARIF convert script, so installing it gives backstop-core
+          a real, multi-rule (ISSUE-028), sandbox-convert (ISSUE-029) substantiveness pack. The
+          rule IDs match the routing keys (pack.NamespacedRuleID) the gate consumes. The pack is
+          an ORDINARY pack — its rule YAML lives ONLY in this source dir, never compiled into the
+          binary. This is the pack REQ-010's E2E (Phase 6b) installs as a local pack and the
+          capability re-key (Phase 6a) keys on. Inert pack YAML + convert script only; no
+          production Go. REUSE: the wip rules (816fc64 substantiveness-pack/) are the template —
+          READ, do not cherry-pick (notes).
+        files:
+          - packs/substantiveness/pack.yml
+          - packs/substantiveness/ast-grep/hollow-test-go.yml
+          - packs/substantiveness/ast-grep/referenced-symbol-go.yml
+          - packs/substantiveness/ast-grep/to-sarif.sh
+        claims:
+          - CLM-030
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Gate set-join + consumption seam + Q1/hollow conversion
+  #          (one STRICT TDD CHAIN — all on pkg/gate/substantiveness_join.go)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Set-Join, Consumption Seam, and Hollow-Violation Conversion (substantiveness_join.go)"
+    description: |
+      Implement the new pkg/gate/substantiveness_join.go end to end as a STRICT TDD CHAIN —
+      every task touches the same file, so they form a single dependency chain (never
+      parallel-eligible, D-081 safe): the relocated behavior-preserving TargetPackageName, the
+      ReferencedSymbolSet type, the NoTargetViolation set-join decision table, the REQ-007
+      consumption-seam helpers (RouteSubstantivenessFindings by NAMESPACED rule ID — NOT
+      gate_type; ReferencedSetForTest keyed by (FilePath, FuncName) parsed from the SARIF
+      Message), the Q1 routed-hollow → per-test verdict helper, and the hollow-finding →
+      test_substantiveness violation conversion preserving the "test X has no assertions
+      (hollow)" message. Pure language-agnostic logic over flat pack SARIF — no go/parser, no
+      ast-grep invocation in this file.
+    tasks:
+      - id: TASK-100
+        type: test
+        title: "Test TargetPackageName, NoTargetViolation table, routing-by-rule-ID, per-test keying"
+        description: |
+          Table-driven tests in pkg/gate for the set-join + consumption seam, PINNING the
+          extraction SARIF message format. This task MUST produce these EXACT spec-mandated test
+          functions (SPEC-037 claims[].tests — the gate's test_verification checks each FuncName
+          exists in code):
+            - TestTargetPackageName_MigratedBehaviorPreserved (CLM-028) — TargetPackageName:
+              pkg/... → last component; cmd/... and non-pkg/ → "" (the empty-target input feeding
+              CLM-009; this is the relocated-behavior coverage, migrated here from the deleted
+              TestGate_TargetPackageName).
+            - TestQ2_SetJoin_ReferencesTarget_NoViolation (CLM-007) — target in set → no violation.
+            - TestQ2_SetJoin_DoesNotReferenceTarget_RaisesNoTarget (CLM-008) — target not in set →
+              noTarget violation "test X does not call package P".
+            - TestQ2_SetJoin_EmptyTargetPackage_Skipped (CLM-009) — empty targetPkg → skipped.
+            - TestQ2_SetJoin_SamePackage_Satisfied (CLM-010) — samePackage true → satisfied.
+            - TestQ2_NoTargetIsGateSetTest_NotBakedAnalyzer (CLM-011) — the verdict is a pure
+              set/string test with no go/parser re-introduced.
+            - TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream (CLM-024) — a FLAT
+              []gate.Violation stream with substantiveness hollow + extraction findings INTERLEAVED
+              with unrelated pack-rule findings → helper returns ONLY hollow + extraction (matched by
+              NamespacedRuleID), ignoring the rest; NO gate_type field consulted.
+            - TestRoute_KeysExtractionFindingsToMandatedTest (CLM-025) — PINS the extraction message
+              format (func=<TestFuncName> symbol=<pkg>); parses FuncName out of Message (NOT
+              Line/region — dropped by the flat conversion), joins findings to a MandatedTest by
+              (FilePath, FuncName) so a finding for test X contributes only to X's set.
+            - TestRoute_NoExtractionFinding_EmptySetFlowsToSetJoin (CLM-026) — a test with NO
+              extraction finding yields an EMPTY set flowing to the decision table unchanged.
+        files:
+          - pkg/gate/substantiveness_join_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-028
+        depends_on:
+          - TASK-001
+      - id: TASK-101
+        type: implementation
+        title: "Implement substantiveness_join.go set-join + routing + keying + TargetPackageName"
+        description: |
+          New file pkg/gate/substantiveness_join.go:
+            - type ReferencedSymbolSet map[string]bool.
+            - func TargetPackageName(implementationPackage string) string — relocated from the
+              analyzer's targetPackageName, behavior-preserving (pkg/... → last path component;
+              cmd/... and non-pkg/ → "").
+            - func NoTargetViolation(funcName, targetPkg string, referenced ReferencedSymbolSet,
+              samePackage bool) (Violation, bool) — the exhaustive decision table (empty-target
+              skip / same-package satisfied / in-set satisfied / else noTarget violation).
+            - func RouteSubstantivenessFindings(violations []Violation, hollowRuleID,
+              extractionRuleID string) (hollow, extraction []Violation) — partition the flat
+              pack_engines stream by NAMESPACED rule ID (match violation.Rule), NOT gate_type.
+            - func ReferencedSetForTest(extraction []Violation, test MandatedTest)
+              ReferencedSymbolSet — parse FuncName + symbol from each finding's Message (PINNED
+              format), join to the MandatedTest by (FilePath, FuncName); empty when no match. No
+              go/parser, no go/ast. Makes TASK-100 pass.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-028
+        depends_on:
+          - TASK-100
+      - id: TASK-102
+        type: test
+        title: "Test Q1 routed-hollow → per-test hollow verdict helper"
+        description: |
+          Tests in pkg/gate for the Q1 consumption helper: given the hollow partition returned by
+          RouteSubstantivenessFindings, the helper maps each routed hollow finding back to its
+          mandated test and exposes whether a given test is hollow — so the wiring step and the
+          real-ast-grep Q1 phase can assert RED/GREEN polarity through the gate path without
+          re-walking ASTs. Covers the gate-side mapping the real Go hollow/substantive fixtures
+          (CLM-003/004) and the TS fixtures (CLM-012/013) resolve through, and that the TS mapping
+          rides the same gate consumption (CLM-014). Driven by synthetic routed findings here; the
+          REAL ast-grep end-to-end assertions live in Phase 3.
+
+          NAMING BINDING: the EXACT spec-mandated test functions for CLM-003/004/012/013/014
+          (TestQ1_Go_HollowTest_ProducesFinding, TestQ1_Go_SubstantiveTest_ProducesNoFinding,
+          TestTS_HollowTestTs_ProducesFinding_RealAstGrep,
+          TestTS_SubstantiveTestTs_ProducesNoFinding_RealAstGrep,
+          TestTS_SubstantivenessRidesSharedDispatch_NotStub) are produced by TASK-200 (the REAL
+          ast-grep phase) so the gate's test_verification finds them on the real-engine path. This
+          task's helper-unit tests MUST use DISTINCT descriptive names (e.g.
+          TestQ1Helper_RoutedHollow_PerTestVerdict) and MUST NOT reuse the mandated names — those
+          belong to the real-ast-grep assertions in TASK-200, not synthetic-finding unit drivers.
+        files:
+          - pkg/gate/substantiveness_join_q1_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-100
+      - id: TASK-103
+        type: implementation
+        title: "Implement Q1 routed-hollow → per-test hollow verdict helper"
+        description: |
+          Extend pkg/gate/substantiveness_join.go with the helper turning the routed hollow
+          partition into the per-test hollow verdict the substantiveness step raises: map each
+          routed hollow finding (by File, and FuncName parsed from its Message in the same PINNED
+          shape) to its mandated test and report whether that test is hollow. Language-agnostic (Go
+          and TS findings flow identically). Makes TASK-102 pass. Depends on the routing helper from
+          TASK-101.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-102
+          - TASK-101
+      - id: TASK-104
+        type: test
+        title: "Test hollow finding → one test_substantiveness violation (message preserved)"
+        description: |
+          Tests in pkg/gate that the gate raises exactly one test_substantiveness violation per
+          routed hollow finding, carrying the preserved "test X has no assertions (hollow)"
+          report-surface semantics (CLM-005). The semantics are asserted via the report message +
+          step name — the violation carries NO gate_type field (Sharp Edge 5), so the test must not
+          assert a non-existent field.
+
+          NAMING BINDING: this task MUST produce the EXACT spec-mandated test function
+          TestQ1_GateConsumesHollowFindings_RaisesViolation (SPEC-037 CLM-005.tests) so the gate's
+          test_verification finds the mandated FuncName.
+        files:
+          - pkg/gate/substantiveness_hollow_violation_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-102
+      - id: TASK-105
+        type: implementation
+        title: "Implement hollow-finding → test_substantiveness violation conversion"
+        description: |
+          Extend pkg/gate/substantiveness_join.go with the conversion turning each routed hollow
+          finding into a test_substantiveness Violation preserving the "test X has no assertions
+          (hollow)" message — one violation per hollow finding (CLM-005). Makes TASK-104 pass.
+          Depends on the Q1 hollow-verdict helper from TASK-103.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-104
+          - TASK-103
+      - id: TASK-106
+        type: verification
+        title: "Verify set-join + consumption seam + conversions (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm substantiveness_join.go builds,
+          lints clean, and the set-join / routing / keying / Q1-verdict / hollow-violation tests
+          pass. Gate cadence for the gate-side logic phase.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/substantiveness_join_test.go
+          - pkg/gate/substantiveness_join_q1_test.go
+          - pkg/gate/substantiveness_hollow_violation_test.go
+        claims:
+          - CLM-011
+          - CLM-024
+          - CLM-026
+          - CLM-005
+        depends_on:
+          - TASK-105
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Q1 findings through REAL ast-grep dispatch (Go + shared TS)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Q1 Hollow-Test Findings Through Real Ast-Grep Dispatch (Go + shared TS)"
+    description: |
+      Prove the Q1 hollow-test pack rule produces the right SARIF findings through the REAL
+      ast-grep dispatch path for BOTH Go and TypeScript, and that the TS rule rides the SAME
+      shared dispatch as Go (not a parallel mock). Integration tests in pkg/gate running real
+      ast-grep over the Phase-1 fixtures via the pack-engine dispatch, asserting the verdict
+      resolves through the Phase-2 gate consumption helpers. Separate files from Phase 2's chain;
+      a thin dispatch-glue helper is proven by the integration test.
+    tasks:
+      - id: TASK-200
+        type: test
+        title: "Test Q1 hollow/substantive findings via REAL ast-grep (Go + TS, shared dispatch)"
+        description: |
+          Integration tests in pkg/gate running REAL ast-grep over the Phase-1 fixtures through the
+          pack-engine dispatch path, resolved via the Phase-2 consumption helpers. This task MUST
+          produce these EXACT spec-mandated test functions (SPEC-037 claims[].tests — checked by the
+          gate's test_verification):
+            - TestQ1_Go_HollowTest_ProducesFinding (CLM-003) — Go hollow fixture → an ast-grep
+              hollow-test SARIF finding (RED).
+            - TestQ1_Go_SubstantiveTest_ProducesNoFinding (CLM-004) — Go substantive fixture → NO
+              hollow-test finding (GREEN).
+            - TestTS_HollowTestTs_ProducesFinding_RealAstGrep (CLM-012) — TS hollow .test.ts → a
+              hollow-test SARIF finding via real ast-grep.
+            - TestTS_SubstantiveTestTs_ProducesNoFinding_RealAstGrep (CLM-013) — TS substantive
+              .test.ts → NO finding via real ast-grep.
+            - TestTS_SubstantivenessRidesSharedDispatch_NotStub (CLM-014) — the TS rule rides the
+              SAME ast-grep dispatch path as Go and is unsatisfiable by a stubbed pack output (a stub
+              emitting nothing fails the hollow claims).
+          Exercises the real pack/engine/gate seam (integration).
+        files:
+          - pkg/gate/substantiveness_q1_findings_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-106
+      - id: TASK-201
+        type: implementation
+        title: "Implement pkg/gate dispatch glue feeding real ast-grep findings to the seam"
+        description: |
+          Add the pkg/gate-local glue (substantiveness_q1_dispatch.go) the Q1 integration test uses
+          to run the substantiveness pack's Q1 rule through the real ast-grep dispatch over a
+          fixture dir and hand the resulting flat findings to RouteSubstantivenessFindings + the Q1
+          hollow-verdict helper — so the test asserts Go and TS RED/GREEN polarity through the
+          genuine engine path (not a stub). Thin: it wires the existing dispatch to the existing
+          Phase-2 helpers and adds no language/tool knowledge to the gate. Makes TASK-200 pass.
+        files:
+          - pkg/gate/substantiveness_q1_dispatch.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-200
+      - id: TASK-202
+        type: verification
+        title: "Verify Q1 real-ast-grep findings path (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the dispatch glue builds, lints
+          clean, and the Go + TS real-ast-grep hollow/substantive finding tests pass. Gate cadence
+          for the Q1 findings phase.
+        files:
+          - pkg/gate/substantiveness_q1_dispatch.go
+          - pkg/gate/substantiveness_q1_findings_test.go
+        claims:
+          - CLM-003
+          - CLM-014
+        depends_on:
+          - TASK-201
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Strangler-equivalence (REAL ast-grep vs LIVE analyzer) — BEFORE deletion
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Strangler-Equivalence Over Real Go Fixtures (gates the deletion)"
+    description: |
+      Per REQ-006 / DD-9, prove the pack path's verdict EQUALS the STILL-PRESENT (pre-deletion)
+      go/parser analyzer's verdict on each verdict-matrix cell over REAL Go fixtures with REAL
+      ast-grep, BEFORE the analyzer is deleted in Phase 6. This COMPARES against the live analyzer
+      (checkSubstantiveness et al.), so it MUST run while those symbols still exist — Phase 6's
+      deletion depends on this phase's IMPLEMENTATION (the equivalence harness), enforcing the
+      ordering by dependency, not prose. Unsatisfiable by a stub: a pack emitting nothing fails the
+      hollow-fixture equivalence (CLM-023).
+    tasks:
+      - id: TASK-300
+        type: test
+        title: "Test pack verdict == live analyzer verdict across the full matrix (real fixtures)"
+        description: |
+          Equivalence tests in pkg/gate that, for each Phase-1 Go fixture, compute BOTH the
+          pack-path verdict (real ast-grep Q1 finding + Q2 extraction → RouteSubstantivenessFindings
+          → ReferencedSetForTest → NoTargetViolation / hollow conversion) AND the still-present
+          go/parser analyzer's verdict (checkSubstantiveness), asserting they MATCH per cell. This
+          task MUST produce these EXACT spec-mandated test functions (SPEC-037 claims[].tests —
+          checked by the gate's test_verification):
+            - TestStrangler_Go_Hollow_PackEqualsAnalyzer (CLM-018) — hollow → Q1 RED == analyzer
+              hollow.
+            - TestStrangler_Go_Substantive_PackEqualsAnalyzer (CLM-019) — substantive → Q1 GREEN ==
+              analyzer substantive.
+            - TestStrangler_Go_NoTarget_PackEqualsAnalyzer (CLM-020) — no-target → Q2 noTarget RED ==
+              analyzer noTarget.
+            - TestStrangler_Go_CallsTarget_PackEqualsAnalyzer (CLM-021) — calls-target → Q2 GREEN ==
+              analyzer calls-target.
+            - TestStrangler_Go_SamePackage_PackEqualsAnalyzer (CLM-022) — same-package → Q2 GREEN via
+              short-circuit == analyzer same-package.
+            - TestStrangler_NotSatisfiableByStub_RealFindingsRequired (CLM-023) — a pack emitting
+              nothing FAILS the hollow-fixture equivalence (real findings required) — a silent gap
+              cannot pass vacuously.
+          Runs REAL ast-grep over REAL fixtures (integration). The analyzer MUST still exist here —
+          this parity proof licenses Phase 6's deletion.
+        files:
+          - pkg/gate/substantiveness_strangler_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-202
+      - id: TASK-301
+        type: implementation
+        title: "Implement the strangler-equivalence harness (pack verdict vs live analyzer)"
+        description: |
+          Add the pkg/gate equivalence harness (substantiveness_strangler.go) that, for a given Go
+          fixture, computes the pack-path verdict through the real dispatch + Phase-2 helpers and the
+          live analyzer verdict (calling the still-present checkSubstantiveness), returning both for
+          the test to compare across the full verdict matrix. The harness references the pre-deletion
+          analyzer ON PURPOSE — it is the comparison oracle — and its analyzer call site is removed
+          in the Phase-6 deletion refactor (the strangler's last use of the analyzer). Makes TASK-300
+          pass.
+        files:
+          - pkg/gate/substantiveness_strangler.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-300
+      - id: TASK-302
+        type: verification
+        title: "Verify strangler-equivalence passes (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the equivalence harness + tests
+          pass: the pack path reproduces the live analyzer's verdict on every verdict-matrix cell
+          over real Go fixtures with real ast-grep. The deletion is gated on the equivalence
+          IMPLEMENTATION (TASK-301), so parity is built and proven before any analyzer symbol is
+          removed (Sharp Edge 3).
+        files:
+          - pkg/gate/substantiveness_strangler_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-301
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Wiring — buildTestSubstantivenessStep through the real dispatch seam (spy)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Gate Wiring Through the Real Dispatch Seam (cmd/backstop, spy-verified)"
+    description: |
+      Re-implement buildTestSubstantivenessStep in cmd/backstop/gate.go to CONSUME the
+      substantiveness pack through the EXISTING resolveDispatchPackEngines() / dispatchPackEnginesFn
+      seam (NOT a re-implemented dispatcher), then route / key / set-join. Prove the wiring
+      MECHANICALLY with a spy on the REAL dispatchPackEnginesFn seam: a wired step reaches the
+      dispatcher with the substantiveness pack set; an unwired step records zero invocations and
+      fails. The wiring locus is OUTSIDE pkg/gate, so this phase covers ./cmd/backstop/. The step
+      calls the dispatcher (not the analyzer), so it does not depend on the deletion.
+    tasks:
+      - id: TASK-400
+        type: test
+        title: "Spy-test substantiveness step routes through the real dispatchPackEnginesFn seam"
+        description: |
+          Wiring tests in cmd/backstop installing a SPY on the REAL dispatchPackEnginesFn seam
+          (cmd/backstop/code_check.go:25). This task MUST produce these EXACT spec-mandated test
+          functions (SPEC-037 claims[].tests — checked by the gate's test_verification):
+            - TestWiring_SubstantivenessStepRoutesThroughDispatchSeam (CLM-015) —
+              buildTestSubstantivenessStep invokes the dispatch seam with the substantiveness pack
+              set, then runs the set-join — the spy records a non-zero invocation with the expected
+              pack set.
+            - TestWiring_UnwiredSubstantivenessStep_FailsDispatchSpy (CLM-016) — an UNWIRED step
+              (never reaches dispatchPackEnginesFn) records ZERO invocations and the test asserts
+              non-zero, so the test FAILS for an unwired/baked path.
+            - TestWiring_NoBakedAnalyzerDelegateInvoked (CLM-017) — the verdict originates from the
+              dispatch seam (spy-observed) and no baked analyzer delegate is invoked, so a
+              hollow/noTarget verdict can only have come from the pack dispatch path.
+          The spy sits on the SAME seam code check and the pack_engines step (gate.go:424) use — not
+          a parallel stub.
+        files:
+          - cmd/backstop/gate_substantiveness_wiring_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-106
+          - TASK-202
+      - id: TASK-401
+        type: implementation
+        title: "Re-implement buildTestSubstantivenessStep to consume the dispatch seam + set-join"
+        description: |
+          Re-implement buildTestSubstantivenessStep in cmd/backstop/gate.go to:
+            - extract mandated tests (ExtractMandatedTests + ResolveMandatedTestPaths),
+            - call resolveDispatchPackEngines() over the substantiveness pack set (exactly as code
+              check and the pack_engines step at gate.go:424 do) — NOT a re-implemented dispatcher,
+            - RouteSubstantivenessFindings the flat []gate.Violation result by namespaced rule ID,
+            - ReferencedSetForTest to key extraction findings per mandated test,
+            - NoTargetViolation set-join + the hollow → test_substantiveness conversion,
+          and wire it into buildGateSteps. It MUST NOT call the go/parser analyzer (removed in
+          Phase 6; this step never references it). Makes TASK-400's spy assertions pass.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-400
+      - id: TASK-402
+        type: verification
+        title: "Verify wiring through the dispatch seam (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm the re-implemented
+          buildTestSubstantivenessStep builds, lints clean, and the cmd/backstop spy wiring tests
+          pass — the step reaches the real dispatchPackEnginesFn seam and an unwired path fails.
+          Closes the unit-green-but-unwired integration gap before the deletion and final gate.
+        files:
+          - cmd/backstop/gate_substantiveness_wiring_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-401
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5a: Capability re-key (substantiveness-only) + shipped SPEC-036 test migration
+  #           (cmd/backstop/gate.go deriveCapabilityState + gate_capability_test.go)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5a
+    name: "Phase 5a: Substantiveness-Only Capability Re-Key + Shipped SPEC-036 Test Migration (cmd/backstop)"
+    description: |
+      Re-key the SUBSTANTIVENESS arm of deriveCapabilityState (cmd/backstop/gate.go:272, the
+      SPEC-036 function) onto the INSTALLED substantiveness pack — Present/Working iff the pack is
+      installed/resolvable — and LEAVE THE COVERAGE AND CONTRACTS ARMS UNCHANGED (HARD FENCE: see
+      notes CAPABILITY RE-KEY). In the SAME change, MIGRATE the shipped SPEC-036 test
+      TestCapabilityState_NonGoProject_DerivesAbsentClass2 (gate_capability_test.go:17) — which
+      loops uniformly over all 3 dimensions asserting the OLD baked-analyzer keying and goes RED on
+      ./cmd/backstop/ once substantiveness re-keys — splitting the substantiveness dimension to
+      assert installed-pack keying while keeping coverage/contracts on the baked-Go assertion
+      (REQ-008 extended / CLM-037). This phase touches cmd/backstop/gate.go (same file as the
+      Phase-5 wiring) in a dependency chain after the wiring (not parallel), so the re-key lands on
+      the already-rewired step. Covers ./cmd/backstop/ for gate cadence.
+    tasks:
+      - id: TASK-450
+        type: test
+        title: "Test substantiveness capability keys on installed pack; coverage/contracts unchanged; shipped test migrated"
+        description: |
+          Tests in cmd/backstop pinning the substantiveness-only capability re-key at the live locus
+          deriveCapabilityState. This task MUST produce these EXACT spec-mandated test functions
+          (SPEC-037 claims[].tests — checked by the gate's test_verification):
+            - TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer (CLM-035) — for the
+              SUBSTANTIVENESS dimension, deriveCapabilityState's source is "the substantiveness pack
+              is INSTALLED / resolvable", NOT the deleted go/parser analyzer and NOT a built-in tier:
+              pack installed → Present/Working (gate RUNS it); absent+undeclared → class-2
+              (capability-absent, warn, exit 0 per SPEC-036); absent+declared → class-3 (declared-
+              intent-unmet, block).
+            - TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged (CLM-036) — the
+              re-key is DIMENSION-ASYMMETRIC: for a Go project, deriveCapabilityState(cfg,
+              DimensionContracts) and (cfg, DimensionCoverage) STILL return their existing keying
+              (unchanged), while (cfg, DimensionSubstantiveness) keys on the installed pack — so the
+              substantiveness re-key does not break contracts/coverage before their packs exist.
+            - TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey (CLM-037) — the
+              migrated form of the shipped SPEC-036 test: its SUBSTANTIVENESS arm asserts the
+              INSTALLED-pack keying while its COVERAGE and CONTRACTS arms are LEFT UNCHANGED (still
+              the baked-Go assertion), so the shipped test is not silently broken, no claim is
+              orphaned, and ./cmd/backstop/ stays green.
+          The migration of the existing TestCapabilityState_NonGoProject_DerivesAbsentClass2 body
+          (splitting its substantiveness dimension out of the 3-dimension loop) is performed by the
+          implementation task TASK-451 in the same file; this test task authors the NEW mandated
+          FuncNames above.
+        files:
+          - cmd/backstop/gate_capability_rekey_test.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-402
+      - id: TASK-451
+        type: implementation
+        title: "Re-key deriveCapabilityState substantiveness arm onto installed pack; migrate shipped SPEC-036 test"
+        description: |
+          Modify deriveCapabilityState in cmd/backstop/gate.go (the SPEC-036 function at line 272):
+          re-key ONLY the SUBSTANTIVENESS arm so its CapabilityState source is "the substantiveness
+          pack is installed / resolvable" (Present/Working iff installed), replacing the deleted
+          baked-Go-analyzer presence. The COVERAGE and CONTRACTS arms MUST stay on their existing
+          keying UNCHANGED (HARD FENCE — coverage descoped, contracts keeps its analyzer until
+          SPEC-038). In the SAME change, MIGRATE the shipped SPEC-036 test
+          TestCapabilityState_NonGoProject_DerivesAbsentClass2 in cmd/backstop/gate_capability_test.go:
+          split the substantiveness dimension out of its uniform 3-dimension loop to assert the
+          INSTALLED-pack keying, and leave the coverage/contracts arms asserting the baked-Go keying,
+          so ./cmd/backstop/ stays green (CLM-037). Makes TASK-450 pass. This is an OPEN alignment of
+          SPEC-036's derivation via implementation (align-predating-artifacts); SPEC-036 is NOT
+          revised. REUSE: read the wip cmd/backstop/gate.go (816fc64) for the sound re-key shape; do
+          NOT cherry-pick.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_capability_test.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-450
+          - TASK-401
+      - id: TASK-452
+        type: verification
+        title: "Verify capability re-key + shipped-test migration (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm cmd/backstop builds, lints clean,
+          the substantiveness arm of deriveCapabilityState keys on the installed pack, the
+          coverage/contracts arms are unchanged, and the migrated shipped SPEC-036 test passes so
+          ./cmd/backstop/ stays green. Gate cadence for the capability-re-key phase.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_capability_test.go
+          - cmd/backstop/gate_capability_rekey_test.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-451
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5b: Provisioning (install local pack) + REAL over-installed-pack END-TO-END proof
+  #           (REQ-009 install + REQ-010 unstubbable E2E)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5b
+    name: "Phase 5b: Install Local Pack + Real Over-Installed-Pack End-to-End Proof (REQ-009/REQ-010)"
+    description: |
+      Prove the substantiveness pack is provisioned as an INSTALLED LOCAL pack (NOT embedded, NOT
+      testdata-as-production) and that the WHOLE production gate pipeline runs over it for real,
+      yielding a real test_substantiveness violation on a genuinely hollow backstop test — and that
+      the proof FAILS if the pack is not installed or not run (no vacuous green). See notes
+      PROVISIONING and REAL OVER-INSTALLED-PACK E2E. This phase installs the packs/substantiveness/
+      source (TASK-004) as a local pack via the REAL distribution.Add path and runs the production
+      pipeline (real pack resolution → real dispatchPackEngines → real ast-grep → real convert-under-
+      sandbox → SARIF → route + set-join). The E2E + provisioning tests MUST run REAL ast-grep
+      (t.Fatal NOT t.Skip if ast-grep absent). The pipeline now genuinely runs: ISSUE-028 (multi-rule
+      dispatch) + ISSUE-029 (sandboxed convert) are shipped.
+    tasks:
+      - id: TASK-460
+        type: test
+        title: "Test pack not embedded/testdata-as-production; installed as local pack (declared + locked, VerifyLock passes)"
+        description: |
+          Provisioning tests in cmd/backstop. This task MUST produce these EXACT spec-mandated test
+          functions (SPEC-037 claims[].tests — checked by the gate's test_verification):
+            - TestProvisioning_SubstantivenessPackNotEmbeddedNorTestdata (CLM-030) — the
+              substantiveness rules are absent from the binary: no //go:embed (or other compiled-in
+              asset) carries the substantiveness rule YAML, and no PRODUCTION gate code path resolves
+              the pack from a testdata directory — the rules are present only in an installed pack
+              (the packs/substantiveness/ source). A grep-style + production-path assertion.
+            - TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked (CLM-031) — after
+              distribution.Add over the packs/substantiveness/ local source, backstop.yml declares the
+              pack with the `local` source value and the lockfile carries a `local` SourceType entry,
+              and VerifyLock PASSES WITHOUT a remote artifact (local packs skipped, verify.go:46-47) —
+              proving the dogfood mechanism is the local provisioning path, not a remote fetch.
+          Drives the REAL distribution.Add / VerifyLock path over the packs/substantiveness/ source
+          (TASK-004) in a temp workspace.
+        files:
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-004
+          - TASK-452
+      - id: TASK-461
+        type: test
+        title: "E2E: installed local pack → real gate → hollow RED; uninstalled → no vacuous green; multi-rule + sandboxed convert"
+        description: |
+          REAL over-installed-pack END-TO-END tests in cmd/backstop. This task MUST produce these
+          EXACT spec-mandated test functions (SPEC-037 claims[].tests — checked by the gate's
+          test_verification):
+            - TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed (CLM-032) — with the
+              substantiveness pack INSTALLED as a local pack, a genuinely hollow backstop *_test.go
+              source run through the WHOLE production pipeline (real pack resolution → real
+              dispatchPackEngines → real ast-grep → real convert-under-sandbox → SARIF → route +
+              set-join) yields a REAL test_substantiveness violation — proven WITHOUT a stub, WITHOUT
+              pointing production at testdata, and NOT merely via the dispatch-seam spy.
+            - TestE2E_SubstantivenessUninstalled_NoVacuousGreen (CLM-033) — the negative twin: with
+              the local pack declaration/lock ABSENT (or the real dispatch not reached), the SAME
+              hollow fixture produces NO substantiveness violation through the production path, so
+              the test cannot pass vacuously — pinning that the verdict came from the real installed
+              pack, not a residual baked path.
+            - TestE2E_SubstantivenessMultiRuleDispatch_AndSandboxedConvert (CLM-034) — the pipeline
+              exercises BOTH the multi-rule ast-grep dispatch (the pack's Q1 hollow + Q2 extraction
+              rules both dispatch, ISSUE-028) AND the convert script under the REAL macOS sandbox
+              (ast-grep→SARIF, ISSUE-029) — not a single-rule or sandbox-bypassed shortcut.
+          Runs REAL ast-grep + REAL sandboxed convert over the INSTALLED local pack; MUST t.Fatal
+          (NOT t.Skip) if ast-grep is absent. This is the unstubbable guard against the recurring
+          pack-provisioning integration gap (see notes).
+        files:
+          - cmd/backstop/gate_substantiveness_e2e_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+        depends_on:
+          - TASK-004
+          - TASK-452
+      - id: TASK-462
+        type: implementation
+        title: "Implement E2E harness: install local pack + run production substantiveness path over it"
+        description: |
+          Add the cmd/backstop E2E harness (gate_substantiveness_e2e.go) the provisioning + E2E tests
+          drive: install the packs/substantiveness/ source as a LOCAL pack via the REAL
+          distribution.Add path (declared `backstop/substantiveness: local` + `local` lockfile entry)
+          into a temp workspace, then run the PRODUCTION substantiveness gate path (the re-wired
+          buildTestSubstantivenessStep through the real resolveDispatchPackEngines → dispatchPackEngines
+          → real ast-grep → real convert-under-sandbox → route + set-join) over a hollow backstop
+          *_test.go fixture, returning the produced violations for the tests to assert. The harness
+          resolves the pack from the INSTALLED (local) declaration — NEVER from testdata — and adds
+          NO //go:embed and NO baked path. It reuses the Phase-5 wiring + Phase-2 helpers; it does NOT
+          re-implement dispatch. Makes TASK-460 + TASK-461 pass. This implementation depends on the
+          provisioning + E2E test tasks (TDD) and on the re-wired step (TASK-401) and the capability
+          re-key (TASK-451) being in place.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+        depends_on:
+          - TASK-460
+          - TASK-461
+          - TASK-451
+      - id: TASK-463
+        type: verification
+        title: "Verify provisioning + real over-installed-pack E2E (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm cmd/backstop builds, lints clean,
+          and the provisioning + E2E tests pass: the pack installs as a local pack (declared + locked,
+          VerifyLock passes), the whole production pipeline yields a real violation on a hollow test
+          over the INSTALLED pack, the uninstalled negative produces no vacuous green, and both
+          multi-rule dispatch + sandboxed convert are exercised. Closes the recurring pack-
+          provisioning integration gap before the final gate.
+        files:
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+          - cmd/backstop/gate_substantiveness_e2e_test.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+        depends_on:
+          - TASK-462
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Delete the baked analyzer + migrate/delete analyzer-coupled tests (SAME change)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Delete Baked Analyzer + Migrate Analyzer-Coupled Tests (gated on Phase 4)"
+    description: |
+      AFTER the strangler-equivalence harness is built and proven (Phase 4) AND the pack path is
+      wired (Phase 5), DELETE the go/parser substantiveness analyzer from step_testverify.go and, in
+      the SAME change, delete-or-migrate the analyzer-coupled tests in step_testverify_test.go so
+      pkg/gate still compiles (REQ-008). The deletion refactor depends on the Phase-4 equivalence
+      IMPLEMENTATION (TASK-301) and the Phase-5 wiring IMPLEMENTATION (TASK-401) — ordering enforced
+      by dependency. ExtractMandatedTests / MandatedTest / ResolveMandatedTestPaths and the
+      test-existence step are RETAINED.
+    tasks:
+      - id: TASK-500
+        type: test
+        title: "Test analyzer absent, invariant survives, migrated TargetPackageName, scope preserved"
+        description: |
+          Replacement/migration tests in pkg/gate proving the deletion removed the analyzer, not the
+          enforcement, and the package compiles without analyzer symbols. This task MUST produce
+          these EXACT spec-mandated test functions (SPEC-037 claims[].tests — checked by the gate's
+          test_verification):
+            - TestSubstantiveness_BakedGoAnalyzerDeleted (CLM-001) — no go/parser/go/ast
+              substantiveness analyzer remains: checkSubstantiveness, hasAssertions,
+              assertionSelectors, callsTargetPackage, samePackage, and the StepTestSubstantiveness*
+              constructors are ABSENT from the gate source.
+            - TestSubstantiveness_AnalyzerCoupledTestsDeleted_PackageCompiles (CLM-027) — NO test in
+              pkg/gate references any deleted analyzer symbol; the analyzer-subject tests
+              (TestGate_TestBodyHelpers, TestGate_HasAssertions_HelperPatterns,
+              TestGate_TestSubstantiveness_SubstantiveTestPasses/HollowTestFails/NoTargetCallFails)
+              are deleted and the package compiles.
+            - TestQ1_AssertionVocabularyOnlyInPack_NotBaked (CLM-006) — the assertion vocabulary
+              lives ONLY in the pack rule YAML: no hardcoded assertion-selector list exists in
+              pkg/gate or cmd/backstop after the analyzer deletion (a post-deletion no-baked-selectors
+              assertion, same grep-style nature as the analyzer-absent check above).
+            - TestSubstantiveness_InvariantSurvivesDeletion_HollowStillFails (CLM-002) — the "test
+              must be substantive" INVARIANT survives: a hollow mandated test still fails the
+              substantiveness step via the pack path.
+            - TestSubstantiveness_ScopeAwareThroughPackPath_Preserved (CLM-029) — the changed-file
+              SCOPE behavior formerly in TestGateSteps_FilterToChangedFiles_TestSubstantiveness is
+              PRESERVED through the pack path: an in-scope mandated test yields a verdict via the
+              pack-dispatch + set-join path, an out-of-scope file is suppressed.
+          CLM-028 NOTE: the relocated-behavior coverage's mandated test
+          TestTargetPackageName_MigratedBehaviorPreserved is produced by TASK-100 (the locus of the
+          relocated pkg/gate.TargetPackageName logic). This task does NOT re-author that mandated
+          name; it only asserts the deleted TestGate_TargetPackageName left no orphan reference (via
+          the CLM-027 compile/no-reference assertion above), so there is no duplicate FuncName.
+        files:
+          - pkg/gate/substantiveness_migration_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-027
+          - CLM-029
+        depends_on:
+          - TASK-106
+      - id: TASK-501
+        type: refactor
+        title: "Delete go/parser analyzer + analyzer-coupled tests (same change; pkg/gate compiles)"
+        description: |
+          Now that parity is built+proven (TASK-301) and the pack path is wired (TASK-401), DELETE
+          from pkg/gate/step_testverify.go: checkSubstantiveness, hasAssertions, assertionSelectors,
+          callsTargetPackage, samePackage, targetPackageName (behavior already relocated as
+          pkg/gate.TargetPackageName in substantiveness_join.go), and the StepTestSubstantivenessFunc
+          / StepTestSubstantivenessScopedFunc constructors. In the SAME change, edit
+          step_testverify_test.go to DELETE these analyzer-coupled tests so pkg/gate compiles
+          (REQ-008 / CLM-027) — each references a symbol this task removes and would otherwise fail
+          to compile:
+            - TestGate_TestBodyHelpers, TestGate_HasAssertions_HelperPatterns,
+              TestGate_TestSubstantiveness_SubstantiveTestPasses/HollowTestFails/NoTargetCallFails —
+              analyzer-subject tests (hasAssertions / checkSubstantiveness), DELETED outright.
+            - TestGate_TargetPackageName — DELETED here; its coverage is migrated to the relocated
+              pkg/gate.TargetPackageName as TestTargetPackageName_MigratedBehaviorPreserved
+              (TASK-100, CLM-028).
+            - TestGateSteps_FilterToChangedFiles_TestSubstantiveness — DELETED here; it calls
+              StepTestSubstantivenessScopedFunc (step_testverify_test.go:419), a constructor this
+              task removes, so it will not compile post-deletion. Its changed-file-SCOPE behavior is
+              NOT dropped — it is PRESERVED through the new pack path by
+              TestSubstantiveness_ScopeAwareThroughPackPath_Preserved (TASK-500, CLM-029). Delete the
+              old analyzer-coupled scope test; the pack-path replacement carries the scope coverage.
+          ALSO remove the strangler harness's now-orphaned analyzer call site (its last use of the
+          analyzer). RETAIN ExtractMandatedTests / MandatedTest / ResolveMandatedTestPaths and the
+          test-existence step. Refactor of existing code (deletion) made green by the migration tests
+          (TASK-500) and licensed by the parity + wiring implementations.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/substantiveness_strangler.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-027
+        depends_on:
+          - TASK-500
+          - TASK-301
+          - TASK-401
+      - id: TASK-502
+        type: verification
+        title: "Verify deletion + migration (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm pkg/gate compiles after the
+          analyzer deletion, the analyzer-coupled tests are deleted/migrated, the invariant-survives
+          + migrated-TargetPackageName + scope-preserved tests pass, and no deleted analyzer symbol
+          is referenced anywhere. Gate cadence for the deletion phase.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/substantiveness_migration_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-027
+          - CLM-029
+        depends_on:
+          - TASK-501
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Final comprehensive verification (full gate + artifact validate)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Comprehensive Verification (full gate + artifact validate)"
+    description: |
+      Final kill chain across all work categories. The plan touches .go files (pkg/gate,
+      cmd/backstop) AND artifact-shaped pack YAML (the installable packs/substantiveness/ source +
+      the testdata pack manifests / rules), so the final phase runs the full `backstop gate`
+      (artifact validation, code check, test verification, substantiveness, coverage >=80,
+      contracts) AND `backstop artifact validate`. Confirms all 37 claims hold end-to-end: the baked
+      analyzer is gone, the pack path enforces (hollow RED / substantive GREEN, Go + TS), the
+      set-join is gate-side and language-agnostic, the wiring is spy-proven, the substantiveness pack
+      is an INSTALLED local pack (not embedded / not testdata-as-production) gating backstop on
+      itself end-to-end with no vacuous green, the substantiveness-only capability re-key landed with
+      coverage/contracts unchanged, the strangler ran before the deletion, and the existing tests
+      (including the shipped SPEC-036 capability test) were migrated without dropping coverage.
+    tasks:
+      - id: TASK-600
+        type: verification
+        title: "Run full backstop gate over the implementation"
+        description: |
+          Run `backstop gate` — the full kill chain — over the complete change: artifact validation,
+          code check, test verification, substantiveness (now via the pack path), coverage (>=80 per
+          the spec threshold), and contracts. Confirms the Q1 hollow polarity (Go + TS), the Q2
+          set-join dispositions, the spy-verified wiring, and the post-deletion compile all hold
+          end-to-end, and that the substantiveness invariant survived the analyzer eradication.
+          Depends on the wiring + deletion implementations/refactor so it gates the real end state.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/step_testverify.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-002
+          - CLM-005
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-029
+          - CLM-032
+          - CLM-033
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-401
+          - TASK-452
+          - TASK-463
+          - TASK-501
+          - TASK-502
+      - id: TASK-601
+        type: verification
+        title: "Run backstop artifact validate over the pack manifests and fixtures"
+        description: |
+          Run `backstop artifact validate` to confirm the installable packs/substantiveness/ pack
+          manifest, the testdata substantiveness pack manifest, the Go and shared-TS ast-grep rule
+          YAML, and the fixture layout are structurally valid and that no existing artifact
+          regressed. Covers the artifact (pack-YAML) work category in the final phase, ensuring the
+          shared TS proof pack manifest stays valid for SPEC-038 to extend. Depends on the deletion
+          refactor and the provisioning/E2E verification so it runs against the final tree.
+        files:
+          - packs/substantiveness/pack.yml
+          - pkg/gate/testdata/substantiveness-pack/pack.yml
+          - pkg/gate/testdata/ts-proof-pack/pack.yml
+        claims:
+          - CLM-006
+          - CLM-012
+          - CLM-014
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-463
+          - TASK-501

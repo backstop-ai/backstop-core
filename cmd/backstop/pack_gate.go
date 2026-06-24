@@ -92,6 +92,53 @@ func resolveEngineRegistry(manifest *pack.Manifest) engine.Registry {
 	return merged
 }
 
+// gateTypeHasDedicatedStep reports whether a gate_type is dispatched by its OWN
+// gate step (contract_signature for contracts, test_substantiveness for
+// substantiveness, coverage_threshold for coverage). Engines of these types must
+// NOT also run through the generic pack_engines/code_check findings dispatch: that
+// path scans context-free over the whole project, so a traceability rule (a
+// pattern-arg ast-grep/grep probe, or a hollow-test rule) fired without its
+// per-dimension driver matches everything and emits garbage findings.
+func gateTypeHasDedicatedStep(gt engine.GateType) bool {
+	switch gt {
+	case engine.GateTypeSubstantiveness, engine.GateTypeContracts, engine.GateTypeCoverage:
+		return true
+	default:
+		return false
+	}
+}
+
+// excludeDedicatedStepRules returns the manifests with every rule whose resolved
+// engine declares a dedicated-step gate_type removed, so the generic
+// pack_engines/findings dispatch runs ONLY the generic stages
+// (lint/build/test/findings). The dedicated gate steps dispatch the excluded
+// engines per-dimension themselves. Routing is by DECLARED gate_type — no pack name
+// is hardcoded, so any pack (incl. a third party's) that fills a dedicated dimension
+// is partitioned correctly. A manifest with no excluded rules is returned unchanged.
+func excludeDedicatedStepRules(packs []*pack.Manifest) []*pack.Manifest {
+	out := make([]*pack.Manifest, 0, len(packs))
+	for _, m := range packs {
+		reg := resolveEngineRegistry(m)
+		kept := make([]pack.Rule, 0, len(m.Content.Ruleset.Rules))
+		dropped := false
+		for _, rule := range m.Content.Ruleset.Rules {
+			if b, err := reg.Lookup(rule.Engine); err == nil && gateTypeHasDedicatedStep(b.GateType) {
+				dropped = true
+				continue
+			}
+			kept = append(kept, rule)
+		}
+		if !dropped {
+			out = append(out, m)
+			continue
+		}
+		clone := *m
+		clone.Content.Ruleset.Rules = kept
+		out = append(out, &clone)
+	}
+	return out
+}
+
 func loadInstalledPacks(projectRoot string) ([]*pack.Manifest, error) {
 	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
 	if err != nil {
@@ -287,28 +334,6 @@ func gatherEngineInputs(manifest *pack.Manifest, packRoot string, binding engine
 			args = append(args, binding.InputFlag, p)
 		}
 		return args, nil
-	case engine.InputModeRuleDir:
-		// Collect each rule's directory; ast-grep scans a directory passed once.
-		seen := map[string]struct{}{}
-		dirs := []string{}
-		for _, rule := range rules {
-			path, err := resolveRulePath(manifest, packRoot, rule)
-			if err != nil {
-				return nil, fmt.Errorf("gathering rule-dir input for rule %s: %w", rule.ID, err)
-			}
-			dir := filepath.Dir(path)
-			if _, dup := seen[dir]; dup {
-				continue
-			}
-			seen[dir] = struct{}{}
-			dirs = append(dirs, dir)
-		}
-		sort.Strings(dirs)
-		args := make([]string, 0, len(dirs)*2)
-		for _, d := range dirs {
-			args = append(args, binding.InputFlag, d)
-		}
-		return args, nil
 	case engine.InputModePatternArg:
 		// Pattern-arg engines pass each rule's inline pattern as a command
 		// argument via InputFlag (the BUNDLE-009 seam, REQ-004/CLM-016). The
@@ -378,7 +403,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	cmdArgs = append(cmdArgs, inputs...)
 	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
 	// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
-	// --rule DIR <targets>) and config-file engines with no self-declared target
+	// --config sgconfig.yml <targets>) and config-file engines with no self-declared target
 	// scan the files they are pointed at. A project-wide toolchain pass (go build
 	// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
 	// ProjectTarget and must NOT have a scan target bolted on — appending <root>

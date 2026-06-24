@@ -1,0 +1,86 @@
+# Traceability dispatch pack (SPEC-038, BUNDLE-009 Seed 4). This is the in-repo
+# TEST/dispatch pack the engine + rule TDD phases dispatch over (location A in the
+# plan's PROVISIONING notes) — DISTINCT from the dogfood-installable Go contracts
+# pack SOURCE at packs/contracts/ (location B). It declares BOTH structural
+# engines the contract path rides:
+#   - grep (PACK-DECLARED, no DefaultRegistry entry): symbol-absence text-presence
+#     probe via pattern-arg + a pack-shipped grep->SARIF convert (CLM-015/019).
+#   - ast-grep-contracts: signature-presence structural query via pattern-arg + the
+#     pack-shipped ast-grep->SARIF convert.
+# Each engine the pack dispatches through ships its OWN convert script (grep/ +
+# ast-grep/) — convert scripts are per-pack-root, per-engine.
+name: backstop/traceability
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Contract traceability pack — signature presence (ast-grep) + symbol absence
+  (pack-declared grep). The contract->ast-grep-pattern compiler is a pack-relative
+  script (scripts/compile-signature.sh); the binary never compiles a signature.
+engines:
+  # PACK-DECLARED grep engine (REQ-005). NO baked DefaultRegistry entry. The
+  # provision pins the tool name so the dispatch-time trust gate
+  # (checkEngineToolAllowed) runs CheckToolAllowed against the allowlist — grep is
+  # a Layer-0 tool backstop does not auto-provision, so its pinned version is "*"
+  # (presence on the allowlist is the trust requirement). Removing grep/rg from the
+  # allowlist makes a pack grep command fail loud (CLM-018).
+  grep:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+  # ast-grep contracts binding: the compiled signature pattern is fed via
+  # pattern-arg (--pattern). The ast-grep->SARIF convert is shipped in ast-grep/.
+  ast-grep-contracts:
+    command: ast-grep run --json
+    input_mode: pattern-arg
+    input_flag: --pattern
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: ast-grep/to-sarif.sh
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # Signature presence: the rule's pattern is the human-readable signature the
+      # gate passes through (compiled to an ast-grep pattern by the pack's
+      # compile-signature.sh). Rule file + compiler authored in TASK-015.
+      - id: contract-signature
+        engine: ast-grep-contracts
+        rule_path: rules/contract-signature.yml
+        risk_class: correctness
+        pattern: "func RouteFile($$$PARAMS) ($$$RET)"
+        claims:
+          - id: contract-signature-claim
+            text: A present declared signature matches via ast-grep; absent does not.
+            fixtures:
+              positive:
+                - ../../../../pkg/gate/testdata/contract-sig-mismatch.go
+              negative:
+                - ../../../../pkg/gate/testdata/contract-sig-present.go
+      # Symbol absence: the pattern is the forbidden symbol, probed via grep
+      # text-presence over the declared scope (file OR path). Rule authored in
+      # TASK-015.
+      - id: contract-absence
+        engine: grep
+        rule_path: rules/contract-absence.yml
+        risk_class: correctness
+        pattern: "legacyProbeSymbol"
+        claims:
+          - id: contract-absence-claim
+            text: A forbidden symbol present in scope is an absence violation.
+            fixtures:
+              positive:
+                - ../../../../pkg/gate/testdata/contract-absence-clean.go
+              negative:
+                - ../../../../pkg/gate/testdata/contract-absence-present.go

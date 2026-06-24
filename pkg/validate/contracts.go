@@ -195,21 +195,27 @@ func validateProvidesItem(item interface{}, filename, rulePrefix, label string) 
 		})
 	}
 
-	// signature (required for provides)
-	if sigVal, ok := p["signature"]; !ok {
-		violations = append(violations, Violation{
-			Rule:     rulePrefix + "/provides-signature-required",
-			File:     filename,
-			Message:  fmt.Sprintf("%s is missing 'signature'", label),
-			Severity: "error",
-		})
-	} else if s, ok := sigVal.(string); !ok || strings.TrimSpace(s) == "" {
-		violations = append(violations, Violation{
-			Rule:     rulePrefix + "/provides-signature-required",
-			File:     filename,
-			Message:  fmt.Sprintf("%s 'signature' is empty", label),
-			Severity: "error",
-		})
+	// signature (required for a PRESENCE contract). An ABSENCE contract (absent: true)
+	// asserts the symbol is GONE — there is no declaration to match a signature
+	// against, so a signature is neither required nor meaningful (BUNDLE-009 Seed 4:
+	// absence is a grep forbidden-pattern probe keyed on `name`, not a signature).
+	isAbsent, _ := p["absent"].(bool)
+	if !isAbsent {
+		if sigVal, ok := p["signature"]; !ok {
+			violations = append(violations, Violation{
+				Rule:     rulePrefix + "/provides-signature-required",
+				File:     filename,
+				Message:  fmt.Sprintf("%s is missing 'signature'", label),
+				Severity: "error",
+			})
+		} else if s, ok := sigVal.(string); !ok || strings.TrimSpace(s) == "" {
+			violations = append(violations, Violation{
+				Rule:     rulePrefix + "/provides-signature-required",
+				File:     filename,
+				Message:  fmt.Sprintf("%s 'signature' is empty", label),
+				Severity: "error",
+			})
+		}
 	}
 
 	return violations

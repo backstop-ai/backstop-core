@@ -10,8 +10,8 @@ import (
 
 // TestPackLayout_EngineDirResolvesInputs proves engine inputs resolve relative to
 // the per-engine pack directory matching the input_mode (CLM-049 / REQ-021):
-// rule-flags (semgrep) resolves the rule FILE under semgrep/, rule-dir (ast-grep)
-// resolves the rule DIR under ast-grep/, and none (sandbox) gathers no inputs.
+// rule-flags (semgrep) resolves the rule FILE under semgrep/, config-file (ast-grep)
+// resolves the pack-shipped sgconfig under ast-grep/, and none (sandbox) gathers no inputs.
 // Substantive: drives the real gatherEngineInputs against the real engine-pack
 // fixture and asserts the gathered paths point into the correct per-engine dir.
 func TestPackLayout_EngineDirResolvesInputs(t *testing.T) {
@@ -32,16 +32,18 @@ func TestPackLayout_EngineDirResolvesInputs(t *testing.T) {
 		t.Errorf("rule-flags engine must resolve its rule file under semgrep/, got %v want --config %s", semgrepInputs, wantSemgrep)
 	}
 
-	// rule-dir engine (ast-grep): inputs are `--rule <packRoot>/ast-grep`.
+	// config-file engine (ast-grep, ISSUE-028): inputs are `--config
+	// <packRoot>/ast-grep/sgconfig.yml` — the pack-shipped sgconfig (ruleDirs)
+	// runs every ast-grep rule in one invocation; backstop never emits `--rule`.
 	astGrepInputs, err := gatherEngineInputs(manifest, packRoot, reg["ast-grep"], []pack.Rule{
-		{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/proof-rule.yml"},
+		{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/sgconfig.yml"},
 	})
 	if err != nil {
 		t.Fatalf("gatherEngineInputs(ast-grep): %v", err)
 	}
-	wantAstGrepDir := filepath.Join(packRoot, "ast-grep")
-	if !argsContainFlagValue(astGrepInputs, "--rule", wantAstGrepDir) {
-		t.Errorf("rule-dir engine must resolve the rule DIR under ast-grep/, got %v want --rule %s", astGrepInputs, wantAstGrepDir)
+	wantAstGrepConfig := filepath.Join(packRoot, "ast-grep", "sgconfig.yml")
+	if !argsContainFlagValue(astGrepInputs, "--config", wantAstGrepConfig) {
+		t.Errorf("config-file engine must resolve the pack-shipped sgconfig under ast-grep/, got %v want --config %s", astGrepInputs, wantAstGrepConfig)
 	}
 
 	// none engine (sandbox): gathers NO inputs (the executable is the logic).

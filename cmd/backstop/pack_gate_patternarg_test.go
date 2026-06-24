@@ -13,7 +13,7 @@ import (
 // These drive gatherEngineInputs for a pattern-arg engine: the BUNDLE-009 seam
 // where each rule's inline `pattern:` is passed as a command argument (via the
 // engine's InputFlag) INSTEAD of resolving a rule file on disk. The four existing
-// gather modes (config-file/rule-flags/rule-dir/none) are unchanged; this is the
+// gather modes (config-file/rule-flags/none) are unchanged; this is the
 // fifth case. The empty-pattern fail-loud mirrors resolveRulePath's missing-path
 // fail-loud (a broken pack naming pack + rule), and the no-filesystem-touch
 // assertion proves a pattern-arg rule never os.Stats a rule path.

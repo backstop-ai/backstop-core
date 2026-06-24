@@ -1,0 +1,71 @@
+name: backstop/ts-proof
+version: 1.0.0
+language: typescript
+archetype: enforcement
+description: >
+  Shared TypeScript proof pack (BUNDLE-009 SD-3). SPEC-037 ADDS the hollow-test
+  substantiveness rule + .test.ts fixtures here; SPEC-038 (Seed 4) ADDS its contract
+  rules to this SAME manifest (additive, not a fork — Sharp Edge 6). The substantiveness
+  rule rides the SAME ast-grep dispatch path as the Go rule (CLM-014).
+engines:
+  # SPEC-038 (Seed 4) declares the pack-DECLARED grep engine on this SHARED pack so
+  # the TS contract-absence rule can probe symbol absence via text-presence
+  # (CLM-024). No baked DefaultRegistry entry; the provision pins the tool name so
+  # the dispatch trust gate runs the allowlist check. ast-grep is a built-in engine
+  # (DefaultRegistry), so the hollow + signature rules need no declaration here.
+  grep:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: hollow-test-ts
+        engine: ast-grep
+        rule_path: ast-grep/hollow-test-ts.yml
+        risk_class: correctness
+        claims:
+          - id: ts-hollow-test
+            text: A .test.ts test with no assertion-shaped call is hollow (RED finding).
+            fixtures:
+              positive:
+                - fixtures/ts/hollow.test.ts
+              negative:
+                - fixtures/ts/substantive.test.ts
+      # SPEC-038 (Seed 4) contract rules — ADDED to this SAME shared TS pack (CLM-026),
+      # NOT a second TS pack. Structural engines only (ast-grep + grep), NO TS toolchain
+      # engine (eslint/tsc) for contracts (CLM-025).
+      - id: contract-signature-ts
+        engine: ast-grep
+        rule_path: ast-grep/contract-signature-ts.yml
+        risk_class: correctness
+        pattern: "function $NAME($$$PARAMS)"
+        claims:
+          - id: ts-contract-signature
+            text: A present .ts signature matches via ast-grep; absent does not.
+            fixtures:
+              positive:
+                - fixtures/ts/contract-sig-absent.ts
+              negative:
+                - fixtures/ts/contract-sig-present.ts
+      - id: contract-absence-ts
+        engine: grep
+        rule_path: grep/contract-absence-ts.yml
+        risk_class: correctness
+        pattern: "legacyTsHelper"
+        claims:
+          - id: ts-contract-absence
+            text: A forbidden .ts symbol present is an absence violation; absent passes.
+            fixtures:
+              positive:
+                - fixtures/ts/contract-absence-clean.ts
+              negative:
+                - fixtures/ts/contract-absence-present.ts

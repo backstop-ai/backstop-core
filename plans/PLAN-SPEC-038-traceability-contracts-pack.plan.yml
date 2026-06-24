@@ -1,0 +1,1558 @@
+---
+plan_id: PLAN-SPEC-038
+spec_id: SPEC-038
+spec_version: 1.2.0
+created: "2026-06-22"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./cmd/backstop/ ./pkg/pack/ ./pkg/pack/engine/ ./pkg/pack/distribution/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-038 (BUNDLE-009 Spec Seed 4): eradicate the baked-in Go
+  contract analyzer (pkg/gate/step_contract.go's go/parser extraction + signature
+  rendering + string-equality compare) and re-implement contract verification as
+  PACKS on the structural engines, with the GATE keeping only language-agnostic
+  semantics (match-verdict + absence polarity + file-scanned guard).
+
+  ===================================================================
+  STRANGLER ORDERING — LOAD-BEARING (Sharp Edge 7 / REQ-008)
+  ===================================================================
+  The analyzer is NOT deleted until equivalence is proven. The phases encode
+  this strictly: the grep engine (Phase 2), the gate-side verdict + scope
+  extraction (Phase 3), and the pack signature/absence rules + TS rules
+  (Phase 4) are ALL ADDITIVE — the legacy go/parser analyzer in step_contract.go
+  is still present and still wired through these phases. Phase 5 runs the
+  strangler-equivalence harness (real ast-grep + real grep vs the live
+  go/parser analyzer on real Go fixtures). ONLY Phase 6 deletes the analyzer,
+  couples the 5-file test cleanup IN THE SAME CHANGE as the deletion, deletes the
+  non-scoped StepContractSignatureFunc, and rewires buildContractStep. No task
+  deletes step_contract.go's analyzer before Phase 5's equivalence verification
+  passes.
+
+  ===================================================================
+  THE 5 ANALYZER-AREA TEST FILES — 4 COMPILE-COUPLED, 1 SURVIVES (Sharp Edge 9 / REQ-010)
+  ===================================================================
+  Of the 5 existing analyzer-area test files, 4 are COMPILE-COUPLED to the
+  deletion — step_contract_test.go, step_contract_absence_test.go,
+  step_contract_absence_config_test.go, step_contract_noregress_test.go reference
+  deleted symbols (probeSymbol / signaturesMatch / formatFuncSignature / etc.) and
+  WILL NOT COMPILE once the analyzer is gone, so they MUST be deleted-or-migrated
+  IN THE SAME CHANGE as the deletion. The 5th — step_contract_parser_absence_test.go
+  — DOES NOT reference any deleted symbol: it exercises only the SURVIVING
+  ExtractContractEntries / ContractEntry (its tests
+  TestGate_ExtractContractEntries_AbsentFieldParsed /
+  TestGate_ExtractContractEntries_AbsentDefaultsFalse cover surviving Absent-field
+  extraction). It COMPILES fine post-deletion and its coverage is PRESERVED — NOT
+  deleted. Because REQ-012 EXTENDS ExtractContractEntries to also populate Scope,
+  this surviving file MUST keep passing against the EXTENDED extractor that now
+  carries Scope alongside Absent. Do not drop live coverage of a surviving guarantee.
+
+  ===================================================================
+  P0 — NEVER COMPILE/RENDER A SIGNATURE IN THE BINARY (Sharp Edge 1 / CLM-006)
+  ===================================================================
+  The contract->ast-grep-pattern COMPILER lives in the PACK (a pack-relative
+  script, analogous to the pack's SARIF convert scripts) — NEVER in the backstop
+  binary. The binary passes the human-readable Signature through pattern-arg
+  unmodified and reads back SARIF. No task in this plan adds go/parser, go/ast,
+  go/printer, or any signature-to-pattern logic to pkg/gate or cmd/backstop.
+  CLM-006 (Phase 4) and CLM-042 (Phase 3) guard this; the deletion (Phase 6)
+  removes the last baked-language code.
+
+  ===================================================================
+  ALLOWLIST GATING IS ATOMIC WITH THE ENGINE (Sharp Edge 6 / REQ-005)
+  ===================================================================
+  The grep engine binding (pack-declared, pattern-arg + grep->SARIF convert, NO
+  baked DefaultRegistry entry) and the grep/rg trusted-tool allowlist entry land
+  in the SAME phase (Phase 2). The allowlist gating is a TESTED invariant: a
+  pack-declared grep command MUST fail loud (exit 2) when grep/rg is absent from
+  the allowlist (CLM-018), and run only when allowlisted+pinned (CLM-017). No
+  phase makes a pack grep command reachable without the allowlist task present.
+
+  ===================================================================
+  DOGFOOD PAYOFF (REQ-009 / CLM-033)
+  ===================================================================
+  Phase 7 verifies backstop's OWN previously-red contract_signature cases resolve
+  to GREEN under the new pack path — the dual-substrate payoff that dissolves the
+  brittle signaturesMatch/formatFuncSignature round-trip. This green is a
+  CONSEQUENCE of the Phase-6 rewiring (TASK-025), verified over backstop's own
+  contract fixtures through the already-wired gate — NOT a separate dogfood-specific
+  production code path in the binary (a baked dogfood path would itself be a smell).
+  Phase 7 adds only own-contract / enforcement-case fixtures + assertions; it
+  introduces no new production .go file.
+
+  Pack authoring note: the Go contract proof pack and the SHARED TS proof pack
+  (co-owned with SPEC-037 Seed 3) are authored as rule + fixture sets. SPEC-038
+  ADDS contract rules to the shared TS pack; it does NOT create a second TS pack
+  and must not clobber Seed 3's substantiveness rules (Sharp Edge 8 / CLM-026).
+
+  ===================================================================
+  PROVISIONING — INSTALLED LOCAL PACK, NOT EMBEDDED, NOT TESTDATA-AS-PRODUCTION (REQ-013 / Sharp Edge 12/13)
+  ===================================================================
+  The Go CONTRACTS pack is an ORDINARY INSTALLED pack — the binary ships ONLY a way
+  to install + execute packs. TWO DISTINCT pack locations exist and MUST NOT be
+  conflated (mirrors SPEC-037 Seed 3):
+    (A) The pack-manifest testdata under pkg/pack/engine/testdata/ + the in-repo
+        traceability pack at .backstop/packs/backstop/traceability/ exercised by the
+        engine/verdict/rule TDD phases (Phases 2-7) — a TEST/dispatch convenience,
+        NEVER the path a real gate run resolves the pack from.
+    (B) The REAL, dogfood-installable Go contracts pack SOURCE shipped in-repo at
+        packs/contracts/ (REQ-013) — its OWN ast-grep signature-presence rule + grep
+        absence rule + sgconfig + convert script(s). backstop-core installs it INTO
+        ITSELF as a LOCAL pack via the shipped distribution path
+        (pkg/pack/distribution/{add,install,verify}.go): `pack add packs/contracts`
+        records `backstop/contracts: local` in backstop.yml + a `local` SourceType
+        lockfile entry (precedent: backstop/substantiveness already declares `local`
+        after Seed 3). VerifyLock SKIPS `local` packs (verify.go ~line 46-49), so a
+        local source needs no remote artifact. backstop-core thereby GATES ITSELF on
+        contracts through this installed local pack.
+  PACK-OWNERSHIP PRECISION (CLM-045): the Go contracts pack (packs/contracts/) is the
+  NEW installable artifact whose declared+locked installation THIS spec asserts. The
+  TypeScript contract RULES are CO-OWNED with the shared TS proof pack (REQ-007 /
+  CLM-026 — the SAME pack SPEC-037 Seed 3 installs) — the TS pack's installation is
+  already covered by SPEC-037, NOT re-asserted here. There MUST be NO //go:embed, no
+  compiled-in rule YAML, and no production code path that resolves the contracts pack
+  from a testdata directory (CLM-043 pins no-embed / no-testdata-in-production). Each
+  pack ships its OWN ast-grep convert script (the lesson from PLAN-SPEC-037's review).
+
+  ===================================================================
+  REAL OVER-INSTALLED-PACK E2E — UNSTUBBABLE BY CONSTRUCTION (REQ-014 / CLM-046..049 / Sharp Edge 12)
+  ===================================================================
+  REQ-006's wiring spy proves the contract STEP consumes the pack SARIF path; it does
+  NOT prove the whole pipeline runs over a real INSTALLED pack. REQ-014 ADDS the
+  over-installed-pack proof (REQ-006 + CLM-020..022 RETAINED). The E2E tests are
+  structured to be UNSTUBBABLE:
+    1. They first INSTALL the packs/contracts/ source as a LOCAL pack via the REAL
+       distribution.Add path (declared `backstop/contracts: local` in a temp
+       backstop.yml + a `local` lockfile entry); the install is a PRECONDITION of the
+       assertion, not mocked, not pointed at testdata.
+    2. They run the WHOLE production gate contract path over real fixtures: real pack
+       RESOLUTION from the installed declaration → real dispatchPackEngines (NOT a test
+       seam stub) → real ast-grep (signature presence) + real grep (symbol absence) →
+       real convert (engine-output→SARIF via the convert script under the REAL macOS
+       sandbox) → SARIF → gate verdict (match-verdict + absence polarity + file-scanned
+       guard). BOTH polarities are asserted: (a) a MISSING/mismatched signature (no
+       ast-grep match) → real contract VIOLATION exit 2 (CLM-046); (b) a PRESENT
+       forbidden symbol (real grep match under an absence contract) → real absence
+       VIOLATION exit 2 (CLM-047).
+    3. The NO-VACUOUS-GREEN NEGATIVE TWIN runs the SAME missing-signature + present-
+       forbidden-symbol fixtures through the SAME production path with the local pack
+       declaration/lock ABSENT (or the real ast-grep/grep dispatch not reached) and
+       asserts NO contract/absence violation — so the test cannot pass vacuously: the
+       verdict can ONLY come from the real installed pack actually running, not from a
+       stub, not from testdata-pointed-at-by-production, and not from the REQ-006 spy
+       (CLM-048).
+    4. CLM-049 asserts the proof exercises BOTH the real ast-grep signature dispatch
+       (multi-rule, ISSUE-028 — the contracts pack carries an ast-grep signature rule)
+       AND the real grep absence dispatch through the convert script under the REAL
+       macOS sandbox (ISSUE-029) — not a single-engine or sandbox-bypassed shortcut.
+  Substrate is FIXED: ISSUE-028 (multi-rule ast-grep dispatch) + ISSUE-029 (sandboxed
+  convert) are SHIPPED, so the real ast-grep + real grep + real convert path genuinely
+  runs. Like every real-engine task here, the E2E tasks MUST t.Fatal (NOT t.Skip) if
+  ast-grep or grep is absent — a skipped real-engine test is a silent gap.
+
+  ===================================================================
+  CAPABILITY RE-KEY IS CONTRACTS-DIMENSION-ONLY (REQ-015 / CLM-050/051/052 / Sharp Edge 14/15)
+  ===================================================================
+  SPEC-036 shipped deriveCapabilityState at cmd/backstop/gate.go:273. SPEC-037 (Seed 3)
+  ALREADY re-keyed the SUBSTANTIVENESS arm onto its installed pack (shipping the live
+  substantivenessPackInstalled / substantivenessPackName helpers) and LEFT the coverage
+  + contracts arms on the baked-Go keying. Because THIS spec DELETES the baked Go
+  contract analyzer (REQ-001/Phase 6), the CONTRACTS arm MUST now re-key onto the
+  INSTALLED contracts pack. The 3-arm END STATE is ASYMMETRIC and this is a HARD FENCE:
+    (1) SUBSTANTIVENESS — keyed on its installed pack, LEFT AS-IS from Seed 3. This
+        spec MUST NOT touch it (touching it churns Seed 3's working code).
+    (2) CONTRACTS — re-keys onto the installed contracts pack (this spec's change):
+        Present/Working iff the contracts pack is installed/resolvable (read from
+        cfg.Packs via NEW contractsPackInstalled / contractsPackName helpers MIRRORING
+        the live substantivenessPackInstalled / substantivenessPackName), NOT the
+        deleted go/parser analyzer and NOT a built-in tier. Installed → contracts RUNS;
+        absent+undeclared → class-2 (capability-absent, warn, exit 0 per SPEC-036);
+        absent+declared → class-3 (declared-intent-unmet, block).
+    (3) COVERAGE — STAYS baked-Go-keyed, UNCHANGED (coverage descoped per BUNDLE-009
+        REQ-009 — no pack exists, so re-keying it would mark it capability-absent with
+        nothing to install).
+  CLM-051 pins the asymmetry; CLM-050 pins the contracts re-key at the live locus.
+  MIGRATE THE SHIPPED TEST (CLM-052): TestCapabilityState_NonGoProject_DerivesAbsentClass2
+  (cmd/backstop/gate_capability_test.go:17) — which Seed 3 left iterating
+  {DimensionCoverage, DimensionContracts} TOGETHER in the baked-Go loop (live at line
+  27) — goes RED on ./cmd/backstop/ the moment the contracts arm re-keys. In the SAME
+  change, SPLIT DimensionContracts OUT of that loop (leaving ONLY DimensionCoverage on
+  the baked-Go assertion) and assert the contracts dimension's installed-pack keying
+  SEPARATELY — exactly as Seed 3 split out DimensionSubstantiveness. This is an OPEN
+  alignment of SPEC-036's derivation via implementation (align-predating-artifacts);
+  SPEC-036 itself is NOT revised. After this spec, NO test in pkg/gate OR cmd/backstop
+  asserts the deleted baked-analyzer keying for the contracts dimension, ./cmd/backstop/
+  stays green, and no claim is orphaned by a silently-broken shipped test.
+
+  ===================================================================
+  CROSS-SPEC SEQUENCING PREREQUISITE — IMPLEMENT SEED 3 BEFORE SEED 4 (Sharp Edge 8 / CLM-026)
+  ===================================================================
+  PLAN-SPEC-037 (Seed 3, substantiveness) MUST be implemented BEFORE
+  PLAN-SPEC-038 (Seed 4, contracts). TASK-016 / CLM-026 add the TS contract rules
+  into the SAME shared TypeScript proof pack that holds Seed 3's substantiveness
+  rules — and SPEC-037 (Seed 3) is the OWNER that STANDS UP that pack. Seed 3's
+  ACTUAL pack (already on this branch) is `backstop/ts-proof` at
+  pkg/gate/testdata/ts-proof-pack/ with an `ast-grep/` rule layout — it ships
+  ast-grep/hollow-test-ts.yml, ast-grep/to-sarif.sh, fixtures/ts/, and a pack.yml
+  ruleset. (It is NOT at `.backstop/packs/backstop/ts-proof/` and does NOT use a
+  `rules/` layout.) Authoring contract rules at any other path/layout, or standing up
+  a second/relocated TS pack, would contradict CLM-026's "SAME pack already holding
+  substantiveness rules" AND would miss the pack's existing ast-grep convert. The
+  clean resolution: Seed 3 ships the ts-proof-pack first; Seed 4 (TASK-002 fixtures +
+  TASK-016 rules) then ADDS — at the pack's ACTUAL path+layout — a contract-signature
+  ast-grep rule (riding Seed 3's existing ast-grep/to-sarif.sh), a contract-absence
+  grep rule (plus the pack's NEW grep/to-sarif.sh convert the grep engine needs), and
+  registers them additively in the pack's pack.yml ruleset without clobbering Seed 3's
+  hollow-test-ts rule. The implementer of TASK-016 must confirm the ts-proof-pack
+  exists at pkg/gate/testdata/ts-proof-pack/ (Seed 3 landed) before authoring into it.
+
+  ===================================================================
+  CONVERT-SCRIPT-PER-ENGINE IS MANDATORY PER PACK ROOT (real ast-grep + real grep)
+  ===================================================================
+  Real ast-grep AND real grep dispatch each HARD-ERROR "broken pack <name>: missing
+  convert script <path>" (cmd/backstop/pack_gate.go:413-416) if a findings pack lacks
+  the convert script for the engine it is dispatched through; the default ast-grep
+  binding resolves Convert: "ast-grep/to-sarif.sh" per-pack-root
+  (pkg/pack/engine/binding.go:241). So EVERY pack this plan dispatches through real
+  ast-grep or real grep MUST ship the matching convert script in some task's file scope:
+    - the traceability dispatch pack (.backstop/packs/backstop/traceability/) runs BOTH
+      engines — it ships grep/to-sarif.sh (TASK-006) AND ast-grep/to-sarif.sh (TASK-015);
+    - the shared ts-proof-pack (pkg/gate/testdata/ts-proof-pack/) ships ast-grep/to-sarif.sh
+      (Seed 3) and the NEW grep/to-sarif.sh for the TS absence rule (TASK-016);
+    - the installable Go contracts pack (packs/contracts/) ships BOTH ast-grep/to-sarif.sh
+      AND grep/to-sarif.sh (TASK-031).
+  Each pack ships its OWN convert scripts (the PLAN-SPEC-037 review lesson) — convert
+  scripts are NOT shared across pack roots.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — real fixtures for engines, verdict, equivalence, TS
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the real fixtures the TDD phases consume (no production code).
+      Per Sharp Edge 2, the signature/absence/equivalence/TS-proof claims must
+      run REAL ast-grep and REAL grep over REAL Go/.ts fixtures asserting concrete
+      present/absent/mismatch verdicts — a stub must NOT satisfy them. These
+      fixtures are the substrate for every later phase. Setup tasks are split into
+      disjoint file groups so they parallelize.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Go contract fixtures: present, mismatched, absent, param-name-variant"
+        description: |
+          Create real Go source fixtures under pkg/gate/testdata exercising every
+          contract verdict the pack path and the equivalence harness must produce:
+          a present matching signature, a mismatched/missing signature, a
+          forbidden symbol PRESENT (absence violation), a forbidden symbol genuinely
+          ABSENT, and a param-name-only/whitespace variant that must still
+          structurally MATCH (CLM-007). These feed the ast-grep signature rule, the
+          grep absence probe, and the strangler-equivalence pass on real Go.
+        files:
+          - pkg/gate/testdata/contract-sig-present.go
+          - pkg/gate/testdata/contract-sig-mismatch.go
+          - pkg/gate/testdata/contract-absence-present.go
+          - pkg/gate/testdata/contract-absence-clean.go
+          - pkg/gate/testdata/contract-sig-paramname-variant.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on: []
+      - id: TASK-002
+        type: setup
+        title: "TS contract fixtures (.ts present/absent/mismatch) inside Seed 3's shared ts-proof-pack"
+        description: |
+          Create real .ts fixtures for the shared TypeScript proof pack's contract
+          rules: a present .ts signature (ast-grep SATISFIED), an absent/mismatched
+          .ts signature (VIOLATION), a present forbidden .ts symbol (grep absence
+          violation), and a genuinely absent forbidden symbol (PASS). Real fixtures
+          so a stub cannot satisfy CLM-023/CLM-024 (Sharp Edge 2). Disjoint from the
+          Go fixtures.
+
+          LOCATION (Seed 3 reconciliation / CLM-026): Seed 3 (PLAN-SPEC-037) created the
+          shared TS proof pack at pkg/gate/testdata/ts-proof-pack/ with its fixtures under
+          fixtures/ts/ (hollow.test.ts / substantive.test.ts). These contract fixtures are
+          ADDED to that SAME pack's fixtures/ts/ dir (additive, not a fork) so the pack's
+          new contract rules resolve them — NOT a separate relocated ts dir. Disjoint
+          filenames from Seed 3's existing fixtures.
+        files:
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/contract-sig-present.ts
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/contract-sig-absent.ts
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/contract-absence-present.ts
+          - pkg/gate/testdata/ts-proof-pack/fixtures/ts/contract-absence-clean.ts
+        claims:
+          - CLM-023
+          - CLM-024
+        depends_on: []
+      - id: TASK-003
+        type: setup
+        title: "Spec frontmatter fixtures: file-scoped and path-scoped absence contracts"
+        description: |
+          Create spec markdown fixtures whose contracts[].provides[] declare a
+          file-scoped absence and a PATH-scoped absence (the file-OR-path Scope
+          parameter, CLM-010/CLM-040). These drive ExtractContractEntries' new Scope
+          population (Phase 3) and the end-to-end scope-reaches-grep-probe assertion
+          (CLM-041). Also include a present-signature contract fixture so extraction
+          carries a Signature through unmodified (CLM-042).
+        files:
+          - pkg/gate/testdata/spec-contract-absence-file.md
+          - pkg/gate/testdata/spec-contract-absence-path.md
+          - pkg/gate/testdata/spec-contract-signature.md
+        claims:
+          - CLM-010
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        depends_on: []
+      - id: TASK-004
+        type: setup
+        title: "Pack engines: block fixtures for grep + ast-grep contracts + convert scaffolding"
+        description: |
+          Create the pack-manifest testdata declaring the grep engine in an
+          `engines:` block (pattern-arg input mode, input_flag, grep-output->SARIF
+          convert script reference, gate_type: contracts) alongside the ast-grep
+          contracts binding, plus a non-Go (.ts) scanned-scope fixture spec so the
+          file-scanned guard's "scanned non-Go is NOT an error" case (CLM-034) has a
+          real scanned scope. No DefaultRegistry entry. These support the grep engine
+          stand-up (Phase 2) and the gate verdict (Phase 3).
+        files:
+          - pkg/pack/engine/testdata/contracts-grep-engine.yml
+          - pkg/pack/engine/testdata/contracts-astgrep-engine.yml
+          - pkg/gate/testdata/contract-absence-nongo-scanned.ts
+        claims:
+          - CLM-015
+          - CLM-034
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Grep engine stand-up — pack-declared binding + allowlist (ATOMIC)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Grep Engine — Pack-Declared Binding + Trusted-Tool Allowlist"
+    description: |
+      Stand up the grep/ripgrep engine WITHOUT baking tool knowledge into the
+      binary (REQ-005 / SD-1). Two-part split landing ATOMICALLY: (a) the
+      traceability pack DECLARES grep in its engines block (pattern-arg + a
+      grep-output->SARIF convert script + gate_type contracts) — NO baked
+      DefaultRegistry entry; (b) grep/rg are added to the backstop-owned
+      TrustedToolAllowlist at a pinned version. The allowlist gating is the tested
+      invariant: a pack grep command fails loud when un-allowlisted (CLM-018) and
+      runs only when allowlisted+pinned (CLM-017). This phase is additive — it does
+      NOT touch the legacy analyzer. File-disjoint from Phase 3.
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Tests: grep pack-declared (not in DefaultRegistry) + allowlist gating matrix"
+        description: |
+          Write the failing tests for the grep engine stand-up. Assert: grep is
+          declared in the pack engines block (pattern-arg, grep->SARIF convert,
+          gate_type contracts) and is NOT present in engine.DefaultRegistry
+          (CLM-015); grep/rg appear on TrustedToolAllowlist at a pinned version
+          (CLM-016); a pack grep command passes CheckToolAllowed when allowlisted+
+          lock-pinned (CLM-017); a pack grep command produces the loud
+          un-allowlisted ConfigError (exit 2) naming tool+pack when grep/rg is
+          removed from the allowlist (CLM-018); and the grep convert script turns
+          REAL grep output into valid SARIF with a physicalLocation (CLM-019, no
+          hand-written SARIF stub).
+        files:
+          - pkg/pack/engine/allowlist_grep_test.go
+          - pkg/pack/engine/contracts_grep_engine_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-004
+      - id: TASK-006
+        type: implementation
+        title: "Add grep/rg to TrustedToolAllowlist + author the grep->SARIF convert script"
+        description: |
+          Extend engine.TrustedToolAllowlist (pkg/pack/engine/allowlist.go) to add
+          `grep` and `rg` at a pinned version alongside semgrep/ast-grep, so a
+          pack-declared grep command clears SPEC-035's trust floor (CLM-016) — and
+          remains blocked (existing un-allowlisted loud ConfigError) when absent
+          (CLM-018). CheckToolAllowed is unchanged. Author the pack-relative
+          grep-output->SARIF convert script (analogous to ast-grep/to-sarif.sh) that
+          maps grep match lines into SARIF results with physicalLocations (CLM-019).
+          The traceability pack's engines: block declaration (pattern-arg + convert +
+          gate_type contracts, NO DefaultRegistry entry) is authored here (CLM-015).
+          This grep/to-sarif.sh is ONE of the two per-engine convert scripts the
+          traceability pack needs (the other, ast-grep/to-sarif.sh for the signature
+          rule, is authored in TASK-015) — each engine the pack dispatches through must
+          ship its matching convert script or real dispatch hard-errors "missing convert
+          script" (cmd/backstop/pack_gate.go:413-416). grep/ and pack.yml here are
+          disjoint from TASK-015's ast-grep/ + rules/ + scripts/ files.
+          Makes TASK-005's tests pass. No baked grep knowledge enters the binary.
+        files:
+          - pkg/pack/engine/allowlist.go
+          - .backstop/packs/backstop/traceability/grep/to-sarif.sh
+          - .backstop/packs/backstop/traceability/pack.yml
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-005
+      - id: TASK-007
+        type: verification
+        title: "Verify grep engine stand-up + allowlist gating (code check)"
+        description: |
+          Run `backstop code check` over the grep engine stand-up. Confirm grep is
+          pack-declared (no DefaultRegistry entry), grep/rg are allowlisted+pinned,
+          the allowlisted-runs / un-allowlisted-fails-loud matrix both pass, and the
+          convert script emits valid SARIF from real grep output. Asserts the engine
+          cannot run before it is allowlisted (the atomic invariant).
+        files:
+          - pkg/pack/engine/allowlist.go
+          - .backstop/packs/backstop/traceability/pack.yml
+        claims:
+          - CLM-016
+          - CLM-018
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Gate-side verdict + scope extraction (ADDITIVE — no deletion)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Language-Agnostic Verdict + Contract-Entry Scope Extraction"
+    description: |
+      Add the gate-side, language-agnostic contract logic that survives the
+      deletion (REQ-002/003/004) and the Scope plumbing (REQ-012) — all ADDITIVE,
+      leaving the legacy analyzer intact for the equivalence pass. Introduce
+      ContractEngineResult (the per-entry pack-probe carrier) and the pure
+      VerifyContractVerdict (no-match->violation, absence match->violation,
+      unscanned->loud config error, else pass) with ZERO language imports
+      (CLM-014). Extend ContractEntry with Scope and populate it in
+      ExtractContractEntries from the declared provides entry (CLM-040/041/042),
+      keeping extraction a pure data-record builder (no parse/AST-walk/compile).
+      The unscanned-scope branch is the replacement for the old non-.go/missing
+      config-error (CLM-034: a SCANNED non-Go scope is a normal verdict, not an
+      error). File-disjoint from Phase 2.
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Tests: VerifyContractVerdict polarity + file-scanned guard (language-agnostic)"
+        description: |
+          Write failing tests for the pure verdict function over ContractEngineResult:
+          present-contract no-match -> blocking violation (CLM-005 verdict side);
+          present-contract match -> satisfied (CLM-004 verdict side); absence-contract
+          grep match -> blocking absence violation naming file+location (CLM-008
+          verdict side); absence-contract empty + scanned -> PASS (CLM-009 verdict
+          side); declared file MISSING -> loud config error exit 2 (CLM-012); declared
+          scope UNSCANNED (no scan record) -> loud config error exit 2 (CLM-013); a
+          SCANNED non-.go scope -> normal verdict, NOT a config error (CLM-034); and
+          the guard imports no language package (CLM-014).
+        files:
+          - pkg/gate/contract_verdict_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+        depends_on:
+          - TASK-001
+          - TASK-004
+      - id: TASK-009
+        type: test
+        title: "Tests: ContractEntry.Scope extraction (file|path, pure data record)"
+        description: |
+          Write failing tests for the extended ExtractContractEntries: a spec fixture
+          declaring a path-scoped absence yields a ContractEntry whose Scope equals
+          the declared path (CLM-040); a path-scoped absence ContractEntry carries its
+          declared scope intact so it can flow to the grep pattern-arg (CLM-041,
+          asserted at the extraction boundary that the scope is present on the record);
+          and extraction is a pure data-record builder — a contract with a Signature is
+          carried through UNMODIFIED, with no parse/AST-walk/compile (CLM-042).
+        files:
+          - pkg/gate/extract_scope_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-003
+      - id: TASK-010
+        type: implementation
+        title: "Add ContractEngineResult + VerifyContractVerdict (pure, zero language imports)"
+        description: |
+          Add the ContractEngineResult struct (Entry, Matched, Scanned, Locations)
+          and the pure VerifyContractVerdict(r) (Violation, bool) to pkg/gate in a
+          NEW file (additive — step_contract.go's analyzer is untouched this phase).
+          Logic: present-contract no-match -> violation; absence-contract match ->
+          violation; unscanned scope (or missing file) -> loud config-error violation
+          (severity error, exit 2); else no violation. The unscanned-scope branch is
+          the language-agnostic REPLACEMENT for the old non-.go/missing config-error:
+          it keys ONLY on scanned-vs-unscanned (a scanned non-Go scope gets a normal
+          verdict — CLM-034). Zero language imports (CLM-014). Makes TASK-008 pass.
+        files:
+          - pkg/gate/contract_verdict.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+        depends_on:
+          - TASK-008
+      - id: TASK-011
+        type: implementation
+        title: "Extend ContractEntry.Scope + populate it in ExtractContractEntries"
+        description: |
+          Add the Scope field to ContractEntry (the file-OR-path absence parameter)
+          and populate it in ExtractContractEntries (pkg/gate/step_testverify.go)
+          from the declared contract's provides entry, in addition to
+          File/Name/Kind/Signature/Absent — so a path-scoped absence probe receives
+          its scope through pattern-arg (CLM-040/041). parseSpecFrontmatter carries
+          the declared scope through. Extraction stays a pure data-record builder: no
+          parse, no AST-walk, no signature compilation (CLM-042). The Scope field is
+          added to the ContractEntry type definition in step_contract.go (the type
+          stays; only the analyzer body is deleted later in Phase 6). Makes TASK-009
+          pass. Additive — no analyzer deletion here.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_contract.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-009
+      - id: TASK-012
+        type: verification
+        title: "Verify gate-side verdict + scope extraction (code check)"
+        description: |
+          Run `backstop code check` over the additive verdict + extraction changes.
+          Confirm VerifyContractVerdict has zero language imports, distinguishes all
+          three empty cases (absent->pass, missing->loud, unscanned->loud), treats a
+          scanned non-Go scope as a normal verdict, and that ExtractContractEntries
+          populates Scope while remaining a pure data-record builder. Confirm the
+          legacy analyzer is still present and pkg/gate still compiles (additive).
+        files:
+          - pkg/gate/contract_verdict.go
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-014
+          - CLM-042
+        depends_on:
+          - TASK-010
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Pack rules — Go signature/absence + shared TS contract rules
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Pack Contract Rules — Go (signature + absence) and TypeScript"
+    description: |
+      Author the language-specific contract work IN THE PACK (REQ-002/003/007) and
+      prove the binary never compiles a signature (P0, CLM-006). The Go
+      contract->ast-grep-pattern COMPILER is a pack-relative script; the grep
+      absence probe is the pack-declared grep engine. The shared TS proof pack
+      (co-owned with SPEC-037) gains contract signature (ast-grep) + absence (grep)
+      rules — added to the SAME pack, structural engines only (no eslint/tsc),
+      not clobbering Seed 3's substantiveness rules. All rules verified with REAL
+      ast-grep + REAL grep over real fixtures. The Go-rule task and the TS-rule task
+      touch disjoint pack files and can parallelize. Still additive — the legacy
+      analyzer is intact for the Phase 5 equivalence pass.
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Tests: Go pack signature (ast-grep) + absence (grep) over real fixtures; compiler-in-pack"
+        description: |
+          Write failing tests for the Go contract pack rules using REAL engines over
+          the Phase 1 Go fixtures: a present declared signature -> ast-grep MATCH ->
+          SATISFIED (CLM-004); an absent/mismatched signature -> NO match -> VIOLATION
+          (CLM-005); a param-name-only/whitespace variant still MATCHES structurally
+          (CLM-007); the contract->ast-grep-pattern COMPILER lives in the pack (a
+          pack-relative script), NOT the binary — the binary passes Signature through
+          pattern-arg unmodified (CLM-006); a forbidden symbol PRESENT -> grep match ->
+          absence violation naming file+location (CLM-008); genuinely absent -> empty ->
+          PASS (CLM-009); absence scope is a PARAMETER (file OR path) via the same
+          binding without a fork (CLM-010); absence uses GREP text-presence (flags a
+          token in a comment/string), NOT ast-grep (CLM-011).
+        files:
+          - pkg/pack/engine/contracts_go_rules_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-001
+          - TASK-004
+          - TASK-005
+      - id: TASK-014
+        type: test
+        title: "Tests: TS pack signature (ast-grep) + absence (grep) over real .ts; structural-only; shared pack"
+        description: |
+          Write failing tests for the TypeScript contract rules in the shared TS proof
+          pack using REAL ast-grep + REAL grep over the Phase 1 .ts fixtures: a present
+          .ts signature MATCHES (SATISFIED) and an absent/mismatched .ts signature ->
+          VIOLATION (CLM-023); a present forbidden .ts symbol -> grep violation, absent
+          -> PASS (CLM-024); the TS contract rules ride STRUCTURAL engines only — the
+          pack declares ast-grep+grep for contracts and binds NO TS toolchain engine
+          (eslint/tsc) for them (CLM-025); the rules are added to the SAME shared TS
+          pack that holds Seed 3's substantiveness rules, not a second TS pack (CLM-026).
+        files:
+          - pkg/pack/engine/contracts_ts_rules_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-005
+      - id: TASK-015
+        type: implementation
+        title: "Author Go contract pack rules: signature ast-grep compiler + grep absence probe"
+        description: |
+          Author the Go contract rules in the traceability pack: (1) the
+          contract->ast-grep-pattern COMPILER as a pack-relative script that turns the
+          declared human-readable Signature into a Go ast-grep pattern fed via
+          pattern-arg to the ast-grep engine (gate_type contracts) — the binary never
+          compiles it (CLM-006); the pattern is structural so a param-name/whitespace
+          variant matches (CLM-007). (2) the grep absence rule binding the pack-declared
+          grep engine to probe the declared Scope (file OR path) for the forbidden
+          symbol (CLM-008/009/010/011 — text-presence, not ast-grep). Makes TASK-013
+          pass with real engines. Disjoint pack files from the TS rules.
+
+          CONVERT SCRIPT IS MANDATORY (per-pack-root, per-engine): this traceability
+          pack runs BOTH real engines — the ast-grep SIGNATURE rule AND the grep ABSENCE
+          rule are dispatched through real ast-grep / real grep (TASK-013). A findings
+          pack dispatched through an engine HARD-ERRORS "broken pack <name>: missing
+          convert script <path>" at cmd/backstop/pack_gate.go:413-416 if the convert
+          script for THAT engine is absent, and the default ast-grep binding resolves
+          `Convert: ast-grep/to-sarif.sh` per-pack-root (pkg/pack/engine/binding.go:241).
+          So this task authors the ast-grep->SARIF convert script (ast-grep/to-sarif.sh)
+          for the signature rule HERE; the grep->SARIF convert (grep/to-sarif.sh) is
+          authored alongside the grep engine declaration in TASK-006. After both tasks
+          the traceability pack ships BOTH convert scripts (ast-grep/to-sarif.sh +
+          grep/to-sarif.sh), one per engine it dispatches through. The ast-grep/ convert
+          file is disjoint from TASK-006's grep/ convert + pack.yml.
+        files:
+          - .backstop/packs/backstop/traceability/rules/contract-signature.yml
+          - .backstop/packs/backstop/traceability/rules/contract-absence.yml
+          - .backstop/packs/backstop/traceability/scripts/compile-signature.sh
+          - .backstop/packs/backstop/traceability/ast-grep/to-sarif.sh
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-013
+      - id: TASK-016
+        type: implementation
+        title: "Author TS contract rules into the shared TS proof pack (structural engines only)"
+        description: |
+          PREREQUISITE: PLAN-SPEC-037 (Seed 3) MUST already be implemented — it OWNS
+          and STANDS UP the shared TS proof pack. Seed 3's ACTUAL pack (on disk) is
+          `backstop/ts-proof` at pkg/gate/testdata/ts-proof-pack/ with an `ast-grep/`
+          rule layout — it ships ast-grep/hollow-test-ts.yml, ast-grep/to-sarif.sh, and
+          fixtures/ts/ — NOT a `.backstop/packs/backstop/ts-proof/` `rules/`-layout pack.
+          This task ADDS contract rules INTO that EXISTING pack at its ACTUAL path+layout;
+          it does NOT create the pack and does NOT relocate it (creating a second/relocated
+          TS pack would violate CLM-026). Confirm the ts-proof-pack exists before authoring.
+          See the CROSS-SPEC SEQUENCING PREREQUISITE note.
+
+          Add the TypeScript contract rules to Seed 3's SHARED ts-proof-pack (same
+          stack-locked pack, NOT a second TS pack — CLM-026), matching its `ast-grep/` +
+          `grep/` layout:
+            - a signature-presence ast-grep rule (ast-grep/contract-signature-ts.yml) +
+              the contract->pattern compiler in its TS form (scripts/compile-signature-ts.sh)
+              — RIDES Seed 3's EXISTING ast-grep/to-sarif.sh convert (already shipped by
+              Seed 3; this task does NOT re-author it);
+            - a symbol-absence grep rule (grep/contract-absence-ts.yml) binding the
+              pack-declared grep engine on .ts (CLM-023/024).
+          CONVERT SCRIPT (grep engine, MANDATORY): Seed 3's ts-proof-pack ships only
+          ast-grep/to-sarif.sh (it had no grep rule). The NEW TS absence rule dispatches
+          through real grep, so this task MUST also add the pack's grep->SARIF convert
+          (grep/to-sarif.sh) — otherwise real grep dispatch hard-errors "missing convert
+          script" (cmd/backstop/pack_gate.go:413-416). After this task the ts-proof-pack
+          ships BOTH ast-grep/to-sarif.sh (Seed 3) and grep/to-sarif.sh (this task), one
+          per engine it now dispatches through.
+          The rules bind ONLY the structural engines (ast-grep / grep) — NO TS toolchain
+          engine (eslint/tsc) for contracts (CLM-025). Register the two new rules in the
+          pack's content.ruleset.rules (the new contract-signature-ts + contract-absence-ts
+          entries) ADDITIVELY — must not clobber Seed 3's existing hollow-test-ts rule
+          entry or any other pack.yml content. Makes TASK-014 pass with real ast-grep +
+          real grep. Disjoint files from the Go pack rules.
+        files:
+          - pkg/gate/testdata/ts-proof-pack/pack.yml
+          - pkg/gate/testdata/ts-proof-pack/ast-grep/contract-signature-ts.yml
+          - pkg/gate/testdata/ts-proof-pack/grep/contract-absence-ts.yml
+          - pkg/gate/testdata/ts-proof-pack/grep/to-sarif.sh
+          - pkg/gate/testdata/ts-proof-pack/scripts/compile-signature-ts.sh
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+        depends_on:
+          - TASK-014
+      - id: TASK-017
+        type: verification
+        title: "Verify Go + TS pack contract rules (code check, real engines)"
+        description: |
+          Run `backstop code check` over the Go and TS pack contract rules. Confirm
+          the signature compiler is pack-relative (NOT in the binary — CLM-006), the
+          ast-grep pattern is structural (param-name insensitive — CLM-007), grep
+          handles absence as text-presence (CLM-011), absence scope parameterizes
+          file-or-path without a fork (CLM-010), the TS rules ride structural engines
+          only (CLM-025) and live in the shared TS pack (CLM-026), all proven with
+          real ast-grep + real grep, no stubs. Confirm each pack dispatched through real
+          ast-grep / real grep ships the matching convert script (the traceability pack
+          ships BOTH ast-grep/to-sarif.sh + grep/to-sarif.sh; the ts-proof-pack ships
+          ast-grep/to-sarif.sh from Seed 3 + the new grep/to-sarif.sh) so no real dispatch
+          hard-errors on a missing convert script.
+        files:
+          - .backstop/packs/backstop/traceability/rules/contract-signature.yml
+          - pkg/gate/testdata/ts-proof-pack/ast-grep/contract-signature-ts.yml
+        claims:
+          - CLM-006
+          - CLM-025
+          - CLM-026
+        depends_on:
+          - TASK-015
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Strangler-equivalence — GATES the deletion (REQ-008)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Strangler-Equivalence vs the Live go/parser Analyzer"
+    description: |
+      Prove the pack-produced contract signal reproduces the LIVE go/parser
+      analyzer's verdicts on REAL Go fixtures BEFORE any deletion (REQ-008 / Sharp
+      Edge 7). The legacy analyzer is still present in step_contract.go this phase;
+      the harness runs the pack path (real ast-grep + real grep) and the analyzer
+      side by side and asserts identical verdicts across present, mismatched,
+      absent, and missing/non-target cases. This phase is the gate that licenses
+      Phase 6's deletion. The shared language-agnostic comparison logic
+      (VerifyContractVerdict from Phase 3) is the common consumer in both paths.
+    tasks:
+      - id: TASK-018
+        type: test
+        title: "Tests: strangler-equivalence (pack verdict == go/parser verdict) on real Go"
+        description: |
+          Write failing equivalence tests running REAL ast-grep + REAL grep and the
+          live go/parser analyzer side by side on real Go fixtures: present matching
+          signature -> pack SATISFIED == legacy match (CLM-027); mismatched/missing
+          signature -> pack VIOLATION == legacy mismatch/not-found (CLM-028); absence
+          present->violation and absent->pass equal to legacy probeSymbol verdicts
+          (CLM-029); missing/non-target file -> pack path + file-scanned guard
+          reproduces the analyzer's loud config error, not a silent pass (CLM-030).
+          No stub — replacing the engine with a stub must make these fail.
+        files:
+          - pkg/gate/contract_equivalence_test.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-012
+          - TASK-017
+      - id: TASK-019
+        type: implementation
+        title: "Equivalence harness: run pack path + legacy analyzer, assert identical verdicts"
+        description: |
+          Add the equivalence harness helper that drives the pack path
+          (ContractEngineResult from real ast-grep + real grep -> VerifyContractVerdict)
+          and the live go/parser analyzer over the same fixtures and compares verdicts,
+          making TASK-018's tests pass. This is additive test-support code that consumes
+          BOTH paths; it does NOT delete the analyzer (deletion is Phase 6, gated on
+          this passing). The harness proves present/mismatch/absent/missing equivalence
+          (CLM-027/028/029/030) on real Go.
+        files:
+          - pkg/gate/contract_equivalence.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-018
+      - id: TASK-020
+        type: verification
+        title: "Verify strangler-equivalence passes (gates the deletion)"
+        description: |
+          Run `backstop code check` over the equivalence harness. Confirm the
+          pack-produced verdict equals the live go/parser verdict across present,
+          mismatched, absent, and missing/non-target cases on real Go fixtures, with
+          real ast-grep + real grep (no stub). This verification is the LICENSE for
+          Phase 6's analyzer deletion — Phase 6 MUST NOT proceed unless this passes.
+        files:
+          - pkg/gate/contract_equivalence.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-019
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Delete the analyzer + couple test cleanup + rewire the gate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Analyzer Deletion, Coupled Test Cleanup, Gate Rewiring"
+    description: |
+      ONLY NOW — equivalence proven (Phase 5) — delete the baked Go analyzer and
+      couple every dependent change IN THE SAME CHANGE (REQ-001/006/010/011).
+      Delete probeSymbol/findFunction/findMethod/findType/findVariable,
+      formatFuncSignature/formatMethodSignature/underlyingTypeString/printFieldList,
+      signaturesMatch/normalizeSignature, and the go/parser/go/ast/go/printer
+      imports; rewrite StepContractSignatureScopedFunc to consume []ContractEngineResult
+      + VerifyContractVerdict; DELETE the non-scoped StepContractSignatureFunc wrapper;
+      reconcile the 5 analyzer-area test files IN THE SAME CHANGE — 4 are
+      compile-coupled to the deletion and MUST be deleted-or-migrated, while the 5th
+      (step_contract_parser_absence_test.go) references no deleted symbol, compiles
+      fine, and is PRESERVED so its surviving Absent-field extraction coverage is not
+      dropped (the package won't compile with the 4 coupled files otherwise— Sharp Edge 9); and rewire buildContractStep
+      to consume the pack-produced contracts-gate-type SARIF (spy-verified the old
+      analyzer is unreachable). These tasks share pkg/gate/step_contract.go so they
+      are SEQUENTIAL (not parallel). The wiring task touches cmd/backstop and is
+      exercised end-to-end (cmd/backstop is in the test_command).
+    tasks:
+      - id: TASK-021
+        type: test
+        title: "Tests: deletion surface + migrated survivors + non-scoped entrypoint gone"
+        description: |
+          Write the failing tests that pin the deletion surface and the migrated
+          survivors against the pack-SARIF consumer: no go/parser extraction remains
+          and pkg/gate imports no go/parser/go/ast/go/printer for contracts (CLM-001);
+          the rendering helpers are deleted/unreferenced (CLM-002); the
+          signaturesMatch/normalizeSignature string-equality compare is deleted
+          (CLM-003); NO pkg/gate test references any deleted symbol and the package
+          compiles (CLM-035); surviving absence behavior (present->violation,
+          absent->pass, missing/unscanned->loud) is MIGRATED to and still covered
+          against VerifyContractVerdict/ContractEngineResult (CLM-036); deleted-internal-only
+          tests (Go-source rendering, string normalization, dissolved non-.go-error)
+          are removed (CLM-037); the non-scoped StepContractSignatureFunc is DELETED and
+          StepContractSignatureScopedFunc is the sole entrypoint (CLM-038); no non-test
+          caller of the wrapper remains (CLM-039).
+        files:
+          - pkg/gate/contract_deletion_test.go
+          - pkg/gate/contract_migrated_absence_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-012
+          - TASK-020
+      - id: TASK-022
+        type: refactor
+        title: "Delete the go/parser analyzer; rewrite scoped consumer; delete non-scoped wrapper"
+        description: |
+          Delete from step_contract.go: probeSymbol, findFunction, findMethod,
+          findType, findVariable, formatFuncSignature, formatMethodSignature,
+          underlyingTypeString, printFieldList, signaturesMatch, normalizeSignature,
+          and the go/parser/go/ast/go/printer imports (CLM-001/002/003). Rewrite
+          StepContractSignatureScopedFunc to consume []ContractEngineResult +
+          VerifyContractVerdict (the sole retained contract entrypoint). DELETE the
+          non-scoped StepContractSignatureFunc wrapper — not a shim (CLM-038/039).
+          ContractEntry (with Scope, added Phase 3) stays as the pure data record.
+          Gated on TASK-020 (equivalence) having passed. Makes the deletion-surface
+          tests (TASK-021) pass.
+        files:
+          - pkg/gate/step_contract.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-021
+      - id: TASK-023
+        type: refactor
+        title: "Reconcile the 5 analyzer-area test files: 4 deleted-or-migrated, 1 preserved (same change as deletion)"
+        description: |
+          IN THE SAME CHANGE as the deletion (Sharp Edge 9), reconcile the 5
+          analyzer-area test files. FOUR are compile-coupled to the deletion and the
+          package won't compile while they reference removed symbols, so they are
+          deleted-or-migrated: step_contract_test.go, step_contract_absence_test.go,
+          step_contract_absence_config_test.go, step_contract_noregress_test.go. Tests in
+          those four asserting ONLY deleted internals (Go-source rendering,
+          string-equality normalization, the dissolved non-.go-is-an-error clause) are
+          DELETED (CLM-037); tests in those four asserting SURVIVING behavior are migrated
+          to the pack-SARIF consumer (the migrated coverage lives in TASK-021's new files
+          — CLM-036). The FIFTH, step_contract_parser_absence_test.go, references NO
+          deleted symbol — it exercises only the surviving ExtractContractEntries /
+          ContractEntry (TestGate_ExtractContractEntries_AbsentFieldParsed /
+          TestGate_ExtractContractEntries_AbsentDefaultsFalse). It is PRESERVED, not
+          deleted: its surviving Absent-field extraction coverage stays, and because
+          REQ-012 EXTENDS ExtractContractEntries to also populate Scope, this file must
+          keep PASSING against the extended extractor (Absent + Scope) — confirming live
+          coverage of the surviving guarantee is not dropped (CLM-036). After this, NO
+          pkg/gate test references a deleted symbol and `go test ./pkg/gate/` compiles
+          (CLM-035). Sequential after TASK-022 (same package, the deleted symbols must be
+          gone).
+        files:
+          - pkg/gate/step_contract_test.go
+          - pkg/gate/step_contract_absence_test.go
+          - pkg/gate/step_contract_absence_config_test.go
+          - pkg/gate/step_contract_noregress_test.go
+          - pkg/gate/step_contract_parser_absence_test.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-022
+      - id: TASK-024
+        type: test
+        title: "Tests: buildContractStep consumes pack SARIF; old analyzer unreachable; unwired fails"
+        description: |
+          Write failing wiring tests (Sharp Edge 5 — integration trap) using a
+          spy/sentinel contract source: buildContractStep / buildGateSteps construct
+          the contract step from the pack-produced contracts-gate-type SARIF path plus
+          the gate-side polarity + file-scanned guard, and the spy confirms that path is
+          consumed (CLM-020); a sentinel asserts the deleted probeSymbol-based path is
+          unreachable from buildContractStep so a still-using-old-analyzer wiring FAILS
+          (CLM-021); an UNWIRED step (pack SARIF present but dropped) FAILS — the spy
+          detects the pack violation is dropped rather than surfaced (CLM-022).
+          cmd/backstop is in the test_command so this is exercised end-to-end.
+        files:
+          - cmd/backstop/gate_contract_wiring_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-020
+      - id: TASK-025
+        type: implementation
+        title: "Rewire buildContractStep to the pack-produced contracts SARIF path"
+        description: |
+          Rewire buildContractStep / buildGateSteps (cmd/backstop/gate.go) to extract
+          ContractEntry records and route them to the pack-produced contracts-gate-type
+          SARIF path (the grep absence + ast-grep signature engines), then to the
+          rewritten StepContractSignatureScopedFunc pack-SARIF consumer. MUST NOT route
+          to the deleted go/parser analyzer (CLM-020/021). Inject the contract source via
+          a seam so the spy can assert the pack path is consumed and the old analyzer is
+          unreachable (CLM-022). Makes TASK-024's wiring tests pass. depends_on includes
+          the wiring test (TDD) AND the rewritten consumer (TASK-022).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-024
+          - TASK-022
+      - id: TASK-026
+        type: verification
+        title: "Verify deletion surface, test cleanup, and gate rewiring (code check)"
+        description: |
+          Run `backstop code check` over the deletion + cleanup + rewiring. Confirm
+          pkg/gate imports no go/parser/go/ast/go/printer for contracts and `go test
+          ./pkg/gate/` compiles with NO deleted-symbol reference; the non-scoped wrapper
+          is gone; surviving absence behavior is re-covered against the pack consumer;
+          and buildContractStep consumes the pack SARIF path with the old analyzer
+          unreachable (spy-verified, unwired fails).
+        files:
+          - pkg/gate/step_contract.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-035
+        depends_on:
+          - TASK-023
+          - TASK-025
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: No-vacuous-green + dogfood (REQ-009)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: No Vacuous Green on Deletion + Dogfood Payoff"
+    description: |
+      Prove the deletion did NOT trade enforcement for silence (REQ-009): each
+      enforcement case produces a REAL blocking violation through the pack path, and
+      backstop's OWN previously-red contract_signature cases resolve to GREEN under
+      the new pack path (the dual-substrate dogfood payoff — the brittle
+      signaturesMatch/formatFuncSignature round-trip is dissolved). The dogfood green
+      is a CONSEQUENCE of the Phase-6 rewiring, verified over backstop's own
+      contract fixtures through the ALREADY-WIRED gate — NOT a new dogfood-specific
+      production code path in the binary (which would be a baked smell). This phase adds
+      only own-contract / enforcement-case fixtures and the assertions; no new prod .go.
+      Depends on the rewired gate (Phase 6).
+    tasks:
+      - id: TASK-027
+        type: test
+        title: "Tests: each enforcement case blocks (exit 2) + dogfood turns own contracts green"
+        description: |
+          Write failing tests asserting no vacuous green through the rewired pack path:
+          a missing/mismatched signature yields a real blocking contract violation,
+          exit 2 (CLM-031); a present forbidden symbol yields a real blocking absence
+          violation, exit 2 (CLM-032); and running the new pack contract path against
+          backstop's OWN previously-red contract_signature cases resolves them to GREEN
+          (CLM-033 — the dogfood payoff). These run through the wired gate, not the unit
+          verdict in isolation.
+        files:
+          - cmd/backstop/gate_contract_novacuous_test.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-026
+      - id: TASK-028
+        type: implementation
+        title: "Land dogfood own-contract + enforcement-case fixtures; verify green via the already-wired path"
+        description: |
+          The dogfood-green payoff (CLM-033) is a CONSEQUENCE of the Phase-6 rewiring
+          (TASK-025) — the pack path dissolving the brittle
+          signaturesMatch/formatFuncSignature round-trip — NOT a new production code
+          path. Adding a dedicated cmd/backstop dogfood prod file would itself be a baked
+          dogfood-specific path in the binary (a smell). So this task adds NO new
+          production .go file. Instead it lands the dogfood fixtures: backstop's OWN
+          affected contract declarations/fixtures (the previously-red
+          contract_signature own-contract entries) plus the enforcement-case fixtures
+          (a missing/mismatched signature; a present forbidden symbol), under the
+          existing cmd/backstop/testdata/dogfood_enforcement tree. TASK-027's tests then
+          exercise these own-contract entries THROUGH the gate that TASK-025 already
+          rewired to the pack path: the previously-red cases resolve to GREEN (CLM-033)
+          and the enforcement cases produce real blocking violations / exit 2
+          (CLM-031/032). No new prod wiring — the verdict, pack rules, and gate rewiring
+          already exist (Phases 3-6); this task supplies the own-contract substrate the
+          dogfood + no-vacuous-green assertions run against. Makes TASK-027 pass.
+          Disjoint files from TASK-027's test file.
+        files:
+          - cmd/backstop/testdata/dogfood_enforcement/contract_signature_present.go
+          - cmd/backstop/testdata/dogfood_enforcement/contract_signature_mismatch.go
+          - cmd/backstop/testdata/dogfood_enforcement/contract_absence_present.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-027
+      - id: TASK-029
+        type: verification
+        title: "Verify no-vacuous-green + dogfood (code check)"
+        description: |
+          Run `backstop code check` over the no-vacuous-green + dogfood changes.
+          Confirm each enforcement case (missing/mismatched signature, present forbidden
+          symbol, unscanned scope) produces a real blocking violation (exit 2) through
+          the wired pack path, and that backstop's own previously-red contract_signature
+          cases now pass GREEN under the pack path — verified over the own-contract
+          fixtures, not via any dogfood-specific production code path (none was added).
+        files:
+          - cmd/backstop/gate_contract_novacuous_test.go
+          - cmd/backstop/testdata/dogfood_enforcement/contract_signature_present.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-028
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7a: Provisioning — author the Go contracts pack SOURCE + install local pack
+  #           (REQ-013 — ordinary INSTALLED pack, not embedded, not testdata-as-prod)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7a
+    name: "Phase 7a: Author Installable Go Contracts Pack SOURCE + Dogfood-Install as Local Pack (REQ-013)"
+    description: |
+      Author the REAL, dogfood-installable Go contracts pack SOURCE in-repo at
+      packs/contracts/ — location (B) in the notes PROVISIONING section, DISTINCT from
+      the in-repo traceability/testdata packs the engine/rule TDD phases dispatch over
+      (location A). The pack carries its OWN ast-grep signature-presence rule + grep
+      absence rule + sgconfig + convert script(s) (each pack ships its own ast-grep
+      convert script — the PLAN-SPEC-037 review lesson), declaring ast-grep and the
+      pack-declared grep engine. The rule IDs / gate_type match what the gate consumes.
+      The pack is an ORDINARY pack — its rule YAML lives ONLY in this source dir, never
+      //go:embed-bundled, never resolved from testdata by production code (CLM-043).
+      backstop-core then INSTALLS it into ITSELF as a LOCAL pack via the REAL
+      distribution.Add path (declared `backstop/contracts: local` + a `local` lockfile
+      entry; VerifyLock skips local — CLM-044). The Go pack is the NEW installable
+      artifact (CLM-045); the TS contract rules remain co-owned with SPEC-037's already-
+      installed TS proof pack. The packs/contracts/ source files are DISJOINT from every
+      other phase's files (the .backstop/packs traceability pack, the testdata, the
+      gate/cmd .go), so the SOURCE-authoring setup task is parallel-eligible. Real
+      distribution path, no stub.
+    tasks:
+      - id: TASK-031
+        type: setup
+        title: "Author the REAL installable Go contracts pack SOURCE at packs/contracts/ (own rules + sgconfig + convert)"
+        description: |
+          Create the REAL, dogfood-installable Go contracts pack SOURCE at packs/contracts/
+          — location (B), the pack a real gate run resolves from the INSTALLED (local)
+          declaration, NOT from testdata and NOT //go:embed-bundled (REQ-013/CLM-043).
+          It declares ast-grep (signature presence) and the pack-declared grep engine
+          (symbol absence) and carries its OWN: (1) ast-grep contract-signature rule +
+          the contract→ast-grep-pattern compiler script (the binary never compiles a
+          signature — CLM-006); (2) grep contract-absence rule binding the pack-declared
+          grep engine (scope = file OR path via pattern-arg); (3) an sgconfig wiring the
+          ast-grep rule (multi-rule dispatch, ISSUE-028); (4) its OWN ast-grep→SARIF
+          convert script AND grep→SARIF convert script (each pack ships its own convert —
+          the PLAN-SPEC-037 review lesson; a findings pack with a `convert:` binding
+          hard-errors "missing convert script" if absent). This is the pack Phase 7c's
+          E2E installs and Phase 7b's capability re-key keys on. Inert pack YAML +
+          convert/compiler scripts only; no production Go. DISJOINT files from every
+          other phase. The Go rule LOGIC mirrors the traceability pack rules authored in
+          TASK-015 (same compiler + absence approach), re-homed into this installable
+          source so the dogfood path resolves an ORDINARY installed pack.
+        files:
+          - packs/contracts/pack.yml
+          - packs/contracts/ast-grep/contract-signature.yml
+          - packs/contracts/ast-grep/sgconfig.yml
+          - packs/contracts/ast-grep/to-sarif.sh
+          - packs/contracts/grep/to-sarif.sh
+          - packs/contracts/scripts/compile-signature.sh
+          - packs/contracts/grep/contract-absence.yml
+        claims:
+          - CLM-043
+          - CLM-045
+        depends_on: []
+      - id: TASK-032
+        type: test
+        title: "Tests: contracts pack not embedded/testdata-as-prod; installs as local pack (declared+locked, VerifyLock passes)"
+        description: |
+          Write failing provisioning tests in pkg/pack/distribution driving the REAL
+          distribution.Add / VerifyLock path over the packs/contracts/ source in a temp
+          workspace. Assert: the contracts rules are ABSENT from the binary — no
+          //go:embed (or other compiled-in asset) carries the contract→ast-grep-pattern
+          compiler or grep-absence rule YAML, and no PRODUCTION gate code path resolves
+          the contracts pack from a testdata directory; the rules are present ONLY in the
+          installed packs/contracts/ source (CLM-043). After `pack add packs/contracts`
+          (local source), backstop.yml declares the pack with the `local` source value
+          and the lockfile carries a `local` SourceType entry, and VerifyLock PASSES
+          WITHOUT a remote artifact (local packs skipped, verify.go ~line 46-49) —
+          proving the dogfood mechanism is the local provisioning path, not a remote
+          fetch (CLM-044). The installable artifact this spec authors is the GO contracts
+          pack; the TS contract rules are co-owned with the already-installed shared TS
+          proof pack, so only the Go pack's declared+locked installation is asserted here
+          (CLM-045).
+        files:
+          - pkg/pack/distribution/contracts_provisioning_test.go
+        claims:
+          - CLM-043
+          - CLM-044
+          - CLM-045
+        depends_on:
+          - TASK-031
+      - id: TASK-033
+        type: implementation
+        title: "Implement the local-pack install helper for the Go contracts pack (real distribution.Add)"
+        description: |
+          Add the helper the provisioning + E2E tests drive: install the packs/contracts/
+          source as a LOCAL pack via the REAL distribution.Add path (declared
+          `backstop/contracts: local` + a `local` lockfile entry) into a temp workspace,
+          and expose the resolved/installed pack handle so a later gate run resolves the
+          contracts pack from the INSTALLED (local) declaration — NEVER from testdata,
+          with NO //go:embed and NO baked path (CLM-043/044/045). It reuses the existing
+          distribution.Add / VerifyLock primitives — it does NOT re-implement
+          installation. Makes TASK-032 pass. The helper file is disjoint from the test
+          file; this implementation depends on the provisioning test (TDD) and the pack
+          source (TASK-031).
+        files:
+          - pkg/pack/distribution/contracts_local_install.go
+        claims:
+          - CLM-043
+          - CLM-044
+          - CLM-045
+        depends_on:
+          - TASK-032
+          - TASK-031
+      - id: TASK-034
+        type: verification
+        title: "Verify contracts-pack provisioning (local install declared+locked, no embed/testdata) (code check)"
+        description: |
+          Run `backstop code check` over the provisioning changes. Confirm the
+          packs/contracts/ source installs as a LOCAL pack (declared `backstop/contracts:
+          local` + `local` lockfile entry, VerifyLock passes without a remote artifact),
+          the contract rules are absent from the binary (no //go:embed, no production
+          testdata resolution), and the Go pack is the new installable artifact while the
+          TS rules stay co-owned with the already-installed TS proof pack.
+        files:
+          - pkg/pack/distribution/contracts_local_install.go
+          - pkg/pack/distribution/contracts_provisioning_test.go
+        claims:
+          - CLM-043
+          - CLM-044
+          - CLM-045
+        depends_on:
+          - TASK-033
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7b: Contracts-arm capability re-key (CONTRACTS ONLY) + shipped-test migration
+  #           (REQ-015 — deriveCapabilityState + gate_capability_test.go)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7b
+    name: "Phase 7b: Contracts-Only Capability Re-Key + Shipped SPEC-036 Test Migration (cmd/backstop)"
+    description: |
+      Re-key the CONTRACTS arm of deriveCapabilityState (cmd/backstop/gate.go:273, the
+      SPEC-036 function) onto the INSTALLED contracts pack — Present/Working iff the
+      contracts pack is installed/resolvable — and LEAVE THE SUBSTANTIVENESS AND COVERAGE
+      ARMS UNCHANGED (HARD FENCE: see notes CAPABILITY RE-KEY). The SUBSTANTIVENESS arm
+      was already re-keyed by Seed 3 — do NOT touch it; the COVERAGE arm stays baked-Go
+      (descoped, no pack). Add NEW contractsPackInstalled / contractsPackName helpers
+      MIRRORING the live substantivenessPackInstalled / substantivenessPackName. In the
+      SAME change, MIGRATE the shipped SPEC-036 test
+      TestCapabilityState_NonGoProject_DerivesAbsentClass2
+      (gate_capability_test.go:17) — which Seed 3 left iterating {DimensionCoverage,
+      DimensionContracts} TOGETHER in the baked-Go loop (live at line 27) and which goes
+      RED on ./cmd/backstop/ once contracts re-keys — by SPLITTING DimensionContracts OUT
+      of that loop (leaving ONLY DimensionCoverage) and asserting the contracts
+      dimension's installed-pack keying separately (CLM-052), exactly as Seed 3 split out
+      DimensionSubstantiveness. This phase touches cmd/backstop/gate.go (the SAME file as
+      the Phase-6 rewiring TASK-025) so it is SEQUENTIAL after that rewiring (not
+      parallel) — the re-key lands on the already-rewired gate. Covers ./cmd/backstop/
+      for gate cadence. align-predating-artifacts: SPEC-036 is aligned via implementation,
+      not revised.
+    tasks:
+      - id: TASK-035
+        type: test
+        title: "Tests: contracts capability keys on installed pack; coverage/substantiveness unchanged; shipped test migrated"
+        description: |
+          Write failing tests in cmd/backstop pinning the contracts-only capability re-key
+          at the live locus deriveCapabilityState. Assert: for the CONTRACTS dimension
+          ONLY, deriveCapabilityState's source is "the contracts pack is INSTALLED /
+          resolvable" (read from cfg.Packs via a contractsPackInstalled helper), NOT the
+          deleted go/parser analyzer and NOT a built-in tier — pack installed →
+          Present/Working (gate RUNS contracts); absent+undeclared → class-2
+          (capability-absent, warn, exit 0 per SPEC-036); absent+declared → class-3
+          (declared-intent-unmet, block) (CLM-050). The 3-arm END STATE is asymmetric and
+          explicit: for a Go project with NEITHER pack installed, (cfg, DimensionCoverage)
+          returns Present via the baked analyzer while (cfg, DimensionContracts) AND
+          (cfg, DimensionSubstantiveness) return absent (pack-not-installed) — proving
+          ONLY contracts re-keyed here and coverage stayed baked, substantiveness left
+          as-is from Seed 3 (CLM-051). The migrated form of the shipped test splits
+          DimensionContracts out of the baked-Go loop (leaving ONLY DimensionCoverage)
+          and asserts the contracts installed-pack keying separately so ./cmd/backstop/
+          stays green and no claim is orphaned (CLM-052). The migration of the existing
+          TestCapabilityState_NonGoProject_DerivesAbsentClass2 body (splitting
+          DimensionContracts out of the {DimensionCoverage, DimensionContracts} loop) is
+          performed by TASK-036 in the same file; this test task authors the NEW mandated
+          FuncNames.
+        files:
+          - cmd/backstop/gate_capability_rekey_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-026
+      - id: TASK-036
+        type: implementation
+        title: "Re-key deriveCapabilityState contracts arm onto installed pack; add helpers; migrate shipped test"
+        description: |
+          Modify deriveCapabilityState in cmd/backstop/gate.go (the SPEC-036 function at
+          line 273): re-key ONLY the CONTRACTS arm so its CapabilityState source is "the
+          contracts pack is installed / resolvable" (Present/Working iff installed),
+          replacing the deleted baked-Go-analyzer presence. Add NEW contractsPackInstalled
+          / contractsPackName helpers reading ONLY the declaration surface (cfg.Packs;
+          contractsPackName() == "backstop/contracts"), MIRRORING the live
+          substantivenessPackInstalled / substantivenessPackName. The SUBSTANTIVENESS arm
+          (re-keyed by Seed 3) and the COVERAGE arm (baked-Go, descoped) MUST stay
+          UNCHANGED (HARD FENCE). In the SAME change, MIGRATE the shipped SPEC-036 test
+          TestCapabilityState_NonGoProject_DerivesAbsentClass2 in
+          cmd/backstop/gate_capability_test.go: split DimensionContracts out of its
+          {DimensionCoverage, DimensionContracts} baked-Go loop (leaving ONLY
+          DimensionCoverage) and assert the contracts dimension's installed-pack keying
+          separately, so ./cmd/backstop/ stays green (CLM-052). Makes TASK-035 pass. This
+          is an OPEN alignment of SPEC-036's derivation via implementation
+          (align-predating-artifacts); SPEC-036 is NOT revised. SEQUENTIAL after the
+          Phase-6 rewiring (TASK-025) — same file (cmd/backstop/gate.go) — so the re-key
+          lands on the already-rewired gate.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_capability_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-035
+          - TASK-025
+      - id: TASK-037
+        type: verification
+        title: "Verify contracts-arm capability re-key + shipped-test migration (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm cmd/backstop builds,
+          lints clean, the contracts arm of deriveCapabilityState keys on the installed
+          contracts pack via the new contractsPackInstalled helper, the
+          substantiveness/coverage arms are UNCHANGED, and the migrated shipped SPEC-036
+          test (DimensionContracts split out of the baked-Go loop) passes so
+          ./cmd/backstop/ stays green and no claim is orphaned.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_capability_test.go
+          - cmd/backstop/gate_capability_rekey_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-036
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7c: REAL over-installed-pack END-TO-END proof (REQ-014 — unstubbable)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7c
+    name: "Phase 7c: Real Over-Installed-Pack End-to-End Proof (REQ-014, unstubbable)"
+    description: |
+      Prove the contracts pack runs over a real INSTALLED pack through the WHOLE
+      production pipeline, yielding real violations on BOTH polarities, and that the
+      proof FAILS if the pack is not installed or not run (no vacuous green). See notes
+      REAL OVER-INSTALLED-PACK E2E. This phase installs the packs/contracts/ source
+      (TASK-031, via the TASK-033 local-install helper) as a local pack and runs the
+      production gate contract path (the Phase-6-rewired buildContractStep through the
+      real resolveDispatchPackEngines → dispatchPackEngines → real ast-grep [signature]
+      + real grep [absence] → real convert-under-sandbox → SARIF → match-verdict +
+      absence polarity + file-scanned guard). REQ-006's wiring spy is RETAINED (Phase 6);
+      this ADDS the over-installed-pack proof on top. The E2E tests MUST run REAL ast-grep
+      + REAL grep + REAL sandboxed convert (t.Fatal NOT t.Skip if a tool is absent) — the
+      pipeline genuinely runs because ISSUE-028 (multi-rule ast-grep dispatch) + ISSUE-029
+      (sandboxed convert) are shipped. Depends on the provisioning (Phase 7a), the
+      Phase-6 gate rewiring (TASK-025), the gate-side verdict (Phase 3), and the pack
+      rules (Phase 4).
+    tasks:
+      - id: TASK-038
+        type: test
+        title: "E2E tests: installed local pack → real gate → missing-sig RED + present-symbol RED; uninstalled → no vacuous green; both engines + sandbox"
+        description: |
+          Write failing REAL over-installed-pack END-TO-END tests in cmd/backstop. With
+          the Go contracts pack INSTALLED as a local pack (via the TASK-033 helper over
+          the packs/contracts/ source), run the WHOLE production pipeline (real pack
+          resolution → real dispatchPackEngines → real ast-grep [signature presence] +
+          real grep [symbol absence] → real convert-under-sandbox → SARIF → gate verdict)
+          over real fixtures and assert BOTH polarities:
+            - a MISSING/mismatched signature (no ast-grep match) yields a REAL blocking
+              contract VIOLATION (exit 2) — proven WITHOUT a stub, WITHOUT pointing
+              production at testdata, and NOT merely via the wiring spy (CLM-046);
+            - a PRESENT forbidden symbol (real grep match under an absence contract)
+              yields a REAL blocking absence VIOLATION (exit 2) (CLM-047).
+          The NO-VACUOUS-GREEN NEGATIVE TWIN runs the SAME missing-signature + present-
+          forbidden-symbol fixtures through the SAME production path with the local pack
+          declaration/lock ABSENT (or the real ast-grep/grep dispatch not reached) and
+          asserts NO contract/absence violation — pinning that the verdict came from the
+          real installed pack, not a residual baked path, a stub, or testdata-in-
+          production (CLM-048). A further assertion pins that the pipeline exercises BOTH
+          the real ast-grep signature dispatch (multi-rule, ISSUE-028) AND the real grep
+          absence dispatch through the convert script under the REAL macOS sandbox
+          (ISSUE-029) — not a single-engine or sandbox-bypassed shortcut (CLM-049). MUST
+          t.Fatal (NOT t.Skip) if ast-grep or grep is absent. Disjoint from the harness
+          implementation file.
+        files:
+          - cmd/backstop/gate_contract_e2e_test.go
+          - cmd/backstop/testdata/contracts_e2e/contract_signature_mismatch.go
+          - cmd/backstop/testdata/contracts_e2e/contract_absence_present.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-034
+          - TASK-026
+          - TASK-012
+          - TASK-017
+      - id: TASK-039
+        type: implementation
+        title: "Implement E2E harness: install local contracts pack + run production contract path over it"
+        description: |
+          Add the cmd/backstop E2E harness the over-installed-pack tests drive: install
+          the packs/contracts/ source as a LOCAL pack via the TASK-033 distribution helper
+          (declared `backstop/contracts: local` + `local` lockfile entry) into a temp
+          workspace, then run the PRODUCTION contract gate path (the Phase-6-rewired
+          buildContractStep through the real resolveDispatchPackEngines →
+          dispatchPackEngines → real ast-grep [signature] + real grep [absence] → real
+          convert-under-sandbox → match-verdict + absence polarity + file-scanned guard)
+          over the missing-signature and present-forbidden-symbol fixtures, returning the
+          produced violations for the tests to assert. The harness resolves the pack from
+          the INSTALLED (local) declaration — NEVER from testdata — and adds NO //go:embed
+          and NO baked path. It reuses the Phase-6 wiring + Phase-3 verdict + Phase-7a
+          install helper; it does NOT re-implement dispatch. Makes TASK-038 pass. Depends
+          on the E2E tests (TDD), the rewired gate (TASK-025), and the install helper
+          (TASK-033).
+        files:
+          - cmd/backstop/gate_contract_e2e.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-038
+          - TASK-025
+          - TASK-033
+      - id: TASK-040
+        type: verification
+        title: "Verify real over-installed-pack E2E (both polarities + no-vacuous-green + both engines/sandbox) (code check)"
+        description: |
+          Run `backstop code check` over the diff scope to confirm cmd/backstop builds,
+          lints clean, and the E2E tests pass: the installed local contracts pack drives
+          the whole production pipeline to a real contract violation on a missing
+          signature AND a real absence violation on a present forbidden symbol, the
+          uninstalled negative twin produces no vacuous green, and BOTH the real ast-grep
+          signature dispatch and the real grep absence dispatch run through the convert
+          script under the real macOS sandbox. Closes the recurring pack-provisioning
+          integration gap before the final gate.
+        files:
+          - cmd/backstop/gate_contract_e2e.go
+          - cmd/backstop/gate_contract_e2e_test.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-039
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Final comprehensive verification — full gate + artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: Full Gate + Artifact Validation"
+    description: |
+      The only phase that runs the full kill chain. `backstop gate` over all five
+      packages (pkg/gate, cmd/backstop, pkg/pack, pkg/pack/engine, pkg/pack/distribution)
+      at >=80% coverage: artifact validation + code check + test verification +
+      substantiveness + coverage + contracts. Confirms zero baked-in contract analyzer
+      remains, the grep engine is pack-declared + allowlist-gated, the strangler order
+      held (equivalence before deletion), the binary never compiles a signature, the
+      gate is wired to the pack path, no vacuous green, and the dogfood payoff lands.
+      ALSO confirms the REQ-013/014/015 delta: the Go contracts pack is an ORDINARY
+      INSTALLED local pack (packs/contracts/ — no //go:embed, no testdata-as-production,
+      declared+locked, VerifyLock passes); the REAL over-installed-pack E2E runs the whole
+      production pipeline (real ast-grep signature + real grep absence + real sandboxed
+      convert) to BOTH a missing-signature contract violation AND a present-forbidden-symbol
+      absence violation, with the uninstalled negative twin proving no vacuous green; and
+      the CONTRACTS arm of deriveCapabilityState re-keyed onto the installed contracts pack
+      (substantiveness left as-is from Seed 3, coverage stays baked-Go) with the shipped
+      capability test migrated so ./cmd/backstop/ stays green. Also runs `backstop artifact
+      validate` (the plan touches both .go and pack/ artifact files, including the new
+      installable packs/contracts/ source).
+    tasks:
+      - id: TASK-030
+        type: verification
+        title: "Run full backstop gate + artifact validate over the complete SPEC-038 change"
+        description: |
+          Run `backstop gate` (full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) across pkg/gate,
+          cmd/backstop, pkg/pack, and pkg/pack/engine at >=80% coverage. Confirm every
+          claim's tests are green and the end state holds: NO baked Go contract analyzer
+          (no go/parser/go/ast/go/printer for contracts), only the gate-side polarity +
+          match-verdict + file-scanned guard remain; the grep engine is pack-declared
+          (no DefaultRegistry entry) and cannot run un-allowlisted; signature presence is
+          a pack-compiled ast-grep query (binary never compiles a signature); absence is
+          a pack-declared grep probe with file|path scope; the TS contract rules ride
+          structural engines in the shared TS pack; equivalence preceded deletion; the
+          5 analyzer-coupled test files are cleaned up; the gate is wired to the pack
+          path (spy-verified); no vacuous green; and backstop's own contracts turn green.
+          ALSO confirms the REQ-013/014/015 delta: the Go contracts pack
+          (packs/contracts/) is an ORDINARY INSTALLED local pack (no //go:embed, no
+          testdata-as-production, declared+locked, VerifyLock passes); the REAL
+          over-installed-pack E2E drives the whole production pipeline (real ast-grep +
+          real grep + real sandboxed convert) to a missing-signature contract violation
+          AND a present-forbidden-symbol absence violation, with the uninstalled negative
+          twin proving no vacuous green; the CONTRACTS arm of deriveCapabilityState
+          re-keyed onto the installed contracts pack (substantiveness left as-is from
+          Seed 3, coverage stays baked-Go) and the shipped capability test migrated.
+          Also runs `backstop artifact validate` to confirm this plan + the spec validate.
+        files:
+          - pkg/gate/step_contract.go
+          - pkg/gate/contract_verdict.go
+          - cmd/backstop/gate.go
+          - pkg/pack/engine/allowlist.go
+          - packs/contracts/pack.yml
+          - pkg/pack/distribution/contracts_local_install.go
+          - cmd/backstop/gate_contract_e2e.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-022
+          - TASK-025
+          - TASK-028
+          - TASK-007
+          - TASK-012
+          - TASK-017
+          - TASK-020
+          - TASK-026
+          - TASK-029
+          - TASK-034
+          - TASK-037
+          - TASK-040

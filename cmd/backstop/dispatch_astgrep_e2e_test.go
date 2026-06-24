@@ -9,8 +9,9 @@ import (
 
 // TestGateDispatch_AstGrepProofRuleEndToEnd drives the ast-grep proof rule all the
 // way through the dispatch path (CLM-030 / REQ-008/REQ-011): declaration ->
-// group-by-engine -> gather rule-dir -> run (fake runner) -> convert (the pack's
-// real to-sarif.sh) -> parseSarif -> namespaced violation. Substantive: asserts
+// group-by-engine -> gather config-file (the pack-shipped sgconfig.yml via
+// --config, ISSUE-028) -> run (fake runner) -> convert (the pack's real
+// to-sarif.sh) -> parseSarif -> namespaced violation. Substantive: asserts
 // the converted finding's namespaced id, file, and message all reach gate output,
 // so "ast-grep wired end-to-end" cannot be satisfied without the whole pipe.
 func TestGateDispatch_AstGrepProofRuleEndToEnd(t *testing.T) {
@@ -101,7 +102,7 @@ func TestGateDispatch_MixedEnginesNotCrossFed(t *testing.T) {
 		NormalizedName: "test-org/engine-pack",
 		Content: pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{
 			{ID: "semgrep-no-eval", Engine: "semgrep", RulePath: "semgrep/no-eval.yml", Standard: "x"},
-			{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/proof-rule.yml", Standard: "x"},
+			{ID: "ast-grep-proof", Engine: "ast-grep", RulePath: "ast-grep/sgconfig.yml", Standard: "x"},
 		}}},
 	}
 
@@ -133,10 +134,13 @@ func TestGateDispatch_MixedEnginesNotCrossFed(t *testing.T) {
 	if strings.Contains(semgrepArgs, "ast-grep") {
 		t.Errorf("semgrep invocation must NOT be fed the ast-grep rule input, got args %q", semgrepArgs)
 	}
-	// The ast-grep invocation must carry the ast-grep rule dir and NEVER the semgrep
-	// rule file.
-	if !strings.Contains(astGrepArgs, "ast-grep") {
-		t.Errorf("ast-grep invocation must carry its own rule dir, got args %q", astGrepArgs)
+	// The ast-grep invocation must carry its own pack-shipped sgconfig.yml (via
+	// --config) and NEVER the semgrep rule file.
+	if !strings.Contains(astGrepArgs, "ast-grep/sgconfig.yml") {
+		t.Errorf("ast-grep invocation must carry its own pack-shipped sgconfig.yml, got args %q", astGrepArgs)
+	}
+	if !strings.Contains(astGrepArgs, "--config") {
+		t.Errorf("ast-grep invocation must inject its config via --config, got args %q", astGrepArgs)
 	}
 	if strings.Contains(astGrepArgs, "semgrep/no-eval.yml") {
 		t.Errorf("ast-grep invocation must NOT be fed the semgrep rule file, got args %q", astGrepArgs)

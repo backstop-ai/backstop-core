@@ -173,6 +173,22 @@ func TestContracts_ProvidesMissingSignature(t *testing.T) {
 	assertHasViolation(t, result, "spec/provides-signature-required")
 }
 
+func TestContracts_ProvidesAbsentNeedsNoSignature(t *testing.T) {
+	// An absence contract (absent: true) asserts the symbol is GONE — there is no
+	// declaration to match a signature against, so a signature must NOT be required
+	// (BUNDLE-009 Seed 4: absence is a grep forbidden-pattern probe keyed on name).
+	art := specWithContracts([]interface{}{
+		map[string]interface{}{
+			"file": "pkg/foo.go",
+			"provides": []interface{}{
+				map[string]interface{}{"name": "legacyThing", "kind": "function", "absent": true, "scope": "pkg/foo.go"},
+			},
+		},
+	})
+	result := validate.Spec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/provides-signature-required")
+}
+
 func TestContracts_ProvidesAllKindsValid(t *testing.T) {
 	kinds := []string{"function", "type", "interface", "method", "constant", "variable"}
 	for _, kind := range kinds {

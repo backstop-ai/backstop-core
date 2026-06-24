@@ -1,0 +1,499 @@
+---
+plan_id: PLAN-ISSUE-028
+spec_id: ISSUE-028
+created: "2026-06-23"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/... ./cmd/backstop/... -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-028 — the multi-rule ast-grep dispatch defect (issue→plan
+  reactive track). A pack carrying more than one ast-grep rule is unrunnable
+  through the production dispatchPackEngines path: the ast-grep EngineBinding
+  declares InputMode rule-dir / InputFlag "--rule", and gatherEngineInputs emits
+  `--rule <DIR>`. ast-grep 0.43.0's `scan --rule` takes ONE rule FILE, not a
+  directory, so it errors ("Is a directory (os error 21)") and produces zero
+  findings on stdout — a vacuous green that silently drops every finding from
+  every ast-grep rule.
+
+  THE FIX (zero-baked, reuse the existing config-file mode — NO new mode):
+    ast-grep's verified multi-rule mechanism is `ast-grep scan --config
+    sgconfig.yml --json`, where sgconfig.yml carries `ruleDirs: [<pack ast-grep
+    dir>]` and runs ALL rules in one invocation. Backstop must stay
+    TOOL-AGNOSTIC: it must NOT generate or parse sgconfig.yml — doing so would
+    BAKE ast-grep's config format into the binary (a zero-baked violation). So:
+
+      - sgconfig.yml is PACK-SHIPPED DATA. The pack author (the same author who
+        writes the ast-grep rules and already knows ast-grep's sgconfig format)
+        writes ast-grep/sgconfig.yml alongside the rules. The ast-grep rule's
+        rule_path points at that pack-shipped sgconfig.yml.
+      - The dispatch REUSES the EXISTING InputModeConfigFile (`config-file`,
+        InputFlag "--config"), which already "passes a single pack-supplied
+        config file" (binding.go:18) and resolves exactly one rule_path. No new
+        InputMode constant, no per-engine generation code, no sgconfig knowledge
+        in the binary.
+      - The engine NAME stays "ast-grep" (it keeps its own Command, Convert,
+        Provision, Category). ONLY its InputMode flips rule-dir→config-file and
+        InputFlag "--rule"→"--config" in DefaultRegistry. The field-contract
+        `ast-grep|rule_path|requires` (validate_manifest.go) stays satisfied
+        because the rule still declares rule_path (now the sgconfig.yml path).
+        We are NOT renaming the rule's engine to "config-file" (that engine
+        FORBIDS rule_path, CLM-009).
+
+  RETIRE InputModeRuleDir (no dead code / zero-baked): ast-grep is the SOLE user
+    of InputModeRuleDir (grep evidence: const def + ParseInputMode +
+    validate_manifest layout switch + binding.go ast-grep + binding_test.go +
+    pack_gate_scope_test.go — no other engine, no pack). After the ast-grep flip
+    the mode has zero remaining users, so it is DELETED: the const, the
+    ParseInputMode case, the gatherEngineInputs `case InputModeRuleDir`, the
+    validate_manifest.go layout switch arm, and the two test references. The
+    CONFIRM-then-delete order is enforced by TASK-010 (a grep-evidence
+    deletion-assertion test) running BEFORE the deletion; if any non-ast-grep
+    user is found the mode is left in place and only ast-grep flips.
+
+  THE RECURRING GAP (the reason this issue exists — honored by TASK-005/006):
+    every existing ast-grep dispatch test uses a stubbed fixtureRunner that
+    intercepts "ast-grep scan" and returns canned JSON, so `--rule <DIR>` never
+    reached real ast-grep and the proof pack had only ONE rule. A stub is what
+    hid the bug. This plan's load-bearing acceptance test is REAL and UN-STUBBED:
+    it dispatches a brand-new TWO-rule ast-grep pack through the production
+    dispatchPackEngines with the REAL ast-grep binary (real convert, real SARIF
+    parse) and asserts findings from BOTH rules. If the ast-grep binary is
+    absent it FAILS LOUD via t.Fatal naming ast-grep + the install command —
+    NEVER t.Skip (a skip is silent vacuous green and would re-hide the bug).
+
+  SCOPE FENCE (issue-mandated, do NOT fold in): ISSUE-020 (convert SIGABRT under
+    sandbox / jq) and ISSUE-027 (backstop-owned pack under .backstop/packs
+    extra_unlocked) are sibling blockers tracked separately. This plan covers
+    ONLY the dispatch fix.
+
+  CLAIM LEGEND (issue has no CLM array; these encode its acceptance + invariants):
+    CLM-001 ast-grep binding flips rule-dir/"--rule" → config-file/"--config" in
+            DefaultRegistry; engine name stays "ast-grep".
+    CLM-002 dispatch emits exactly one `--config <pack sgconfig.yml>` for a
+            multi-rule ast-grep pack (no per-dir `--rule`, no duplicate flag).
+    CLM-003 sgconfig.yml is PACK-SHIPPED data with `ruleDirs`; backstop never
+            generates or parses it (zero-baked / tool-agnostic).
+    CLM-004 a multi-rule ast-grep pack runs ALL its rules in one invocation and
+            reports findings from every rule — no vacuous green.
+    CLM-005 a REAL, un-stubbed end-to-end test dispatches a TWO-rule ast-grep
+            pack through production dispatchPackEngines with the real ast-grep
+            binary and asserts findings from BOTH rules.
+    CLM-006 that E2E test FAILS LOUD (t.Fatal naming ast-grep + install) when the
+            ast-grep binary is absent — never t.Skip.
+    CLM-007 the existing engine-dispatch ast-grep testdata pack + fixtures are
+            aligned to ship sgconfig.yml and use config-file mode.
+    CLM-008 InputModeRuleDir is retired (deleted) after confirming ast-grep was
+            its only user; all references removed, no dead mode left.
+    CLM-009 the existing fast unit dispatch tests stay valid against the new
+            config-file shape (single-rule proof path still proven).
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Two-rule ast-grep E2E fixture pack (setup)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold a NEW two-rule ast-grep pack fixture with pack-shipped sgconfig.yml"
+        description: |
+          Create a brand-new, isolated testdata pack (separate tree from the
+          existing single-rule engine-dispatch pack so the load-bearing E2E owns
+          its own fixtures) carrying TWO distinct ast-grep rules plus the
+          PACK-SHIPPED sgconfig.yml. This pack is the input to the real,
+          un-stubbed E2E (TASK-005). No production code.
+
+          Files to author:
+            - pack.yml — manifest declaring TWO ast-grep rules. BOTH rules use
+              engine: ast-grep and BOTH set rule_path to the same pack-shipped
+              ast-grep/sgconfig.yml (the config-file input). Each rule carries its
+              own claim + positive/negative fixtures.
+            - ast-grep/sgconfig.yml — PACK-AUTHORED sgconfig with
+              `ruleDirs: [.]` (or the pack-relative ast-grep rule dir) so a single
+              `ast-grep scan --config sgconfig.yml --json` runs BOTH rules.
+              CRITICAL: this file is hand-written PACK DATA — backstop never
+              generates it (CLM-003).
+            - ast-grep/rule-one.yml — first ast-grep rule (e.g. pattern
+              forbiddenCallOne($$$)) with a distinct ruleId + message.
+            - ast-grep/rule-two.yml — second ast-grep rule (e.g. pattern
+              forbiddenCallTwo($$$)) with a distinct ruleId + message.
+            - ast-grep/to-sarif.sh — the real pack-shipped stdin->SARIF converter
+              (copy the existing engine-pack to-sarif.sh shape; emits SARIF for an
+              array of ast-grep findings spanning BOTH rules).
+            - fixtures/rules/rule-one/positive.go — source that trips rule-one.
+            - fixtures/rules/rule-two/positive.go — source that trips rule-two.
+              A single positive source MUST contain both forbiddenCallOne and
+              forbiddenCallTwo so one scan surfaces findings from BOTH rules.
+        files:
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/pack.yml
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/ast-grep/sgconfig.yml
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/ast-grep/rule-one.yml
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/ast-grep/rule-two.yml
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/ast-grep/to-sarif.sh
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/fixtures/rules/rule-one/positive.go
+          - cmd/backstop/testdata/astgrep-multirule/.backstop/packs/test-org/multirule-pack/fixtures/rules/rule-two/positive.go
+        claims:
+          - CLM-003
+          - CLM-005
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: ast-grep binding flip to config-file mode (TDD red→green)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write binding + gatherEngineInputs tests asserting ast-grep uses config-file / --config"
+        description: |
+          Write FAILING unit tests (red) pinning the corrected ast-grep dispatch
+          shape. These target the in-process logic (no real ast-grep binary).
+          Mandated test names:
+            - TestDefaultRegistry_AstGrepUsesConfigFileMode (CLM-001): assert
+              DefaultRegistry()["ast-grep"].InputMode == InputModeConfigFile and
+              InputFlag == "--config"; assert the engine name is still "ast-grep"
+              and it retains Convert (ast-grep/to-sarif.sh), Provision, and
+              Category EngineCategoryOpinion (the flip changes ONLY input
+              mode/flag).
+            - TestGatherEngineInputs_AstGrepMultiRuleEmitsSingleConfig (CLM-002):
+              given a manifest with TWO ast-grep rules both declaring rule_path
+              ast-grep/sgconfig.yml, assert gatherEngineInputs returns exactly
+              ["--config", "<abs path to sgconfig.yml>"] — one pair, NOT two
+              "--rule <dir>" emissions and NOT a duplicate "--config".
+            - TestGatherEngineInputs_AstGrepConfigPathResolvedFromPack (CLM-003):
+              assert the emitted config path is the PACK-SHIPPED sgconfig.yml
+              resolved under the pack root (proves backstop passes pack data, not
+              a generated temp file) — assert no temp file is created.
+          Update the existing binding_test.go expectations
+          (binding_test.go:42/94/180 assert InputModeRuleDir) to the new
+          config-file shape IN THIS TASK so the suite expresses the corrected
+          contract.
+        files:
+          - pkg/pack/engine/binding_test.go
+          - cmd/backstop/pack_gate_inputs_astgrep_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Flip the ast-grep DefaultRegistry binding to config-file / --config"
+        description: |
+          Make TASK-002 green by changing ONLY the ast-grep entry in
+          DefaultRegistry (pkg/pack/engine/binding.go:221-228):
+            InputMode: InputModeRuleDir  -> InputModeConfigFile
+            InputFlag: "--rule"          -> "--config"
+          Leave Command ("ast-grep scan"), Convert ("ast-grep/to-sarif.sh"),
+          Provision (ast-grep 0.43.0), ScopeKind, and Category untouched. Update
+          the doc comment on the ast-grep entry to state the multi-rule mechanism
+          is a pack-shipped sgconfig.yml passed via --config (one invocation runs
+          all rules), and that backstop neither generates nor parses it.
+          gatherEngineInputs already has the correct InputModeConfigFile case
+          (resolves ONE rule_path and emits [InputFlag, path]) — no change needed
+          there for the green; do NOT add ast-grep-specific code to the dispatch.
+        files:
+          - pkg/pack/engine/binding.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify the ast-grep binding flip with backstop code check"
+        description: |
+          Run `backstop code check` over the changed scope. Confirm the new
+          binding + gatherEngineInputs unit tests pass and the build is green.
+          This is the fast inner-loop gate for the binding flip; it does NOT run
+          the full kill chain (that is the final phase).
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/binding_test.go
+          - cmd/backstop/pack_gate_inputs_astgrep_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Real un-stubbed two-rule E2E (the load-bearing acceptance test)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write the REAL un-stubbed two-rule ast-grep E2E through production dispatchPackEngines"
+        description: |
+          Write the load-bearing acceptance test — the un-stubbed end-to-end that
+          closes ISSUE-028. It must drive the TWO-rule fixture pack (TASK-001)
+          through the PRODUCTION dispatchPackEngines with the REAL ast-grep
+          binary: NO fixtureRunner interception of "ast-grep scan", real convert
+          (the pack's to-sarif.sh), real SARIF parse. Mandated test name:
+            - TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd (CLM-005):
+                * Resolve the ast-grep binary up front. If absent, call
+                  t.Fatalf naming "ast-grep" AND the install command (e.g.
+                  "install ast-grep 0.43.0") — MUST be t.Fatal, NEVER t.Skip
+                  (CLM-006). A skip is silent vacuous green and is exactly what
+                  hid this defect.
+                * Dispatch the two-rule pack via dispatchPackEngines using the
+                  REAL command runner (the same runner production uses), pointed
+                  at the astgrep-multirule packs dir.
+                * Assert findings from BOTH rules arrive: collect violation Rule
+                  names and assert the set contains the namespaced ids for
+                  rule-one AND rule-two (test-org/multirule-pack/<rule-one-id>
+                  and .../<rule-two-id>). Assert len >= 2 and that neither rule's
+                  finding is missing — not one, not zero, BOTH (CLM-004).
+                * Assert each finding carries its rule-distinct message/file so a
+                  single-rule or empty result cannot pass.
+          Substantive: real binary, real pipe, asserts both rules — a stub or a
+          one-rule assertion does NOT satisfy this.
+
+          NOTE on real-binary CI policy: this test runs the real ast-grep, so it
+          is the project's first dispatch test that hard-requires the provisioned
+          ast-grep binary. Place it so the standard `go test ./cmd/backstop/...`
+          run executes it (it fails loud if ast-grep is missing — that loudness
+          is intended per the issue's anti-vacuous-green stance).
+        files:
+          - cmd/backstop/dispatch_astgrep_multirule_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the real two-rule E2E passes against the provisioned ast-grep binary"
+        description: |
+          Run `backstop code check` (which executes the cmd/backstop tests
+          including the new real-binary E2E) and confirm
+          TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd passes against the
+          provisioned ast-grep 0.43.0 — proving the fix dispatches a multi-rule
+          pack end-to-end with findings from both rules. Confirms the fail-loud
+          path is exercised (binary present) rather than skipped.
+        files:
+          - cmd/backstop/dispatch_astgrep_multirule_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+          - TASK-005
+
+  - id: phase-4
+    name: "Phase 4: Align existing engine-dispatch fixtures to config-file shape"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Update existing ast-grep dispatch unit tests to the config-file shape"
+        description: |
+          Align the EXISTING fast unit dispatch tests (which use the stubbed
+          fixtureRunner) to the corrected config-file shape so they stay valid
+          and keep proving the single-rule fast path (per the issue: the fast
+          unit path remains valid, it just must not stub away the new shape).
+          These tests live in dispatch_astgrep_e2e_test.go and assert
+          single-rule proof-pack dispatch. Update them to reflect that ast-grep
+          now resolves a pack-shipped sgconfig.yml via --config:
+            - TestGateDispatch_AstGrepProofRuleEndToEnd (CLM-009): keep the name
+              and the end-to-end assertion (namespaced violation id, file,
+              message reach gate output via the real convert), but drive the
+              UPDATED proof pack (TASK-008) whose ast-grep rule declares
+              rule_path ast-grep/sgconfig.yml. Assert the fixtureRunner saw the
+              "ast-grep scan" command (still a fast stub path).
+            - TestGateDispatch_ReplacesSemgrepOnlyFeeder /
+              TestGateDispatch_MixedEnginesNotCrossFed (CLM-009): keep their
+              behavioral assertions; update only the expected input arg shape if
+              they assert "--rule"/dir (they must now tolerate the --config
+              path). Do NOT weaken the no-cross-feed / no-semgrep assertions.
+          Also update pack_gate_scope_test.go:296-307 (the ad hoc ast-grep-shaped
+          binding using InputModeRuleDir) to InputModeConfigFile/"--config" so it
+          compiles after the mode retirement (TASK-009/010) and still exercises
+          the scope behavior.
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-008
+        type: refactor
+        title: "Align the existing engine-dispatch ast-grep testdata pack to ship sgconfig.yml"
+        description: |
+          Align the PREDATING engine-dispatch testdata pack (per "align predating
+          artifacts") so it ships a pack-authored sgconfig.yml and its ast-grep
+          rule uses the config-file shape — matching the new contract the fast
+          unit tests (TASK-007) now assert:
+            - Add ast-grep/sgconfig.yml (pack-shipped, `ruleDirs:` referencing the
+              pack's ast-grep rule dir) — hand-authored PACK DATA (CLM-003).
+            - Update pack.yml: the ast-grep-proof rule's rule_path changes from
+              ast-grep/proof-rule.yml to ast-grep/sgconfig.yml (the config-file
+              input the dispatch now resolves). Keep proof-rule.yml on disk as the
+              rule body referenced by sgconfig's ruleDirs.
+          This is a refactor of existing fixtures (depends on the test update
+          TASK-007 that pins the new expected shape).
+        files:
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/sgconfig.yml
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the aligned existing fixtures + unit tests with backstop code check"
+        description: |
+          Run `backstop code check` and confirm the updated single-rule fast
+          dispatch tests pass against the realigned engine-dispatch pack
+          (sgconfig.yml + config-file rule_path), and that pack_gate_scope_test.go
+          compiles and passes with the config-file binding. Fast inner-loop gate
+          for the fixture alignment.
+        files:
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/pack_gate_scope_test.go
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/pack.yml
+          - cmd/backstop/testdata/engine-dispatch/.backstop/packs/test-org/engine-pack/ast-grep/sgconfig.yml
+        claims:
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-008
+
+  - id: phase-5
+    name: "Phase 5: Retire the now-dead InputModeRuleDir (confirm-then-delete)"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Deletion-assertion test: confirm InputModeRuleDir has zero remaining users"
+        description: |
+          Before deleting the mode, PROVE ast-grep was its only user and nothing
+          live still binds it (confirm-then-delete; no-dead-code). Write a
+          deletion-assertion test (red until the deletion lands) that:
+            - TestInputModeRuleDir_Retired (CLM-008): asserts no EngineBinding in
+              DefaultRegistry() declares InputMode "rule-dir" (the const value),
+              i.e. range DefaultRegistry() and fail if any binding.InputMode ==
+              InputMode("rule-dir"). This pins the end state and re-reds if a
+              future binding reintroduces the dead mode.
+            - TestParseInputMode_RejectsRuleDir (CLM-008): asserts
+              ParseInputMode("rule-dir") returns an error after retirement (the
+              mode is no longer a recognized value) — proving the value is gone,
+              not merely unused.
+          (Grep evidence already gathered during planning: the ONLY references to
+          InputModeRuleDir are the const, ParseInputMode, gatherEngineInputs case,
+          the validate_manifest layout switch arm, binding_test.go, and
+          pack_gate_scope_test.go — all updated/deleted by this plan. If
+          implementation discovers a NEW non-ast-grep user, leave the mode in
+          place and reduce this task to the binding flip only.)
+        files:
+          - pkg/pack/engine/input_mode_retire_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-011
+        type: refactor
+        title: "Delete InputModeRuleDir: const, ParseInputMode case, dispatch case, layout switch arm"
+        description: |
+          Make TASK-010 green by removing the now-dead InputModeRuleDir end to
+          end (no dead code / zero-baked):
+            - pkg/pack/engine/binding.go: delete the InputModeRuleDir const and
+              its doc comment; remove it from the ParseInputMode switch case and
+              from the error message's allowed-values list.
+            - cmd/backstop/pack_gate.go: delete the entire
+              `case engine.InputModeRuleDir:` arm of gatherEngineInputs (the dir
+              dedup + per-dir "--rule" emission that produced the broken
+              `--rule <DIR>`).
+            - pkg/pack/validate_manifest.go: remove engine.InputModeRuleDir from
+              the rule-fed layout switch (line ~70). InputModeRuleFlags and
+              InputModePatternArg still set hasRuleFiles; ast-grep now lands in
+              the config-file shape, so confirm the manifest-layout validation
+              still accepts the engine-organized ast-grep pack (its rules live
+              under ast-grep/, not rules/). If a config-file-mode adjustment to
+              ExpectedLayout/hasRuleFiles is needed so the realigned ast-grep
+              pack still validates, make it here in the same pass.
+          This is a refactor (modifies existing code), gated by TASK-010's
+          deletion assertion and TASK-002/007's updated expectations.
+        files:
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Verify the InputModeRuleDir retirement with backstop code check --all"
+        description: |
+          Run `backstop code check --all` to confirm the mode deletion compiles
+          across every package that referenced it (pkg/pack/engine, cmd/backstop,
+          pkg/pack) and that no test or production site still names
+          InputModeRuleDir. Broader-than-diff scope is used here because the
+          deletion touches multiple packages; the deletion-assertion test
+          (TASK-010) must pass green.
+        files:
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/engine/input_mode_retire_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-011
+
+  - id: phase-6
+    name: "Phase 6: Full kill-chain verification"
+    tasks:
+      - id: TASK-013
+        type: verification
+        title: "Run full backstop gate + artifact validate over the complete change"
+        description: |
+          Final comprehensive verification — the full kill chain over all
+          ISSUE-028 work (binding flip, real two-rule E2E, fixture alignment,
+          mode retirement):
+            - `backstop gate` — full chain (code check, test verification,
+              substantiveness, coverage, contracts) over the .go changes in
+              pkg/pack/engine, pkg/pack, and cmd/backstop. The real-binary E2E
+              (TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd) must execute
+              and pass (findings from BOTH rules), and the deletion-assertion
+              tests must be green. Coverage must hold at the 90 threshold.
+            - `backstop artifact validate` — confirm this plan and the touched
+              testdata packs (pack.yml manifests) validate clean; PLAN-ISSUE-028
+              must NOT appear in the failure listing.
+          This is the only phase that runs the full gate; middle phases used
+          `backstop code check`. Confirms no vacuous green: a multi-rule ast-grep
+          pack now runs all rules and the gate measures what it should.
+        files:
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/validate_manifest.go
+          - cmd/backstop/dispatch_astgrep_multirule_e2e_test.go
+          - plans/PLAN-ISSUE-028-multi-rule-ast-grep-dispatch.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-011
+          - TASK-012

@@ -1,0 +1,56 @@
+name: backstop/substantiveness
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Substantiveness pack (SPEC-037, BUNDLE-009 Seed 3) — the REAL installable pack
+  source. backstop-core dogfood-installs this into itself as a LOCAL pack (REQ-009);
+  the binary ships no substantiveness rules. Q1 hollow-test FINDINGS rule (assertion
+  vocabulary in YAML) + Q2 referenced-symbol EXTRACTION rule whose SARIF message embeds
+  the enclosing test func name + referenced symbol in the pinned format the gate
+  set-join consumes. ast-grep engine (SPEC-035 pack-declared engines); both rules
+  dispatch in ONE invocation via the pack-shipped ast-grep/sgconfig.yml (ISSUE-028).
+engines:
+  # Pack-DECLARED ast-grep engine tagged gate_type: substantiveness, so the gate routes
+  # these rules to the dedicated test_substantiveness step ONLY — never the generic
+  # pack_engines findings dispatch (which would scan context-free and emit garbage). Same
+  # config-file (sgconfig, ISSUE-028) shape as the baked ast-grep binding, retagged.
+  ast-grep-substantiveness:
+    command: ast-grep scan --json
+    input_mode: config-file
+    input_flag: --config
+    scope_kind: file-args
+    category: opinion
+    gate_type: substantiveness
+    convert: ast-grep/to-sarif.sh
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: hollow-test-go
+        engine: ast-grep-substantiveness
+        rule_path: ast-grep/sgconfig.yml
+        risk_class: correctness
+        claims:
+          - id: sub-hollow-test-go
+            text: A Go test with no assertion-shaped call is hollow (RED finding).
+            fixtures:
+              positive:
+                - testdata/fixtures/rules/hollow-test-go/positive.go
+              negative:
+                - testdata/fixtures/rules/hollow-test-go/negative.go
+      - id: referenced-symbol-go
+        engine: ast-grep-substantiveness
+        rule_path: ast-grep/sgconfig.yml
+        risk_class: correctness
+        claims:
+          - id: sub-referenced-symbol-go
+            text: Extraction emits one finding per (test, referenced-symbol).
+            fixtures:
+              positive:
+                - testdata/fixtures/rules/referenced-symbol-go/positive.go
+              negative:
+                - testdata/fixtures/rules/referenced-symbol-go/negative.go

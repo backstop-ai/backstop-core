@@ -1,0 +1,10 @@
+# TS contract SIGNATURE-presence rule (SPEC-038 REQ-007). The pattern is COMPILED
+# at dispatch from the declared TS Signature by scripts/compile-signature-ts.sh
+# (CLM-006: the binary never compiles a signature). A MATCH = signature present =
+# SATISFIED; no match = VIOLATION (verdict gate-side). Rides Seed 3's existing
+# ast-grep/to-sarif.sh convert.
+id: contract-signature-ts
+language: typescript
+engine: ast-grep
+pattern: "function $NAME($$$PARAMS)"
+message: "TS contract signature presence probe (compiled from declared Signature)"

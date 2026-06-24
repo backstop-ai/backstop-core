@@ -1,0 +1,38 @@
+name: backstop/substantiveness
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Substantiveness pack (SPEC-037, BUNDLE-009 Seed 3). Q1 hollow-test FINDINGS rule
+  (assertion vocabulary in YAML) and the Q2 referenced-symbol EXTRACTION rule whose
+  SARIF message embeds the enclosing test func name + referenced symbol in the pinned
+  format consumed by the gate set-join. ast-grep engine (per SPEC-035 pack-declared
+  engines), Go rules; the gate keeps only the language-agnostic noTarget set-join.
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: hollow-test-go
+        engine: ast-grep
+        rule_path: ast-grep/hollow-test-go.yml
+        risk_class: correctness
+        claims:
+          - id: sub-hollow-test-go
+            text: A Go test with no assertion-shaped call is hollow (RED finding).
+            fixtures:
+              positive:
+                - fixtures/go/hollow_test.go
+              negative:
+                - fixtures/go/substantive_test.go
+      - id: referenced-symbol-go
+        engine: ast-grep
+        rule_path: ast-grep/referenced-symbol-go.yml
+        risk_class: correctness
+        claims:
+          - id: sub-referenced-symbol-go
+            text: Extraction emits one finding per (test, referenced-symbol).
+            fixtures:
+              positive:
+                - fixtures/go/callstarget_test.go
+              negative:
+                - fixtures/go/notarget_test.go

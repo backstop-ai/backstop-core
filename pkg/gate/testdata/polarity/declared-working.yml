@@ -1,0 +1,8 @@
+project: declared-working
+language: go
+enforcement:
+  toolchain:
+    test:
+      command: "go test ./..."
+      format: "go-test"
+      gate_type: "substantiveness"

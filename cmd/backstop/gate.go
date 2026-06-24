@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -248,6 +249,154 @@ func gateLanguage(projectRoot string) string {
 // package-level mutable state.
 func nativeToolchainPackName() string { return "backstop/go-toolchain" }
 
+// gateConfig loads the project's backstop.yml for the gate wiring, returning a
+// zero-value-safe config. An unreadable config yields a minimal config defaulting
+// to the Go stack (mirroring gateLanguage), so the traceability classifier still
+// derives a concrete CapabilityState rather than panicking.
+func gateConfig(projectRoot string) *config.Config {
+	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
+	if err != nil || cfg == nil {
+		return &config.Config{Language: "go"}
+	}
+	return cfg
+}
+
+// deriveCapabilityState computes the CapabilityState for a traceability
+// dimension on the EXISTING binary from cfg.Language + baked-Go-analyzer presence
+// ONLY — no pack, no engine (SPEC-036 REQ-003/CLM-029). The only traceability
+// capability that exists on the existing binary is the baked Go analyzers
+// (step_testverify / step_coverage / step_contract), which are Go-specific. So a
+// dimension is Present/Working iff cfg.Language == "go" (the baked analyzer
+// applies); for any non-Go stack the capability is Absent, so an undeclared
+// dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
+// mis-applied Go analyzer.
+func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
+	// SUBSTANTIVENESS-ONLY RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked
+	// Go substantiveness analyzer is DELETED, so the substantiveness capability is now
+	// "the substantiveness pack is INSTALLED / resolvable" — NOT cfg.Language +
+	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
+	// substantiveness pack is installed (declared in backstop.yml's packs map). This
+	// arm is DIMENSION-ASYMMETRIC: the coverage and contracts arms below stay on the
+	// existing baked-Go keying UNCHANGED (HARD FENCE — coverage descoped, contracts
+	// keeps its baked analyzer until SPEC-038/Seed 4 ships its pack).
+	if dim == gate.DimensionSubstantiveness {
+		if substantivenessPackInstalled(cfg) {
+			return gate.CapabilityState{
+				Present:       true,
+				Working:       true,
+				PackOrCommand: "the installed " + substantivenessPackName() + " pack",
+			}
+		}
+		return gate.CapabilityState{
+			Present:       false,
+			Working:       false,
+			PackOrCommand: "the " + substantivenessPackName() + " pack (install it: `backstop pack add`)",
+		}
+	}
+
+	// CONTRACTS-ONLY RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go
+	// contract analyzer is DELETED (REQ-001/Phase 6), so the contracts capability is
+	// now "the contracts pack is INSTALLED / resolvable" — NOT cfg.Language +
+	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
+	// contracts pack is installed (declared in backstop.yml's packs map). This arm is
+	// DIMENSION-ASYMMETRIC: the SUBSTANTIVENESS arm above was re-keyed by Seed 3 (LEFT
+	// AS-IS); the COVERAGE arm below STAYS baked-Go (coverage descoped, no pack — HARD
+	// FENCE). Absent+undeclared lands class-2 (warn, exit 0) and absent+declared
+	// class-3 (block) via the SPEC-036 classifier upstream.
+	if dim == gate.DimensionContracts {
+		if contractsPackInstalled(cfg) {
+			return gate.CapabilityState{
+				Present:       true,
+				Working:       true,
+				PackOrCommand: "the installed " + contractsPackName() + " pack",
+			}
+		}
+		return gate.CapabilityState{
+			Present:       false,
+			Working:       false,
+			PackOrCommand: "the " + contractsPackName() + " pack (install it: `backstop pack add`)",
+		}
+	}
+
+	// COVERAGE arm — UNCHANGED baked-Go keying (the asymmetry fence; coverage descoped).
+	lang := "go"
+	if cfg != nil && cfg.Language != "" {
+		lang = cfg.Language
+	}
+	if lang == "go" {
+		// The baked Go analyzer for this dimension is compiled into the binary
+		// and applies to a Go project. Present and Working.
+		return gate.CapabilityState{
+			Present:       true,
+			Working:       true,
+			PackOrCommand: "the baked Go " + string(dim) + " analyzer",
+		}
+	}
+	// Non-Go stack: no baked Go analyzer applies and no pack provides the
+	// dimension on the existing binary — capability Absent.
+	return gate.CapabilityState{
+		Present:       false,
+		Working:       false,
+		PackOrCommand: "a " + lang + " " + string(dim) + " pack",
+	}
+}
+
+// substantivenessPackInstalled reports whether the substantiveness pack is INSTALLED
+// (recorded in backstop.yml's packs map — a local pack records the value "local"). It
+// is the installed-pack-resolvable signal the substantiveness capability keys on after
+// the baked analyzer's deletion (REQ-009 / CLM-035). It reads ONLY the declaration
+// surface (cfg.Packs), not the binary — the rules live in an installed pack, never
+// compiled in.
+func substantivenessPackInstalled(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	_, ok := cfg.Packs[substantivenessPackName()]
+	return ok
+}
+
+// contractsPackName is the stable normalized name of the contracts pack (SPEC-038).
+// It is the installed-pack key the contracts capability re-keys on after the baked
+// analyzer's deletion. A function (not a var/const) to keep the file free of
+// package-level mutable state.
+func contractsPackName() string { return "backstop/contracts" }
+
+// contractsPackInstalled reports whether the contracts pack is INSTALLED (recorded
+// in backstop.yml's packs map — a local pack records the value "local"). It is the
+// installed-pack-resolvable signal the contracts capability keys on after the baked
+// go/parser analyzer's deletion (REQ-015 / CLM-050), MIRRORING the live
+// substantivenessPackInstalled. It reads ONLY the declaration surface (cfg.Packs),
+// never the binary — the contract rules live in an installed pack, never compiled in.
+func contractsPackInstalled(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	_, ok := cfg.Packs[contractsPackName()]
+	return ok
+}
+
+// wrapTraceabilityStep wraps a traceability analyzer step (the delegate) with
+// the SPEC-036 polarity classifier so the classifier runs IN FRONT OF the
+// analyzer: it derives the CapabilityState (cfg.Language + baked-analyzer
+// presence), classifies the dimension, and for class 1/2/3 returns
+// PolarityStepResult WITHOUT reaching the analyzer (intercept). Only the
+// none/proceed outcome (declared-and-working or undeclared-but-present) falls
+// through to the unchanged delegate (REQ-008). The delegate is taken as a
+// parameter so the wiring test can spy on whether the analyzer is reached
+// (CLM-028).
+func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, delegate gate.StepFunc) gate.StepFunc {
+	return func(ctx context.Context) gate.StepResult {
+		cap := deriveCapabilityState(cfg, dim)
+		class := gate.ClassifyDimension(cfg, dim, cap)
+		if class != gate.ClassNone {
+			// Intercept — do NOT reach the analyzer.
+			return gate.PolarityStepResult(stepName, dim, class, cfg, cap)
+		}
+		// Fall through to the unchanged analyzer.
+		return delegate(ctx)
+	}
+}
+
 // loadBridgedToolchainPacks resolves the native <lang>-toolchain mechanism pack
 // the bridge routes the native lint/build/test passes through (SPEC-034
 // REQ-001/REQ-007). It is loaded from .backstop/packs/<name> on disk (so its
@@ -344,7 +493,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
-	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, activeScope)
+	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope)
 
 	// Step 5: Coverage threshold needs spec verifications and a command runner.
 	// It shares sharedTest so its whole-module coverage read reuses code_check's
@@ -353,6 +502,18 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
+
+	// SPEC-036: wrap the three traceability analyzer steps with the polarity
+	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
+	// CapabilityState from cfg.Language + baked-Go-analyzer presence (no pack, no
+	// engine), classifies the dimension, and intercepts for class 1/2/3 (analyzer
+	// not reached); only declared-and-working / undeclared-but-present fall
+	// through to the UNCHANGED analyzer (REQ-008). The analyzer files themselves
+	// are untouched — the wrapper intercepts at the wiring boundary.
+	traceabilityCfg := gateConfig(projectRoot)
+	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, testSubstantivenessStep)
+	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, coverageStep)
+	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, contractStep)
 
 	steps := []gate.StepFunc{
 		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
@@ -399,7 +560,11 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		// alongside the declared packs through the SAME substrate (SPEC-034
 		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
 		// still-live bespoke path (phase 1, no enforcement lapse).
-		dispatchPacks := append(append([]*pack.Manifest{}, bridged...), packs...)
+		// The generic pack_engines findings dispatch runs only the generic stages
+		// (lint/build/test/findings). Rules bound to a dedicated-step gate_type
+		// (substantiveness/contracts/coverage) are dispatched by their own gate step;
+		// running them here too would scan context-free and emit garbage findings.
+		dispatchPacks := excludeDedicatedStepRules(append(append([]*pack.Manifest{}, bridged...), packs...))
 		// Split-provisioning fail-loud (SPEC-034 REQ-008): before dispatch, verify
 		// the assume-present Layer-0 native tools (go/golangci-lint) resolve on PATH.
 		// A missing one is a *check.ConfigError surfaced as a config-error step (exit
@@ -448,26 +613,184 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	return packed
 }
 
-// buildTestSubstantivenessStep creates a StepFunc that extracts mandated tests
-// from specs, resolves their file paths, and checks substantiveness.
-func buildTestSubstantivenessStep(specDir, codeDir string, scope *gate.GateScope) gate.StepFunc {
-	return func(ctx context.Context) gate.StepResult {
+// substantivenessPackName is the stable normalized name of the substantiveness pack
+// (SPEC-037). It is BOTH the routing anchor (the gate selects substantiveness findings
+// out of the flat pack_engines stream by this pack's namespaced rule IDs) AND the
+// installed-pack key: the substantiveness capability is INSTALLED-pack-resolvable, so
+// resolveSubstantivenessPacks filters loadInstalledPacks by this name. It is a function
+// (not a package-level var/const) to keep the file free of package-level mutable state.
+func substantivenessPackName() string { return "backstop/substantiveness" }
+
+// substantivenessHollowRuleID / substantivenessExtractionRuleID are the namespaced rule
+// IDs the substantiveness pack declares, used by RouteSubstantivenessFindings to
+// partition the flat pack_engines stream (REQ-007). Functions, not globals.
+func substantivenessHollowRuleID() string {
+	return pack.NamespacedRuleID(substantivenessPackName(), "hollow-test-go")
+}
+
+func substantivenessExtractionRuleID() string {
+	return pack.NamespacedRuleID(substantivenessPackName(), "referenced-symbol-go")
+}
+
+// resolveSubstantivenessPacksFn is a test seam: nil in production (the resolver below
+// returns the INSTALLED substantiveness pack manifest set), overridden by the wiring
+// tests that inject a manifest set so the dispatch-seam spy can observe routing without
+// a real on-disk install. Declared WITHOUT an initializer so it holds no package-level
+// mutable default — production resolves lazily via resolveSubstantivenessPacks.
+var resolveSubstantivenessPacksFn func(projectRoot string) ([]*pack.Manifest, error)
+
+// resolveSubstantivenessPacks returns the substantiveness pack manifest set the
+// substantiveness step dispatches. In production it filters the INSTALLED packs
+// (loadInstalledPacks) to the substantiveness pack — the capability is
+// installed-pack-resolvable, NOT built into the binary and NOT resolved from testdata
+// (REQ-009 / CLM-030 / CLM-035). A test seam may override it. An empty result means the
+// substantiveness pack is not installed; the caller treats that as a capability-absent
+// no-op (no findings, no violation), which the capability classifier governs upstream.
+func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
+	if resolveSubstantivenessPacksFn != nil {
+		return resolveSubstantivenessPacksFn(projectRoot)
+	}
+	installed, err := loadInstalledPacks(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving substantiveness packs: loading installed packs: %w", err)
+	}
+	out := make([]*pack.Manifest, 0, 1)
+	for _, m := range installed {
+		if m.NormalizedName == substantivenessPackName() {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// buildTestSubstantivenessStep re-implements the substantiveness step (SPEC-037 REQ-005)
+// to CONSUME the substantiveness pack's Q1 findings + Q2 extraction through the EXISTING
+// resolveDispatchPackEngines() / dispatchPackEnginesFn seam (the same dispatcher code
+// check and the pack_engines step use) — NOT a re-implemented dispatcher and NOT the
+// deleted go/parser analyzer. It then routes the flat []gate.Violation result by
+// namespaced rule ID, keys extraction findings per mandated test, and runs the
+// language-agnostic gate set-join (NoTargetViolation) + hollow → test_substantiveness
+// conversion. A spy on the real dispatchPackEnginesFn seam mechanically proves the step
+// reached the dispatcher (CLM-015..017). When the substantiveness pack is not installed,
+// the step is a no-op (the capability classifier governs the warn/block polarity).
+func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
+	return func(_ context.Context) gate.StepResult {
 		mandated, err := gate.ExtractMandatedTests(specDir)
 		if err != nil {
 			return gate.StepResult{
 				StepName:   gate.StepTestSubstantiveness,
 				Status:     "fail",
-				Violations: []gate.Violation{{Rule: "test_substantiveness", Message: "failed to extract mandated tests: " + err.Error(), Severity: "error"}},
+				Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "failed to extract mandated tests: " + err.Error(), Severity: "error"}},
 			}
 		}
 
-		// Resolve file paths for found tests.
+		// Resolve file paths for found tests (the keying join's FilePath side).
 		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir)
 
-		// Delegate to the real substantiveness checker.
-		step := gate.StepTestSubstantivenessScopedFunc(mandated, scope)
-		return step(ctx)
+		packs, err := resolveSubstantivenessPacks(projectRoot)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "resolving substantiveness pack: " + err.Error(), Severity: "error"}},
+			}
+		}
+		if len(packs) == 0 {
+			// The substantiveness pack is not installed — no-op (capability-absent is
+			// governed by the SPEC-036 classifier upstream, not a silent pass here).
+			return gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "pass",
+				Violations: []gate.Violation{},
+			}
+		}
+
+		// Reach the substantiveness pack's findings + extraction through the SAME
+		// dispatch seam code check and the pack_engines step use (REQ-005). NOT a
+		// re-implemented dispatcher; NOT the deleted analyzer.
+		runner := &check.ExecCommandRunner{Dir: projectRoot}
+		flat, err := resolveDispatchPackEngines()(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, scope, runner)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "dispatching substantiveness pack: " + err.Error(), Severity: "error"}},
+			}
+		}
+
+		// Route the flat stream by namespaced rule ID (no gate_type field exists).
+		hollow, extraction := gate.RouteSubstantivenessFindings(flat, substantivenessHollowRuleID(), substantivenessExtractionRuleID())
+
+		var violations []gate.Violation
+		// Q1 hollow → one test_substantiveness violation per routed hollow finding,
+		// scope-filtered so out-of-scope test files are suppressed (REQ-008/CLM-029).
+		for _, v := range gate.HollowFindingsToViolations(hollow) {
+			if scope != nil && scope.Mode != gate.GateScopeModeAll && v.File != "" && !scope.Contains(v.File) {
+				continue
+			}
+			violations = append(violations, v)
+		}
+
+		// Q2 noTarget set-join, keyed per mandated test from the extraction findings.
+		for _, mt := range mandated {
+			if mt.FilePath == "" {
+				continue // not found — already reported by the verification step
+			}
+			if scope != nil && scope.Mode != gate.GateScopeModeAll && !scope.Contains(mt.FilePath) {
+				continue
+			}
+			referenced := gate.ReferencedSetForTest(extraction, mt)
+			samePackage := goFilePackageMatchesTarget(mt.FilePath, mt.TargetPkg)
+			if v, raised := gate.NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage); raised {
+				v.File = mt.FilePath
+				violations = append(violations, v)
+			}
+		}
+
+		status := "pass"
+		if len(violations) > 0 {
+			status = "fail"
+		}
+		if violations == nil {
+			violations = []gate.Violation{}
+		}
+		return gate.StepResult{
+			StepName:   gate.StepTestSubstantiveness,
+			Status:     status,
+			Violations: violations,
+		}
 	}
+}
+
+// goFilePackageMatchesTarget reads a Go test file's `package <name>` clause as a string
+// and reports whether it identifies the target package (allowing the `_test` external
+// variant) — the language-agnostic samePackage derivation the gate set-join consumes,
+// mirroring the deleted analyzer's same-package short-circuit WITHOUT an AST walk.
+func goFilePackageMatchesTarget(filePath, targetPkg string) bool {
+	if targetPkg == "" {
+		return false
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "package ") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "package "))
+		if i := strings.IndexAny(name, " \t/"); i >= 0 {
+			name = name[:i]
+		}
+		return name == targetPkg || name == targetPkg+"_test" || strings.TrimSuffix(name, "_test") == targetPkg
+	}
+	return false
 }
 
 // buildCoverageStep creates a StepFunc that extracts spec verifications
@@ -491,8 +814,174 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runne
 	}
 }
 
-// buildContractStep creates a StepFunc that extracts contract entries
-// from specs and verifies them against actual code.
+// contractEngineResultsFn is a test seam: nil in production (the producer below
+// runs the PACK path — real ast-grep signature presence + real grep symbol
+// absence over the in-repo traceability pack — to build one ContractEngineResult
+// per ContractEntry), overridden by the wiring/E2E tests so a spy can observe that
+// buildContractStep consumes the PACK-produced results rather than the deleted
+// go/parser analyzer (REQ-006/CLM-020/021/022). Declared WITHOUT an initializer so
+// it holds no package-level mutable default.
+var contractEngineResultsFn func(projectRoot string, contracts []gate.ContractEntry) ([]gate.ContractEngineResult, error)
+
+// produceContractEngineResults builds the []ContractEngineResult buildContractStep
+// verdicts off. In production it runs the PACK path (dispatchContractEntry ->
+// resolveDispatchPackEngines -> sandboxed convert -> SARIF) over
+// each declared contract entry; it NEVER routes to the deleted go/parser analyzer
+// (CLM-021). A test seam may override it so the wiring spy can assert the pack path
+// is the one consumed (CLM-020) and an unwired path fails (CLM-022).
+func produceContractEngineResults(projectRoot string, contracts []gate.ContractEntry) ([]gate.ContractEngineResult, error) {
+	if contractEngineResultsFn != nil {
+		return contractEngineResultsFn(projectRoot, contracts)
+	}
+	// Resolve the contracts pack from the INSTALLED declaration (loadInstalledPacks) —
+	// NOT from testdata and NOT from a baked path. When the pack is not installed, the
+	// step produces NO results — a capability-absent no-op the SPEC-036 classifier
+	// governs upstream (warn/exit 0 undeclared, block declared), which keeps an
+	// uninstalled workspace from passing vacuously (REQ-014/CLM-048).
+	packs, err := resolveContractsPacks(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving contracts pack: %w", err)
+	}
+	if len(packs) == 0 {
+		return []gate.ContractEngineResult{}, nil
+	}
+	manifest := packs[0]
+
+	results := make([]gate.ContractEngineResult, 0, len(contracts))
+	for _, c := range contracts {
+		r, err := dispatchContractEntry(projectRoot, manifest, c)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+// resolveContractsPacksFn is a test seam: nil in production (resolveContractsPacks below
+// filters the INSTALLED packs to the contracts pack), overridable by tests. Declared
+// WITHOUT an initializer so it holds no package-level mutable default.
+var resolveContractsPacksFn func(projectRoot string) ([]*pack.Manifest, error)
+
+// resolveContractsPacks returns the contracts pack manifest set the contract step
+// dispatches. In production it filters the INSTALLED packs (loadInstalledPacks) to the
+// contracts pack — the capability is installed-pack-resolvable, NOT built into the binary
+// and NOT resolved from testdata (REQ-013). An empty result means the pack is not
+// installed (capability-absent, governed upstream).
+func resolveContractsPacks(projectRoot string) ([]*pack.Manifest, error) {
+	if resolveContractsPacksFn != nil {
+		return resolveContractsPacksFn(projectRoot)
+	}
+	installed, err := loadInstalledPacks(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("loading installed packs: %w", err)
+	}
+	out := make([]*pack.Manifest, 0, 1)
+	for _, m := range installed {
+		if m.NormalizedName == contractsPackName() {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// dispatchContractEntry runs ONE contract entry through the REAL pack-engine dispatch
+// seam (resolveDispatchPackEngines → dispatchPackEngines → runFindingsEngine), so the
+// engine command clears the trusted-tool allowlist (CheckToolAllowed — REQ-005) and the
+// convert script runs under the REAL sandbox (packval.SandboxedRunStdout — CLM-049). It
+// builds a SINGLE-RULE in-memory manifest from the contracts pack's DECLARED engines: a
+// signature entry compiles its Signature via the pack's compiler script (the COMPILER
+// stays pack-side — the binary never compiles a pattern) and feeds the COMPILED pattern
+// as the pattern-arg of the declared ast-grep engine; an absence entry feeds the forbidden
+// symbol as the pattern-arg of the declared grep engine. Matched = the dispatch produced a
+// finding for that contract's file; Scanned = the declared file/scope exists on disk (the
+// file-scanned guard signal). NO raw exec, NO sandbox bypass.
+func dispatchContractEntry(projectRoot string, manifest *pack.Manifest, c gate.ContractEntry) (gate.ContractEngineResult, error) {
+	// Determine the scan target (file for a present signature; file-OR-path scope for an
+	// absence) and the file-scanned guard signal.
+	target := c.File
+	if c.Absent && c.Scope != "" {
+		target = c.Scope
+	}
+	if _, statErr := os.Stat(target); statErr != nil {
+		// Unscanned/missing scope — no probe runs; the gate verdict raises a loud config
+		// error for an absence entry (file-scanned guard) and a no-match for a present one.
+		return gate.ContractEngineResult{Entry: c, Matched: false, Scanned: false}, nil
+	}
+
+	// Build the single rule the dispatch runs for this contract.
+	var rule pack.Rule
+	if c.Absent {
+		rule = pack.Rule{ID: "contract-absence", Engine: "grep", Pattern: c.Name}
+	} else {
+		pattern, compileErr := compileContractSignature(projectRoot, manifest, c.Signature)
+		if compileErr != nil {
+			return gate.ContractEngineResult{}, fmt.Errorf("compiling signature for %s: %w", c.Name, compileErr)
+		}
+		rule = pack.Rule{ID: "contract-signature", Engine: contractSignatureEngine(manifest), Pattern: pattern}
+	}
+
+	// A single-rule manifest carrying the SAME declared engines as the installed pack, so
+	// dispatch resolves the pack's engine bindings + convert scripts from packRoot.
+	single := &pack.Manifest{
+		Name:           manifest.Name,
+		NormalizedName: manifest.NormalizedName,
+		Language:       manifest.Language,
+		Engines:        manifest.Engines,
+		Content:        pack.Content{Ruleset: pack.Ruleset{Rules: []pack.Rule{rule}}},
+	}
+
+	// Scope the dispatch to exactly this contract's target via a FILE-mode gate scope, so
+	// the engine scans only the declared file/path.
+	scope, scopeErr := gate.ComputeGateScope(projectRoot, gate.GateScopeModeFile, []string{target})
+	if scopeErr != nil {
+		return gate.ContractEngineResult{}, fmt.Errorf("computing scope for %s: %w", c.Name, scopeErr)
+	}
+
+	runner := &check.ExecCommandRunner{Dir: projectRoot}
+	packDir := filepath.Join(projectRoot, ".backstop", "packs")
+	violations, dispErr := resolveDispatchPackEngines()([]*pack.Manifest{single}, packDir, projectRoot, scope, runner)
+	if dispErr != nil {
+		return gate.ContractEngineResult{}, fmt.Errorf("dispatching contract engine for %s: %w", c.Name, dispErr)
+	}
+
+	locs := make([]gate.SarifLocation, 0, len(violations))
+	for _, v := range violations {
+		locs = append(locs, gate.SarifLocation{File: v.File})
+	}
+	return gate.ContractEngineResult{Entry: c, Matched: len(violations) > 0, Scanned: true, Locations: locs}, nil
+}
+
+// contractSignatureEngine returns the pattern-arg ast-grep engine name the contracts pack
+// declares for signature presence. It prefers a pack-declared "ast-grep-contracts" engine
+// (the traceability dispatch pack) and falls back to the built-in "ast-grep" (the
+// installable packs/contracts/ pack, which rides the DefaultRegistry ast-grep binding).
+func contractSignatureEngine(manifest *pack.Manifest) string {
+	if _, ok := manifest.Engines["ast-grep-contracts"]; ok {
+		return "ast-grep-contracts"
+	}
+	return "ast-grep"
+}
+
+// compileContractSignature invokes the contracts pack's pack-relative signature compiler
+// (scripts/compile-signature.sh) to turn the declared human-readable Signature into an
+// ast-grep pattern. The COMPILER is pack-side (CLM-006): the binary shells the pack script
+// and reads back the pattern; it never compiles or renders a signature itself. The
+// resulting pattern is fed to the real ast-grep dispatch as the pattern-arg.
+func compileContractSignature(projectRoot string, manifest *pack.Manifest, signature string) (string, error) {
+	packRoot := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(manifest.NormalizedName))
+	script := filepath.Join(packRoot, "scripts", "compile-signature.sh")
+	out, err := exec.Command("/bin/sh", script, signature).Output()
+	if err != nil {
+		return "", fmt.Errorf("running pack signature compiler %s: %w", script, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// buildContractStep extracts contract entries from specs, routes them to the
+// PACK-produced contracts SARIF path (ast-grep signature + grep absence) to build
+// []ContractEngineResult, then feeds the rewritten gate.StepContractSignatureScopedFunc
+// pack-SARIF consumer (REQ-006). It MUST NOT route to the deleted go/parser analyzer.
 func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		contracts, err := gate.ExtractContractEntries(specDir, projectRoot)
@@ -504,7 +993,17 @@ func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.
 			}
 		}
 
-		step := gate.StepContractSignatureScopedFunc(contracts, scope)
+		results, err := produceContractEngineResults(projectRoot, contracts)
+		if err != nil {
+			return gate.StepResult{
+				StepName:   gate.StepContractSignature,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "contract_signature", Message: "dispatching contract pack: " + err.Error(), Severity: "error"}},
+			}
+		}
+
+		step := gate.StepContractSignatureScopedFunc(results, scope)
 		return step(ctx)
 	}
 }

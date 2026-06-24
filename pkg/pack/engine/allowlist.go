@@ -21,6 +21,16 @@ func TrustedToolAllowlist() map[string]string {
 		// the trust floor, the lock is the proof a build is actually pinned there.
 		"semgrep":  "1.96.0",
 		"ast-grep": "0.43.0",
+		// grep / ripgrep are the text-presence engines the contracts absence probe
+		// rides (SPEC-038 REQ-005/CLM-016). They are pack-DECLARED (no
+		// DefaultRegistry entry); the allowlist is what lets a pack-declared grep
+		// command clear the trust floor. A version of "*" pins to "present" — grep
+		// is a POSIX/Layer-0 tool whose version backstop does not introduce or
+		// auto-provision (unlike semgrep/ast-grep, which ride the lock pin), so the
+		// trust requirement is presence on the allowlist, matched by the assumed
+		// "*" lock value the dispatch gate supplies for an un-provisioned tool.
+		"grep": "*",
+		"rg":   "*",
 	}
 }
 

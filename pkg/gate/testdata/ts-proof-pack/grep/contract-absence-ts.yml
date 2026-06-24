@@ -1,0 +1,9 @@
+# TS contract symbol-ABSENCE rule (SPEC-038 REQ-007). Absence uses the
+# pack-declared GREP engine (text-presence) over .ts, NOT ast-grep (CLM-024). A
+# grep MATCH = forbidden symbol present = absence VIOLATION (polarity gate-side);
+# EMPTY over a scanned scope = PASS. The forbidden symbol arrives via pattern-arg.
+id: contract-absence-ts
+language: typescript
+engine: grep
+pattern: "legacyTsHelper"
+message: "TS contract absence probe (forbidden symbol text-presence via grep)"

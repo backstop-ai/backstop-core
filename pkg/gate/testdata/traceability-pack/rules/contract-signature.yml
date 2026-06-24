@@ -1,0 +1,14 @@
+# Go contract SIGNATURE-presence rule (SPEC-038 REQ-002). The pattern is NOT
+# written here statically — it is COMPILED at dispatch from the declared
+# human-readable Signature by the pack's scripts/compile-signature.sh (CLM-006:
+# the binary never compiles a signature). This rule file records the rule's
+# identity, language, and engine binding; the actual ast-grep pattern arrives via
+# pattern-arg (--pattern <compiled>). A MATCH = signature present = SATISFIED; no
+# match = VIOLATION (the verdict is gate-side).
+id: contract-signature
+language: go
+engine: ast-grep-contracts
+# The pattern is supplied at dispatch (pattern-arg); this placeholder documents the
+# shape compile-signature.sh emits: func <Name>($$$PARAMS) <returns>.
+pattern: "func $NAME($$$PARAMS)"
+message: "contract signature presence probe (compiled from declared Signature)"

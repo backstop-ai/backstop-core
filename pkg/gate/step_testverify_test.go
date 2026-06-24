@@ -2,9 +2,6 @@ package gate
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,54 +69,10 @@ func writeTestFile(t *testing.T, dir, filename string, funcNames []string) {
 	}
 }
 
-func TestGate_TargetPackageName(t *testing.T) {
-	cases := map[string]string{
-		"pkg/gate":          "gate",
-		"pkg/gate/internal": "internal",
-		"cmd/backstop":      "",
-		"standards/go":      "",
-		"":                  "",
-	}
-	for input, want := range cases {
-		if got := targetPackageName(input); got != want {
-			t.Fatalf("targetPackageName(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestGate_TestBodyHelpers(t *testing.T) {
-	src := `package sample
-func TestSelector() { t.Fatal("boom") }
-func TestHelperPrefix() { requireThing() }
-func TestHelperWithT() { helper(t) }
-func TestCallsTarget() { gate.Run() }
-func TestPlain() { local() }
-`
-	file, err := parser.ParseFile(token.NewFileSet(), "sample_test.go", src, 0)
-	if err != nil {
-		t.Fatalf("parse sample: %v", err)
-	}
-	funcs := map[string]bool{}
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok {
-			funcs[fn.Name.Name] = hasAssertions(fn.Body)
-			if fn.Name.Name == "TestCallsTarget" && !callsTargetPackage(fn.Body, "gate") {
-				t.Fatal("expected target package call to be detected")
-			}
-			if fn.Name.Name == "TestPlain" && callsTargetPackage(fn.Body, "gate") {
-				t.Fatal("expected plain local call not to match target package")
-			}
-		}
-	}
-	for _, name := range []string{"TestSelector", "TestHelperPrefix", "TestHelperWithT"} {
-		if !funcs[name] {
-			t.Fatalf("expected %s to have assertions", name)
-		}
-	}
-	if funcs["TestPlain"] {
-		t.Fatal("expected plain local call to have no assertions")
-	}
-}
+// SPEC-037: TestGate_TargetPackageName and TestGate_TestBodyHelpers were DELETED with
+// the baked analyzer they subject (targetPackageName / hasAssertions / callsTargetPackage).
+// TargetPackageName coverage is MIGRATED to the relocated pkg/gate.TargetPackageName as
+// TestTargetPackageName_MigratedBehaviorPreserved (substantiveness_join_test.go, CLM-028).
 
 // --- Test verification tests (step 3) ---
 
@@ -405,114 +358,14 @@ func TestGate_ResolveMandatedTestPaths_MissingTestUnresolved(t *testing.T) {
 	}
 }
 
-func TestGateSteps_FilterToChangedFiles_TestSubstantiveness(t *testing.T) {
-	codeDir := t.TempDir()
-	changed := filepath.Join(codeDir, "changed_test.go")
-	unchanged := filepath.Join(codeDir, "unchanged_test.go")
-	if err := os.WriteFile(changed, []byte("package gate_test\n\nimport \"testing\"\n\nfunc TestGate_Changed(t *testing.T) { t.Fatal(\"substantive\") }\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(unchanged, []byte("package gate_test\n\nimport \"testing\"\n\nfunc TestGate_Unchanged(t *testing.T) {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := StepTestSubstantivenessScopedFunc([]MandatedTest{
-		{FuncName: "TestGate_Changed", FilePath: changed, TargetPkg: "gate"},
-		{FuncName: "TestGate_Unchanged", FilePath: unchanged, TargetPkg: "gate"},
-	}, newGateScope(codeDir, GateScopeModeDiff, []string{changed}, nil))(context.Background())
-	if result.Status != "pass" || len(result.Violations) != 0 {
-		t.Fatalf("expected substantiveness to ignore unchanged hollow test, got status=%s violations=%#v", result.Status, result.Violations)
-	}
-}
-
-func TestGate_HasAssertions_HelperPatterns(t *testing.T) {
-	codeDir := t.TempDir()
-	testFile := filepath.Join(codeDir, "helpers_test.go")
-	if err := os.WriteFile(testFile, []byte(`package gate_test
-
-import "testing"
-
-func requireThing() {}
-func helper(t *testing.T) {}
-
-func TestGate_HelperName(t *testing.T) { requireThing() }
-func TestGate_HelperReceivesT(t *testing.T) { helper(t) }
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"TestGate_HelperName", "TestGate_HelperReceivesT"} {
-		hollow, noTarget := checkSubstantiveness(testFile, name, "gate")
-		if hollow || noTarget {
-			t.Fatalf("expected %s to be substantive enough, hollow=%v noTarget=%v", name, hollow, noTarget)
-		}
-	}
-}
-
-// --- Test substantiveness tests (step 4) ---
-
-// TestGate_TestSubstantiveness_SubstantiveTestPasses verifies that a test
-// function with assertions and target package calls passes.
-func TestGate_TestSubstantiveness_SubstantiveTestPasses(t *testing.T) {
-	// Use the testdata fixture that has assertions and calls pkg/gate
-	testFile, err := filepath.Abs("testdata/substantive-test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []MandatedTest{
-		{FuncName: "TestSubstantiveExample", FilePath: testFile, TargetPkg: "gate"},
-	}
-	step := StepTestSubstantivenessFunc(tests)
-	result := step(context.Background())
-
-	if result.StepName != StepTestSubstantiveness {
-		t.Errorf("expected step_name %q, got %q", StepTestSubstantiveness, result.StepName)
-	}
-	if result.Status != "pass" {
-		t.Errorf("expected status %q, got %q; violations: %v", "pass", result.Status, result.Violations)
-	}
-}
-
-// TestGate_TestSubstantiveness_HollowTestFails verifies that a test function
-// with no assertions is detected as hollow.
-func TestGate_TestSubstantiveness_HollowTestFails(t *testing.T) {
-	testFile, err := filepath.Abs("testdata/hollow-test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []MandatedTest{
-		{FuncName: "TestHollowExample", FilePath: testFile, TargetPkg: "gate"},
-	}
-	step := StepTestSubstantivenessFunc(tests)
-	result := step(context.Background())
-
-	if result.Status != "fail" {
-		t.Errorf("expected status %q, got %q", "fail", result.Status)
-	}
-	if len(result.Violations) == 0 {
-		t.Error("expected at least one violation for hollow test")
-	}
-}
-
-// TestGate_TestSubstantiveness_NoTargetCallFails verifies that a test function
-// with assertions but no call to the target package is detected.
-func TestGate_TestSubstantiveness_NoTargetCallFails(t *testing.T) {
-	testFile, err := filepath.Abs("testdata/no-target-call-test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []MandatedTest{
-		{FuncName: "TestNoTargetCallExample", FilePath: testFile, TargetPkg: "gate"},
-	}
-	step := StepTestSubstantivenessFunc(tests)
-	result := step(context.Background())
-
-	if result.Status != "fail" {
-		t.Errorf("expected status %q, got %q", "fail", result.Status)
-	}
-	if len(result.Violations) == 0 {
-		t.Error("expected at least one violation for test with no target package call")
-	}
-}
+// SPEC-037: the analyzer-coupled substantiveness tests
+// (TestGateSteps_FilterToChangedFiles_TestSubstantiveness,
+// TestGate_HasAssertions_HelperPatterns,
+// TestGate_TestSubstantiveness_SubstantiveTestPasses/HollowTestFails/NoTargetCallFails)
+// were DELETED with the baked analyzer they call (StepTestSubstantiveness*Func /
+// checkSubstantiveness). Their enforcement is re-proven through the pack path:
+//   - the hollow/substantive/noTarget verdicts in substantiveness_q1_findings_test.go
+//     and substantiveness_strangler_test.go (real ast-grep), and
+//   - the changed-file SCOPE behavior in
+//     TestSubstantiveness_ScopeAwareThroughPackPath_Preserved
+//     (substantiveness_migration_test.go, CLM-029).

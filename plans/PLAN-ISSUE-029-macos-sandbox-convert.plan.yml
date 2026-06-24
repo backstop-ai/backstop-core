@@ -1,0 +1,259 @@
+---
+plan_id: PLAN-ISSUE-029
+spec_id: ISSUE-029
+created: "2026-06-23"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/packval/... -run TestSandbox -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Closes ISSUE-029 (SECURITY-RELEVANT): the macOS sandbox-exec profile in
+  pkg/packval/sandbox.go denies every read outside packDir, so a convert
+  script's dynamically-linked interpreter (jq, python3, node, ...) SIGABRTs at
+  dyld load — no convert script using such an interpreter can run under the
+  macOS sandbox. The defect was hidden because every convert test stubs the
+  sandbox (stubSandboxedRunStdout shells via /bin/sh, bypassing sandbox-exec),
+  and the one real-sandbox test (sandbox_stdout_test.go) `t.Skip`s on
+  "abort trap" — the precise vacuous-green that masked it.
+
+  ── THE FIX (single maintenance point) ───────────────────────────────────────
+  The macOS profile string is IDENTICAL at sandbox.go:14 (SandboxedRun) and
+  sandbox.go:45 (SandboxedRunStdout). Extract ONE shared profile builder
+  (e.g. `func darwinSandboxProfile(packDir string) string`) used by both, so the
+  read-allowlist has a single maintenance point, then EXTEND its
+  `(allow file-read* ...)` to cover the dyld/runtime library paths an interpreter
+  needs at launch: the dyld shared cache, /usr/lib, /System/Library,
+  /usr/local/lib (Intel Homebrew), /opt/homebrew/lib (Apple Silicon). The
+  implementer establishes the MINIMAL sufficient read set empirically (run real
+  jq under the real profile; add only the paths dyld actually demands) — NOT a
+  blanket `(allow file-read*)`. All deny rules stay HARD: `(deny default)`,
+  `(deny file-write*)`, `(deny network*)`, and NO read of project / non-pack /
+  non-system paths. The only behavior change for existing callers is the added
+  system-library read paths.
+
+  ── BOTH-HALVES ACCEPTANCE (neither test alone is sufficient) ────────────────
+  (a) TestSandboxConvertWithRealInterpreter — a REAL convert script piping stdin
+      through real jq runs through the REAL SandboxedRunStdout / sandbox-exec
+      (NO /bin/sh stub) and SUCCEEDS, producing the expected transformed output.
+      Proves the convert RUNS. Must FAIL against the unfixed profile (abort trap)
+      and PASS after. This is the operational half.
+  (b) TestSandboxSecurityDenialsHold — under the SAME relaxed profile, three real
+      sandbox-exec probes are ALL still DENIED: (i) reading a PROJECT/non-pack
+      file outside packDir+system-libs, (ii) WRITING any file, (iii) opening a
+      NETWORK connection. Proves relaxing reads for system libs did NOT open a
+      hole. This is the security half — it must genuinely exercise the relaxed
+      profile (same builder the real convert uses), not a stub.
+
+  ── PLATFORM HANDLING (genuine gate, NOT vacuous skip) ───────────────────────
+  sandbox-exec is macOS-only. On linux the sandbox is a no-op (ISSUE-020's facet,
+  OUT of scope) so a `runtime.GOOS != "darwin"` guard is a legitimate platform
+  N/A. BUT on darwin, jq IS expected: if jq is absent on a darwin host the test
+  must `t.Fatal` naming jq + how to install it — NOT `t.Skip`. A skip-on-darwin
+  (or the existing skip-on-"abort trap") is exactly the vacuous green that hid
+  this bug and is forbidden for the new tests. The real-convert test must NOT
+  swallow "abort trap" as a skip — abort trap on darwin-with-jq is a FAILURE.
+
+  ── SCOPE FENCE ──────────────────────────────────────────────────────────────
+  macOS profile + the shared-builder extraction ONLY, plus the new test file.
+  The Linux no-op (sandbox.go:25,61) is ISSUE-020 — DO NOT TOUCH it. The existing
+  stubbed convert tests need NOT be un-stubbed (the stub is a legitimate hermetic
+  seam for unit speed); this plan ADDS the real un-stubbed tests alongside them.
+  Whether one existing real-dispatch path (e.g. the ast-grep multi-rule E2E from
+  ISSUE-028) should now route a real convert is NOTED as an optional follow-on,
+  not required here.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Real-sandbox test harness fixtures (jq convert script + probe scripts)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold real-convert and security-probe fixture scripts for the un-stubbed sandbox tests"
+        description: |
+          Create the on-disk fixtures the Phase-2 real-sandbox tests drive through
+          REAL sandbox-exec (no /bin/sh stub). These are test-only assets under the
+          packval test tree:
+            - testdata/sandbox/convert-jq.sh — a convert script that pipes its stdin
+              through real jq (a simple transform, e.g. `jq '.a'` or `.a + 1`) and
+              writes the transformed JSON to stdout. This is the dynamically-linked
+              interpreter that SIGABRTs under the unfixed profile.
+            - testdata/sandbox/outside-secret.txt — a "project" file placed OUTSIDE
+              the packDir the test will pass to the sandbox, used by the read-denial
+              probe (the relaxed profile must still deny reading it).
+          Provide a brief README/header comment in convert-jq.sh documenting that it
+          MUST run under real sandbox-exec (never the stub). No production code in
+          this task. Supports the read/run/deny probes (CLM-001..CLM-004).
+        files:
+          - pkg/packval/testdata/sandbox/convert-jq.sh
+          - pkg/packval/testdata/sandbox/outside-secret.txt
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: TDD — shared profile builder + dyld read relaxation (both-halves)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing real-interpreter convert test (jq through real sandbox-exec, no stub)"
+        description: |
+          Write the operational half. Mandated test name:
+          TestSandboxConvertWithRealInterpreter (CLM-003). It runs the
+          testdata/sandbox/convert-jq.sh convert through the PRODUCTION
+          SandboxedRunStdout path (real sandbox-exec — NO stubSandboxedRunStdout,
+          NO /bin/sh bypass), feeding a known JSON stdin, and asserts stdout equals
+          the expected jq-transformed output. Also asserts via
+          TestSandboxProfileAllowsDyldLibraries (CLM-001) that the shared darwin
+          profile builder emits the system/runtime read subpaths (/usr/lib,
+          /System/Library, /usr/local/lib, /opt/homebrew/lib, and the dyld shared
+          cache path) in addition to packDir — proving both SandboxedRun and
+          SandboxedRunStdout source the SAME extended profile.
+          PLATFORM/VACUOUS-GREEN RULES (explicit):
+            - Guard `if runtime.GOOS != "darwin" { t.Skip(...) }` is acceptable
+              (genuine platform N/A — sandbox-exec is macOS-only).
+            - On darwin, jq MUST be present: locate jq (PATH / /usr/local/bin/jq /
+              /opt/homebrew/bin/jq); if absent → `t.Fatal` naming jq and install
+              guidance — NOT t.Skip.
+            - The test MUST NOT skip or pass on "abort trap"/SIGABRT; against the
+              UNFIXED profile it must FAIL (this is the red phase), and PASS only
+              once TASK-003 lands the dyld read paths.
+          Substantive: real script, real jq, real sandbox-exec, assert transformed
+          bytes — never a stub or canned plumbing.
+        files:
+          - pkg/packval/sandbox_realconvert_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write failing security-denial test (read-outside / write / network all denied under relaxed profile)"
+        description: |
+          Write the security half. Mandated test name:
+          TestSandboxSecurityDenialsHold (CLM-004) plus the focused
+          TestSandboxDeniesProjectFileRead (CLM-002),
+          TestSandboxDeniesFileWrite (CLM-002), TestSandboxDeniesNetwork
+          (CLM-002) — each exercising the SAME relaxed profile builder the real
+          convert uses (via real sandbox-exec), asserting:
+            (i)  a convert/shell command reading testdata/sandbox/outside-secret.txt
+                 (a project file OUTSIDE packDir and outside the allowed system-lib
+                 subpaths) exits non-zero → read DENIED;
+            (ii) a command writing any file (e.g. into a temp path) exits non-zero
+                 → write DENIED (deny file-write* holds);
+            (iii)a command opening a TCP/network connection exits non-zero →
+                 network DENIED (deny network* holds).
+          All three sub-denials MUST hold for the test to pass — relaxing reads for
+          system libs must NOT open a hole. Same darwin guard + jq-present=Fatal
+          (where a probe uses jq) / no-skip-on-abort-trap rules as TASK-002.
+          Substantive: real sandbox-exec, assert non-zero exit AND that the failure
+          is the sandbox denial (not some unrelated error). Written red — passes
+          once TASK-004 lands the extended-but-still-hard profile.
+        files:
+          - pkg/packval/sandbox_security_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Extract shared darwin profile builder and extend file-read* to dyld/system-lib paths"
+        description: |
+          Make TASK-002 and TASK-003 green. In pkg/packval/sandbox.go ONLY:
+            - Extract the IDENTICAL darwin profile string (lines 14 and 45) into a
+              single package-level builder, e.g.
+              `func darwinSandboxProfile(packDir string) string`, and call it from
+              BOTH SandboxedRun and SandboxedRunStdout (DRY — one maintenance point
+              for the read-allowlist; CLM-001). Confirm no behavior change for the
+              existing callers beyond the added read paths.
+            - Extend the builder's `(allow file-read* ...)` to include, alongside
+              `(subpath "<packDir>")`, the runtime/library subpaths a dynamically
+              -linked interpreter needs at dyld load: /usr/lib, /System/Library,
+              /usr/local/lib, /opt/homebrew/lib, and the dyld shared cache
+              (e.g. /private/var/db/dyld). Establish the MINIMAL sufficient set
+              empirically by running real jq under the profile and adding only the
+              paths dyld actually demands — do NOT use a blanket `(allow file-read*)`
+              (CLM-001).
+            - KEEP all deny rules HARD and unchanged: `(deny default)`,
+              `(deny file-write*)`, `(deny network*)`; add NO read of project /
+              non-pack / non-system paths (CLM-002).
+            - DO NOT TOUCH the linux no-op branches (lines 25/61) — ISSUE-020 scope.
+          Change surface is sandbox.go only.
+        files:
+          - pkg/packval/sandbox.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-001
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Run code check over the extended profile builder and the both-halves real-sandbox tests"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm sandbox.go and the two
+          new test files build, lint clean, and that on the darwin dev host BOTH
+          halves pass green: TestSandboxConvertWithRealInterpreter /
+          TestSandboxProfileAllowsDyldLibraries (real jq convert SUCCEEDS) AND
+          TestSandboxSecurityDenialsHold + the three focused denial tests (read
+          -outside / write / network still DENIED). Confirm the pre-existing
+          stubbed convert suite and sandbox_stdout_test.go still pass (no
+          regression from the profile change). No raw `go test`/`golangci-lint` —
+          backstop CLI only.
+        files:
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_realconvert_test.go
+          - pkg/packval/sandbox_security_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-001
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Full gate verification"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Run full gate over the sandbox fix (code kill chain + plan artifact validation)"
+        description: |
+          Final comprehensive verification of the whole change set:
+            - `backstop gate` — the full kill chain (code check, test verification,
+              substantiveness, coverage >= 90 per coverage_threshold, contracts)
+              over the modified pkg/packval/sandbox.go and the new tests, confirming
+              the both-halves acceptance holds green and that the
+              SandboxedRun/SandboxedRunStdout contract signatures are unchanged.
+            - `backstop artifact validate` — confirm PLAN-ISSUE-029 validates and
+              does NOT appear in the failure listing (this plan is the only artifact
+              file touched by the change set).
+          Re-assert the both-halves property explicitly: the convert RUNS
+          (real jq through real sandbox-exec succeeds) AND the security denials HOLD
+          (read-outside / write / network still denied under the same relaxed
+          profile). Neither alone is acceptance.
+        files:
+          - plans/PLAN-ISSUE-029-macos-sandbox-convert.plan.yml
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_realconvert_test.go
+          - pkg/packval/sandbox_security_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-001
+        depends_on:
+          - TASK-004
+          - TASK-005

@@ -39,7 +39,7 @@ func TestEngineBinding_Shape(t *testing.T) {
 	}
 
 	// A non-SARIF engine declares a convert script.
-	withConvert := EngineBinding{Command: "ast-grep scan", InputMode: InputModeRuleDir, InputFlag: "--rule", Convert: "ast-grep/to-sarif.sh"}
+	withConvert := EngineBinding{Command: "ast-grep scan", InputMode: InputModeConfigFile, InputFlag: "--config", Convert: "ast-grep/to-sarif.sh"}
 	if withConvert.Convert == "" {
 		t.Error("non-SARIF binding must populate Convert")
 	}
@@ -82,17 +82,6 @@ func TestInputMode_RuleFlags(t *testing.T) {
 	}
 	if got != InputModeRuleFlags {
 		t.Errorf("got %q, want rule-flags", got)
-	}
-}
-
-// TestInputMode_RuleDir asserts the rule-dir enum value round-trips. CLM-046.
-func TestInputMode_RuleDir(t *testing.T) {
-	got, err := ParseInputMode("rule-dir")
-	if err != nil {
-		t.Fatalf("ParseInputMode(rule-dir): %v", err)
-	}
-	if got != InputModeRuleDir {
-		t.Errorf("got %q, want rule-dir", got)
 	}
 }
 
@@ -177,11 +166,11 @@ func TestRegistry_SeedsBuiltins(t *testing.T) {
 	}
 
 	astgrep := mustLookup(t, reg, "ast-grep")
-	if astgrep.InputMode != InputModeRuleDir {
-		t.Errorf("ast-grep input_mode = %q, want rule-dir", astgrep.InputMode)
+	if astgrep.InputMode != InputModeConfigFile {
+		t.Errorf("ast-grep input_mode = %q, want config-file", astgrep.InputMode)
 	}
-	if astgrep.InputFlag != "--rule" {
-		t.Errorf("ast-grep input_flag = %q, want --rule", astgrep.InputFlag)
+	if astgrep.InputFlag != "--config" {
+		t.Errorf("ast-grep input_flag = %q, want --config", astgrep.InputFlag)
 	}
 	if astgrep.Convert == "" {
 		t.Error("ast-grep must declare a stdin->SARIF convert script")
@@ -198,6 +187,44 @@ func TestRegistry_SeedsBuiltins(t *testing.T) {
 	configFile := mustLookup(t, reg, "config-file")
 	if configFile.InputMode != InputModeConfigFile {
 		t.Errorf("config-file input_mode = %q, want config-file", configFile.InputMode)
+	}
+}
+
+// TestDefaultRegistry_AstGrepUsesConfigFileMode pins the corrected ast-grep
+// dispatch shape (ISSUE-028 / CLM-001): the ast-grep built-in resolves its
+// multi-rule input through the EXISTING config-file mode (a single pack-shipped
+// sgconfig.yml via --config), NOT the retired rule-dir/"--rule" shape that
+// emitted `--rule <DIR>` and ran zero rules. The flip changes ONLY input
+// mode/flag: the engine name stays "ast-grep" and it retains its Convert script
+// (ast-grep/to-sarif.sh), pinned Provision, and EngineCategoryOpinion.
+func TestDefaultRegistry_AstGrepUsesConfigFileMode(t *testing.T) {
+	reg := DefaultRegistry()
+	astgrep := mustLookup(t, reg, "ast-grep")
+
+	if astgrep.InputMode != InputModeConfigFile {
+		t.Errorf("ast-grep input_mode = %q, want config-file (the multi-rule sgconfig.yml mechanism)", astgrep.InputMode)
+	}
+	if astgrep.InputFlag != "--config" {
+		t.Errorf("ast-grep input_flag = %q, want --config", astgrep.InputFlag)
+	}
+	// The flip keeps the engine's identity (still the "ast-grep scan" invocation,
+	// now with --json so the real binary emits the JSON the convert script reads).
+	if astgrep.Command != "ast-grep scan --json" {
+		t.Errorf("ast-grep command must stay the ast-grep scan invocation, got %q", astgrep.Command)
+	}
+	if astgrep.Convert != "ast-grep/to-sarif.sh" {
+		t.Errorf("ast-grep must keep its stdin->SARIF convert script, got %q", astgrep.Convert)
+	}
+	if astgrep.Provision == nil || astgrep.Provision.Tool != "ast-grep" {
+		t.Errorf("ast-grep must keep its pinned provision, got %+v", astgrep.Provision)
+	}
+	if astgrep.Category != EngineCategoryOpinion {
+		t.Errorf("ast-grep must stay an OPINION engine, got category %d", astgrep.Category)
+	}
+	// The engine is still registered under the name "ast-grep" (not renamed to
+	// "config-file", which forbids rule_path — CLM-009).
+	if _, ok := reg["ast-grep"]; !ok {
+		t.Error("ast-grep must remain registered under the name \"ast-grep\"")
 	}
 }
 

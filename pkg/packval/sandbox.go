@@ -5,13 +5,64 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 )
+
+// darwinSandboxProfile builds the macOS sandbox-exec profile shared by
+// SandboxedRun and SandboxedRunStdout — ONE maintenance point for the
+// read-allowlist (ISSUE-029, CLM-001). It keeps the trust model HARD —
+// (deny default), (deny file-write*), (deny network*) — while granting the
+// MINIMAL file-read* set a dynamically-linked convert interpreter (jq, python3,
+// node, ...) needs at dyld load.
+//
+// Two non-obvious, empirically-established requirements (ISSUE-029):
+//   - (import "bsd.sb"): the base system profile. Without it, ANY restricted
+//     file-read* profile SIGABRTs at launch because dyld cannot read the shared
+//     cache; with it dyld reaches a real, debuggable denial. bsd.sb does NOT
+//     grant arbitrary project-file reads, file writes, or network — the deny
+//     rules below still hold (verified by TestSandboxSecurityDenialsHold).
+//   - packDir is symlink-resolved (filepath.EvalSymlinks): a sandbox subpath
+//     rule matches the KERNEL-resolved path, so an unresolved /var/... subpath
+//     would silently fail to match the real /private/var/... and deny legit
+//     reads inside packDir.
+//
+// The added system/runtime read subpaths (alongside packDir) are scoped, NOT a
+// blanket (allow file-read*) — that would be a security hole. They cover the
+// dyld shared cache and the dirs a Homebrew interpreter's dylibs live in on both
+// Intel (/usr/local/...) and Apple-Silicon (/opt/homebrew) hosts. NO project /
+// non-pack / non-system path is readable.
+func darwinSandboxProfile(packDir string) string {
+	resolved := packDir
+	if r, err := filepath.EvalSymlinks(packDir); err == nil {
+		resolved = r
+	}
+	readSubpaths := []string{
+		resolved,                            // the pack directory itself (the only project path)
+		"/usr/lib",                          // system dylibs
+		"/System/Library",                   // system frameworks / libraries
+		"/usr/local/lib",                    // Intel Homebrew libs
+		"/usr/local/Cellar",                 // Intel Homebrew keg-only installs (e.g. libjq)
+		"/usr/local/opt",                    // Intel Homebrew opt symlinks (e.g. oniguruma)
+		"/opt/homebrew",                     // Apple-Silicon Homebrew prefix
+		"/private/var/db/dyld",              // dyld shared cache (classic location)
+		"/System/Volumes/Preboot/Cryptexes", // dyld shared cache (Cryptexes location)
+	}
+	var b strings.Builder
+	for _, p := range readSubpaths {
+		fmt.Fprintf(&b, " (subpath \"%s\")", p)
+	}
+	return fmt.Sprintf(
+		"(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*%s)(deny network*)(deny file-write*)",
+		b.String(),
+	)
+}
 
 func SandboxedRun(cmd string, args []string, packDir string) ([]byte, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		profile := fmt.Sprintf("(version 1)(deny default)(allow process*)(allow file-read* (subpath \"%s\"))(deny network*)(deny file-write*)", packDir)
+		profile := darwinSandboxProfile(packDir)
 		fullArgs := []string{"-p", profile, cmd}
 		fullArgs = append(fullArgs, args...)
 		c := exec.Command("sandbox-exec", fullArgs...)
@@ -42,7 +93,7 @@ func SandboxedRun(cmd string, args []string, packDir string) ([]byte, error) {
 func SandboxedRunStdout(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		profile := fmt.Sprintf("(version 1)(deny default)(allow process*)(allow file-read* (subpath \"%s\"))(deny network*)(deny file-write*)", packDir)
+		profile := darwinSandboxProfile(packDir)
 		fullArgs := []string{"-p", profile, cmd}
 		fullArgs = append(fullArgs, args...)
 		c := exec.Command("sandbox-exec", fullArgs...)

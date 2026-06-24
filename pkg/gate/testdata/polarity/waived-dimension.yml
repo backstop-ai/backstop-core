@@ -1,0 +1,9 @@
+project: waived-dimension
+language: typescript
+enforcement:
+  toolchain:
+    test:
+      command: "npm test"
+      format: "tap"
+      gate_type: "coverage"
+      waived: true

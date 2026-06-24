@@ -1,17 +1,17 @@
 ---
-title: Stack-Aware Traceability Steps — Coverage, Substantiveness, Contracts beyond Go
+title: Stack-Aware Traceability — Substantiveness & Contracts beyond Go
 number: BUNDLE-009
 schema_version: bundle/v2
 
 bundle:
   name: stack-aware-traceability
-  version: "0.2.2"
+  version: "0.6.1"
   created: "2026-06-13"
-  updated: "2026-06-20"
+  updated: "2026-06-22"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: ready
 
 problem:
   summary: >
@@ -29,13 +29,168 @@ problem:
   user_story: >
     As the maintainer dogfooding backstop against the runtime (a TypeScript +
     Bun project that is now itself a backstop project), I want the traceability
-    steps to actually enforce coverage, test substantiveness, and contracts on
-    TS/Bun — or to fail loud when they can't — so that `backstop gate` on the
-    runtime repo means what it says instead of reporting a clean traceability
-    half while enforcing nothing.
+    steps to actually enforce test substantiveness and contracts on TS — or to
+    fail loud when they can't — so that `backstop gate` on the runtime repo means
+    what it says instead of reporting a clean traceability half while enforcing
+    nothing. (Coverage's cross-stack enforcement is descoped to a future bundle
+    per SD-4 — BUNDLE-009 deletes the non-working baked Go coverage check but does
+    not re-implement coverage here, since coverage is test-runner-coupled,
+    BUNDLE-011 territory; the substantiveness/contract checks ride the structural
+    engines and need no toolchain.)
+  success_criteria:
+    - >
+      ZERO baked-in traceability analyzers remain in the gate: `step_testverify.go`,
+      `step_contract.go`, and `step_coverage.go` are all deleted. The only
+      language-agnostic gate logic that remains is the noTarget set-join, the
+      contract/absence polarity + match-verdict, and the shared file-scanned guard;
+      the backstop binary holds no language/tool specifics for traceability (REQ-010).
+    - >
+      Substantiveness and contracts are enforced via stack-locked PACKS on the
+      structural engines (ast-grep for structure, grep for absence), every check
+      emitting SARIF, with Go re-implemented as a pack (not a preserved native tier)
+      and proven equivalent to the deleted go/parser analyzers on real Go fixtures via
+      a strangler-equivalence pass before deletion (REQ-002..005, REQ-008).
+    - >
+      A traceability dimension that is DECLARED but broken blocks (exit 2); an
+      UNDECLARED / capability-absent dimension emits a conspicuous, specific
+      warn-with-how-to-adopt on the report surface and passes (exit 0) — loudness on
+      the report surface, not the exit code; no vacuous green (REQ-001).
+    - >
+      A second, stack-locked TypeScript traceability proof pack is authored —
+      hollow-test substantiveness on `.test.ts` (ast-grep) plus contracts (signature
+      presence via ast-grep, symbol absence via the grep engine) — substantiating the
+      "beyond Go" claim and beginning to unblock the TS runtime's self-gating (REQ-007).
+    - >
+      The grep/ripgrep absence engine is stood up pack-declared (its `engines:` block,
+      `pattern-arg` input mode, grep→SARIF convert) with `grep`/`rg` added only to the
+      backstop-owned trusted-tool allowlist — no baked `DefaultRegistry` entry, no
+      ISSUE-027-style eradication debt (REQ-006).
+    - >
+      `backstop gate` run on the backstop repo itself turns its own
+      `contract_signature` step green (the dual-substrate proof that the brittle
+      `formatFuncSignature`→`signaturesMatch` Go-source-string round-trip is dissolved).
+
+solution:
+  approach: >
+    One architecture, applied as a strangler repeat of SPEC-034 over the
+    traceability subsystem. Eradicate all three baked-in Go traceability analyzers
+    (`step_testverify.go`, `step_contract.go`, `step_coverage.go`) and re-implement
+    substantiveness + contracts as stack-locked PACKS (a Go migration pack and a
+    TypeScript proof pack) running on the structural engines — ast-grep for
+    structure (hollow-test extraction, contract-signature patterns) and grep for
+    text-presence (symbol absence) — every check emitting SARIF. The GATE keeps only
+    language-agnostic semantics: the noTarget set-join against the spec's declared
+    `implementation.package`, the contract polarity/match-verdict, the absence
+    polarity inversion, and a shared "was-the-file-actually-scanned?" guard. The
+    backstop BINARY knows zero language/tool specifics: packs declare their engines
+    (grep added to the trusted-tool allowlist, declared in the pack's `engines:`
+    block via SPEC-035's `pattern-arg` input mode — no baked DefaultRegistry entry),
+    and the gate consumes match/no-match plus the scanned guard. Fail-loud is the
+    first, engine-free seed: a declared-but-broken dimension blocks (exit 2), an
+    undeclared/capability-absent dimension warns-with-guidance on the report surface
+    and passes (exit 0). Coverage is architecturally different (dynamic-toolchain,
+    test-runner-coupled), so its baked Go analyzer is DELETED here but its
+    language-agnostic re-implementation is DEFERRED to a future bundle near
+    BUNDLE-011.
+  assumptions:
+    - SPEC-035 (pack-declared engines + trusted-tool allowlist + `pattern-arg` input
+      mode + gate-TYPE binding role) is available substrate; the eradication seeds
+      (3, 4) are authored on top of it. Fail-loud (Seed 1) does not need it.
+    - BUNDLE-010's ast-grep engine and reusable ast-grep→SARIF converter are shipped
+      and tested (SPEC-033 locked the BUNDLE-010↔009 seam).
+    - A pack is stack-locked (`Manifest.Language` is a single pack-level field), so
+      "beyond Go" means authoring a second, stack-locked pack (the TS proof pack).
+    - Traceability declarations already exist (hand-authored or init-authored);
+      BUNDLE-009 is agnostic to how. `init` inference is onboarding's downstream job
+      (SD-2), not a prerequisite.
+    - Pre-launch (no users / no remote), so the interim coverage gap from deleting a
+      non-working 0.0% false-RED check is acceptable.
+
+requirements:
+  - id: REQ-001
+    text: >
+      A traceability dimension that is DECLARED but broken (declared command errors,
+      unparseable output, unknown toolchain key, or declared-but-capability-missing)
+      fails loud AND blocks (exit 2); an UNDECLARED / capability-absent dimension
+      emits a conspicuous, specific warn-with-how-to-adopt on the report surface and
+      passes (exit 0). Loudness lives on the report surface, not the exit code.
+  - id: REQ-002
+    text: >
+      Delete the baked Go substantiveness analyzer in `step_testverify.go`,
+      re-implementing the Q1 hollow-test check ("does this test assert anything?") as
+      an ast-grep findings pack (per-language assertion vocabulary in YAML) emitting
+      SARIF, with Go included.
+  - id: REQ-003
+    text: >
+      Re-implement the Q2 noTarget check ("does this test exercise the unit under
+      test?") as a pack EXTRACTION (a positive ast-grep query emitting the
+      packages/symbols a test references) plus a thin, language-agnostic GATE
+      SET-JOIN against the spec's declared `implementation.package`; the noTarget
+      semantics live in the gate as a set test, not a baked analyzer.
+  - id: REQ-004
+    text: >
+      Delete the baked Go contract analyzer in `step_contract.go`. Re-implement
+      contract signature presence as a pack-compiled ast-grep REQUIRED-pattern query
+      (the contract stores a human-readable signature; the language pack compiles it
+      to its-language ast-grep pattern at gate time), a match = SATISFIED — dissolving
+      the `formatFuncSignature`→`signaturesMatch` Go-source-string round-trip.
+  - id: REQ-005
+    text: >
+      Re-implement the ISSUE-013 contract ABSENCE check as a pack-declared,
+      allowlisted grep/ripgrep forbidden-pattern probe (`pattern-arg`; scope = file OR
+      path as a parameter), where a match = symbol PRESENT and the GATE inverts
+      polarity (a present-match is the violation), guarded by a thin gate-side
+      "was-the-scope-actually-scanned?" check preserving ISSUE-013's loud
+      missing/unscanned error. The guard is language-agnostic: the only loud-error
+      axis is missing / unscanned scope (the file or path the contract names does not
+      exist or was not scanned). A scanned non-Go scope is not an error — it is just
+      another stack the pack handles.
+  - id: REQ-006
+    text: >
+      Stand up a grep/ripgrep engine for the absence probe without baking tool
+      knowledge into the binary: (a) the traceability pack declares grep in its
+      `engines:` block (`pattern-arg` input mode + a grep-output→SARIF convert
+      script) — no baked DefaultRegistry entry, no ISSUE-027-style eradication debt;
+      (b) the `grep`/`rg` tool is added to the backstop-owned trusted-tool allowlist.
+  - id: REQ-007
+    text: >
+      Author one non-Go proof pack — a TypeScript traceability pack — covering
+      hollow-test substantiveness on `.test.ts` via ast-grep and contracts (signature
+      presence via ast-grep, symbol absence via the grep engine), riding the
+      structural engines only (no TS toolchain), to substantiate the "beyond Go"
+      claim and begin unblocking the TS runtime's self-gating.
+  - id: REQ-008
+    text: >
+      Guard the Go contract cutover with a strangler-equivalence pass: prove the
+      pack-compiled ast-grep patterns and grep absence probes reproduce the
+      go/parser analyzer's verdicts — including ISSUE-013's absence cases — on real
+      Go fixtures BEFORE deleting `step_contract.go`'s analyzer (the SPEC-034
+      licensing pattern).
+  - id: REQ-009
+    text: >
+      Delete the baked Go coverage analyzer `step_coverage.go` (the
+      `go test -coverprofile` path, the percentage regex, and the dead `Stack` seam)
+      with NO in-bundle replacement; coverage's language-agnostic re-implementation is
+      deferred to a future dedicated bundle near BUNDLE-011. The interim gap is
+      accepted because the deleted check is a non-working 0.0% false-RED.
+  - id: REQ-010
+    text: >
+      End state across the bundle: ZERO baked-in traceability analyzers in the gate.
+      The only language-agnostic gate logic that remains is the set-join, the
+      contract/absence polarity + match-verdict, and the shared file-scanned guard;
+      the backstop binary holds no language/tool specifics for traceability.
 ---
 
-# Stack-Aware Traceability Steps — Coverage, Substantiveness, Contracts beyond Go
+# Stack-Aware Traceability — Substantiveness & Contracts beyond Go
+
+> **Scope note (2026-06-22):** the original title read "…Coverage, Substantiveness,
+> Contracts beyond Go." Per **Scope Decision #4** (see *Scope Decisions / Non-Goals*
+> below), coverage's *cross-stack re-implementation* is **descoped from this bundle**;
+> BUNDLE-009 only **deletes** the baked Go coverage analyzer (`step_coverage.go`) and
+> defers a language-agnostic coverage check to a future dedicated bundle. The title is
+> reconciled to reflect that the bundle delivers **substantiveness + contracts** (incl.
+> a TypeScript proof pack), not coverage — finalized at the `ready` promotion (v0.6.0):
+> the delivered-dimensions framing names only substantiveness + contracts beyond Go.
 
 ## Current Thinking
 
@@ -82,11 +237,18 @@ Three observations frame the exploration:
    BUNDLE-009 a **strangler repeat of SPEC-034**, run once more over a single
    subsystem (traceability). The three dimensions strangle differently and must
    NOT be flattened:
-   - **Coverage is not a go/parser anomaly — nothing to eradicate.**
-     `step_coverage.go` already runs `go test -coverprofile` and regex-parses the
-     percentage; that is *already* the command + format-parser
-     (`enforcement.toolchain` registry) shape. It just rides the registry
-     extension (OQ-1, Seed 2). No analyzer to delete.
+   - **Coverage is not a go/parser anomaly, but it IS a baked Go-toolchain path —
+     DELETED here, re-implementation DEFERRED (SD-4, 2026-06-22; supersedes the
+     original "rides the registry, Seed 2" framing below).** `step_coverage.go` runs
+     `go test -coverprofile` and regex-parses the percentage — the command +
+     format-parser shape. The 0.2.x plan had it ride a registry extension (the old
+     Seed 2). **SD-4 changes this:** coverage is **dynamic-toolchain** (test-runner-
+     coupled), architecturally unlike the **static-structural** substantiveness /
+     contract checks, so BUNDLE-009 **DELETES `step_coverage.go`** (achieving the
+     zero-baked-analyzer end-state across all three steps) and **DEFERS** coverage's
+     language-agnostic re-implementation to a future dedicated bundle near BUNDLE-011.
+     The interim gap is accepted (pre-launch; the existing check is a 0.0% false-RED
+     lie, not a working capability). **Seed 2 is DROPPED.**
    - **Substantiveness — lower risk for the hollow-test half; the target-call half
      is unresolved.** The **Q1 hollow-test** check ("does this test assert
      anything?") maps cleanly to a finding: an ast-grep substantiveness pack (Go
@@ -147,6 +309,115 @@ Three observations frame the exploration:
    **eradication audit (2026-06-20)** independently confirmed the exact targets and
    the keep-semantics / eradicate-extraction split for all three gate steps (see
    References) — this sharpens the OQ-6/7/8 framing without resolving them.
+
+## Draft Requirements
+
+Derived from the resolved OQs (OQ-1..8) and the scope decisions (SD-1..4); these
+mirror the `requirements[]` array and are firmed at this `defined` promotion. They
+will be refined into formal spec requirements at spec-authoring time.
+
+- **REQ-001 — Fail-loud polarity (from OQ-1 fork resolution; Seed 1).** A DECLARED
+  but broken traceability dimension (command errors / unparseable output / unknown
+  toolchain key / declared-but-capability-missing) fails loud AND blocks (exit 2); an
+  UNDECLARED / capability-absent dimension warns-with-how-to-adopt on the report
+  surface and passes (exit 0). Loudness lives on the report surface, not the exit code.
+- **REQ-002 — Hollow-test substantiveness as a pack (from OQ-2/OQ-6; Seed 3).** Delete
+  `step_testverify.go`'s Q1 analyzer; re-implement hollow-test detection as an ast-grep
+  findings pack with a per-language assertion vocabulary in YAML, emitting SARIF, Go
+  included.
+- **REQ-003 — noTarget as pack-extraction + gate set-join (from OQ-6, option a;
+  Seed 3).** Re-implement the Q2 noTarget check as a positive ast-grep pack EXTRACTION
+  (the symbols a test references) plus a thin language-agnostic GATE SET-JOIN against
+  the spec's declared `implementation.package`; the set-test is gate logic, not a baked
+  analyzer.
+- **REQ-004 — Contract signature presence as a pack-compiled ast-grep pattern (from
+  OQ-8; Seed 4).** Delete `step_contract.go`'s `go/parser` extraction +
+  `formatFuncSignature` rendering + `signaturesMatch` string-equality; re-implement
+  signature verification as a pack-compiled ast-grep REQUIRED-pattern query (contract
+  stores a human-readable signature; the language pack compiles it), match = SATISFIED.
+- **REQ-005 — Contract absence as a pack grep forbidden-pattern probe (from OQ-7;
+  Seed 4).** Re-implement ISSUE-013 absence as a pack-declared, allowlisted grep/ripgrep
+  forbidden-pattern probe (`pattern-arg`; scope = file OR path as a parameter): match =
+  PRESENT, the GATE inverts polarity (present-match is the violation), guarded by a thin
+  gate-side file-scanned check preserving ISSUE-013's loud missing/unscanned error
+  (language-agnostic: a scanned non-Go scope is a normal handled stack, not an error).
+- **REQ-006 — Stand up a grep engine, pack-declared not baked (from SD-1; Seed 4).**
+  (a) The pack declares grep in its `engines:` block (`pattern-arg` + grep→SARIF
+  convert) — no baked `DefaultRegistry` entry, no ISSUE-027 eradication debt; (b) add
+  `grep`/`rg` to the backstop-owned trusted-tool allowlist.
+- **REQ-007 — One TypeScript proof pack (from SD-3; Seeds 3+4).** Author one non-Go
+  proof pack — a TS traceability pack — covering hollow-test substantiveness on
+  `.test.ts` (ast-grep) and contracts (signature presence via ast-grep, absence via the
+  grep engine), riding the structural engines only (no TS toolchain).
+- **REQ-008 — Strangler-equivalence pass on the Go contract cutover (from OQ-3/SD-3;
+  Seed 4).** Prove the pack-compiled patterns + grep absence probes reproduce the
+  go/parser analyzer's verdicts — including ISSUE-013's absence cases — on real Go
+  fixtures BEFORE deleting `step_contract.go` (the SPEC-034 licensing pattern).
+- **REQ-009 — Delete the coverage analyzer, defer re-implementation (from SD-4).**
+  Delete `step_coverage.go` (the `go test -coverprofile` path, the percentage regex,
+  the dead `Stack` seam) with NO in-bundle replacement; defer language-agnostic coverage
+  to a future bundle near BUNDLE-011. Seed 2 is dropped. Interim gap accepted.
+- **REQ-010 — Zero baked-in analyzers end-state (cross-cutting).** After Seeds 1/3/4 the
+  gate holds no baked-in traceability analyzers; the only language-agnostic gate logic
+  remaining is the set-join, the contract/absence polarity + match-verdict, and the
+  shared file-scanned guard.
+
+## Draft Design Decisions
+
+Captured from the resolved OQs and scope decisions. Each records the choice and the
+*why*; the OQ/SD bodies below carry full rationale and rejected alternatives.
+
+- **DD-1 — One architecture across all three checks: PACK / GATE / BINARY split (from
+  the cross-cutting theme, OQ-6/7/8).** The PACK does the language-specific work
+  (extraction / grep-probe / signature→pattern-compile) and emits SARIF; the GATE does
+  language-agnostic semantics (set-join, polarity inversion, match-verdict, file-scanned
+  guard); the BINARY knows zero language/tool specifics. *Why:* keeps the eradication
+  honest (a gate-side set-test or polarity inversion is not an analyzer) and satisfies
+  the zero-baked-checks standing rule while preserving every existing invariant.
+- **DD-2 — Engine-fit split: grep for absence (text), ast-grep for structure (from
+  OQ-7/OQ-8).** Absence uses grep (text-presence — conservative, language-agnostic,
+  catches lingering references in comments/strings); signatures and hollow-test
+  extraction use ast-grep (structural — param types and returns regardless of names /
+  whitespace). *Why:* ast-grep's per-language grammar is the wrong tool for absence and
+  grep can't reliably match structural signatures; each check uses the tool whose
+  failure direction is correct for it.
+- **DD-3 — noTarget = pack-extraction + thin gate set-join, not dropped, not a per-pair
+  query (from OQ-6, option a).** *Why:* dropping it (c) is a capability regression
+  (OQ-2 said Q2 is "acceptable coarse," not "acceptable absent"); a per-(test,target)
+  parameterized query (d) over-engineers a deliberately coarse boolean; a declared
+  command per stack (b) is heavyweight for one boolean.
+- **DD-4 — Contract signature stored human-readable; the PACK compiles it to ast-grep
+  (from OQ-8).** The contract stores e.g. `func RouteFile(path string) []CheckType`; a
+  per-language contract→ast-grep-pattern compiler lives in the pack (analogous to the
+  pack's existing SARIF convert scripts). *Why:* dissolves the brittle
+  `formatFuncSignature`→`signaturesMatch` Go-source-string round-trip that is literally
+  why backstop's own `contract_signature` step is red today; and compiling/rendering a
+  signature in the binary would be a P0 zero-baked-language violation.
+- **DD-5 — Declaring a dimension IS the opt-in to enforcement; no measure-only ramp
+  (from OQ-1 fork resolution, SD-2 synergy).** Declared → blocks on failure; undeclared
+  / capability-absent → warns and passes forever, never auto-promoting. *Why:* a binary
+  humans can hold in their heads (declared→blocks, undeclared→warns) over an extra
+  opt-in-to-measure knob; init-inference (onboarding's downstream job) keeps the strict
+  gate humane by pre-filling declarations.
+- **DD-6 — Stand up grep as a pack-declared engine + allowlist entry, NOT a registry
+  binding (from SD-1).** *Why:* a baked `DefaultRegistry` entry would create
+  ISSUE-027-style eradication debt and bake tool knowledge; the pack-declared route
+  ("new pack + a few trivial allowlist entries") keeps the binary thin and makes Seed 4
+  self-contained without a separate substrate bundle.
+- **DD-7 — Ship exactly one non-Go proof pack (TypeScript); other languages out (from
+  SD-3 / SD-3-OUT).** *Why:* a pack is stack-locked (`Manifest.Language`), so "beyond
+  Go" must be proven by a real second pack; TS is chosen because the TS runtime is
+  currently blocked from self-gating — a live priority, not a demo. Python/Rust/etc. are
+  separate downstream consumer efforts.
+- **DD-8 — Coverage deleted here, re-implementation deferred (from SD-4).** *Why:*
+  coverage is dynamic-toolchain (test-runner-coupled), architecturally unlike the
+  static-structural substantiveness/contracts; deleting the non-working 0.0% false-RED
+  removes a lie, not a capability, and is acceptable pre-launch. Re-implementation
+  sequences near BUNDLE-011 (which lands the test runner).
+- **DD-9 — Strangler-equivalence gate on the Go contract cutover (from OQ-3, SPEC-034
+  pattern).** *Why:* the contract path is the highest-risk eradication (string-equality
+  fidelity, ISSUE-013 absence cases); prove parity on real Go fixtures before deleting
+  the analyzer rather than churning working tested code blind.
 
 ## Open Questions
 
@@ -225,7 +496,8 @@ Three observations frame the exploration:
   this resolution leaned on — so the resolution holds only as the *layered design
   shape*; the eradication re-opens how substantiveness actually lands for Go, via
   **OQ-6 below** (the spec×test-file target-package join a single-file pack query
-  can't see). The Q1 hollow-test mapping survives intact; the noTarget half is the
+  can't see) — **now RESOLVED 2026-06-22**: noTarget = pack extraction + thin gate
+  set-join. The Q1 hollow-test mapping survives intact; the noTarget half was the
   re-opened part. Three layers, not two. Headline: substantiveness is *cheap to
   port* because the valuable signal is shallow by nature.
   - **The valuable check is Q1 — hollow-test detection** ("does this test assert
@@ -260,11 +532,13 @@ Three observations frame the exploration:
 - **OQ-3 — Contract signatures across stacks. [RESOLVED 2026-06-13 for the LAYERED
   design; refined 2026-06-14; RE-OPENED 2026-06-20.]** Like OQ-2, this resolution
   assumed "native for Go (go/parser today)." **DECISION 2 deletes that native tier**,
-  so the resolution holds only as the layered shape and the eradication re-opens two
+  so the resolution holds only as the layered shape and the eradication re-opened two
   concrete mechanics via **OQ-7** (how ISSUE-013 absence is performed once the
   gate-side `parser.ParseFile` probe is gone) and **OQ-8** (whether the ast-grep
   extraction must reproduce `formatFuncSignature`'s exact Go-source rendering, or the
-  comparison itself moves to a structural match). Same three-layer resolution as OQ-2
+  comparison itself moves to a structural match) — **both now RESOLVED 2026-06-22**:
+  absence = pack-declared grep forbidden-pattern probe; signatures = pack-compiled
+  ast-grep pattern query (comparison goes structural). Same three-layer resolution as OQ-2
   and the same engine:
   contract signature verification is signature *extraction* (a
   metavariable-capturing tree query) compared against the declared contract —
@@ -309,78 +583,236 @@ Three observations frame the exploration:
 
   ---
 
-  The three OQs below were **re-opened by DECISION 2 (2026-06-20)** — the scope
-  expansion that deletes the native-for-Go analyzers. They are genuinely
-  **UNRESOLVED**; options are listed without a lean. The user resolves them in a
-  manual pass. They gate the analyzer-eradication seeds (3 and 4), not the
+  The three OQs below were **re-opened by DECISION 2 (2026-06-20)** and **RESOLVED by
+  the user 2026-06-22**. They gate the analyzer-eradication seeds (3 and 4), not the
   fail-loud/coverage seeds (1 and 2).
 
-- **OQ-6 — Substantiveness target-call (noTarget) disposition. [OPEN — 2026-06-20.]**
-  `step_testverify.go`'s substantiveness check is two checks, not one. Q1
-  (hollow-test) maps cleanly to a single-file ast-grep finding. But the **noTarget**
-  check is a **JOIN** between the test file's AST and the **spec's declared target
-  package** (`checkSubstantiveness` reads `TargetPkg` from the spec's
-  `implementation.package` frontmatter, then `samePackage`/`callsTargetPackage`,
-  step_testverify.go:286/301/321). A single-file ast-grep query **cannot see the
-  spec's target package**, so a findings pack does not, by itself, express this. Where
-  does the spec×test-file target-package join live after migration? Options to weigh
-  (do not pick): (a) keep a thin gate-side join that post-processes pack output
-  against the spec's declared target; (b) push it to the declared-command fallback
-  layer; (c) drop it as accepted coarseness (Q2 is already explicitly coarse per
-  OQ-2 — is dropping it entirely acceptable?); (d) some pack mechanism that takes the
-  target package as a parameter. Until this is settled, `step_testverify.go`'s
-  analyzer cannot be cleanly deleted.
+  **Cross-cutting theme (unifies all three resolutions, 2026-06-22).** Every
+  resolution follows **one architecture**: the **PACK** does the language-specific work
+  (extraction / grep-probe / signature→pattern-compile, all emitting **SARIF**); the
+  **GATE** does language-agnostic semantics (set-join / polarity-inversion /
+  match-verdict + a shared **file-scanned guard**); and the backstop **BINARY knows
+  zero language/tool specifics.** All three ride **SPEC-035's `pattern-arg` +
+  allowlisted-engine substrate** (now shipped). The **engine-fit split is consistent:**
+  **GREP for absence** (text-presence), **AST-GREP for structure** (signatures,
+  hollow-test extraction). Implementing OQ-7 + OQ-8 is what finally turns backstop's
+  **own** gate green on its `contract_signature` step.
 
-- **OQ-7 — Contract absence probe after analyzer deletion. [OPEN — 2026-06-20.]**
-  ISSUE-013 assert-**absence** ("symbol X is ABSENT from file F; loud config error if
-  F is missing or non-Go") is **not extraction** — a findings pack emits what
-  *exists*, not what is absent. Today the absence check IS a gate-side
-  `parser.ParseFile` + `probeSymbol` (step_contract.go:119/227/248) — i.e. the very
-  Go-aware analyzer DECISION 2 wants deleted. So "zero baked-in analyzers" and
-  "absence is a gate-side Go-aware probe" are in **direct tension**. Forks to record
-  (do not pick): (a) the pack itself emits an absence signal (can ast-grep / the
-  SARIF contract express "this symbol does not appear"?); (b) a thin Go-aware absence
-  probe legitimately **stays** gate-side, and "zero baked-in analyzers" is relaxed to
-  "zero baked-in *extraction/analysis*, minus a narrow absence/file-shape probe"; (c)
-  absence is derived by **interpreting an empty pack result-set** for the symbol
-  (with the missing/non-Go-file loud-error semantics reconstructed gate-side from pack
-  metadata). This OQ pokes at whether **"zero baked-in analyzers" is even literally
-  achievable**, or only achievable as an aspiration with a documented exception.
-  - *Substrate note (NOT a resolution, 2026-06-20):* SPEC-035's **`pattern-arg`**
-    input mode is the likely **mechanism** option (a) and option (c) would build on —
-    a parameterized pattern query (probe an allowlisted engine for *this specific
-    declared symbol*) is the natural shape for an absence/probe check. This records
-    the substrate the resolution will sit on; it does **not** pick a fork. OQ-7 stays
-    **OPEN**.
+- **OQ-6 — Substantiveness target-call (noTarget) disposition. [RESOLVED 2026-06-22 —
+  option (a), thin gate-side join.]** The `noTarget` substantiveness check ("does this
+  test exercise the unit under test?") **splits across the pack/gate boundary.** The
+  **PACK** does the language-specific **EXTRACTION** — it emits "which packages/symbols
+  this test references" as a normal *positive* ast-grep query (no spec awareness
+  required). The **GATE** does a trivial, language-agnostic **SET-MEMBERSHIP test**: is
+  the spec's declared target package (`implementation.package` frontmatter) among the
+  referenced symbols the pack emitted? The **noTarget SEMANTICS live in the gate as a
+  set test** (gate logic consuming pack data, **not** a baked analyzer); only the
+  **EXTRACTION** becomes a pack.
+  - **Rationale.** Preserves the coarse Go-parity signal (dropping it entirely —
+    rejected option c — would be a capability regression; OQ-2 said Q2 is "acceptable
+    *coarse*," not "acceptable *absent*"). Keeps the eradication honest: a gate-side
+    set-test is **not** an analyzer. Generalizes across stacks: any stack's pack emits
+    "referenced symbols," and the gate joins them the same way.
+  - **Rejected:** (b) declared-command-per-stack — heavyweight for one coarse boolean;
+    (c) drop entirely — a regression; (d) parameterized per-(test,target) query —
+    over-engineers a deliberately-coarse, low-value check.
+  - **Firms Spec Seed 3 (substantiveness):** `step_testverify.go`'s analyzer is deleted;
+    **Q1 hollow-test → pack ast-grep finding**; **Q2 noTarget → pack extraction + thin
+    gate set-join.**
 
-- **OQ-8 — Contract signature-rendering equivalence target. [OPEN — 2026-06-20.]**
-  `signaturesMatch` is whitespace-normalized **string equality** (step_contract.go:551)
-  over Go-**source-rendered** signatures produced by `formatFuncSignature` /
-  `underlyingTypeString` (:456/:388) — exact handling of receiver formatting,
-  `[]byte`, `map[K]V`, `*T`, named-vs-unnamed results. So: must the ast-grep
-  extraction **reproduce `formatFuncSignature`'s exact Go-source string rendering**
-  (to feed the existing string-equality comparison unchanged), or does the
-  **comparison itself move to a structural / normalized match** (compare captured
-  AST/metavariable shapes rather than rendered strings)? The first keeps the
-  comparison code but sets a very high extraction-fidelity bar (and is inherently
-  Go-rendering-specific, awkward for the cross-stack goal); the second changes
-  comparison code but lets extraction be structural. Unresolved — this is the crux of
-  the Seed-4 strangler-equivalence pass.
-  - *Substrate note (NOT a resolution, 2026-06-20):* whichever fork wins, the contract
-    extraction is a **parameterized** query (probe for *this declared signature*),
-    which is exactly SPEC-035's **`pattern-arg`** input mode on an allowlisted engine.
-    That records the substrate the eventual resolution will build on; it does **not**
-    decide between exact-rendering-reproduction and structural-comparison. OQ-8 stays
-    **OPEN**.
+- **OQ-7 — Contract absence probe after analyzer deletion. [RESOLVED 2026-06-22 —
+  pack-declared forbidden-pattern GREP probe.]** Absence ("symbol X must be **ABSENT**")
+  is a **PACK-DECLARED, ALLOWLISTED grep/ripgrep FORBIDDEN-PATTERN probe**,
+  parameterized via SPEC-035's **`pattern-arg`**, with **SCOPE taken from the declared
+  contract** — a file OR a path. (Scope-as-parameter preserves ISSUE-013's
+  file-scoping AND enables whole-tree absence, **as a parameter, not a fork**.) The
+  engine emits SARIF natively: a **match = symbol PRESENT**, an **empty result = symbol
+  ABSENT**. The **GATE inverts polarity** (a present-match *is* the violation: "X must
+  be absent, found at L") **plus a thin gate-side "was-the-file-actually-scanned?"
+  guard** so empty-because-absent is never confused with empty-because-not-scanned —
+  this preserves ISSUE-013's loud error when the scope is missing/unscanned. The
+    guard is **language-agnostic**: the only loud-error axis is **missing / unscanned
+    scope** (the file or path the contract names doesn't exist or wasn't scanned). A
+    **scanned non-Go scope is NOT an error** — it is just another stack the pack
+    handles; ISSUE-013's loud-on-missing semantics survive, the loud-on-non-Go
+    semantics are dissolved by the cross-stack contracts design (OQ-8 + SD-3).
+  - **Engine-fit (key decision).** Absence uses **GREP** (text-presence — "does this
+    token appear anywhere"), **NOT ast-grep.** ast-grep's structural granularity is the
+    *wrong* tool for absence: it needs a per-language grammar and misses lingering
+    references in comments / strings / non-parsed files. Grep is coarse,
+    language-agnostic, and its conservative failure direction (loudly flags *any*
+    textual appearance) is exactly what absence wants.
+  - **Explicitly NOT a grep baked into the gate BINARY** (rejected as baked
+    tool-knowledge). It is a grep **ENGINE DECLARED BY A PACK** and allowlisted, like
+    any engine.
+  - **Accepted trade (on the record).** Grep is coarser — it can match a token in
+    comments / strings / substrings, so a *lingering name* can produce a false-FAIL.
+    Mitigated by word-boundary / anchored patterns (`func Foo\b`) and waivability; the
+    conservative direction is acceptable.
+  - **Authoring insight (record it).** Codebase-wide grep is the **SPEC-AUTHORING**
+    tool — sweep the whole tree to discover what exists and where, which informs *which*
+    absence contracts to write. File-scoped grep is the **GATE-ENFORCEMENT** tool. Same
+    primitive, two phases.
+
+- **OQ-8 — Contract signature-rendering equivalence. [RESOLVED 2026-06-22 —
+  contract-signature-as-ast-grep-pattern; the PACK compiles the signature.]** Contract
+  signature verification is a **REQUIRED-pattern ast-grep query** — the OQ-7 shape
+  *inverted*: a **match = contract SATISFIED**, **no-match = VIOLATION**. This
+  **dissolves the brittle string round-trip**: **no more** `formatFuncSignature` /
+  `underlyingTypeString` Go-source-string rendering fed into `signaturesMatch`
+  whitespace-normalized string-equality (which is *literally why* the gate's own
+  `contract_signature` step is red today — the dual-substrate proof). Instead: the
+  **contract stores a HUMAN-READABLE signature** (e.g. `func RouteFile(path string)
+  []CheckType`), and the **LANGUAGE PACK provides a contract→ast-grep-pattern
+  COMPILER** that turns the declared signature into its language's ast-grep pattern at
+  gate time. This is architecturally analogous to the pack's **existing SARIF convert
+  scripts** — both are language-specific transforms that live in the PACK, not the
+  binary.
+  - **Backstop NEVER compiles, renders, or understands a signature.** Doing so in the
+    binary would be a **P0 zero-baked-language VIOLATION** (the user explicitly flagged
+    and rejected this). Backstop passes the declared signature to the pack-declared
+    engine, which compiles + queries + emits SARIF; the gate consumes **match/no-match**
+    plus **the same file-scanned guard as OQ-7.**
+  - **Engine-fit.** Signatures use **AST-GREP** (structural — "a function with these
+    param types and this return, regardless of param names / whitespace" — grep can't
+    reliably match that), completing the split: **absence = grep (text);
+    structure / signature / hollow-test extraction = ast-grep (AST).**
+  - **Resolves the recorded Fork 2** ("comparison moves to structural") — realized as
+    the **engine's pattern-matching** with the per-language transform **in the PACK.**
+    Fidelity doesn't vanish; it *moves* — from "exact Go-source string rendering" to
+    "ast-grep pattern precision" (the `[]byte`-vs-`[]uint8`, named-vs-unnamed-results
+    edge cases), handled **per-language in the PACK.**
+  - **Firms Spec Seed 4 (contracts):** `step_contract.go`'s `go/parser` extraction +
+    `formatFuncSignature` rendering + string-equality are **deleted**; **signature
+    presence → pack-compiled ast-grep pattern query**; **absence → pack grep probe
+    (OQ-7)**; the **language-agnostic comparison polarity + file-scanned guard stay
+    gate-side.**
+
+## Scope Decisions / Non-Goals (user-driven, 2026-06-22)
+
+These four decisions were resolved by the user in a working session (2026-06-22).
+They are **SCOPE decisions** — they tighten what BUNDLE-009 delivers vs defers — and
+are **distinct from the OQ resolutions** above (those settled *mechanics*; these
+settle the *boundary*). They do **not** re-open OQ-1..8. Maturity stays `exploring`;
+the user drives promotion separately. Each is recorded as an explicit IN-SCOPE
+requirement or OUT-OF-SCOPE non-goal and is reflected in the firmed Spec Seeds below.
+
+### IN SCOPE
+
+- **SD-1 — Grep/ripgrep engine (IN SCOPE; explicit requirement).** OQ-7's absence
+  probe needs a **grep/ripgrep engine that does not exist yet.** Verified against the
+  code: the engine `DefaultRegistry` (`pkg/pack/engine/binding.go`) holds
+  semgrep / ast-grep / sandbox / config-file / golangci / go-build / go-test — **no
+  grep**; the trusted-tool allowlist (`pkg/pack/engine/allowlist.go:22-23`) holds
+  **only** `semgrep` + `ast-grep`. BUNDLE-009 stands the grep engine up, split per the
+  **SPEC-035 architecture** into two distinct moves:
+  - **(a) The grep ENGINE BINDING is PACK-DECLARED, not baked.** The traceability pack
+    declares grep in its `engines:` block (input mode `pattern-arg` per SPEC-035; a
+    grep-output→SARIF convert script, analogous to ast-grep's `to-sarif.sh`). So there
+    is **NO baked `DefaultRegistry` entry** for grep and therefore **NO ISSUE-027-style
+    eradication debt** created. Backstop learns no grep specifics; it runs the
+    pack-declared command and consumes SARIF.
+  - **(b) The `grep`/`rg` TOOL is added to the backstop-owned trusted-tool allowlist.**
+    This is the small, expected "new language = a new pack **+ a few trivial allowlist
+    entries**" move — the allowlist is the one backstop-owned surface that must name a
+    tool before a pack may invoke it.
+  - **Why IN SCOPE (vs ast-grep, which was a broad substrate prerequisite):** grep is
+    **tiny**, and **BUNDLE-009 is its only consumer** here, so standing it up makes the
+    absence Seed (Seed 4) self-contained rather than forcing a separate substrate
+    bundle. Feeds the **absence half of Seed 4**.
+
+- **SD-3 — A TypeScript traceability proof pack (IN SCOPE; the "beyond Go" proof).**
+  A pack is **stack-locked**: verified — `Manifest.Language` is a single pack-level
+  field (`pkg/pack/manifest.go:18`) and rules/engines inherit it; there is no
+  multi-language pack. So **"beyond Go" literally means authoring a second,
+  stack-locked pack.** To avoid the **theoretical-claim trap** (the title says
+  "…beyond Go"; shipping only a Go pack while claiming stack-awareness would be
+  vacuous), BUNDLE-009 authors **ONE non-Go proof pack: a TypeScript traceability
+  pack** covering:
+  - **SUBSTANTIVENESS** — hollow-test detection on `.test.ts` via **ast-grep** (the
+    spike already proved the TS hollow-test rule, see Spike section).
+  - **CONTRACTS** — signature **presence** via **ast-grep**, signature/symbol
+    **absence** via **grep** (the SD-1 engine).
+  - **Feasible NOW, independent of BUNDLE-011:** traceability rides the **STRUCTURAL
+    engines** (ast-grep / grep — both speak TS as text/AST), **NOT** the TS language
+    toolchain (eslint / tsc). No TS toolchain is needed to author this pack.
+  - **STRATEGIC MOTIVATION (on the record):** the runtime (**backstop-runtime**, a
+    TypeScript project) is **currently BLOCKED by the half-baked pack system — it can't
+    gate itself with packs.** The TS proof pack is therefore a **live priority**, not a
+    mere demonstration; it is the first slice that lets the runtime begin gating itself.
+  - **CONSCIOUS scope GROWTH, eyes-open:** authoring a real second pack is **meaningful
+    work** (not free), chosen deliberately for the runtime priority — recorded as
+    growth, not scope-creep.
+  - **CAVEAT (record it):** **TS COVERAGE is NOT delivered here.** Coverage needs the TS
+    **test runner** (= BUNDLE-011's toolchain) and is descoped anyway per **SD-4**. The
+    TS proof pack delivers substantiveness + contracts only.
+
+### OUT OF SCOPE (Non-Goals)
+
+- **SD-2 — `init` toolchain inference (OUT OF SCOPE; Non-Goal).** OQ-1's
+  "declared == blocks strictly" gate is humane **because** `init` inference
+  pre-populates the declarations a user would otherwise hand-write — but **building
+  that inference is ONBOARDING's job** (SPEC-026 / BUNDLE-003 territory: repo
+  detection, command inference, consent-before-write). **Record the DIRECTIONALITY
+  explicitly:** **onboarding is a DOWNSTREAM consumer that DEPENDS ON this
+  traceability architecture being in place — NOT the reverse.** init-inference cannot
+  sensibly pre-fill declarations until the **declaration surface + pack/gate split**
+  this bundle establishes exist. Therefore **BUNDLE-009 ships FIRST** and **assumes
+  declarations already exist** (hand-authored **OR** init-authored); it does **not
+  care how the declaration got there.**
+  - **Cross-bundle sequencing note (record):** the strict declared-gate is
+    **hand-authored-only** until onboarding's inference lands downstream. That is
+    **acceptable** — early adopters hand-write declarations.
+
+- **SD-4 — Coverage's cross-stack re-implementation (OUT OF SCOPE; DEFERRED to a
+  future bundle).** Coverage is **architecturally a DIFFERENT beast** from
+  substantiveness / contracts:
+  - Substantiveness + contracts are **STATIC-STRUCTURAL** — ast-grep / grep over
+    source; no toolchain needed (which is why SD-3's TS pack is feasible now).
+  - Coverage is **DYNAMIC-TOOLCHAIN** — run the test suite with instrumentation, parse
+    runtime lcov / istanbul / go-cover output — **coupled to the test runner**
+    (BUNDLE-011's toolchain), **not** the structural engines.
+  - **DECISION:** BUNDLE-009 **DELETES all THREE baked Go analyzers** —
+    `step_testverify.go` (substantiveness), `step_contract.go` (contracts), **AND**
+    `step_coverage.go` (coverage) — reaching the bundle's **"zero baked-in traceability
+    analyzers"** end-state. Substantiveness + contracts are **RE-IMPLEMENTED as packs
+    IN this bundle** (Seeds 3 + 4). Coverage's baked Go parsing
+    (`go test -coverprofile` + the percentage regex) is **DELETED with NO replacement
+    here**; its **language-agnostic re-implementation is DEFERRED to a future dedicated
+    "language-agnostic coverage" bundle** (naturally sequenced near BUNDLE-011, since
+    coverage needs the test runner).
+  - **The interim coverage GAP is ACCEPTABLE and explicitly accepted:** backstop is
+    **PRE-LAUNCH with NO users / no remote**, and the existing coverage check is
+    **ALREADY brittle / non-functional** (it emits a **0.0% false-RED** on non-Go and
+    on packages it can't resolve) — so this removes a **non-working check (a lie)**, not
+    a working capability.
+  - **DROP Spec Seed 2 (coverage)** from this bundle (see Spec Seeds below).
+
+- **SD-3-OUT — Traceability packs for every OTHER language (OUT OF SCOPE; Non-Goal).**
+  Beyond the **one TypeScript** proof pack (SD-3), traceability packs for **Python /
+  Rust / any other language** are **separate consumer efforts**, not BUNDLE-009 work.
+  The architecture supports them (any stack's pack rides the same ast-grep / grep
+  engines + gate-side semantics), but authoring them is out of this bundle's scope.
+
+### Cross-bundle sequencing (record)
+
+- **BUNDLE-011 is the natural NEXT-after-009.** Together they unblock the runtime:
+  **BUNDLE-009 delivers the TS TRACEABILITY slice** (substantiveness + contracts via
+  structural engines); **BUNDLE-011 owes the TS TOOLCHAIN slice** (lint / build / test,
+  incl. the **test runner** that coverage's re-implementation will need).
+- **The future "language-agnostic coverage" bundle is sequenced near BUNDLE-011**,
+  since coverage is dynamic-toolchain and depends on the test runner BUNDLE-011 lands.
 
 ## Spec Seeds
 
-Four seeds, in suggested order. They do not overlap: the fail-loud surface (1) is
-config/reporting behavior, coverage (2) rides the registry, and substantiveness
-(3) and contracts (4) each own one baked-in analyzer's eradication. Seeds 3 and 4
-each cover **all stacks including Go** — Go is not exempted; ast-grep speaks Go, so
-the baked-in Go analyzer is replaced, not kept as a native tier. (These are
-exploration seeds; formal REQ-NNN decomposition happens at promotion, not here.)
+Three seeds (Seed 2 — coverage — was **DROPPED** per SD-4), in suggested order. They
+do not overlap: the fail-loud surface (1) is config/reporting behavior, and
+substantiveness (3) and contracts (4) each own one baked-in analyzer's eradication
+**plus the TypeScript proof pack** (SD-3). Seeds 3 and 4 each cover **all stacks
+including Go AND TypeScript** — Go is not exempted (ast-grep speaks Go, so the baked-in
+Go analyzer is replaced, not kept as a native tier), and TS is the mandated non-Go
+proof. (These are exploration seeds; formal REQ-NNN decomposition happens at
+promotion, not here.)
 
 - **Seed 1 — Fail-loud on undeclared / capability-absent (no engine).** Ships on
   the existing binary. Per the OQ-1 fork resolution (2026-06-20): a *declared*
@@ -389,50 +821,76 @@ exploration seeds; formal REQ-NNN decomposition happens at promotion, not here.)
   conspicuous, specific warn-with-how-to-adopt on the **report surface** and
   **passes (exit 0)**. Closes the runtime dogfooding hole today. No analyzer
   touched.
-- **Seed 2 — Coverage via the `enforcement.toolchain` registry.** A stack declares
-  a coverage command + named format parser + threshold through the same registry
-  (OQ-1). Coverage formats extend the ISSUE-003 named-format parser library;
-  declared → blocks below threshold, undeclared → warns. `step_coverage.go` already
-  has this command+parser shape, so this is registry extension, **not** analyzer
-  eradication.
-- **Seed 3 — Substantiveness as an ast-grep findings pack (all stacks incl. Go);
-  delete `step_testverify.go`'s analyzer.** The **Q1 hollow-test** half ("test
-  asserts nothing" → finding) is the clean, spike-proven part: one ast-grep pack
-  (per-language assertion vocabulary in YAML) emits findings → gate consumes via the
-  BUNDLE-010 ast-grep→SARIF path, Go included. **But the analyzer also does the
-  noTarget check — a spec×test-file target-package JOIN a single-file pack query
-  cannot express (OQ-6 below).** That half's disposition (keep gate-side / declared
-  fallback / drop as coarseness / push into the pack somehow) must be settled before
-  `step_testverify.go`'s analyzer can be **DELETED**. Lower risk on Q1; OQ-6 gates
-  the deletion.
-- **Seed 4 — Contracts: ast-grep extraction pack + retained comparison (all stacks
-  incl. Go); delete `step_contract.go`'s analyzer.** Splits along
-  extraction-vs-comparison, but two parts are **open, not settled** (OQ-7/OQ-8
-  below): (a) the **comparison** is whitespace-normalized **string-equality on
-  Go-source-rendered signatures** (`signaturesMatch`/`formatFuncSignature`), so the
-  extraction must either reproduce that **exact** rendering or the comparison moves
-  to a structural match (**OQ-8**); (b) **ISSUE-013 absence** is a gate-side
-  `parser.ParseFile` probe — not extraction, and a findings pack emits what
-  *exists*, so how absence is performed after the analyzer is deleted is **OQ-7**.
-  Requires a **strangler-equivalence pass**: prove the ast-grep extraction reproduces
-  go/parser's results — including the exact signature rendering and ISSUE-013's
-  absence cases — on real Go fixtures, THEN delete the baked-in analyzer (the
-  SPEC-034 licensing pattern). Highest risk; sequence last; OQ-7/OQ-8 gate it.
+- **~~Seed 2 — Coverage via the `enforcement.toolchain` registry.~~ DROPPED
+  (SD-4, 2026-06-22).** Coverage's cross-stack re-implementation is **descoped from
+  this bundle** — it is dynamic-toolchain (test-runner-coupled), not static-structural,
+  and is **DEFERRED to a future dedicated "language-agnostic coverage" bundle**
+  sequenced near BUNDLE-011. What **remains in BUNDLE-009** for coverage is **only the
+  DELETION** of the baked Go analyzer `step_coverage.go` (the `go test -coverprofile` +
+  percentage-regex path and the dead `Stack` seam), with **NO replacement here**.
+  Removing a non-working check (the 0.0% false-RED) is acceptable pre-launch. **No
+  coverage *delivery* seed in this bundle.** The deletion is folded into the
+  "zero baked-in analyzers" end-state below.
+- **Seed 3 — Substantiveness as an ast-grep findings pack (all stacks incl. Go AND a
+  TypeScript proof pack); delete `step_testverify.go`'s analyzer.** Both halves are
+  firmed (**OQ-6 resolved**): **Q1 hollow-test** ("test asserts nothing" → finding) is
+  one ast-grep pack (per-language assertion vocabulary in YAML) emitting findings →
+  gate consumes via the BUNDLE-010 ast-grep→SARIF path, Go included. **Q2 noTarget** is
+  a **pack EXTRACTION** ("which packages/symbols this test references" — a positive
+  ast-grep query) **+ a thin language-agnostic GATE SET-JOIN** against the spec's
+  declared `implementation.package`. The set-test lives in the gate (consuming pack
+  data, not a baked analyzer), so `step_testverify.go`'s analyzer is cleanly
+  **DELETED**. **Now ALSO mandates the TS proof pack (SD-3):** this seed delivers the
+  **Go migration** (analyzer → pack) **AND** the **TypeScript hollow-test rule on
+  `.test.ts`** (via ast-grep — feasible now, the spike proved it, no TS toolchain
+  needed). Lower risk.
+- **Seed 4 — Contracts: pack-compiled ast-grep + pack-declared grep probe (all stacks
+  incl. Go AND a TypeScript proof pack); delete `step_contract.go`'s analyzer; **stand
+  up the grep engine (SD-1).** Both open parts are firmed (**OQ-7/OQ-8 resolved**):
+  **signature presence** → a **pack-compiled ast-grep pattern query** (the contract
+  stores a human-readable signature; the language pack compiles it to its-language
+  ast-grep pattern at gate time — analogous to the pack's existing SARIF convert
+  scripts), a **match = SATISFIED**; this **dissolves** the
+  `signaturesMatch`/`formatFuncSignature` string round-trip outright. **ISSUE-013
+  absence** → a **pack-declared, allowlisted grep forbidden-pattern probe**
+  (scope-as-parameter: file OR path), a **match = violation**. **The grep engine
+  (SD-1) is stood up here**, as the explicit requirement feeding this **absence half**:
+  (a) the traceability pack **declares grep in its `engines:` block** (`pattern-arg`
+  input mode + grep-output→SARIF convert) — **no baked `DefaultRegistry` entry, no
+  ISSUE-027 eradication debt**; (b) the **`grep`/`rg` tool is added to the
+  backstop-owned trusted-tool allowlist** (`pkg/pack/engine/allowlist.go`). The
+  **language-agnostic comparison polarity + a shared file-scanned guard stay
+  gate-side.** `step_contract.go`'s `go/parser` extraction + `formatFuncSignature`
+  rendering + string-equality are **DELETED**. **Now ALSO mandates the TS proof pack
+  (SD-3):** the **Go migration** **AND** the **TypeScript contracts pack** (signature
+  presence via ast-grep, absence via the new grep engine on `.ts`). A
+  **strangler-equivalence pass** still guards the Go cutover (prove the pack-compiled
+  patterns + grep probes reproduce go/parser's verdicts — including ISSUE-013's absence
+  cases — on real Go fixtures before deleting, the SPEC-034 licensing pattern). Highest
+  risk; sequence last.
 
-End-state aspiration across seeds 3+4: **zero baked-in analyzers in the gate** —
-traceability fully dogfooded as packs, BUNDLE-009 completing a strangler repeat of
-SPEC-034 over the traceability subsystem. **Whether "zero" is literally achievable
-is itself open** — OQ-7 pokes at whether a thin Go-aware absence probe legitimately
-has to stay gate-side. Recorded as the aim, not a settled outcome.
+End-state across seeds 3+4 (plus the SD-4 coverage-analyzer deletion): **zero baked-in
+analyzers in the gate** — all THREE baked Go analyzers (`step_testverify.go`,
+`step_contract.go`, `step_coverage.go`) deleted; substantiveness + contracts
+re-implemented as packs (Go **and** TypeScript); coverage's re-implementation deferred
+to a future bundle. Traceability fully dogfooded as packs, BUNDLE-009 completing a
+strangler repeat of SPEC-034 over the traceability subsystem. With OQ-7's absence
+resolved as a **pack-declared grep probe** (not a retained gate-side Go-aware probe),
+the only language-agnostic gate logic that stays is the **file-scanned guard +
+polarity/verdict** — so "zero baked-in analyzers" is a **settled outcome**.
 
 ## Notes / Ideas
 
-- **Seed sequencing (2026-06-14, updated 2026-06-20 — now four seeds; see Spec
-  Seeds above).** Seed 1 — fail-loud — ships on the existing binary with NO engine:
-  Go stays native and works; non-Go declared stacks stop vacuously passing and get
-  the explicit declare-or-warn signal. Closes the runtime dogfooding hole today.
-  Seeds 2–4 — coverage via the registry, then the substantiveness and contract
-  ast-grep packs — depend on the now-shipped BUNDLE-010 pack engine.
+- **Seed sequencing (2026-06-14; updated 2026-06-20; updated 2026-06-22 — now THREE
+  seeds, Seed 2/coverage DROPPED per SD-4; see Spec Seeds above).** Seed 1 —
+  fail-loud — ships on the existing binary with NO engine: Go stays native and works;
+  non-Go declared stacks stop vacuously passing and get the explicit declare-or-warn
+  signal. Closes the runtime dogfooding hole today. Seeds 3–4 — the substantiveness and
+  contract ast-grep packs (each now also delivering the **TS proof pack**, SD-3, and
+  Seed 4 standing up the **grep engine**, SD-1) — depend on the now-shipped BUNDLE-010
+  pack engine + SPEC-035. The former coverage seed is gone: coverage's baked Go analyzer
+  is **deleted** here (SD-4) but its cross-stack re-implementation is **deferred** to a
+  future bundle near BUNDLE-011.
   **Update (2026-06-20):** the earlier framing that "Go-on-native vs Go-on-engine
   uniformity is a later migration, explicitly NOT this bundle" is **reversed**. With
   BUNDLE-010 delivered, eradicating the baked-in Go go/parser substantiveness and
@@ -441,31 +899,34 @@ has to stay gate-side. Recorded as the aim, not a settled outcome.
   equivalence requirement** on the higher-risk contract seed — prove parity on Go
   fixtures before deleting — not as a reason to keep Go on a separate native tier.
 - **Promotion-readiness OPTION (record only — user's call; NOT a decision, and NOT a
-  promotion).** The four seeds no longer share a risk profile. **Seeds 1 (fail-loud)
-  and 2 (coverage) are independently ready and untouched by the eradication** — they
-  carry no open OQs (OQ-1/OQ-4/OQ-5 cover them and are resolved) and close the
-  runtime dogfooding hole on the existing binary plus the registry. **Seeds 3 and 4
-  carry the three newly re-opened OQs (OQ-6/OQ-7/OQ-8).** This surfaces an option the
-  user may choose to take or reject: **promote a fail-loud + coverage slice now and
-  keep the analyzer-eradication seeds in continued exploration** until OQ-6/7/8 are
-  worked. This would mean revisiting OQ-5's "no carve-out" stance (decided before the
-  eradication seeds existed). Recorded as an available path only — the bundle is NOT
-  promoted here, and which seeds (if any) to split out is the user's decision.
+  promotion; updated 2026-06-22 for the dropped coverage seed + resolved OQs).** With
+  Seed 2 (coverage) **dropped** (SD-4) and OQ-6/7/8 now **resolved** (0.3.0), the
+  earlier "Seeds 1+2 are the independently-ready slice while 3+4 carry open OQs" framing
+  is **moot for OQ-blockedness** — all eradication-seed OQs are resolved. **Seed 1
+  (fail-loud)** remains the smallest independently-ready slice (no engine, closes the
+  runtime hole on the existing binary). **Seeds 3 and 4** are now firmed but carry the
+  most work (analyzer eradication + the TS proof pack + the grep engine). The option the
+  user may still take or reject: **promote a fail-loud slice now and keep the
+  pack/eradication seeds in continued exploration** — but this is now a *sequencing*
+  choice, not an *OQ-blockedness* one. Recorded as an available path only — the bundle
+  is NOT promoted here, and which seeds (if any) to split out is the user's decision.
 - The `CoverageTarget.Stack` field and the deliberate "TestCommand parsed but
   not executed" design in step_coverage.go were left as the seam for exactly
   this work — the gate selects the target so a stack scheduler can plug in
   without spec-authored commands becoming execution plans.
-- **`backstop init` toolchain inference (cross-cutting — candidate for its own
-  capture, NOT traceability-specific).** init reads an existing project's
-  evidence (package.json scripts, vitest/jest config, go.mod, .golangci.yml)
-  and scaffolds an explicit `enforcement.toolchain` declaration the user
-  reviews. Reconciles with ISSUE-003's "no detection magic" constraint because
-  that forbade *runtime* silent detection; init-time inference writes an
-  *explicit, reviewable* declaration that the gate then reads deterministically
-  — detection assists authoring, never drives enforcement. Spans the whole
-  toolchain surface (code-check + traceability) + the init command, so it
-  belongs in its own artifact, cross-linked here. Makes the OQ-1 exit-2 default
-  humane by pre-filling declarations.
+- **`backstop init` toolchain inference (OUT OF SCOPE — SD-2; onboarding's job).**
+  init reads an existing project's evidence (package.json scripts, vitest/jest config,
+  go.mod, .golangci.yml) and scaffolds an explicit `enforcement.toolchain` declaration
+  the user reviews. Reconciles with ISSUE-003's "no detection magic" constraint because
+  that forbade *runtime* silent detection; init-time inference writes an *explicit,
+  reviewable* declaration that the gate then reads deterministically — detection assists
+  authoring, never drives enforcement. **Per SD-2 (2026-06-22) this is a Non-Goal of
+  BUNDLE-009: it is ONBOARDING's job (SPEC-026 / BUNDLE-003).** Directionality:
+  **onboarding DEPENDS ON this traceability architecture (declaration surface +
+  pack/gate split) being in place — not the reverse** — so BUNDLE-009 ships FIRST and
+  assumes declarations already exist (hand- or init-authored). The strict declared-gate
+  is hand-authored-only until onboarding's inference lands downstream; acceptable for
+  early adopters. Cross-linked here; belongs in its own artifact.
 
 ## Spike — ast-grep feasibility (2026-06-14)
 
@@ -559,11 +1020,16 @@ rule:
   the target-package-join extraction. **`step_contract.go`** (contracts) — *keep* the
   declared-vs-actual comparison and the ISSUE-013 anti-vacuous-green **absence**
   policy; *eradicate* the `go/parser` symbol extraction + the `.go`-only probe gate.
-  **`step_coverage.go`** (coverage) — *keep* the per-changed-package threshold
-  semantics; *eradicate* `go test -coverprofile` as the *sole hardwired* coverage
-  source + the dead `Stack` seam. This **sharpens the OQ-6/OQ-7/OQ-8 framing** (it
-  confirms precisely what must be deleted vs preserved) but **does not resolve them**
-  — they remain open for the user's manual pass.
+  **`step_coverage.go`** (coverage) — the 2026-06-20 audit framed this as *keep* the
+  per-changed-package threshold semantics while *eradicating* `go test -coverprofile` as
+  the sole hardwired source. **SUPERSEDED by SD-4 (2026-06-22):** BUNDLE-009 **DELETES
+  `step_coverage.go` outright (the `go test -coverprofile` path, the percentage regex,
+  AND the dead `Stack` seam) with NO in-bundle replacement** — coverage's per-package
+  threshold semantics are **carried forward to a future "language-agnostic coverage"
+  bundle** (near BUNDLE-011), not preserved gate-side here, because coverage is
+  dynamic-toolchain (test-runner-coupled), unlike the static-structural substantiveness
+  / contract checks. The audit **sharpened the OQ-6/OQ-7/OQ-8 framing** (substantiveness
+  + contracts) but **does not** govern coverage's disposition — SD-4 does.
 - Pack engine dependency (added 2026-06-14; refined 2026-06-14; **DELIVERED 2026-06-20**): the query-pack layer for OQ-2/OQ-3 was gated on ast-grep being wired as a pack engine. **BUNDLE-010 shipped that** — the engine model is first-class, ast-grep is wired end-to-end as a pack engine, and SPEC-033 locked the BUNDLE-010↔009 seam (ast-grep engine + a reusable ast-grep→SARIF converter + engine-organized pack layout, all delivered and tested). So this is no longer a pending dependency; it is satisfied substrate BUNDLE-009 now builds on. **No baked-in shortcut (dogfood ruling):** backstop consumes its substantiveness/contract rules AS a pack, identically to how it already consumes go-standards-pack — enforcement logic does not live in the CLI binary, and there is no privileged "backstop ships built-in rules" tier. **Scope change (2026-06-20):** the existing Go go/parser analyzers (`step_testverify.go`, `step_contract.go`) were previously framed as an *anomaly* "slated to migrate onto the pack model later" — that deferral is now **reversed**. Because BUNDLE-010 delivered the engine + ast-grep, eradicating those baked-in analyzers is **in-scope in this bundle** (Seeds 3 and 4), not a later migration. End state: zero baked-in analyzers in the gate — a strangler repeat of SPEC-034 over the traceability subsystem.
 - pkg/gate/step_coverage.go (Go-only target selection), step_testverify.go (go/parser substantiveness), step_contract.go:44 (non-.go skip).
 - Driver: the runtime repo (TypeScript + Bun) as the first non-Go backstop project — dogfooding surfaces all three vacuous-pass holes at once.
@@ -571,6 +1037,151 @@ rule:
 
 ## Version History
 
+- **0.6.1 (2026-06-22)** — Wording alignment only (no scope/OQ/SD/maturity change; stays
+  `ready`). Updated the OQ-7 resolution, REQ-005, and the related design-decision prose so
+  the contract-absence file-scanned guard is framed as **language-agnostic missing/unscanned**
+  rather than the obsolete **missing/non-`.go`** error. Under the now-coherent cross-stack
+  contracts design (OQ-8 + SD-3, contracts work across stacks via ast-grep/grep), a scanned
+  non-Go scope is a normal handled stack, not an error; ISSUE-013's loud-on-missing/unscanned
+  semantics survive, the loud-on-non-Go half is dissolved. Surfaced during SPEC-038 authoring.
+- **0.6.0 (2026-06-22)** — **PROMOTED `defined` → `ready` (user signoff after an
+  independent bundle-review verdict of PASS).** No OQ re-opened (OQ-1..8 stay resolved),
+  no scope decision changed (SD-1..4 stay fixed), and no new scope invented — this
+  version satisfies the `ready` gate purely from content the bundle already settled.
+  Two changes: (1) **Title fix (bundle-reviewer nit).** The title no longer frames
+  coverage as a delivered dimension — coverage was descoped by SD-4 (its baked Go
+  analyzer is deleted with no in-bundle replacement; re-implementation deferred near
+  BUNDLE-011; Seed 2 dropped). Title is now **"Stack-Aware Traceability — Substantiveness
+  & Contracts beyond Go"** (frontmatter `title` + H1 reconciled; the scope note finalized
+  to record the rename). The body already framed coverage as delete-and-defer
+  throughout (SD-4, DD-8, REQ-009, dropped Seed 2), so no other in-scope-delivered
+  coverage framing remained to reconcile. (2) **`problem.success_criteria` added** (the
+  one frontmatter field the `ready` gate requires that `defined` did not), derived from
+  the already-settled REQ-001..010 and the zero-baked-analyzer end-state: the
+  zero-baked-analyzer outcome, packs-on-structural-engines with strangler-equivalence,
+  the declared-blocks/undeclared-warns polarity, the TS proof pack, the pack-declared
+  grep engine, and backstop's own `contract_signature` step turning green.
+  `solution.assumptions` was already present. Maturity now `ready` — the bundle is
+  complete and ready for spec generation (Seeds 1, 3, 4).
+- **0.5.0 (2026-06-22)** — **PROMOTED `exploring` → `defined` (user-initiated).** No
+  OQ re-opened (OQ-1..8 stay resolved) and no scope decision changed (SD-1..4 stay
+  fixed); this version is purely the structural promotion, deriving formal content from
+  what 0.3.0/0.4.0 already settled. Added: the `solution.approach` (the one-architecture
+  summary — eradicate all three baked Go analyzers; re-implement substantiveness +
+  contracts as stack-locked packs on grep/ast-grep feeding SARIF; the gate keeps
+  language-agnostic semantics; coverage's re-implementation deferred) plus
+  `solution.assumptions`; a `requirements[]` array (REQ-001..010); and the **Draft
+  Requirements** and **Draft Design Decisions** (DD-1..9) sections. Requirements trace
+  directly to the resolved OQs and SDs: REQ-001←OQ-1 (Seed 1 fail-loud);
+  REQ-002/003←OQ-2/OQ-6 (Seed 3 substantiveness); REQ-004/005/008←OQ-8/OQ-7/OQ-3 (Seed 4
+  contracts); REQ-006←SD-1 (grep engine); REQ-007←SD-3 (TS proof pack); REQ-009←SD-4
+  (coverage deleted, deferred, Seed 2 dropped); REQ-010 = the zero-baked-analyzer
+  end-state. Spec Seeds firmed to three (Seed 2 dropped): Seed 1 (fail-loud), Seed 3
+  (substantiveness → pack), Seed 4 (contracts → pack + grep engine). Maturity now
+  `defined`.
+- **0.4.0 (2026-06-22)** — **User-driven SCOPE decisions recorded (distinct from the
+  0.3.0 OQ resolutions); maturity HELD at `exploring`** (user drives promotion
+  separately; OQ-1..8 NOT re-opened). These four decisions tighten the IN-SCOPE /
+  OUT-OF-SCOPE boundary and firm the seeds. New **Scope Decisions / Non-Goals** section
+  added.
+  **SD-1 (IN SCOPE) — grep/ripgrep engine.** OQ-7's absence probe needs a grep engine
+  that does not exist yet (verified: the `DefaultRegistry` in
+  `pkg/pack/engine/binding.go` has semgrep/ast-grep/sandbox/config-file/golangci/
+  go-build/go-test but NO grep; the allowlist in `pkg/pack/engine/allowlist.go:22-23`
+  holds only semgrep+ast-grep). BUNDLE-009 stands it up, SPEC-035-split: **(a)** the
+  grep ENGINE BINDING is **pack-declared** (`pattern-arg` + grep→SARIF convert) — no
+  baked registry entry, **no ISSUE-027 eradication debt**; **(b)** the `grep`/`rg` TOOL
+  is added to the backstop-owned trusted-tool **allowlist** (the "new pack + a few
+  trivial allowlist entries" move). IN SCOPE because it's tiny and BUNDLE-009 is its
+  only consumer (unlike ast-grep, a broad substrate prerequisite). Feeds the absence
+  half of Seed 4; makes that seed self-contained.
+  **SD-2 (OUT OF SCOPE / Non-Goal) — `init` toolchain inference.** OQ-1's
+  declared==blocks-strictly gate is humane because `init` inference pre-fills
+  declarations — but that inference is **ONBOARDING's job** (SPEC-026 / BUNDLE-003).
+  **Directionality recorded:** onboarding is a DOWNSTREAM consumer that DEPENDS ON this
+  traceability architecture, NOT the reverse; BUNDLE-009 ships FIRST and assumes
+  declarations exist (hand- or init-authored), agnostic to how. Sequencing note:
+  strict declared-gate is hand-authored-only until onboarding lands; acceptable (early
+  adopters hand-write).
+  **SD-3 (IN SCOPE — the "beyond Go" proof) — one TypeScript traceability pack; all
+  OTHER languages OUT.** A pack is **stack-locked** (verified: `Manifest.Language` is a
+  single pack-level field, `pkg/pack/manifest.go:18`), so "beyond Go" literally means
+  authoring a second stack-locked pack. To avoid the theoretical-claim trap (title says
+  "…beyond Go"), BUNDLE-009 authors ONE non-Go proof pack — a **TS pack** covering
+  **substantiveness** (hollow-test on `.test.ts` via ast-grep) + **contracts**
+  (signature presence via ast-grep, absence via grep). **Feasible NOW, independent of
+  BUNDLE-011** — rides the **structural** engines (ast-grep/grep speak TS), NOT the TS
+  toolchain (eslint/tsc). Strategic motivation recorded: the runtime (TS) is **currently
+  BLOCKED** by the half-baked pack system — can't gate itself — so the TS proof pack is
+  a **live priority**, not a demo. Conscious eyes-open scope **growth** (a real second
+  pack is meaningful work). Caveat recorded: **TS coverage is NOT delivered** (needs the
+  TS test runner = BUNDLE-011; and coverage is descoped per SD-4). All OTHER languages
+  (Python/Rust/…) are separate consumer efforts — OUT.
+  **SD-4 (coverage RIPPED OUT; re-implementation DEFERRED; Seed 2 DROPPED).** Coverage
+  is architecturally different — **dynamic-toolchain** (run the suite with
+  instrumentation, parse lcov/istanbul/go-cover; test-runner-coupled), vs the
+  **static-structural** substantiveness/contracts (ast-grep/grep over source).
+  BUNDLE-009 **DELETES all THREE baked Go analyzers** — `step_testverify.go`,
+  `step_contract.go`, AND `step_coverage.go` — reaching the "zero baked-in traceability
+  analyzers" end-state. Substantiveness + contracts are re-implemented as packs IN this
+  bundle (Seeds 3+4); coverage's baked Go parsing is **DELETED with NO replacement
+  here**, its language-agnostic re-implementation **DEFERRED to a future dedicated
+  "language-agnostic coverage" bundle** (near BUNDLE-011, since coverage needs the test
+  runner). Interim gap **explicitly accepted**: pre-launch, no users/no remote, and the
+  existing check is already a brittle **0.0% false-RED lie** — this removes a
+  non-working check, not a capability. **Spec Seed 2 (coverage) DROPPED.**
+  Cross-bundle note recorded: **BUNDLE-011 is the natural NEXT-after-009** (together
+  they unblock the runtime — 009 delivers the TS TRACEABILITY slice, 011 owes the TS
+  TOOLCHAIN slice incl. coverage's test runner); the future language-agnostic-coverage
+  bundle sequences near BUNDLE-011.
+  Seeds firmed accordingly: **Seed 2 DROPPED**; **Seeds 3+4 now also mandate the TS
+  proof pack** (Go migration + TS pack); **Seed 4 stands up the grep engine** (SD-1)
+  feeding the absence half. Title reconciled (coverage delivery removed — only its
+  baked-analyzer deletion remains); user may finalize a rename at promotion. Earlier
+  coverage framings (Current-Thinking obs 4, the eradication-audit `step_coverage.go`
+  reference, the promotion-readiness option, the `init` note, seed-sequencing note)
+  reconciled to these decisions. **No OQ re-opened; maturity unchanged.**
+- **0.3.0 (2026-06-22)** — **User-driven resolution of the three re-opened OQs;
+  maturity HELD at `exploring`** (resolving these UNBLOCKS promotion but does not
+  perform it — the user promotes separately). All three follow **one architecture**:
+  PACK does language-specific work emitting SARIF, GATE does language-agnostic
+  semantics + a shared file-scanned guard, BINARY knows zero language/tool specifics;
+  all ride SPEC-035's `pattern-arg` + allowlisted-engine substrate; engine-fit split
+  is GREP for absence / AST-GREP for structure.
+  (a) **OQ-6 RESOLVED — option (a), thin gate-side join.** The `noTarget` check splits:
+  PACK emits "which packages/symbols this test references" (positive ast-grep query);
+  GATE does a trivial language-agnostic SET-MEMBERSHIP test against the spec's declared
+  `implementation.package`. noTarget *semantics* live in the gate as a set test (not a
+  baked analyzer); only *extraction* becomes a pack. Rejected: declared-command-per-stack
+  (b, heavyweight), drop-entirely (c, a regression), parameterized per-(test,target)
+  query (d, over-engineered). Firms Seed 3.
+  (b) **OQ-7 RESOLVED — pack-declared forbidden-pattern GREP probe.** Absence is a
+  PACK-DECLARED, allowlisted grep/ripgrep forbidden-pattern probe (`pattern-arg`,
+  scope = file OR path as a parameter). Engine emits SARIF: match = PRESENT, empty =
+  ABSENT; GATE inverts polarity + a thin file-scanned guard (language-agnostic;
+  preserving ISSUE-013's loud missing/unscanned error — a scanned non-Go scope is a
+  normal handled stack, not an error). Engine-fit: GREP (text-presence), NOT ast-grep —
+  ast-grep needs a per-language grammar and misses comment/string references.
+  Explicitly a pack-declared engine, NOT a grep baked into the binary. Accepted trade:
+  grep is coarser (comment/string/substring false-FAILs), mitigated by anchored
+  patterns + waivability. Authoring insight recorded: codebase-wide grep is the
+  spec-authoring tool, file-scoped grep is the gate-enforcement tool.
+  (c) **OQ-8 RESOLVED — contract-signature-as-ast-grep-pattern; the PACK compiles the
+  signature.** Signature verification is a REQUIRED-pattern ast-grep query (match =
+  SATISFIED). Dissolves the brittle `formatFuncSignature`→`signaturesMatch` string
+  round-trip that is literally why backstop's own `contract_signature` step is red
+  today. Contract stores a human-readable signature; the language PACK provides a
+  contract→ast-grep-pattern COMPILER (analogous to the pack's existing SARIF convert
+  scripts). Backstop NEVER compiles/renders/understands a signature — doing so in the
+  binary would be a P0 zero-baked-language violation (explicitly flagged + rejected).
+  Engine-fit: AST-GREP (structural). Resolves Fork 2 (comparison moves structural);
+  fidelity moves from exact Go-source rendering to ast-grep pattern precision,
+  handled per-language in the pack. Firms Seed 4.
+  Spec Seeds 3 and 4 updated to settled mechanics; the cross-cutting theme makes
+  "zero baked-in analyzers" a settled outcome (OQ-7's grep probe is pack-declared, so
+  no Go-aware probe stays gate-side). The promotion-readiness OPTION (Notes) is now
+  moot for OQ-blockedness — all eradication-seed OQs are resolved — but is left as the
+  user's call on whether to split seeds for promotion.
 - **0.2.2 (2026-06-20)** — Dependency + audit recording pass; maturity **held at
   `exploring`**, **no OQs resolved or opened**. (a) **Recorded that BUNDLE-009 DEPENDS
   ON SPEC-035** (pack-declared engines + trusted-tool allowlist, authored off

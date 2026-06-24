@@ -70,14 +70,27 @@ func TestPackVal_P3_SandboxBlocksNetwork(t *testing.T) {
 		t.Fatal("expected sandbox network failure")
 	}
 }
-func TestPackVal_P3_SandboxBlocksEnvVars(t *testing.T) {
+
+// TestPackVal_P3_SandboxIsFilesystemNetworkScopedNotEnvJail documents the true
+// scope of the macOS sandbox: sandbox-exec confines FILESYSTEM and NETWORK
+// access, it does NOT scrub the inherited environment. The earlier
+// "BlocksEnvVars" assertion was vacuous green — `printenv HOME` only "failed"
+// because the dynamically-linked `sh` SIGABRT'd at dyld load under the old
+// packDir-only profile (the exact ISSUE-029 bug). With the dyld read paths in
+// place, `sh` runs and `printenv HOME` succeeds; env vars were never sandboxed.
+// The genuine confinement (write/network denied) is covered by
+// TestPackVal_P3_SandboxBlocksFilesystemWrite / ...BlocksNetwork.
+func TestPackVal_P3_SandboxIsFilesystemNetworkScopedNotEnvJail(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("darwin only")
 	}
 	dir := makePackDir(t)
-	_, err := packval.SandboxedRun("sh", []string{"-c", "printenv HOME"}, dir)
-	if err == nil {
-		t.Fatal("expected sandbox env failure")
+	out, err := packval.SandboxedRun("sh", []string{"-c", "printenv HOME"}, dir)
+	if err != nil {
+		t.Fatalf("sh must run under the sandbox (no dyld abort) so env passthrough is observable: %v\noutput: %q", err, string(out))
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		t.Fatalf("expected HOME to pass through the sandbox (env is not jailed), got empty output")
 	}
 }
 func TestPackVal_P3_SandboxViolationIsHardError(t *testing.T) {
@@ -96,9 +109,6 @@ func TestPackVal_P3_SandboxAllowsReadInPackDir(t *testing.T) {
 	}
 	dir := makePackDir(t)
 	out, err := packval.SandboxedRun("cat", []string{"pack.yml"}, dir)
-	if err != nil && strings.Contains(err.Error(), "abort trap") {
-		t.Skip("sandbox-exec profile unsupported in this environment")
-	}
 	if err != nil || !strings.Contains(string(out), "name:") {
 		t.Fatalf("expected read allowed: %v", err)
 	}
@@ -109,9 +119,6 @@ func TestPackVal_P3_SandboxAllowsExecution(t *testing.T) {
 	}
 	dir := makePackDir(t)
 	out, err := packval.SandboxedRun("sh", []string{"-c", "echo ok"}, dir)
-	if err != nil && strings.Contains(err.Error(), "abort trap") {
-		t.Skip("sandbox-exec profile unsupported in this environment")
-	}
 	if err != nil || !strings.Contains(string(out), "ok") {
 		t.Fatalf("expected exec allowed: %v", err)
 	}

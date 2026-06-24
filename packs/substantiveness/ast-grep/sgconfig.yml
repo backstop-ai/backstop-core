@@ -1,0 +1,9 @@
+# PACK-AUTHORED ast-grep project config (ISSUE-028 / CLM-034).
+# Backstop never generates or parses this file; the pack author who wrote the
+# ast-grep rules also wrote this sgconfig. A single
+# `ast-grep scan --config <this file> --json` runs EVERY rule under ruleDirs in
+# one invocation, so both the Q1 hollow-test rule and the Q2 referenced-symbol
+# extraction rule dispatch together (multi-rule). ruleDirs is resolved relative to
+# THIS file's directory (ast-grep/), so `rules` is ast-grep/rules/.
+ruleDirs:
+  - rules

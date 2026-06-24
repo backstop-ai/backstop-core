@@ -1,0 +1,75 @@
+name: backstop/contracts
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Contracts pack (SPEC-038, BUNDLE-009 Seed 4) — the REAL installable pack SOURCE.
+  backstop-core dogfood-installs this into itself as a LOCAL pack (REQ-013); the
+  binary ships NO contract rules and NO go/parser analyzer. Signature presence is a
+  pack-compiled ast-grep REQUIRED-pattern query (the contract->ast-grep-pattern
+  compiler is scripts/compile-signature.sh — the binary never compiles a signature,
+  CLM-006); the COMPILED pattern is fed via pattern-arg to the pack-declared
+  ast-grep-contracts engine through the REAL dispatch (convert under the sandbox,
+  tool through the allowlist). Symbol absence is a pack-declared grep text-presence
+  probe (pattern-arg). Each engine ships its OWN convert script (ast-grep/ + grep/).
+engines:
+  # Pack-DECLARED grep engine (REQ-005). No baked DefaultRegistry entry. The provision
+  # pins the tool name so the dispatch trust gate runs the allowlist check; grep is a
+  # Layer-0 tool (version "*" = presence on the allowlist is the trust requirement).
+  grep:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+  # Pack-DECLARED ast-grep contracts engine (pattern-arg): the compiled signature
+  # pattern is fed via --pattern, the scan target appended by dispatch. ast-grep run
+  # infers the language from the file extension. The convert normalizes ast-grep JSON
+  # to SARIF under the sandbox.
+  ast-grep-contracts:
+    command: ast-grep run --json
+    input_mode: pattern-arg
+    input_flag: --pattern
+    scope_kind: file-args
+    category: opinion
+    gate_type: contracts
+    convert: ast-grep/to-sarif.sh
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # Signature presence: pattern supplied at dispatch (pattern-arg) from the declared
+      # Signature compiled by scripts/compile-signature.sh.
+      - id: contract-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "func $NAME($$$PARAMS)"
+        claims:
+          - id: contract-signature-go
+            text: A present declared signature matches via ast-grep; absent does not.
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-mismatch.go
+              negative:
+                - testdata/fixtures/sig-present.go
+      # Symbol absence: forbidden symbol probed via grep text-presence over the scope.
+      - id: contract-absence
+        engine: grep
+        risk_class: correctness
+        pattern: "legacyProbeSymbol"
+        claims:
+          - id: contract-absence-go
+            text: A forbidden symbol present in scope is an absence violation.
+            fixtures:
+              positive:
+                - testdata/fixtures/absence-clean.go
+              negative:
+                - testdata/fixtures/absence-present.go

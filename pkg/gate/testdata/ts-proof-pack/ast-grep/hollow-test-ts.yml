@@ -1,0 +1,24 @@
+id: hollow-test-ts
+language: typescript
+# TS hollow-test substantiveness rule (per-language assertion vocabulary in YAML).
+# A test declaration — a call to test(...) / it(...) — whose callback body does NOT
+# contain an assertion-shaped call (expect|assert|verify|should verb) is hollow ->
+# finding (RED). The vocabulary lives ONLY in this rule YAML; backstop carries no
+# hardcoded TS selector list. The message carries a func= tag in the pinned shape
+# (parallel to the Go rule) so the same gate consumption keys it.
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        regex: "^(test|it)$"
+    - has:
+        field: arguments
+        has:
+          stopBy: end
+          kind: arrow_function
+    - not:
+        has:
+          stopBy: end
+          regex: "expect|assert|verify|should"
+message: "hollow test func=ts-hollow"
