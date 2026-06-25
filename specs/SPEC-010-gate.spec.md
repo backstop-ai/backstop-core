@@ -14,7 +14,9 @@ implementation:
     (delegating to backstop code check --all), test verification (mandated
     test names exist as functions), test substantiveness (tests are not hollow
     — contain assertions and call target package), coverage threshold
-    verification (coverage meets spec-declared threshold), contract signature
+    verification (per-file coverage meets spec-declared threshold, consuming a
+    declared per-file coverage record — mechanism owned by SPEC-041/SPEC-042),
+    contract signature
     verification (declared symbols exist with matching signatures), baseline
     comparison, waiver resolution, and ledger integrity verification. Steps
     3-6 use grep and Go AST parsing for mechanical verification — no full
@@ -85,18 +87,19 @@ requirements:
 
   - id: REQ-016
     text: >
-      Step 5 (coverage threshold) must run the test suite with coverage
-      profiling and compare the result against the threshold declared in the
-      spec's verification.coverage_threshold field. Coverage below threshold
-      is a failure. The test command from the spec's verification.test_command
-      field is used with -coverprofile appended if not already present.
-      Coverage is extracted from the go test stdout summary line (format:
-      "coverage: NN.N% of statements"). If the summary line is not present
-      in the test output, the step reports status "fail" with reason "coverage
-      summary line not found in test output". If the test command fails to
-      execute (command not found, non-zero exit unrelated to coverage,
-      timeout), the step reports status "fail" with the error details. This
-      is a step failure (exit 1), not a config error (exit 2).
+      Step 5 (coverage threshold) must include a coverage-threshold step that
+      consumes a declared per-file coverage record (produced by a toolchain
+      pack's coverage engine) and enforces the threshold per file. Coverage
+      below threshold for an in-scope file is a step failure (exit 1), not a
+      config error (exit 2). The record format, per-file enforcement,
+      non-vacuousness (no silent pass when no record is read), metric-labeling,
+      and exclusions are owned by SPEC-041 (the consumer / re-implemented
+      coverage step over the canonical per-file coverage record) and SPEC-042
+      (the producer / coverage-records engine channel). This spec does NOT
+      define a coverage mechanism: there is no baked `go test`, no
+      `-coverprofile`, no `coverage: NN.N% of statements` parsing, and no
+      in-binary test execution — the retired machinery those described is
+      eradicated by BUNDLE-011 and replaced by the SPEC-041/SPEC-042 contract.
     supports: cli:REQ-006
 
   - id: REQ-017
@@ -294,42 +297,19 @@ claims:
     tests:
       - TestGate_TestSubstantiveness_NoTargetCallFails
 
-  # REQ-016: Coverage threshold
+  # REQ-016: Coverage threshold — high-level only; mechanism owned by SPEC-041/042
   - id: CLM-048
     requirement: REQ-016
-    text: Gate passes when coverage meets the spec threshold
+    text: >
+      Gate includes a coverage-threshold step that consumes a declared per-file
+      coverage record (produced by a toolchain pack's coverage engine) and
+      enforces the threshold per file. The record format, per-file enforcement,
+      non-vacuousness, metric-labeling, and exclusions are owned by SPEC-041
+      (consumer) and SPEC-042 (producer); this claim asserts only that the gate
+      exposes the coverage_threshold step over a declared per-file record rather
+      than the retired baked `go test -coverprofile` mechanism.
     tests:
-      - TestGate_CoverageThreshold_MeetsThreshold
-
-  - id: CLM-049
-    requirement: REQ-016
-    text: Gate fails when coverage is below the spec threshold
-    tests:
-      - TestGate_CoverageThreshold_BelowThreshold
-
-  - id: CLM-050
-    requirement: REQ-016
-    text: Gate owns coverage scheduling rather than executing spec test_command as a plan
-    tests:
-      - TestGate_CoverageThreshold_IgnoresSpecTestCommandForScheduling
-
-  - id: CLM-057
-    requirement: REQ-016
-    text: Gate fails when test command fails to execute (command not found) with error details
-    tests:
-      - TestGate_CoverageThreshold_TestCommandNotFound
-
-  - id: CLM-058
-    requirement: REQ-016
-    text: Gate fails when coverage summary line is not present in test output
-    tests:
-      - TestGate_CoverageThreshold_NoCoverageSummaryLine
-
-  - id: CLM-059
-    requirement: REQ-016
-    text: Gate extracts coverage percentage from go test stdout summary line format
-    tests:
-      - TestGate_CoverageThreshold_ParsesCoverageSummaryLine
+      - TestCoverage_ConsumesDeclaredPerFileCoverageRecord
 
   # REQ-017: Contract signature verification
   - id: CLM-051
@@ -652,8 +632,10 @@ omission.
 
 Steps 1-6 are implemented: artifact validation and code check delegate to
 existing commands, while steps 3-6 use grep and Go AST parsing for mechanical
-verification (function name existence, assertion presence, coverage parsing,
-signature matching). Steps 7-9 (baseline comparison, waiver resolution, ledger
+verification (function name existence, assertion presence, signature
+matching), while step 5 (coverage) consumes a declared per-file coverage
+record whose mechanism is owned by SPEC-041 (consumer) and SPEC-042
+(producer). Steps 7-9 (baseline comparison, waiver resolution, ledger
 integrity) are deferred and report as "skipped" with an explicit reason. This
 ensures the gate output contract is stable from day one — consumers always see
 all nine steps, and the transition from "skipped" to "implemented" is additive,
@@ -676,7 +658,7 @@ of whether it executed, failed, or was skipped.
 | 2 | `code_check` | Delegates to code check --all logic (includes semgrep) | Implemented |
 | 3 | `test_verification` | Mandated test names from spec claims exist as functions (grep for exact function names) | Implemented |
 | 4 | `test_substantiveness` | Test functions are not hollow — contain assertions and call target package (Go AST parsing or grep heuristics) | Implemented |
-| 5 | `coverage_threshold` | Test coverage meets spec-declared threshold (run test_command with -coverprofile, parse stdout summary line) | Implemented |
+| 5 | `coverage_threshold` | Per-file coverage meets spec-declared threshold — consumes a declared per-file coverage record (mechanism owned by SPEC-041 consumer / SPEC-042 producer) | Implemented |
 | 6 | `contract_signature` | Spec contract declarations match actual code (grep/AST for declared symbols in declared files) | Implemented |
 | 7 | `baseline_comparison` | Compares violations against recorded baseline | Skipped (baseline not implemented) |
 | 8 | `waiver_resolution` | Suppresses violations matched by active waivers | Skipped (waivers not implemented) |
@@ -794,9 +776,21 @@ Verification is defined in frontmatter. Integration-level verification at
 
 - **Step ordering is load-bearing for future steps.** Steps 3-6 depend on the
   code check (step 2) having already run — test verification needs test results,
-  coverage needs test execution data. The fixed ordering is not arbitrary; it
-  reflects data dependencies. If a future optimization attempts to parallelize
-  steps, it must respect these dependencies.
+  and coverage (step 5) consumes the per-file coverage record produced upstream
+  by the toolchain pack's coverage engine (SPEC-042) rather than executing tests
+  in-binary itself. The fixed ordering is not arbitrary; it reflects data
+  dependencies. If a future optimization attempts to parallelize steps, it must
+  respect these dependencies.
+
+- **Coverage mechanism is owned elsewhere — do not re-bake it here.** The
+  retired baked machinery (`StepCoverageThresholdFunc`, `go test -coverprofile`,
+  `coverage: NN.N% of statements` regex parsing) is eradicated by BUNDLE-011.
+  REQ-016 now states only that the gate exposes a coverage_threshold step over a
+  declared per-file coverage record; SPEC-041 (consumer) and SPEC-042 (producer)
+  are the single owners of record format, per-file enforcement, non-vacuousness,
+  metric-labeling, and exclusions. Any change to coverage semantics belongs in
+  those specs, not here — re-introducing a baked coverage path in this spec is a
+  drift defect.
 
 - **Baseline semantics moved to SPEC-019.** Historical count-based placeholder
   behavior in this spec is superseded. The shipped model uses immutable
@@ -851,3 +845,5 @@ Verification is defined in frontmatter. Integration-level verification at
 - SPEC-006: Artifact Validate — step 1 delegation target
 - SPEC-008: Code Check — step 2 delegation target
 - SPEC-019: Baseline — CI-generated immutable violation reference (supersedes REQ-005)
+- SPEC-041: Coverage Re-implementation — owns the coverage_threshold consumer contract (per-file coverage record, per-file enforcement, non-vacuousness, exclusions); supersedes the retired baked coverage mechanism in REQ-016
+- SPEC-042: Coverage Production Engine — owns the producer side (coverage-records engine channel that emits the per-file record REQ-016's step consumes)

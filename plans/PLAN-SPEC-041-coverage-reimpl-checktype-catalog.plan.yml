@@ -1,0 +1,1043 @@
+---
+plan_id: PLAN-SPEC-041
+spec_id: SPEC-041
+spec_version: 1.0.0
+created: "2026-06-24"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-041 (BUNDLE-011 Spec Seed 3, RDQ-6 / REQ-011/012/013): migrate the
+  test+coverage stack as a UNIT so no baked shared `go test` runner and no baked Go
+  coverage analyzer survive the legacy-`pkg/check` cutover, re-express the build-pass
+  scope exemption as a DECLARED engine-binding property bridged onto the engine path,
+  and produce a machine-checkable CheckType-consumer catalog ("don't drop a gate step
+  on the floor" guard).
+
+  ════════════════════════════════════════════════════════════════════════════
+  HARD PREREQUISITES — SPEC-040 (Seed 2) AND SPEC-042 (Seed 4) MUST LAND FIRST.
+  (Sharp Edge 3, REQ-001) — THIS PLAN BUILDS ONLY THE COVERAGE CONSUMER.
+  ════════════════════════════════════════════════════════════════════════════
+  Coverage is DYNAMIC-TOOLCHAIN: it needs the PER-FILE coverage signal that ONLY the
+  toolchain test pass produces, and that signal is now PRODUCED by SPEC-042, not by this
+  plan. Two hard, ordered prerequisites:
+
+    1. SPEC-040 (Seed 2) — the `go-toolchain` test-pass substrate. SPEC-040 also DELETES
+       `realCodeChecker`, which orphans the legacy `checkViolationsToGate`/gate.go:1173
+       `cv.Pass == check.CheckTypeBuild` ProjectWide setter this spec REPLACES.
+
+    2. SPEC-042 (Seed 4) — the PRODUCER. SPEC-042 (PLAN-SPEC-042) owns the
+       `dispatchPackCoverage` channel, the go-toolchain coverage ENGINE that emits the
+       records, AND the canonical SHARED type `check.CoverageRecord{Path, Covered, Total,
+       Measured, Excluded, Metric}` (raw counts, FILE granularity). This plan (Seed 3) is
+       the CONSUMER: the gate computes `Covered/Total >= threshold` per file (metric-blind,
+       Total==0 ⇒ N/A) over records SPEC-042 produces. There is NO second CoverageRecord
+       shape — both specs share the ONE type SPEC-042 defines. The coverage step has
+       NOTHING TO READ until SPEC-042's producer + record type exist.
+
+  IMPL ORDER: Seed 4 (SPEC-042 producer) BEFORE Seed 3's coverage step. This plan does NOT
+  author the channel, the record type, or the go-toolchain coverage engine — that is
+  PLAN-SPEC-042's job (referenced, not re-authored). This plan builds ONLY the
+  consumer/threshold side (the per-file verdict over the canonical record). Re-baking a
+  `go test -coverprofile` reader (or any in-binary coverage producer) to unblock the
+  consumer would re-violate REQ-002 (no baked shared runner) — it is NOT a workaround, it
+  is the failure mode. The implementer MUST confirm BOTH have landed before starting the
+  coverage re-impl (Phase 3): `realCodeChecker`/`newSharedTestRunner` removed by SPEC-040,
+  AND `check.CoverageRecord` + the SPEC-042 coverage producer channel exist. If either is
+  missing, this plan's coverage tasks are BLOCKED, not workable-around. (The eradication
+  in Phase 2 — deleting the baked analyzer + shared runner + the retired SPEC-010 tests —
+  depends only on SPEC-040 having removed `realCodeChecker`; the CONSUME side, Phase 3,
+  additionally requires SPEC-042's producer.)
+
+  CROSS-SPEC FENCES (referenced, NOT re-authored here):
+    - The Step-2 cutover itself, the `go-toolchain` test pass, the golden-equivalence
+      harness, and the no-pack loud-warn report state → SPEC-040 (Seed 2 prerequisite).
+    - The `dispatchPackCoverage` channel, the go-toolchain coverage ENGINE, and the
+      canonical `check.CoverageRecord` type → SPEC-042 (Seed 4 producer / PLAN-SPEC-042).
+    - The dead-code deletions (standards-manifest reader, non-Go semgrep catch-all)
+      → SPEC-039 (sibling).
+  This plan touches ONLY: pkg/gate (the coverage CONSUMER step + the retired SPEC-010
+  tests it deletes), pkg/pack/engine/binding.go (the new declared exempt property), and
+  cmd/backstop (shared-runner eradication wiring, the engine-path exemption bridge, the
+  catalog + guard).
+
+  ════════════════════════════════════════════════════════════════════════════
+  TRANSITIONAL → PERMANENT BUILD-EXEMPTION HANDOFF (Sharp Edge 5, REQ-004)
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-040 carries a TRANSITIONAL seam (`dispatchBuildViolationProjectWide` — a stopgap
+  that keeps engine-path build violations project-wide-exempt during the cutover, since
+  the legacy gate.go:1173 setter dies with `realCodeChecker`). THIS spec lands the
+  PERMANENT mechanism: a DECLARED `exempt_from_scope_filter` property on EngineBinding,
+  bridged to `gate.Violation.ProjectWide` in pack_gate.go's dispatch, resolved
+  PER-VIOLATION. The handoff is encoded as: Phase 4 ADDS the declared property + permanent
+  bridge (test-first), then REMOVES SPEC-040's transitional `dispatchBuildViolationProjectWide`
+  seam in the same phase (a refactor that deletes the stopgap once the permanent path is
+  green) — so there is never a window where engine-path build breaks are silently
+  scope-filtered (the under-broad failure mode). The locus is the ENGINE PATH
+  (pack_gate.go), NEVER the orphaned gate.go:1173 — asserting against gate.go:1173 passes
+  trivially against dead code and ships ZERO behavior (Sharp Edge 5). CLM-013 guards the
+  bridge END-TO-END through the REAL `filterViolations` (an unchanged-file build break
+  still REDs a diff-scoped gate via the engine path), not at the stamp site.
+
+  ════════════════════════════════════════════════════════════════════════════
+  COVERAGE NON-VACUOUSNESS IS THE LOAD-BEARING INVARIANT (Sharp Edge 1, REQ-003)
+  ════════════════════════════════════════════════════════════════════════════
+  The eradicated baked analyzer used to PRODUCE the very signal it then checked. A
+  language-agnostic coverage that silently reads an empty/absent record (or silently
+  honors an exclusion) and reports `pass` is exactly the vacuous green the project forbids
+  — and it is the MOST LIKELY way this migration goes wrong. Enforcement is PER-CHANGED-
+  FILE (NOT per-package — "package" is a Go-native concept that would re-bake language
+  knowledge, and a package aggregate would hide a low-coverage file). The plan SEQUENCES
+  non-vacuousness as a FIRST-CLASS, test-led deliverable: the re-implementation (Phase 3)
+  is driven by tests that assert, all over the canonical `[]check.CoverageRecord` (raw
+  counts, file granularity, from SPEC-042):
+    (a) a real per-FILE shortfall still REDs (CLM-007);
+    (b) an in-scope changed PATH with NO record that is NOT pack-declared-excluded is a
+        LOUD blocking error, never a silent pass — while a declared-excluded path is
+        SKIPPED, not errored (CLM-008);
+    (c) per-changed-FILE, never rescued by aggregation — an over-floor file passes
+        regardless of siblings, and a 2%-covered file hidden in a 95% directory still REDs
+        (CLM-009/CLM-010);
+    (d) a pack-declared exclusion of an IN-SCOPE CHANGED file is LOUDLY SURFACED on the
+        report (path + reason), never silently dropped (CLM-025) — closing the
+        "declare Excluded:true to suppress a changed file invisibly" vector;
+    (e) the gate computes the verdict from RAW COUNTS as Covered/Total >= threshold,
+        metric-blind, Total==0 ⇒ N/A (not a 0%-fail) (CLM-026), and SURFACES the
+        pack-declared Metric label without interpreting it (CLM-027).
+  These run against the canonical declared record — not a stub/mock that can't go vacuous.
+  The eradication (Phase 2) lands BEFORE the re-impl-verdict tests so "no baked signal
+  source" is the reality the non-vacuousness tests are written against. The model carries
+  NO "package" noun.
+
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-010 COVERAGE-CLAIM RETIREMENT — ORPHAN RECONCILIATION (option B: DELETE)
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-010's six detailed coverage claims (CLM-048/049/057/058/059 + the
+  IgnoresSpecTestCommandForScheduling claim) are being RETIRED — coverage is now
+  single-owner (SPEC-041 consumer + SPEC-042 producer). The spec-author retires the
+  SPEC-010 claims separately; the DECISION is option B (DELETE the orphaned tests, NOT
+  re-point them). Verified on `main` 2026-06-24: the six named tests in
+  pkg/gate/step_coverage_test.go — TestGate_CoverageThreshold_MeetsThreshold, _BelowThreshold,
+  _IgnoresSpecTestCommandForScheduling, _TestCommandNotFound, _NoCoverageSummaryLine,
+  _ParsesCoverageSummaryLine — are SPEC-010-mandated (named in PLAN-SPEC-010 with their
+  CLM ids) AND tightly coupled to the DELETED machinery (mockCommandRunner/
+  recordingCommandRunner feeding `coverage: N% of statements` text, the
+  `go test ... -coverprofile=/dev/null` exec, and parseCoverageLine directly). They CANNOT
+  survive the baked-machinery deletion. Phase 2 DELETES them IN-PHASE with the
+  baked-coverage-machinery deletion (same orphan-reconciliation discipline as the rest of
+  the plan — they are retired, not re-pointed).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures for the declared coverage record, exempt matrix,
+  # and the catalog guard. No production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the shared testdata the TDD phases consume: declared per-package
+      coverage-record fixtures (over-floor, under-floor, and ABSENT-measurement
+      cells — the only fixtures that can prove the non-vacuousness matrix
+      CLM-007..CLM-010 + CLM-025..CLM-027 against the canonical SPEC-042 record),
+      the exempt-matrix bindings (go-build exempt=true; golangci/go-test/findings
+      exempt=false, with a DIVERGENT pair carrying differing values for the
+      per-violation/true-conflict tiebreak), and the catalog-guard fixtures (an
+      injected unlisted gate-semantic keying site + a stale catalog entry). No
+      production code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold canonical per-FILE check.CoverageRecord fixtures"
+        description: |
+          Create gate-side fixtures of the CANONICAL per-FILE coverage record — the
+          SINGLE shared type DEFINED by SPEC-042: check.CoverageRecord{Path, Covered,
+          Total, Measured, Excluded, Metric} with RAW COUNTS and FILE granularity, NO
+          "package" noun — under pkg/gate/testdata. (This plan does NOT define the
+          type; it is SPEC-042's. These fixtures encode records the SPEC-042 producer
+          will emit.) Cells:
+            - an over-floor changed FILE alongside a BELOW-floor sibling FILE in the
+              same directory (proves per-file, not directory/package aggregate —
+              CLM-009).
+            - an under-floor (e.g. 2%-covered) new FILE in an otherwise-95% directory
+              (proves it is NOT rescued by a roll-up — CLM-010).
+            - a real per-FILE shortfall record (a changed/new file with Covered/Total
+              below its declared threshold — CLM-007).
+            - an in-scope changed PATH with NO record AND NOT Excluded — the loud-error
+              fixture (CLM-008); plus an Excluded:true changed path with no record —
+              the skip-not-error fixture (CLM-008).
+            - an Excluded:true IN-SCOPE CHANGED file carrying a declared exclusion
+              reason — the loud-surfacing fixture (CLM-025); plus an Excluded:true
+              UNCHANGED file — the may-stay-quiet fixture (CLM-025).
+            - raw-count records including a Total==0 file (no executable lines) — the
+              ratio-from-raw-counts + Total==0⇒N/A fixture (CLM-026).
+            - a polyglot record set with DIFFERING Metric labels (statement vs branch)
+              — the metric-surfaced-never-interpreted fixture (CLM-027).
+          Fixtures only; the verdict assertions live in the Phase-3 test tasks.
+        files:
+          - pkg/gate/testdata/coverage-record-perfile-floor.json
+          - pkg/gate/testdata/coverage-record-unmeasured-and-excluded.json
+          - pkg/gate/testdata/coverage-record-rawcounts-metric.json
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold exempt-matrix binding + per-violation/true-conflict fixtures"
+        description: |
+          Create engine-binding + violation fixtures driving the exempt matrix and
+          the per-violation resolution (REQ-004/REQ-007), under cmd/backstop/testdata
+          and a shared test helper:
+            - declared bindings: go-build (exempt_from_scope_filter true),
+              golangci/go-test/findings (false/unset) — the four engine classes for
+              CLM-013..CLM-016.
+            - two build bindings across packages with DIFFERING exempt values (the
+              per-violation, no-aggregation fixture — CLM-018).
+            - a same-file+line+rule collision from two sources with differing exempt
+              values (the true-conflict tiebreak fixture — CLM-019).
+            - changed vs UNCHANGED file paths so filterViolations can be driven
+              end-to-end (CLM-013..CLM-016).
+          Helpers/fixtures only; production wiring is Phase 4.
+        files:
+          - cmd/backstop/testdata/exempt-matrix-bindings.yml
+          - cmd/backstop/exempt_test_helpers_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-018
+          - CLM-019
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Scaffold catalog-guard fixtures (unlisted site + stale entry)"
+        description: |
+          Create the fixtures the REQ-006 completeness guard needs to prove it is
+          neither a tautology nor red-on-arrival:
+            - an injected/fixture gate-semantic CheckType-keying site that is ABSENT
+              from the catalog (the dropped-gate-step fixture — CLM-023), placed in a
+              testdata Go source the guard's discovery scope scans.
+            - a catalog snapshot carrying a STALE entry whose keying site does not
+              exist in code (the stale-entry fixture — CLM-024).
+            - a cosmetic .Pass.String() display-site fixture that MUST be excluded
+              from discovery (so CLM-022's bounded-scope assertion has a negative
+              case).
+          Fixtures only; the guard implementation is Phase 5.
+        files:
+          - cmd/backstop/testdata/catalog-unlisted-keying-site.go.txt
+          - cmd/backstop/testdata/catalog-stale-entry.json
+          - cmd/backstop/testdata/catalog-display-site.go.txt
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Eradicate the baked Go coverage analyzer + baked shared runner.
+  # This lands BEFORE the re-impl verdict tests so "no baked signal source" is
+  # the reality the non-vacuousness tests (Phase 3) are written against.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Eradicate Baked Coverage Analyzer + Shared Runner"
+    description: |
+      Delete the baked Go-toolchain coverage machinery from pkg/gate/step_coverage.go
+      (go test command constructors, the `coverage: N% of statements` regex parser,
+      the whole-module dedup read, the go.mod reader) and eradicate the baked shared
+      runner cmd/backstop/shared_testrun.go + its wiring in cmd/backstop/gate.go. The
+      eradication is test-led: absence guards assert no `go test` constructor /
+      coverage parser / go.mod reader / renamed whole-module runner survives. ALSO
+      DELETE the now-orphaned SPEC-010 coverage tests (option B — retired, not
+      re-pointed): they are coupled to the deleted machinery and CANNOT compile once it
+      is gone. After this phase NO baked shared runner and NO baked Go coverage analyzer
+      remain, and no orphaned SPEC-010 coverage test references the deleted machinery.
+      (REQ-001 deletion half, REQ-002; SPEC-010 coverage-claim retirement.)
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write baked-analyzer + shared-runner eradication absence guards"
+        description: |
+          Write the absence guards (red against the current baked code):
+            - TestCoverage_NoBakedGoTestCommandRemains: pkg/gate/step_coverage.go (or
+              successor) constructs NO `go test` command and contains none of
+              goCoverageTarget/goCoveragePackagesTarget/repoSweepCoverageTarget/
+              goCoverageTargetsForScope/changedGoCoverageTargets (CLM-001).
+            - TestCoverage_NoGoCoverageParsingOrGoModReaderRemains: the
+              coverageRe/parseCoverageLine parser, the wholeModulePackageCoverage/
+              packageLabelFromLine dedup read, and the goModulePath reader are gone;
+              the step parses no Go-coverage text and holds no go.mod knowledge
+              (CLM-002).
+            - TestSharedRunner_Eradicated: cmd/backstop/shared_testrun.go is deleted —
+              sharedTestRunner/newSharedTestRunner/isWholeModuleGoTest/wholeModuleTest
+              no longer exist anywhere in cmd/backstop (CLM-004).
+            - TestSharedRunner_WiringRemovedFromGate: no newSharedTestRunner
+              construction, no realCodeChecker.sharedRunner injection, and
+              buildCoverageStep is no longer passed a shared `go test` runner (CLM-005).
+            - TestSharedRunner_NoRenamedWholeModuleGoTestRunner: a guard asserts no
+              cmd/backstop or pkg/gate source constructs a whole-module `go test`
+              runner under ANY name — a renamed shared runner FAILS (CLM-006).
+          These are RED while the baked machinery still exists.
+        files:
+          - pkg/gate/step_coverage_eradication_test.go
+          - cmd/backstop/shared_testrun_eradication_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: refactor
+        title: "Delete baked Go coverage machinery from step_coverage.go"
+        description: |
+          pkg/gate/step_coverage.go: delete the Go-toolchain machinery —
+          goCoverageTarget/goCoveragePackagesTarget/repoSweepCoverageTarget/
+          goCoverageTargetsForScope/changedGoCoverageTargets (the `go test ...
+          -coverprofile` command constructors), coverageRe/parseCoverageLine (the
+          `coverage: N% of statements` parser), wholeModulePackageCoverage/
+          packageLabelFromLine (the whole-module dedup read), and goModulePath (the
+          go.mod reader), plus the CoverageTarget descriptor type. After this the step
+          performs no `go` exec, no Go-coverage text parsing, and holds no
+          Go-package/go.mod knowledge. The threshold-derivation/scoping logic
+          (coverageThresholdsForScope/coverageSpecInScope) is RETAINED for Phase 3 to
+          re-key from package to PATH and re-feed from the canonical record — do NOT
+          delete it. (The per-PACKAGE compare loop and all package-level modeling ARE
+          deleted; Phase 3 rebuilds the verdict as per-FILE.) Make TASK-004's coverage
+          absence guards (CLM-001/CLM-002) green. Refactor of existing code, tests first.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: refactor
+        title: "Delete shared_testrun.go + remove its wiring in gate.go"
+        description: |
+          Eradicate the baked shared runner:
+            - DELETE cmd/backstop/shared_testrun.go (sharedTestRunner,
+              newSharedTestRunner, isWholeModuleGoTest, wholeModuleTest).
+            - cmd/backstop/gate.go: remove the newSharedTestRunner(projectRoot)
+              construction (~:487), the realCodeChecker.sharedRunner injection, and
+              the sharedTest argument threaded into buildCoverageStep. (realCodeChecker
+              itself is already deleted by the SPEC-040 prerequisite — this task removes
+              the shared-runner FEEDS; if realCodeChecker still exists, SPEC-040 has
+              not landed and this plan is BLOCKED.)
+          Do NOT reconstruct an equivalent binary-resident whole-module `go test`
+          runner under any other name (REQ-002 prohibition). Make TASK-004's
+          shared-runner guards (CLM-004/CLM-005/CLM-006) green. Refactor, tests first.
+        files:
+          - cmd/backstop/shared_testrun.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+      - id: TASK-025
+        type: refactor
+        title: "Delete orphaned SPEC-010 coverage tests (option B — retired, not re-pointed)"
+        description: |
+          Delete the six now-orphaned SPEC-010-mandated coverage tests from
+          pkg/gate/step_coverage_test.go — they test the DELETED `go test`/`coverage:`-
+          parsing machinery + the SPEC-010 coverage claims being RETIRED (single-owner:
+          SPEC-041 consumer + SPEC-042 producer now own coverage), and they CANNOT
+          compile once TASK-005 removes the machinery:
+            - TestGate_CoverageThreshold_MeetsThreshold (SPEC-010 CLM-048)
+            - TestGate_CoverageThreshold_BelowThreshold (SPEC-010 CLM-049)
+            - TestGate_CoverageThreshold_IgnoresSpecTestCommandForScheduling
+            - TestGate_CoverageThreshold_TestCommandNotFound (SPEC-010 CLM-057)
+            - TestGate_CoverageThreshold_NoCoverageSummaryLine (SPEC-010 CLM-058)
+            - TestGate_CoverageThreshold_ParsesCoverageSummaryLine (SPEC-010 CLM-059)
+          Verified on `main` 2026-06-24: all six exist in step_coverage_test.go, are
+          named in PLAN-SPEC-010, and exercise mockCommandRunner/recordingCommandRunner
+          feeding `coverage: N% of statements` text, the `go test ... -coverprofile`
+          exec, and parseCoverageLine directly. DELETE them (option B) — do NOT re-point
+          them at the new per-file path (that path's coverage is owned by the NEW
+          mandated tests written in Phase 3 / TASK-008). Same orphan-reconciliation
+          discipline as the rest of the plan. (The spec-author retires the SPEC-010
+          claims separately; this task deletes only the orphaned tests.) Remove any test
+          helpers (mockCommandRunner/recordingCommandRunner) left unused ONLY if no
+          surviving test in the file references them — otherwise leave them for TASK-008.
+          Refactor of existing tests; depends on the machinery-deletion (TASK-005) that
+          orphans them and the eradication test task (TASK-004).
+        files:
+          - pkg/gate/step_coverage_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify eradication + orphan deletion (code check)"
+        description: |
+          Run `backstop code check` over the pkg/gate + cmd/backstop eradication
+          changes. Confirms the build still compiles with the baked coverage
+          machinery and shared runner removed (the retained scoping logic now
+          temporarily lacks a record feed — that feed lands in Phase 3), the orphaned
+          SPEC-010 coverage tests are gone, and the absence guards pass. Middle-phase
+          verification — not the full gate.
+        files:
+          - pkg/gate/step_coverage.go
+          - cmd/backstop/shared_testrun.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-025
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Re-implement coverage per-FILE over SPEC-042's canonical record.
+  # CONSUMER ONLY — the record type + producer are SPEC-042's (PLAN-042).
+  # NON-VACUOUSNESS is the load-bearing deliverable (Sharp Edge 1) — every
+  # verdict test runs against the canonical declared record, not a stub.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Per-FILE Coverage Re-implementation (Consumer, Non-Vacuous)"
+    description: |
+      Re-implement the coverage step to CONSUME the canonical per-FILE
+      []check.CoverageRecord (the SINGLE shared type from SPEC-042 — Path/Covered/Total/
+      Measured/Excluded/Metric, RAW COUNTS, file granularity, NO "package" noun) and
+      compute the verdict itself as Covered/Total >= threshold PER CHANGED/NEW FILE,
+      metric-blind, Total==0 ⇒ N/A. This plan builds ONLY the consumer side; the record
+      type, the dispatchPackCoverage channel, and the go-toolchain coverage engine that
+      PRODUCES the records are SPEC-042's (PLAN-042) — not authored here. The
+      non-vacuousness invariant is load-bearing and test-led: a real per-FILE shortfall
+      still REDs (CLM-007); an in-scope changed PATH with no record that is NOT
+      pack-declared-excluded is a LOUD blocking error, never a silent pass — while a
+      declared-excluded path is SKIPPED, not errored (CLM-008); per-changed-FILE, never
+      rescued by aggregation (CLM-009/CLM-010); a declared exclusion of an in-scope
+      CHANGED file is LOUDLY SURFACED with its reason (CLM-025); the gate computes the
+      ratio from raw counts, metric-blind, Total==0 ⇒ N/A (CLM-026); and the Metric label
+      is surfaced never interpreted (CLM-027). All verdict tests run against the canonical
+      record fixtures (Phase 1), not a stub that can't go vacuous.
+      (REQ-001 re-impl half, REQ-003.)
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write per-FILE coverage consumer + non-vacuousness verdict tests"
+        description: |
+          Drive the re-implemented coverage step off the canonical per-FILE
+          []check.CoverageRecord fixtures (Phase 1), RED before the re-impl lands. Use
+          the spec's MANDATED test names:
+            - TestCoverage_ConsumesDeclaredPerFileCoverageRecord: the step consumes the
+              canonical []check.CoverageRecord (Path/Covered/Total/Measured/Excluded/
+              Metric, raw counts, file granularity, no "package" noun — the single
+              shared type from SPEC-042) and applies the threshold per FILE — verdict
+              asserted by feeding declared per-file records, with NO in-binary `go test`
+              executed and no package-level modeling (CLM-003).
+            - TestCoverage_RealPerFileShortfallStillReds: a changed/new file with
+              Covered/Total below its declared threshold produces a blocking
+              coverage_threshold violation with status fail (CLM-007).
+            - TestCoverage_UnmeasuredNonExcludedPathIsLoudError: an in-scope changed PATH
+              with NO record that is NOT Excluded produces a LOUD blocking error (severity
+              error, status fail), never a silent pass (CLM-008).
+            - TestCoverage_DeclaredExcludedPathIsSkippedNotErrored: a pack-DECLARED-
+              excluded path with no record is SKIPPED from the threshold check, not
+              errored (CLM-008).
+            - TestCoverage_PerChangedFile_OverFloorPassesRegardlessOfSiblings: an
+              over-floor changed FILE PASSES even when a sibling file in its directory is
+              below floor (CLM-009).
+            - TestCoverage_PerChangedFile_UnderFloorFailsHiddenByPackageAggregate: an
+              under-floor (2%) changed FILE in an otherwise-95% directory FAILS — never
+              rescued by a directory/package roll-up (CLM-010).
+            - TestCoverage_DeclaredExclusionOfChangedFileIsLoudlySurfaced: a pack-declared
+              exclusion of an IN-SCOPE CHANGED file surfaces the excluded path AND its
+              declared reason on the report, never silently dropped (CLM-025).
+            - TestCoverage_DeclaredExclusionOfUnchangedFileMayStayQuiet: an exclusion of
+              an UNCHANGED file MAY stay quiet (not the suppression vector) (CLM-025).
+            - TestCoverage_GateComputesRatioFromRawCountsMetricBlind: the gate computes
+              Covered/Total >= threshold from raw counts (not a pre-computed percent),
+              metric-blind (CLM-026).
+            - TestCoverage_TotalZeroIsNANotZeroPercentFail: a record with Total==0 (no
+              executable lines) is N/A (skipped), NEVER a 0%-fail (CLM-026).
+            - TestCoverage_MetricLabelSurfacedNeverInterpreted: the pack-declared Metric
+              label is surfaced on the report and never interpreted/compared/branched on;
+              a polyglot set with differing Metric values surfaces each file's metric
+              (CLM-027).
+          The unmeasured-non-excluded, shortfall, and changed-file-exclusion-surfacing
+          tests are the anti-vacuous-green core (REQ-003).
+        files:
+          - pkg/gate/step_coverage_test.go
+        claims:
+          - CLM-003
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Re-implement coverage step per-FILE over the canonical check.CoverageRecord"
+        description: |
+          pkg/gate/step_coverage.go: rewrite StepCoverageThresholdScopedFunc /
+          StepCoverageThresholdFunc to consume the canonical []check.CoverageRecord (the
+          SINGLE shared type from SPEC-042 — Path/Covered/Total/Measured/Excluded/Metric,
+          raw counts) instead of a CommandRunner that execs `go test`. (This plan does
+          NOT define check.CoverageRecord — it is SPEC-042's; the consumer imports it.)
+          Re-key the RETAINED threshold-derivation/scoping logic (coverageThresholdsForScope/
+          coverageSpecInScope) from package to PATH and feed it the canonical record.
+          Verdict rules, all PER CHANGED/NEW FILE, NO package roll-up:
+            - compute Covered/Total >= threshold from RAW COUNTS, metric-blind; surface
+              (never interpret) the Metric label (CLM-026/CLM-027).
+            - Total==0 ⇒ N/A: skip the threshold check, never a 0%-fail (CLM-026).
+            - a measured-below-threshold changed file REDs, never rescued by aggregation
+              (CLM-007/CLM-009/CLM-010).
+            - an in-scope changed PATH with no record that is NOT Excluded is a LOUD
+              blocking error; a declared-Excluded path is skipped (CLM-008).
+            - a declared exclusion of an in-scope CHANGED file is LOUDLY SURFACED (path +
+              reason) on the report; an UNCHANGED-file exclusion may stay quiet (CLM-025).
+            - the step never runs or parses `go test`, models no "package" granularity
+              (CLM-003).
+          Make TASK-008 green. Depends on the test task (TDD) and on the eradication
+          (TASK-005) that removed the baked source it replaces. (HARD PREREQ: SPEC-042's
+          check.CoverageRecord + producer must exist — see plan notes.)
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-003
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-008
+          - TASK-005
+
+      - id: TASK-010
+        type: implementation
+        title: "Wire the canonical coverage record into buildCoverageStep (gate.go)"
+        description: |
+          cmd/backstop/gate.go: feed the re-implemented coverage step (TASK-009) the
+          canonical per-FILE []check.CoverageRecord sourced from SPEC-042's coverage
+          producer (the dispatchPackCoverage channel / go-toolchain coverage engine —
+          OWNED by PLAN-042, consumed here), replacing the deleted sharedTest argument
+          removed in TASK-006. buildCoverageStep now passes []check.CoverageRecord into
+          StepCoverageThresholdScopedFunc — NOT a binary-resident `go test` runner, and
+          NOT any in-binary coverage producer (re-baking one = REQ-002 re-violation)
+          (CLM-003). This is the cmd/backstop half of the record consumption; it depends
+          on TASK-008's tests and on TASK-009's per-file consumer (two impl tasks split
+          by file scope, each test-led). Make the CLM-003 consumption assertions that
+          exercise the cmd/backstop path green. (HARD PREREQ: SPEC-042's producer channel
+          must exist to source the records — see plan notes.)
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-008
+          - TASK-009
+          - TASK-006
+
+      - id: TASK-011
+        type: verification
+        title: "Verify per-FILE coverage re-implementation (code check)"
+        description: |
+          Run `backstop code check` over the pkg/gate + cmd/backstop coverage re-impl.
+          Confirms the per-FILE consumer builds, consumes the canonical
+          []check.CoverageRecord, and the non-vacuousness verdict tests pass (per-file
+          shortfall REDs; unmeasured-non-excluded path is a loud error while
+          declared-excluded is skipped; per-changed-file not aggregate; changed-file
+          exclusion loudly surfaced; ratio-from-raw-counts metric-blind; Total==0⇒N/A;
+          Metric surfaced never interpreted). Middle-phase verification.
+        files:
+          - pkg/gate/step_coverage.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-003
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Declared exempt property + engine-path ProjectWide bridge.
+  # The PERMANENT build-exemption mechanism. Lands the declared property +
+  # bridge (test-first), then REMOVES SPEC-040's transitional
+  # dispatchBuildViolationProjectWide seam in the SAME phase (the handoff).
+  # The locus is the ENGINE PATH, never the orphaned gate.go:1173.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Declared exempt_from_scope_filter + Engine-Path Bridge"
+    description: |
+      Add the NEW, EXPLICIT `ExemptFromScopeFilter bool` property to EngineBinding
+      (pkg/pack/engine/binding.go), DECOUPLED from ScopeKind (which stays
+      arg-shaping-only). Build the bridge that stamps each produced
+      gate.Violation.ProjectWide from ITS producing binding's ExemptFromScopeFilter
+      value in the engine dispatch (cmd/backstop/pack_gate.go) — the bridge that does
+      NOT exist today. go-build declares exempt=true; golangci/go-test/findings
+      false/unset. Resolution is PER-VIOLATION, never aggregated; the true-conflict
+      tiebreak favors the exempting (louder) value. This is the PERMANENT replacement
+      for SPEC-040's transitional dispatchBuildViolationProjectWide seam, which this
+      phase REMOVES once the declared bridge is green (the handoff). The exemption is
+      guarded END-TO-END through the REAL filterViolations (pkg/gate/scope.go), not at
+      the stamp site. (REQ-004, REQ-007.)
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write ExemptFromScopeFilter binding property tests (decoupled)"
+        description: |
+          pkg/pack/engine/binding_test.go:
+            - TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind:
+              EngineBinding carries an ExemptFromScopeFilter bool DECOUPLED from
+              ScopeKind; the go-build engine declares it true, golangci(lint)/go-test
+              declare it false/unset — asserted against the declared binding records
+              (CLM-011).
+            - TestExemption_ScopeKindDecoupledFromExemptDecision: golangci/go-build/
+              go-test all remain ScopeKindProjectWide (each still appends its ./...
+              ProjectTarget) while ONLY go-build is exempt_from_scope_filter; the two
+              properties are independent and ScopeKind is NOT consulted for the
+              ProjectWide decision (CLM-017).
+          Red against the not-yet-existing property.
+        files:
+          - pkg/pack/engine/binding_test.go
+        claims:
+          - CLM-011
+          - CLM-017
+        depends_on:
+          - TASK-002
+
+      - id: TASK-013
+        type: implementation
+        title: "Add ExemptFromScopeFilter to EngineBinding; declare on go-build"
+        description: |
+          pkg/pack/engine/binding.go: add `ExemptFromScopeFilter bool` (yaml-tagged)
+          to EngineBinding, DECOUPLED from ScopeKind (ScopeKind keeps appending
+          ./.../ProjectTarget arg-shaping only). Declare it true on the DefaultRegistry
+          go-build entry; false/unset on golangci and go-test. This is the declared
+          replacement for the deleted baked `cv.Pass == check.CheckTypeBuild` identity
+          check — no CheckType enum identity drives scope. Make TASK-012 green.
+        files:
+          - pkg/pack/engine/binding.go
+        claims:
+          - CLM-011
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: test
+        title: "Write engine-path ProjectWide bridge + end-to-end filterViolations matrix tests"
+        description: |
+          cmd/backstop/pack_gate_exempt_test.go — drive the bridge AND the real
+          filterViolations end-to-end (Sharp Edge 5/6, no stamp-site-only assertions):
+            - TestExemption_EnginePathStampsProjectWideFromExemptProperty: the engine
+              dispatch stamps each produced gate.Violation.ProjectWide from its
+              producing binding's ExemptFromScopeFilter value; a go-build (exempt=true)
+              violation arrives with ProjectWide true — a NEW bridge the engine path
+              never had (CLM-012).
+            - TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped: a go-build
+              break in an UNCHANGED file still REDs a diff-scoped gate END-TO-END
+              through the REAL filterViolations (pkg/gate/scope.go) because ProjectWide
+              is set — the under-broad regression guard (CLM-013).
+            - TestExemption_LintViolationUnchangedFileIsFiltered: a golangci violation
+              in an UNCHANGED file IS scope-filtered out through filterViolations
+              (exempt false → ProjectWide false → dropped) (CLM-014).
+            - TestExemption_TestViolationUnchangedFileIsFiltered: a go-test violation
+              in an UNCHANGED file IS scope-filtered out (exempt false) (CLM-015).
+            - TestExemption_FindingsViolationUnchangedFileIsFiltered: a findings
+              (semgrep/ast-grep) violation in an UNCHANGED file IS scope-filtered out
+              (exempt false/unset) (CLM-016).
+          Red — pack_gate.go does not stamp ProjectWide from the property yet.
+        files:
+          - cmd/backstop/pack_gate_exempt_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-002
+          - TASK-011
+
+      - id: TASK-015
+        type: test
+        title: "Write per-violation resolution + true-conflict tiebreak tests"
+        description: |
+          cmd/backstop/pack_gate_exempt_resolution_test.go:
+            - TestExemption_PerViolationResolutionNoGateTypeAggregation: two build
+              passes across different packages with DIFFERING ExemptFromScopeFilter
+              values resolve PER-VIOLATION — each violation carries ITS producing
+              binding's value (exempt=true pkg → ProjectWide true; exempt=false pkg →
+              ProjectWide false), with NO gate-type-level aggregation (CLM-018).
+            - TestExemption_TrueConflictExemptingValueWins: in the degenerate
+              same-file+line+rule conflict from two sources with differing exempt
+              values, the EXEMPTING value WINS — the violation is shown (not
+              scope-filtered), because the safe direction against under-broad
+              filtering is louder (CLM-019).
+          Red against the not-yet-existing per-violation stamp.
+        files:
+          - cmd/backstop/pack_gate_exempt_resolution_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-002
+          - TASK-011
+
+      - id: TASK-016
+        type: implementation
+        title: "Build the exempt_from_scope_filter → ProjectWide engine-path bridge"
+        description: |
+          cmd/backstop/pack_gate.go (dispatchPackEngines / the engine dispatch at
+          ~:411): stamp each produced gate.Violation.ProjectWide from ITS producing
+          binding's ExemptFromScopeFilter value — the NEW bridge (the engine path
+          previously used ScopeKind only for arg-shaping and never set ProjectWide).
+          Resolution is PER-VIOLATION (each violation carries its binding's value); NO
+          gate-type-level aggregation (CLM-018). The true-conflict (same file+line+rule,
+          differing values) resolves to the exempting (louder) value (CLM-019). ScopeKind
+          is UNCHANGED — still drives ./...-arg-shaping only (CLM-017). DO NOT edit or
+          assert against checkViolationsToGate/gate.go:1173 — it is orphaned by the
+          SPEC-040 prerequisite (cataloged DELETED in Phase 5); its ProjectWide behavior
+          is REPLACED here. Make TASK-014 and TASK-015 green (including the end-to-end
+          filterViolations matrix — the bridge feeds the REAL pkg/gate/scope.go consumer).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-014
+          - TASK-015
+          - TASK-013
+
+      - id: TASK-017
+        type: refactor
+        title: "Remove SPEC-040 transitional dispatchBuildViolationProjectWide seam"
+        description: |
+          THE HANDOFF (transitional → permanent): now that the declared
+          ExemptFromScopeFilter → ProjectWide bridge (TASK-016) is green and guarded
+          end-to-end, REMOVE SPEC-040's transitional dispatchBuildViolationProjectWide
+          stopgap in cmd/backstop/pack_gate.go (the temporary seam that kept
+          engine-path build violations project-wide during the cutover). The permanent
+          per-binding-declared bridge fully supersedes it — there must be no window
+          where engine-path build breaks are silently scope-filtered (the under-broad
+          failure mode). Refactor of existing code, depends on the bridge impl
+          (TASK-016) and the matrix tests (TASK-014) so removal is proven safe by the
+          still-green CLM-013 end-to-end guard. (If SPEC-040 named the transitional
+          seam differently, remove that named stopgap; if SPEC-040 left no transitional
+          seam, this task is a no-op confirmation that the permanent bridge is the sole
+          ProjectWide locus.)
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-016
+          - TASK-014
+
+      - id: TASK-018
+        type: verification
+        title: "Verify exempt bridge + handoff (code check)"
+        description: |
+          Run `backstop code check` over the pkg/pack/engine + cmd/backstop exempt
+          property, engine-path bridge, and transitional-seam removal. Confirms the
+          declared property is decoupled from ScopeKind, the bridge stamps ProjectWide
+          per-violation, the four-class filterViolations matrix is green end-to-end,
+          and the transitional seam is gone with the permanent bridge as the sole
+          ProjectWide locus. Middle-phase verification.
+        files:
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-013
+          - TASK-016
+          - TASK-017
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: CheckType-consumer catalog + machine completeness guard.
+  # The catalog + guard. Also catalogs the genuinely-DELETED sites (C-2/C-3,
+  # the orphaned gate.go:1173 exemption + the shared-runner feeds removed in
+  # Phases 2/4) and the SURVIVING pkg/check sites (C-4..C-8).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: CheckType-Consumer Catalog + Completeness Guard"
+    description: |
+      Produce the machine-readable CheckType-consumer catalog
+      (cmd/backstop/checktype_catalog.go) scoped to GATE-SEMANTIC consumers
+      (scope-filtering, engine dispatch, violation verdict), EXCLUDING cosmetic
+      .Pass.String() display/serialization sites — mirroring the spec's C-1..C-8
+      table. C-1 is the NEW engine-path bridge (declared engine property); C-2/C-3 are
+      the genuinely-DELETED sites (orphaned gate.go:1173 exemption + shared-runner
+      feeds, removed in Phases 2/4); C-4..C-8 are SURVIVING pkg/check CheckType sites
+      tagged with their real post-cutover role, NOT mis-tagged DELETED. Back it with a
+      completeness guard that fails on (a) any in-scope gate-semantic keying site
+      absent from the catalog AND (b) any stale catalog entry whose site no longer
+      exists. The bounded scan scope (excluding cosmetic .Pass.String()) is what makes
+      the discovered-set provably equal the cataloged-set. (REQ-005, REQ-006.)
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Write catalog content tests (gate-semantic scope; survivors not mis-tagged)"
+        description: |
+          cmd/backstop/checktype_catalog_test.go:
+            - TestCatalog_EnumeratesGateSemanticConsumersExcludesDisplaySites:
+              CheckTypeConsumerCatalog() enumerates the gate-semantic consumers
+              (scope-filtering, engine dispatch, violation verdict — C-1..C-8) and
+              EXCLUDES cosmetic .Pass.String() display/serialization sites (e.g.
+              pkg/check/output.go's render sites), so the catalog does not red on every
+              added log line (CLM-020).
+            - TestCatalog_SurvivingSitesNotMistaggedDeleted: the surviving pkg/check
+              CheckType sites (passOrder, Violation.Pass/PassResult.Pass, Executors/
+              applicableChecks dispatch, registry Entries, manifest enum+routing,
+              parsers findings stamping — C-4..C-8) are tagged SURVIVING with their
+              real post-cutover role, NOT mis-tagged DELETED; only C-2 (orphaned
+              gate.go:1173 exemption) and C-3 (shared-runner feeds) are DELETED
+              (CLM-021).
+          Red — the catalog does not exist yet.
+        files:
+          - cmd/backstop/checktype_catalog_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-003
+          - TASK-011
+
+      - id: TASK-020
+        type: test
+        title: "Write completeness-guard tests (bounded scope; unlisted + stale fail)"
+        description: |
+          cmd/backstop/checktype_catalog_guard_test.go — prove the guard is neither a
+          tautology nor red-on-arrival, using the Phase-1 fixtures:
+            - TestCatalog_GuardScansGateSemanticSurfaceOnly: the guard restricts
+              discovery to GATE-SEMANTIC CheckType keying (identity comparisons +
+              exemption/dispatch decisions in the gate path), EXCLUDING pure
+              .Pass.String() display sites, so the discovered-set provably equals the
+              cataloged-set — and the display-site fixture is NOT discovered (CLM-022).
+            - TestCatalog_GuardFailsOnUnlistedConsumer: the guard FAILS when a
+              gate-semantic CheckType-keyed source site exists with no catalog entry —
+              driven by the injected unlisted-keying-site fixture (CLM-023).
+            - TestCatalog_GuardFailsOnStaleEntry: the guard FAILS on a stale catalog
+              entry whose keying site no longer exists in code — driven by the
+              stale-entry fixture (CLM-024).
+          Red — the guard does not exist yet.
+        files:
+          - cmd/backstop/checktype_catalog_guard_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-003
+          - TASK-011
+
+      - id: TASK-021
+        type: implementation
+        title: "Implement CheckTypeConsumerCatalog() + the C-1..C-8 entries"
+        description: |
+          cmd/backstop/checktype_catalog.go: define CheckTypeConsumer (Site, KeysOn,
+          PostCutoverSource) and CheckTypeConsumerCatalog() returning one entry per
+          gate-semantic keying site, mirroring the spec's C-1..C-8 table:
+            - C-1: the NEW pack_gate.go exempt_from_scope_filter → ProjectWide stamp →
+              PostCutoverSource declared-engine-property.
+            - C-2/C-3: DELETED (orphaned gate.go:1173 exemption; shared-runner feeds) —
+              these rows must be ABSENT from the live catalog once their sites are gone
+              (removed in Phases 2/4), so the stale-entry guard stays green.
+            - C-4/C-5: findings stamping → findings-pack-engine.
+            - C-6/C-7/C-8: surviving pkg/check CheckType labeling/dispatch (passOrder,
+              Violation.Pass/PassResult.Pass, Executors/registry Entries, manifest
+              enum+routing) → surviving CheckType labeling/dispatch.
+          EXCLUDE cosmetic .Pass.String() display sites. Make TASK-019 green.
+        files:
+          - cmd/backstop/checktype_catalog.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-019
+
+      - id: TASK-022
+        type: implementation
+        title: "Implement the bidirectional completeness guard"
+        description: |
+          cmd/backstop/checktype_catalog_guard.go (or as a guard test helper exercised
+          by the guard test): scan the precisely-defined GATE-SEMANTIC surface
+          (cmd/backstop engine dispatch + scope-filter wiring, pkg/gate scope-filtering,
+          and the pkg/check sites that feed a gate verdict — identity comparisons +
+          exemption/dispatch decisions), EXCLUDING pure .Pass.String() display sites.
+          Reconcile the discovered-set against CheckTypeConsumerCatalog(): FAIL loudly
+          on (a) any in-scope keying site absent from the catalog (dropped-gate-step),
+          and (b) any catalog entry whose site no longer exists (stale entry). The
+          bounded scan scope is what makes discovered == cataloged. Make TASK-020 green
+          (the guard fails on the injected unlisted site and the stale entry, and does
+          NOT discover the display-site fixture).
+        files:
+          - cmd/backstop/checktype_catalog_guard.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-020
+          - TASK-021
+
+      - id: TASK-023
+        type: verification
+        title: "Verify catalog + completeness guard (code check)"
+        description: |
+          Run `backstop code check` over the cmd/backstop catalog + guard. Confirms the
+          catalog enumerates the gate-semantic C-1..C-8 surface (survivors not
+          mis-tagged, DELETED rows absent), the guard fails on an unlisted site and a
+          stale entry, excludes cosmetic display sites, and the discovered-set equals
+          the cataloged-set on the real surface (does not red on arrival). Middle-phase
+          verification.
+        files:
+          - cmd/backstop/checktype_catalog.go
+          - cmd/backstop/checktype_catalog_guard.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-021
+          - TASK-022
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Final comprehensive verification (full kill chain).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code check,
+      test verification, substantiveness, coverage (>=80%), contracts. This is the only
+      phase that runs `backstop gate`. Confirms every claim's tests are green, no baked
+      `go test`/coverage analyzer/shared runner survives and the orphaned SPEC-010
+      coverage tests are gone, coverage stays non-vacuous PER-FILE over SPEC-042's
+      canonical record (real per-file shortfall REDs; unmeasured-non-excluded path is a
+      loud error; changed-file exclusion loudly surfaced; ratio-from-raw-counts
+      metric-blind; Total==0⇒N/A), the engine-path exempt bridge holds end-to-end through
+      the REAL filterViolations (unchanged-file build break still REDs; lint/test/findings
+      filtered), the transitional seam is gone, and the CheckType-consumer catalog + guard
+      reconcile the real gate-semantic surface.
+    tasks:
+      - id: TASK-024
+        type: verification
+        title: "Run full gate over the complete SPEC-041 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) across pkg/gate,
+          pkg/pack/engine, and cmd/backstop at >=80% coverage. Confirm: NO baked
+          `go test`/Go-coverage analyzer/shared runner survives and the orphaned SPEC-010
+          coverage tests are deleted (REQ-001/002 + SPEC-010 retirement); coverage is
+          NON-VACUOUS PER-FILE over SPEC-042's canonical []check.CoverageRecord — a real
+          per-file shortfall REDs, an in-scope changed PATH with no record that is NOT
+          declared-excluded is a LOUD error (declared-excluded is skipped), a changed-file
+          exclusion is loudly surfaced, the verdict is ratio-from-raw-counts metric-blind,
+          and Total==0⇒N/A (REQ-003/REQ-001); the declared exempt_from_scope_filter →
+          ProjectWide bridge is exercised END-TO-END through the REAL filterViolations
+          (unchanged-file go-build break still REDs a diff-scoped gate; lint/test/findings
+          unchanged-file violations ARE filtered), resolved per-violation with the
+          exempting tiebreak (REQ-004/007); the transitional dispatchBuildViolationProjectWide
+          seam is removed; and the CheckType-consumer catalog + completeness guard
+          reconcile the gate-semantic surface (DELETED C-2/C-3 absent, survivors not
+          mis-tagged) (REQ-005/006). (The coverage records consumed here are PRODUCED by
+          SPEC-042 — this gate exercises only the consumer/threshold side.) Also runs
+          `backstop artifact validate` to confirm this plan + the spec validate.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/checktype_catalog.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-007
+          - TASK-011
+          - TASK-018
+          - TASK-023
+          - TASK-005
+          - TASK-006
+          - TASK-009
+          - TASK-010
+          - TASK-016
+          - TASK-017
+          - TASK-021
+          - TASK-022
+          - TASK-025

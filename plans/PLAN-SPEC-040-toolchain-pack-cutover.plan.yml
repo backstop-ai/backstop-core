@@ -1,0 +1,904 @@
+---
+plan_id: PLAN-SPEC-040
+spec_id: SPEC-040
+spec_version: 1.0.0
+created: "2026-06-24"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/check/ ./pkg/gate/ ./pkg/pack/engine/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-040 (BUNDLE-011, Seed 2 — THE KEYSTONE CUTOVER): retire
+  pkg/check.Run as the gate's Step-2 enforcement engine and route lint/build/test
+  EXCLUSIVELY through the existing declared-engine substrate dispatchPackEngines
+  (cmd/backstop/pack_gate.go) as <lang>-toolchain pack passes, DELETING the
+  realCodeChecker -> pkg/check.Run Step-2 path AND the baked builtinToolchain go/ts
+  stacks (pkg/check/registry.go) in the SAME PR. resolveToolchain / commandExecutor /
+  buildExecutorsForConfigErr are RETAINED (reduced to declared-only) because the
+  standalone `backstop code check` subcommand still reaches them.
+
+  PREREQUISITE — Seed 1 (SPEC-039) lands FIRST. SPEC-039 deletes the dead
+  standards-manifest reader + the already-no-op non-Go semgrep catch-all, shrinking
+  the surface this cutover rewrites. This plan ASSUMES SPEC-039 has landed: it does
+  NOT re-delete that dead code, and the deletion phase here targets only the Step-2
+  gate path + builtinToolchain. Do not start implementation until SPEC-039 is merged.
+
+  CROSS-SPEC FENCES (do NOT author here — they are SPEC-041, the DEPENDENT/Seed 3):
+    - coverage eradication / step_coverage.go deletion — SPEC-041. This plan only
+      KEEPS coverage FED transitionally (CLM-028).
+    - the PERMANENT declared exempt_from_scope_filter build-exemption property —
+      SPEC-041 REQ-004. This plan only TRANSITIONALLY preserves build-pass
+      ProjectWide on the engine path (CLM-029).
+    Both seams are guarded transitional preservations, NOT new permanent mechanisms.
+
+  PHASING — golden-harness-FIRST, deletion-GATED-on-proof. A large cutover phased so
+  an implementer (truncating ~60 tool calls) can be driven phase-by-phase with a
+  gate checkpoint between phases; NOTHING is deleted until the golden-equivalence
+  proof exists and passes:
+    - Phase 1 (SETUP): typescript-toolchain fixture pack (the non-Go worked example
+      for language-agnostic bridge proof) + capture the legacy pkg/check violation
+      set on the backstop repo as the GOLDEN FIXTURE. No code change, no deletion.
+    - Phase 2 (GENERALIZE BRIDGE): make loadBridgedToolchainPacks language-agnostic
+      (REQ-004/REQ-008) — drop the `language == "go"` short-circuit. Standalone of
+      deletion; both substrates still coexist.
+    - Phase 3 (GOLDEN-EQUIVALENCE HARNESS — THE SAFETY NET, runs BEFORE any delete):
+      prove the dispatchPackEngines path reproduces the golden legacy violation set
+      over a REAL INSTALLED toolchain pack through the UN-STUBBED dispatch, spying
+      the sandboxed-dispatch seam (REQ-003). Plus the deletion-gate GUARD (CLM-012).
+    - Phase 4 (NO-TOOLCHAIN-PACK WARN-ONLY LOUD STATE): the anti-vacuous-green
+      guardrail (REQ-005/006), reusing SPEC-036's "warning"/StepsWarned mechanism.
+      LIVE on the first post-cutover gate run because the dogfood install lacks
+      go-toolchain.
+    - Phase 5 (WHOLESALE-REPLACE STEP 2 + transitional seams): remove the Step-2
+      entry from buildGateSteps so lint/build/test run ONLY via dispatchPackEngines
+      (REQ-001); preserve the coverage feed (CLM-028) and build-pass ProjectWide on
+      the engine path (CLM-029). NOTHING is deleted yet — the bespoke symbols still
+      exist; this phase stops WIRING them as a step.
+    - Phase 6 (DELETE — GATED on the phase-3 golden proof + phase-5 cutover): delete
+      realCodeChecker + builtinToolchain go/ts stacks; REDUCE resolveToolchain to
+      declared-only; assert the code check subcommand survives + no deleted symbol
+      has a surviving caller (REQ-002/008/009). Every deletion task transitively
+      depends on the phase-3 golden harness AND its guard.
+    - Phase 7 (FINAL FULL GATE): backstop gate + backstop artifact validate.
+
+  PACK-PROVISIONING INTEGRATION GAP (the recurring trap — see
+  project_pack_provisioning_integration_gap): the golden-equivalence harness is the
+  deletion's ONLY safety net. It MUST run the REAL <lang>-toolchain pack passes
+  through the UN-STUBBED dispatchPackEngines over an INSTALLED toolchain pack,
+  spying the sandboxed-dispatch seam — NEVER testdata fed to a stubbed dispatcher
+  and NEVER a parallel raw-exec path. A stubbed harness games the proof and re-opens
+  the exact gap that bit SPEC-035/SPEC-037. CLM-011 mandates this explicitly.
+
+  Sharp Edges -> tasks:
+    SE-1 (coverage step orphaned by Step-2 deletion) -> TASK-015 (test) / TASK-016
+      (impl) keep the shared go-test runner feeding buildCoverageStep (CLM-028).
+    SE-2 (build-pass ProjectWide lost, build break in unchanged file scope-filtered)
+      -> TASK-015 (test) + TASK-017 (impl) preserve ProjectWide on the engine path
+      (CLM-029).
+    SE-3 (vacuous green when 0 toolchain packs) -> Phase 4 WARN-ONLY loud state
+      (CLM-016..022).
+    SE-4 (golden fixture gamed by a stubbed dispatcher) -> TASK-006/TASK-007 over the
+      REAL un-stubbed dispatch + installed pack (CLM-011).
+    SE-5 (deletion outrunning the proof) -> deletion-gate guard TASK-008 + phase-6
+      deps on phase-3 (CLM-012).
+    SE-6 (scope creep into SPEC-041's permanent property / coverage eradication) ->
+      NO task builds exempt_from_scope_filter or deletes step_coverage.go.
+    SE-7 (generalization secretly stays Go-only) -> TASK-008/TASK-009 + the non-Go
+      typescript-toolchain fixture (CLM-014).
+    SE-8 (double-dispatching traceability into the generic path) -> TASK-027/TASK-028
+      preserve excludeDedicatedStepRules (CLM-025).
+    SE-9 (TS stack deletion with no typescript-toolchain pack yet) -> intended end
+      state; the WARN-ONLY loud state (Phase 4) prevents silent regression.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: SETUP — non-Go toolchain fixture + capture the legacy golden fixture"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold a typescript-toolchain fixture pack (the non-Go worked example)"
+        description: |
+          Create a minimal typescript-toolchain fixture pack under
+          cmd/backstop/testdata/ so the language-agnostic bridge (Phase 2) and the
+          generalization claims (CLM-014/CLM-015) can prove a NON-Go language
+          resolves its OWN <lang>-toolchain pack — not Go-only (Sharp Edge 7). This
+          is a fixture pack (manifest + a stub lint/build/test engine binding), NOT
+          a real authored typescript-toolchain pack (that is an ISSUE-027
+          pack-authoring follow-up); it exists only to exercise the generic
+          resolve-from-disk path for a language whose on-disk name is derived from
+          the declared language, not hardcoded to backstop/go-toolchain.
+
+          The existing go-toolchain fixture pack
+          (cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain)
+          is LEVERAGED unchanged (REQ-004) as the Go worked example — do NOT
+          re-author it.
+        files:
+          - cmd/backstop/testdata/typescript-toolchain/.backstop/packs/backstop/typescript-toolchain/pack.yml
+          - cmd/backstop/testdata/typescript-toolchain/backstop.yml
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on: []
+      - id: TASK-002
+        type: setup
+        title: "Capture the legacy pkg/check engine's violation set on the backstop repo as the golden fixture"
+        description: |
+          Capture the LEGACY pkg/check engine's normalized violation set on a fixed
+          set of backstop-repo captured tool outputs (go build / go test /
+          golangci-lint) as a GOLDEN FIXTURE on disk (REQ-003 / CLM-009). This is the
+          one-shot equivalence evidence the deletion is gated on — the fixture IS the
+          evidence; no standing dual-run, no parity-gate apparatus.
+
+          Capture BOTH halves the Phase-3 harness compares: (a) the fixed captured
+          raw tool outputs (the SAME bytes fed to both the legacy parser and the
+          engine path so the comparison is like-for-like), and (b) the legacy
+          pkg/check normalized violation set those bytes produce, serialized as the
+          golden expected set. Capture before the Phase-6 deletion removes the legacy
+          parser so the fixture can be regenerated/audited against the still-present
+          path. Never canned SARIF — real captured tool output.
+        files:
+          - cmd/backstop/testdata/golden-equivalence/captured/go-build.txt
+          - cmd/backstop/testdata/golden-equivalence/captured/go-test.txt
+          - cmd/backstop/testdata/golden-equivalence/captured/golangci.json
+          - cmd/backstop/testdata/golden-equivalence/legacy-violations.golden.json
+        claims:
+          - CLM-009
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GENERALIZE BRIDGE — loadBridgedToolchainPacks language-agnostic beyond Go"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Tests: bridge resolves any <lang>-toolchain pack; no go-only short-circuit"
+        description: |
+          Write the failing tests for the language-agnostic generalization of
+          loadBridgedToolchainPacks (REQ-004/REQ-008, Sharp Edge 7). On main today
+          the bridge short-circuits `if language != "" && language != "go"`
+          (gate.go:412) and hardcodes the on-disk name to backstop/go-toolchain
+          (nativeToolchainPackName, gate.go:250), so only go-toolchain ever resolves.
+
+          Mandated tests:
+            - TestToolchainPack_BridgeResolutionLanguageAgnostic (CLM-014): a non-Go
+              declared language (typescript, via the TASK-001 fixture) resolves its
+              OWN <lang>-toolchain pack from .backstop/packs/<name> where <name> is
+              derived from the declared language, NOT hardcoded to go — the go-only
+              short-circuit is gone.
+            - TestToolchainPack_LintBuildTestAsLayer0EnginePasses (CLM-013): a
+              resolved <lang>-toolchain pack's lint/build/test passes dispatch through
+              dispatchPackEngines as Layer-0 engine passes (the go-toolchain pack
+              leveraged unchanged).
+            - TestToolchainPack_NewLanguageNeedsNoCoreChange (CLM-015): adding a new
+              language's toolchain requires only authoring a <lang>-toolchain pack —
+              the bridge resolution itself needs no cmd/backstop or pkg/check change
+              per-language (assert resolution is keyed off the declared language
+              generically, not a per-language code branch).
+        files:
+          - cmd/backstop/gate_bridge_agnostic_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-001
+      - id: TASK-004
+        type: implementation
+        title: "Generalize loadBridgedToolchainPacks beyond Go (declared-language-derived pack name)"
+        description: |
+          Make loadBridgedToolchainPacks (cmd/backstop/gate.go:411) language-agnostic
+          (REQ-004/REQ-008/CLM-014): replace the early
+          `if language != "" && language != "go"` short-circuit (:412) and the
+          hardcoded nativeToolchainPackName() == "backstop/go-toolchain" so it
+          resolves the <lang>-toolchain pack for the project's DECLARED language
+          generically (the on-disk pack name is derived from the language). It still
+          loads from .backstop/packs/<name> on disk (so pack-relative convert scripts
+          resolve for SandboxedRunStdout), still dedupes against a declared toolchain
+          pack, and a missing pack directory yields NO bridged packs — which now
+          feeds the no-toolchain-pack WARN-ONLY state (Phase 4) instead of a baked
+          fallback. The go-toolchain fixture pack is leveraged unchanged (CLM-013);
+          backstop bakes no per-language opinion (CLM-015). Depends on the bridge
+          tests (TASK-003) — TDD.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-003
+      - id: TASK-005
+        type: verification
+        title: "Verify language-agnostic bridge (code check)"
+        description: |
+          Run `backstop code check` over the generalized bridge. Confirm a non-Go
+          declared language resolves its own <lang>-toolchain pack, the go-only
+          short-circuit is gone, and a missing pack directory yields no bridged packs
+          (the trigger for Phase 4's loud state). Fast inner-loop gate for the
+          generalization phase.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: GOLDEN-EQUIVALENCE HARNESS — the deletion's safety net (proven BEFORE any delete)"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Golden-equivalence tests: pack-engine path reproduces the legacy violation set over the REAL un-stubbed dispatch"
+        description: |
+          Write the mandated one-shot golden-equivalence tests (REQ-003) — the
+          deletion's ONLY safety net. They run the REAL <lang>-toolchain pack passes
+          (the go-toolchain fixture pack) through the UN-STUBBED dispatchPackEngines
+          over an INSTALLED toolchain pack, spying the sandboxed-dispatch seam to
+          observe reproduction — NEVER testdata fed to a stubbed dispatcher and NEVER
+          a parallel raw-exec path (Sharp Edge 4 / the recurring pack-provisioning
+          integration gap). The legacy pkg/check parser is STILL PRESENT at this
+          phase (deletion is Phase 6), so the harness can compare both sides in one
+          tree against the TASK-002 golden fixture.
+
+          Mandated tests:
+            - TestGoldenEquivalence_LegacyViolationSetCaptured (CLM-009): the golden
+              fixture (TASK-002) captures the legacy pkg/check engine's normalized
+              violation set on the backstop repo's captured go build / go test /
+              golangci-lint output (assert the fixture exists and round-trips the
+              legacy normalization for the captured bytes).
+            - TestGoldenEquivalence_PackEnginePathReproducesGoldenSet (CLM-010): the
+              dispatchPackEngines <lang>-toolchain path produces the SAME normalized
+              violation set as the golden fixture for the same captured tool output —
+              equivalence proven.
+            - TestGoldenEquivalence_RealInstalledPackThroughUnstubbedDispatch
+              (CLM-011): assert the reproduction runs through the REAL UN-STUBBED
+              dispatchPackEngines over an INSTALLED toolchain pack on disk, spying the
+              sandboxed-dispatch seam — assert the dispatcher was NOT stubbed and no
+              parallel raw-exec path was used (the hard anti-gaming mandate).
+        files:
+          - cmd/backstop/golden_equivalence_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-002
+          - TASK-005
+      - id: TASK-007
+        type: implementation
+        title: "Wire the golden-equivalence harness over the un-stubbed dispatch + installed pack"
+        description: |
+          Provide the non-test harness scaffolding the golden-equivalence tests need
+          to exercise the REAL path (REQ-003 / CLM-010/CLM-011): an installed-pack
+          test fixture root with the go-toolchain pack on disk, and a spy on the
+          sandboxed-dispatch seam (the SandboxedRunStdout capture inside
+          dispatchPackEngines/runFindingsEngine) that records the captured tool bytes
+          fed in and the dispatcher actually invoked, WITHOUT stubbing the dispatcher
+          itself. This is the harness that lets the test assert the production path
+          reproduced the golden set — it must NOT introduce a parallel raw-exec path
+          or a stubbed dispatcher (that would game the safety net). Reuse
+          dispatchPackEngines unchanged in signature. Depends on the golden tests
+          (TASK-006) — TDD.
+        files:
+          - cmd/backstop/golden_equivalence.go
+        claims:
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-006
+      - id: TASK-008
+        type: test
+        title: "Deletion-gate guard test (RED while bespoke symbols still present)"
+        description: |
+          Write the mandated deletion-gate GUARD test (REQ-003 / CLM-012, Sharp
+          Edge 5). Phrased as a ONE-TREE invariant: in this working tree, the
+          golden-equivalence test (TASK-006) exists and is green AND the legacy
+          Step-2 symbols (realCodeChecker as a wired gate step, builtinToolchain) are
+          ABSENT — so bespoke-absent implies equivalence-present-and-green. This guard
+          is RED now (the symbols still exist; deletion is Phase 6) and goes green
+          only after the Phase-6 deletions land, so a deletion that outran the proof
+          fails the gate rather than shipping green.
+
+          Mandated test:
+            - TestGoldenEquivalence_DeletionGatedOnProvenEquivalence (CLM-012):
+              asserts the golden-equivalence test is present-and-green AND the legacy
+              Step-2 symbols are absent (a grep/source-scan invariant over the same
+              tree), so a premature deletion fails the gate.
+
+          Kept in its own _test.go file (D-081 disjointness from TASK-006's
+          golden_equivalence_test.go).
+        files:
+          - cmd/backstop/deletion_gate_test.go
+        claims:
+          - CLM-012
+        depends_on:
+          - TASK-006
+      - id: TASK-009
+        type: verification
+        title: "Verify the golden-equivalence harness runs over the real un-stubbed dispatch (code check)"
+        description: |
+          Run `backstop code check` over the golden-equivalence harness. Confirm the
+          equivalence test reproduces the golden legacy violation set through the REAL
+          UN-STUBBED dispatchPackEngines over an INSTALLED pack (not a stub, not a
+          parallel raw-exec path), and that the deletion-gate guard is wired (RED
+          while bespoke symbols still present). This green is the PRECONDITION for the
+          Phase-6 deletion — every deletion task depends transitively on this proof.
+        files:
+          - cmd/backstop/golden_equivalence.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: NO-TOOLCHAIN-PACK WARN-ONLY LOUD STATE — the anti-vacuous-green guardrail"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Tests: 0 toolchain packs -> non-failing warning, loud distinct report, StepsWarned, never vacuous green"
+        description: |
+          Write the failing tests for the no-toolchain-pack WARN-ONLY loud state
+          (REQ-005/REQ-006, Sharp Edge 3) — the single most load-bearing behavior in
+          this spec. Reuse SPEC-036's existing non-failing "warning" status +
+          GateResult.StepsWarned (pkg/gate/result.go); invent no new status. The
+          three states (packs-passed / packs-found-violations / 0-packs) must never
+          collapse. backstop-core's own dogfood install lacks go-toolchain, so this
+          state is LIVE on the first post-cutover gate run.
+
+          Mandated tests:
+            - TestNoToolchainPack_DoesNotBlockGatePasses (CLM-016): 0 toolchain packs
+              does NOT block — gate.Pass stays true and exit code stays 0.
+            - TestNoToolchainPack_UsesWarningStatusNotFail (CLM-017): the state uses
+              the non-failing "warning" step status (counted in StepsWarned), not
+              "fail".
+            - TestNoToolchainPack_NotSilentPass (CLM-018): the state is NOT a silent
+              normal-green "pass" — distinct from a toolchain-packs-ran-and-passed run.
+            - TestNoEnforcement_LoudMessageOnHumanReport (CLM-019): renders a stable
+              "enforcement not configured (0 toolchain packs)" message on the human
+              report surface.
+            - TestNoEnforcement_ReflectedInMachineSummary (CLM-020): reflected in the
+              machine-readable summary (StepsWarned), distinct from steps-passed, so a
+              CI consumer detects it despite exit 0.
+            - TestNoEnforcement_DistinctFromToolchainPacksPassedRun (CLM-021): a
+              0-pack run is visibly distinguishable in report output from a
+              toolchain-packs-ran-and-passed run — NOT identical green.
+            - TestNoEnforcement_NeverVacuousGreen (CLM-022): the loud state never
+              collapses into a normal green — 0 packs can never produce output
+              indistinguishable from a fully-enforced green pass.
+        files:
+          - cmd/backstop/gate_no_toolchain_pack_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-005
+      - id: TASK-011
+        type: implementation
+        title: "Emit the no-toolchain-pack WARN-ONLY loud StepResult (warning status + stable message)"
+        description: |
+          When the project declares no <lang>-toolchain pack and none is bridged
+          (loadBridgedToolchainPacks yields nothing), buildGateSteps emits a
+          NON-FAILING "warning" StepResult carrying a stable, recognizable message
+          ("enforcement not configured (0 toolchain packs)"), counted in
+          GateResult.StepsWarned and rendered on the human report surface
+          (REQ-005/REQ-006). gate.Pass stays true, exit code stays 0, and the output
+          is VISIBLY DISTINCT from a toolchain-packs-ran-and-passed run. Reuse the
+          SPEC-036 "warning"/StepsWarned mechanism (pkg/gate/result.go) — invent no
+          new status vocabulary. This is the anti-vacuous-green guardrail: "nothing
+          ran" must be impossible to mistake for "everything passed." Depends on the
+          no-toolchain tests (TASK-010) — TDD.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-010
+      - id: TASK-012
+        type: verification
+        title: "Verify the no-toolchain-pack WARN-ONLY loud state (code check)"
+        description: |
+          Run `backstop code check` over the no-toolchain-pack path. Confirm a 0-pack
+          run does NOT block (gate.Pass true / exit 0), uses the non-failing
+          "warning" status counted in StepsWarned, renders the stable loud
+          "enforcement not configured" message on the human report, and is visibly
+          distinct from a packs-passed run — never a vacuous green. Fast inner-loop
+          gate for the guardrail phase.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-019
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-011
+
+  - id: phase-5
+    name: "Phase 5: WHOLESALE-REPLACE STEP 2 + transitional coverage/build-scope seams"
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Tests: Step-2 entry removed from step list; lint/build/test run only via dispatchPackEngines; no dual-run"
+        description: |
+          Write the failing tests for the wholesale Step-2 replacement (REQ-001) —
+          the realCodeChecker / gate.StepCodeCheckScopedFunc entry (gate.go:520) is
+          removed from the step list buildGateSteps produces, so lint/build/test run
+          ONLY through dispatchPackEngines over the bridged + declared
+          <lang>-toolchain packs. No parallel dispatcher is introduced and no
+          pkg/check -> pkg/pack/engine import is added (cmd/backstop already imports
+          both). At this phase the realCodeChecker TYPE still EXISTS (its deletion is
+          Phase 6) — these tests assert it is no longer WIRED as a step.
+
+          Mandated tests:
+            - TestCutover_NoCodeCheckStepInGateStepList (CLM-001): the step list
+              built by buildGateSteps contains no realCodeChecker /
+              StepCodeCheckScopedFunc Step-2 entry after the cutover.
+            - TestCutover_LintBuildTestRunThroughDispatchPackEngines (CLM-002): a gate
+              over a project with an installed toolchain pack dispatches its
+              lint/build/test through the engine path, not pkg/check.Run.
+            - TestCutover_NoCheckToEngineImportAndNoParallelDispatcher (CLM-003):
+              pkg/check does NOT import pkg/pack/engine and no second dispatcher is
+              introduced — the gate reuses dispatchPackEngines (source/import scan).
+            - TestCutover_NoDualRunOfLintBuildTest (CLM-008): after the cutover
+              lint/build/test run EXACTLY ONCE (through dispatchPackEngines), not
+              through both pkg/check.Run and the engine path — no standing dual-run
+              window.
+        files:
+          - cmd/backstop/gate_cutover_step2_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-008
+        depends_on:
+          - TASK-009
+          - TASK-012
+      - id: TASK-014
+        type: implementation
+        title: "Remove the Step-2 entry from buildGateSteps; route lint/build/test only through dispatchPackEngines"
+        description: |
+          Remove the gate.StepCodeCheckScopedFunc(codeChecker, activeScope) entry
+          (gate.go:520) from the step list buildGateSteps produces (REQ-001). Lint,
+          build, and test enforcement now runs ONLY via the dispatchPackEngines step
+          over the bridged + declared <lang>-toolchain packs (the existing dispatch
+          already runs bridged + packs minus dedicated-step rules). No new dispatcher
+          is introduced and no pkg/check -> pkg/pack/engine import is added —
+          orchestration stays at cmd/backstop (CLM-001/002/003/008). This phase
+          UN-WIRES the bespoke step; the realCodeChecker TYPE and builtinToolchain are
+          NOT yet deleted (that is Phase 6, gated on the Phase-3 golden proof). The
+          codeChecker local + sharedTest construction (gate.go:487-488) is retained
+          here because the shared test runner still feeds coverage (TASK-015). Depends
+          on the cutover tests (TASK-013) — TDD.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-008
+        depends_on:
+          - TASK-013
+      - id: TASK-015
+        type: test
+        title: "Tests: coverage step not orphaned + build-break-in-unchanged-file still REDs diff-scoped gate"
+        description: |
+          Write the failing tests for the TWO transitional seams (Sharp Edges 1 & 2)
+          that the wholesale Step-2 removal must not break. Both are TRANSITIONAL
+          preservations bridging until SPEC-041 — NOT the permanent declared
+          mechanisms (those are fenced to SPEC-041 and must NOT be built here).
+
+          Mandated tests:
+            - TestSeam_CoverageStepNotOrphanedByStep2Deletion (CLM-028): deleting the
+              pkg/check.Run Step-2 consumption does NOT orphan the still-baked
+              coverage step — the shared go-test runner (newSharedTestRunner,
+              shared_testrun.go) SURVIVES as the transitional coverage feed,
+              buildCoverageStep still receives its whole-module `go test ./...` feed,
+              and coverage still runs and passes after the cutover (in lockstep until
+              SPEC-041 migrates coverage).
+            - TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate (CLM-029): a
+              build break in an UNCHANGED file still REDs a diff-scoped gate across
+              the cutover window — build-pass ProjectWide (set today in
+              checkViolationsToGate, gate.go:1173, consumed by scope.go:194) is
+              preserved transitionally on the engine path so engine-path build
+              violations are NOT silently scope-filtered. (SPEC-041 REQ-004 replaces
+              this transitional seam with a declared exempt_from_scope_filter property
+              — NOT built here.)
+        files:
+          - cmd/backstop/gate_transitional_seams_test.go
+        claims:
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-009
+          - TASK-012
+      - id: TASK-016
+        type: implementation
+        title: "Preserve the shared test-runner -> coverage feed across the Step-2 removal"
+        description: |
+          Ensure deleting Step-2's consumption of the shared `go test ./...` runner
+          does NOT orphan the still-baked coverage step (REQ-001 / CLM-028, Sharp
+          Edge 1). The shared runner (newSharedTestRunner, shared_testrun.go) SURVIVES
+          this cutover as the transitional coverage feed: buildCoverageStep
+          (gate.go:501) keeps receiving its whole-module feed so coverage still runs
+          and passes, in lockstep until SPEC-041 (Seed 3) deletes step_coverage.go and
+          re-implements coverage over the toolchain test pass. Do NOT delete the
+          shared runner and do NOT delete or migrate coverage here (fenced to
+          SPEC-041). The toolchain test pass through dispatchPackEngines becomes the
+          established test-runner seam SPEC-041 migrates onto. Depends on the seam
+          tests (TASK-015) — TDD.
+        files:
+          - cmd/backstop/shared_testrun.go
+        claims:
+          - CLM-028
+        depends_on:
+          - TASK-015
+      - id: TASK-017
+        type: implementation
+        title: "Preserve build-pass ProjectWide on the engine dispatch path (transitional build-exemption seam)"
+        description: |
+          Set gate.Violation.ProjectWide=true for build-pass engine violations on the
+          dispatch path (REQ-001 / CLM-029, Sharp Edge 2). Today the build-pass
+          scope-filter exemption is set in checkViolationsToGate
+          (`cv.Pass == check.CheckTypeBuild`, gate.go:1173) and consumed by
+          scope.go:194 so a build break in an UNCHANGED file is not diff-scope-filtered
+          away. This cutover removes the realCodeChecker/checkViolationsToGate Step-2
+          path (un-wired in TASK-014, deleted in Phase 6), so the engine dispatch path
+          must TRANSITIONALLY preserve ProjectWide=true for build-pass violations — OR
+          SPEC-040 and SPEC-041 land in lockstep. This is a GUARDED TRANSITIONAL
+          PRESERVATION mirroring the coverage seam, NOT the permanent declared
+          exempt_from_scope_filter property (which is SPEC-041 REQ-004 and must NOT be
+          built here). Implemented in the dispatch path
+          (dispatchPackEngines/dispatchBuildViolationProjectWide) so engine-path build
+          violations carry ProjectWide. Depends on the seam tests (TASK-015) — TDD;
+          file-disjoint from TASK-016 (pack_gate.go vs shared_testrun.go).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-029
+        depends_on:
+          - TASK-015
+      - id: TASK-018
+        type: verification
+        title: "Verify Step-2 cutover + both transitional seams (code check)"
+        description: |
+          Run `backstop code check` over the wholesale Step-2 replacement and both
+          transitional seams. Confirm: no Step-2 entry in the gate step list,
+          lint/build/test run only through dispatchPackEngines (no dual-run, no
+          parallel dispatcher, no pkg/check->engine import), coverage still fed by the
+          surviving shared runner and still passing, and a build break in an unchanged
+          file still REDs a diff-scoped gate (build-pass ProjectWide preserved). Fast
+          inner-loop gate for the cutover phase. The bespoke symbols still EXIST here
+          (deletion is Phase 6).
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/shared_testrun.go
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-014
+          - TASK-016
+          - TASK-017
+
+  - id: phase-6
+    name: "Phase 6: DELETE — rip out realCodeChecker + builtinToolchain go/ts stacks, GATED on the golden proof"
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Deletion-assertion tests: realCodeChecker + builtinToolchain go/ts stacks absent; resolveToolchain retained/reduced"
+        description: |
+          Write the mandated deletion-assertion tests (REQ-002). Like the deletion-gate
+          guard (TASK-008) these assert POST-DELETION absence, so they are RED while the
+          bespoke symbols still exist and go green only after the Phase-6 refactors land
+          (TASK-022..025). They are GATED behind the golden proof (depend on TASK-009 /
+          the golden harness + guard) — no deletion assertion runs before equivalence
+          is proven (Sharp Edge 5).
+
+          Mandated tests:
+            - TestCutover_RealCodeCheckerDeleted (CLM-004): the realCodeChecker type
+              and its CheckAll/CheckScoped/runCheck/runWithOpts methods are deleted as
+              a wired gate step — a grep of cmd/backstop non-test source returns zero
+              matches for realCodeChecker.
+            - TestCutover_BuiltinToolchainGoStackDeleted (CLM-005): the
+              builtinToolchain function and its go stack are deleted from
+              pkg/check/registry.go — a grep of pkg/check non-test source returns zero
+              matches for builtinToolchain.
+            - TestCutover_BuiltinToolchainTypescriptStackDeleted (CLM-006): the
+              builtinToolchain typescript stack (eslint/tsc/regex-lines) is deleted —
+              no baked typescript lint/build/test stack remains in pkg/check non-test
+              source.
+            - TestCutover_ResolveToolchainRetainedDeclaredOnly (CLM-007):
+              resolveToolchain / commandExecutor / buildExecutorsForConfigErr are
+              RETAINED (not deleted) and resolveToolchain is REDUCED to resolving
+              DECLARED enforcement.toolchain entries only — a Go/TS project with no
+              declared toolchain yields an EMPTY executor set from that path rather
+              than a baked stack.
+        files:
+          - cmd/backstop/cutover_deletion_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-009
+          - TASK-018
+      - id: TASK-020
+        type: test
+        title: "Internal-consistency tests: code check subcommand survives; no deleted symbol has a surviving caller"
+        description: |
+          Write the mandated internal-consistency / scope-guard tests (REQ-002 — the
+          cross-seam SPEC-041's review surfaced). The delete set must be INTERNALLY
+          CONSISTENT: deleting builtinToolchain must NOT strand the standalone
+          `backstop code check` subcommand (codeCheckCmd -> resolveCheckRun ->
+          check.Run -> buildExecutorsForConfigErr -> resolveToolchain), which this
+          spec does NOT retire. Like TASK-019, RED until the deletions land; GATED
+          behind the golden proof. Kept in a dedicated _test.go (D-081 disjointness
+          from cutover_deletion_test.go).
+
+          Mandated tests:
+            - TestCutover_CodeCheckSubcommandSurvivesWithDeclaredToolchain (CLM-030):
+              the standalone `backstop code check` subcommand SURVIVES; an invocation
+              over a project with a DECLARED toolchain still resolves and runs its
+              lint/build/test passes through check.Run / buildExecutorsForConfigErr /
+              resolveToolchain after builtinToolchain is deleted.
+            - TestCutover_NoDeletedSymbolHasSurvivingCaller (CLM-031): a guard asserts
+              every deleted symbol (realCodeChecker as a gate step, builtinToolchain)
+              is absent AND the retained-symbol callers
+              (buildExecutorsForConfigErr -> resolveToolchain) compile and resolve, so
+              the delete set cannot strand the code check subcommand.
+        files:
+          - cmd/backstop/cutover_consistency_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-009
+          - TASK-018
+      - id: TASK-021
+        type: test
+        title: "Tests: SPEC-034 deletion absorbed (not Go-only) + bridge still dispatches; traceability not regressed"
+        description: |
+          Write the mandated absorb-SPEC-034 and no-regress tests (REQ-008/REQ-009).
+          RED until the deletions land; GATED behind the golden proof. Kept in a
+          dedicated _test.go (D-081 disjointness).
+
+          Mandated tests:
+            - TestAbsorbSpec034_Step2DeletionCompletedNotGoOnly (CLM-023): SPEC-034's
+              unfinished Step-2 deletion is completed here — the realCodeChecker /
+              pkg/check.Run Step-2 path is gone, with no Go-only assumption
+              re-introduced (cross-check the generalized bridge from Phase 2).
+            - TestAbsorbSpec034_BridgeStillDispatchesToolchainPasses (CLM-024):
+              SPEC-034's landed bridge tests (TestBridge_*) and the golden-equivalence
+              harness remain the safety net — the bridge still dispatches the toolchain
+              pack's lint/build/test passes through dispatchPackEngines after the
+              deletion.
+            - TestNoRegress_DedicatedStepRulesStillExcludedFromGenericDispatch
+              (CLM-025): the cutover preserves excludeDedicatedStepRules
+              (pack_gate.go:118) so substantiveness/contracts rules are NOT
+              double-dispatched into the generic lint/build/test/findings path
+              (Sharp Edge 8).
+            - TestNoRegress_SubstantivenessStepStillRunsAndPasses (CLM-026): after the
+              cutover the substantiveness traceability step still runs and passes
+              through its own dedicated gate step over its installed pack.
+            - TestNoRegress_ContractsStepStillRunsAndPasses (CLM-027): after the
+              cutover the contracts traceability step still runs and passes through its
+              own dedicated gate step over its installed pack.
+        files:
+          - cmd/backstop/cutover_noregress_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+        depends_on:
+          - TASK-009
+          - TASK-018
+      - id: TASK-022
+        type: refactor
+        title: "Delete the realCodeChecker type and its CheckAll/CheckScoped/runCheck/runWithOpts/checkViolationsToGate"
+        description: |
+          GATED ON THE GOLDEN PROOF (depends transitively on the Phase-3 harness +
+          guard via TASK-019). Now that Step 2 is un-wired (TASK-014) and equivalence
+          is proven, DELETE from cmd/backstop the realCodeChecker type and its
+          CheckAll / CheckScoped / runCheck / runWithOpts / checkViolationsToGate (the
+          wired-gate-step surface) — REQ-002 / CLM-004. The codeChecker local in
+          buildGateSteps is removed; the sharedTest runner construction is RETAINED as
+          the coverage feed (CLM-028, TASK-016). After deletion a grep of cmd/backstop
+          non-test source for realCodeChecker returns zero. NOTE: checkViolationsToGate
+          set build-pass ProjectWide today — that exemption is now preserved on the
+          engine path (TASK-017), so its deletion here does not re-open the build-scope
+          regression (CLM-029).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-019
+          - TASK-020
+          - TASK-021
+      - id: TASK-023
+        type: refactor
+        title: "Delete the builtinToolchain function with BOTH its baked go and typescript stacks"
+        description: |
+          GATED ON THE GOLDEN PROOF (depends transitively on TASK-019). DELETE the
+          builtinToolchain function (pkg/check/registry.go:59) with BOTH its baked go
+          stack (empty pass entries) and its typescript stack (eslint/tsc/regex-lines,
+          registry.go:65-92) — the actual zero-baked-checks violation
+          (REQ-002 / CLM-005/CLM-006). After deletion, NO baked builtinToolchain go or
+          typescript stack remains and the gate's lint/build/test enforcement exists
+          ONLY as <lang>-toolchain pack passes through dispatchPackEngines. A grep of
+          pkg/check non-test source for builtinToolchain returns zero. Depends on
+          TASK-022 so the gate-side caller is already gone (clean compile).
+        files:
+          - pkg/check/registry.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-019
+          - TASK-020
+          - TASK-021
+          - TASK-022
+      - id: TASK-024
+        type: refactor
+        title: "Reduce resolveToolchain to declared-only (retain commandExecutor/buildExecutorsForConfigErr for the surviving subcommand)"
+        description: |
+          GATED ON THE GOLDEN PROOF (depends transitively on TASK-019). With
+          builtinToolchain deleted (TASK-023), REDUCE resolveToolchain to resolving
+          DECLARED enforcement.toolchain entries ONLY — no built-in stack overlay — so
+          a Go/TS project with no declared toolchain yields an EMPTY executor set from
+          that path rather than a baked stack (REQ-002 / CLM-007). resolveToolchain,
+          commandExecutor, and buildExecutorsForConfigErr are RETAINED (NOT deleted):
+          they have a SURVIVING production caller — the standalone `backstop code
+          check` subcommand (codeCheckCmd -> check.Run -> buildExecutorsForConfigErr ->
+          resolveToolchain), which this spec does NOT retire. The delete set must be
+          internally consistent (CLM-030/CLM-031): deleting these would strand the
+          subcommand. This is the GATE Step-2 cutover, NOT a pkg/check teardown.
+          Same-file as TASK-023 (registry.go) so chained after it for single-owner
+          edits.
+        files:
+          - pkg/check/registry.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-019
+          - TASK-020
+          - TASK-021
+          - TASK-023
+      - id: TASK-025
+        type: refactor
+        title: "Confirm the code check subcommand path resolves declared-only after the cutover"
+        description: |
+          GATED ON THE GOLDEN PROOF (depends transitively on TASK-019). Ensure the
+          standalone `backstop code check` subcommand (codeCheckCmd, code_check.go —
+          a DISTINCT product surface with the --file runtime-hook mode) keeps working
+          after the cutover (REQ-002 internal-consistency / CLM-030/CLM-031). Its run
+          path (resolveCheckRun -> check.Run -> buildExecutorsForConfigErr ->
+          resolveToolchain) now constructs lint/build/test commandExecutors ONLY from
+          DECLARED toolchain entries (no baked go/ts stack) via the reduced
+          resolveToolchain (TASK-024). This spec retires gate Step 2, NOT the
+          subcommand. Make only the adjustments needed so the subcommand still
+          resolves and runs over a DECLARED toolchain after builtinToolchain's
+          deletion; preserve excludeDedicatedStepRules in the subcommand's pack
+          dispatch (CLM-025). Depends on the deletions (TASK-022..024) so it targets
+          the final symbol set.
+        files:
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-019
+          - TASK-020
+          - TASK-021
+          - TASK-022
+          - TASK-023
+          - TASK-024
+      - id: TASK-026
+        type: verification
+        title: "Verify the deletion: bespoke absent, subcommand survives, traceability + seams intact (code check)"
+        description: |
+          Run `backstop code check` over the post-deletion tree. Confirm: realCodeChecker
+          (cmd/backstop) and builtinToolchain (pkg/check) non-test source grep to zero;
+          resolveToolchain/commandExecutor/buildExecutorsForConfigErr retained and
+          reduced to declared-only; the deletion-gate guard is now GREEN
+          (bespoke-absent AND golden-equivalence present-and-green); the code check
+          subcommand still resolves over a declared toolchain with no deleted symbol
+          left with a surviving caller; the bridge still dispatches toolchain passes;
+          and substantiveness/contracts still run and pass (excludeDedicatedStepRules
+          preserved). The seams from Phase 5 (coverage fed, build ProjectWide
+          preserved) remain intact across the deletion.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/check/registry.go
+          - cmd/backstop/code_check.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-012
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-030
+          - CLM-031
+        depends_on:
+          - TASK-022
+          - TASK-023
+          - TASK-024
+          - TASK-025
+
+  - id: phase-7
+    name: "Phase 7: FINAL FULL GATE — backstop gate + backstop artifact validate"
+    tasks:
+      - id: TASK-027
+        type: verification
+        title: "Final full gate: backstop gate + backstop artifact validate over the whole cutover"
+        description: |
+          Final comprehensive verification of the whole keystone cutover. Run
+          `backstop gate` (the full kill chain — artifact validation, code check, test
+          verification, substantiveness, coverage, contracts) over the .go changes
+          across cmd/backstop, pkg/check, pkg/gate, and pkg/pack/engine, and
+          `backstop artifact validate` over this plan, the spec, and the new
+          typescript-toolchain / golden-equivalence fixture artifacts. Confirms the
+          end state:
+            - lint/build/test run SOLELY through dispatchPackEngines as
+              <lang>-toolchain pack passes; no realCodeChecker / StepCodeCheck Step-2
+              entry; no baked builtinToolchain go/ts stack (CLM-001..008).
+            - the golden-equivalence proof gated the deletion; the deletion-gate guard
+              holds (CLM-009..012).
+            - the bridge is language-agnostic and a new language needs no core change
+              (CLM-013..015).
+            - the 0-toolchain-pack WARN-ONLY loud state is LIVE (backstop-core's own
+              dogfood install lacks go-toolchain) — non-failing "warning", StepsWarned,
+              loud distinct report, never vacuous green (CLM-016..022).
+            - SPEC-034's deletion is absorbed not Go-only, traceability not regressed
+              (CLM-023..027).
+            - both transitional seams hold: coverage still fed/passing, build break in
+              an unchanged file still REDs a diff-scoped gate (CLM-028/CLM-029).
+            - the delete set is internally consistent: code check subcommand survives,
+              no deleted symbol has a surviving caller (CLM-030/CLM-031).
+          NOTE the dogfood install lacks go-toolchain, so this gate run itself hits
+          the WARN-ONLY loud state (expected, non-failing). This is the only phase
+          that runs the full gate.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+          - pkg/check/registry.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-009
+          - CLM-016
+          - CLM-022
+          - CLM-028
+          - CLM-029
+          - CLM-031
+        depends_on:
+          - TASK-022
+          - TASK-023
+          - TASK-024
+          - TASK-025
+          - TASK-026
