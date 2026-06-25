@@ -69,14 +69,12 @@ func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: scope-test\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
+		t.Fatalf("mkdir .backstop: %v", err)
 	}
-	manifest := `{"rules": [{"extensions": [".go"], "check_types": ["lint", "build", "test", "semgrep"]}]}`
-	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
+	// No .manifest.json: .go files route via the built-in default manifest (the
+	// reader was deleted in SPEC-039). The property under test — the bespoke Go
+	// toolchain is not invoked through check.Run — is independent of routing.
 	// Two scoped source files in the same package.
 	files := []string{"a.go", "b.go"}
 	for _, f := range files {
