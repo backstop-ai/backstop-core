@@ -8,6 +8,24 @@ description: >
   their output to SARIF. Mechanism only — it carries NO coding-standards rules
   (those live in the separate, opinionated backstop-go-pack). Convention:
   one <lang>-toolchain pack bundles a language's whole native toolchain.
+engines:
+  # Coverage: the FIRST coverage PRODUCER (SPEC-042 REQ-007). Declared via the
+  # pack's engines: block (the SPEC-035 declared substrate) — NOT a baked
+  # DefaultRegistry binding. gate_type coverage routes its convert output to the
+  # NEW coverage-records channel (check.ParsePackCoverage), DISTINCT from the SARIF
+  # findings channel. The command runs `go test -coverprofile`; the pack-relative
+  # convert (scripts/coverage-to-records.sh) turns the Go coverage profile into
+  # per-file coverage-records JSON stamped metric "statement" (Go's -coverprofile
+  # granularity). All Go-toolchain coverage knowledge lives in this pack DATA; the
+  # dispatch stays tool/language-blind.
+  go-coverage:
+    command: go test -coverprofile=cover.out ./...
+    input_mode: none
+    convert: scripts/coverage-to-records.sh
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    gate_type: coverage
 content:
   ruleset:
     version: 1.0.0
@@ -35,3 +53,10 @@ content:
         risk_class: correctness
         category: toolchain
         justification: Native Go test pass; test failures normalized to SARIF.
+      # Coverage: the coverage PRODUCER rule binding the go-coverage engine
+      # (SPEC-042 REQ-007/CLM-020). Routes to the coverage-records channel.
+      - id: go-coverage
+        engine: go-coverage
+        risk_class: correctness
+        category: toolchain
+        justification: Native Go coverage pass; profile normalized to per-file coverage records.

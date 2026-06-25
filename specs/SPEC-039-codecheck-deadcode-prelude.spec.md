@@ -150,12 +150,17 @@ claims:
   - id: CLM-005
     requirement: REQ-007
     text: >
-      BEHAVIOR-PRESERVING: a code-check run with non-Go files in scope yields the same
-      violation set and pass/fail before and after the deletion — the routed
-      `CheckTypeFindings` pass was already a no-op (`Skipped`, "no executor configured",
-      zero violations) because no `pkg/check` executor exists for findings.
+      BEHAVIOR-PRESERVING (routing level): a non-Go file in scope contributes no
+      executable pass before or after the catch-all deletion. The deleted `default` arm
+      routed non-Go files to `CheckTypeFindings`, for which no `pkg/check` executor is
+      ever built (findings runs on the pack engine, not through any `pkg/check`
+      executor) — so it was always a no-op; post-deletion the non-Go file routes to the
+      EMPTY slice. Either way it adds zero violations and cannot flip pass/fail. Proven
+      at the route-table level over `defaultManifest()` (`README.md`, `config.yml`,
+      `notes.txt` → empty), the production routing path, since the standalone
+      executor-set behavior is independently pinned by CLM-006.
     tests:
-      - TestCodeCheck_NonGoFile_GateResultUnchangedAfterCatchAllRemoval
+      - TestRouteFileDefaults_NonGoFileRoutesToNothing
   - id: CLM-006
     requirement: REQ-007
     text: >
@@ -230,14 +235,21 @@ claims:
   - id: CLM-020
     requirement: REQ-010
     text: >
-      CONFIGERROR PRODUCTION TRIGGERS PRESERVED: deleting the manifest-path
-      zero-routable `ConfigError` emission does NOT remove the `ConfigError` TYPE
-      (pkg/check/errors.go) nor any `.manifest.json`-INDEPENDENT trigger — the
-      missing-toolchain `ConfigError` (registry.go) still fires for a declared language
-      with no toolchain, on both the standalone code-check and gate paths, as an exit-2
-      fail-loud (never a silent green).
+      CONFIGERROR TYPE PRESERVED, NO PHANTOM TRIGGER REINTRODUCED: deleting the
+      manifest-path zero-routable `ConfigError` emission does NOT remove the
+      `ConfigError` TYPE (pkg/check/errors.go). After the BUNDLE-011 cutover deleted
+      the baked `builtinToolchain` stacks, a declared language with NO
+      `enforcement.toolchain` no longer has a registry-path toolchain to resolve, so
+      there is nothing to enforce: the standalone code-check subcommand resolves to an
+      EMPTY executor set and runs CLEAN (exit 0) — it does NOT emit a missing-toolchain
+      `ConfigError`. Enforcement for such a language is opt-in via a `<lang>-toolchain`
+      pack through the engine path; a project with none hits the WARN-ONLY
+      no-toolchain-pack loud state on the gate, not an exit-2. This REPLACES the
+      pre-cutover "missing toolchain = ConfigError" invariant the deleted builtin stack
+      carried; the deletion of the manifest-path emission is still behavior-preserving
+      because no surviving production path emits a `.manifest.json`-tied `ConfigError`.
     tests:
-      - TestCodeCheck_MissingToolchain_StillConfigErrorAfterManifestBranchRemoval
+      - TestCodeCheck_MissingToolchain_NoDeclaredToolchainIsCleanNotConfigError
   - id: CLM-014
     requirement: REQ-010
     text: >

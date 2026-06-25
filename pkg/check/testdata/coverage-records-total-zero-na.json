@@ -1,0 +1,3 @@
+[
+  {"path": "pkg/svc/iface.go", "covered": 0, "total": 0, "measured": true, "excluded": false, "metric": "statement"}
+]

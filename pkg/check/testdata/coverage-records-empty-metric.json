@@ -1,0 +1,3 @@
+[
+  {"path": "pkg/svc/handler.go", "covered": 80, "total": 100, "measured": true, "excluded": false, "metric": ""}
+]

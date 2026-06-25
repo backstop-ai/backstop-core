@@ -1,0 +1,4 @@
+[
+  {"path": "pkg/svc/handler.go", "covered": 92, "total": 100, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/svc/shortfall.go", "covered": 30, "total": 100, "measured": true, "excluded": false, "metric": "statement"}
+]

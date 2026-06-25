@@ -292,6 +292,135 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 	return violations, nil
 }
 
+// dispatchPackCoverage is the coverage-records dispatch channel (SPEC-042
+// REQ-001/REQ-007) — the SECOND normalized output type, DISTINCT from the SARIF
+// findings channel dispatchPackEngines/runFindingsEngine drive. For each
+// installed-pack engine whose binding declares gate_type coverage
+// (engine.GateTypeCoverage), it runs the engine command via the runner, pipes the
+// engine's stdout through the pack's declared convert via resolveSandboxedRunStdout
+// (the SAME sandboxed-convert seam runFindingsEngine reuses), and parses the
+// normalized output via check.ParsePackCoverage — TERMINATING in the coverage-records
+// parser, NOT ParsePackFindings (CLM-001/CLM-002).
+//
+// Routing is PURELY on the binding's DECLARED GateType — no command-string sniff,
+// no pack-name check, no engine-name check — so a lint/build/test/findings engine is
+// never parsed as coverage-records (CLM-003..CLM-006) and a coverage engine is never
+// parsed as SARIF (CLM-002). The records are a DISTINCT typed output
+// ([]check.CoverageRecord), never coverage tunneled through SARIF properties: the
+// parser rejects a SARIF/object document (CLM-007). The path bakes NO Go-coverage
+// profile knowledge of any kind — that lives in the pack DATA (binding command +
+// convert script), keeping the dispatch tool/language-blind (CLM-022).
+//
+// The scope parameter is accepted for signature parity with dispatchPackEngines
+// (and so a future scoped coverage pass can shape its own target); coverage engines
+// are project-wide toolchain passes (ScopeKindProjectWide + ProjectTarget), so the
+// engine shapes its OWN target and the project root is never appended.
+func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
+	_ = projectRoot
+	_ = scope
+	records := []check.CoverageRecord{}
+	for _, manifest := range packs {
+		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
+
+		grouped := map[string][]pack.Rule{}
+		order := []string{}
+		for _, rule := range manifest.Content.Ruleset.Rules {
+			if _, seen := grouped[rule.Engine]; !seen {
+				order = append(order, rule.Engine)
+			}
+			grouped[rule.Engine] = append(grouped[rule.Engine], rule)
+		}
+
+		registry := resolveEngineRegistry(manifest)
+		for _, engineName := range order {
+			binding, lookupErr := registry.Lookup(engineName)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+			}
+			// Route SOLELY on the declared GateType. A non-coverage engine is skipped
+			// here — it belongs to the SARIF findings channel (dispatchPackEngines),
+			// never the records channel.
+			if binding.GateType != engine.GateTypeCoverage {
+				continue
+			}
+			rules := grouped[engineName]
+			recs, err := runCoverageEngine(manifest, packRoot, binding, rules, runner)
+			if err != nil {
+				return nil, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+			}
+			records = append(records, recs...)
+		}
+	}
+	return records, nil
+}
+
+// configErrorPassthrough returns a dispatch trust-gate error UNCHANGED, preserving
+// its concrete *check.ConfigError type so the exit-code-2 type assertion downstream
+// (code_check.go) still fires. It exists so the trust gate's already-contextualized
+// ConfigError is passed through verbatim rather than %w-wrapped (which would change
+// the concrete type and silently demote the exit code). The error is fully formed by
+// checkEngineToolAllowed (it names the tool + pack), so no added context is warranted.
+func configErrorPassthrough(err error) error {
+	return err
+}
+
+// runCoverageEngine runs one coverage engine: the trust gate, gather inputs, run the
+// command via the clean-stdout runner, pipe through the pack's declared convert via
+// resolveSandboxedRunStdout, and parse the normalized coverage-records JSON via
+// check.ParsePackCoverage (SPEC-042 REQ-001/REQ-007). It is the coverage analogue of
+// runFindingsEngine's run->convert step, terminating in the records parser instead of
+// ParsePackFindings. A coverage engine declaring no convert is a broken-pack error:
+// the engine's native profile is not coverage-records, so a convert is required to
+// normalize it.
+func runCoverageEngine(manifest *pack.Manifest, packRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
+	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
+	if err != nil {
+		return nil, fmt.Errorf("gathering coverage engine inputs for pack %s: %w", manifest.NormalizedName, err)
+	}
+
+	// The SAME dispatch trust gate the findings path runs (SPEC-035 REQ-002): an
+	// un-allowlisted/unpinned provisioned tool's command is never handed to the runner.
+	// The gate returns a *check.ConfigError (exit 2) that MUST pass through with its
+	// concrete type intact (code_check.go type-asserts it), so it is returned UNWRAPPED
+	// — never %w-wrapped, which would defeat the exit-code type assertion.
+	if gateErr := checkEngineToolAllowed(manifest, binding); gateErr != nil {
+		return nil, configErrorPassthrough(gateErr)
+	}
+
+	cmdName, cmdArgs := splitCommand(binding.Command)
+	cmdArgs = append(cmdArgs, inputs...)
+	// A coverage engine is a project-wide toolchain pass: it shapes its OWN target
+	// (ProjectTarget) and the project root is never bolted on, exactly as the
+	// project-wide branch of runFindingsEngine does.
+	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+		cmdArgs = append(cmdArgs, binding.ProjectTarget)
+	}
+
+	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
+	// The engine's stdout is its raw profile; a coverage tool may exit non-zero when
+	// tests fail yet still emit a usable profile, so runErr is not fatal on its own —
+	// the convert+parser contract is what matters. A convert failure below fails loud.
+	_ = runErr
+
+	if binding.Convert == "" {
+		return nil, fmt.Errorf("broken pack %s: coverage engine %q declares no convert — its native profile is not coverage-records and must be normalized", manifest.NormalizedName, binding.Command)
+	}
+	convertPath := filepath.Join(packRoot, filepath.FromSlash(binding.Convert))
+	if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
+		return nil, fmt.Errorf("broken pack %s: missing coverage convert script %s", manifest.NormalizedName, convertPath)
+	}
+	normalized, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, stdout)
+	if convErr != nil {
+		return nil, fmt.Errorf("pack %s: coverage convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
+	}
+
+	records, parseErr := check.ParsePackCoverage(normalized)
+	if parseErr != nil {
+		return nil, fmt.Errorf("pack %s coverage engine %s: convert/parse to coverage-records failed: %w", manifest.NormalizedName, binding.Command, parseErr)
+	}
+	return records, nil
+}
+
 // gatherEngineInputs shapes the engine invocation's input arguments from the
 // declared input_mode (REQ-020/REQ-021). Inputs resolve relative to the
 // per-engine pack directory; a missing declared rule path is a fail-loud

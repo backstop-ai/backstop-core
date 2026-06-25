@@ -55,7 +55,7 @@ func TestGoldenEquivalence_LegacyViolationSetCaptured(t *testing.T) {
 	m := goToolchainManifest(t)
 	stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: capturedToolBytes(t)}
-	vs, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("re-deriving legacy normalization: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGoldenEquivalence_PackEnginePathReproducesGoldenSet(t *testing.T) {
 
 	// The REAL, un-stubbed dispatchPackEngines over the INSTALLED go-toolchain
 	// pack on disk.
-	vs, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("pack-engine dispatch: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestGoldenEquivalence_RealInstalledPackThroughUnstubbedDispatch(t *testing.
 	m := goToolchainManifest(t)
 	runner := &fixtureRunner{byCmd: capturedToolBytes(t)}
 
-	vs, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("un-stubbed dispatch: %v", err)
 	}

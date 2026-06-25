@@ -46,7 +46,10 @@ func TestAbsorbSpec034_BridgeStillDispatchesToolchainPasses(t *testing.T) {
 		"go test":       readFixture(t, "go-test-failures.txt"),
 		"golangci-lint": readFixture(t, "golangci-v2.sarif"),
 	}}
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	// Partition dedicated-step gate-types out of the SARIF findings dispatch as the
+	// production gate does — the SPEC-042 go-coverage engine routes to the
+	// coverage-records channel, not SARIF.
+	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("the bridge must still dispatch toolchain passes after the deletion (CLM-024): %v", err)
 	}

@@ -48,7 +48,11 @@ func TestToolchainPack_LintBuildTestAsLayer0EnginePasses(t *testing.T) {
 		"golangci-lint": readFixture(t, "golangci-v2.sarif"),
 	}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	// Partition dedicated-step gate-types (coverage, substantiveness, contracts) out
+	// of the SARIF findings dispatch exactly as the production gate does — the
+	// SPEC-042 go-coverage engine routes to the coverage-records channel, not SARIF,
+	// so it must not be fed to dispatchPackEngines.
+	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines over the toolchain pack: %v", err)
 	}
