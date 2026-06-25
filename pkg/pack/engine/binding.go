@@ -292,6 +292,12 @@ func DefaultRegistry() Registry {
 			Convert:       "scripts/build-to-sarif.sh",
 			CrashGuard:    true,
 			Category:      EngineCategoryMechanism,
+			// GateTypeBuild is the build-stage identity the SPEC-040 transitional
+			// build-exemption seam keys on (CLM-029): engine-path build violations
+			// carry gate.Violation.ProjectWide so an unchanged-file build break is
+			// not silently diff-scope-filtered. Tool-neutral — keyed off the
+			// kill-chain STAGE, never a "go build" name sniff.
+			GateType: GateTypeBuild,
 		},
 		"go-test": {
 			Command:       "go test",
@@ -301,6 +307,7 @@ func DefaultRegistry() Registry {
 			Convert:       "scripts/test-to-sarif.sh",
 			CrashGuard:    true,
 			Category:      EngineCategoryMechanism,
+			GateType:      GateTypeTest,
 			// Runs per Go package: the file-mode package scoping (`code check
 			// --file`) keys off THIS flag, not a "go test" name sniff (REQ-006b/
 			// CLM-024). go-build is project-wide too but does NOT set it.

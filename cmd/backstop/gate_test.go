@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/gate"
 )
 
@@ -627,103 +626,5 @@ func TestGate_InvalidBaselineTTLConfig_ReturnsConfigExit(t *testing.T) {
 	}
 	if !strings.Contains(exitErr.Message, "baseline_ttl") {
 		t.Fatalf("expected baseline_ttl parse message, got %q", exitErr.Message)
-	}
-}
-
-// zeroRoutableChecker is a CodeChecker double standing in for realCodeChecker
-// when check.Run surfaces a zero-routable LoadManifest config error: runCheck
-// wraps it in gate.ConfigError (gate.go), which step_delegate must map to a
-// ConfigErr step result and the gate to exit 2.
-type zeroRoutableChecker struct{}
-
-func (zeroRoutableChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
-	return nil, &gate.ConfigError{Err: &check.ConfigError{Message: "manifest files in .backstop/rules yield no routable rules"}}
-}
-
-// TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit pins the
-// fail-loud boundary for REQ-002 on the gate path: a zero-routable
-// LoadManifest error wrapped in gate.ConfigError must surface as an exit-2
-// config error from gate.Run — a config-error step, not a violations result
-// and not a green pass.
-func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToGateExit(t *testing.T) {
-	scope := &gate.GateScope{Mode: gate.GateScopeModeAll}
-	step := gate.StepCodeCheckScopedFunc(zeroRoutableChecker{}, scope)
-	g := gate.New(gate.WithSteps([]gate.StepFunc{step}), gate.WithScope(scope))
-
-	result, exitCode := g.Run(context.Background())
-	if exitCode != 2 {
-		t.Fatalf("gate exit code = %d, want 2 (config error)", exitCode)
-	}
-	if len(result.Steps) != 1 {
-		t.Fatalf("got %d steps, want 1", len(result.Steps))
-	}
-	stepResult := result.Steps[0]
-	if !stepResult.ConfigErr {
-		t.Error("step ConfigErr = false, want true")
-	}
-	if stepResult.Status == "pass" {
-		t.Error("step status is pass; a zero-routable manifest must never read as green")
-	}
-	if result.Pass {
-		t.Error("gate result Pass = true, want false")
-	}
-}
-
-// TestRunCheckOptions_NoManifestDir exercises (*realCodeChecker).runCheck — the
-// gate's check.Options construction site that previously set
-// ManifestDir: filepath.Join(backstopDir, "rules"). After SPEC-030 (and the
-// ISSUE-018 in-process semgrep removal) the constructed Options carry no
-// compiled-standards manifest directory: with zero installed packs and a
-// populated .backstop/rules/ (a leftover compiled STD file), no recorded tool
-// invocation is fed a --config path under .backstop/rules/. The surviving
-// CLM-006 property is asserted on the recorded runner args (no standards-dir
-// rule-config is wired in), NOT on an in-process semgrep invocation — there is
-// no in-process semgrep pass under the thin-executor strategy. (CLM-006)
-func TestRunCheckOptions_NoManifestDir(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: gate-opts\nlanguage: go\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// Plant a leftover compiled-standards file to prove it is never a --config.
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write leftover: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-	restore := chdirTemp(t, dir)
-	defer restore()
-
-	runner := &recordingRunner{}
-	checker := &realCodeChecker{
-		projectRoot:   dir,
-		runnerForTest: runner,
-	}
-
-	// Precondition: the project's .backstop directory is valid, so runCheck's
-	// Options construction (the subject under test) is exercised rather than
-	// short-circuited by a missing-.backstop error.
-	if err := check.ValidateBackstopDir(dir); err != nil {
-		t.Fatalf("check.ValidateBackstopDir: %v", err)
-	}
-
-	if _, err := checker.runCheck(context.Background(), check.ScopeModeFile, []string{filepath.Join(dir, "main.go")}); err != nil {
-		t.Fatalf("runCheck: %v", err)
-	}
-
-	// No recorded tool invocation may be fed a --config path under
-	// .backstop/rules/: runCheck's Options wire no compiled-standards directory as
-	// a rule-config source. (There is no in-process semgrep pass to assert on.)
-	rulesPrefix := filepath.Join(".backstop", "rules")
-	for _, c := range runner.calls {
-		for i := 0; i+1 < len(c.args); i++ {
-			if c.args[i] == "--config" && strings.Contains(c.args[i+1], rulesPrefix) {
-				t.Errorf("a tool was invoked with --config %q under .backstop/rules; runCheck Options must wire no compiled-standards directory", c.args[i+1])
-			}
-		}
 	}
 }

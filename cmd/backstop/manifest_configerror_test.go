@@ -2,14 +2,11 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/gate"
 )
 
 // SPEC-039 REQ-010 PRESERVATION tests. These guard that deleting the
@@ -41,67 +38,32 @@ func missingToolchainProjectNoManifest(t *testing.T) string {
 	return dir
 }
 
-// TestCodeCheck_MissingToolchain_StillConfigErrorAfterManifestBranchRemoval pins
-// CLM-020: a declared language with no toolchain still emits a *ConfigError and
-// exits 2 on BOTH the standalone code-check and gate paths, with NO
-// .manifest.json present — proving the trigger is the registry path
-// (resolveToolchain), independent of the deleted manifest reader.
-func TestCodeCheck_MissingToolchain_StillConfigErrorAfterManifestBranchRemoval(t *testing.T) {
-	// ---- Standalone path: backstop code check --all exits 2. ----
-	t.Run("standalone_code_check", func(t *testing.T) {
-		dir := missingToolchainProjectNoManifest(t)
-		restore := chdirTemp(t, dir)
-		defer restore()
+// TestCodeCheck_MissingToolchain_NoDeclaredToolchainIsCleanNotConfigError pins
+// the post-SPEC-040 standalone-subcommand behavior: a declared language with NO
+// enforcement.toolchain (and no baked builtin stack — the baked stacks are
+// DELETED) resolves to an EMPTY executor set and runs CLEAN (exit 0), NOT an
+// exit-2 config error. Enforcement is opt-in: lint/build/test come from a
+// <lang>-toolchain pack through the engine path, and a project with none hits the
+// no-toolchain-pack WARN-ONLY loud state on the gate — the standalone code check
+// subcommand simply has no native passes to run. This REPLACES the pre-cutover
+// "missing toolchain = config error" invariant the deleted builtin stack carried.
+func TestCodeCheck_MissingToolchain_NoDeclaredToolchainIsCleanNotConfigError(t *testing.T) {
+	dir := missingToolchainProjectNoManifest(t)
+	restore := chdirTemp(t, dir)
+	defer restore()
 
-		origRun := checkRunFn
-		defer func() { checkRunFn = origRun }()
-		checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-			return check.RunWith(ctx, check.RunOptions{Options: opts})
-		}
+	origRun := checkRunFn
+	defer func() { checkRunFn = origRun }()
+	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
+		return check.RunWith(ctx, check.RunOptions{Options: opts})
+	}
 
-		root := NewRootCommand()
-		root.SetArgs([]string{"code", "check", "--all"})
-		err := root.Execute()
-		if err == nil {
-			t.Fatal("code check --all returned nil for a declared language with no toolchain (no .manifest.json); want exit-2 config error")
-		}
-		var exitErr *ExitCodeError
-		if !errors.As(err, &exitErr) {
-			t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
-		}
-		if exitErr.Code != ExitConfigError {
-			t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
-		}
-		if !strings.Contains(exitErr.Message, "toolchain") {
-			t.Errorf("message %q should name the missing toolchain (registry-path trigger)", exitErr.Message)
-		}
-	})
-
-	// ---- Gate path: step 2 (code check) yields a config-error step, exit 2. ----
-	t.Run("gate_step_code_check", func(t *testing.T) {
-		dir := missingToolchainProjectNoManifest(t)
-		restore := chdirTemp(t, dir)
-		defer restore()
-
-		checker := &realCodeChecker{projectRoot: dir}
-		scope := &gate.GateScope{Mode: gate.GateScopeModeAll}
-		step := gate.StepCodeCheckScopedFunc(checker, scope)
-		g := gate.New(gate.WithSteps([]gate.StepFunc{step}), gate.WithScope(scope))
-
-		result, exitCode := g.Run(context.Background())
-		if exitCode != 2 {
-			t.Fatalf("gate exit code = %d, want 2 (config error)", exitCode)
-		}
-		if len(result.Steps) != 1 {
-			t.Fatalf("got %d steps, want 1", len(result.Steps))
-		}
-		if !result.Steps[0].ConfigErr {
-			t.Error("step ConfigErr = false, want true (missing toolchain is a config error)")
-		}
-		if result.Pass {
-			t.Error("gate Pass = true; a missing toolchain must never read as green")
-		}
-	})
+	root := NewRootCommand()
+	root.SetArgs([]string{"code", "check", "--all"})
+	err := root.Execute()
+	if err != nil {
+		t.Fatalf("code check --all over a declared language with no toolchain must run clean (empty executor set, exit 0) after the baked-stack deletion; got error: %v", err)
+	}
 }
 
 // TestStandardScaffolder_Untouched pins CLM-018: the .standard.md scaffolder

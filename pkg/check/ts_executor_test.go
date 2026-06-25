@@ -1,31 +1,31 @@
 package check
 
 import (
-	"errors"
 	"testing"
 )
 
-// TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired pins CLM-004: the TS
-// test pass requires an explicitly declared enforcement.test_command. A
-// typescript stack with no test command must yield a *check.ConfigError
-// (errors.As) — exit 2, never a silent skip (constraint 1, no package.json
-// detection). The positive case (test_command present) constructs the test
-// executor successfully.
+// TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired pins the post-SPEC-040
+// TS posture: the baked TS builtin stack is DELETED, so an undeclared TS project
+// no longer carries a built-in test pass that would demand enforcement.test_command
+// — it resolves to an EMPTY executor set (the no-toolchain-pack baseline; the
+// typescript-toolchain PACK is the enforcement surface). A TS project that
+// DECLARES its toolchain still constructs working executors (the surviving code
+// check subcommand path).
 func TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired(t *testing.T) {
 	runner := &fakeRunner{}
 
-	// Negative: typescript, no enforcement.test_command.
+	// Post-cutover: typescript with no declared toolchain yields an EMPTY executor
+	// set (no baked stack), NOT a config error.
 	noCmdCfg := loadConfigFromYAML(t, tsNoTestCommandBackstopYML)
-	_, err := buildExecutorsForConfigErr(Options{Language: noCmdCfg.Language, Config: noCmdCfg}, runner)
-	if err == nil {
-		t.Fatal("typescript stack without test_command returned nil error; want a *check.ConfigError (exit 2), not a silent skip")
+	emptyExecs, err := buildExecutorsForConfigErr(Options{Language: noCmdCfg.Language, Config: noCmdCfg}, runner)
+	if err != nil {
+		t.Fatalf("an undeclared typescript project must resolve to an empty executor set, not error: %v", err)
 	}
-	var cfgErr *ConfigError
-	if !errors.As(err, &cfgErr) {
-		t.Fatalf("error %T (%v) is not a *check.ConfigError", err, err)
+	if len(emptyExecs) != 0 {
+		t.Fatalf("an undeclared typescript project must construct NO executors after the baked TS stack deletion, got %d", len(emptyExecs))
 	}
 
-	// Positive: typescript WITH enforcement.test_command.
+	// Positive: typescript WITH a declared toolchain.
 	cmdCfg := loadConfigFromYAML(t, tsBackstopYML)
 	execs, posErr := buildExecutorsForConfigErr(Options{Language: cmdCfg.Language, Config: cmdCfg}, runner)
 	if posErr != nil {

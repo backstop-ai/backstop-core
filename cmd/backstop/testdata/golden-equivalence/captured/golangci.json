@@ -1,0 +1,37 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": { "driver": { "name": "golangci-lint" } },
+      "results": [
+        {
+          "ruleId": "errcheck",
+          "level": "error",
+          "message": { "text": "Error return value is not checked" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "pkg/widget/widget.go" },
+                "region": { "startLine": 14 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ineffassign",
+          "level": "warning",
+          "message": { "text": "ineffectual assignment to count" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "pkg/gadget/gadget.go" },
+                "region": { "startLine": 8 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

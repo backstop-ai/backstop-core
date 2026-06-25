@@ -1,0 +1,10 @@
+=== RUN   TestWidgetFrobnicate
+--- FAIL: TestWidgetFrobnicate (0.00s)
+    widget_test.go:31: expected 5, got 7
+=== RUN   TestGadgetSpin
+--- FAIL: TestGadgetSpin (0.01s)
+    gadget_test.go:12: spin did not engage
+=== RUN   TestNoPos
+--- FAIL: TestNoPos (0.00s)
+FAIL
+FAIL	github.com/example/project/pkg/widget	0.123s

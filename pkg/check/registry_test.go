@@ -75,39 +75,52 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	defaultExec := buildExecutorsForConfig(Options{Language: ""}, runner)
 	assertGoStackConstructsNoExecutors(t, "language absent", defaultExec)
 
-	// TypeScript stack: distinct executor types from Go (generic commandExecutor
-	// bound to eslint/tsc/declared-test). Semgrep runs through the pack engine,
-	// so the registry constructs no semgrep executor.
-	tsExec := buildExecutorsForConfig(Options{
+	// TypeScript with NO declared toolchain: after the SPEC-040 cutover the baked
+	// builtin TS stack (eslint/tsc/regex-lines) is DELETED, so an undeclared TS
+	// project constructs NO executors (it now resolves a typescript-toolchain PACK
+	// through the engine path, or hits the no-toolchain-pack WARN state). It is no
+	// longer a baked stack.
+	tsUndeclared := buildExecutorsForConfig(Options{
+		Language: "typescript",
+		Config:   &config.Config{Language: "typescript"},
+	}, runner)
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
+		if _, ok := tsUndeclared[ct]; ok {
+			t.Errorf("undeclared TS %v executor = %T, want none (the baked TS stack is deleted)", ct, tsUndeclared[ct])
+		}
+	}
+
+	// TypeScript WITH a declared toolchain: the generic commandExecutor still
+	// builds from the DECLARED entries (the surviving code check subcommand path).
+	tsDeclared := buildExecutorsForConfig(Options{
 		Language: "typescript",
 		Config: &config.Config{
 			Language: "typescript",
 			Enforcement: config.Enforcement{
 				TestCommand: "vitest run",
+				Toolchain: map[string]config.ToolchainPass{
+					"lint":  {Command: "eslint --format json", Format: "eslint-json"},
+					"build": {Command: "tsc --noEmit", Format: "tsc"},
+				},
 			},
 		},
 	}, runner)
-	if _, ok := tsExec[CheckTypeLint].(*commandExecutor); !ok {
-		t.Errorf("TS lint executor type = %T, want *commandExecutor", tsExec[CheckTypeLint])
+	if _, ok := tsDeclared[CheckTypeLint].(*commandExecutor); !ok {
+		t.Errorf("declared TS lint executor type = %T, want *commandExecutor", tsDeclared[CheckTypeLint])
 	}
-	if _, ok := tsExec[CheckTypeBuild].(*commandExecutor); !ok {
-		t.Errorf("TS build executor type = %T, want *commandExecutor", tsExec[CheckTypeBuild])
+	if _, ok := tsDeclared[CheckTypeBuild].(*commandExecutor); !ok {
+		t.Errorf("declared TS build executor type = %T, want *commandExecutor", tsDeclared[CheckTypeBuild])
 	}
-	if _, ok := tsExec[CheckTypeTest].(*commandExecutor); !ok {
-		t.Errorf("TS test executor type = %T, want *commandExecutor", tsExec[CheckTypeTest])
+	if _, ok := tsDeclared[CheckTypeTest].(*commandExecutor); !ok {
+		t.Errorf("declared TS test executor type = %T, want *commandExecutor", tsDeclared[CheckTypeTest])
 	}
-	if _, ok := tsExec[CheckTypeFindings]; ok {
-		t.Errorf("TS stack must construct no semgrep executor (it runs through the pack engine), got %T", tsExec[CheckTypeFindings])
-	}
-
-	// The TS lint command must be eslint-derived, distinct from golangci-lint.
-	tsLint, _ := tsExec[CheckTypeLint].(*commandExecutor)
+	tsLint, _ := tsDeclared[CheckTypeLint].(*commandExecutor)
 	if tsLint != nil && !strings.HasPrefix(tsLint.command, "eslint") {
-		t.Errorf("TS lint command = %q, want an eslint command", tsLint.command)
+		t.Errorf("declared TS lint command = %q, want an eslint command", tsLint.command)
 	}
-	tsBuild, _ := tsExec[CheckTypeBuild].(*commandExecutor)
+	tsBuild, _ := tsDeclared[CheckTypeBuild].(*commandExecutor)
 	if tsBuild != nil && !strings.Contains(tsBuild.command, "tsc") {
-		t.Errorf("TS build command = %q, want a tsc command", tsBuild.command)
+		t.Errorf("declared TS build command = %q, want a tsc command", tsBuild.command)
 	}
 }
 

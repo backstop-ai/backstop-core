@@ -243,11 +243,18 @@ func gateLanguage(projectRoot string) string {
 	return cfg.Language
 }
 
-// nativeToolchainPackName is the on-disk name of the reusable Go
-// native-toolchain MECHANISM pack (SPEC-034 REQ-007) the bridge dispatches. It
-// is a function (not a package-level var/const) to keep the bridge free of
-// package-level mutable state.
-func nativeToolchainPackName() string { return "backstop/go-toolchain" }
+// toolchainPackName is the on-disk name of the reusable <lang>-toolchain
+// MECHANISM pack the bridge dispatches, DERIVED from the project's declared
+// language (SPEC-040 REQ-004/REQ-008/CLM-014): `go` -> `backstop/go-toolchain`,
+// `typescript` -> `backstop/typescript-toolchain`, etc. The cutover machinery is
+// LANGUAGE-AGNOSTIC — backstop bakes no per-language opinion here; the name is a
+// pure function of the declared language, so a new language needs only a new
+// <lang>-toolchain pack, no core code branch (CLM-015). It is a function (not a
+// package-level var/const) to keep the bridge free of package-level mutable
+// state.
+func toolchainPackName(language string) string {
+	return "backstop/" + language + "-toolchain"
+}
 
 // gateConfig loads the project's backstop.yml for the gate wiring, returning a
 // zero-value-safe config. An unreadable config yields a minimal config defaulting
@@ -409,29 +416,92 @@ func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, st
 // path is still live in phase 1 — no enforcement lapse), while a PRESENT but
 // malformed pack fails loud through the dispatch step like any broken pack.
 func loadBridgedToolchainPacks(projectRoot, language string, declared []*pack.Manifest) ([]*pack.Manifest, error) {
-	if language != "" && language != "go" {
+	// LANGUAGE-AGNOSTIC resolution (SPEC-040 REQ-004/REQ-008/CLM-014): the
+	// on-disk pack name is DERIVED from the project's declared language, so a
+	// non-Go language resolves its OWN <lang>-toolchain pack. The go-only
+	// short-circuit is GONE (Sharp Edge 7). An empty language has no toolchain
+	// convention to resolve against, so it yields no bridged pack — which now
+	// feeds the no-toolchain-pack WARN-ONLY loud state, not a baked fallback.
+	if language == "" {
 		return nil, nil
 	}
-	// Dedupe: when the native toolchain pack is ALSO a declared+locked project
-	// pack (as it is when backstop-core dogfoods it), the existing pack dispatch
+	packName := toolchainPackName(language)
+	// Dedupe: when the <lang>-toolchain pack is ALSO a declared+locked project
+	// pack (as it is when a project dogfoods it), the existing pack dispatch
 	// already runs it — the bridge must not re-add it and double-run lint/build/
-	// test. The bridge's value is dispatching the native pack even when a Go
+	// test. The bridge's value is dispatching the toolchain pack even when a
 	// project has NOT declared it; when it is declared, dispatch already covers it.
 	for _, m := range declared {
-		if m.NormalizedName == strings.ToLower(nativeToolchainPackName()) {
+		if m.NormalizedName == strings.ToLower(packName) {
 			return nil, nil
 		}
 	}
-	packPath := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(nativeToolchainPackName()))
+	packPath := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(packName))
 	info, statErr := os.Stat(packPath)
 	if statErr != nil || !info.IsDir() {
 		return nil, nil
 	}
 	manifest, parseErr := pack.ParseManifestFile(filepath.Join(packPath, "pack.yml"))
 	if parseErr != nil {
-		return nil, fmt.Errorf("parsing native toolchain pack %s: %w", nativeToolchainPackName(), parseErr)
+		return nil, fmt.Errorf("parsing toolchain pack %s: %w", packName, parseErr)
 	}
 	return []*pack.Manifest{manifest}, nil
+}
+
+// toolchainEnforcementStepName is the stable step name for the no-toolchain-pack
+// WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006). It is a function (not a
+// package-level var/const) to keep the file free of package-level mutable state.
+func toolchainEnforcementStepName() string { return "toolchain_enforcement" }
+
+// noToolchainPackMessage is the stable, recognizable loud message the
+// no-toolchain-pack WARN-ONLY state renders on the gate's human report surface
+// and reflects in the machine summary (SPEC-040 REQ-006). It must never be
+// collapsed into a normal green — "nothing ran" must be impossible to mistake
+// for "everything passed."
+func noToolchainPackMessage() string { return "enforcement not configured (0 toolchain packs)" }
+
+// isToolchainPack reports whether a manifest is a <lang>-toolchain pack — the
+// convention is a normalized name ending in "-toolchain" (backstop/go-toolchain,
+// backstop/typescript-toolchain, …). Routing is by the toolchain-pack naming
+// convention, not a hardcoded pack name, so any language's toolchain pack counts.
+func isToolchainPack(m *pack.Manifest) bool {
+	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
+}
+
+// countToolchainPacks counts the <lang>-toolchain packs in effect for the gate:
+// every bridged pack (the bridge only ever resolves a toolchain pack) plus every
+// DECLARED pack that is a toolchain pack by convention. It is the signal the
+// no-toolchain-pack WARN-ONLY loud state keys on (SPEC-040 REQ-005/REQ-006).
+func countToolchainPacks(bridged, declared []*pack.Manifest) int {
+	n := len(bridged)
+	for _, m := range declared {
+		if isToolchainPack(m) {
+			n++
+		}
+	}
+	return n
+}
+
+// toolchainEnforcementStatus returns the no-toolchain-pack WARN-ONLY loud
+// StepResult and true when ZERO <lang>-toolchain packs are in effect (none
+// bridged, none declared) — the anti-vacuous-green guardrail (SPEC-040
+// REQ-005/REQ-006, Sharp Edge 3). The step is a NON-FAILING "warning" carrying
+// the stable loud message in Reason, counted in GateResult.StepsWarned and
+// rendered on the human report surface; gate.Pass stays true and exit code stays
+// 0. When at least one toolchain pack IS in effect it returns (_, false): the
+// toolchain passes run through dispatchPackEngines and produce their own normal
+// pass/fail, so no warn state is emitted. Reusing the SPEC-036
+// "warning"/StepsWarned mechanism — no new status vocabulary is invented.
+func toolchainEnforcementStatus(bridged, declared []*pack.Manifest) (gate.StepResult, bool) {
+	if countToolchainPacks(bridged, declared) > 0 {
+		return gate.StepResult{}, false
+	}
+	return gate.StepResult{
+		StepName:   toolchainEnforcementStepName(),
+		Status:     "warning",
+		Reason:     noToolchainPackMessage(),
+		Violations: []gate.Violation{},
+	}, true
 }
 
 func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFunc {
@@ -478,14 +548,14 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
-	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll. Pack
-	// rule findings are dispatched group-by-engine in the pack engine step below
-	// (SPEC-031 REQ-011), not through an in-process rule-config feed.
-	// One shared runner so the whole-module `go test ./...` executes ONCE and
-	// feeds both code_check (test FAILs) and coverage_threshold (per-package
-	// coverage), instead of running the suite twice (~94s of duplicate work).
+	// Step 2 ("Code check") is GONE as a gate step (SPEC-040 REQ-001): lint/build/
+	// test now run only through dispatchPackEngines. The shared `go test ./...`
+	// runner SURVIVES as the TRANSITIONAL coverage feed (CLM-028, Sharp Edge 1):
+	// it still executes the whole-module suite ONCE and feeds the still-baked
+	// coverage step, in lockstep until SPEC-041 (Seed 3) migrates coverage onto the
+	// toolchain test pass. The bespoke code-check struct that consumed it is no longer
+	// constructed here (its type is deleted in Phase 6).
 	sharedTest := newSharedTestRunner(projectRoot)
-	codeChecker := &realCodeChecker{projectRoot: projectRoot, sharedRunner: sharedTest}
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
@@ -515,9 +585,15 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, coverageStep)
 	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, contractStep)
 
+	// SPEC-040 KEYSTONE CUTOVER (REQ-001/CLM-001/CLM-008): the bespoke code-check /
+	// gate.StepCodeCheckScopedFunc Step-2 entry is GONE from the step list. Lint,
+	// build, and test enforcement now runs ONLY via dispatchPackEngines over the
+	// bridged + declared <lang>-toolchain packs (the pack_engines step below) — no
+	// dual-run, no parallel dispatcher, no pkg/check->pkg/pack/engine import. The
+	// codeChecker local + sharedTest runner are RETAINED only as the transitional
+	// coverage feed (CLM-028); they are no longer wired as a gate step.
 	steps := []gate.StepFunc{
 		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
-		gate.StepCodeCheckScopedFunc(codeChecker, activeScope),
 		testVerifyStep,
 		testSubstantivenessStep,
 		coverageStep,
@@ -526,6 +602,19 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		gate.StepBaselineComparisonScopedFunc(activeScope),
 		gate.StepWaiverResolutionScopedFunc(activeScope),
 		gate.StepLedgerIntegrityScopedFunc(activeScope),
+	}
+
+	// The no-toolchain-pack WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006, Sharp
+	// Edge 3): when ZERO <lang>-toolchain packs are in effect (none bridged, none
+	// declared), append a NON-FAILING "warning" step carrying the stable loud
+	// "enforcement not configured (0 toolchain packs)" message. gate.Pass stays
+	// true and exit 0, but "nothing ran" is impossible to mistake for "everything
+	// passed." This is LIVE on backstop-core's own dogfood gate run (its install
+	// lacks go-toolchain). Wired here so it flows through BOTH the no-declared-packs
+	// early return and the pack-dispatch path below.
+	if warnStep, emitted := toolchainEnforcementStatus(bridged, packs); emitted {
+		warn := warnStep
+		steps = append(steps, func(context.Context) gate.StepResult { return warn })
 	}
 
 	if len(packs) == 0 && len(bridged) == 0 {
@@ -606,10 +695,13 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		}
 	}
 
+	// Order: lock, artifact (steps[0]), pack_engines dispatch, then the remaining
+	// steps (test_verification onward — the code_check Step-2 entry is gone, so
+	// steps[1:] now begins at test_verification).
 	packed := make([]gate.StepFunc, 0, len(steps)+2)
 	packed = append(packed, lockStep)
-	packed = append(packed, steps[0], steps[1], packValidatorStep)
-	packed = append(packed, steps[2:]...)
+	packed = append(packed, steps[0], packValidatorStep)
+	packed = append(packed, steps[1:]...)
 	return packed
 }
 
@@ -1037,144 +1129,6 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 		})
 	}
 	return violations, nil
-}
-
-// realCodeChecker implements gate.CodeChecker by calling pkg/check.Run.
-type realCodeChecker struct {
-	projectRoot string
-	// runnerForTest is a test-only injection seam: when set, runCheck routes
-	// through check.RunWith with this hermetic runner so gate-layer
-	// scope-semantics tests can drive CheckScoped without shelling out to live
-	// tools. Nil in production (check.Run).
-	runnerForTest check.CommandRunner
-	// sharedRunner, if set, is a PRODUCTION runner injected so the whole-module
-	// `go test ./...` pass is shared with the coverage step (run once, not
-	// twice). Non-go-test commands delegate to a plain exec, so lint/build/
-	// semgrep behave exactly as the default check.Run path.
-	sharedRunner check.CommandRunner
-}
-
-func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
-	return c.runCheck(context.Background(), check.ScopeModeAll, nil)
-}
-
-func (c *realCodeChecker) CheckScoped(ctx context.Context, scope *gate.GateScope) ([]gate.Violation, error) {
-	if scope == nil || scope.Mode == gate.GateScopeModeAll {
-		return c.runCheck(ctx, check.ScopeModeAll, nil)
-	}
-	// Carry the ENTIRE scoped file list through ONE runCheck — no per-file loop.
-	// Per-pass ScopeKind then shapes the arg list: lint gets all scoped files in
-	// one invocation; build/typecheck runs project-wide once ignoring the list;
-	// test is dependency-mapped once with full-suite fallback. The old per-file
-	// loop invoked lint N×(1 file) and build N× project-wide, which both
-	// violated the per-pass scope semantics (Constraint 2/3, CLM-008).
-	return c.runCheck(ctx, check.ScopeModeDiff, scope.Files)
-}
-
-func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, files []string) ([]gate.Violation, error) {
-	// The checker is bound to the project root it was constructed with;
-	// CWD-based discovery is only a fallback for an unset root. Re-discovering
-	// from CWD here would silently retarget the check at whatever repo the
-	// process happens to run inside (and lets gate tests recurse into the
-	// host repo's own test suite).
-	pRoot := c.projectRoot
-	if pRoot == "" || pRoot == "." {
-		if cfgPath, cfgErr := config.DiscoverConfigPath(); cfgErr == nil {
-			pRoot = filepath.Dir(cfgPath)
-		}
-	}
-
-	backstopDir := filepath.Join(pRoot, ".backstop")
-
-	// Check .backstop/ directory validity. Missing .backstop is a step
-	// failure, not a config error — gate should continue with other steps.
-	if verr := check.ValidateBackstopDir(pRoot); verr != nil {
-		return nil, fmt.Errorf("validating .backstop directory: %w", verr)
-	}
-
-	opts := check.Options{
-		Mode:        mode,
-		BackstopDir: backstopDir,
-		ProjectDir:  pRoot,
-	}
-	// An explicit scoped file list (diff/file gate scope) is carried via the
-	// Files branch — a SINGLE Run covering all scoped files, not a per-file
-	// loop. Paths are project-relative as they arrive from the gate scope.
-	if len(files) > 0 {
-		opts.Files = files
-	}
-
-	// Load config to select the toolchain stack (language). The Language/Config
-	// fields drive registry selection; a declared language with no toolchain
-	// surfaces as a *check.ConfigError from check.Run, wrapped below into
-	// gate.ConfigError for exit 2.
-	cfg, err := config.LoadConfig()
-	if err == nil {
-		opts.Language = cfg.Language
-		opts.Config = cfg
-	}
-
-	result, runErr := c.runWithOpts(ctx, opts)
-	if runErr != nil {
-		return nil, &gate.ConfigError{Err: runErr}
-	}
-
-	return checkViolationsToGate(result.AllViolations()), nil
-}
-
-// runWithOpts dispatches to check.Run in production, or to check.RunWith with
-// the injected hermetic runner when the test seam is set. This keeps the gate's
-// scope-semantics tests bounded (no live tool) while production keeps the exact
-// check.Run path.
-func (c *realCodeChecker) runWithOpts(ctx context.Context, opts check.Options) (*check.Result, error) {
-	if c.runnerForTest != nil {
-		return check.RunWith(ctx, check.RunOptions{
-			Options: opts,
-			Runner:  c.runnerForTest,
-		})
-	}
-	// Production with a shared runner: route through RunWith so the whole-module
-	// go test pass goes through sharedRunner (deduped with coverage).
-	if c.sharedRunner != nil {
-		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: c.sharedRunner})
-	}
-	return check.Run(ctx, opts)
-}
-
-// checkViolationsToGate converts check.Violations to gate.Violations, carrying
-// the structured rule ID across the bridge. A pack-namespaced semgrep check_id
-// (pack.NamespacedRuleID format "org/pack/rule-id") is preserved on gate
-// Violation.Rule; SourcePack is derived as everything before the LAST "/" —
-// the two-segment pack NormalizedName "org/pack" — matching the layer-3
-// convention at pack_gate.go (SourcePack = manifest.NormalizedName). When a
-// violation carries no Rule (built-in lint/build/test passes), Rule falls back
-// to the pass name and SourcePack is empty.
-func checkViolationsToGate(cvs []check.Violation) []gate.Violation {
-	var violations []gate.Violation
-	for _, cv := range cvs {
-		rule := cv.Rule
-		sourcePack := ""
-		if rule == "" {
-			rule = cv.Pass.String()
-		} else if idx := strings.LastIndex(rule, "/"); idx >= 0 {
-			sourcePack = rule[:idx]
-		}
-		violations = append(violations, gate.Violation{
-			Rule:     rule,
-			File:     cv.File,
-			Message:  cv.Message,
-			Severity: cv.Severity,
-			// ProjectWide is set from the originating CheckType, INDEPENDENT of
-			// the parser-populated Rule: the build pass (Go go-build and TS tsc/
-			// typecheck) runs project-wide, so its violations are exempt from
-			// gate scope-filtering even when Rule is non-empty (e.g. "TS2304").
-			// Keying off cv.Pass — not the Rule string — is what makes the
-			// exemption correct for the tsc/sarif parsers (Constraint 3).
-			ProjectWide: cv.Pass == check.CheckTypeBuild,
-			SourcePack:  sourcePack,
-		})
-	}
-	return violations
 }
 
 // firstNonNil returns the first non-nil error from errs, or nil if all are nil.

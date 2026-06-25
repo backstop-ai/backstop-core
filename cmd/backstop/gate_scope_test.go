@@ -45,67 +45,6 @@ func (r *recordingRunner) callsFor(name string) []recordedCall {
 	return out
 }
 
-// TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun pins the post-SPEC-034
-// cutover gate posture against the GATE CheckScoped path. For a Go project the
-// native lint/build/test passes no longer run through realCodeChecker -> check.Run
-// (they run through the go-toolchain pack engines / dispatchPackEngines, covered by
-// TestGoLint_NoVersionProbeOrV1Branch + TestPackEngines_ProjectWideToolchainStaysProjectWide).
-// So check.Run for Go invokes NO golangci-lint / go build / go test (part a).
-//
-// The former part (b) — that the whole multi-file diff scope was threaded through ONE
-// in-process semgrep Run — is no longer assertable here: ISSUE-018 removed the
-// in-process semgrep pass entirely, so check.Run for Go shells out to no engine at all
-// and pack-rule enforcement (with its single-Run / whole-scope semantics) now flows
-// through dispatchPackEngines, where that property is owned and tested. This test thus
-// asserts only the surviving live behavior: the bespoke Go toolchain is not invoked
-// through check.Run.
-//
-// This is the migration of the former ScopeSemantics_LintFileArgsBuildProjectWide
-// test: that test asserted the bespoke Go lint/build invocations, which the cutover
-// deleted by design; the per-pass scope semantics it pinned are now owned and tested
-// on the engine path.
-func TestCodeCheck_ScopeSemantics_GoCheckRunIsSemgrepOnlyOneRun(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: scope-test\nlanguage: go\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
-		t.Fatalf("mkdir .backstop: %v", err)
-	}
-	// No .manifest.json: .go files route via the built-in default manifest (the
-	// reader was deleted in SPEC-039). The property under test — the bespoke Go
-	// toolchain is not invoked through check.Run — is independent of routing.
-	// Two scoped source files in the same package.
-	files := []string{"a.go", "b.go"}
-	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("package main\n"), 0o644); err != nil {
-			t.Fatalf("write %s: %v", f, err)
-		}
-	}
-
-	runner := &recordingRunner{}
-	checker := &realCodeChecker{
-		projectRoot:   dir,
-		runnerForTest: runner,
-	}
-
-	scope := &gate.GateScope{Mode: gate.GateScopeModeDiff, Files: files}
-	if _, err := checker.CheckScoped(context.Background(), scope); err != nil {
-		t.Fatalf("CheckScoped: %v", err)
-	}
-
-	// (a) The bespoke Go native toolchain is NOT invoked through check.Run after
-	// the cutover — those passes run on the go-toolchain pack engine path.
-	if n := len(runner.callsFor("golangci-lint")); n != 0 {
-		t.Errorf("golangci-lint invoked %d times through check.Run; the lint pass runs on the engine path now", n)
-	}
-	for _, c := range runner.callsFor("go") {
-		if len(c.args) > 0 && (c.args[0] == "build" || c.args[0] == "test") {
-			t.Errorf("`go %s` invoked through check.Run; build/test run on the engine path now (args=%v)", c.args[0], c.args)
-		}
-	}
-}
-
 // TestGate_PackEngines_DiffScopeExcludesUntouchedFindings (CLM-006/CLM-007) pins
 // the GATE-WIRING integration seam: the packValidatorStep closure built by
 // buildGateSteps must thread the activeScope through to dispatchPackEngines so a

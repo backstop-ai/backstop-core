@@ -482,14 +482,25 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with no parseable findings: %w", manifest.NormalizedName, binding.Command, runErr)
 	}
 
+	// TRANSITIONAL build-exemption seam (SPEC-040 REQ-001/CLM-029, Sharp Edge 2).
+	// The deleted legacy Step-2 path set build-pass
+	// gate.Violation.ProjectWide (keyed off the build CheckType), consumed by
+	// pkg/gate/scope.go to keep a build break in an UNCHANGED file out of the
+	// diff-scope filter. That Step-2 path is deleted; so the engine dispatch path
+	// PRESERVES ProjectWide for build-pass violations transitionally, keyed off the
+	// binding's tool-NEUTRAL GateTypeBuild stage (never a tool name sniff), until
+	// SPEC-041 REQ-004 replaces it with a declared exempt_from_scope_filter
+	// property. Build-pass ONLY — lint/test/findings stay scope-filterable.
+	projectWideBuild := binding.GateType == engine.GateTypeBuild
 	out := make([]gate.Violation, 0, len(checkViolations))
 	for _, v := range checkViolations {
 		out = append(out, gate.Violation{
-			Rule:       pack.NamespacedRuleID(manifest.NormalizedName, v.Rule),
-			File:       v.File,
-			Message:    v.Message,
-			Severity:   nonEmpty(v.Severity, "error"),
-			SourcePack: manifest.NormalizedName,
+			Rule:        pack.NamespacedRuleID(manifest.NormalizedName, v.Rule),
+			File:        v.File,
+			Message:     v.Message,
+			Severity:    nonEmpty(v.Severity, "error"),
+			SourcePack:  manifest.NormalizedName,
+			ProjectWide: projectWideBuild,
 		})
 	}
 	return out, nil

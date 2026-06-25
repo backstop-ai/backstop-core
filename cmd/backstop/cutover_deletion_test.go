@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // SPEC-034 phase-3 CUTOVER deletion assertions (REQ-002/REQ-003/REQ-005/REQ-008).
@@ -112,5 +115,79 @@ func TestProvision_EnsureSemgrepBespokeInstallRetired(t *testing.T) {
 	bind := resolveEngineRegistry(nil)["semgrep"]
 	if bind.Provision == nil || bind.Provision.Tool != "semgrep" || bind.Provision.Version == "" {
 		t.Fatalf("semgrep must remain pinned + auto-provisioned through declared provisioning, got %+v", bind.Provision)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-040 KEYSTONE CUTOVER deletion assertions (REQ-002). RED while the bespoke
+// Step-2 symbols still exist; green only after the Phase-6 deletions land
+// (TASK-022..025). GATED behind the golden proof (Sharp Edge 5).
+// ---------------------------------------------------------------------------
+
+// TestCutover_RealCodeCheckerDeleted proves the realCodeChecker type and its
+// CheckAll/CheckScoped/runCheck/runWithOpts methods (plus checkViolationsToGate)
+// are deleted from cmd/backstop as a wired gate step — a grep of cmd/backstop
+// non-test source returns zero matches for realCodeChecker (CLM-004).
+func TestCutover_RealCodeCheckerDeleted(t *testing.T) {
+	cmdDir := filepath.Join(repoRoot(t), "cmd", "backstop")
+	if grepNonTestSource(t, cmdDir, "realCodeChecker") {
+		t.Error("realCodeChecker still present in cmd/backstop non-test source — it must be deleted as a wired gate step (CLM-004)")
+	}
+	if grepNonTestSource(t, cmdDir, "checkViolationsToGate") {
+		t.Error("checkViolationsToGate still present in cmd/backstop non-test source — the realCodeChecker Step-2 surface must be deleted (CLM-004)")
+	}
+}
+
+// TestCutover_BuiltinToolchainGoStackDeleted proves the builtinToolchain function
+// and its go stack are deleted from pkg/check — a grep of pkg/check non-test
+// source returns zero matches for builtinToolchain (CLM-005).
+func TestCutover_BuiltinToolchainGoStackDeleted(t *testing.T) {
+	checkDir := filepath.Join(repoRoot(t), "pkg", "check")
+	if grepNonTestSource(t, checkDir, "builtinToolchain") {
+		t.Error("builtinToolchain still present in pkg/check non-test source — the baked go stack must be deleted (CLM-005)")
+	}
+}
+
+// TestCutover_BuiltinToolchainTypescriptStackDeleted proves the baked
+// builtinToolchain typescript stack (eslint/tsc/regex-lines) is deleted — no
+// baked typescript lint/build/test stack remains in pkg/check non-test source
+// (CLM-006).
+func TestCutover_BuiltinToolchainTypescriptStackDeleted(t *testing.T) {
+	checkDir := filepath.Join(repoRoot(t), "pkg", "check")
+	// The baked TS stack was a builtinToolchain ToolchainEntry whose Command field
+	// wired eslint/tsc. The signal is the STACK-CONSTRUCTION form (`Command: "eslint`
+	// / `Command: "tsc`), NOT the retained generic named-format parsers
+	// (parseESLintJSON / parseTscOutput stay — a DECLARED toolchain may still name
+	// the eslint-json/tsc formats). Asserting the construction form is gone proves
+	// the baked stack is deleted without false-positiving on the retained parsers.
+	for _, lit := range []string{`Command:    "eslint`, `Command:    "tsc`, `Command: "eslint`, `Command: "tsc`} {
+		if grepNonTestSource(t, checkDir, lit) {
+			t.Errorf("baked typescript toolchain stack construction %q still present in pkg/check non-test source — the baked ts stack must be deleted (CLM-006)", lit)
+		}
+	}
+}
+
+// TestCutover_ResolveToolchainRetainedDeclaredOnly proves resolveToolchain /
+// commandExecutor / buildExecutorsForConfigErr are RETAINED (not deleted) and
+// resolveToolchain is REDUCED to resolving DECLARED enforcement.toolchain entries
+// only — a Go/TS project with NO declared toolchain yields an EMPTY executor set
+// from that path rather than a baked stack (CLM-007).
+func TestCutover_ResolveToolchainRetainedDeclaredOnly(t *testing.T) {
+	checkDir := filepath.Join(repoRoot(t), "pkg", "check")
+	for _, retained := range []string{"func resolveToolchain", "func buildExecutorsForConfigErr", "commandExecutor"} {
+		if !grepNonTestSource(t, checkDir, retained) {
+			t.Errorf("%s was deleted from pkg/check — it must be RETAINED for the surviving code check subcommand (CLM-007)", retained)
+		}
+	}
+
+	// REDUCED to declared-only (behavioral, via the exported pkg/check seam): a Go
+	// project with NO declared enforcement.toolchain yields an EMPTY lint/build/test
+	// executor set (no baked go stack overlay) and does NOT error.
+	execs, err := check.DeclaredToolchainExecutorsForTest("go", &config.Config{Language: "go"})
+	if err != nil {
+		t.Fatalf("a Go project with no declared toolchain must not error (declared-only resolve), got: %v", err)
+	}
+	if len(execs) != 0 {
+		t.Fatalf("a Go project with NO declared enforcement.toolchain must yield an EMPTY executor set after builtinToolchain's deletion, got %d executors (a baked stack survives)", len(execs))
 	}
 }

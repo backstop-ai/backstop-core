@@ -1,0 +1,5 @@
+# github.com/example/project/pkg/widget
+pkg/widget/widget.go:14:6: undefined: Frobnicate
+pkg/widget/widget.go:22:2: declared and not used: count
+# github.com/example/project/pkg/gadget
+pkg/gadget/gadget.go:8: syntax error: unexpected newline, expecting }
