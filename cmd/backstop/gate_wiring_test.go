@@ -70,9 +70,13 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 			wantStatus:  "fail",
 		},
 		{
-			// None/proceed: go undeclared coverage, baked analyzer present -> fall through.
-			name:        "undeclared_present_falls_through",
-			cfg:         &config.Config{Project: "p", Language: "go"},
+			// None/proceed: go undeclared coverage WITH a coverage toolchain pack
+			// installed -> capability present -> fall through (SPEC-041 re-key:
+			// coverage capability is now INSTALLED-pack-keyed, not the deleted baked
+			// analyzer; "present" requires a <lang>-toolchain pack in the packs map).
+			name: "undeclared_present_falls_through",
+			cfg: &config.Config{Project: "p", Language: "go",
+				Packs: config.Packs{"backstop/go-toolchain": "local"}},
 			dim:         gate.DimensionCoverage,
 			wantReached: true,
 			wantStatus:  "pass",
@@ -162,13 +166,19 @@ func TestNoAnalyzerChange_Contracts_VerdictPreserved(t *testing.T) {
 	}
 }
 
-// TestNoAnalyzerChange_Coverage_VerdictPreserved (CLM-027).
+// TestNoAnalyzerChange_Coverage_VerdictPreserved (CLM-027). UPDATED FOR SPEC-041:
+// "declared-and-working" coverage now requires a coverage toolchain PACK installed
+// (the capability is INSTALLED-pack-keyed after the baked analyzer's eradication),
+// so the config installs go-toolchain AND declares the coverage pass — making the
+// dimension declared+present+working -> none/proceed -> fall through to the delegate.
 func TestNoAnalyzerChange_Coverage_VerdictPreserved(t *testing.T) {
-	cfg := &config.Config{Project: "p", Language: "go", Enforcement: config.Enforcement{
-		Toolchain: map[string]config.ToolchainPass{
-			"test": {Command: "go test ./...", Format: "go-test", GateType: string(gate.DimensionCoverage)},
-		},
-	}}
+	cfg := &config.Config{Project: "p", Language: "go",
+		Packs: config.Packs{"backstop/go-toolchain": "local"},
+		Enforcement: config.Enforcement{
+			Toolchain: map[string]config.ToolchainPass{
+				"test": {Command: "go test ./...", Format: "go-test", GateType: string(gate.DimensionCoverage)},
+			},
+		}}
 	delegate := func(_ context.Context) gate.StepResult {
 		return gate.StepResult{StepName: gate.StepCoverageThreshold, Status: "fail", Violations: []gate.Violation{{Rule: "coverage", Message: "below threshold"}}}
 	}

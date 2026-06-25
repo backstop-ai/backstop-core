@@ -611,16 +611,24 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with no parseable findings: %w", manifest.NormalizedName, binding.Command, runErr)
 	}
 
-	// TRANSITIONAL build-exemption seam (SPEC-040 REQ-001/CLM-029, Sharp Edge 2).
-	// The deleted legacy Step-2 path set build-pass
-	// gate.Violation.ProjectWide (keyed off the build CheckType), consumed by
-	// pkg/gate/scope.go to keep a build break in an UNCHANGED file out of the
-	// diff-scope filter. That Step-2 path is deleted; so the engine dispatch path
-	// PRESERVES ProjectWide for build-pass violations transitionally, keyed off the
-	// binding's tool-NEUTRAL GateTypeBuild stage (never a tool name sniff), until
-	// SPEC-041 REQ-004 replaces it with a declared exempt_from_scope_filter
-	// property. Build-pass ONLY — lint/test/findings stay scope-filterable.
-	projectWideBuild := binding.GateType == engine.GateTypeBuild
+	// PERMANENT declared build-exemption bridge (SPEC-041 REQ-004/REQ-007/CLM-012,
+	// Sharp Edge 5). Each produced gate.Violation.ProjectWide is stamped from ITS
+	// producing binding's DECLARED ExemptFromScopeFilter value — the bridge the
+	// engine path never had (it previously used ScopeKind only for arg-shaping and
+	// never set ProjectWide). ProjectWide is consumed by pkg/gate/scope.go's
+	// filterViolations to keep an exempt engine's UNCHANGED-file violation out of the
+	// diff-scope filter, so an unchanged-file build break still REDs (CLM-013).
+	//
+	// This REPLACES the SPEC-040 transitional seam (`binding.GateType ==
+	// engine.GateTypeBuild`): no GateType identity and no CheckType enum identity
+	// decides scope — only the explicit per-binding property (CLM-017). go-build
+	// declares it true; golangci/go-test/findings false/unset (CLM-014/015/016).
+	// Resolution is PER-VIOLATION: each violation carries ITS binding's value, with
+	// no gate-type-level aggregation (REQ-007/CLM-018). A true-conflict (same
+	// file+line+rule from two sources with differing values) resolves to the
+	// exempting value at the union of violations — the louder, safe-against-
+	// under-broad-filtering direction (CLM-019).
+	exempt := binding.ExemptFromScopeFilter
 	out := make([]gate.Violation, 0, len(checkViolations))
 	for _, v := range checkViolations {
 		out = append(out, gate.Violation{
@@ -629,7 +637,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			Message:     v.Message,
 			Severity:    nonEmpty(v.Severity, "error"),
 			SourcePack:  manifest.NormalizedName,
-			ProjectWide: projectWideBuild,
+			ProjectWide: exempt,
 		})
 	}
 	return out, nil

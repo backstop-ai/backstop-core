@@ -278,14 +278,14 @@ func gateConfig(projectRoot string) *config.Config {
 // dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
 // mis-applied Go analyzer.
 func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
-	// SUBSTANTIVENESS-ONLY RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked
-	// Go substantiveness analyzer is DELETED, so the substantiveness capability is now
+	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
+	// substantiveness analyzer is DELETED, so the substantiveness capability is now
 	// "the substantiveness pack is INSTALLED / resolvable" — NOT cfg.Language +
 	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
-	// substantiveness pack is installed (declared in backstop.yml's packs map). This
-	// arm is DIMENSION-ASYMMETRIC: the coverage and contracts arms below stay on the
-	// existing baked-Go keying UNCHANGED (HARD FENCE — coverage descoped, contracts
-	// keeps its baked analyzer until SPEC-038/Seed 4 ships its pack).
+	// substantiveness pack is installed (declared in backstop.yml's packs map). As of
+	// SPEC-041 ALL THREE traceability dimensions (substantiveness, contracts, AND
+	// coverage) are installed-pack-keyed — no asymmetry fence remains; the baked Go
+	// analyzers for all three are eradicated.
 	if dim == gate.DimensionSubstantiveness {
 		if substantivenessPackInstalled(cfg) {
 			return gate.CapabilityState{
@@ -301,15 +301,14 @@ func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) g
 		}
 	}
 
-	// CONTRACTS-ONLY RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go
-	// contract analyzer is DELETED (REQ-001/Phase 6), so the contracts capability is
-	// now "the contracts pack is INSTALLED / resolvable" — NOT cfg.Language +
-	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
-	// contracts pack is installed (declared in backstop.yml's packs map). This arm is
-	// DIMENSION-ASYMMETRIC: the SUBSTANTIVENESS arm above was re-keyed by Seed 3 (LEFT
-	// AS-IS); the COVERAGE arm below STAYS baked-Go (coverage descoped, no pack — HARD
-	// FENCE). Absent+undeclared lands class-2 (warn, exit 0) and absent+declared
-	// class-3 (block) via the SPEC-036 classifier upstream.
+	// CONTRACTS RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go contract
+	// analyzer is DELETED, so the contracts capability is now "the contracts pack is
+	// INSTALLED / resolvable" — NOT cfg.Language + baked-analyzer presence, and NOT a
+	// built-in tier. Present/Working iff the contracts pack is installed (declared in
+	// backstop.yml's packs map). The COVERAGE arm below is ALSO installed-pack-keyed
+	// as of SPEC-041 (the baked Go coverage analyzer is eradicated) — symmetric with
+	// this arm, no fence. Absent+undeclared lands class-2 (warn, exit 0) and
+	// absent+declared class-3 (block) via the SPEC-036 classifier upstream.
 	if dim == gate.DimensionContracts {
 		if contractsPackInstalled(cfg) {
 			return gate.CapabilityState{
@@ -325,27 +324,54 @@ func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) g
 		}
 	}
 
-	// COVERAGE arm — UNCHANGED baked-Go keying (the asymmetry fence; coverage descoped).
+	// COVERAGE-ARM RE-KEY (SPEC-041 REQ-001). The baked Go coverage analyzer
+	// (pkg/gate/step_coverage.go's `go test -coverprofile` machinery) is ERADICATED,
+	// so the coverage capability is now "a coverage-producing toolchain pack is
+	// installed / in effect" — NOT cfg.Language + baked-analyzer presence (that arm
+	// claimed a deleted analyzer and would push an uninstalled Go project into a
+	// loud-block instead of the capability-absent warn). This MIRRORS the
+	// substantiveness (SPEC-037) and contracts (SPEC-038) re-keys: Present/Working iff
+	// a coverage toolchain pack is declared. Absent+undeclared lands class-2 (warn,
+	// exit 0) and absent+declared class-3 (block) via the SPEC-036 classifier upstream
+	// — never a vacuous green and never a vacuous loud-red.
+	if coverageToolchainPackInstalled(cfg) {
+		return gate.CapabilityState{
+			Present:       true,
+			Working:       true,
+			PackOrCommand: "the installed coverage toolchain pack",
+		}
+	}
 	lang := "go"
 	if cfg != nil && cfg.Language != "" {
 		lang = cfg.Language
 	}
-	if lang == "go" {
-		// The baked Go analyzer for this dimension is compiled into the binary
-		// and applies to a Go project. Present and Working.
-		return gate.CapabilityState{
-			Present:       true,
-			Working:       true,
-			PackOrCommand: "the baked Go " + string(dim) + " analyzer",
-		}
-	}
-	// Non-Go stack: no baked Go analyzer applies and no pack provides the
-	// dimension on the existing binary — capability Absent.
 	return gate.CapabilityState{
 		Present:       false,
 		Working:       false,
-		PackOrCommand: "a " + lang + " " + string(dim) + " pack",
+		PackOrCommand: "a " + lang + "-toolchain pack declaring a coverage engine (install it: `backstop pack add`)",
 	}
+}
+
+// coverageToolchainPackInstalled reports whether a coverage-producing toolchain
+// PACK is INSTALLED: a `<lang>-toolchain` pack is declared in backstop.yml's packs
+// map. It is the installed-pack-resolvable signal the coverage CAPABILITY keys on
+// after the baked Go coverage analyzer's eradication (SPEC-041 REQ-001), MIRRORING
+// contractsPackInstalled / substantivenessPackInstalled. It reads ONLY the packs
+// declaration surface — NOT enforcement.toolchain (that is the DECLARATION the
+// SPEC-036 classifier reads separately to tell class-2 capability-absent from
+// class-3 declared-intent-unmet; conflating the two would mask a declared-but-
+// unprovided coverage pass as capability-present). The coverage producer lives in
+// an installed pack, never compiled in.
+func coverageToolchainPackInstalled(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	for name := range cfg.Packs {
+		if strings.HasSuffix(name, "-toolchain") {
+			return true
+		}
+	}
+	return false
 }
 
 // substantivenessPackInstalled reports whether the substantiveness pack is INSTALLED
@@ -549,13 +575,12 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
 	// Step 2 ("Code check") is GONE as a gate step (SPEC-040 REQ-001): lint/build/
-	// test now run only through dispatchPackEngines. The shared `go test ./...`
-	// runner SURVIVES as the TRANSITIONAL coverage feed (CLM-028, Sharp Edge 1):
-	// it still executes the whole-module suite ONCE and feeds the still-baked
-	// coverage step, in lockstep until SPEC-041 (Seed 3) migrates coverage onto the
-	// toolchain test pass. The bespoke code-check struct that consumed it is no longer
-	// constructed here (its type is deleted in Phase 6).
-	sharedTest := newSharedTestRunner(projectRoot)
+	// test now run only through dispatchPackEngines. The baked shared `go test ./...`
+	// runner is ERADICATED (SPEC-041 REQ-002): coverage no longer reuses an in-binary
+	// whole-module exec. Coverage's per-FILE signal is now the declared toolchain
+	// coverage pass (SPEC-042's dispatchPackCoverage producer over the bridged +
+	// declared <lang>-toolchain packs), consumed per-FILE by the re-implemented
+	// coverage step (SPEC-041 REQ-001).
 
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files.
@@ -565,10 +590,12 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
 	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope)
 
-	// Step 5: Coverage threshold needs spec verifications and a command runner.
-	// It shares sharedTest so its whole-module coverage read reuses code_check's
-	// already-executed `go test ./...` instead of running the suite again.
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, sharedTest)
+	// Step 5: Coverage threshold consumes the canonical per-FILE
+	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
+	// bridged + declared toolchain packs — NOT a binary-resident `go test` runner
+	// (re-baking one would re-violate REQ-002). The records are sourced lazily at
+	// step-run time so the producer is exercised inside the gate (CLM-003).
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, coverageRecordsProducer(bridged, packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
@@ -590,8 +617,10 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// build, and test enforcement now runs ONLY via dispatchPackEngines over the
 	// bridged + declared <lang>-toolchain packs (the pack_engines step below) — no
 	// dual-run, no parallel dispatcher, no pkg/check->pkg/pack/engine import. The
-	// codeChecker local + sharedTest runner are RETAINED only as the transitional
-	// coverage feed (CLM-028); they are no longer wired as a gate step.
+	// SPEC-040 transitional shared go-test runner is ERADICATED by SPEC-041 REQ-002:
+	// coverage now consumes the per-FILE []check.CoverageRecord produced by the
+	// declared toolchain coverage pass (coverageRecordsProducer), not an in-binary
+	// `go test`.
 	steps := []gate.StepFunc{
 		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
 		testVerifyStep,
@@ -885,9 +914,35 @@ func goFilePackageMatchesTarget(filePath, targetPkg string) bool {
 	return false
 }
 
-// buildCoverageStep creates a StepFunc that extracts spec verifications
-// and runs coverage checks using a real command runner.
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runner gate.CommandRunner) gate.StepFunc {
+// coverageRecordsFn produces the canonical per-FILE []check.CoverageRecord the
+// coverage step consumes (SPEC-041 CLM-003). It is the typed seam between the gate
+// and SPEC-042's dispatchPackCoverage producer.
+type coverageRecordsFn func(scope *gate.GateScope) ([]check.CoverageRecord, error)
+
+// coverageRecordsProducer returns a coverageRecordsFn that sources the canonical
+// per-FILE []check.CoverageRecord from SPEC-042's dispatchPackCoverage producer
+// over the bridged + declared toolchain packs. It NEVER constructs a
+// binary-resident `go test` runner (re-baking one would re-violate REQ-002); the
+// per-file coverage signal originates from the declared toolchain coverage pass.
+func coverageRecordsProducer(bridged, declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
+	return func(scope *gate.GateScope) ([]check.CoverageRecord, error) {
+		coveragePacks := append(append([]*pack.Manifest{}, bridged...), declared...)
+		if len(coveragePacks) == 0 {
+			return nil, nil
+		}
+		runner := &check.ExecCommandRunner{Dir: projectRoot}
+		packDir := filepath.Join(projectRoot, ".backstop", "packs")
+		return dispatchPackCoverage(coveragePacks, packDir, projectRoot, scope, runner)
+	}
+}
+
+// buildCoverageStep creates a StepFunc that extracts spec verifications and checks
+// the spec-declared coverage threshold PER FILE over the canonical
+// []check.CoverageRecord produced by the records producer (SPEC-042's
+// dispatchPackCoverage) — NOT a binary-resident `go test` runner (REQ-002). The
+// records are produced lazily inside the step so the producer is exercised in the
+// gate (CLM-003).
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, records coverageRecordsFn) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -898,10 +953,19 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runne
 			}
 		}
 
-		if runner == nil {
-			runner = &gate.ExecCommandRunner{Dir: projectRoot}
+		var coverage []check.CoverageRecord
+		if records != nil {
+			coverage, err = records(scope)
+			if err != nil {
+				return gate.StepResult{
+					StepName:   gate.StepCoverageThreshold,
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to produce coverage records: " + err.Error(), Severity: "error"}},
+				}
+			}
 		}
-		step := gate.StepCoverageThresholdScopedFunc(runner, specs, scope)
+		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope)
 		return step(ctx)
 	}
 }

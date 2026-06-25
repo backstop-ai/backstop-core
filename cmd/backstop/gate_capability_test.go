@@ -18,32 +18,13 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 	tsCfg := &config.Config{Project: "rt", Language: "typescript"}
 	goCfg := &config.Config{Project: "rt", Language: "go"}
 
-	// MIGRATED FOR SPEC-038 (CLM-052): DimensionContracts is SPLIT OUT of this
-	// baked-Go loop (the contracts analyzer is deleted; it now keys on the INSTALLED
-	// contracts pack — asserted separately below), leaving ONLY DimensionCoverage on
-	// the baked-Go assertion (coverage descoped, no pack — STAYS baked). The
-	// SUBSTANTIVENESS dimension was already split out by Seed 3 (below).
-	for _, dim := range []gate.TraceabilityDimension{
-		gate.DimensionCoverage,
-	} {
-		// TypeScript: capability ABSENT, undeclared -> class 2.
-		tsCap := deriveCapabilityState(tsCfg, dim)
-		if tsCap.Present {
-			t.Errorf("dim %s on typescript: CapabilityState.Present = true, want false (no Go analyzer applies)", dim)
-		}
-		if got := gate.ClassifyDimension(tsCfg, dim, tsCap); got != gate.ClassCapabilityAbsent {
-			t.Errorf("dim %s on typescript undeclared: class = %v, want ClassCapabilityAbsent", dim, got)
-		}
-
-		// Go: baked analyzer present -> capability present (undeclared+present = none/proceed).
-		goCap := deriveCapabilityState(goCfg, dim)
-		if !goCap.Present {
-			t.Errorf("dim %s on go: CapabilityState.Present = false, want true (baked Go analyzer exists)", dim)
-		}
-		if got := gate.ClassifyDimension(goCfg, dim, goCap); got != gate.ClassNone {
-			t.Errorf("dim %s on go undeclared+present: class = %v, want ClassNone (proceed)", dim, got)
-		}
-	}
+	// MIGRATED FOR SPEC-041 (CLM-052 + REQ-001): ALL THREE traceability dimensions are
+	// now INSTALLED-pack keyed — the baked Go contracts (SPEC-038), substantiveness
+	// (SPEC-037), AND coverage (SPEC-041) analyzers are all deleted. There is no longer
+	// any baked-Go-present dimension. The coverage arm is asserted below alongside
+	// substantiveness and contracts. (tsCfg is exercised through the per-dimension
+	// pack-absent arms — a non-Go project with no pack is capability-absent too.)
+	_ = tsCfg
 
 	// SUBSTANTIVENESS arm — re-keyed onto the INSTALLED pack (SPEC-037). Without the
 	// pack installed, the dimension is capability-ABSENT regardless of language: a Go
@@ -68,6 +49,19 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 	}
 	if got := gate.ClassifyDimension(goCfg, gate.DimensionContracts, goNoContractsPack); got != gate.ClassCapabilityAbsent {
 		t.Errorf("contracts on go undeclared + pack-absent: class = %v, want ClassCapabilityAbsent", got)
+	}
+
+	// COVERAGE arm — re-keyed onto the INSTALLED coverage toolchain pack (SPEC-041
+	// REQ-001). Mirrors the substantiveness/contracts splits: without a coverage
+	// toolchain pack, the dimension is capability-ABSENT regardless of language (the
+	// baked Go coverage analyzer is eradicated). A Go project with NO coverage pack is
+	// undeclared+absent -> class 2.
+	goNoCoveragePack := deriveCapabilityState(goCfg, gate.DimensionCoverage)
+	if goNoCoveragePack.Present {
+		t.Errorf("coverage on go with NO toolchain pack installed: Present = true, want false (analyzer eradicated, pack not installed)")
+	}
+	if got := gate.ClassifyDimension(goCfg, gate.DimensionCoverage, goNoCoveragePack); got != gate.ClassCapabilityAbsent {
+		t.Errorf("coverage on go undeclared + pack-absent: class = %v, want ClassCapabilityAbsent", got)
 	}
 }
 

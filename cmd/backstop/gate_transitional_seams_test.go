@@ -8,20 +8,24 @@ import (
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
 
-// TestSeam_CoverageStepNotOrphanedByStep2Deletion proves deleting the
-// pkg/check.Run Step-2 consumption does NOT orphan the still-baked coverage step
-// (CLM-028, Sharp Edge 1): the shared go-test runner SURVIVES as the transitional
-// coverage feed, buildCoverageStep still receives its whole-module feed, and the
-// coverage step still appears in the built step list and runs after the cutover.
-func TestSeam_CoverageStepNotOrphanedByStep2Deletion(t *testing.T) {
-	// Source guard: newSharedTestRunner must SURVIVE (it is the transitional
-	// coverage feed) and must still feed buildCoverageStep.
+// TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication proves the SPEC-041
+// handoff: the SPEC-040 transitional shared go-test runner is ERADICATED (no
+// newSharedTestRunner / sharedTest feed in gate.go) and coverage now consumes the
+// canonical per-FILE []check.CoverageRecord PRODUCED by SPEC-042's
+// dispatchPackCoverage (the coverageRecordsProducer feed) — NOT a binary-resident
+// `go test` runner. The coverage step still appears in the built step list and
+// runs after the cutover. This REPLACES the prior transitional-seam guard
+// (CLM-028 → SPEC-041 REQ-001/REQ-002).
+func TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication(t *testing.T) {
 	src := readFileStr(t, "gate.go")
-	if !strings.Contains(src, "newSharedTestRunner(projectRoot)") {
-		t.Fatal("the shared test runner must survive the Step-2 deletion as the transitional coverage feed (CLM-028)")
+	// The transitional shared runner must be GONE.
+	if strings.Contains(src, "newSharedTestRunner") || strings.Contains(src, "sharedTest") {
+		t.Fatal("the baked shared go-test runner must be ERADICATED — coverage's feed is the declared toolchain coverage pass (SPEC-041 REQ-002)")
 	}
-	if !strings.Contains(src, "buildCoverageStep(specDir, projectRoot, activeScope, sharedTest)") {
-		t.Fatal("buildCoverageStep must still receive the shared go-test runner feed after the cutover (CLM-028)")
+	// Coverage's feed is now the per-FILE CoverageRecord producer over the
+	// dispatchPackCoverage channel.
+	if !strings.Contains(src, "coverageRecordsProducer(bridged, packs, projectRoot)") {
+		t.Fatal("buildCoverageStep must receive the per-FILE CoverageRecord producer (dispatchPackCoverage), the permanent SPEC-041 coverage feed")
 	}
 
 	// Behavioral: the coverage step is still present in the built step list.
@@ -34,16 +38,17 @@ func TestSeam_CoverageStepNotOrphanedByStep2Deletion(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("coverage_threshold step missing from the built step list — it was orphaned by the Step-2 deletion. steps=%v", names)
+		t.Fatalf("coverage_threshold step missing from the built step list — it was orphaned by the cutover. steps=%v", names)
 	}
 }
 
 // TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate proves a build break
-// in an UNCHANGED file still REDs a diff-scoped gate across the cutover window
-// (CLM-029, Sharp Edge 2): build-pass ProjectWide is preserved transitionally on
-// the engine dispatch path, so engine-path build violations are NOT silently
-// scope-filtered. The go-toolchain build engine produces violations on files NOT
-// in the diff scope; with ProjectWide they must survive scope filtering.
+// in an UNCHANGED file still REDs a diff-scoped gate via the PERMANENT declared
+// exempt bridge (SPEC-041 REQ-004/CLM-012): go-build declares
+// exempt_from_scope_filter:true, so the engine dispatch stamps ProjectWide and the
+// out-of-scope build violation is NOT silently scope-filtered. The go-toolchain
+// build engine produces violations on files NOT in the diff scope; with ProjectWide
+// they must survive scope filtering.
 func TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
 	stubSandboxedRunStdout(t, nil)
@@ -70,10 +75,11 @@ func TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate(t *testing.T) {
 	}
 }
 
-// TestSeam_NonBuildEngineViolationsNotProjectWide proves the transitional
-// build-exemption is narrow: ONLY build-pass engine violations carry ProjectWide;
-// lint/findings violations stay scope-filterable (CLM-029 boundary). Mirrors the
-// legacy `cv.Pass == check.CheckTypeBuild`-only exemption.
+// TestSeam_NonBuildEngineViolationsNotProjectWide proves the declared
+// build-exemption is narrow: ONLY exempt (go-build) engine violations carry
+// ProjectWide; lint violations (exempt_from_scope_filter:false) stay
+// scope-filterable (SPEC-041 CLM-014 boundary). No CheckType/GateType identity
+// drives scope — only the declared per-binding property.
 func TestSeam_NonBuildEngineViolationsNotProjectWide(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "golangci")
 	stubSandboxedRunStdout(t, nil)

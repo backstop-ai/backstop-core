@@ -1,0 +1,7 @@
+[
+  {
+    "site": "cmd/backstop/ghost.go:phantomKeying",
+    "keys_on": "build",
+    "post_cutover_source": "deleted"
+  }
+]
