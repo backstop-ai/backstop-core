@@ -638,6 +638,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			Severity:    nonEmpty(v.Severity, "error"),
 			SourcePack:  manifest.NormalizedName,
 			ProjectWide: exempt,
+			RegionHash:  v.Fingerprint,
 		})
 	}
 	return out, nil

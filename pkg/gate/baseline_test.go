@@ -255,3 +255,44 @@ func TestBaselineExistingCodeViolationRequiresFileWhenChangedFilesProvided(t *te
 		t.Fatal("expected unchanged file violation to count as existing code")
 	}
 }
+
+// TestBaseline_FingerprintKeepsSameRuleSameFileDistinct pins the fix for the coarse
+// baseline identity: before, RegionHash was never populated, so multiple findings of
+// the same rule in the same file collapsed to ONE identity and a NEW one could hide in
+// an already-dirty file. With a content-based RegionHash (carried from SARIF), they
+// stay distinct and a genuinely new finding surfaces as net-new.
+func TestBaseline_FingerprintKeepsSameRuleSameFileDistinct(t *testing.T) {
+	mk := func(regionHash string) Violation {
+		return Violation{
+			Rule:       "backstop/go-standards/no-ignored-errors",
+			File:       "pkg/x/x.go",
+			Message:    "Ignored error detected.",
+			Severity:   "error",
+			SourcePack: "backstop/go-standards",
+			RegionHash: regionHash,
+		}
+	}
+	v1 := mk("a=111")
+	v2 := mk("a=222") // same rule+file+message, different matched content
+
+	if EnrichViolationIdentity(v1).IdentityHash == EnrichViolationIdentity(v2).IdentityHash {
+		t.Fatal("distinct content fingerprints must yield distinct identities; identical means the collapse bug is back")
+	}
+
+	// Baseline knows only v1. v2 is genuinely new content and MUST surface as net-new
+	// rather than be suppressed by v1's entry.
+	baseline := &BaselineArtifact{Violations: []Violation{v1}}
+	cmp := CompareBaseline([]Violation{v1, v2}, baseline, BaselineCompareOptions{})
+	if len(cmp.NewViolations) != 1 {
+		t.Fatalf("expected exactly v2 as net-new (v1 suppressed), got %d: %+v", len(cmp.NewViolations), cmp.NewViolations)
+	}
+	if cmp.NewViolations[0].RegionHash != "a=222" {
+		t.Errorf("net-new violation should be v2 (a=222), got RegionHash %q", cmp.NewViolations[0].RegionHash)
+	}
+
+	// Contrast: with no fingerprint both fall back to the same message-level identity,
+	// which is exactly the collapse this fix avoids when content is available.
+	if EnrichViolationIdentity(mk("")).IdentityHash != EnrichViolationIdentity(mk("")).IdentityHash {
+		t.Fatal("sanity: empty-fingerprint fallback must be deterministic")
+	}
+}
