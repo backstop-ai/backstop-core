@@ -7,15 +7,19 @@ packs:
     backstop/self: local
     backstop/substantiveness: local
 enforcement:
-    # Per-dimension enforcement policy (level x baseline). Clean-baseline posture:
-    # quality/style debt is grandfathered against the baseline and ratchets down;
-    # broken promises (missing mandated tests, contract drift) are NOT baselined —
-    # they must be fixed/realigned, never buried. Keys are backstop's universal
-    # dimension vocabulary, never a tool or language.
     policy:
-        pack_engines: { level: block, baseline: true }       # lint/style/baked-language: no new debt
-        test_substantiveness: { level: block, baseline: true } # hollow tests: grandfather, ratchet
-        coverage_threshold: { level: block, baseline: true }
-        test_verification: { level: block }                   # broken promise — fix, don't grandfather
-        contract_signature: { level: block }                  # broken promise — realign/fix
-        artifact_validation: { level: block }
+        artifact_validation:
+            level: block
+        contract_signature:
+            level: block
+        coverage_threshold:
+            baseline: true
+            level: block
+        pack_engines:
+            baseline: true
+            level: block
+        test_substantiveness:
+            baseline: true
+            level: block
+        test_verification:
+            level: block
