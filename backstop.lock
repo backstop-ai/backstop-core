@@ -1,0 +1,36 @@
+packs:
+    backstop/contracts:
+        content_hash: 382ee7218967a1e9ae0f029da1fae3b6872222b00e517ad31549dbee8a35a005
+        git_ref: null
+        install_date: 2026-06-26T12:22:04Z
+        name: backstop/contracts
+        source_type: local
+        version: null
+    backstop/go-standards:
+        content_hash: f11c97431b7801939c6e4cac7d1dff68a09a559bde13c6bc47805660afae0dad
+        git_ref: null
+        install_date: 2026-06-21T18:02:56Z
+        name: backstop/go-standards
+        source_type: local
+        version: null
+    backstop/go-toolchain:
+        content_hash: 514e572139833ec315e8d6db9e518d791c14d9ff38917d24fdd3063d636a3a38
+        git_ref: null
+        install_date: 2026-06-26T12:43:34Z
+        name: backstop/go-toolchain
+        source_type: local
+        version: null
+    backstop/self:
+        content_hash: 3a00308609a78fedc73df0463a3c1f8a058a041ddcac795e689cadea2f20770b
+        git_ref: null
+        install_date: 2026-06-26T12:22:04Z
+        name: backstop/self
+        source_type: local
+        version: null
+    backstop/substantiveness:
+        content_hash: 28cec83058e039b00815a725c1f9dcf4d0e56314b772ac433ad667c43f6b635c
+        git_ref: null
+        install_date: 2026-06-26T12:22:04Z
+        name: backstop/substantiveness
+        source_type: local
+        version: null

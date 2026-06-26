@@ -1,4 +1,8 @@
 project: backstop-core
 language: go
 packs:
+    backstop/contracts: local
     backstop/go-standards: local
+    backstop/go-toolchain: local
+    backstop/self: local
+    backstop/substantiveness: local
