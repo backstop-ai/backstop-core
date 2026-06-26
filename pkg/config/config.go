@@ -33,6 +33,22 @@ type Enforcement struct {
 	BaselineTTL       string                    `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
 	TestCommand       string                    `yaml:"test_command,omitempty" json:"test_command,omitempty"`
 	Toolchain         map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`
+	// Policy is the per-dimension enforcement policy, keyed by gate dimension
+	// (the step/gate_type name, e.g. "pack_engines", "coverage_threshold"). Each
+	// entry sets the enforcement level and whether pre-existing findings are
+	// grandfathered against the baseline. A dimension with no entry keeps the
+	// default behavior (block, no baseline). The keys are backstop's universal
+	// dimension vocabulary — never a tool or language name.
+	Policy map[string]DimensionPolicy `yaml:"policy,omitempty" json:"policy,omitempty"`
+}
+
+// DimensionPolicy is one row of the enforcement policy table: how strictly a gate
+// dimension is enforced (level) and whether its pre-existing findings are
+// grandfathered (baseline). Level is "off" (don't enforce), "warn" (surface,
+// non-blocking), or "block" (fail the gate); empty defaults to "block".
+type DimensionPolicy struct {
+	Level    string `yaml:"level,omitempty" json:"level,omitempty"`
+	Baseline bool   `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
 
 // ToolchainPass is a single declared pass binding in enforcement.toolchain: the

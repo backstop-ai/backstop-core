@@ -292,7 +292,9 @@ func TestBaseline_FingerprintKeepsSameRuleSameFileDistinct(t *testing.T) {
 
 	// Contrast: with no fingerprint both fall back to the same message-level identity,
 	// which is exactly the collapse this fix avoids when content is available.
-	if EnrichViolationIdentity(mk("")).IdentityHash != EnrichViolationIdentity(mk("")).IdentityHash {
+	fallbackA := EnrichViolationIdentity(mk("")).IdentityHash
+	fallbackB := EnrichViolationIdentity(mk("")).IdentityHash
+	if fallbackA != fallbackB {
 		t.Fatal("sanity: empty-fingerprint fallback must be deterministic")
 	}
 }

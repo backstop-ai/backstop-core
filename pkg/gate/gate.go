@@ -20,6 +20,7 @@ type Gate struct {
 	baselineModified            time.Time
 	ruleSetChangeSeedingAllowed bool
 	ruleSetChangeFiles          map[string]struct{}
+	policy                      map[string]DimensionPolicy
 }
 
 // Option is a functional option for configuring a Gate.
@@ -79,6 +80,13 @@ func WithRuleSetChangeSeedingAllowed(allowed bool) Option {
 }
 
 // WithRuleSetChangeFiles marks files changed in the seeding context.
+// WithPolicy sets the per-dimension enforcement policy (level + baseline grandfathering),
+// keyed by gate dimension name. An empty/nil map leaves all dimensions at the default
+// (block, no baseline), so the gate behaves exactly as before.
+func WithPolicy(policy map[string]DimensionPolicy) Option {
+	return func(g *Gate) { g.policy = policy }
+}
+
 func WithRuleSetChangeFiles(files []string) Option {
 	return func(g *Gate) {
 		if len(files) == 0 {
@@ -140,6 +148,8 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 			break
 		}
 	}
+
+	results = ApplyPolicy(results, g.baseline, g.policy, g.scope)
 
 	gateResult := NewGateResultWithScope(results, g.scope)
 

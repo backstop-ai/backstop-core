@@ -114,6 +114,10 @@ func runGate(cmd *cobra.Command, args []string) error {
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	opts = append(opts, gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
 
+	if policy := gatePolicyFromConfig(cfg); len(policy) > 0 {
+		opts = append(opts, gate.WithPolicy(policy))
+	}
+
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
 
@@ -277,6 +281,20 @@ func gateConfig(projectRoot string) *config.Config {
 // applies); for any non-Go stack the capability is Absent, so an undeclared
 // dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
 // mis-applied Go analyzer.
+// gatePolicyFromConfig converts the declared enforcement.policy table into the gate's
+// per-dimension policy map. Returns nil when none is declared, leaving every dimension
+// at the default (block, no baseline).
+func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
+	if cfg == nil || len(cfg.Enforcement.Policy) == 0 {
+		return nil
+	}
+	policy := make(map[string]gate.DimensionPolicy, len(cfg.Enforcement.Policy))
+	for dim, p := range cfg.Enforcement.Policy {
+		policy[dim] = gate.DimensionPolicy{Level: p.Level, Baseline: p.Baseline}
+	}
+	return policy
+}
+
 func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
 	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
 	// substantiveness analyzer is DELETED, so the substantiveness capability is now
