@@ -87,7 +87,9 @@ func validateRetirementFields(art *artifact.ParsedArtifact, status, rulePrefix s
 // extractReplacedBy reads the "replaced-by" frontmatter field, returning the
 // list of referenced ids and whether the field was present at all. A present
 // field that is neither a string nor a list of strings yields (nil-or-empty,
-// true) so the caller can flag it as malformed.
+// true) so the caller can flag it as malformed. Non-string array entries are
+// NOT dropped — they are stringified so the caller's typed-ref pattern check
+// flags them as malformed (every value must be a typed ref; DQ-2).
 func extractReplacedBy(fm map[string]interface{}) (refs []string, present bool) {
 	val, ok := fm["replaced-by"]
 	if !ok {
@@ -100,6 +102,10 @@ func extractReplacedBy(fm map[string]interface{}) (refs []string, present bool) 
 		for _, item := range v {
 			if s, ok := item.(string); ok {
 				refs = append(refs, s)
+			} else {
+				// A non-string entry can never match the typed-ref pattern;
+				// surface its value so the malformed check flags it loudly.
+				refs = append(refs, fmt.Sprint(item))
 			}
 		}
 		return refs, true

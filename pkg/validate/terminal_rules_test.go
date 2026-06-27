@@ -102,6 +102,50 @@ func TestValidate_ReplacedByAcceptsArray(t *testing.T) {
 	if !hasViolationRule(res, "spec/replaced-by-malformed") {
 		t.Errorf("array with malformed entry: expected spec/replaced-by-malformed, got %v", res.Violations)
 	}
+
+	// array with a non-string entry (e.g. a bare number) must be flagged
+	// malformed, not silently dropped — every value must be a typed ref.
+	nonString := parseTerminalFixture(t, "spec-replaced-malformed.spec.md")
+	nonString.Frontmatter["replaced-by"] = []interface{}{"BUNDLE-011", 42}
+	res = validate.Spec(nonString, specSch)
+	if !hasViolationRule(res, "spec/replaced-by-malformed") {
+		t.Errorf("array with non-string entry: expected spec/replaced-by-malformed, got %v", res.Violations)
+	}
+
+	// an EMPTY array is present-but-empty — no usable ref — so it is malformed,
+	// not "required" (the field IS present) and not silently accepted.
+	emptyArr := parseTerminalFixture(t, "spec-replaced-malformed.spec.md")
+	emptyArr.Frontmatter["replaced-by"] = []interface{}{}
+	res = validate.Spec(emptyArr, specSch)
+	if !hasViolationRule(res, "spec/replaced-by-malformed") {
+		t.Errorf("empty replaced-by array: expected spec/replaced-by-malformed, got %v", res.Violations)
+	}
+}
+
+// TestValidate_ReplacedByNonStringScalarMalformed: a replaced-by that is present
+// but is a non-string, non-array scalar (e.g. a bare number or a mapping) is
+// malformed — it is surfaced loudly, never silently dropped or treated as absent.
+func TestValidate_ReplacedByNonStringScalarMalformed(t *testing.T) {
+	specSch := loadTerminalSchema(t, "spec", "v1")
+
+	// bare number scalar
+	num := parseTerminalFixture(t, "spec-replaced-malformed.spec.md")
+	num.Frontmatter["replaced-by"] = 42
+	res := validate.Spec(num, specSch)
+	if !hasViolationRule(res, "spec/replaced-by-malformed") {
+		t.Errorf("non-string scalar replaced-by: expected spec/replaced-by-malformed, got %v", res.Violations)
+	}
+	if hasViolationRule(res, "spec/replaced-by-required") {
+		t.Errorf("a present-but-malformed replaced-by must not also raise required: %v", res.Violations)
+	}
+
+	// mapping scalar (also neither string nor []interface{})
+	mapping := parseTerminalFixture(t, "spec-replaced-malformed.spec.md")
+	mapping.Frontmatter["replaced-by"] = map[string]interface{}{"oops": "BUNDLE-011"}
+	res = validate.Spec(mapping, specSch)
+	if !hasViolationRule(res, "spec/replaced-by-malformed") {
+		t.Errorf("mapping replaced-by: expected spec/replaced-by-malformed, got %v", res.Violations)
+	}
 }
 
 // TestValidate_CanceledDeprecatedReasonOptional: a canceled/deprecated artifact
