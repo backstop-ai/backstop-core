@@ -79,6 +79,10 @@ func Issue(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 	// 5. Status-gated rules (blocked → blocked_by, closed → date)
 	violations = append(violations, validateIssueStatusRules(art, status)...)
 
+	// 5b. Retirement fields — replaced-by required+typed when status==replaced
+	// (ISSUE-031 DQ-2). No "deprecated" state for issues.
+	violations = append(violations, validateRetirementFields(art, status, "issue")...)
+
 	// 6. Complexity block (if present)
 	violations = append(violations, validateComplexity(art)...)
 
@@ -337,6 +341,13 @@ func validateComplexity(art *artifact.ParsedArtifact) []Violation {
 // At ready/in-progress/blocked/closed: both are required with full cross-validation.
 func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Violation {
 	var violations []Violation
+
+	// Terminal-state exemption (ISSUE-031 CLM-014): a retired issue (replaced/
+	// canceled) is not held to REQ→CLM→tests traceability even if a future edit
+	// were to add a terminal state to traceabilityRequired.
+	if isTerminalStatus(status) {
+		return violations
+	}
 
 	if !traceabilityRequired[status] {
 		return violations

@@ -107,6 +107,10 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		})
 	}
 
+	// 5b. Retirement fields — replaced-by required+typed when status==replaced
+	// (ISSUE-031 DQ-2). No "deprecated" state for plans.
+	violations = append(violations, validateRetirementFields(art, status, "plan")...)
+
 	// 6. created — required, must match YYYY-MM-DD
 	created := getFrontmatterString(art, "created")
 	if created == "" {

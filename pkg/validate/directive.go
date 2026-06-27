@@ -59,6 +59,9 @@ func Directive(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResul
 				Severity: "error",
 			})
 		}
+		// Retirement fields — replaced-by required+typed when status==replaced
+		// (ISSUE-031 DQ-2).
+		violations = append(violations, validateRetirementFields(art, status, "directive")...)
 	}
 
 	// Check source

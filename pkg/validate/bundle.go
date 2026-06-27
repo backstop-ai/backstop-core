@@ -75,6 +75,10 @@ func Bundle(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 	maturity := extractMaturity(art)
 	violations = append(violations, validateStatusBlock(art)...)
 
+	// 4b. Retirement fields — replaced-by required+typed when maturity==replaced;
+	// reason optional for canceled/deprecated (ISSUE-031 DQ-2).
+	violations = append(violations, validateRetirementFields(art, maturity, "bundle")...)
+
 	// 5. Name/filename consistency
 	if filenameOK {
 		violations = append(violations, validateNameFilenameConsistency(art)...)
@@ -83,17 +87,23 @@ func Bundle(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 	// 6. Version-gated: bundle.updated required when version > 0.1.0
 	violations = append(violations, validateVersionGatedUpdated(art)...)
 
-	// 7. Maturity-gated requirements
-	violations = append(violations, validateMaturityGates(art, maturity)...)
+	// Terminal-state exemption (ISSUE-031 CLM-014): a retired bundle (delivered is
+	// success-terminal; replaced/canceled/deprecated are retirement-terminal) is
+	// not held to the defined/ready maturity gates or the requirements[] gate.
+	// Core bundle-block + status-block + replaced-by checks above still apply.
+	if !isTerminalStatus(maturity) {
+		// 7. Maturity-gated requirements
+		violations = append(violations, validateMaturityGates(art, maturity)...)
 
-	// 8. Epic validation
-	violations = append(violations, validateEpicBlock(art)...)
+		// 8. Epic validation
+		violations = append(violations, validateEpicBlock(art)...)
 
-	// 9. Placeholder ban in problem.summary at defined/ready
-	violations = append(violations, validatePlaceholderBan(art, maturity)...)
+		// 9. Placeholder ban in problem.summary at defined/ready
+		violations = append(violations, validatePlaceholderBan(art, maturity)...)
 
-	// 10. Formal requirements array (required from defined onward)
-	violations = append(violations, validateBundleRequirements(art, maturity)...)
+		// 10. Formal requirements array (required from defined onward)
+		violations = append(violations, validateBundleRequirements(art, maturity)...)
+	}
 
 	combined := make([]Violation, 0, len(base.Violations)+len(violations))
 	combined = append(combined, base.Violations...)
