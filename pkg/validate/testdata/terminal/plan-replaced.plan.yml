@@ -1,3 +1,4 @@
+---
 plan_id: PLAN-SPEC-901
 spec_id: SPEC-901
 created: "2026-06-27"
@@ -16,3 +17,4 @@ phases:
         claims:
           - CLM-001
         depends_on: []
+---
