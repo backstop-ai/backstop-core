@@ -24,7 +24,12 @@ type MandatedTest struct {
 // specFrontmatter is a minimal representation of spec YAML frontmatter
 // for extracting claims, mandated test names, verification blocks, and contracts.
 type specFrontmatter struct {
-	Number         string `yaml:"number"`
+	Number string `yaml:"number"`
+	// Status is the spec lifecycle status. Terminal statuses (replaced, canceled,
+	// deprecated — ISSUE-031 DQ-1) cause the spec to be EXCLUDED from gate
+	// enforcement: its mandated tests, verifications, and contracts are not
+	// extracted, because a retired spec's promises are deliberately no longer held.
+	Status         string `yaml:"status"`
 	Implementation struct {
 		Package string `yaml:"package"`
 	} `yaml:"implementation"`
@@ -72,6 +77,9 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 		if err != nil {
 			continue // skip unparseable specs
 		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		}
 
 		targetPkg := TargetPackageName(fm.Implementation.Package)
 
@@ -88,6 +96,45 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 		}
 	}
 	return tests, nil
+}
+
+// isTerminalSpecStatus reports whether a spec status is an end-of-life state
+// (ISSUE-031 DQ-1). Terminal specs are excluded from gate enforcement — their
+// mandated tests and contracts are no longer held as live promises. This is the
+// single source of truth the mandated-test step, the contract step, and the
+// verification step all key on.
+func isTerminalSpecStatus(status string) bool {
+	switch status {
+	case "replaced", "canceled", "deprecated":
+		return true
+	default:
+		return false
+	}
+}
+
+// CountTerminalSpecs returns the number of spec files in specDir whose status is
+// terminal (replaced/canceled/deprecated) and are therefore excluded from gate
+// enforcement. The gate command reports this as an informational line (CLM-017).
+// Unparseable specs are not counted (they cannot be classified as terminal).
+func CountTerminalSpecs(specDir string) (int, error) {
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+			continue
+		}
+		fm, err := parseSpecFrontmatter(filepath.Join(specDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if isTerminalSpecStatus(fm.Status) {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // parseSpecFrontmatter reads YAML frontmatter from a spec markdown file.
@@ -261,6 +308,9 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 		if err != nil {
 			continue // skip unparseable specs
 		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		}
 
 		if fm.Verification.TestCommand != "" && fm.Verification.CoverageThreshold > 0 {
 			specs = append(specs, SpecVerification{
@@ -294,6 +344,9 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 		fm, err := parseSpecFrontmatter(path)
 		if err != nil {
 			continue // skip unparseable specs
+		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
 		}
 
 		for _, c := range fm.Contracts {
