@@ -3,6 +3,7 @@ package gate
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -119,7 +120,7 @@ func isTerminalSpecStatus(status string) bool {
 func CountTerminalSpecs(specDir string) (int, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("reading spec dir %s: %w", specDir, err)
 	}
 	count := 0
 	for _, entry := range entries {

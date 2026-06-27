@@ -136,6 +136,13 @@ func runGate(cmd *cobra.Command, args []string) error {
 		noColor := gate.NoColorFromEnv()
 		output := gate.FormatHuman(result, noColor)
 		cmd.Print(output)
+		// Informational: report terminal (retired) artifacts excluded from
+		// enforcement (ISSUE-031 CLM-017). Purely informational — it is NOT a
+		// warning or violation and does not affect the gate verdict; retirement
+		// is deliberate. Silent when zero (no noise).
+		if notice := terminalExclusionNotice(filepath.Join(projectRoot, "specs")); notice != "" {
+			cmd.Println(notice)
+		}
 	}
 
 	if exitCode != 0 {
@@ -145,6 +152,23 @@ func runGate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+// terminalExclusionNotice returns an informational one-line summary of the
+// terminal (retired) specs in specDir that the gate excluded from enforcement
+// (ISSUE-031 CLM-017). It returns "" when no terminal specs are present (or the
+// dir is unreadable) so the gate emits no noise in the common case. The line is
+// informational only — it never affects the gate verdict.
+func terminalExclusionNotice(specDir string) string {
+	count, err := gate.CountTerminalSpecs(specDir)
+	if err != nil || count == 0 {
+		return ""
+	}
+	noun := "retired artifact"
+	if count != 1 {
+		noun += "s"
+	}
+	return fmt.Sprintf("ℹ %d %s excluded from enforcement (terminal status)", count, noun)
 }
 
 func resolveBaselineCache(path string, ttl time.Duration) (*gate.BaselineArtifact, string, time.Time) {
