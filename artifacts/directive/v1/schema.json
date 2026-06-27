@@ -42,8 +42,8 @@
       "required_keys": ["status", "source"],
       "properties": {
         "status": {
-          "enum": ["queued", "active", "specced", "done"],
-          "description": "Lifecycle status. queued = committed but not started. active = work in progress. specced = spec exists. done = implementation complete, gate passed."
+          "enum": ["queued", "active", "specced", "done", "replaced", "canceled"],
+          "description": "Lifecycle status. queued = committed but not started. active = work in progress. specced = spec exists. done = implementation complete, gate passed. replaced = superseded by a named successor (requires replaced-by). canceled = work abandoned. No deprecated state for directives."
         },
         "source": {
           "type": "array",

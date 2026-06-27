@@ -19,7 +19,8 @@
         "description": "The spec or issue this plan implements"
       },
       "status": {
-        "enum": ["draft", "ready", "implementing", "completed"]
+        "enum": ["draft", "ready", "implementing", "completed", "replaced", "canceled"],
+        "description": "Lifecycle status. Live: draft, ready, implementing, completed. Terminal/end-of-life: replaced (superseded by a named successor — requires replaced-by), canceled (work abandoned). No deprecated state for plans."
       },
       "created": {
         "pattern": "^\\d{4}-\\d{2}-\\d{2}$"

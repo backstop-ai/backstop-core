@@ -41,7 +41,8 @@
           "enum": ["bug", "technical-debt", "enhancement", "question", "policy-violation"]
         },
         "status": {
-          "enum": ["open", "ready", "in-progress", "blocked", "closed"]
+          "enum": ["open", "ready", "in-progress", "blocked", "closed", "replaced", "canceled"],
+          "description": "Lifecycle status. Live: open, ready, in-progress, blocked. Success terminal: closed. Retirement terminal: replaced (superseded by a named successor — requires replaced-by), canceled (work abandoned). No deprecated state for issues."
         },
         "created": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$"

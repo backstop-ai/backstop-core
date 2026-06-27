@@ -17,7 +17,8 @@
         "pattern": "^SPEC-[0-9]{3}$"
       },
       "status": {
-        "enum": ["draft", "ready-for-implementation", "implemented"]
+        "enum": ["draft", "ready-for-implementation", "implemented", "replaced", "canceled", "deprecated"],
+        "description": "Lifecycle status. Live: draft, ready-for-implementation, implemented. Terminal/end-of-life: replaced (superseded by a named successor — requires replaced-by), canceled (work abandoned), deprecated (retired without a single named successor)."
       },
       "schema_version": {
         "const": "spec/v1"
