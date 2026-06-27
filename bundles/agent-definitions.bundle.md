@@ -4,13 +4,20 @@ schema_version: bundle/v1
 
 bundle:
   name: agent-definitions
-  version: "0.3.0"
+  version: "0.4.0"
   created: "2026-03-31"
-  updated: "2026-04-02"
+  updated: "2026-06-27"
   category: feature
 
 status:
-  maturity: defined
+  maturity: delivered
+  note: >
+    Delivered. The specialized agent roles this bundle defined (spec-author,
+    planner, implementer, spec/plan/impl reviewers, artifact authors) now exist
+    and are in active use. Its work shipped across SPEC-002 (plan-schema-evolution),
+    SPEC-003 (agent-hooks), and SPEC-004 (spec-schema-evolution); the plan-schema /
+    D-081 file-exclusivity enforcement is marked IMPLEMENTED in the bundle body.
+    Success terminal — not a retirement.
 
 problem:
   summary: >
@@ -478,6 +485,11 @@ None remaining. All seven original OQs resolved 2026-03-31.
   context, and escalation-over-guessing pattern. Driven by real-world feedback
   from a Java engineer running mechsuit daily. Five new requirements (REQ-014
   through REQ-018) and four new design decisions (DD-10 through DD-13).
+- 0.4.0 (2026-06-27): Marked delivered. Work shipped via SPEC-002
+  (plan-schema-evolution), SPEC-003 (agent-hooks), and SPEC-004
+  (spec-schema-evolution); the specialized agent roles are now in active use and
+  the plan-schema / D-081 file-exclusivity enforcement is IMPLEMENTED. Success
+  terminal maturity (per ISSUE-031) — exempt from defined/ready completeness gates.
 
 ## Notes / Ideas
 
