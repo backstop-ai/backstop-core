@@ -109,45 +109,117 @@ failure (SPEC-001) in the tree.
 
 ## Solution
 
-Each artifact type's status enum gains the terminal state(s) it needs:
+Design questions are resolved (see Resolved Design Decisions below). This section states the
+implementation-ready specification.
 
-- **spec/v1**: add `superseded` and/or `withdrawn` to the status enum
-- **bundle/v1 + v2**: add a terminal maturity value (e.g., `superseded`, `withdrawn`,
-  `absorbed`) to `status.maturity`
-- **plan/v1**: add `withdrawn` (or `superseded`) to the status enum
-- **directive/v1**: add `withdrawn` to the `directive.status` enum
+### Terminal-state vocabulary
 
-Once the spec schema has a valid terminal status:
+Two flavors of terminal state, applied per-type:
 
-- SPEC-001's `status: active` is reconciled to the correct terminal value (resolving the live
-  validation failure)
-- SPEC-034 is marked `superseded` with a `superseded-by: BUNDLE-011` reference (unblocking
-  honest tombstoning that BUNDLE-011 REQ-008 explicitly requires)
+**Retirement terminals** (new across all SDLC types):
 
-### Open design questions (not pre-resolved — user drives these)
+- `replaced` — replaced by a named successor; work lives on elsewhere. Validation MUST
+  enforce that a `replaced-by:` field is present and well-formed when status is `replaced`.
+  Format: a typed reference matching `BUNDLE-NNN`, `SPEC-NNN`, `ISSUE-NNN`, `PLAN-NNN`, or
+  `DIR-NNN`; may be an array for multi-absorber cases.
+- `canceled` — abandoned, no successor, work will not happen. Reason field is optional
+  free-text. Spelling: one L (`canceled`), matching Go's `context.Canceled`.
+- `deprecated` — was live or shipped, now discouraged. Optional reason field. Applies ONLY
+  to spec and bundle (and the already-present adr/standard/capability). Do NOT add
+  `deprecated` to plan, directive, or issue — those are tactical execution artifacts; they
+  get only `replaced`/`canceled`.
 
-**DQ-1: Should the gate / planners SKIP artifacts in a terminal state?**
-A `superseded` spec should probably not be scanned for implementation gaps or surfaced as
-outstanding work. But should `backstop gate` silently ignore superseded artifacts, warn about
-them, or require an explicit exclusion? This affects the gate's coverage semantics.
+**Success terminals** (one gap to fill):
 
-**DQ-2: Should a terminal status REQUIRE a supersession reference, and should validation
-enforce it?**
-A `superseded` spec with no `superseded-by:` field is less useful than one that says
-`superseded-by: BUNDLE-011`. Should validation require the reference field when status is
-`superseded`? What's the reference format — free string, typed BUNDLE-NNN/ISSUE-NNN pattern,
-or an array for multi-absorber cases?
+All success terminals already exist for most types (`spec: implemented`, `plan: completed`,
+`directive: done`, `issue: closed`, `adr: Accepted`, `capability: verified`) and are NOT
+renamed or unified. The one gap: bundle has no success terminal. Its maturity ladder ends at
+`ready` (= ready-to-spec), so a fully-delivered bundle permanently stalls at `ready`. Add a
+`delivered` maturity value to bundle/v1 and bundle/v2. This gap exists because bundle-as-
+unit-of-work post-dates the original maturity ladder design.
 
-**DQ-3: Uniform terminal vocabulary across types, or per-type states?**
-ADRs use `Superseded`/`Deprecated` (title-case). Standards/capabilities use `deprecated`
-(lowercase). A consistent vocabulary across all types (`superseded`, `withdrawn`,
-`deprecated`) would make tooling simpler and the mental model cleaner, but may not map
-cleanly to each type's semantics. Should a schema-wide convention be established?
+### Schema changes per type
 
-**DQ-4: Is `deprecated` distinct from `superseded` for specs and bundles?**
-For ADRs the distinction is meaningful (`Deprecated` = no longer recommended but not
-replaced; `Superseded` = replaced by a specific other ADR). Should specs and bundles carry
-both variants, or is a single `superseded` sufficient?
+| Type | Change |
+|------|--------|
+| `spec/v1` | Add `replaced`, `canceled`, `deprecated` to `status` enum |
+| `bundle/v1` + `bundle/v2` | Add `delivered` (success terminal) AND `replaced`, `canceled`, `deprecated` to `status.maturity` |
+| `plan/v1` | Add `replaced`, `canceled` to `status` enum |
+| `directive/v1` | Add `replaced`, `canceled` to `directive.status` enum |
+| `issue/v1` | Add `replaced`, `canceled` to `issue.status` enum (keep `closed` — `replaced`/`canceled` distinguish "absorbed by a bundle" / "abandoned" from "fixed") |
+| `adr/v2`, `standard/v1`, `capability/v1` | No change — already have terminal vocabulary |
+
+### Validation rules
+
+- When `status` (or `status.maturity`) is `replaced`: `replaced-by` field MUST be present
+  and MUST match one of the typed-ref patterns above. Validation fails if absent or
+  malformed.
+- When status is `canceled` or `deprecated`: an optional `reason` field may be present;
+  validation does not require it.
+- ADR keeps its existing Title-Case `Superseded`/`Deprecated` — renaming it would break
+  existing ADRs and the ADR convention is standard. The new SDLC-type states are lowercase.
+
+### Gate-exclusion behavior
+
+`backstop gate` and planners MUST exclude terminal-state artifacts from enforcement. A
+`replaced`, `canceled`, or `deprecated` artifact must not have its mandated tests or
+contracts enforced; it must not be surfaced as outstanding work.
+
+The gate outputs a count of excluded terminal artifacts (e.g., `N retired artifacts
+excluded`) as an informational line — not a warning, since retirement is deliberate.
+
+This exclusion is the load-bearing change that lets the standards-compiler-era stale
+artifacts stop failing the gate. The current broken-promise backlog is dominated by
+~622 red findings from removed-standards-compiler mandated tests and deleted-`pkg/compile`
+contracts. Once those specs and bundles can be marked `replaced` or `deprecated`, those
+findings are gated out entirely.
+
+### Reconciliations (unblocked once spec schema is updated)
+
+These are explicit downstream tasks, not part of the schema change itself:
+
+1. **SPEC-001**: change `status: active` (currently invalid — causes live `[spec/invalid-status]`
+   failure today) to `status: deprecated`. Rationale: the standards-compiler model is
+   strategically retired per ISSUE-030 and BUNDLE-011; the spec was never superseded by a
+   single named successor, it was made obsolete by a strategy change.
+
+2. **SPEC-034**: change `status: draft` to `status: replaced` with
+   `replaced-by: BUNDLE-011`. BUNDLE-011 REQ-008 explicitly requires this tombstoning. The
+   bridge work landed; the deletion scope was absorbed into BUNDLE-011.
+
+## Resolved design decisions
+
+These questions were open at time of filing and are now ratified.
+
+**DQ-1 (gate exclusion): RESOLVED.**
+`backstop gate` and planners exclude terminal-state artifacts from enforcement entirely. A
+`replaced`/`canceled`/`deprecated` spec does not have its tests or contracts enforced; it is
+not surfaced as outstanding work. The gate reports a count of excluded artifacts as
+informational (not a warning). Rationale: the alternative (enforcing dead contracts) is what
+produces the ~622 vacuous-red findings currently polluting the broken-promise backlog.
+Deliberately dead artifacts should be gated out, not noisily complained about.
+
+**DQ-2 (validation requires replaced-by): RESOLVED.**
+Validation requires `replaced-by` when status is `replaced`. The reference must be a typed
+artifact ID matching `BUNDLE-NNN`, `SPEC-NNN`, `ISSUE-NNN`, `PLAN-NNN`, or `DIR-NNN`; an
+array is allowed for multi-absorber cases. `canceled` and `deprecated` take an optional
+free-text `reason` field; validation does not require it.
+
+**DQ-3 (per-type vs. uniform vocabulary): RESOLVED.**
+Per-type vocabulary, not a forced uniform rename. ADR keeps its existing Title-Case
+`Superseded`/`Deprecated` — renaming it would break existing ADRs and violate the ADR
+convention (these states are an established standard). The new SDLC-type states are
+lowercase (`replaced`, `canceled`, `deprecated`, `delivered`). The intentional split is:
+ADR convention-cased values for ADRs, lowercase for everything else.
+
+**DQ-4 (deprecated vs. replaced distinction): RESOLVED.**
+`deprecated` and `replaced` are distinct states. `replaced` = has a named successor (a
+specific artifact absorbs or continues the work; `replaced-by` is mandatory). `deprecated` =
+aged out or made obsolete by a strategy change, but no single named successor exists. This
+mirrors the ADR `Deprecated`/`Superseded` distinction and applies it consistently to SDLC
+types. `deprecated` is intentionally limited to spec and bundle (types with a "live/shipped"
+concept); tactical execution artifacts (plan, directive, issue) cannot be deprecated, only
+replaced or canceled.
 
 ## References
 
