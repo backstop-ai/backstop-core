@@ -2,7 +2,8 @@
 title: "Native Toolchain Engine Cutover"
 number: SPEC-034
 created: "2026-06-18"
-status: draft
+status: replaced
+replaced-by: BUNDLE-011
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -22,11 +23,12 @@ implementation:
     `main`; `builtinToolchain` is the current symbol.) The remaining cutover + deletion
     scope has been ABSORBED BY BUNDLE-011 (Seed 2 → SPEC-040; recorded in BUNDLE-011
     REQ-008 / DD-4 / RDQ-4), which will spec and implement the work from there,
-    generalized beyond Go to any `<lang>-toolchain` pack. This spec remains
-    `status: draft` ONLY because the spec schema currently has no terminal state; that
-    gap is tracked by ISSUE-031 (artifact terminal states), which will add a real
-    `superseded` state — at which point SPEC-034 should be flipped to it. The original
-    intent and phased design below are retained verbatim for traceability. ⚠️ ——
+    generalized beyond Go to any `<lang>-toolchain` pack. This spec is now
+    `status: replaced`, `replaced-by: BUNDLE-011` — the terminal-state vocabulary
+    ratified by ISSUE-031 (artifact terminal states) made the correct terminal state
+    `replaced` (with a typed `replaced-by` ref), NOT `superseded` (which is an
+    ADR-only concept and never became a spec state). The original intent and phased
+    design below are retained verbatim for traceability. ⚠️ ——
     Bridge the native Go CODE-CHECK toolchain (the lint, build, and test passes) onto
     the EXISTING engine-dispatch substrate, then DELETE the bespoke toolchain path.
     Today the gate runs two disjoint substrates at the cmd/backstop level:
