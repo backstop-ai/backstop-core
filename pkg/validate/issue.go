@@ -18,6 +18,8 @@ var (
 	}
 	issueStatuses = map[string]bool{
 		"open": true, "ready": true, "in-progress": true, "blocked": true, "closed": true,
+		// Retirement terminal states (ISSUE-031): replaced, canceled. No "deprecated".
+		"replaced": true, "canceled": true,
 	}
 	// Statuses that require full traceability (REQ → CLM → tests)
 	traceabilityRequired = map[string]bool{
@@ -174,7 +176,7 @@ func validateIssueBlock(art *artifact.ParsedArtifact, statusOut *string) []Viola
 		violations = append(violations, Violation{
 			Rule:     "issue/status-enum",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, ready, in-progress, blocked, closed)", s),
+			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, ready, in-progress, blocked, closed, replaced, canceled)", s),
 			Severity: "error",
 		})
 	} else {

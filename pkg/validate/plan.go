@@ -15,6 +15,8 @@ var (
 	specIDRe     = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)
 	planStatuses = map[string]bool{
 		"draft": true, "ready": true, "implementing": true, "completed": true,
+		// Terminal/end-of-life states (ISSUE-031). No "deprecated" for plans.
+		"replaced": true, "canceled": true,
 	}
 	validTaskTypes = map[string]bool{
 		"setup": true, "test": true, "implementation": true,
@@ -93,14 +95,14 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		violations = append(violations, Violation{
 			Rule:     "plan/status-required",
 			File:     art.Filename,
-			Message:  "status is required (draft, ready, implementing, completed)",
+			Message:  "status is required (draft, ready, implementing, completed, replaced, canceled)",
 			Severity: "error",
 		})
 	} else if !planStatuses[status] {
 		violations = append(violations, Violation{
 			Rule:     "plan/invalid-status",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("status '%s' is not valid (draft, ready, implementing, completed)", status),
+			Message:  fmt.Sprintf("status '%s' is not valid (draft, ready, implementing, completed, replaced, canceled)", status),
 			Severity: "error",
 		})
 	}

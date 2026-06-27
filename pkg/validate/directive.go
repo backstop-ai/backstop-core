@@ -46,12 +46,16 @@ func Directive(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResul
 			Severity: "error",
 		})
 	} else if status, ok := statusVal.(string); ok {
-		validStatuses := map[string]bool{"queued": true, "active": true, "specced": true, "done": true}
+		// Terminal/end-of-life states (ISSUE-031): replaced, canceled. No "deprecated".
+		validStatuses := map[string]bool{
+			"queued": true, "active": true, "specced": true, "done": true,
+			"replaced": true, "canceled": true,
+		}
 		if !validStatuses[status] {
 			violations = append(violations, Violation{
 				Rule:     "directive/invalid-status",
 				File:     art.Filename,
-				Message:  "directive.status must be one of: queued, active, specced, done",
+				Message:  "directive.status must be one of: queued, active, specced, done, replaced, canceled",
 				Severity: "error",
 			})
 		}

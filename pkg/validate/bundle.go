@@ -21,6 +21,8 @@ var (
 	}
 	maturityLevels = map[string]bool{
 		"idea": true, "exploring": true, "defined": true, "ready": true,
+		// Success terminal + retirement terminal states (ISSUE-031).
+		"delivered": true, "replaced": true, "canceled": true, "deprecated": true,
 	}
 	// Sections required at defined/ready maturity
 	matureSections = []string{
@@ -233,7 +235,7 @@ func validateStatusBlock(art *artifact.ParsedArtifact) []Violation {
 		violations = append(violations, Violation{
 			Rule:     "bundle/maturity-enum",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("status.maturity '%s' is not valid (allowed: idea, exploring, defined, ready)", m),
+			Message:  fmt.Sprintf("status.maturity '%s' is not valid (allowed: idea, exploring, defined, ready, delivered, replaced, canceled, deprecated)", m),
 			Severity: "error",
 		})
 	}
