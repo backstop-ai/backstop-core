@@ -114,6 +114,15 @@ type EngineBinding struct {
 	// for a SARIF-native engine; non-empty for a tool whose native output is not
 	// SARIF (e.g. ast-grep). REQ-007/REQ-008.
 	Convert string `yaml:"convert"`
+	// StdoutArtifact, when non-empty, names a FILE (relative to the run's working
+	// dir) that the engine writes its real output to INSTEAD of stdout. The
+	// dispatch then feeds THAT file's contents — not the command's stdout — into
+	// the Convert. It exists for tools whose stdout is summary/noise while the
+	// payload lands in a file (e.g. a coverage pass that writes a profile to a
+	// file and prints only a test summary to stdout). The filename is pack DATA —
+	// the binary stays tool/language-blind: it knows only "this engine's output is
+	// in a declared file", never what the file means.
+	StdoutArtifact string `yaml:"stdout_artifact"`
 	// Provision is an optional pinned install descriptor. Nil => assumed-present
 	// Layer-0 engine (REQ-019).
 	Provision *Provision `yaml:"provision"`

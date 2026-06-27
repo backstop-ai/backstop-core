@@ -12,14 +12,14 @@ import (
 
 // Manifest is the top-level pack manifest.
 type Manifest struct {
-	Name           string                `yaml:"name"`
-	NormalizedName string                `yaml:"-"`
-	Version        string                `yaml:"version"`
-	Language       string                `yaml:"language"`
-	Archetype      string                `yaml:"archetype"`
-	Description    string                `yaml:"description"`
-	Content        Content               `yaml:"content"`
-	ToolConfig     []ToolConfigEntry     `yaml:"tool_config"`
+	Name           string            `yaml:"name"`
+	NormalizedName string            `yaml:"-"`
+	Version        string            `yaml:"version"`
+	Language       string            `yaml:"language"`
+	Archetype      string            `yaml:"archetype"`
+	Description    string            `yaml:"description"`
+	Content        Content           `yaml:"content"`
+	ToolConfig     []ToolConfigEntry `yaml:"tool_config"`
 	// Engines holds the pack-declared engine bindings parsed from the top-level
 	// `engines:` block (SPEC-035 REQ-001/CLM-001). Each EngineSpec carries the
 	// yaml-tagged binding fields and is converted to an engine.EngineBinding at
@@ -36,18 +36,19 @@ type Manifest struct {
 // (parseEngineSpec); the resolved engine.EngineBinding is stored on Binding so
 // every consumer reads ONE converted binding, never the raw spec.
 type EngineSpec struct {
-	Command       string                `yaml:"command"`
-	InputMode     string                `yaml:"input_mode"`
-	InputFlag     string                `yaml:"input_flag"`
-	Convert       string                `yaml:"convert"`
-	ScopeKind     string                `yaml:"scope_kind"`
-	Category      string                `yaml:"category"`
-	GateType      string                `yaml:"gate_type"`
-	StrictSarif   bool                  `yaml:"strict_sarif"`
-	PackageScoped bool                  `yaml:"package_scoped"`
-	ProjectTarget string                `yaml:"project_target"`
-	Provision     *engine.Provision     `yaml:"provision"`
-	FieldContract *engine.FieldContract `yaml:"field_contract"`
+	Command        string                `yaml:"command"`
+	InputMode      string                `yaml:"input_mode"`
+	InputFlag      string                `yaml:"input_flag"`
+	Convert        string                `yaml:"convert"`
+	StdoutArtifact string                `yaml:"stdout_artifact"`
+	ScopeKind      string                `yaml:"scope_kind"`
+	Category       string                `yaml:"category"`
+	GateType       string                `yaml:"gate_type"`
+	StrictSarif    bool                  `yaml:"strict_sarif"`
+	PackageScoped  bool                  `yaml:"package_scoped"`
+	ProjectTarget  string                `yaml:"project_target"`
+	Provision      *engine.Provision     `yaml:"provision"`
+	FieldContract  *engine.FieldContract `yaml:"field_contract"`
 	// Binding is the engine.EngineBinding the spec converts to at load. It is
 	// populated by parseEngineSpec during ParseManifest, not parsed directly from
 	// yaml, so the string-enum spellings resolve through the fail-loud parsers.
@@ -73,11 +74,11 @@ type Ruleset struct {
 // ConfigError at the migrated reader — there is no layer:2 -> engine:semgrep
 // aliasing (REQ-002/REQ-015).
 type Rule struct {
-	ID            string    `yaml:"id"`
-	NamespacedID  string    `yaml:"-"`
-	Engine        string    `yaml:"engine"`
-	Standard      string    `yaml:"standard"`
-	RulePath      string    `yaml:"rule_path"`
+	ID           string `yaml:"id"`
+	NamespacedID string `yaml:"-"`
+	Engine       string `yaml:"engine"`
+	Standard     string `yaml:"standard"`
+	RulePath     string `yaml:"rule_path"`
 	// Pattern is the inline rule pattern a pattern-arg engine passes as a command
 	// argument instead of resolving a rule file on disk (SPEC-035 REQ-004). Empty
 	// for non-pattern-arg engines; an empty Pattern under a pattern-arg engine is
@@ -137,16 +138,16 @@ func (f *FixtureEntry) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // Scaffold describes a scaffolded asset.
 type Scaffold struct {
-	ID           string            `yaml:"id"`
-	Version      string            `yaml:"version"`
-	Tier         string            `yaml:"tier"`
-	Path         string            `yaml:"path"`
-	TestCommand  string            `yaml:"test_command"`
-	Description  string            `yaml:"description"`
-	UseWhen      []string          `yaml:"use_when"`
-	Assumes      []string          `yaml:"assumes"`
-	PairsWith    PairsWith         `yaml:"pairs_with"`
-	SampleConfig map[string]any    `yaml:"sample_config"`
+	ID           string         `yaml:"id"`
+	Version      string         `yaml:"version"`
+	Tier         string         `yaml:"tier"`
+	Path         string         `yaml:"path"`
+	TestCommand  string         `yaml:"test_command"`
+	Description  string         `yaml:"description"`
+	UseWhen      []string       `yaml:"use_when"`
+	Assumes      []string       `yaml:"assumes"`
+	PairsWith    PairsWith      `yaml:"pairs_with"`
+	SampleConfig map[string]any `yaml:"sample_config"`
 }
 
 // SDK describes an SDK dependency.
@@ -441,13 +442,14 @@ func validateEngine(name string, declared map[string]engine.EngineBinding) error
 // config error — no silent default (CLM-021 for gate_type).
 func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 	binding := engine.EngineBinding{
-		Command:       spec.Command,
-		InputFlag:     spec.InputFlag,
-		Convert:       spec.Convert,
-		StrictSarif:   spec.StrictSarif,
-		PackageScoped: spec.PackageScoped,
-		ProjectTarget: spec.ProjectTarget,
-		Provision:     spec.Provision,
+		Command:        spec.Command,
+		InputFlag:      spec.InputFlag,
+		Convert:        spec.Convert,
+		StdoutArtifact: spec.StdoutArtifact,
+		StrictSarif:    spec.StrictSarif,
+		PackageScoped:  spec.PackageScoped,
+		ProjectTarget:  spec.ProjectTarget,
+		Provision:      spec.Provision,
 	}
 
 	inputMode, err := engine.ParseInputMode(spec.InputMode)

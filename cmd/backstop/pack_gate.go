@@ -316,7 +316,6 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 // are project-wide toolchain passes (ScopeKindProjectWide + ProjectTarget), so the
 // engine shapes its OWN target and the project root is never appended.
 func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
-	_ = projectRoot
 	_ = scope
 	records := []check.CoverageRecord{}
 	for _, manifest := range packs {
@@ -344,7 +343,7 @@ func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, s
 				continue
 			}
 			rules := grouped[engineName]
-			recs, err := runCoverageEngine(manifest, packRoot, binding, rules, runner)
+			recs, err := runCoverageEngine(manifest, packRoot, projectRoot, binding, rules, runner)
 			if err != nil {
 				return nil, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
@@ -372,7 +371,7 @@ func configErrorPassthrough(err error) error {
 // ParsePackFindings. A coverage engine declaring no convert is a broken-pack error:
 // the engine's native profile is not coverage-records, so a convert is required to
 // normalize it.
-func runCoverageEngine(manifest *pack.Manifest, packRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
+func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering coverage engine inputs for pack %s: %w", manifest.NormalizedName, err)
@@ -397,10 +396,27 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot string, binding engine.
 	}
 
 	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-	// The engine's stdout is its raw profile; a coverage tool may exit non-zero when
+	// The engine's payload is its raw output; a coverage tool may exit non-zero when
 	// tests fail yet still emit a usable profile, so runErr is not fatal on its own —
 	// the convert+parser contract is what matters. A convert failure below fails loud.
 	_ = runErr
+
+	// Select the bytes to feed the convert. By default the engine's payload IS its
+	// stdout. When the binding declares a stdout_artifact, the engine instead writes
+	// its real output to that FILE (relative to the run's working dir = projectRoot)
+	// and prints only summary/noise to stdout — so read the FILE and feed THAT. The
+	// filename is pack DATA; this stays tool/language-blind (no coverage/profile
+	// literal here). A declared-but-missing artifact is a fail-loud broken run, not a
+	// silent fall-back to the noise stdout (which would re-introduce the bug).
+	payload := stdout
+	if binding.StdoutArtifact != "" {
+		artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
+		body, readErr := os.ReadFile(artifactPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("pack %s coverage engine %q: declared stdout_artifact %q not produced (read %s: %v)", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
+		}
+		payload = body
+	}
 
 	if binding.Convert == "" {
 		return nil, fmt.Errorf("broken pack %s: coverage engine %q declares no convert — its native profile is not coverage-records and must be normalized", manifest.NormalizedName, binding.Command)
@@ -409,7 +425,7 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot string, binding engine.
 	if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
 		return nil, fmt.Errorf("broken pack %s: missing coverage convert script %s", manifest.NormalizedName, convertPath)
 	}
-	normalized, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, stdout)
+	normalized, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, payload)
 	if convErr != nil {
 		return nil, fmt.Errorf("pack %s: coverage convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
 	}

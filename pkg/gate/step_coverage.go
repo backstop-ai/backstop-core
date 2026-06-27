@@ -66,7 +66,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 
 		var violations []Violation
 		for _, path := range paths {
-			record, hasRecord := byPath[path]
+			record, hasRecord := resolveCoverageRecord(byPath, path)
 			inScopeChanged := coveragePathInDiffScope(path, scope)
 
 			if !hasRecord {
@@ -167,6 +167,34 @@ func indexCoverageByPath(coverage []check.CoverageRecord) map[string]check.Cover
 		byPath[normalizeScopePath("", r.Path)] = r
 	}
 	return byPath
+}
+
+// resolveCoverageRecord finds the record for a repo-relative scope path. It first
+// tries an exact match, then falls back to a record whose (normalized) path ENDS
+// WITH "/"+path. The fallback reconciles a producer that emits module/namespace-
+// qualified paths (e.g. "github.com/org/repo/pkg/x/f.go") against the gate's
+// repo-relative scope ("pkg/x/f.go"), WITHOUT the language-neutral consumer
+// learning any module/tool semantics. The suffix is anchored on a path separator
+// so "terminal.go" never matches "internal.go". A unique match is required: an
+// ambiguous suffix (two records ending the same way) is treated as no-match so
+// the loud not-measured check fires rather than silently picking one.
+func resolveCoverageRecord(byPath map[string]check.CoverageRecord, path string) (check.CoverageRecord, bool) {
+	if r, ok := byPath[path]; ok {
+		return r, true
+	}
+	suffix := "/" + path
+	var match check.CoverageRecord
+	found := 0
+	for recPath, r := range byPath {
+		if strings.HasSuffix(recPath, suffix) {
+			match = r
+			found++
+		}
+	}
+	if found == 1 {
+		return match, true
+	}
+	return check.CoverageRecord{}, false
 }
 
 // coveragePathsInScope returns the sorted set of FILE paths to evaluate. In a
