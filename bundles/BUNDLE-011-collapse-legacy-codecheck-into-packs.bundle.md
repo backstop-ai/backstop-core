@@ -6,13 +6,31 @@ schema_version: bundle/v2
 
 bundle:
   name: collapse-legacy-codecheck-into-packs
-  version: "0.4.0"
+  version: "0.5.0"
   created: "2026-06-21"
-  updated: "2026-06-24"
+  updated: "2026-06-28"
   category: infrastructure
 
 status:
-  maturity: defined
+  maturity: delivered
+  note: >
+    DELIVERED for the CUTOVER (2026-06-28). All four seeds shipped and committed:
+    SPEC-039 (dead-code prelude — Seed 1), SPEC-040 (toolchain-pack cutover keystone —
+    Seed 2: the baked `realCodeChecker`/`builtinToolchain` Step 2 is GONE from the gate;
+    lint/build/test now run ONLY via `dispatchPackEngines` over the bridged
+    `<lang>-toolchain` pack), SPEC-041 (coverage re-implemented as a producer/consumer
+    model — Seed 3), and SPEC-042 (the go-toolchain coverage PRODUCER engine — Seed 4).
+    The gate now runs language-neutral dispatch for lint/build/test plus a generic
+    coverage producer/consumer.
+    CARRY-FORWARD (explicitly NOT delivered here — no "fully language-neutral" promise is
+    made): the cutover did NOT fully de-Go the gate CONSUMER side. The `backstop/self`
+    pack mechanically flags THREE remaining live Go-specific consumer sites, currently
+    grandfathered in the gate baseline: `pkg/gate/step_coverage.go` (the `.go`-only
+    measurable-path filter, ~L239), `pkg/gate/step_testverify.go` (the `_test.go`
+    test-file walk, ~L254), and `cmd/backstop/gate.go` (`goFilePackageMatchesTarget`'s
+    Go-package assumption, ~L908). De-Go-ing those consumers + delivering a
+    `typescript-toolchain` pack is carried forward to a NEW forthcoming bundle — it is
+    NOT claimed as done by BUNDLE-011.
 
 problem:
   summary: >
@@ -777,3 +795,26 @@ record format. Covers REQ-014, REQ-015, REQ-016. (DD-7.)
   Seed 2 and is producer↔consumer with Seed 3. Seeds 1–3 and RDQ-1…RDQ-6 left intact.
   `version` 0.3.0 → 0.4.0. **Maturity STAYS `defined`** (this is a scope-evolution, not
   a promotion).
+- **0.5.0 (2026-06-28, delivered)** — PROMOTED `defined` → `delivered` (success
+  terminal; enabled by ISSUE-031, which added the `delivered` maturity and exempts
+  terminal bundles from the defined/ready maturity-section + `requirements[]` gates).
+  **What shipped (the CUTOVER scope):** all four seeds are implemented and committed —
+  Seed 1 = SPEC-039 (dead-code prelude: deleted the dead standards-manifest reader +
+  the no-op non-Go semgrep catch-all); Seed 2 = SPEC-040 (the keystone — the baked
+  `realCodeChecker` → `pkg/check.Run` Step 2 and the `builtinToolchain` go/ts stacks
+  are GONE from the gate; lint/build/test now run ONLY through `dispatchPackEngines`
+  over the bridged `<lang>-toolchain` pack); Seed 3 = SPEC-041 (coverage re-implemented
+  as a language-agnostic producer/consumer model, baked `step_coverage.go` enforcement
+  replaced); Seed 4 = SPEC-042 (the `go-toolchain` coverage PRODUCER engine over
+  `go test -coverprofile`). The gate now runs language-neutral dispatch for
+  lint/build/test plus a generic coverage producer/consumer. **HONEST carry-forward —
+  what is NOT delivered here (no "fully language-neutral" promise is made):** the
+  cutover did NOT fully de-Go the gate CONSUMER side. The `backstop/self` pack
+  mechanically flags THREE remaining live Go-specific consumer sites, currently
+  grandfathered in the gate baseline: `pkg/gate/step_coverage.go` (the `.go`-only
+  measurable-path filter, ~L239), `pkg/gate/step_testverify.go` (the `_test.go`
+  test-file walk, ~L254), and `cmd/backstop/gate.go` (`goFilePackageMatchesTarget`'s
+  Go-package assumption, ~L908). De-Go-ing those consumers + delivering a
+  `typescript-toolchain` pack is CARRIED FORWARD to a new forthcoming bundle and is
+  explicitly NOT claimed as done by BUNDLE-011. Captured as `status.note`.
+  `version` 0.4.0 → 0.5.0; `bundle.updated` → 2026-06-28.
