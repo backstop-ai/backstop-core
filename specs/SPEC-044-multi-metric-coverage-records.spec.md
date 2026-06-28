@@ -9,7 +9,7 @@ spec_version: 1.0.0
 implementation:
   summary: >
     BUNDLE-012 Spec Seed 4 (REQ-007, SQ-2) — the FOUNDATION record-model contract that
-    Seed 5's `backstop/bun-toolchain` coverage engine (SPEC-045) targets. Today the
+    Seed 5's `backstop/bun-toolchain` coverage engine (SPEC-047) targets. Today the
     coverage CONSUMER (`pkg/gate/step_coverage.go`) indexes coverage ONE-RECORD-PER-PATH:
     `indexCoverageByPath` builds `map[string]check.CoverageRecord` keyed by normalized
     path, so a file carrying TWO metrics (line AND branch) silently collapses — the second
@@ -133,7 +133,7 @@ requirements:
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
-      This spec MUST define the RECORD-SHAPE contract the bun coverage producer (SPEC-045 /
+      This spec MUST define the RECORD-SHAPE contract the bun coverage producer (SPEC-047 /
       Seed 5) targets, so that later spec can be authored against it: for each measured
       source file the bun producer's lcov convert MUST emit TWO canonical
       `check.CoverageRecord`s sharing the SAME `Path` — one with `Metric: "line"` and one
@@ -292,8 +292,8 @@ contracts:
         notes: "EXTENDED (REQ-003): gains MetricThresholds map[string]int — the per-metric declared threshold surface (SQ-2). nil/empty means scalar-only (backward-compatible, REQ-004). A metric absent from the map uses CoverageThreshold as its default."
       - name: StepCoverageThresholdScopedFunc
         kind: function
-        signature: "func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope) StepFunc"
-        notes: "EVOLVED (REQ-001/REQ-002/REQ-005): public signature UNCHANGED; internally indexes by (path, metric) via indexCoverageByPathMetric, iterates every metric record for each in-scope path, thresholds each independently via coverageThresholdForMetric (metric-blind Covered*100>=Total*threshold), preserves per-record Total==0 N/A and Excluded loud-surfacing at (path, metric) granularity, surfaces duplicate-(path,metric) collisions loudly, and emits the coverage_metric_missing guard for an explicitly-declared metric absent on an in-scope changed path that has records. Does NOT redefine SPEC-043's path-level no-record guard."
+        signature: "func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope, classifier SourceClassifier) StepFunc"
+        notes: "EVOLVED (REQ-001/REQ-002/REQ-005). The 4-arg signature (with the trailing `classifier SourceClassifier` parameter) is the CANONICAL form OWNED BY SPEC-043, which adds that parameter and threads the classifier in. This spec ADOPTS that signature unchanged and does NOT own the classifier parameter, the measurable in-scope PATH SET, or the path-level no-record guard — those are SPEC-043's half. THIS spec owns only the INNER record model REACHED through that signature: it replaces the path-keyed index with the (path, metric) index via indexCoverageByPathMetric, resolves per-path metric records via resolveCoverageRecordsForPath, iterates EVERY metric record for each in-scope path, thresholds each independently via coverageThresholdForMetric (metric-blind Covered*100>=Total*threshold), preserves per-record Total==0 N/A and Excluded loud-surfacing at (path, metric) granularity, surfaces duplicate-(path,metric) collisions loudly, and emits the coverage_metric_missing guard for an explicitly-declared metric absent on an in-scope changed path that has records. SEAM: this spec's (path, metric) index and per-metric verdict loop MUST COMPOSE with SPEC-043's classifier-derived measurable set and its path-level 'zero records for the path (any metric)' guard — the two halves share this one function and must merge without either re-deriving the other's surface."
     consumes:
       - source: pkg/check
         name: CoverageRecord
@@ -303,7 +303,7 @@ contracts:
       - name: ExtractSpecVerifications
         kind: function
         signature: "func ExtractSpecVerifications(specDir string) ([]SpecVerification, error)"
-        notes: "EVOLVED (REQ-003): the spec-frontmatter Verification struct gains coverage_metric_thresholds (map[string]int, yaml: coverage_metric_thresholds); the extractor populates SpecVerification.MetricThresholds from it. The existing gate (TestCommand != \"\" && CoverageThreshold > 0) is loosened so a spec declaring per-metric thresholds without a scalar is still extracted. nil map preserves today's scalar-only behavior."
+        notes: "EVOLVED (REQ-003): the spec-frontmatter Verification struct gains coverage_metric_thresholds (map[string]int, yaml: coverage_metric_thresholds); the extractor populates SpecVerification.MetricThresholds from it. The existing gate (TestCommand != \"\" && CoverageThreshold > 0) is loosened so a spec declaring per-metric thresholds without a scalar is still extracted. nil map preserves today's scalar-only behavior. CO-EDIT SEAM: SPEC-045 (de-go-test-verification-discovery) also edits this file (step_testverify.go) — replacing the baked funcPattern / collectTestFuncNamesScoped test-name discovery with a pack-declared TestNameMatcher. The two edits are disjoint in concern (frontmatter/extraction here; test-name discovery there) but must be reconciled on merge so neither clobbers the other; this loosened extraction gate must survive. Flagged for the cross-consistency pass."
     consumes: []
 ---
 
@@ -314,7 +314,7 @@ contracts:
 This spec is **Seed 4 of BUNDLE-012** (language-neutral gate consumer + TypeScript/Bun
 toolchain), owning **REQ-007** and **resolving the bundle's deferred sub-question SQ-2**. It
 is a **FOUNDATION contract**: the `backstop/bun-toolchain` coverage engine (Seed 5 /
-SPEC-045) emits BOTH `line` and `branch` coverage per file, and this spec evolves the
+SPEC-047) emits BOTH `line` and `branch` coverage per file, and this spec evolves the
 coverage CONSUMER record model so those two metrics **coexist on the same file and are
 thresholded independently**.
 
@@ -366,16 +366,29 @@ the `Metric` label and is **NOT modified**. This spec:
 
 ### Seam with SPEC-043 (parallel sibling, shared file)
 
-SPEC-043 and this spec both touch `pkg/gate/step_coverage.go`. The ownership split:
+SPEC-043 and this spec both touch `pkg/gate/step_coverage.go` AND both reach the SAME function
+`StepCoverageThresholdScopedFunc`. The ownership split:
 
 | Concern | Owner |
 | --- | --- |
+| `StepCoverageThresholdScopedFunc` **signature** — the canonical 4-arg form `(coverage, specs, scope, classifier SourceClassifier)`; adds the trailing `classifier SourceClassifier` parameter | **SPEC-043** |
 | Pack-declared source/test glob contract | **SPEC-043** |
-| The in-scope measurable PATH SET | **SPEC-043** |
-| Path-level guard: a changed source path with **NO record at all** → loud error | **SPEC-043** |
+| The in-scope measurable PATH SET (derived from `classifier.IsMeasurableSource`) | **SPEC-043** |
+| Path-level guard: a changed source path with **NO record at all** (any metric) → loud error | **SPEC-043** |
 | `(path, metric)` indexing; line+branch coexistence; duplicate-`(path,metric)` collision | **SPEC-044 (this spec)** |
 | Per-metric independent thresholding + per-metric declared thresholds (SQ-2) | **SPEC-044 (this spec)** |
 | Metric-granular guard: a path **with records** missing an **explicitly-declared** metric → loud error | **SPEC-044 (this spec)** |
+
+**Function-signature seam (B1).** This spec does NOT keep `StepCoverageThresholdScopedFunc`'s
+signature unchanged. SPEC-043 adds the trailing `classifier SourceClassifier` parameter and owns
+threading the classifier in plus deriving the measurable in-scope path set from it. This spec
+ADOPTS that 4-arg signature verbatim and owns only the INNER half reached through it: replacing
+the path-keyed index with the `(path, metric)` index (`indexCoverageByPathMetric` /
+`resolveCoverageRecordsForPath`), the per-metric threshold selection
+(`coverageThresholdForMetric`), and the per-`(path, metric)` verdict loop. The two halves must
+COMPOSE inside the one function — this spec's verdict loop iterates over the metric records of
+each path SPEC-043's classifier admits to the measurable set; neither half re-derives the other's
+surface.
 
 The guards compose at **different granularities and never overlap**: SPEC-043's guard fires
 when a path has **zero** records; this spec's `coverage_metric_missing` guard fires only when a
@@ -543,6 +556,19 @@ over-firing respectively.
    having rejected it. If a record reaches the index with an empty `Metric`, that is a contract
    violation, not a metric to threshold.
 
+9. **`step_testverify.go` is co-edited with SPEC-045 (shared-extraction seam).** This spec edits
+   `pkg/gate/step_testverify.go` to extend the spec-frontmatter `Verification` struct and
+   `ExtractSpecVerifications` with the `coverage_metric_thresholds` → `MetricThresholds`
+   extraction (REQ-003). SPEC-045 ALSO edits the same file — it replaces the baked `funcPattern` /
+   `collectTestFuncNamesScoped` test-name discovery with a pack-declared `TestNameMatcher`. The
+   two edits are DISJOINT in concern (frontmatter/extraction here; test-name discovery there) but
+   land in the same file and both touch the extraction/verification surface, so they will merge-
+   conflict if implemented independently. The implementer MUST reconcile the two on merge — neither
+   spec's `step_testverify.go` change may clobber the other's; in particular this spec's loosening
+   of the extraction gate (so a spec declaring only per-metric thresholds without a scalar is still
+   extracted) must survive alongside SPEC-045's `TestNameMatcher`/discovery rework. Flagged for the
+   cross-consistency pass and the implementer.
+
 ## Review Questions
 
 These probe risks not fully pinned by the claims; the impl-reviewer should check each against
@@ -588,11 +614,26 @@ the diff.
   `Metric` label this spec keys on is SPEC-042's pack-declared label; the empty-metric
   fail-loud lives there (Sharp Edge 8).
 - SPEC-043 (pack-declared-globs-coverage-consumer) — **parallel sibling**, shares
-  `pkg/gate/step_coverage.go`. Owns the pack-declared glob contract, the in-scope measurable
-  PATH SET, and the PATH-LEVEL no-record guard. The seam (this spec's per-metric guard vs
-  043's path-level guard) is flagged for the cross-consistency pass.
-- SPEC-045 (bun-toolchain, Seed 5 — later) — the bun coverage producer that emits `line` +
-  branch into the record shape REQ-006 defines; this spec's consumer is its target.
+  `pkg/gate/step_coverage.go` AND the `StepCoverageThresholdScopedFunc` signature. Owns the
+  pack-declared glob contract, the in-scope measurable PATH SET, the PATH-LEVEL no-record guard,
+  AND the CANONICAL 4-arg `StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier
+  SourceClassifier)` signature — it adds the trailing `classifier SourceClassifier` parameter.
+  THIS spec adopts that 4-arg signature unchanged and owns only the inner record model reached
+  through it (the `(path, metric)` index + per-metric thresholding + the inner verdict loop).
+  Two seams are flagged for the cross-consistency pass: (a) this spec's per-metric guard vs
+  043's path-level no-record guard, and (b) this spec's `(path, metric)` index + per-metric
+  verdict loop composing with 043's classifier-derived measurable set inside the shared function.
+- SPEC-047 (bun-toolchain-pack-and-proof, Seed 5 — later) — the bun coverage producer that
+  emits `line` + branch into the record shape REQ-006 defines; this spec's consumer is its
+  target.
+- SPEC-045 (de-go-test-verification-discovery, Seed 5-track sibling) — **co-edits
+  `pkg/gate/step_testverify.go`** (it replaces the baked `funcPattern` / `collectTestFuncNamesScoped`
+  test-name discovery with a pack-declared `TestNameMatcher`). THIS spec also edits
+  `step_testverify.go` — extending the spec-frontmatter `Verification` struct and
+  `ExtractSpecVerifications` to thread `coverage_metric_thresholds` → `SpecVerification.MetricThresholds`
+  (REQ-003). The two specs touch DISJOINT concerns in that file (extraction/frontmatter here;
+  test-name discovery there), but the shared-file / shared-extraction co-edit is flagged for the
+  cross-consistency pass and for the implementer to reconcile on merge (see Sharp Edges).
 - Code (verified on this branch 2026-06-28): `pkg/gate/step_coverage.go` —
   `indexCoverageByPath` (one-record-per-path, ~L164), `resolveCoverageRecord` (~L181),
   `coverageFloorForScope`/`coverageThresholdsForScope` (~L268/291), `StepCoverageThresholdScopedFunc`

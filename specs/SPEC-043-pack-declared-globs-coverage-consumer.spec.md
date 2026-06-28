@@ -118,13 +118,19 @@ requirements:
   - id: REQ-005
     text: >
       The merged classifier MUST be threaded into the LIVE gate coverage step
-      (`cmd/backstop` wiring around `buildCoverageStep`), built from the UNION of the
-      bridged and declared toolchain packs, and CONSUMED by the real
-      `StepCoverageThresholdScopedFunc`. This MUST be proven END-TO-END (an executed
-      gate over a declared toolchain pack whose source globs cover a non-Go file),
-      not only by unit tests over a hand-constructed classifier — closing the
-      integration gap where a correct unit is never actually wired into the gate. The
-      merge MUST be a UNION across all declared toolchain packs (two declared
+      (`cmd/backstop` wiring around `buildCoverageStep`), built SOLELY from the
+      DECLARED toolchain packs — the manifests `loadInstalledPacks` resolves over
+      `backstop.yml packs:`, dispatched uniformly like every other declared pack — and
+      CONSUMED by the real `StepCoverageThresholdScopedFunc`. There is NO separate
+      `bridged` toolchain-pack input: a toolchain is just an ordinary declared pack
+      (SPEC-046 / Seed 3 DELETES the `language:`-derived bridge
+      `loadBridgedToolchainPacks`/`toolchainPackName`, so the `bridged` set ceases to
+      exist), and `mergeSourceClassifier` MUST consume the declared-pack manifest set
+      so it is NOT orphaned when that bridge is removed. This MUST be proven END-TO-END
+      (an executed gate over a declared toolchain pack whose source globs cover a
+      non-Go file), not only by unit tests over a hand-constructed classifier — closing
+      the integration gap where a correct unit is never actually wired into the gate.
+      The merge MUST be a UNION across all declared toolchain packs (two declared
       toolchain packs contribute both glob sets to the live step).
     supports: language-neutral-consumer-ts-toolchain:REQ-001
 
@@ -239,6 +245,11 @@ claims:
     text: The live merge is a UNION across declared toolchain packs — with two toolchain packs declared (go + bun), the coverage step measures BOTH a changed `.go` and a changed `.ts` file from the merged glob set
     tests:
       - TestGate_ClassifierMergesAcrossDeclaredToolchainPacks
+  - id: CLM-022
+    requirement: REQ-005
+    text: NOT ORPHANED BY THE BRIDGE DELETION — `mergeSourceClassifier` builds the classifier from the DECLARED-pack manifest set (`loadInstalledPacks` over `backstop.yml packs:`), taking NO `bridged` argument; given only declared toolchain pack manifests it produces a classifier whose source globs measure the in-scope changed files, proving the classifier survives SPEC-046's removal of the `language:`-derived bridge
+    tests:
+      - TestGate_MergeSourceClassifierSourcesFromDeclaredPacksNotBridge
 
 contracts:
   - file: pkg/pack/manifest.go
@@ -257,11 +268,11 @@ contracts:
       - name: SourceClassifier
         kind: type
         signature: "type SourceClassifier struct"
-        notes: "NEW (REQ-002): the language-neutral merged classifier the coverage consumer reads instead of a baked `.go` literal. Holds the UNION of declared source and test globs (compiled doublestar matchers). Carries no language knowledge — it is data + match logic only."
+        notes: "NEW (REQ-002): the language-neutral merged classifier the coverage consumer reads instead of a baked `.go` literal. Holds the UNION of declared source AND test globs (compiled doublestar matchers) — it MUST store BOTH sets, not just source. The stored TEST-glob set is load-bearing for SPEC-045 (Seed 2), which adds `IsTestFile`/`HasTestGlobs` reading exactly this test set; dropping it would orphan SPEC-045. Carries no language knowledge — it is data + match logic only."
       - name: NewSourceClassifier
         kind: function
         signature: "func NewSourceClassifier(source, test []string) SourceClassifier"
-        notes: "NEW (REQ-002/CLM-008): constructs a classifier from MERGED source/test glob lists (the union across all declared toolchain packs is assembled by the caller in cmd/backstop and passed here). Compiles doublestar/segment-aware matchers (CLM-010)."
+        notes: "NEW (REQ-002/CLM-008): constructs a classifier from MERGED source/test glob lists (the union across all declared toolchain packs is assembled by the caller in cmd/backstop and passed here). Stores and compiles BOTH the source AND test glob sets (doublestar/segment-aware matchers, CLM-010); the test set is retained on the struct so SPEC-045 can read it via IsTestFile/HasTestGlobs."
       - name: SourceClassifier.IsMeasurableSource
         kind: method
         signature: "func (c SourceClassifier) IsMeasurableSource(path string) bool"
@@ -276,7 +287,7 @@ contracts:
       - name: StepCoverageThresholdScopedFunc
         kind: function
         signature: "func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope, classifier SourceClassifier) StepFunc"
-        notes: "MODIFIED (REQ-002/REQ-003/REQ-004): gains a SourceClassifier parameter. The in-scope measurable set is derived from classifier.IsMeasurableSource instead of the baked coverageMeasurablePath (REQ-002). An in-scope changed measurable-source path with NO record for the path AT ALL (any metric) and not pack-declared excluded is a LOUD blocking error, DISTINCT from below-threshold, fired even when no numeric threshold is in scope (REQ-003/CLM-012..CLM-017). When classifier.HasSourceGlobs() is false and in-scope changed files exist, the step returns a DISTINCT non-blocking 'classification capability absent' status, never an unqualified pass (REQ-004/CLM-018/CLM-019). SEAM: the no-record predicate is 'any record for the path' so it composes with SPEC-044's (path, metric) index; per-metric threshold verdict is SPEC-044's. The existing SPEC-041 exclusion-loudness and per-file threshold semantics are retained."
+        notes: "MODIFIED (REQ-002/REQ-003/REQ-004): this 4-arg form — adding a trailing `classifier SourceClassifier` parameter — is the CANONICAL signature for the shared `pkg/gate/step_coverage.go` step. SPEC-043 OWNS threading the classifier in; SPEC-044 ADOPTS this exact 4-arg signature and owns the internal `(path, metric)` record model + per-metric inner loop (it does NOT keep the prior 3-arg form). The in-scope measurable set is derived from classifier.IsMeasurableSource instead of the baked coverageMeasurablePath (REQ-002). An in-scope changed measurable-source path with NO record for the path AT ALL (any metric) and not pack-declared excluded is a LOUD blocking error, DISTINCT from below-threshold, fired even when no numeric threshold is in scope (REQ-003/CLM-012..CLM-017). When classifier.HasSourceGlobs() is false and in-scope changed files exist, the step returns a DISTINCT non-blocking 'classification capability absent' status, never an unqualified pass (REQ-004/CLM-018/CLM-019). SEAM: the no-record predicate is 'any record for the path' so it composes with SPEC-044's (path, metric) index; per-metric threshold verdict is SPEC-044's. The existing SPEC-041 exclusion-loudness and per-file threshold semantics are retained."
       - name: StepCoverageThresholdFunc
         kind: function
         signature: "func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVerification, classifier SourceClassifier) StepFunc"
@@ -300,12 +311,12 @@ contracts:
     provides:
       - name: mergeSourceClassifier
         kind: function
-        signature: "func mergeSourceClassifier(packSets ...[]*pack.Manifest) gate.SourceClassifier"
-        notes: "NEW (REQ-005/CLM-021): unions the classification.source and classification.test globs across the bridged and declared toolchain packs into one gate.SourceClassifier. Built where the manifests are visible (cmd/backstop) so pkg/gate takes no pkg/pack dependency."
+        signature: "func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier"
+        notes: "NEW (REQ-005/CLM-021/CLM-022): unions the classification.source and classification.test globs across the DECLARED toolchain packs (the `[]*pack.Manifest` set `loadInstalledPacks` resolves over `backstop.yml packs:`) into one gate.SourceClassifier. Consumes the declared-pack manifest set ONLY — it takes NO `bridged` argument, so it is NOT orphaned when SPEC-046 deletes the `language:`-derived bridge (`loadBridgedToolchainPacks`/`toolchainPackName`). Built where the manifests are visible (cmd/backstop) so pkg/gate takes no pkg/pack dependency."
       - name: buildCoverageStep
         kind: function
         signature: "func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn) gate.StepFunc"
-        notes: "MODIFIED (REQ-005/CLM-020): gains the merged classifier and threads it into StepCoverageThresholdScopedFunc so the LIVE gate consumes the declared globs end-to-end (closing the integration gap). The gate-assembly caller builds the classifier via mergeSourceClassifier(bridged, packs)."
+        notes: "MODIFIED (REQ-005/CLM-020): gains the merged classifier and threads it into StepCoverageThresholdScopedFunc so the LIVE gate consumes the declared globs end-to-end (closing the integration gap). The gate-assembly caller builds the classifier via mergeSourceClassifier(packs), where `packs` is the DECLARED toolchain pack manifests (loadInstalledPacks over backstop.yml) — no `bridged` set is passed."
     consumes:
       - source: pkg/gate
         name: SourceClassifier
@@ -445,9 +456,24 @@ threshold is in scope.
 
 The guard is expressed in terms of **"no record for the path at all" (any metric)** so
 it composes with SPEC-044's `(path, metric)` index without redefining the record schema
-or thresholding. Both specs add to `StepCoverageThresholdScopedFunc`'s signature — this
-spec adds the `classifier SourceClassifier` parameter; SPEC-044 evolves the record
-consumption. **This shared signature is flagged for the cross-consistency pass.**
+or thresholding.
+
+**Canonical signature (cross-consistency resolution).** The shared
+`StepCoverageThresholdScopedFunc` takes the **4-arg form** with a trailing
+`classifier SourceClassifier` parameter:
+
+```go
+func StepCoverageThresholdScopedFunc(
+    coverage []check.CoverageRecord, specs []SpecVerification,
+    scope *GateScope, classifier SourceClassifier) StepFunc
+```
+
+This 4-arg classifier-param form is **canonical**. **SPEC-043 (this spec) owns
+threading the classifier in** (the measurable PATH SET + the no-record guard);
+**SPEC-044 adopts this exact signature** and owns the internal `(path, metric)` record
+model and per-metric inner loop. SPEC-044 does **not** retain the prior 3-arg form — the
+two compose on one signature: 043 contributes the `classifier` parameter, 044 contributes
+the record-consumption internals behind it.
 
 ## Implementation
 
@@ -496,12 +522,18 @@ processing steps the planner must map tasks to:
    green.
 
 6. **Wire the merged classifier into the live gate (REQ-005).** Add
-   `mergeSourceClassifier(packSets ...[]*pack.Manifest) gate.SourceClassifier` in
-   `cmd/backstop/gate.go` (unions the source/test globs across the bridged and
-   declared toolchain packs), give `buildCoverageStep` the classifier parameter, and
-   thread it into `StepCoverageThresholdScopedFunc`. Prove end-to-end that the live
-   gate measures a changed non-Go file via the declared globs (CLM-020) and unions
-   across multiple declared toolchain packs (CLM-021).
+   `mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier` in
+   `cmd/backstop/gate.go` that unions the source/test globs across the **declared**
+   toolchain packs — the `[]*pack.Manifest` set `loadInstalledPacks` resolves over
+   `backstop.yml packs:`, dispatched uniformly like every other declared pack. It
+   takes **no `bridged` argument**: a toolchain is just an ordinary declared pack, and
+   SPEC-046 (Seed 3) deletes the `language:`-derived bridge
+   (`loadBridgedToolchainPacks`/`toolchainPackName`), so consuming the declared-pack
+   manifest set is what keeps `mergeSourceClassifier` from being orphaned by that
+   deletion (CLM-022). Give `buildCoverageStep` the classifier parameter and thread it
+   into `StepCoverageThresholdScopedFunc`. Prove end-to-end that the live gate measures
+   a changed non-Go file via the declared globs (CLM-020) and unions across multiple
+   declared toolchain packs (CLM-021).
 
 ## Verification
 
@@ -530,23 +562,47 @@ processing steps the planner must map tasks to:
   subset of a source glob (`**/*_test.go` ⊂ `**/*.go`, `**/*.test.ts` ⊂ `**/*.ts`). If
   source-wins, every test file becomes a measurable source file with no record and the
   gate reds on every test file. Measurable ⟺ source ∧ ¬test.
-- **The go-toolchain pack must declare globs or the dogfood regresses.** Once the baked
-  `.go` literal is deleted, a `.go` file is measurable ONLY if a declared pack supplies
-  `**/*.go`. The `backstop/go-toolchain` pack (its own repo; `.backstop/packs/` is
-  gitignored — see [[packs_always_external]]) must add the `classification` block, and
-  the in-repo dogfood copy must carry it, or backstop-core's own coverage gate stops
-  classifying `.go`. Flag this as a wiring dependency for Seed 5 / the dogfood lock.
+- **go-toolchain `pack.yml` lockstep — deleting the baked `.go` literal and adding the
+  `classification` block MUST land together, or the dogfood regresses.** Once the baked
+  `.go` literal is deleted from `coverageMeasurablePath`, a `.go` file is measurable
+  ONLY if a declared pack supplies `**/*.go`. So the SAME change set that deletes the
+  literal MUST add the `classification` block (`source: ["**/*.go"]`,
+  `test: ["**/*_test.go", "**/testdata/**"]`) to `backstop/go-toolchain`'s `pack.yml`,
+  or backstop-core's own coverage gate silently stops classifying `.go` — a
+  vacuous-green regression on the dogfood itself. **Durability:** the authoritative
+  edit must land in the `backstop/go-toolchain` pack's OWN repo (`.backstop/packs/` is
+  gitignored — editing the installed copy is non-durable; see [[packs_always_external]]
+  and [[project_pack_distribution]]); the gitignored in-repo dogfood copy must also
+  carry it so the local gate stays green until the pack-repo edit is pulled. Flag this
+  as a wiring dependency for Seed 5 / the dogfood lock.
 - **"No source globs declared" must be visible, not silent — but not a hard block.**
   Blocking outright would break every repo that declares a non-toolchain pack with no
   classification. The state is a DISTINCT visible warn (REQ-004), honoring
   loud≠blocking ([[feedback_loud_not_blocking]]). The trap is returning an unqualified
   `pass` (silent green) — explicitly prohibited.
-- **Shared-file signature drift with SPEC-044.** Both specs change
-  `StepCoverageThresholdScopedFunc`. If the parameter order/record-model evolves in
-  SPEC-044 while this spec adds `classifier`, the two can collide. The guard here is
-  framed as "no record for the path at all" so it is independent of SPEC-044's
-  `(path, metric)` index — but the final signature is co-owned and MUST be reconciled
-  in the cross-consistency pass.
+- **Shared-file signature drift with SPEC-044 (resolved).** Both specs change
+  `StepCoverageThresholdScopedFunc`. The cross-consistency resolution fixes the
+  **4-arg classifier-param form as canonical**: this spec owns threading the
+  `classifier SourceClassifier` parameter in; SPEC-044 adopts that exact signature and
+  owns the `(path, metric)` record model + per-metric inner loop behind it. The guard
+  here is framed as "no record for the path at all" so it is independent of SPEC-044's
+  `(path, metric)` index. The trap is a planner regenerating the prior 3-arg form for
+  044 — they must compose on the one 4-arg signature, not fork it.
+- **`mergeSourceClassifier` must source from DECLARED packs, or it is orphaned by
+  SPEC-046.** SPEC-046 (Seed 3) DELETES the `language:`-derived toolchain bridge
+  (`loadBridgedToolchainPacks`/`toolchainPackName`), so the `bridged` toolchain-pack
+  set ceases to exist. If `mergeSourceClassifier` were built from that `bridged` input
+  it would compile against a deleted symbol and the live coverage classifier would go
+  dark. It MUST consume the declared-pack manifest set (`loadInstalledPacks` over
+  `backstop.yml packs:`) — a toolchain is just an ordinary declared pack (the bundle
+  thesis). CLM-022 pins this: the merge takes no `bridged` argument and produces a
+  working classifier from declared manifests alone.
+- **The classifier MUST store the test-glob set, not just source.** `SourceClassifier`
+  holds BOTH the source and test glob sets. SPEC-045 (Seed 2) adds `IsTestFile`/
+  `HasTestGlobs` reading exactly the stored test set; if this spec dropped the test
+  globs after computing `IsMeasurableSource` (e.g. kept only a precomputed source
+  matcher), SPEC-045 would have nothing to read and would be orphaned.
+  `NewSourceClassifier(source, test)` retains both sets on the struct.
 - **Glob matcher semantics must be `**`-aware.** Go's stdlib `path.Match`/`filepath.Match`
   do NOT support `**` crossing separators. Using stdlib match would silently make
   `**/*.ts` behave like `*.ts` and miss nested files — re-opening the vacuous-green hole
@@ -568,8 +624,14 @@ processing steps the planner must map tasks to:
   composes with SPEC-044's `(path, metric)` index and does not silently swallow a
   present-but-wrong-metric record? (REQ-003/CLM-017 — the seam.)
 - Does the LIVE gate (not just a unit test) build the merged classifier from the union
-  of bridged + declared toolchain packs and consume it in the coverage step? Is there
-  an end-to-end test proving a changed `.ts` file reds the real gate? (REQ-005/CLM-020.)
+  of the DECLARED toolchain packs (`loadInstalledPacks` over `backstop.yml packs:`) —
+  taking NO `bridged` input — and consume it in the coverage step? Is there an
+  end-to-end test proving a changed `.ts` file reds the real gate? (REQ-005/CLM-020/CLM-022.)
+- Does `mergeSourceClassifier` source from the declared-pack manifest set rather than
+  the `language:`-derived bridge, so it does not reference the symbols SPEC-046 deletes
+  (`loadBridgedToolchainPacks`/`toolchainPackName`)? (REQ-005/CLM-022 — the SPEC-046 seam.)
+- Does `SourceClassifier` retain the test-glob set (not only a source matcher), so
+  SPEC-045 can add `IsTestFile`/`HasTestGlobs` over it? (Contract — the SPEC-045 seam.)
 - When no toolchain pack declares source globs, does the step return a DISTINCT visible
   state, or an unqualified `pass`? (REQ-004 — silent green is prohibited.)
 - Does the glob matcher support `**` crossing separators (doublestar), and does it
@@ -581,7 +643,17 @@ processing steps the planner must map tasks to:
 - BUNDLE-012 (`language-neutral-consumer-ts-toolchain`) — this is Seed 1, the
   foundation contract; REQ-001 is the bundle requirement this spec implements.
 - SPEC-044 (`multi-metric-coverage-records`) — the parallel sibling owning the coverage
-  RECORD model; shares `pkg/gate/step_coverage.go`. The seam is defined above.
+  RECORD model; shares `pkg/gate/step_coverage.go`. It ADOPTS this spec's canonical
+  4-arg `StepCoverageThresholdScopedFunc` signature (classifier param). The seam is
+  defined above.
+- SPEC-045 (`de-go-test-verification-discovery`, Seed 2) — adds
+  `SourceClassifier.IsTestFile`/`HasTestGlobs` reading the TEST-glob set this spec
+  stores on the classifier; depends on the classifier staying in `pkg/gate` with its
+  test set populated.
+- SPEC-046 (`retire-language-toolchain-bridge`, Seed 3) — DELETES the `language:`-derived
+  toolchain bridge (`loadBridgedToolchainPacks`/`toolchainPackName`), removing the
+  `bridged` toolchain-pack set. This spec's `mergeSourceClassifier` consumes the
+  DECLARED-pack manifest set (not `bridged`) so it survives that deletion (CLM-022).
 - SPEC-041 / SPEC-042 — the BUNDLE-011 coverage consumer/producer (`check.CoverageRecord`,
   the per-file threshold + exclusion-loudness logic this spec extends, not replaces).
 - [[feedback_loud_not_blocking]] — governs REQ-003/REQ-004: "nothing measured" must be

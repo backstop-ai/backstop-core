@@ -39,18 +39,26 @@ implementation:
     measurable-path + go-package matchers, SPEC-045 test-verify discovery) is de-Go'd it is
     un-grandfathered from the committed `.backstop/baseline.json`; once all three are clean,
     `backstop/self`'s neutral-spine enforcement flips to `block` with a ZERO baseline so any
-    future baked-language regression is blocked outright. This spec edits NO sibling core
-    logic — it consumes `gate.SourceClassifier`/`pack.Manifest.Classification` (SPEC-043),
+    future baked-language regression is blocked outright. Because `backstop/self`'s neutral-spine
+    findings RIDE the SHARED `pack_engines` gate dimension alongside `go-standards`/`go-toolchain`
+    style debt, and the enforcement policy (`pkg/config` `Enforcement.Policy` →
+    `pkg/gate.ApplyPolicy`) currently keys STRICTLY per-dimension, this spec also EXTENDS the
+    policy with finer-than-dimension (per-PACK / per-rule-SOURCE) granularity so `backstop/self`
+    can be flipped to `block` + zero-baseline INDEPENDENTLY, without disturbing the baselined
+    style debt the other two packs carry on the same dimension (bundle REQ-008). This spec edits
+    NO sibling core logic — it consumes `gate.SourceClassifier`/`pack.Manifest.Classification`
+    (SPEC-043),
     the `(path, metric)` index + per-metric thresholding (SPEC-044), the pack-declared
     test-glob discovery (SPEC-045), and the uniform toolchain-pack dispatch with no
-    `language:` field (SPEC-046) as fixed contracts; its only owned surface is the bun pack
+    `language:` field (SPEC-046) as fixed contracts; its only owned surfaces are the bun pack
     DATA, the in-repo testdata fixture, the external acceptance test, the trust allowlist
-    entries, and the dogfood baseline + `backstop/self` enforcement config.
+    entries, the per-PACK/per-rule-SOURCE enforcement-policy extension (`pkg/config` +
+    `pkg/gate.ApplyPolicy`), and the dogfood baseline + `backstop/self` enforcement config.
   package: cmd/backstop
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ ./pkg/config/ -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
@@ -146,12 +154,41 @@ requirements:
       (3) the go-package / `./...` matchers. Once ALL THREE sites are clean (zero
       neutral-spine findings remain), `backstop/self`'s enforcement MUST flip to `block`
       with a ZERO baseline (no grandfathering of any neutral-spine finding) so any FUTURE
-      baked-language regression on the neutral spine is blocked OUTRIGHT as net-new. It is
-      PROHIBITED to perform the terminal flip while any of the three sites still flags (the
-      flip is the closing step, gated on the others). A deliberately reintroduced baked
-      `.go`/`_test.go`/Go-package literal on a neutral-spine site MUST RED the gate after
+      baked-language regression on the neutral spine is blocked OUTRIGHT as net-new. This
+      flip MUST be expressed through the REQ-007 per-PACK/per-rule-SOURCE enforcement key
+      scoped to `backstop/self`, NOT by zero-baselining the whole shared `pack_engines`
+      dimension (which would wrongly block `go-standards`/`go-toolchain`'s baselined style
+      debt). It is PROHIBITED to perform the terminal flip while any of the three sites still
+      flags (the flip is the closing step, gated on the others). A deliberately reintroduced
+      baked `.go`/`_test.go`/Go-package literal on a neutral-spine site MUST RED the gate after
       the flip. (DD-1)
     supports: language-neutral-consumer-ts-toolchain:REQ-008
+  - id: REQ-007
+    text: >
+      The enforcement policy MUST gain FINER-THAN-DIMENSION granularity — a per-PACK (or
+      per-rule-SOURCE) enforcement key — so `backstop/self`'s neutral-spine findings can be
+      flipped to `block` + ZERO baseline INDEPENDENTLY of the other packs that share the
+      `pack_engines` gate dimension. This is a REQUIRED deliverable OF THIS SPEC, not a punted
+      implementation detail. Today the policy table (`pkg/config` `Enforcement.Policy` →
+      `pkg/gate.ApplyPolicy`) keys STRICTLY per-dimension (by step/`gate_type` name), and
+      `backstop/self`'s `no-language-literal-on-neutral-spine` findings ride the SHARED
+      `pack_engines` dimension alongside `go-standards`/`go-toolchain`'s LEGITIMATE baselined
+      STYLE debt; a `pack_engines: {level: block, baseline: false}` entry would therefore
+      wrongly BLOCK that inherited style debt. The extension MUST let a policy entry SCOPE to a
+      pack/source (keyed off the existing `gate.Violation.SourcePack`), so that the level +
+      baseline of a scoped entry apply ONLY to that pack's findings within the dimension, and
+      every OTHER pack's findings on the same dimension are UNAFFECTED (they keep their
+      default — or separately-configured — grandfathered policy). With `backstop/self` flipped
+      to `block` + zero baseline via this key: a FRESH neutral-spine (baked-language) finding
+      from `backstop/self` MUST BLOCK the gate; a baselined `go-standards` style finding on
+      `pack_engines` MUST NOT block (stays grandfathered); and a baselined `go-toolchain` style
+      finding on `pack_engines` MUST NOT block (stays grandfathered). It is PROHIBITED to
+      deliver the REQ-006 flip by zero-baselining the whole shared `pack_engines` dimension. The
+      extension MUST be backward compatible: an unscoped (dimension-only) policy entry keeps its
+      current behavior. (DD-1; verified against `pkg/config/config.go` `Enforcement.Policy` +
+      `pkg/gate/policy.go` `ApplyPolicy`)
+    supports: language-neutral-consumer-ts-toolchain:REQ-008
+    follows: STD-GO-001:GO-010
 
 claims:
   # REQ-001 — engine declaration matrix (5 engines) + format-is-not-a-dimension + trust substrate
@@ -335,6 +372,32 @@ claims:
     text: ORDERING GUARD — the terminal flip is PROHIBITED while any of the three Pillar-A sites still flags; with a still-flagging site, the flip is not applied (the flip depends on SPEC-043/045/046 landing first)
     tests:
       - TestRatchet_FlipSequencedAfterPillarASitesClean
+  # REQ-007 — per-pack/per-rule-source enforcement key (the pack_engines shared-dimension matrix)
+  - id: CLM-036
+    requirement: REQ-007
+    text: A pack-scoped enforcement policy entry (e.g. `pack_engines` scoped to source `backstop/self` with level block + baseline false) parses onto the extended Enforcement.Policy / DimensionPolicy structure and is backward compatible — an unscoped dimension-only entry keeps its current behavior
+    tests:
+      - TestPolicy_PackScopedEntryParsesAndUnscopedEntryUnchanged
+  - id: CLM-037
+    requirement: REQ-007
+    text: PACK backstop/self — with the per-pack key flipping backstop/self to block + ZERO baseline, a FRESH neutral-spine (baked-language) finding sourced from backstop/self on the pack_engines dimension BLOCKS the gate (fails)
+    tests:
+      - TestPolicy_SelfPackFlipBlocksFreshNeutralSpineFinding
+  - id: CLM-038
+    requirement: REQ-007
+    text: PACK go-standards — with backstop/self flipped to block + zero baseline on the SAME shared pack_engines dimension, a baselined go-standards style finding does NOT block (stays grandfathered, unaffected by the backstop/self-scoped flip)
+    tests:
+      - TestPolicy_SelfPackFlipLeavesGoStandardsBaselinedFindingGrandfathered
+  - id: CLM-039
+    requirement: REQ-007
+    text: PACK go-toolchain — with backstop/self flipped to block + zero baseline on the SAME shared pack_engines dimension, a baselined go-toolchain style finding does NOT block (stays grandfathered, unaffected by the backstop/self-scoped flip)
+    tests:
+      - TestPolicy_SelfPackFlipLeavesGoToolchainBaselinedFindingGrandfathered
+  - id: CLM-040
+    requirement: REQ-007
+    text: DENYLIST — the flip is delivered via the per-pack/source key (filtering by Violation.SourcePack), NOT by a pack_engines-wide zero-baseline; a whole-dimension pack_engines entry at level block with baseline false (which would block go-standards/go-toolchain baselined debt) is prohibited and proven absent
+    tests:
+      - TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline
 
 contracts:
   - file: cmd/backstop/gate.go
@@ -365,6 +428,27 @@ contracts:
       - source: pkg/check
         name: ParsePackCoverage
         kind: function
+  - file: pkg/gate/policy.go
+    provides:
+      - name: ApplyPolicy
+        kind: function
+        signature: "func ApplyPolicy(steps []StepResult, baseline *BaselineArtifact, policy map[string]DimensionPolicy, scope *GateScope) []StepResult"
+        notes: "EXTENDED (REQ-007): external signature UNCHANGED; now applies per-PACK/per-rule-SOURCE-scoped policy WITHIN a dimension, filtering findings by gate.Violation.SourcePack so a scoped entry's level+baseline apply only to that pack's findings and every other pack on the same dimension is unaffected (keeps its default/grandfathered policy). An unscoped (dimension-only) entry keeps its current behavior (backward compatible)."
+      - name: DimensionPolicy
+        kind: type
+        signature: "type DimensionPolicy struct { Level string; Baseline bool; /* + per-PACK/per-rule-SOURCE scoping keyed off gate.Violation.SourcePack (exact shape: planner's call) */ }"
+        notes: "EXTENDED (REQ-007): gains an optional per-PACK/per-rule-SOURCE scoping (keyed off gate.Violation.SourcePack) so `backstop/self` can be flipped to block + zero baseline independently of go-standards/go-toolchain on the shared pack_engines dimension. Exact shape (nested per-source overrides vs. composite key) is the planner's call; the constraint is that a scoped entry must not change enforcement for other packs on the same dimension."
+    consumes:
+      - source: pkg/gate
+        name: Violation
+        kind: type
+  - file: pkg/config/config.go
+    provides:
+      - name: DimensionPolicy
+        kind: type
+        signature: "type DimensionPolicy struct { Level string `yaml:\"level,omitempty\"`; Baseline bool `yaml:\"baseline,omitempty\"`; /* + per-PACK/per-rule-SOURCE scope */ }"
+        notes: "EXTENDED (REQ-007): the backstop.yml mirror of the policy row gains the per-PACK/per-rule-SOURCE scoping so a `pack_engines` entry can target `backstop/self`'s findings independently. Backward compatible: an unscoped (dimension-only) entry parses and behaves as today."
+    consumes: []
 ---
 
 # SPEC-047: Bun Toolchain Pack And Two-Surface Proof
@@ -432,7 +516,8 @@ tracing to a BUNDLE-012 requirement via `supports`. Summary:
 | REQ-003 | REQ-006 | The lcov convert emits the SPEC-044 bun record shape: two records per file (`line` LF/LH, `branch` BRF/BRH), raw counts, through the EXISTING `check.CoverageRecord` + `check.ParsePackCoverage`, no new type/field; `BRF:0`→`total:0` branch N/A. |
 | REQ-004 | REQ-009 | An in-repo static fixture (pre-captured lcov, runner stubbed) measures the `.ts` source's line+branch coverage end-to-end with ZERO `bun` dependency; a seeded uncovered `.ts` REDs (not vacuous-green). |
 | REQ-005 | REQ-009 | A REQUIRED external executed gate on the Bun fork goes RED-then-green on a seeded defect; expressed as a guarded test that SKIPS when `bun` is absent, keeping the real toolchain out of Go CI. |
-| REQ-006 | REQ-008 | Ratchet each Pillar-A site out of the baseline as de-Go'd (coverage measurable-path → test-verify → go-package matchers), then flip `backstop/self` to `block` + ZERO baseline once all three are clean; a reintroduced baked literal then REDs outright. |
+| REQ-006 | REQ-008 | Ratchet each Pillar-A site out of the baseline as de-Go'd (coverage measurable-path → test-verify → go-package matchers), then flip `backstop/self` to `block` + ZERO baseline once all three are clean (via the REQ-007 per-pack key, NOT the whole `pack_engines` dimension); a reintroduced baked literal then REDs outright. |
+| REQ-007 | REQ-008 | EXTEND the enforcement policy with finer-than-dimension (per-PACK / per-rule-SOURCE) granularity (keyed off `gate.Violation.SourcePack`) so `backstop/self` flips to `block` + ZERO baseline INDEPENDENTLY: a fresh neutral-spine finding blocks, while `go-standards`/`go-toolchain` baselined style debt on the SHARED `pack_engines` dimension stays grandfathered. Whole-dimension zero-baseline is PROHIBITED. |
 
 ### The engine declaration matrix (REQ-001, DD-3)
 
@@ -484,6 +569,27 @@ with `total: 0` (the N/A cell, faithfully preserved — SPEC-044 thresholds it a
 `check.ParsePackCoverage` (which `DisallowUnknownFields` — so the bun JSON must use exactly the
 canonical `{path, covered, total, measured, excluded, metric}` keys, no new field) and index
 under SPEC-044's `(path, metric)` key with no collision.
+
+### The shared-dimension enforcement matrix (REQ-007)
+
+`backstop/self`'s `no-language-literal-on-neutral-spine` findings ride the **same**
+`pack_engines` gate dimension as `go-standards`/`go-toolchain`'s legitimate baselined style
+debt. The policy table (`pkg/config` `Enforcement.Policy` → `pkg/gate.ApplyPolicy`) keys
+**strictly per-dimension**, so a `pack_engines: {level: block, baseline: false}` entry would
+wrongly block the inherited style debt. REQ-007 extends the policy with a per-PACK / per-rule-SOURCE
+key (filtering on the existing `gate.Violation.SourcePack`) so the flip targets `backstop/self`
+**alone**. With `backstop/self` flipped to `block` + ZERO baseline via that key:
+
+| Pack on `pack_engines` | Finding | Grandfathered? | Gate verdict | Claim |
+| --- | --- | --- | --- | --- |
+| `backstop/self` | FRESH neutral-spine (baked-language) | no (zero baseline) | **BLOCK** | CLM-037 |
+| `go-standards` | baselined style debt | **yes** (unaffected) | **pass** | CLM-038 |
+| `go-toolchain` | baselined style debt | **yes** (unaffected) | **pass** | CLM-039 |
+
+The denylist cell (CLM-040): the flip MUST be delivered through the scoped key, **never** by a
+whole-dimension `pack_engines: {block, baseline:false}` entry (which would collapse all three
+rows into BLOCK and break go-standards/go-toolchain's grandfathered debt). CLM-036 covers config
+parse + backward compatibility (an unscoped dimension-only entry behaves as today).
 
 ## Implementation
 
@@ -538,14 +644,26 @@ planner must map tasks to:
    green when fixed. Document the minimal fork wiring (the single-acceptance `backstop.yml` +
    `pack add`); productionizing the fork CI is out of scope.
 
-7. **Ratchet then flip (REQ-006), sequenced AFTER SPEC-043/045/046 land.** As each Pillar-A site
+7. **Extend the enforcement policy with per-PACK / per-rule-SOURCE granularity (REQ-007).** In
+   `pkg/config/config.go` (`Enforcement.Policy` / `DimensionPolicy`) and `pkg/gate/policy.go`
+   (`ApplyPolicy`), add the ability to scope a policy entry to a pack/source, keyed off the
+   existing `gate.Violation.SourcePack`. When an entry is source-scoped, its `level` + `baseline`
+   apply ONLY to findings from that pack within the dimension; all other packs on the dimension
+   keep their default (or separately-configured) policy — so `backstop/self` can be flipped to
+   `block` + zero baseline on `pack_engines` while `go-standards`/`go-toolchain` keep their
+   grandfathered style debt. Keep `ApplyPolicy`'s external signature unchanged and an unscoped
+   (dimension-only) entry behaving exactly as today (backward compatible). This is the mechanism
+   REQ-006's flip is expressed through.
+
+8. **Ratchet then flip (REQ-006), sequenced AFTER SPEC-043/045/046 land.** As each Pillar-A site
    is de-Go'd, regenerate the committed `.backstop/baseline.json` so that site's
    `backstop/self` neutral-spine findings drop out (ratchet), in order: (1) coverage
    measurable-path → (2) test-verify discovery → (3) go-package/`./...` matchers. Once all three
    are clean, set the dogfood `backstop.yml` enforcement for `backstop/self`'s neutral-spine
-   findings to `level: block` with a ZERO baseline (`baseline: false` — no grandfathering), so a
-   future baked-language regression REDs outright. The flip is the **closing** step, gated on the
-   other three sites being clean.
+   findings to `level: block` with a ZERO baseline (`baseline: false` — no grandfathering) VIA
+   the REQ-007 per-pack/source key (NOT a whole-`pack_engines` zero-baseline), so a future
+   baked-language regression REDs outright while go-standards/go-toolchain debt stays
+   grandfathered. The flip is the **closing** step, gated on the other three sites being clean.
 
 ## Verification
 
@@ -605,9 +723,14 @@ planner must map tasks to:
 - **Flipping only `backstop/self` to zero-baseline — not the whole `pack_engines` dimension.**
   The `pack_engines` gate dimension is shared with `go-standards`/`go-toolchain`, which carry
   legitimate baselined style debt. The flip must zero-baseline the `backstop/self` neutral-spine
-  findings SPECIFICALLY, not un-grandfather every pack riding `pack_engines`. If the enforcement
-  table can only key by dimension, the neutral-spine findings need their own addressable policy
-  key; this granularity is an implementation detail the planner must resolve (and a risk to flag).
+  findings SPECIFICALLY, not un-grandfather every pack riding `pack_engines`. The enforcement
+  table today keys STRICTLY by dimension (`pkg/config` `Enforcement.Policy` →
+  `pkg/gate.ApplyPolicy`), so the neutral-spine findings need their own addressable, finer-than-dimension
+  policy key. This is NO LONGER a punted detail — it is promoted to **REQ-007** (a required
+  deliverable of this spec: a per-PACK / per-rule-SOURCE key off `gate.Violation.SourcePack`),
+  with the shared-dimension matrix (CLM-037/038/039) and the denylist guard (CLM-040) proving the
+  flip blocks a fresh neutral-spine finding while leaving go-standards/go-toolchain debt
+  grandfathered.
 - **Packs are always external — the in-repo copy is gitignored DATA.** The authoritative bun pack
   lives in its own repo; the `.backstop/packs/backstop/bun-toolchain/` copy is gitignored, so the
   durable artifact is the testdata-fixture copy under `cmd/backstop/testdata/` (tracked) plus the
@@ -642,6 +765,12 @@ the diff.
   clean (sequenced, not early), and does it zero-baseline `backstop/self`'s neutral-spine findings
   SPECIFICALLY (not the whole shared `pack_engines` dimension)? (REQ-006 / CLM-033/CLM-035, sharp
   edges.)
+- Does the enforcement-policy extension key by PACK/rule-SOURCE (off `gate.Violation.SourcePack`),
+  so flipping `backstop/self` to `block` + zero baseline BLOCKS a fresh neutral-spine finding yet
+  leaves `go-standards` AND `go-toolchain` baselined style debt grandfathered on the SAME
+  `pack_engines` dimension — and is there NO whole-dimension `pack_engines: {block, baseline:false}`
+  entry anywhere? Is an unscoped (dimension-only) entry still backward compatible? (REQ-007 /
+  CLM-036..CLM-040.)
 - After the flip, does a reintroduced baked `.go`/`_test.go`/Go-package literal on a neutral-spine
   site RED the gate outright as net-new against the zero baseline? (REQ-006 / CLM-034 — the wall.)
 
@@ -655,10 +784,20 @@ files, sibling seams):
    SPEC-047** — SPEC-045 is the de-Go'd test-verification discovery seed. SPEC-044's references to
    "SPEC-045 (bun coverage producer)" must be corrected to SPEC-047. (This spec is the consumer of
    SPEC-044 REQ-006; the citation in 044 is the only drift.)
-2. **go-toolchain classification block ownership.** Adding the `classification` block to the
-   `backstop/go-toolchain` pack.yml (so `.go` stays classified once the baked literal is deleted)
-   is **SPEC-043's** deliverable (its Implementation step + a sharp edge), NOT this spec's. This
-   spec authors only the BUN pack's block. No duplication across the two specs.
+2. **go-toolchain pack.yml DATA must gain BOTH blocks in lockstep with the literal deletions
+   (SHOULD-FIX, owned by SPEC-043/045's impl — referenced here, NOT authored here).** When the
+   baked Go literals are deleted from the consumer, the `backstop/go-toolchain` pack.yml must
+   simultaneously gain (a) SPEC-043's `classification` block (source/test globs so `.go` stays
+   classified once the baked literal is gone) AND (b) SPEC-045's `test_name_patterns` (so Go test
+   discovery survives the de-Go'd test-verify path). Both MUST land **in lockstep** with the
+   deletions — a deletion without the corresponding pack DATA would silently stop classifying /
+   discovering `.go`, regressing the dogfood gate — and both MUST be written durably into the
+   **external** `backstop/go-toolchain` pack repo (the in-repo `.backstop/packs` copy is gitignored;
+   editing it is non-durable — see [[packs_always_external]]). This is **SPEC-043's** deliverable
+   (the `classification` block) and **SPEC-045's** deliverable (`test_name_patterns`), NOT this
+   spec's; this spec authors only the BUN pack's blocks. No duplication across the specs — flagged
+   so the plan orders the go-toolchain DATA edits with their respective deletions, and so REQ-006's
+   ratchet does not flip before the go-toolchain pack durably carries both.
 3. **REQ-006 sequencing dependency.** The ratchet→block flip depends on SPEC-043 (coverage
    measurable-path + go-package matchers), SPEC-045 (test-verify discovery), and SPEC-046
    (bridge/`language:` retirement) being implemented and clean first. The plan must order

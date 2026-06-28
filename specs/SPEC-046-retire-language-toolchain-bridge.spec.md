@@ -41,7 +41,14 @@ implementation:
     and SPEC-044 (coverage records) — this seed's edits (delete the bridge + remove
     `bridged` from `coverageRecordsProducer`/`toolchainEnforcementStatus`/
     `countToolchainPacks`/the dispatch list/the early return) are disjoint from those
-    but share the file; flagged for the cross-consistency pass.
+    but share the file; flagged for the cross-consistency pass. B2 RECONCILIATION: the
+    deletion is SCOPED to the bridge auto-load + the `bridged` threading ONLY —
+    SPEC-043's `mergeSourceClassifier`/`SourceClassifier` SURVIVE and are repointed onto
+    the DECLARED toolchain-pack set (`backstop.yml packs:`), NOT the deleted `bridged`
+    set (SPEC-043 is updated to match), so no classifier call site is orphaned. The
+    `coverageRecordsProducer` signature change (dropping `bridged`) composes with
+    SPEC-043's classifier-param addition and SPEC-044's record-model change on the
+    coverage call chain (orthogonal axes).
   package: cmd/backstop
 
 verification:
@@ -67,7 +74,14 @@ requirements:
       to `coverageRecordsProducer`, the dispatch set
       (`excludeDedicatedStepRules(... bridged ... packs ...)`), and the
       `len(packs)==0 && len(bridged)==0` early return — each now keys on the declared
-      `packs` alone.
+      `packs` alone. The deletion is SCOPED to the bridge auto-load and the `bridged`
+      threading ONLY. SPEC-043's `mergeSourceClassifier`/`SourceClassifier` are NOT
+      deleted and MUST NOT be orphaned: they SURVIVE the bridge deletion, repointed
+      onto the DECLARED-pack manifest set (the ordinary `backstop.yml packs:` set
+      returned by `loadInstalledPacks`) rather than the deleted `bridged` set. The
+      declared-pack manifest set MUST remain in scope at every classifier call site
+      after the bridge is gone, so no `mergeSourceClassifier`/classifier call site is
+      left dangling.
     supports: language-neutral-consumer-ts-toolchain:REQ-004
   - id: REQ-002
     text: >
@@ -117,7 +131,9 @@ requirements:
       field stamped in `cmd/backstop`. SQ-1 RESOLUTION (precedence is explicit): the
       classifier reads the MERGED UNION across ALL declared toolchain packs — the SAME
       union SPEC-043's `mergeSourceClassifier`/`SourceClassifier` builds, REUSED not
-      forked — so a polyglot repo's label is the joined SET of its declared stacks
+      forked, and (post-reconciliation) sourced from the DECLARED toolchain-pack set
+      (`backstop.yml packs:`), NOT the deleted `bridged` set — so a polyglot repo's
+      label is the joined SET of its declared stacks
       with NO single-pack precedence and NO overlap winner (measurability overlap is
       already governed by SPEC-043's test-wins-on-overlap rule, not re-decided here).
       The "any source declared at all" signal that selects the "unspecified" fallback
@@ -158,6 +174,11 @@ claims:
     text: The dispatch set, coverage producer, and zero-pack early return key on the declared `packs` alone — `coverageRecordsProducer`, `toolchainEnforcementStatus`, and the early-return guard no longer reference a `bridged` list (signature/source guard)
     tests:
       - TestGate_BridgedInputRemovedFromGateWiring
+  - id: CLM-022
+    requirement: REQ-001
+    text: The bridge deletion does NOT orphan SPEC-043's classifier plumbing — `mergeSourceClassifier`/`SourceClassifier` SURVIVE (a source guard asserts both symbols are still present and still called), and the declared-pack manifest set (`loadInstalledPacks` over `backstop.yml packs:`) remains in scope at the classifier call site after `bridged` is removed, so the classifier sources from the DECLARED set and no call site is left dangling (no compile break, no orphaned reference)
+    tests:
+      - TestGate_ClassifierPlumbingSurvivesBridgeDeletion
   # REQ-002 — dogfood no-regress + polyglot + count keys on declared only
   - id: CLM-007
     requirement: REQ-002
@@ -274,7 +295,11 @@ contracts:
       - name: coverageRecordsProducer
         kind: function
         signature: "func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn"
-        notes: "MODIFIED (REQ-001/REQ-002/CLM-006/CLM-010): the `bridged` parameter is removed — coverage records source from the declared toolchain packs alone. SEAM: SPEC-043/044 also modify the coverage wiring (buildCoverageStep); reconcile in the cross-consistency pass."
+        notes: "MODIFIED (REQ-001/REQ-002/CLM-006/CLM-010): the `bridged` parameter is removed — coverage records source from the declared toolchain packs alone. SEAM: composes with SPEC-043 (`buildCoverageStep` gains a `classifier SourceClassifier` param) and SPEC-044 (the `(path, metric)` coverage record model) on the same coverage call chain — the three edits are orthogonal axes (input-set narrowing here, classifier-param addition in 043, record-model change in 044) and reconcile in the cross-consistency pass."
+      - name: mergeSourceClassifier
+        kind: function
+        signature: "func mergeSourceClassifier(declared []*pack.Manifest) gate.SourceClassifier"
+        notes: "PRESERVED — SPEC-043 symbol, NOT introduced or deleted here (B2 reconciliation/CLM-022). The bridge deletion must NOT orphan it: it survives and is repointed onto the DECLARED toolchain-pack set (`backstop.yml packs:`) rather than the deleted `bridged` set. Its call site still receives the declared-pack manifest set after `bridged` is removed. Declared here only to fence the bridge-deletion edit-set against accidentally removing or stranding it."
       - name: gateConfig
         kind: function
         signature: "func gateConfig(projectRoot string) *config.Config"
@@ -408,6 +433,14 @@ this spec. **Resolution, stated explicitly:**
   same union SPEC-043's `mergeSourceClassifier`/`SourceClassifier` already builds. It
   is **reused, not forked** (CLM-019): introducing a second glob classifier in this
   seed is prohibited.
+- **B2 reconciliation — the classifier plumbing survives the bridge deletion.** The
+  bridge deletion is **scoped to the bridge auto-load and the `bridged` threading
+  only**. SPEC-043's `mergeSourceClassifier`/`SourceClassifier` are **not** this seed's
+  symbols and **must not be deleted or orphaned**: they survive and are **repointed
+  onto the DECLARED toolchain-pack set** (`backstop.yml packs:`), not the deleted
+  `bridged` set (SPEC-043 is being updated to match). The declared-pack manifest set
+  (`loadInstalledPacks`) stays in scope at every classifier call site after the bridge
+  is gone, so no call site is left dangling (CLM-022).
 - **No per-pack read and no single-pack precedence.** The stack label is a SET — a
   polyglot repo's label names every declared stack (CLM-017). There is **no
   overlap-precedence winner** at the classifier level: overlap between source and
@@ -428,17 +461,26 @@ file; flag for reconciliation:
 
 | Seed | Edit on `cmd/backstop/gate.go` |
 | --- | --- |
-| **SPEC-043** | `buildCoverageStep` gains a `classifier SourceClassifier` param; adds `mergeSourceClassifier`. |
+| **SPEC-043** | `buildCoverageStep` gains a `classifier SourceClassifier` param; adds `mergeSourceClassifier` (built over the **declared** toolchain-pack set, per B2). |
 | **SPEC-044** | Coverage record consumption (`(path, metric)` model). |
 | **SPEC-045** | Edits `goFilePackageMatchesTarget`. |
-| **SPEC-046 (this)** | Deletes the bridge; removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus` / `countToolchainPacks` / the dispatch set / the early return; adds `declaredToolchainStackLabel`. |
+| **SPEC-046 (this)** | Deletes ONLY the bridge auto-load + the `bridged` threading: removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus` / `countToolchainPacks` / the dispatch set / the early return; adds `declaredToolchainStackLabel`. **Preserves** SPEC-043's `mergeSourceClassifier` / `SourceClassifier` (repointed onto the declared-pack set, not deleted). |
 
 This seed **consumes** SPEC-043's `SourceClassifier` (for the `HasSourceGlobs`
 signal) and **does not widen its interface** — SQ-1 is resolved with `HasSourceGlobs`
 plus the declared-pack-name set, neither of which requires a SourceClassifier API
-change. The `coverageRecordsProducer` signature change (dropping `bridged`) is
-adjacent to SPEC-043's `buildCoverageStep` change; reconcile the coverage-wiring call
-chain in the final pass.
+change.
+
+**B2 reconciliation (the blocking conflict resolved here).** The bridge deletion must
+not orphan SPEC-043's classifier plumbing. `mergeSourceClassifier`/`SourceClassifier`
+are SPEC-043 symbols; this seed neither introduces nor deletes them — it only ensures
+they are fed the **declared** toolchain-pack manifest set (`backstop.yml packs:`)
+after `bridged` is removed, so the classifier sources from the declared set and no
+call site is left dangling (CLM-022). The `coverageRecordsProducer` signature change
+(dropping `bridged`) **composes** with SPEC-043's `buildCoverageStep` classifier-param
+addition and SPEC-044's `(path, metric)` record-model change on the coverage call
+chain — three orthogonal axes (input-set narrowing, classifier param, record model);
+reconcile the call chain in the final pass.
 
 ## Implementation
 
@@ -452,7 +494,10 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
    call and its `bridgeErr` config-error branch. Rewrite the downstream uses to key on
    `packs` alone: `coverageRecordsProducer(packs, projectRoot)`; the early return
    `if len(packs) == 0`; the dispatch set `excludeDedicatedStepRules(packs)`; the warn
-   step `toolchainEnforcementStatus(packs)`.
+   step `toolchainEnforcementStatus(packs)`. **Do NOT touch SPEC-043's
+   `mergeSourceClassifier`/`SourceClassifier`** — they survive the bridge deletion;
+   verify their call site is fed the DECLARED `packs` manifest set (not `bridged`) so
+   nothing is orphaned (CLM-022).
 
 2. **Re-key the count/warn helpers (REQ-002).** Change `countToolchainPacks(declared
    []*pack.Manifest) int` and `toolchainEnforcementStatus(declared []*pack.Manifest)`
@@ -539,6 +584,17 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
   — exactly the thing the bundle exists to delete. CLM-019 asserts no new
   glob-classifier type is defined in this seed; the only new symbol is
   `declaredToolchainStackLabel` (a name-set helper, not a glob matcher).
+- **The bridge deletion must not orphan SPEC-043's classifier plumbing (B2).** SPEC-043
+  adds `mergeSourceClassifier`/`SourceClassifier` on this same file, and in its
+  pre-reconciliation form the classifier was fed off the toolchain-pack set that
+  included `bridged`. Naively deleting `bridged` would strand that call site (compile
+  break or empty classifier). The resolution: those symbols are NOT this seed's to
+  delete — they survive and are repointed onto the DECLARED toolchain-pack set
+  (`backstop.yml packs:`). The declared-pack manifest set MUST remain in scope and be
+  passed to the classifier after `bridged` is gone. CLM-022 pins that both symbols
+  survive and the call site is fed the declared set. SPEC-043 is updated to match (the
+  classifier sources declared, not `bridged`); this is the cross-spec half of the
+  reconciliation.
 - **The label change must not leak into the verdict.** `stackLabel` feeds only
   message strings. If the rehome accidentally routes the label into a class decision,
   a polyglot/empty repo could flip class. CLM-020 pins that the class switch is
@@ -560,6 +616,10 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
 - Does the SQ-1 rehome read the MERGED UNION via SPEC-043's `SourceClassifier`
   (`HasSourceGlobs`) rather than a forked classifier, and is the polyglot label a SET
   with no single-pack precedence? (REQ-004/CLM-017/CLM-018/CLM-019.)
+- Did the bridge deletion leave SPEC-043's `mergeSourceClassifier`/`SourceClassifier`
+  intact AND fed the DECLARED toolchain-pack manifest set (not the deleted `bridged`
+  set), with no orphaned call site, no compile break, and no empty classifier?
+  (REQ-001/CLM-022 — the B2 reconciliation.)
 - Are capability/polarity classification VERDICTS provably unchanged by removing
   `language:` — i.e. only the cosmetic label moved? (REQ-004/CLM-020.)
 
