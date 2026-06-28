@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: language-neutral-consumer-ts-toolchain
-  version: "0.2.0"
+  version: "0.3.0"
   updated: "2026-06-28"
   created: "2026-06-28"
   category: infrastructure
 
 status:
-  maturity: exploring
+  maturity: defined
 
 problem:
   summary: >
@@ -51,7 +51,21 @@ problem:
     that the framework's "ZERO baked language knowledge" first principle holds on the
     CONSUMER side of the gate as it now does on the producer side, and the original
     "backstop can't gate TypeScript" gap is closed end to end.
-  success_criteria: []
+  success_criteria:
+    - >
+      `backstop gate` on a TS/Bun project goes RED when it should (a seeded
+      lint / format / type / test / coverage defect) and is NEVER vacuous-green;
+      in the DEFAULT diff scope a changed `.ts` file IS coverage-measured (no
+      silent skip).
+    - >
+      No `language:` field exists anywhere in backstop-core, and no baked
+      `.go` / `_test.go` / Go-package literal remains on the gate CONSUMER spine;
+      `backstop/self` is flipped to `enforcement.policy: block` with a ZERO
+      baseline so any future baked-language regression is blocked outright.
+    - >
+      The opencode fork gates packs-only via `backstop/bun-toolchain` declared as
+      an ORDINARY pack in `backstop.yml packs:`, and the external EXECUTED gate
+      demonstrates RED-then-green on a seeded defect.
 
 solution:
   approach: >
@@ -78,7 +92,93 @@ solution:
     be LOUD, never a silent pass. Two design SUB-QUESTIONS remain open for spec time
     (rehoming the traceability classifier; the multi-metric-per-file coverage model +
     line-vs-branch thresholds).
-  assumptions: []
+  assumptions:
+    - >
+      `pack add` / install works today, so `backstop/bun-toolchain` can be
+      hand-authored in its own repo from the proven `go-toolchain` template and
+      added onto the fork without first rebooting the stale pack-authoring CLI
+      (`pack new` / `pack check` / `pack test`) — that reboot is a separate
+      Track-B follow-up (OQ-5), not a dependency.
+    - >
+      The coverage CONSUMER contract delivered by BUNDLE-011 (SPEC-041/042) is
+      already language-agnostic at the record level; this bundle EVOLVES that
+      schema to multiple metrics per file rather than introducing a parallel one.
+    - >
+      The opencode fork (backstop-runtime) is a real, executable Bun project
+      suitable as the external acceptance target, and running its native
+      `bun` / `oxlint` toolchain in ITS OWN CI keeps a `bun` dependency out of
+      backstop-core's Go CI.
+
+requirements:
+  - id: REQ-001
+    text: >
+      The coverage CONSUMER must derive its measurable-file set from
+      pack-DECLARED source globs, NOT a baked `.go` extension
+      (`pkg/gate/step_coverage.go` `coverageMeasurablePath`). A changed file that
+      MATCHES the declared source glob but has NO coverage record must be a LOUD
+      blocking error — the anti-vacuous-green guard — and that state must be
+      DISTINCT from below-threshold. This fixes the default-diff-scope
+      vacuous-green hole where a changed `.ts` file is silently skipped. (DD-1)
+  - id: REQ-002
+    text: >
+      Test-verification must discover test files via pack-DECLARED test globs,
+      NOT a baked `_test.go` walk or a baked `func Test` grep
+      (`pkg/gate/step_testverify.go` `collectTestFuncNamesScoped`). The
+      test-name extraction must not be Go-shaped. (DD-1)
+  - id: REQ-003
+    text: >
+      The coverage spec-relevance derivation AND the substantiveness set-join
+      must use pack-declared patterns, NOT a Go-package identity model or a
+      `./...` glob (`cmd/backstop/gate.go` `goFilePackageMatchesTarget`;
+      `pkg/gate/step_coverage.go` `coverageSpecRelevantToFile` /
+      `packagePathMatches`). TS has no `package` clause and no `./...`. (DD-1)
+  - id: REQ-004
+    text: >
+      The `language:`-derived toolchain BRIDGE must be DELETED
+      (`loadBridgedToolchainPacks` / `toolchainPackName` / the auto-load from a
+      single language field). Toolchain packs become ordinary packs declared in
+      `backstop.yml packs:` and dispatched UNIFORMLY with every other pack — a
+      polyglot repo simply declares more than one toolchain pack. (DD-2)
+  - id: REQ-005
+    text: >
+      The `language:` field must be FULLY removed: the config schema, the
+      dogfood `backstop.yml` (`language: go`), every reader, and all tests. The
+      traceability classifier that consumed `language` is rehomed onto
+      pack-declared globs (the HOW is SQ-1, a spec-time detail). (DD-2)
+  - id: REQ-006
+    text: >
+      `backstop/bun-toolchain` must exist as an ORDINARY pack in its OWN repo,
+      hand-authored from the proven `go-toolchain` pack.yml template, declaring
+      engines: oxlint (lint) · `prettier --check` (FORMAT, modeled as a
+      lint-category SARIF findings engine — format ≈ lint, NO new gate dimension)
+      · `tsc` / bun typecheck (build) · `bun test` (test) · `bun test --coverage
+      --coverage-reporter=lcov` (coverage). Coverage records use the canonical
+      `{path, covered, total, measured, excluded, metric}` shape. (DD-2, DD-3)
+  - id: REQ-007
+    text: >
+      The coverage record model must support MULTIPLE metrics per file, keyed by
+      `(path, metric)`. The bun coverage producer emits BOTH `line` and `branch`;
+      the consumer indexes and thresholds PER metric (`indexCoverageByPath` must
+      become `(path, metric)`-keyed); thresholds may be declared per-metric (line
+      vs branch held to different bars). This re-opens the SPEC-042 coverage
+      record schema on both the producer convert and consumer index. (SQ-2)
+  - id: REQ-008
+    text: >
+      As each Pillar-A site is de-Go'd it must be UN-grandfathered from the gate
+      baseline (ratchet). Once all three sites are clean, `backstop/self`'s
+      `enforcement.policy` must flip to `block` with a ZERO baseline so any future
+      baked-language regression is blocked outright. Sequence by correctness
+      impact: coverage measurable-path (the vacuous-green hole) → test-verify
+      discovery → the go-package / `./...` matchers. (DD-1)
+  - id: REQ-009
+    text: >
+      Proof must be delivered on TWO surfaces: (a) an IN-REPO STATIC testdata
+      fixture (pre-captured lcov, runner STUBBED) proving the language-neutral
+      consumer + glob classification + line/branch parsing with ZERO `bun`
+      dependency in the Go CI; and (b) an EXTERNAL EXECUTED gate on a real Bun
+      project (the opencode fork) with MINIMAL wiring that goes RED on a seeded
+      defect and green when fixed — a REQUIRED acceptance criterion. The real
+      toolchain stays OUT of backstop-core's Go CI. (DD-1, DD-2)
 ---
 
 # Language-Neutral Gate Consumer + TypeScript Toolchain Pack
@@ -142,6 +242,152 @@ the producer's record-set? (Now resolved: DD-1, pack-declared globs.) The work s
 pack (authoring + a line+branch coverage producer), a baseline ratchet → block flip, the
 `language:` retirement + classifier rehome, and an end-to-end proof on a foreign-language repo.
 It finishes a mission rather than patching a defect.
+
+## Draft Requirements
+
+Draft — to be refined at spec time. Each requirement traces to a resolved OQ /
+design decision and is scoped to this bundle's three pillars. See the
+`requirements[]` array in frontmatter for the canonical REQ-NNN text.
+
+**Pillar A — de-Go the gate consumer (REQ-001…REQ-003, REQ-008).**
+
+- **REQ-001 — Coverage measurable-set from pack-declared source globs.** The
+  consumer (`coverageMeasurablePath`) must classify measurable files by
+  pack-DECLARED source globs, not a baked `.go`. A changed file matching the
+  declared glob with NO coverage record is a LOUD blocking error — the
+  anti-vacuous-green guard — and must be reported DISTINCTLY from
+  below-threshold. This is the single highest-impact fix: it closes the
+  default-diff-scope hole where a changed `.ts` file is silently skipped and
+  coverage passes vacuous-green.
+- **REQ-002 — Test discovery from pack-declared test globs.** Test-verification
+  (`collectTestFuncNamesScoped`) must find test files via pack-declared test
+  globs, not a baked `_test.go` walk, and the test-name extraction must not be
+  Go-shaped.
+- **REQ-003 — Spec-relevance + substantiveness join on pack-declared patterns.**
+  `goFilePackageMatchesTarget`, `coverageSpecRelevantToFile`, and
+  `packagePathMatches` must use pack-declared patterns, not a Go-package identity
+  or `./...` glob.
+- **REQ-008 — Ratchet then block.** Each site, as de-Go'd, drops out of the
+  regenerated baseline (ratchet); once all three are clean, `backstop/self` flips
+  to `enforcement.policy: block` with a ZERO baseline. Sequence by correctness
+  impact: coverage measurable-path → test-verify discovery → go-package/`./...`
+  matchers.
+
+**Pillar B — toolchain = just a pack; retire `language:` (REQ-004, REQ-005).**
+
+- **REQ-004 — Delete the bridge; dispatch toolchain packs uniformly.** Remove
+  `loadBridgedToolchainPacks` / `toolchainPackName` / the language-field
+  auto-load. Toolchain packs are ordinary packs in `backstop.yml packs:`,
+  dispatched like every other pack; a polyglot repo declares more than one.
+- **REQ-005 — Fully remove `language:`.** Schema, dogfood `backstop.yml`, every
+  reader, and tests. Rehome the traceability classifier onto pack-declared globs
+  (the HOW is SQ-1, resolved at spec time).
+
+**Pillar C — prove on the Bun stack (REQ-006, REQ-007, REQ-009).**
+
+- **REQ-006 — `backstop/bun-toolchain` pack.** An ordinary pack in its own repo,
+  hand-authored from the `go-toolchain` template: oxlint (lint) · `prettier
+  --check` (format, modeled as a lint-category findings engine — no new gate
+  dimension) · `tsc`/bun typecheck (build) · `bun test` (test) · `bun test
+  --coverage --coverage-reporter=lcov` (coverage), emitting the canonical
+  `{path, covered, total, measured, excluded, metric}` record shape.
+- **REQ-007 — Multi-metric coverage model.** Records keyed by `(path, metric)`;
+  the bun producer emits both `line` and `branch`; the consumer indexes and
+  thresholds per metric; thresholds may be declared per-metric. Re-opens the
+  SPEC-042 schema (producer convert + consumer `indexCoverageByPath`).
+- **REQ-009 — Two-surface proof.** (a) an in-repo STATIC fixture (pre-captured
+  lcov, runner stubbed) proving the language-neutral consumer + glob
+  classification + line/branch parsing with zero `bun` dependency in the Go CI;
+  and (b) a REQUIRED external EXECUTED gate on a real Bun project (the opencode
+  fork) that goes RED on a seeded defect, green when fixed. Real toolchain stays
+  out of backstop-core's Go CI.
+
+## Draft Design Decisions
+
+Carried from the resolved OQs and formalized here. DD-1 / DD-2 were recorded at
+`exploring`; DD-3 is added at promotion.
+
+- **DD-1 — Pack-declared globs are the consumer source of truth; the producer
+  supplies the numbers.** The `<stack>-toolchain` pack declares source/test
+  file-globs as DATA; the consumer reads them (zero baked language knowledge) to
+  decide WHICH files are in scope; the coverage producer still supplies the
+  covered/total numbers per file. Chosen over "producer record-set as the sole
+  truth," which would DELETE the anti-vacuous-green guard (a silently-skipped
+  changed source file would simply pass green) and is tool-dependent. Resolves
+  OQ-1; governs all three Pillar-A sites (REQ-001…REQ-003, REQ-008) and the
+  toolchain pack's consumer contract. (OQ-1)
+- **DD-2 — A toolchain is keyed to the STACK/runtime, not the language.** The new
+  pack is `backstop/bun-toolchain`, NOT a generic "typescript pack": TS spans
+  Node/Deno/Bun with different tools, so the toolchain identity is the runtime
+  (Bun), not the language (TS). It is an ordinary pack in its own repo,
+  hand-authored from the `go-toolchain` template; `language:` is retired entirely
+  and toolchain packs are declared + dispatched uniformly. Resolves/reframes
+  OQ-3; grounds REQ-004…REQ-006. (OQ-3)
+- **DD-3 — Format is a lint-category findings engine, not a new gate dimension.**
+  `prettier --check` (and analogous formatters) emit SARIF findings in the LINT
+  category rather than introducing a separate "format" gate dimension — format ≈
+  lint for gate purposes. This keeps the gate's dimension set stable while
+  letting the bun pack enforce formatting. Grounds the `prettier` engine in
+  REQ-006.
+
+## Spec Seeds
+
+These are SEEDS — the spec phase refines the slicing. **Heed the
+cutover-coupling lesson:** BUNDLE-011's spec phase took ~4 rounds of cross-spec-
+seam iteration because tightly-coupled cutover sites share files. These sites
+likewise share files (`step_coverage.go`, `gate.go`), so expect iteration; brief
+the spec author with the SIBLING seams + their shared files and run a FINAL
+cross-consistency pass. Listed in dependency order.
+
+- **Seed 1 — Pack-declared-globs CONTRACT + de-Go the coverage measurable-path
+  (REQ-001).** Establish the pack-declared source/test glob contract the rest of
+  the work consumes, and apply it FIRST to `coverageMeasurablePath` (the
+  vacuous-green fix — highest correctness impact). Foundational: Seeds 2 and 4
+  depend on the glob contract this seed defines. Shares `step_coverage.go` with
+  Seeds 2 and 4.
+- **Seed 2 — De-Go test-verification discovery (REQ-002) + the
+  go-package/`./...` matchers (REQ-003).** Depends on Seed 1's glob contract.
+  Touches `step_testverify.go` and `gate.go` (`goFilePackageMatchesTarget`) plus
+  `step_coverage.go` (`coverageSpecRelevantToFile`/`packagePathMatches`) — shared
+  with Seed 1.
+- **Seed 3 — Delete the bridge + FULL `language:` removal + traceability
+  classifier rehome (REQ-004, REQ-005, SQ-1).** Removes
+  `loadBridgedToolchainPacks`/`toolchainPackName`/auto-load, strips the
+  `language:` field everywhere (schema, dogfood `backstop.yml`, readers, tests),
+  and rehomes the classifier onto pack-declared globs (SQ-1 resolved at spec
+  time). Can proceed in parallel with Seeds 1-2 but the classifier rehome leans
+  on the same glob contract from Seed 1.
+- **Seed 4 — Coverage model line+branch / `(path, metric)` / per-metric
+  thresholds (REQ-007, SQ-2).** The SPEC-042 schema evolution: producer convert +
+  consumer `indexCoverageByPath` keyed by `(path, metric)`, per-metric thresholds
+  (SQ-2 resolved at spec time). Underpins Seed 5's pack coverage engine. Depends
+  on Seed 1's glob contract; shares `step_coverage.go`.
+- **Seed 5 — `backstop/bun-toolchain` pack authoring (REQ-006) + the in-repo
+  static fixture + the ratchet→block flip (REQ-008) + the external executed proof
+  on the fork (REQ-009).** Hand-author the pack from the `go-toolchain` template
+  (oxlint/prettier/tsc/bun test + line+branch coverage producer), add the
+  pre-captured-lcov stubbed fixture, flip `backstop/self` to `block` + zero
+  baseline once Pillar A is clean, and run the REQUIRED external executed gate on
+  the opencode fork. Depends on Seeds 1-4.
+
+## Out of Scope
+
+From the user's five rulings — explicitly NOT this bundle's work:
+
+- **A true multi-toolchain (2+ stacks in ONE repo) EXECUTED proof.** v1 UNBLOCKS
+  polyglot STRUCTURALLY — retiring `language:` and dispatching multiple toolchain
+  packs makes it possible — but the executed acceptance proof here is the
+  SINGLE-stack Bun fork. A real two-toolchains-in-one-repo executed proof is a
+  FOLLOW-UP, not a v1 deliverable.
+- **Broader fork CI integration.** Turborepo pipeline wiring, a per-package test
+  matrix, and a standing / pre-commit gate on the fork are the fork's OWN work.
+  Only the MINIMAL fork wiring needed for the single acceptance run (REQ-009b) is
+  in scope; productionizing the fork's gate is out.
+- **Pack-CLI authoring-loop reboot.** `pack new` emitting a real engine-pack
+  pack.yml, `pack check`/`pack test` accepting engine packs, and `artifact new`
+  stamping the current schema version are a separate TRACK-B follow-up issue
+  (OQ-5). `backstop/bun-toolchain` is hand-authored from the `go-toolchain`
+  template + `pack add`'d; the CLI reboot is NOT this bundle's critical path.
 
 ## Resolved Design Questions
 
@@ -309,6 +555,37 @@ lower bar)? This shapes the record schema, the index, and the pack's declared th
 
 ## Version History
 
+- **0.3.0 (2026-06-28, defined)** — Promoted `exploring` → `defined`. All five
+  OQs were already resolved and the user ratified the requirements + scope
+  boundaries; this version authored the STRUCTURAL content `defined` requires
+  without disturbing the problem / thesis / three-pillars / Resolved-Design-
+  Questions / Open-Sub-Questions content. **Added a `requirements[]` array
+  (REQ-001…REQ-009)** tracing to the resolved OQs/DDs across the three pillars
+  (A: REQ-001…003 de-Go the consumer + REQ-008 ratchet→block; B: REQ-004/005
+  delete the bridge + fully remove `language:`; C: REQ-006 the bun-toolchain
+  pack, REQ-007 multi-metric coverage, REQ-009 two-surface proof). **Added the
+  Draft Requirements section** mirroring the array with pillar grouping. **Added
+  Draft Design Decisions** — formalized DD-1 (pack-declared globs are the
+  consumer source of truth) and DD-2 (toolchain keyed to the STACK/runtime), and
+  recorded DD-3 (format ≈ lint — `prettier --check` is a lint-category findings
+  engine, no new gate dimension). **Added Spec Seeds** (Seed 1 glob contract +
+  coverage measurable-path; Seed 2 test-verify + go-package matchers; Seed 3
+  bridge delete + `language:` removal + classifier rehome; Seed 4 line+branch
+  `(path, metric)` coverage model; Seed 5 the bun pack + fixture + ratchet→block
+  + external proof) in dependency order, with the BUNDLE-011 cutover-coupling
+  lesson flagged (shared files → expect cross-seam iteration, run a final
+  consistency pass). **Populated `success_criteria`** (RED-when-it-should /
+  never-vacuous-green with `.ts` measured in default scope; no `language:` field
+  + no baked Go literal on the consumer spine + `backstop/self` flipped to
+  `block`/zero baseline; the fork gates packs-only via `backstop/bun-toolchain`
+  with an external executed RED-then-green). **Populated `solution.assumptions`**
+  (pack install works so hand-author + `pack add`; the coverage consumer contract
+  is already language-agnostic to evolve not replace; the fork is a real Bun
+  acceptance target with its toolchain kept in its own CI). **Added an explicit
+  Out-of-Scope section** from the user's five rulings (no true multi-toolchain
+  EXECUTED proof in v1; no broader fork CI productionization; pack-CLI authoring
+  reboot is Track-B). Bumped version 0.2.0 → 0.3.0. Maturity advanced to
+  `defined`.
 - **0.2.0 (2026-06-28, exploring)** — User worked through all five OQs and reshaped the bundle's
   framing. **Reframed the problem to the UNIFIED THESIS:** backstop bakes one false assumption —
   "a project has ONE language, and that language implies its file conventions" — in three places
