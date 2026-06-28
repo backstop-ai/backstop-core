@@ -8,6 +8,7 @@ bundle:
   name: onboarding-experience
   version: "0.2.0"
   created: "2026-04-09"
+  updated: "2026-04-19"
   category: feature
 
 status:
