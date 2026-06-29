@@ -292,7 +292,7 @@ claims:
   # REQ-005 — discovery capability-absent is visible, not misleading or silent
   - id: CLM-031
     requirement: REQ-005
-    text: When NO toolchain pack contributes test globs/patterns and mandated tests exist, the step returns a DISTINCT visible `warning` status with a Reason naming the absent test-discovery capability — never an unqualified pass and never a mass false "not found" fail
+    text: BOTH-ABSENT — when NO toolchain pack contributes test globs AND none contributes test-name patterns and mandated tests exist, the step returns a DISTINCT visible `warning` status with a Reason naming the absent test-discovery capability — never an unqualified pass and never a mass false "not found" fail
     tests:
       - TestTestVerify_DiscoveryCapabilityAbsentIsVisibleWarningNotSilentOrFalseFail
   - id: CLM-032
@@ -302,9 +302,14 @@ claims:
       - TestTestVerify_DiscoveryCapabilityAbsentDoesNotBlock
   - id: CLM-033
     requirement: REQ-005
-    text: NO MASKING — when test globs/patterns ARE declared (capability present) and a specific mandated test is genuinely absent from the codebase, the step still raises a LOUD blocking failure for that test
+    text: NO MASKING — when BOTH test globs AND test-name patterns ARE declared (capability fully present) and a specific mandated test is genuinely absent from the codebase, the step still raises a LOUD blocking failure for that test
     tests:
       - TestTestVerify_CapabilityPresentGenuineMissStillFails
+  - id: CLM-037
+    requirement: REQ-005
+    text: PARTIAL-CAPABILITY — when a pack declares test globs BUT no `test_name_patterns` (so the walk finds the files but FindName returns false for every line), the step returns the DISTINCT visible `warning` naming the missing name patterns — it MUST NOT report every mandated test as falsely "not found" (the mass false-blocking-fail the OR guard exists to prevent)
+    tests:
+      - TestTestVerify_TestGlobsDeclaredButNoNamePatterns_IsVisibleWarningNotMassFail
   # REQ-006 — merged classifier + matcher wired into the live gate (integration gap)
   - id: CLM-034
     requirement: REQ-006
@@ -371,7 +376,7 @@ contracts:
       - name: StepTestVerificationScopedFunc
         kind: function
         signature: "func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher) StepFunc"
-        notes: "MODIFIED (REQ-001/REQ-002/REQ-005/REQ-006): gains classifier + matcher. When neither classifier.HasTestGlobs() nor matcher.HasPatterns() and mandated tests exist, returns a DISTINCT non-blocking `warning` status with a Reason (REQ-005/CLM-031/CLM-032), never an unqualified pass nor a mass not-found fail. When capability is present, a genuinely-missing mandated test stays a loud fail (CLM-033)."
+        notes: "MODIFIED (REQ-001/REQ-002/REQ-005/REQ-006): gains classifier + matcher. Discovery needs BOTH globs (to find files) AND patterns (to extract names), so capability is PRESENT only when BOTH are declared: when `!classifier.HasTestGlobs() || !matcher.HasPatterns()` (EITHER missing) and mandated tests exist, returns a DISTINCT non-blocking `warning` status with a Reason naming the missing input (REQ-005/CLM-031/CLM-032/CLM-037), never an unqualified pass nor a mass not-found fail. The partial case (globs declared, patterns absent) is specifically intercepted here so FindName returning false for every line cannot become a mass false not-found fail. When capability is FULLY present (both declared), a genuinely-missing mandated test stays a loud fail (CLM-033)."
       - name: StepTestVerificationFunc
         kind: function
         signature: "func StepTestVerificationFunc(specDir, codeDir string, classifier SourceClassifier, matcher TestNameMatcher) StepFunc"
@@ -424,7 +429,7 @@ contracts:
         notes: "NEW (REQ-006/CLM-018/CLM-036): unions Manifest.TestNamePatterns across the declared toolchain packs and compiles one gate.TestNameMatcher. Built where the manifests are visible (cmd/backstop) so pkg/gate takes no pkg/pack dependency. Invalid regex surfaces as a loud config-error step."
       - name: buildTestSubstantivenessStep
         kind: function
-        signature: "func buildTestSubstantivenessStep(specDir, projectRoot, codeDir string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc"
+        signature: "func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc"
         notes: "MODIFIED (REQ-003/REQ-006): gains classifier + matcher (threaded into ResolveMandatedTestPaths) and uses testFileColocatedWithTarget for the same-unit short-circuit instead of goFilePackageMatchesTarget."
     consumes:
       - source: pkg/gate
@@ -502,7 +507,7 @@ each tracing to BUNDLE-012 REQ-002 or REQ-003 via `supports`. Summary:
 | REQ-002 | REQ-002 | Test-NAME extraction from pack-declared `test_name_patterns` DATA; `funcPattern` deleted; invalid regex is loud. |
 | REQ-003 | REQ-003 | `goFilePackageMatchesTarget` (Go `package`-clause reader) replaced by language-neutral `testFileColocatedWithTarget`. |
 | REQ-004 | REQ-003 | `coverageSpecRelevantToFile` drops `.go`/`_testdata.go`/`./...` literals; directory matching only (`packagePathMatches` retained). |
-| REQ-005 | REQ-002 | No declared test globs/patterns => DISTINCT visible non-blocking `warning`, not a silent pass nor a false mass not-found fail; declared capability never masks real misses. |
+| REQ-005 | REQ-002 | EITHER test globs OR test-name patterns missing (capability present only when BOTH declared) => DISTINCT visible non-blocking `warning`, not a silent pass nor a false mass not-found fail (incl. the partial globs-but-no-patterns case); full capability never masks real misses. |
 | REQ-006 | REQ-002, REQ-003 | The merged classifier + matcher are threaded into the LIVE test-verification + substantiveness steps and proven end-to-end. |
 
 ### Test-FILE discovery matrix (REQ-001)
@@ -601,11 +606,18 @@ matcher in **`cmd/backstop`**. Processing steps the planner maps tasks to:
    `matcher.FindName` (no `funcPattern`). Thread the same params through
    `collectTestFuncNames` and `ResolveMandatedTestPaths`.
 
-5. **Capability-absent state (REQ-005).** In `StepTestVerificationScopedFunc`: when
-   `!classifier.HasTestGlobs() && !matcher.HasPatterns()` and mandated tests exist,
-   return a DISTINCT non-blocking `warning` status with a Reason naming the absent
-   discovery capability (never an unqualified `pass`, never a mass "not found" fail).
-   When capability is present, a genuinely-missing mandated test stays a loud blocking
+5. **Capability-absent state (REQ-005).** Discovery needs BOTH inputs — test globs to
+   FIND the test file AND name patterns to EXTRACT the test name — so capability is
+   PRESENT only when BOTH are declared. In `StepTestVerificationScopedFunc`: when
+   `!classifier.HasTestGlobs() || !matcher.HasPatterns()` (EITHER missing) and mandated
+   tests exist, return a DISTINCT non-blocking `warning` status with a Reason naming the
+   absent discovery capability (and, in the partial case, naming WHICH input is missing —
+   e.g. test globs declared but no `test_name_patterns`), never an unqualified `pass` and
+   never a mass "not found" fail. The partial case is the dangerous one: globs find the
+   files but with no patterns `FindName` returns false for every line → empty `found` map
+   → every mandated test would falsely report "not found"; the OR guard intercepts that
+   before it becomes a mass false-blocking fail. When capability is FULLY present (both
+   globs AND patterns declared), a genuinely-missing mandated test stays a loud blocking
    failure (unchanged behavior).
 
 6. **De-Go the substantiveness same-unit matcher (REQ-003).** In `cmd/backstop/gate.go`
@@ -670,11 +682,30 @@ matcher in **`cmd/backstop`**. Processing steps the planner maps tasks to:
   need records, and a non-source change contributes no measurable file — so no coverage
   requirement fires. But a reviewer expecting the old `.go` filter must understand the
   guard moved upstream.
-- **Capability-absent must not become a blanket excuse.** REQ-005 makes "no test
-  globs/patterns declared" a non-blocking warning — but ONLY that exact condition. When
-  capability IS present, a genuinely-missing mandated test must still RED (CLM-033).
+- **Dropping `./...` NARROWS coverage relevance for impl-package specs.** Symmetric to the
+  `.go`-gate widening above, removing the `./...`-in-test_command project-wide relevance
+  fallback intentionally narrows relevance: the rewritten `coverageSpecRelevantToFile`
+  applies the root/project-wide fallback ONLY when `spec.ImplementationPackage == ""`; a
+  spec WITH a specific implementation package is matched by `packagePathMatches` against
+  that package and is NO LONGER pulled in project-wide just because its test command
+  contained `./...` (CLM-028 locks this). This is within BUNDLE-012 REQ-003 (the `./...`
+  literal is one of the baked Go-package-glob conventions being removed) and is the
+  intended language-neutral semantics — flagged here so a reviewer does not read the
+  dropped `./...` fallback as an accidental coverage-relevance regression.
+- **Capability-absent must not become a blanket excuse.** REQ-005 makes "EITHER test
+  globs OR test-name patterns not declared" a non-blocking warning — but ONLY that exact
+  condition (capability is present only when BOTH are declared). When capability is FULLY
+  present (both declared), a genuinely-missing mandated test must still RED (CLM-033).
   Conflating the two (e.g. warning whenever *any* test is not found) would silently gut
   test-verification — the inverse of the bundle's anti-vacuous-green mission.
+- **The PARTIAL case (globs but no patterns) is the trap REQ-005 exists to catch.** If the
+  guard were both-absent (AND) instead of either-absent (OR), a pack that declares test
+  globs but omits `test_name_patterns` would slip through as "capability present": the walk
+  finds every test file, but `FindName` returns false for every line → empty `found` map →
+  EVERY mandated test reports "not found" → mass false blocking fail misattributing the
+  config gap to the codebase. The OR guard (`!HasTestGlobs() || !HasPatterns()`) intercepts
+  this and surfaces it as the DISTINCT warning naming the missing patterns (CLM-037). A
+  reviewer must not "simplify" the guard back to AND.
 - **Merge-time regex compile errors must be loud.** `mergeTestNameMatcher` compiles
   pack-declared regexes; an invalid pattern in a pack must surface as a loud config-error
   step (GO-010 — no silent failure), not a silently-empty matcher that makes discovery
@@ -696,9 +727,11 @@ matcher in **`cmd/backstop`**. Processing steps the planner maps tasks to:
   a `package` clause, and is `goFilePackageMatchesTarget` deleted? (REQ-003/CLM-022/CLM-023.)
 - Do `coverageSpecRelevantToFile` and `packagePathMatches` retain NO `.go`/`_testdata.go`/`./...`
   literal, with relevance decided by directory matching plus a root fallback? (REQ-004/CLM-030.)
-- When no toolchain pack declares test globs/patterns, does the step return a DISTINCT
-  visible `warning` (not an unqualified pass and not a false mass "not found" fail), and
-  does a genuine miss still RED when capability is present? (REQ-005/CLM-031/CLM-033.)
+- Is the capability guard either-absent (`!HasTestGlobs() || !HasPatterns()`) — NOT
+  both-absent — so a pack declaring test globs but no `test_name_patterns` surfaces the
+  DISTINCT visible `warning` (naming the missing patterns) rather than a mass false "not
+  found" fail? And when BOTH are declared, does a genuine miss still RED?
+  (REQ-005/CLM-031/CLM-033/CLM-037.)
 - Does the LIVE gate (not just a unit) build the merged classifier + matcher from the
   declared toolchain packs and consume them in BOTH the test-verification and
   substantiveness steps, proven by an end-to-end `.test.ts` discovery test? (REQ-006/CLM-034.)

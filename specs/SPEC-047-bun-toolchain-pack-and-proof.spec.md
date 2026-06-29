@@ -140,7 +140,12 @@ requirements:
       `oxlint` toolchain stays OUT of backstop-core's Go CI while still being an executed
       end-to-end proof in the fork's own environment. The fork gates PACKS-ONLY (no baked
       language path). Productionizing the fork's CI is OUT of scope (only the minimal
-      single-acceptance wiring is in scope). (DD-1, DD-2)
+      single-acceptance wiring is in scope). Because the Go-CI guard makes this REQUIRED
+      acceptance auto-skip, it MUST NOT be vacuously skipped forever: satisfying it requires a
+      documented manual run on the fork with the captured RED-then-green `backstop gate` output
+      (the seeded-defect red, then the fixed green) recorded as run-evidence in the
+      implementation's verification log — the executed proof, not the skipped Go-CI stub, is
+      what closes REQ-005. (DD-1, DD-2)
     supports: language-neutral-consumer-ts-toolchain:REQ-009
   - id: REQ-006
     text: >
@@ -506,7 +511,7 @@ proof; productionizing the fork's CI; and the pack-CLI authoring reboot (Track-B
 
 ## Requirements
 
-Requirements are enumerated in the `requirements:` frontmatter (REQ-001 … REQ-006), each
+Requirements are enumerated in the `requirements:` frontmatter (REQ-001 … REQ-007), each
 tracing to a BUNDLE-012 requirement via `supports`. Summary:
 
 | Spec REQ | Bundle REQ | Commits to |
@@ -673,7 +678,7 @@ planner must map tasks to:
   ([[feedback_integration_gap]] / [[project_pack_provisioning_integration_gap]]): the bun pack's
   consumer path is proven through the LIVE gate over a real (stubbed-runner) installed-pack
   fixture, not only a hand-constructed classifier.
-- **Command:** `go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ -race -coverprofile=cover.out`.
+- **Command:** `go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ ./pkg/config/ -race -coverprofile=cover.out` (`./pkg/config/` covers the REQ-007 `config.go` edit / the CLM-036 config-parse test).
 - **Mandated tests:** every test named in the `claims[]` `tests:` fields. The load-bearing ones
   are `TestBunFixture_GateMeasuresTsCoverageFromPrecapturedLcovRunnerStubbed` (CLM-023 — the
   end-to-end consumer proof with zero `bun` dependency) and

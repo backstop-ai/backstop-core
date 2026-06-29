@@ -24,16 +24,20 @@ implementation:
     (SPEC-037/038/041) — `language:` only ever fed the cosmetic STACK LABEL in
     fail-loud messages (`pkg/gate/traceability_polarity.go` `stackLabel`; the
     coverage-arm fallback message in `deriveCapabilityState`). That label is
-    re-derived from the SET of declared toolchain packs, with the "any source
-    declared" signal CONSUMING SPEC-043's merged-union `SourceClassifier`
-    (`HasSourceGlobs`) rather than forking a parallel classifier. SQ-1 RESOLUTION: the
-    classifier reads the MERGED UNION across all declared toolchain packs (the same
-    union SPEC-043's `mergeSourceClassifier` builds), NOT a per-pack or
-    single-precedence read; a polyglot repo's label is the joined SET of its declared
-    stacks; there is no overlap-precedence winner (overlap for measurability is
-    already governed by SPEC-043's test-wins rule); when no toolchain pack is declared
-    the label is "unspecified", driven by the empty declared-toolchain set /
-    `HasSourceGlobs()==false`, never by an empty `language:` field. The dogfood MUST
+    re-derived from the SET of declared toolchain-pack NAMES, with the polyglot glob
+    UNION read ONLY through SPEC-043's single `SourceClassifier` (reused, never forking a
+    parallel classifier). SQ-1 RESOLUTION: a polyglot repo's stack label is the joined
+    SET of its declared toolchain-pack names, NOT a per-pack or single-precedence read;
+    there is no overlap-precedence winner (overlap for measurability is already governed
+    by SPEC-043's test-wins rule); when no toolchain pack is declared the label is
+    "unspecified", driven by a SINGLE authoritative signal — the empty declared
+    toolchain-pack-NAME set (the label is name-derived) — never by an empty `language:`
+    field. SPEC-043's `SourceClassifier.HasSourceGlobs()` is CORROBORATING only, NOT the
+    authoritative label driver (it can diverge: a toolchain pack with no `classification`
+    source globs has a non-empty pack-name set but `HasSourceGlobs()==false`). The
+    stack label is threaded `buildGateSteps → wrapTraceabilityStep → deriveCapabilityState`
+    (the wrapper gains a `stack` param; its three call sites pass the label). The dogfood
+    MUST
     NOT regress: backstop-core already declares `backstop/go-toolchain` in `packs:`,
     so deleting the bridge keeps go-toolchain in its own gate via the declared-pack
     path. SHARED-FILE SEAM: `cmd/backstop/gate.go` is co-edited by SPEC-045
@@ -43,9 +47,10 @@ implementation:
     `countToolchainPacks`/the dispatch list/the early return) are disjoint from those
     but share the file; flagged for the cross-consistency pass. B2 RECONCILIATION: the
     deletion is SCOPED to the bridge auto-load + the `bridged` threading ONLY —
-    SPEC-043's `mergeSourceClassifier`/`SourceClassifier` SURVIVE and are repointed onto
-    the DECLARED toolchain-pack set (`backstop.yml packs:`), NOT the deleted `bridged`
-    set (SPEC-043 is updated to match), so no classifier call site is orphaned. The
+    SPEC-043's `mergeSourceClassifier`/`SourceClassifier` SURVIVE; SPEC-043 itself
+    repoints them onto the DECLARED toolchain-pack set (`backstop.yml packs:`), NOT the
+    deleted `bridged` set, and this seed only FENCES that plumbing (does not edit
+    SPEC-043's call site), so no classifier call site is orphaned. The
     `coverageRecordsProducer` signature change (dropping `bridged`) composes with
     SPEC-043's classifier-param addition and SPEC-044's record-model change on the
     coverage call chain (orthogonal axes).
@@ -76,12 +81,21 @@ requirements:
       `len(packs)==0 && len(bridged)==0` early return — each now keys on the declared
       `packs` alone. The deletion is SCOPED to the bridge auto-load and the `bridged`
       threading ONLY. SPEC-043's `mergeSourceClassifier`/`SourceClassifier` are NOT
-      deleted and MUST NOT be orphaned: they SURVIVE the bridge deletion, repointed
-      onto the DECLARED-pack manifest set (the ordinary `backstop.yml packs:` set
-      returned by `loadInstalledPacks`) rather than the deleted `bridged` set. The
-      declared-pack manifest set MUST remain in scope at every classifier call site
-      after the bridge is gone, so no `mergeSourceClassifier`/classifier call site is
-      left dangling.
+      deleted and MUST NOT be orphaned: they SURVIVE the bridge deletion. SPEC-043 itself
+      performs the repoint of those symbols onto the DECLARED-pack manifest set (the
+      ordinary `backstop.yml packs:` set returned by `loadInstalledPacks`); this seed
+      does NOT edit SPEC-043's classifier call site — it only FENCES the bridge-deletion
+      edit-set so the declared-pack manifest set remains in scope after `bridged` is
+      removed, so no `mergeSourceClassifier`/classifier call site is left dangling by the
+      `bridged` removal. The EXISTING behavioral tests whose SUBJECT is the deleted
+      bridge MUST be DELETED or REWRITTEN, not kept green via a shim: delete
+      `cmd/backstop/gate_bridge_load_test.go` (exercises `loadBridgedToolchainPacks` /
+      `gateLanguage`), delete `cmd/backstop/gate_bridge_agnostic_test.go` (asserts one
+      bridge call resolves two languages), and delete or rewrite the
+      `loadBridgedToolchainPacks` cases in `cmd/backstop/cutover_noregress_test.go`.
+      After this seed it is PROHIBITED for ANY `_test.go` file in `cmd/backstop` to
+      reference `loadBridgedToolchainPacks`, `gateLanguage`, or `toolchainPackName` — a
+      surviving reference means the bridge was shimmed rather than deleted.
     supports: language-neutral-consumer-ts-toolchain:REQ-004
   - id: REQ-002
     text: >
@@ -96,7 +110,11 @@ requirements:
       declaring two toolchain packs (e.g. `backstop/go-toolchain` and
       `backstop/bun-toolchain`) MUST dispatch BOTH through the uniform declared-pack
       path. `coverageRecordsProducer` MUST source records from the declared toolchain
-      packs alone.
+      packs alone. The EXISTING `cmd/backstop/gate_no_toolchain_pack_test.go` MUST be
+      REWRITTEN to the 1-argument `toolchainEnforcementStatus(declared)` signature — its
+      `toolchainEnforcementStatus(bridged, declared)` two-argument call sites (the
+      `bridged`-passing cases) are DROPPED — so the test no longer pins the removed
+      `bridged` parameter.
     supports: language-neutral-consumer-ts-toolchain:REQ-004
   - id: REQ-003
     text: >
@@ -115,7 +133,17 @@ requirements:
       `cmd/backstop` or `pkg/gate`. Because `backstop.yml` is parsed with non-strict
       YAML, a config file that still carries a `language:` key MUST parse cleanly
       (the unknown key is ignored, never an error) and MUST have NO effect on the gate
-      verdict — the field is simply gone. (NOTE: `pack.Manifest.Language` and
+      verdict — the field is simply gone. The EXISTING tests that encode the retired
+      single-language thesis MUST be updated, not preserved: the `cfg.Language == "go"`
+      assertion at `pkg/config/config_test.go:26` MUST be DROPPED, and the
+      `cmd/backstop/gate_capability_test.go` tests
+      `TestCapabilityState_NonGoProject_DerivesAbsentClass2` and
+      `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` (which assert the OLD
+      language-keyed capability thesis — capability-absence derived from a non-Go
+      `language:` field rather than installed-pack presence) MUST be DELETED or REWRITTEN
+      onto installed-pack presence. After this seed it is PROHIBITED for ANY `_test.go`
+      file in `cmd/backstop` or `pkg/config` or `pkg/gate` to read `cfg.Language` /
+      `config.Config.Language`. (NOTE: `pack.Manifest.Language` and
       `check.Options.Language` are SEPARATE fields on other structs and are out of
       scope.)
     supports: language-neutral-consumer-ts-toolchain:REQ-005
@@ -129,17 +157,22 @@ requirements:
       `cfg.Language`; the label is instead derived from the SET of DECLARED toolchain
       packs and carried to `PolarityStepResult` via a new `CapabilityState.Stack`
       field stamped in `cmd/backstop`. SQ-1 RESOLUTION (precedence is explicit): the
-      classifier reads the MERGED UNION across ALL declared toolchain packs — the SAME
-      union SPEC-043's `mergeSourceClassifier`/`SourceClassifier` builds, REUSED not
-      forked, and (post-reconciliation) sourced from the DECLARED toolchain-pack set
-      (`backstop.yml packs:`), NOT the deleted `bridged` set — so a polyglot repo's
-      label is the joined SET of its declared stacks
-      with NO single-pack precedence and NO overlap winner (measurability overlap is
-      already governed by SPEC-043's test-wins-on-overlap rule, not re-decided here).
-      The "any source declared at all" signal that selects the "unspecified" fallback
-      MUST consume SPEC-043's `SourceClassifier.HasSourceGlobs()` (empty declared set
-      ⇒ `false` ⇒ "unspecified"), NOT an empty `language:` field. It is PROHIBITED to
-      introduce a second, parallel glob classifier in this seed.
+      label is the joined SET of the DECLARED toolchain-pack NAMES, with NO single-pack
+      precedence and NO overlap winner — a polyglot repo's label names every declared
+      stack (measurability overlap is already governed by SPEC-043's test-wins-on-overlap
+      rule for the source/test glob UNION, not re-decided here). The label's empty
+      fallback MUST be driven by a SINGLE authoritative signal: the SET of DECLARED
+      toolchain-pack NAMES — the same set `declaredToolchainStackLabel` derives the label
+      from. An empty declared-toolchain-pack-name set ⇒ "unspecified"; a non-empty set ⇒
+      the joined names; never an empty `language:` field. SPEC-043's
+      `SourceClassifier.HasSourceGlobs()` is NOT the authoritative driver of the label and
+      MUST NOT be conflated with the pack-name set — the two can DIVERGE (a declared
+      toolchain pack with no `classification` source globs has a NON-empty pack-name set
+      but `HasSourceGlobs()==false`). `HasSourceGlobs` remains the source/measurability
+      signal SPEC-043 owns and is at most CORROBORATING here, never authoritative for the
+      label. It is PROHIBITED to introduce a second, parallel glob classifier in this
+      seed: the polyglot glob UNION continues to be read ONLY through SPEC-043's single
+      `SourceClassifier` (reused, never forked).
     supports: language-neutral-consumer-ts-toolchain:REQ-005
 
 claims:
@@ -239,14 +272,14 @@ claims:
       - TestPolarity_PolyglotStackLabelIsUnionNoPrecedence
   - id: CLM-018
     requirement: REQ-004
-    text: SQ-1 EMPTY — a repo declaring NO toolchain pack yields the "unspecified" stack label, driven by the empty declared-toolchain set / SPEC-043 `SourceClassifier.HasSourceGlobs()==false`, NOT by an empty `language:` field
+    text: SQ-1 EMPTY — a repo declaring NO toolchain pack yields the "unspecified" stack label, driven by the SINGLE authoritative signal (the empty DECLARED toolchain-pack-NAME set that `declaredToolchainStackLabel` reads), NOT by an empty `language:` field and NOT by `SourceClassifier.HasSourceGlobs()` (which is corroborating only and can diverge from the pack-name set)
     tests:
       - TestPolarity_NoToolchainPackStackLabelUnspecified
   - id: CLM-019
     requirement: REQ-004
-    text: SQ-1 REUSE — the rehome consumes SPEC-043's `gate.SourceClassifier` (`HasSourceGlobs`) for the "any source declared" signal and introduces NO parallel/forked glob classifier in this seed (source guard asserts no new glob-classifier type is defined here)
+    text: SQ-1 NO-FORK — the rehome introduces NO parallel/forked glob classifier in this seed; SPEC-043's single `gate.SourceClassifier` remains the ONLY glob classifier for the polyglot source/test glob union (source guard asserts no new glob-classifier type is defined here)
     tests:
-      - TestPolarity_RehomeReusesSourceClassifierNotForked
+      - TestPolarity_RehomeIntroducesNoForkedGlobClassifier
   - id: CLM-020
     requirement: REQ-004
     text: Capability/polarity classification VERDICTS (ClassNone / ClassCapabilityAbsent / ClassBrokenDeclared) are UNCHANGED by the presence or absence of `language:` — the rehome touches only the label, not the decision, so removing `language:` does not alter which class a dimension lands in
@@ -257,6 +290,24 @@ claims:
     text: The `stackLabel` helper no longer reads `cfg.Language` — `PolarityStepResult` renders the declared-pack-derived stack from the new `CapabilityState.Stack` carrier (source guard asserts the `cfg.Language` read in stackLabel is gone)
     tests:
       - TestPolarity_StackLabelNoLongerReadsConfigLanguage
+  # REQ-001 — existing bridge-subject tests deleted, not shimmed green
+  - id: CLM-023
+    requirement: REQ-001
+    text: The behavioral tests whose SUBJECT is the deleted bridge are DELETED/REWRITTEN, not shimmed — `cmd/backstop/gate_bridge_load_test.go` and `cmd/backstop/gate_bridge_agnostic_test.go` are DELETED and the `loadBridgedToolchainPacks` cases in `cmd/backstop/cutover_noregress_test.go` are DELETED/REWRITTEN; a source guard asserts NO `_test.go` file in cmd/backstop references `loadBridgedToolchainPacks`, `gateLanguage`, or `toolchainPackName`, so the bridge cannot survive as a green-keeping shim
+    tests:
+      - TestGate_NoTestReferencesDeletedBridgeSymbols
+  # REQ-002 — existing no-toolchain-pack test rewritten to the 1-arg signature
+  - id: CLM-024
+    requirement: REQ-002
+    text: The existing `cmd/backstop/gate_no_toolchain_pack_test.go` is REWRITTEN to the 1-argument `toolchainEnforcementStatus(declared)` signature — its `toolchainEnforcementStatus(bridged, declared)` two-argument call sites are dropped, so no test pins the removed `bridged` parameter
+    tests:
+      - TestNoToolchainPack_EnforcementStatusRewrittenToDeclaredOnlyArg
+  # REQ-003 — existing language-keyed tests/fixtures updated, not preserved
+  - id: CLM-025
+    requirement: REQ-003
+    text: The tests encoding the retired single-language thesis are updated — the `cfg.Language == "go"` assertion at `pkg/config/config_test.go:26` is DROPPED, and `cmd/backstop/gate_capability_test.go`'s `TestCapabilityState_NonGoProject_DerivesAbsentClass2` and `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` (which encode the language-keyed capability thesis) are DELETED/REWRITTEN onto installed-pack presence; a source guard asserts NO `_test.go` in cmd/backstop, pkg/config, or pkg/gate reads `cfg.Language`/`config.Config.Language`
+    tests:
+      - TestConfig_NoTestAssertsConfigLanguage
 
 contracts:
   - file: pkg/config/config.go
@@ -298,20 +349,24 @@ contracts:
         notes: "MODIFIED (REQ-001/REQ-002/CLM-006/CLM-010): the `bridged` parameter is removed — coverage records source from the declared toolchain packs alone. SEAM: composes with SPEC-043 (`buildCoverageStep` gains a `classifier SourceClassifier` param) and SPEC-044 (the `(path, metric)` coverage record model) on the same coverage call chain — the three edits are orthogonal axes (input-set narrowing here, classifier-param addition in 043, record-model change in 044) and reconcile in the cross-consistency pass."
       - name: mergeSourceClassifier
         kind: function
-        signature: "func mergeSourceClassifier(declared []*pack.Manifest) gate.SourceClassifier"
-        notes: "PRESERVED — SPEC-043 symbol, NOT introduced or deleted here (B2 reconciliation/CLM-022). The bridge deletion must NOT orphan it: it survives and is repointed onto the DECLARED toolchain-pack set (`backstop.yml packs:`) rather than the deleted `bridged` set. Its call site still receives the declared-pack manifest set after `bridged` is removed. Declared here only to fence the bridge-deletion edit-set against accidentally removing or stranding it."
+        signature: "func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier"
+        notes: "PRESERVED — SPEC-043 symbol, NOT introduced or deleted here (B2 reconciliation/CLM-022). SPEC-043 performs the repoint of this symbol onto the DECLARED toolchain-pack set (`backstop.yml packs:`); this seed does NOT edit its call site. The bridge deletion must NOT orphan it — this seed only FENCES the `bridged` removal so the declared-pack manifest set remains in scope when SPEC-043's call site receives it. Declared here only to fence the bridge-deletion edit-set against accidentally removing or stranding it. (Param name `packs` matches SPEC-043's canonical signature.)"
       - name: gateConfig
         kind: function
         signature: "func gateConfig(projectRoot string) *config.Config"
         notes: "MODIFIED (REQ-003/CLM-014): the unreadable-config fallback no longer seeds `&config.Config{Language: \"go\"}` — it returns a zero-value-safe config with no Language field."
+      - name: wrapTraceabilityStep
+        kind: function
+        signature: "func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, stack string, delegate gate.StepFunc) gate.StepFunc"
+        notes: "MODIFIED (REQ-004/CLM-016/CLM-021): gains a `stack string` parameter and threads it into `deriveCapabilityState(cfg, dim, stack)` (the real call graph is `buildGateSteps → wrapTraceabilityStep → deriveCapabilityState`, NOT `buildGateSteps → deriveCapabilityState` directly). Its THREE call sites in `buildGateSteps` (testSubstantiveness ~L653, coverage ~L654, contract ~L655) each pass the label computed once via `declaredToolchainStackLabel(packs)`. The classifier-intercept logic (the `ClassifyDimension` switch) is otherwise unchanged."
       - name: deriveCapabilityState
         kind: function
         signature: "func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, stack string) gate.CapabilityState"
-        notes: "MODIFIED (REQ-003/REQ-004/CLM-014/CLM-016): the coverage-arm fallback message is de-language'd (no `cfg.Language` read), and the function stamps CapabilityState.Stack with the declared-toolchain stack label so the rehomed classifier renders it. Capability classification keys remain installed-pack-presence (unchanged)."
+        notes: "MODIFIED (REQ-003/REQ-004/CLM-014/CLM-016): gains a `stack string` parameter (passed by its sole caller `wrapTraceabilityStep`); the coverage-arm fallback message is de-language'd (no `cfg.Language` read), and the function stamps CapabilityState.Stack with the passed declared-toolchain stack label so the rehomed classifier renders it. Capability classification keys remain installed-pack-presence (unchanged)."
       - name: declaredToolchainStackLabel
         kind: function
         signature: "func declaredToolchainStackLabel(packs []*pack.Manifest) string"
-        notes: "NEW (REQ-004/CLM-016/CLM-017/CLM-018): derives the cosmetic stack label from the SET of declared toolchain packs (normalized names with the `-toolchain` suffix stripped, joined). Returns \"unspecified\" when no toolchain pack is declared. The label is the merged SET (no precedence); the empty-set fallback aligns with SPEC-043 SourceClassifier.HasSourceGlobs()==false."
+        notes: "NEW (REQ-004/CLM-016/CLM-017/CLM-018): derives the cosmetic stack label from the SET of declared toolchain packs (normalized names with the `-toolchain` suffix stripped, joined). Returns \"unspecified\" when the declared toolchain-pack-NAME set is empty — the SINGLE authoritative empty-fallback signal (the label is name-derived). The label is the merged SET (no precedence). `SourceClassifier.HasSourceGlobs()` is corroborating only and is NOT the authoritative driver (it can diverge from the pack-name set when a toolchain pack declares no `classification` source globs)."
     consumes:
       - source: pkg/pack
         name: Manifest
@@ -358,9 +413,9 @@ ONE language, and that language implies its toolchain." It is authored in parall
 with siblings **SPEC-045** (de-Go test-verification discovery) and **SPEC-047** (the
 `backstop/bun-toolchain` pack + external proof), and **builds on the fixed contract
 SPEC-043** (the pack-declared `classification` globs block + the `pkg/gate`
-`SourceClassifier`). SPEC-043 explicitly **deferred the bundle's SQ-1** (the polyglot
-traceability-classifier precedence) to this spec, so **SQ-1 is owned and resolved
-here** — reusing SPEC-043's `SourceClassifier`, not a parallel mechanism.
+`SourceClassifier`). The bundle's **SQ-1** (the polyglot traceability-classifier
+precedence) is **owned and resolved here** per Seed 3's assignment — reusing SPEC-043's
+single `SourceClassifier` for the glob union, not a parallel mechanism.
 
 Three coupled moves:
 
@@ -380,8 +435,9 @@ Three coupled moves:
 3. **Rehome the traceability classifier + resolve SQ-1 (REQ-004 → bundle REQ-005).**
    The classifier's capability/polarity **decisions** already key on installed-pack
    presence (SPEC-037/038/041); `language:` only ever fed the cosmetic **stack
-   label**. Re-derive that label from the declared toolchain pack **set**, with the
-   "any source declared" signal consuming SPEC-043's merged `SourceClassifier`.
+   label**. Re-derive that label from the declared toolchain-pack-name **set** (the
+   single authoritative empty-fallback signal), reusing SPEC-043's single
+   `SourceClassifier` for the polyglot glob union (never forking one).
 
 **In scope:** the bridge deletion + uniform declared-pack dispatch; the full
 `language:` retirement across schema, dogfood config, and every reader; the
@@ -425,30 +481,36 @@ no-regression guarantee.
 
 ### SQ-1 resolution — the traceability classifier rehome (REQ-004)
 
-SPEC-043 deferred SQ-1 ("how does the classifier read the glob set across a polyglot
-repo — per-pack? the merged union 043 already builds? precedence on overlap?") to
-this spec. **Resolution, stated explicitly:**
+SQ-1 ("how does the classifier read the glob set across a polyglot repo — per-pack?
+the merged union 043 already builds? precedence on overlap?") is owned and resolved
+here per Seed 3's assignment. **Resolution, stated explicitly:**
 
-- **The classifier reads the MERGED UNION across all declared toolchain packs** — the
-  same union SPEC-043's `mergeSourceClassifier`/`SourceClassifier` already builds. It
-  is **reused, not forked** (CLM-019): introducing a second glob classifier in this
-  seed is prohibited.
+- **The polyglot glob UNION is read through SPEC-043's single `SourceClassifier`** — the
+  same union `mergeSourceClassifier`/`SourceClassifier` already builds. It is **reused,
+  not forked** (CLM-019): introducing a second glob classifier in this seed is
+  prohibited.
 - **B2 reconciliation — the classifier plumbing survives the bridge deletion.** The
   bridge deletion is **scoped to the bridge auto-load and the `bridged` threading
   only**. SPEC-043's `mergeSourceClassifier`/`SourceClassifier` are **not** this seed's
-  symbols and **must not be deleted or orphaned**: they survive and are **repointed
-  onto the DECLARED toolchain-pack set** (`backstop.yml packs:`), not the deleted
-  `bridged` set (SPEC-043 is being updated to match). The declared-pack manifest set
-  (`loadInstalledPacks`) stays in scope at every classifier call site after the bridge
-  is gone, so no call site is left dangling (CLM-022).
+  symbols and **must not be deleted or orphaned**. **SPEC-043 itself performs the
+  repoint** of those symbols onto the DECLARED toolchain-pack set (`backstop.yml
+  packs:`), not the deleted `bridged` set; this seed does **not** edit SPEC-043's
+  classifier call site — it only **fences** the `bridged` removal so the declared-pack
+  manifest set (`loadInstalledPacks`) stays in scope at the classifier call site, so no
+  call site is left dangling (CLM-022).
 - **No per-pack read and no single-pack precedence.** The stack label is a SET — a
   polyglot repo's label names every declared stack (CLM-017). There is **no
   overlap-precedence winner** at the classifier level: overlap between source and
   test globs is already governed by SPEC-043's **test-wins-on-overlap** rule for
   *measurability*, and that rule is not re-decided here.
-- **The "unspecified" fallback is driven by the empty declared-toolchain set**, i.e.
-  SPEC-043's `SourceClassifier.HasSourceGlobs() == false` (CLM-018) — **never** by an
-  empty `language:` field.
+- **The "unspecified" fallback is driven by ONE authoritative signal: the empty
+  declared toolchain-pack-NAME set** (the set `declaredToolchainStackLabel` reads), since
+  the label is name-derived (CLM-018) — **never** by an empty `language:` field.
+  SPEC-043's `SourceClassifier.HasSourceGlobs()` is **corroborating only**, NOT the
+  authoritative driver: the two can **diverge** (a declared toolchain pack with no
+  `classification` source globs has a NON-empty pack-name set but
+  `HasSourceGlobs()==false`), so the label keys on the pack-name set, not on
+  `HasSourceGlobs`.
 - **Decisions are unchanged.** Capability/polarity classification (which `Class*` a
   dimension lands in) already keys on installed-pack presence (SPEC-037/038/041); the
   rehome touches **only the cosmetic label** (CLM-020). Removing `language:` cannot
@@ -464,19 +526,20 @@ file; flag for reconciliation:
 | **SPEC-043** | `buildCoverageStep` gains a `classifier SourceClassifier` param; adds `mergeSourceClassifier` (built over the **declared** toolchain-pack set, per B2). |
 | **SPEC-044** | Coverage record consumption (`(path, metric)` model). |
 | **SPEC-045** | Edits `goFilePackageMatchesTarget`. |
-| **SPEC-046 (this)** | Deletes ONLY the bridge auto-load + the `bridged` threading: removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus` / `countToolchainPacks` / the dispatch set / the early return; adds `declaredToolchainStackLabel`. **Preserves** SPEC-043's `mergeSourceClassifier` / `SourceClassifier` (repointed onto the declared-pack set, not deleted). |
+| **SPEC-046 (this)** | Deletes ONLY the bridge auto-load + the `bridged` threading: removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus` / `countToolchainPacks` / the dispatch set / the early return; adds `declaredToolchainStackLabel`; threads `stack` through `wrapTraceabilityStep` → `deriveCapabilityState`. **Preserves** SPEC-043's `mergeSourceClassifier` / `SourceClassifier` (SPEC-043 repoints them onto the declared-pack set; this seed only fences, never deletes). |
 
-This seed **consumes** SPEC-043's `SourceClassifier` (for the `HasSourceGlobs`
-signal) and **does not widen its interface** — SQ-1 is resolved with `HasSourceGlobs`
-plus the declared-pack-name set, neither of which requires a SourceClassifier API
-change.
+This seed **reuses** SPEC-043's single `SourceClassifier` (for the polyglot glob union)
+and **does not widen its interface** — SQ-1's stack label keys on the declared
+toolchain-pack-NAME set (the single authoritative signal), with `HasSourceGlobs`
+corroborating only; neither requires a `SourceClassifier` API change.
 
 **B2 reconciliation (the blocking conflict resolved here).** The bridge deletion must
 not orphan SPEC-043's classifier plumbing. `mergeSourceClassifier`/`SourceClassifier`
-are SPEC-043 symbols; this seed neither introduces nor deletes them — it only ensures
-they are fed the **declared** toolchain-pack manifest set (`backstop.yml packs:`)
-after `bridged` is removed, so the classifier sources from the declared set and no
-call site is left dangling (CLM-022). The `coverageRecordsProducer` signature change
+are SPEC-043 symbols; this seed neither introduces nor deletes them. **SPEC-043 itself
+performs the repoint** onto the **declared** toolchain-pack manifest set (`backstop.yml
+packs:`); this seed does not edit SPEC-043's call site — it only **fences** the
+`bridged` removal so that declared-pack set stays in scope at the classifier call site,
+leaving nothing dangling (CLM-022). The `coverageRecordsProducer` signature change
 (dropping `bridged`) **composes** with SPEC-043's `buildCoverageStep` classifier-param
 addition and SPEC-044's `(path, metric)` record-model change on the coverage call
 chain — three orthogonal axes (input-set narrowing, classifier param, record model);
@@ -511,18 +574,31 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
    `deriveCapabilityState` coverage-arm fallback message. Drop the
    `Language: cfg.Language` assignment in `cmd/backstop/code_check.go`. Remove the
    `language: go` line from the `cmd/backstop/gate_substantiveness_e2e.go` yml string
-   literal. Strip `language: go` from the dogfood `backstop.yml`. Sweep every test
-   fixture and `config.Config{Language: ...}` construction.
+   literal. Strip `language: go` from the dogfood `backstop.yml`. Then update the
+   EXISTING language-keyed tests (see the "Existing tests to delete or rewrite" table
+   below): drop the `cfg.Language == "go"` assertion at `pkg/config/config_test.go:26`,
+   and delete/rewrite `gate_capability_test.go`'s
+   `TestCapabilityState_NonGoProject_DerivesAbsentClass2` /
+   `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` onto installed-pack presence.
+   Sweep every remaining test fixture and `config.Config{Language: ...}` construction so
+   NO `_test.go` reads `cfg.Language` (CLM-025).
 
-4. **Add the declared-toolchain stack label (REQ-004 / SQ-1).** Add
-   `declaredToolchainStackLabel(packs []*pack.Manifest) string` in `cmd/backstop`:
-   collect the declared toolchain packs (`isToolchainPack`), strip the `backstop/`
-   prefix and `-toolchain` suffix from each normalized name, join the SET; return
-   `"unspecified"` when the set is empty. Use SPEC-043's
-   `SourceClassifier.HasSourceGlobs()` as the corroborating "any source declared"
-   signal for the empty-set fallback. Add a `Stack string` field to
-   `gate.CapabilityState`. Thread the label through `buildGateSteps` →
-   `deriveCapabilityState(cfg, dim, stack)` so each `CapabilityState` carries it.
+4. **Add the declared-toolchain stack label and thread it through the wrapper
+   (REQ-004 / SQ-1).** Add `declaredToolchainStackLabel(packs []*pack.Manifest) string`
+   in `cmd/backstop`: collect the declared toolchain packs (`isToolchainPack`), strip
+   the `backstop/` prefix and `-toolchain` suffix from each normalized name, join the
+   SET; return `"unspecified"` when the declared toolchain-pack-NAME set is empty — the
+   SINGLE authoritative empty-fallback signal. (`SourceClassifier.HasSourceGlobs()` is
+   corroborating only; it MUST NOT be the authoritative driver, because it can diverge
+   from the pack-name set.) Add a `Stack string` field to `gate.CapabilityState`. Thread
+   the label along the REAL call graph
+   `buildGateSteps → wrapTraceabilityStep(cfg, dim, stepName, stack, delegate) →
+   deriveCapabilityState(cfg, dim, stack)` (NOT `buildGateSteps → deriveCapabilityState`
+   directly — `deriveCapabilityState` is reached only through `wrapTraceabilityStep`).
+   `wrapTraceabilityStep` gains a `stack string` parameter; compute the label once via
+   `declaredToolchainStackLabel(packs)` in `buildGateSteps` and pass it at all THREE
+   `wrapTraceabilityStep` call sites (testSubstantiveness ~L653, coverage ~L654, contract
+   ~L655) so each `CapabilityState` carries it.
 
 5. **Rehome `stackLabel` (REQ-004).** Delete `stackLabel(cfg)` from
    `pkg/gate/traceability_polarity.go` and change `PolarityStepResult` to read
@@ -534,6 +610,27 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
    exercises the live gate over a config declaring `backstop/go-toolchain` with no
    `language:` field; the polyglot and empty-set claims exercise the label and dispatch
    over two-pack and zero-pack configs.
+
+### Existing tests to delete or rewrite
+
+These EXISTING tests take the DELETED bridge / `language:` code as their SUBJECT.
+Leaving them green would force an implementer to PRESERVE the bridge (a shim),
+defeating the spec. Each MUST be deleted or rewritten as listed (CLM-023/024/025); the
+source guards assert no surviving reference to the deleted symbols.
+
+| Existing test file / location | Subject (deleted code) | Action | Claim |
+| --- | --- | --- | --- |
+| `cmd/backstop/gate_bridge_load_test.go` | `loadBridgedToolchainPacks` / `gateLanguage` (5×) | **DELETE** | CLM-023 |
+| `cmd/backstop/gate_bridge_agnostic_test.go` | one bridge call resolving two languages | **DELETE** | CLM-023 |
+| `cmd/backstop/cutover_noregress_test.go` | `loadBridgedToolchainPacks` cases | **DELETE / REWRITE** | CLM-023 |
+| `cmd/backstop/gate_no_toolchain_pack_test.go` | `toolchainEnforcementStatus(bridged, declared)` 2-arg | **REWRITE** to 1-arg `toolchainEnforcementStatus(declared)`; drop `bridged` cases | CLM-024 |
+| `cmd/backstop/gate_capability_test.go` | `NonGoProject_DerivesAbsentClass2` / `NonGoUndeclared_NeverAutoPromotes` (language-keyed capability thesis) | **DELETE / REWRITE** onto installed-pack presence | CLM-025 |
+| `pkg/config/config_test.go:26` | `cfg.Language == "go"` assertion | **DROP** the assertion | CLM-025 |
+
+After this seed, NO `_test.go` in `cmd/backstop` may reference
+`loadBridgedToolchainPacks` / `gateLanguage` / `toolchainPackName` (CLM-023), and NO
+`_test.go` in `cmd/backstop` / `pkg/config` / `pkg/gate` may read `cfg.Language` /
+`config.Config.Language` (CLM-025).
 
 ## Verification
 
@@ -579,22 +676,36 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
   repo's label names every declared stack. Overlap is a measurability concern already
   owned by SPEC-043's test-wins rule, not a label concern. Do not reintroduce a
   language-like single-winner.
+- **The "unspecified" fallback keys on ONE signal — do not conflate two.** The label is
+  name-derived, so its empty fallback MUST key on the declared toolchain-pack-NAME set
+  being empty (the authoritative signal). SPEC-043's `HasSourceGlobs()` is corroborating
+  ONLY: the two DIVERGE when a declared toolchain pack ships no `classification` source
+  globs (non-empty pack-name set, yet `HasSourceGlobs()==false`). Driving the label off
+  `HasSourceGlobs` would mislabel that repo "unspecified" despite a declared stack.
+  CLM-018 pins the pack-name-set signal.
 - **The rehome must REUSE, not FORK, SPEC-043's `SourceClassifier`.** Building a
   second glob classifier here would resurrect a parallel language-classification path
   — exactly the thing the bundle exists to delete. CLM-019 asserts no new
   glob-classifier type is defined in this seed; the only new symbol is
   `declaredToolchainStackLabel` (a name-set helper, not a glob matcher).
+- **The stack label threads through `wrapTraceabilityStep`, not straight into
+  `deriveCapabilityState`.** The real call graph is `buildGateSteps →
+  wrapTraceabilityStep(cfg, dim, stepName, stack, delegate) →
+  deriveCapabilityState(cfg, dim, stack)`. `deriveCapabilityState` is reached ONLY
+  through the wrapper, so the `stack` param must be added to `wrapTraceabilityStep` and
+  passed at ALL THREE call sites (testSubstantiveness/coverage/contract ~L653-655).
+  Adding `stack` to `deriveCapabilityState` while computing the label inside it (or
+  threading it past the wrapper) would either drop the label or duplicate the
+  computation. CLM-016/CLM-021 pin the label render.
 - **The bridge deletion must not orphan SPEC-043's classifier plumbing (B2).** SPEC-043
-  adds `mergeSourceClassifier`/`SourceClassifier` on this same file, and in its
-  pre-reconciliation form the classifier was fed off the toolchain-pack set that
-  included `bridged`. Naively deleting `bridged` would strand that call site (compile
-  break or empty classifier). The resolution: those symbols are NOT this seed's to
-  delete — they survive and are repointed onto the DECLARED toolchain-pack set
-  (`backstop.yml packs:`). The declared-pack manifest set MUST remain in scope and be
-  passed to the classifier after `bridged` is gone. CLM-022 pins that both symbols
-  survive and the call site is fed the declared set. SPEC-043 is updated to match (the
-  classifier sources declared, not `bridged`); this is the cross-spec half of the
-  reconciliation.
+  adds `mergeSourceClassifier`/`SourceClassifier` on this same file. Naively deleting
+  `bridged` could strand that call site (compile break or empty classifier). The
+  resolution: those symbols are NOT this seed's to delete — they survive, and SPEC-043
+  itself repoints them onto the DECLARED toolchain-pack set (`backstop.yml packs:`).
+  This seed does NOT edit SPEC-043's call site; it only FENCES the `bridged` removal so
+  the declared-pack manifest set stays in scope and reaches the classifier after
+  `bridged` is gone. CLM-022 pins that both symbols survive and the call site is fed the
+  declared set; the repoint is SPEC-043's half, the fence is this seed's half.
 - **The label change must not leak into the verdict.** `stackLabel` feeds only
   message strings. If the rehome accidentally routes the label into a class decision,
   a polyglot/empty repo could flip class. CLM-020 pins that the class switch is
@@ -613,9 +724,20 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
   `language:` key parse cleanly and inertly (non-strict YAML, not rejected)? Were the
   look-alike `pack.Manifest.Language` / `check.Options.Language` fields left intact?
   (REQ-003/CLM-011/CLM-012.)
-- Does the SQ-1 rehome read the MERGED UNION via SPEC-043's `SourceClassifier`
-  (`HasSourceGlobs`) rather than a forked classifier, and is the polyglot label a SET
-  with no single-pack precedence? (REQ-004/CLM-017/CLM-018/CLM-019.)
+- Is the SQ-1 "unspecified" fallback driven by the SINGLE authoritative signal — the
+  empty declared toolchain-pack-NAME set — rather than `SourceClassifier.HasSourceGlobs()`
+  (corroborating only, and divergent when a pack ships no source globs)? Is the polyglot
+  glob union read through SPEC-043's single `SourceClassifier` (no fork), and is the
+  polyglot label a SET with no single-pack precedence? (REQ-004/CLM-017/CLM-018/CLM-019.)
+- Are the EXISTING bridge/`language:` behavioral tests DELETED or REWRITTEN (not kept
+  green via a shim) — `gate_bridge_load_test.go` / `gate_bridge_agnostic_test.go` /
+  `cutover_noregress_test.go` deleted, `gate_no_toolchain_pack_test.go` rewritten to the
+  1-arg `toolchainEnforcementStatus`, `gate_capability_test.go`'s NonGo tests + the
+  `config_test.go:26` `cfg.Language` assertion dropped — with no `_test.go` referencing
+  the deleted symbols? (REQ-001/002/003/CLM-023/CLM-024/CLM-025.)
+- Is the stack label threaded along `buildGateSteps → wrapTraceabilityStep →
+  deriveCapabilityState` (the wrapper gains `stack`, all three call sites pass it), NOT
+  injected straight into `deriveCapabilityState` past the wrapper? (REQ-004/CLM-016/CLM-021.)
 - Did the bridge deletion leave SPEC-043's `mergeSourceClassifier`/`SourceClassifier`
   intact AND fed the DECLARED toolchain-pack manifest set (not the deleted `bridged`
   set), with no orphaned call site, no compile break, and no empty classifier?
@@ -630,7 +752,8 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
   classifier) are the requirements this spec implements, and SQ-1 is resolved here.
 - SPEC-043 (`pack-declared-globs-coverage-consumer`) — the **fixed contract** this
   spec builds on and reuses: the `classification` globs block, the `SourceClassifier`,
-  and `mergeSourceClassifier`. SPEC-043 deferred SQ-1 to this seed.
+  and `mergeSourceClassifier` (which SPEC-043 repoints onto the declared toolchain-pack
+  set). SQ-1 is owned and resolved in this seed per the bundle's Seed 3 assignment.
 - SPEC-045 (`de-go-test-verification-discovery`) — parallel sibling co-editing
   `cmd/backstop/gate.go` (`goFilePackageMatchesTarget`); disjoint edits, flagged for
   the cross-consistency pass.
