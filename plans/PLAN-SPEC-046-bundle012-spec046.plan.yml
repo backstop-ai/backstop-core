@@ -1,0 +1,754 @@
+---
+plan_id: PLAN-SPEC-046
+spec_id: SPEC-046
+spec_version: 1.0.0
+created: "2026-06-29"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-046 (BUNDLE-012 Spec Seed 3, Pillar B): finish the thin-executor
+  mission on the gate's TOOLCHAIN-SELECTION spine by deleting the last place backstop
+  bakes "a project has ONE language." Three coupled moves: (1) DELETE the
+  `language:`-derived toolchain BRIDGE (REQ-001/002); (2) FULLY RETIRE the `Config.Language`
+  field (REQ-003); (3) REHOME the cosmetic stack label off `cfg.Language` onto the
+  declared toolchain-pack-NAME set, resolving the bundle's SQ-1 (REQ-004).
+
+  ════════════════════════════════════════════════════════════════════════════
+  PHASE ORDER IS DICTATED BY THE COMPILE FENCE — DELETE THE FIELD LAST.
+  ════════════════════════════════════════════════════════════════════════════
+  `cfg.Language` has FIVE non-test readers (verified on this branch): `gateLanguage`
+  (cmd/backstop/gate.go:268/271), the `gateConfig` fallback seed (gate.go:294
+  `&config.Config{Language:"go"}`), the `deriveCapabilityState` coverage-arm message
+  (gate.go:387-388), the `code_check.go` assignment (code_check.go:134), and `stackLabel`
+  (pkg/gate/traceability_polarity.go:188-192) — plus the e2e yml literal and test
+  fixtures. Deleting `Config.Language` (REQ-003) is a COMPILE FENCE: every reader must be
+  de-language'd FIRST, or `cmd/backstop`/`pkg/gate` fail to build. So the field deletion
+  is the LAST code move, after the bridge deletion removes `gateLanguage` (Phase 2) AND
+  the stack-label rehome removes `stackLabel`'s read + threads the label (Phase 3). The
+  Phase order is therefore: bridge (P2) → rehome (P3) → field deletion (P4), NOT the
+  spec's REQ numeric order. The remaining cmd/backstop readers (gateConfig fallback,
+  deriveCapabilityState message, code_check assignment, e2e literal) are de-language'd in
+  P4 immediately before the field is removed.
+
+  ════════════════════════════════════════════════════════════════════════════
+  `cmd/backstop/gate.go` IS THE SERIALIZED SPINE — D-081 CHAIN ACROSS PHASES.
+  ════════════════════════════════════════════════════════════════════════════
+  Three of the four impl moves edit gate.go (bridge deletion P2; stack threading P3;
+  reader de-language P4). They are file-exclusive (D-081) so they are CHAINED via
+  depends_on across phases: TASK-004 (P2 gate.go) → TASK-010 (P3 gate.go) → TASK-014
+  (P4 gate.go). No two gate.go tasks are ever parallel-eligible.
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN SHARED-FILE SEAM (cmd/backstop/gate.go) — SERIALIZE AT IMPLEMENT TIME.
+  ════════════════════════════════════════════════════════════════════════════
+  gate.go is co-edited by FOUR BUNDLE-012 seeds. This seed's edits are DISJOINT but
+  share the file; flag for the cross-consistency / implement-phase serialization:
+    - SPEC-045 edits `goFilePackageMatchesTarget` (disjoint).
+    - SPEC-043 adds a `classifier SourceClassifier` param to `buildCoverageStep` and
+      adds `mergeSourceClassifier` built over the DECLARED toolchain-pack set.
+    - SPEC-044 changes the coverage `(path, metric)` record model.
+    - THIS seed removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus`
+      / `countToolchainPacks` / the dispatch set / the early return; adds
+      `declaredToolchainStackLabel`; threads `stack` through `wrapTraceabilityStep` →
+      `deriveCapabilityState`.
+  B2 RECONCILIATION (load-bearing): the bridge deletion is SCOPED to the bridge auto-load
+  + the `bridged` threading ONLY. SPEC-043's `mergeSourceClassifier`/`SourceClassifier`
+  SURVIVE and MUST NOT be orphaned — SPEC-043 itself repoints them onto the DECLARED
+  toolchain-pack set; this seed does NOT edit SPEC-043's classifier call site, it only
+  FENCES the `bridged` removal so the declared-pack manifest set (`loadInstalledPacks`)
+  stays in scope at that call site. CLM-022 guards both symbols surviving + the call site
+  fed the declared set. The `coverageRecordsProducer` signature change (dropping `bridged`)
+  COMPOSES with SPEC-043's classifier-param add and SPEC-044's record-model change on the
+  coverage call chain (three orthogonal axes); reconcile in the final cross-consistency pass.
+
+  ════════════════════════════════════════════════════════════════════════════
+  DOGFOOD MUST STAY GREEN THROUGHOUT (Sharp Edge: load-bearing risk).
+  ════════════════════════════════════════════════════════════════════════════
+  backstop-core already declares `backstop/go-toolchain` in `backstop.yml packs:`, so
+  deleting the bridge keeps go-toolchain in its own gate via the DECLARED-pack path with
+  NO `language:` field. CLM-007 pins this no-regression as a LIVE-gate wiring fact
+  ([[feedback_integration_gap]] — proven over the live gate, not only a unit). Stripping
+  `language: go` from the dogfood backstop.yml (P4) must NOT drop go-toolchain. Every
+  phase's verification + the final `backstop gate` confirm the dogfood stays GREEN.
+
+  SQ-1 RESOLUTION (REQ-004, owned here): the polyglot stack label is the joined SET of
+  DECLARED toolchain-pack NAMES — NO single-pack precedence, NO overlap winner. The
+  "unspecified" empty fallback is driven by ONE authoritative signal: the empty DECLARED
+  toolchain-pack-NAME set (the label is name-derived). SPEC-043's
+  `SourceClassifier.HasSourceGlobs()` is CORROBORATING ONLY and can diverge from the
+  pack-name set; it MUST NOT be the authoritative driver. The polyglot glob UNION is read
+  ONLY through SPEC-043's single `SourceClassifier` (reused, never forked) — the only NEW
+  symbol is `declaredToolchainStackLabel` (a name-set helper, not a glob matcher).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — gate-config fixtures the integration TDD phases consume.
+  # No production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the shared testdata + helpers the integration TDD phases consume: gate
+      configs that declare a single toolchain pack (go-toolchain, NO `language:`), TWO
+      toolchain packs (polyglot go + bun), ZERO toolchain packs, and a config carrying a
+      stray `language:` key (to prove inert-parse + verdict-invariance). Declared-pack
+      manifest stubs let the dispatch/count/label assertions run without installing the
+      not-yet-built bun-toolchain pack (SPEC-047). No production code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold gate-config + declared-pack fixtures (single / polyglot / none / language-key)"
+        description: |
+          Create cmd/backstop/testdata gate configs and a shared test helper:
+            - declared-go-toolchain.yml: `packs: [backstop/go-toolchain]`, NO `language:`
+              field (the dogfood-shape no-regression fixture — CLM-004/CLM-007).
+            - polyglot-two-toolchain.yml: `packs: [backstop/go-toolchain,
+              backstop/bun-toolchain]` (the SQ-1 polyglot fixture — CLM-008/CLM-017);
+              backed by declared-pack manifest STUBS so dispatch/count/label run without
+              the not-yet-built bun-toolchain pack.
+            - no-toolchain.yml: `packs:` with no `-toolchain` entry (the WARN-only /
+              "unspecified" fixture — CLM-005/CLM-018).
+            - language-key-present.yml vs language-key-absent.yml: identical `packs:`,
+              one carrying a stray `language:` key — the inert-parse + verdict-invariance
+              pair (CLM-012/CLM-015).
+          Plus a helper that loads a fixture config + its declared manifests and builds
+          the gate steps for assertion. Fixtures/helpers only; verdict assertions live in
+          the Phase-2/3/4 test tasks.
+        files:
+          - cmd/backstop/testdata/spec046-declared-go-toolchain.yml
+          - cmd/backstop/testdata/spec046-polyglot-two-toolchain.yml
+          - cmd/backstop/testdata/spec046-no-toolchain.yml
+          - cmd/backstop/testdata/spec046-language-key-pair.yml
+          - cmd/backstop/spec046_fixtures_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+          - CLM-012
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Delete the bridge + re-key the count/warn/coverage helpers.
+  # Toolchain packs load ONLY via the declared-pack path. (REQ-001 / REQ-002)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Delete the language-derived toolchain bridge"
+    description: |
+      Delete `loadBridgedToolchainPacks`, `toolchainPackName`, and `gateLanguage` from
+      cmd/backstop/gate.go and the bridge call site in `buildGateSteps`; re-key
+      `countToolchainPacks` / `toolchainEnforcementStatus` / `coverageRecordsProducer` /
+      the dispatch set / the zero-pack early return onto the DECLARED `packs` alone
+      (drop the `bridged` parameter everywhere). FENCE SPEC-043's
+      `mergeSourceClassifier`/`SourceClassifier` so they survive and are fed the declared
+      set (CLM-022). Delete/rewrite the EXISTING bridge-subject tests so the bridge cannot
+      survive as a green-keeping shim. Toolchain packs become ordinary declared packs.
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write bridge-symbol-deleted source guards + classifier-survival + wiring tests"
+        description: |
+          cmd/backstop/gate_bridge_deletion_test.go — RED while the bridge still exists.
+          Source-text guards (read gate.go as source, so they compile and run RED before
+          deletion):
+            - TestGate_BridgeLoaderSymbolDeleted: `loadBridgedToolchainPacks` is ABSENT
+              from cmd/backstop/gate.go — a reintroduced language-derived loader is caught
+              as a regression (CLM-001).
+            - TestGate_ToolchainPackNameDeriverDeleted: the `"backstop/"+language+"-toolchain"`
+              `toolchainPackName` deriver is ABSENT — no pack name is computed from a
+              language field (CLM-002).
+            - TestGate_GateLanguageReaderDeleted: `gateLanguage` is ABSENT from gate.go
+              (CLM-003).
+            - TestGate_BridgedInputRemovedFromGateWiring: `coverageRecordsProducer`,
+              `toolchainEnforcementStatus`, and the zero-pack early-return guard no longer
+              reference a `bridged` list — signature/source guard over the gate wiring
+              (CLM-006).
+            - TestGate_ClassifierPlumbingSurvivesBridgeDeletion: `mergeSourceClassifier`
+              AND `SourceClassifier` are STILL present and still called, and the
+              declared-pack manifest set (`loadInstalledPacks` over `backstop.yml packs:`)
+              remains in scope at the classifier call site after `bridged` is removed — no
+              orphaned reference, no compile break, no empty classifier (CLM-022).
+            - TestGate_NoTestReferencesDeletedBridgeSymbols: NO `_test.go` file in
+              cmd/backstop references `loadBridgedToolchainPacks`, `gateLanguage`, or
+              `toolchainPackName` — a surviving reference means the bridge was shimmed
+              rather than deleted (CLM-023).
+        files:
+          - cmd/backstop/gate_bridge_deletion_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write declared-path dispatch + count/enforcement behavioral tests"
+        description: |
+          cmd/backstop/gate_declared_dispatch_test.go — drive the live gate over the
+          Phase-1 fixtures (RED before the re-key). MANDATED test names:
+            - TestGate_DeclaredToolchainPackDispatchedUniformly: a project declaring a
+              toolchain pack ONLY in `packs:` (no `language:`) has that pack dispatched
+              through the ordinary `pack_engines`/`dispatchPackEngines` step — toolchain
+              packs flow through the declared-pack path (CLM-004).
+            - TestGate_NoDeclaredToolchainPackYieldsWarnNotSynthesized: a project
+              declaring NO toolchain pack and NO `language:` gets ZERO toolchain packs and
+              the WARN-only "enforcement not configured" state — the deleted bridge no
+              longer synthesizes a pack from a derived name (prohibited-path negative)
+              (CLM-005).
+            - TestGate_DispatchesGoToolchainViaDeclaredPackPathWithoutLanguageField
+              (MANDATED, CLM-007): the live gate STILL dispatches `backstop/go-toolchain`
+              for the backstop-core-shape config via the DECLARED-pack path with NO
+              `language:` field present — the dogfood no-regression guarantee.
+            - TestGate_PolyglotDeclaredToolchainPacksBothDispatched: a repo declaring BOTH
+              `backstop/go-toolchain` and `backstop/bun-toolchain` dispatches BOTH through
+              the uniform declared-pack path (CLM-008).
+            - TestGate_CountToolchainPacksCountsDeclaredOnly: `countToolchainPacks` takes
+              NO `bridged` argument and returns the count of `packs:` entries whose
+              normalized name ends in `-toolchain` (CLM-009).
+            - TestGate_ToolchainEnforcementKeysOnDeclaredOnly: `toolchainEnforcementStatus`
+              emits the WARN-only state iff ZERO toolchain packs are DECLARED (no `bridged`
+              input) and is suppressed when at least one is declared (CLM-010).
+        files:
+          - cmd/backstop/gate_declared_dispatch_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Delete the bridge + re-key count/warn/coverage helpers onto declared packs"
+        description: |
+          cmd/backstop/gate.go:
+            - DELETE `loadBridgedToolchainPacks`, `toolchainPackName`, and `gateLanguage`
+              (gate.go ~L268/L283/L486).
+            - In `buildGateSteps`, remove the `bridged, bridgeErr := loadBridgedToolchainPacks(...)`
+              call (~L602) and its `bridgeErr` config-error branch. Re-key the downstream
+              uses onto `packs` alone: `coverageRecordsProducer(packs, projectRoot)`; the
+              early return `if len(packs) == 0`; the dispatch set
+              `excludeDedicatedStepRules(packs)`; the warn step
+              `toolchainEnforcementStatus(packs)`.
+            - Drop the `bridged` parameter from `countToolchainPacks(declared []*pack.Manifest) int`,
+              `toolchainEnforcementStatus(declared []*pack.Manifest)`, and
+              `coverageRecordsProducer(declared []*pack.Manifest, projectRoot string)`.
+              Retain the "enforcement not configured (0 toolchain packs)" message and the
+              `isToolchainPack` (name-ends-in-`-toolchain`) convention VERBATIM — only the
+              input set narrows to declared packs.
+            - FENCE, do NOT edit, SPEC-043's `mergeSourceClassifier`/`SourceClassifier`
+              call site: confirm it is fed the DECLARED `packs` manifest set (not the
+              deleted `bridged`) so nothing is orphaned (CLM-022). SPEC-043 owns the
+              repoint; this task only keeps the declared set in scope.
+          NO synthesis/derivation of a toolchain pack from a language field remains: an
+          undeclared project gets ZERO toolchain packs. Make TASK-002 + TASK-003 green.
+          SEAM: gate.go is co-edited by SPEC-043/044/045 — serialize at implement time
+          (see notes).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-022
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: refactor
+        title: "Delete/rewrite the existing bridge-subject tests (no green-keeping shim)"
+        description: |
+          The EXISTING tests whose SUBJECT is the deleted bridge would force an implementer
+          to PRESERVE the bridge (a shim). Delete/rewrite each (compile-coupled to the
+          TASK-004 symbol deletion — they must land together):
+            - DELETE cmd/backstop/gate_bridge_load_test.go (exercises
+              `loadBridgedToolchainPacks` / `gateLanguage`, 5×) — CLM-023.
+            - DELETE cmd/backstop/gate_bridge_agnostic_test.go (asserts one bridge call
+              resolves two languages) — CLM-023.
+            - DELETE or REWRITE the `loadBridgedToolchainPacks` cases in
+              cmd/backstop/cutover_noregress_test.go (drop the bridge cases; keep any
+              unrelated no-regress cases) — CLM-023.
+            - REWRITE cmd/backstop/gate_no_toolchain_pack_test.go to the 1-argument
+              `toolchainEnforcementStatus(declared)` signature — DROP its
+              `toolchainEnforcementStatus(bridged, declared)` two-arg (`bridged`-passing)
+              cases so no test pins the removed parameter. The rewritten test is the
+              MANDATED `TestNoToolchainPack_EnforcementStatusRewrittenToDeclaredOnlyArg`
+              (CLM-024).
+          After this task the TASK-002 guard `TestGate_NoTestReferencesDeletedBridgeSymbols`
+          is GREEN. Refactor of existing tests; depends on the guard test (TASK-002) and
+          the symbol deletion (TASK-004) that orphans these references.
+        files:
+          - cmd/backstop/gate_bridge_load_test.go
+          - cmd/backstop/gate_bridge_agnostic_test.go
+          - cmd/backstop/cutover_noregress_test.go
+          - cmd/backstop/gate_no_toolchain_pack_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify bridge deletion + declared-path dispatch (code check)"
+        description: |
+          Run `backstop code check` over the cmd/backstop bridge-deletion change. Confirms
+          the package compiles with `loadBridgedToolchainPacks`/`toolchainPackName`/
+          `gateLanguage` and the `bridged` threading removed, the count/warn/coverage
+          helpers are 1-input (declared-only), SPEC-043's classifier plumbing survives and
+          is fed the declared set, the live gate dispatches go-toolchain via the declared
+          path (dogfood no-regress), and no `_test.go` references the deleted bridge
+          symbols. Middle-phase verification — not the full gate.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_bridge_deletion_test.go
+          - cmd/backstop/gate_declared_dispatch_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Rehome the traceability stack label off cfg.Language onto the
+  # declared toolchain-pack-NAME set (REQ-004 / SQ-1). Removes the pkg/gate
+  # cfg.Language reader (stackLabel) BEFORE the field can be deleted (P4).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Rehome the traceability stack label (SQ-1)"
+    description: |
+      Move the cosmetic stack label off `cfg.Language` onto the SET of declared
+      toolchain-pack NAMES. Add `gate.CapabilityState.Stack`; delete `stackLabel` from
+      pkg/gate/traceability_polarity.go and render `cap.Stack` in `PolarityStepResult`
+      (class switch / verdict UNCHANGED). In cmd/backstop add
+      `declaredToolchainStackLabel(packs)` and thread the label along the REAL call graph
+      `buildGateSteps → wrapTraceabilityStep(..., stack, ...) → deriveCapabilityState(...,
+      stack)` (the wrapper gains a `stack` param; its THREE call sites pass the label).
+      SQ-1: set-valued label, no precedence; "unspecified" iff the declared toolchain-pack
+      NAME set is empty (the single authoritative signal); reuse SPEC-043's single
+      `SourceClassifier` (no fork). This phase removes the LAST pkg/gate `cfg.Language`
+      reader so Phase 4 can delete the field.
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write declared-pack stack-label + polyglot/empty + no-fork tests (cmd/backstop)"
+        description: |
+          cmd/backstop/gate_stack_label_test.go — drive the live gate / the new
+          `declaredToolchainStackLabel` over the Phase-1 fixtures (RED before the rehome).
+          MANDATED test names:
+            - TestPolarity_StackLabelFromDeclaredToolchainPacksNotLanguage: the
+              traceability stack label for a repo declaring `backstop/go-toolchain` is
+              derived from the declared toolchain-pack SET (the rendered fail-loud message
+              names the "go" stack) with NO `language:` present — the label is rehomed off
+              `language:` (CLM-016).
+            - TestPolarity_PolyglotStackLabelIsUnionNoPrecedence: a repo declaring
+              `backstop/go-toolchain` AND `backstop/bun-toolchain` yields a SET-valued
+              label naming BOTH stacks (merged union), with NO single-pack precedence or
+              overlap winner (CLM-017).
+            - TestPolarity_NoToolchainPackStackLabelUnspecified: a repo declaring NO
+              toolchain pack yields "unspecified", driven by the SINGLE authoritative
+              signal — the empty DECLARED toolchain-pack-NAME set that
+              `declaredToolchainStackLabel` reads — NOT by an empty `language:` field and
+              NOT by `SourceClassifier.HasSourceGlobs()` (corroborating only; assert the
+              divergence case where a declared toolchain pack ships no `classification`
+              source globs yet still labels its stack) (CLM-018).
+            - TestPolarity_RehomeIntroducesNoForkedGlobClassifier: a source guard asserts
+              NO new glob-classifier type is defined in this seed — SPEC-043's single
+              `gate.SourceClassifier` remains the ONLY glob classifier; the sole new symbol
+              is `declaredToolchainStackLabel` (a name-set helper) (CLM-019).
+        files:
+          - cmd/backstop/gate_stack_label_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-001
+
+      - id: TASK-008
+        type: test
+        title: "Write CapabilityState.Stack render + verdict-invariance tests (pkg/gate)"
+        description: |
+          pkg/gate/traceability_polarity_stack_test.go — RED before the rehome:
+            - TestPolarity_StackLabelNoLongerReadsConfigLanguage: `stackLabel` is gone and
+              `PolarityStepResult` renders the stack from the new `CapabilityState.Stack`
+              carrier — a source guard asserts the `cfg.Language` read in `stackLabel` is
+              gone from pkg/gate (CLM-021).
+            - TestPolarity_ClassificationVerdictUnaffectedByLanguageRemoval: the
+              capability/polarity classification VERDICTS (ClassNone / ClassCapabilityAbsent
+              / ClassBrokenDeclared) are UNCHANGED by the presence/absence of `language:` —
+              the rehome touches ONLY the cosmetic label, not the class switch (CLM-020).
+        files:
+          - pkg/gate/traceability_polarity_stack_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on: []
+
+      - id: TASK-009
+        type: implementation
+        title: "Add CapabilityState.Stack; delete stackLabel; render cap.Stack (pkg/gate)"
+        description: |
+          pkg/gate/traceability_polarity.go:
+            - Add a `Stack string` field to `CapabilityState` carrying the declared-toolchain
+              stack label (stamped in cmd/backstop's `deriveCapabilityState`).
+            - DELETE `stackLabel(cfg *config.Config)` (the `cfg.Language` reader, ~L188-192).
+            - Change `PolarityStepResult` to render the stack from `cap.Stack` instead of
+              `stackLabel(cfg)`. The class switch (the verdict) is UNTOUCHED (CLM-020).
+          This removes the LAST pkg/gate `cfg.Language` reader, unblocking the Phase-4
+          field deletion. Make TASK-008 green.
+        files:
+          - pkg/gate/traceability_polarity.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Add declaredToolchainStackLabel + thread stack through wrapTraceabilityStep (gate.go)"
+        description: |
+          cmd/backstop/gate.go:
+            - Add `declaredToolchainStackLabel(packs []*pack.Manifest) string`: collect the
+              declared toolchain packs (`isToolchainPack`), strip the `backstop/` prefix and
+              `-toolchain` suffix from each normalized name, join the SET (no precedence);
+              return "unspecified" when the declared toolchain-pack-NAME set is empty — the
+              SINGLE authoritative empty-fallback signal. `SourceClassifier.HasSourceGlobs()`
+              is corroborating ONLY and MUST NOT drive the fallback (it can diverge from the
+              pack-name set). Do NOT fork SPEC-043's classifier (CLM-019).
+            - Add a `stack string` parameter to `wrapTraceabilityStep` and thread it into
+              `deriveCapabilityState(cfg, dim, stack)` (real graph: `buildGateSteps →
+              wrapTraceabilityStep → deriveCapabilityState`; deriveCapabilityState is
+              reached ONLY through the wrapper). Give `deriveCapabilityState` a `stack`
+              param and stamp `CapabilityState.Stack` with it.
+            - Compute the label ONCE via `declaredToolchainStackLabel(packs)` in
+              `buildGateSteps` and pass it at ALL THREE `wrapTraceabilityStep` call sites
+              (testSubstantiveness ~L653, coverage ~L654, contract ~L655).
+          Do NOT de-language the `deriveCapabilityState` coverage-arm MESSAGE here — that is
+          the Phase-4 field-deletion work (it still reads `cfg.Language` until then). Make
+          TASK-007 green. Depends on TASK-009 (needs the `CapabilityState.Stack` field) and
+          on TASK-006 (the P2 gate.go change verified — gate.go serialization chain, see notes).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-007
+          - TASK-009
+          - TASK-006
+
+      - id: TASK-011
+        type: verification
+        title: "Verify stack-label rehome (code check)"
+        description: |
+          Run `backstop code check` over the pkg/gate + cmd/backstop rehome. Confirms
+          `CapabilityState.Stack` is threaded `buildGateSteps → wrapTraceabilityStep →
+          deriveCapabilityState`, `stackLabel` is gone (no pkg/gate `cfg.Language` read
+          remains), the label is the declared-pack-name SET (polyglot union, no
+          precedence; "unspecified" on the empty name set, not via HasSourceGlobs), no
+          forked glob classifier was introduced, and classification verdicts are unchanged.
+          Middle-phase verification.
+        files:
+          - pkg/gate/traceability_polarity.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Fully retire Config.Language (REQ-003). The COMPILE-FENCE move:
+  # de-language the remaining cmd/backstop readers, then delete the field LAST.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Fully retire the Config.Language field"
+    description: |
+      Delete the `Language` field from `config.Config` with NO remnant. First de-language
+      the remaining cmd/backstop readers (the `gateConfig` fallback seed, the
+      `deriveCapabilityState` coverage-arm message, the `code_check.go` assignment, the
+      e2e yml literal) and strip `language: go` from the dogfood `backstop.yml`; update the
+      existing language-keyed tests; THEN delete the field (last, so nothing fails to
+      compile). Because `backstop.yml` is parsed non-strict, a stray `language:` key parses
+      cleanly and is inert. The look-alikes `pack.Manifest.Language` and
+      `check.Options.Language` are SEPARATE fields and stay intact.
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write field-removed + inert-key + no-test-asserts guards (pkg/config)"
+        description: |
+          pkg/config/config_language_removal_test.go — RED before the field deletion:
+            - TestConfig_LanguageFieldRemoved: `config.Config` has NO `Language` field — a
+              struct/source guard asserts the field is gone so any `cfg.Language` reader
+              fails to compile (compile-time regression guard) (CLM-011).
+            - TestConfig_LanguageKeyIgnoredCleanlyFieldRemoved (MANDATED, CLM-012): a
+              backstop.yml that still carries a `language:` key parses cleanly with NO error
+              and the key is ignored (non-strict YAML) — the field is fully GONE, not
+              rejected.
+            - TestConfig_NoTestAssertsConfigLanguage: a source guard asserts NO `_test.go`
+              in cmd/backstop, pkg/config, or pkg/gate reads `cfg.Language` /
+              `config.Config.Language` — proving the existing language-keyed tests were
+              updated, not preserved (CLM-025).
+        files:
+          - pkg/config/config_language_removal_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-025
+        depends_on:
+          - TASK-001
+
+      - id: TASK-013
+        type: test
+        title: "Write dogfood-no-key + no-reader-remains + verdict-invariance tests (cmd/backstop)"
+        description: |
+          cmd/backstop/gate_language_retirement_test.go — RED before the retirement:
+            - TestDogfood_BackstopYmlHasNoLanguageKey: the dogfood `backstop.yml` carries
+              NO `language:` key after the retirement (CLM-013).
+            - TestGate_NoConfigLanguageReaderRemains: a source guard over cmd/backstop and
+              pkg/gate asserts NO `cfg.Language` reader remains — the de-language'd readers
+              (gateConfig fallback, deriveCapabilityState message, code_check.go assignment,
+              the e2e yml literal) are all updated (CLM-014).
+            - TestGate_LanguageKeyPresenceDoesNotChangeVerdict: the gate verdict is
+              IDENTICAL whether or not a `language:` key is present in backstop.yml (the
+              language-key-present vs -absent fixture pair) — the field is inert (CLM-015).
+        files:
+          - cmd/backstop/gate_language_retirement_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-001
+
+      - id: TASK-014
+        type: implementation
+        title: "De-language the remaining cmd/backstop readers + strip the dogfood language key"
+        description: |
+          De-language every remaining `cfg.Language` reader (the field still exists at this
+          point, so these edits compile):
+            - cmd/backstop/gate.go: `gateConfig` returns a zero-value-safe config WITHOUT
+              the `&config.Config{Language:"go"}` seed (~L294); de-language the
+              `deriveCapabilityState` coverage-arm fallback MESSAGE (drop the `cfg.Language`
+              read at ~L387-388).
+            - cmd/backstop/code_check.go: drop the config-sourced `Language: cfg.Language`
+              assignment in `check.Options{...}` (~L134) — `check.Options.Language` is left
+              at its empty-language default (behavior-preserving for the empty case;
+              `check.Options.Language` itself is OUT of scope).
+            - cmd/backstop/gate_substantiveness_e2e.go: remove the `language: go` line from
+              the test-config yml string literal (~L50).
+            - backstop.yml: strip `language: go` (line 2).
+          After this, NO `cfg.Language` reader remains in cmd/backstop. Make TASK-013 green.
+          Depends on TASK-011 (the P3 gate.go rehome verified — gate.go serialization
+          chain, see notes) and TASK-013.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - backstop.yml
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-013
+          - TASK-011
+
+      - id: TASK-015
+        type: implementation
+        title: "Delete Config.Language from pkg/config (the field deletion, last)"
+        description: |
+          pkg/config/config.go: DELETE the `Language string` field from `config.Config`.
+          This is the COMPILE FENCE — it lands LAST, after every reader is de-language'd
+          (TASK-014) and the language-keyed tests are updated (TASK-016), so nothing fails
+          to compile. Because backstop.yml is parsed non-strict, a stray `language:` key
+          parses cleanly and is ignored (CLM-012). Do NOT touch `pack.Manifest.Language` or
+          `check.Options.Language` (separate structs). Make TASK-012's field-removed +
+          inert-key guards green. Depends on TASK-012 (test), TASK-014 (readers de-language'd),
+          and TASK-016 (existing test assertions dropped) so the field can be removed
+          without breaking compilation.
+        files:
+          - pkg/config/config.go
+        claims:
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-012
+          - TASK-014
+          - TASK-016
+
+      - id: TASK-016
+        type: refactor
+        title: "Update the existing language-keyed tests (drop assertion + rewrite NonGo tests)"
+        description: |
+          Update, do NOT preserve, the EXISTING tests that encode the retired single-language
+          thesis (compile-coupled to the TASK-015 field deletion — they must land before it):
+            - pkg/config/config_test.go: DROP the `cfg.Language == "go"` assertion at line 26.
+            - cmd/backstop/gate_capability_test.go: DELETE or REWRITE
+              `TestCapabilityState_NonGoProject_DerivesAbsentClass2` and
+              `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` (which assert the OLD
+              language-keyed capability thesis — capability-absence derived from a non-Go
+              `language:` field) ONTO installed-pack presence (the SPEC-037/038/041 keying
+              that already exists), so no test reads `cfg.Language`.
+          After this task TASK-012's `TestConfig_NoTestAssertsConfigLanguage` guard is GREEN.
+          Refactor of existing tests; depends on the guard test (TASK-012).
+        files:
+          - pkg/config/config_test.go
+          - cmd/backstop/gate_capability_test.go
+        claims:
+          - CLM-025
+        depends_on:
+          - TASK-012
+
+      - id: TASK-017
+        type: verification
+        title: "Verify Config.Language retirement (code check)"
+        description: |
+          Run `backstop code check` over the pkg/config + cmd/backstop field retirement.
+          Confirms `Config.Language` is gone, no `cfg.Language` reader or test assertion
+          remains in cmd/backstop / pkg/config / pkg/gate, a stray `language:` key parses
+          cleanly and is inert (verdict-invariant), the dogfood backstop.yml has no
+          `language:` key, and the look-alike pack/check `Language` fields are intact.
+          Middle-phase verification.
+        files:
+          - pkg/config/config.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/code_check.go
+          - cmd/backstop/gate_capability_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-025
+        depends_on:
+          - TASK-014
+          - TASK-015
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final comprehensive verification (full kill chain).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code check, test
+      verification, substantiveness, coverage (>=80%), contracts. This is the only phase
+      that runs `backstop gate`. Confirms the dogfood gate stays GREEN with NO `language:`
+      field (go-toolchain dispatched via the declared path), every claim's tests pass, no
+      bridge/`language:` remnant survives, and the stack-label rehome holds end-to-end.
+    tasks:
+      - id: TASK-018
+        type: verification
+        title: "Run full gate + artifact validate over the complete SPEC-046 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) across cmd/backstop,
+          pkg/gate, and pkg/config at >=80% coverage, AND `backstop artifact validate` to
+          confirm this plan + SPEC-046 validate. Confirm end-to-end:
+            - the `language:`-derived bridge (`loadBridgedToolchainPacks` /
+              `toolchainPackName` / `gateLanguage` / the auto-load + the `bridged`
+              threading) is DELETED; toolchain packs load ONLY via the declared-pack path
+              and dispatch uniformly; an undeclared project gets ZERO toolchain packs
+              (REQ-001/CLM-001..006/022/023/024).
+            - the live gate STILL dispatches `backstop/go-toolchain` for backstop-core via
+              the declared-pack path with NO `language:` field present — the dogfood is
+              GREEN, not regressed (REQ-002/CLM-007); polyglot declares 2+ packs (CLM-008);
+              count/enforcement key on declared only (CLM-009/010).
+            - `Config.Language` is fully removed, a stray `language:` key parses inertly,
+              the dogfood backstop.yml has no `language:` key, and no `cfg.Language` reader
+              or test assertion remains (REQ-003/CLM-011..015/025).
+            - the stack label is rehomed onto the declared toolchain-pack-NAME set (SQ-1:
+              set-valued, no precedence; "unspecified" on the empty name set, not via
+              HasSourceGlobs; SPEC-043's single SourceClassifier reused, no fork) and
+              classification verdicts are unchanged (REQ-004/CLM-016..021).
+            - SPEC-043's `mergeSourceClassifier`/`SourceClassifier` survive, fed the
+              declared set, with no orphaned call site (CLM-022 — the B2 reconciliation).
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/traceability_polarity.go
+          - pkg/config/config.go
+          - backstop.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-006
+          - TASK-011
+          - TASK-017
+          - TASK-004
+          - TASK-005
+          - TASK-009
+          - TASK-010
+          - TASK-014
+          - TASK-015
+          - TASK-016

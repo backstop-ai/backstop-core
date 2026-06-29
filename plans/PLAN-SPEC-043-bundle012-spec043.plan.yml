@@ -1,0 +1,672 @@
+---
+plan_id: PLAN-SPEC-043
+spec_id: SPEC-043
+spec_version: 1.0.0
+created: "2026-06-29"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./pkg/pack/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-043 (BUNDLE-012 Spec Seed 1) — the FOUNDATION contract the bundle's
+  four sibling consumer specs depend on. Two coupled deliverables:
+  (1) the pack-declared file-CLASSIFICATION contract as DATA on pack.Manifest.Classification
+  (Source/Test glob lists), and (2) applying it to de-Go pkg/gate/step_coverage.go's
+  coverageMeasurablePath so the default-diff-scope vacuous-green hole (a changed .ts file
+  silently skipped) is closed with a LOUD blocking no-record guard.
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN COORDINATION — shared files with PLAN-SPEC-044 / PLAN-SPEC-045
+  ════════════════════════════════════════════════════════════════════════════
+  THIS plan is the FOUNDATION and MUST land first. The implement-phase orchestrator
+  MUST serialize the shared-file edits in this order (043 before 044/045):
+    - pkg/gate/step_coverage.go — co-edited by PLAN-SPEC-044 (the (path,metric) index +
+      per-metric threshold loop) and PLAN-SPEC-045 (coverageSpecRelevantToFile de-Go).
+      043 lands the CANONICAL 4-arg StepCoverageThresholdScopedFunc(coverage, specs,
+      scope, classifier) signature + dismantles the `if threshold <= 0 { return pass }`
+      early return FIRST; 044 ADOPTS that 4-arg signature (does NOT fork the 3-arg form)
+      and adds its (path,metric) record model behind it; 045 de-Go's the sibling
+      relevance helpers afterward.
+    - pkg/pack/manifest.go — co-edited by PLAN-SPEC-045 (TestNamePatterns). 043 adds the
+      Classification type/field first.
+    - pkg/gate/classification.go — 043 builds SourceClassifier and MUST store BOTH the
+      source AND test glob sets; PLAN-SPEC-045 later adds IsTestFile/HasTestGlobs reading
+      exactly the stored test set (dropping the test set would orphan SPEC-045).
+
+  ════════════════════════════════════════════════════════════════════════════
+  DOGFOOD LOCKSTEP (load-bearing — TASK-014)
+  ════════════════════════════════════════════════════════════════════════════
+  Deleting the baked `.go` literal from coverageMeasurablePath means backstop-core's OWN
+  coverage gate stops classifying `.go` UNLESS the installed backstop/go-toolchain pack.yml
+  gains a `classification: {source, test}` block IN THE SAME change set. TASK-014 adds that
+  block to the in-repo dogfood copy (.backstop/packs/...) AND the cmd/backstop testdata copy
+  so `backstop gate` stays GREEN throughout. DURABILITY: .backstop/packs/ is gitignored, so
+  the authoritative edit must ALSO land in the external backstop/go-toolchain pack repo —
+  flagged here as a wiring dependency; the in-repo copy keeps the local gate green until the
+  pack-repo edit is pulled.
+
+  ════════════════════════════════════════════════════════════════════════════
+  INTEGRATION-GAP GUARD (REQ-005 / CLM-020 — TASK-012)
+  ════════════════════════════════════════════════════════════════════════════
+  The e2e MUST drive the FULL gate assembly (buildGateSteps/runGate) so the live
+  mergeSourceClassifier(packs) call site is exercised — NOT a hand-merged classifier
+  handed to buildCoverageStep / StepCoverageThresholdScopedFunc directly (the SPEC-035/037
+  integration gap). mergeSourceClassifier takes the FULL declared-manifest set (no
+  toolchain-only pre-filter) and takes NO `bridged` argument so it survives SPEC-046's
+  deletion of the language:-derived bridge (loadBridgedToolchainPacks/toolchainPackName).
+
+  Matcher: github.com/bmatcuk/doublestar (TRUE doublestar, zero-leading-segment: `**/*.go`
+  matches the live repo-ROOT embed.go) — NOT github.com/gobwas/glob, which drops root files
+  and re-opens the vacuous-green hole.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — the doublestar dependency add and the e2e testdata
+  # project the live-wiring tests drive. No production logic.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Dependency + E2E Testdata Scaffolding"
+    description: |
+      Add the mandated glob matcher to the module graph and scaffold the testdata
+      project the REQ-005 end-to-end wiring tests run the full gate over. No production
+      code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add github.com/bmatcuk/doublestar to the module graph"
+        description: |
+          Add `github.com/bmatcuk/doublestar/v4` to go.mod/go.sum (the SPEC-mandated TRUE
+          doublestar matcher whose `**` matches ZERO-OR-MORE directories, so `**/*.go`
+          matches a repo-ROOT file like the live embed.go as well as nested files). This is
+          the dependency the NEW pkg/gate/classification.go imports. It MUST NOT be
+          github.com/gobwas/glob, whose `**/*.go` requires a leading directory segment and
+          SILENTLY DROPS repo-root source files (re-opening the exact vacuous-green hole this
+          spec closes — CLM-023). Run `go get github.com/bmatcuk/doublestar/v4` and
+          `go mod tidy`; do not remove the still-used gobwas indirect entry. No production
+          code in this task — the import lands with TASK-007.
+        files:
+          - go.mod
+          - go.sum
+        claims:
+          - CLM-010
+          - CLM-023
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold the classifier end-to-end gate testdata project"
+        description: |
+          Create a dedicated testdata project the REQ-005 wiring tests drive the FULL gate
+          assembly (buildGateSteps/runGate) over, under cmd/backstop/testdata/classifier-e2e/:
+            - a backstop.yml declaring TWO toolchain packs (packs: backstop/go-toolchain and
+              backstop/bun-toolchain) so the merge is proven as a UNION across declared packs
+              (CLM-021).
+            - an installed backstop/go-toolchain pack.yml carrying a
+              classification: { source: ["**/*.go"], test: ["**/*_test.go", "**/testdata/**"] }
+              block.
+            - an installed backstop/bun-toolchain pack.yml carrying a
+              classification: { source: ["**/*.ts", "**/*.tsx"], test: ["**/*.test.ts"] } block,
+              and NO coverage engine — so a changed .ts file classified as measurable source
+              has NO coverage record and the no-record guard fires through the real assembled
+              gate (CLM-020).
+            - a sample changed `app/foo.ts` source file (and a `pkg/x/foo.go`) the scope can
+              point at.
+          This fixture also backs CLM-022: a declared manifest set where only toolchain packs
+          carry source globs proves mergeSourceClassifier sources from the DECLARED packs, not
+          a `bridged` set. Fixtures only — assertions live in TASK-012.
+        files:
+          - cmd/backstop/testdata/classifier-e2e/backstop.yml
+          - cmd/backstop/testdata/classifier-e2e/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/classifier-e2e/.backstop/packs/backstop/bun-toolchain/pack.yml
+          - cmd/backstop/testdata/classifier-e2e/app/foo.ts
+          - cmd/backstop/testdata/classifier-e2e/pkg/x/foo.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The pack-declared classification contract (REQ-001) — DATA on
+  # the manifest. The keystone every other consumer reads.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Pack-Declared Classification Contract (Manifest)"
+    description: |
+      Add the OPTIONAL pack-declared file-classification contract to pkg/pack/manifest.go:
+      a `type Classification struct { Source []string; Test []string }` and a
+      `Classification Classification \`yaml:"classification"\`` field on Manifest, parsed
+      from the top-level `classification:` block. Absent block ⇒ zero value, no parse error.
+      The binary holds NO baked source/test convention — every stack supplies its own globs
+      (DD-1).
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Write manifest classification-contract parse tests"
+        description: |
+          pkg/pack/manifest_classification_test.go — RED before the Classification field
+          exists:
+            - TestManifest_ParsesClassificationGlobs: a pack.yml top-level `classification:`
+              block with `source:` and `test:` glob lists parses onto
+              pack.Manifest.Classification (Source/Test string slices) in DECLARED ORDER
+              (CLM-001).
+            - TestManifest_AbsentClassificationIsEmptyNotError: a manifest with NO
+              `classification:` block yields a zero-value Classification (empty Source and
+              Test) and NO parse error — the block is OPTIONAL (CLM-002).
+            - TestManifest_GoToolchainClassificationReferenceShapeRoundTrips: the
+              go-toolchain reference shape round-trips — source ["**/*.go"], test
+              ["**/*_test.go", "**/testdata/**"] parse intact, the fixture/testdata
+              convention folded into the test list (no separate baked testdata dimension)
+              (CLM-003).
+          Tests parse manifest bytes via pack.ParseManifest (inline yaml or a small fixture);
+          RED until the field exists.
+        files:
+          - pkg/pack/manifest_classification_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+
+      - id: TASK-004
+        type: implementation
+        title: "Add Classification type + Manifest.Classification field"
+        description: |
+          pkg/pack/manifest.go: add `type Classification struct { Source []string
+          \`yaml:"source"\`; Test []string \`yaml:"test"\` }` and a
+          `Classification Classification \`yaml:"classification"\`` field on Manifest. The
+          existing non-strict yaml.Unmarshal in ParseManifest already ignores an absent block
+          (zero value, no error — CLM-002); add no required-field validation for it (the block
+          is OPTIONAL). Source globs are patterns whose matches are SOURCE files coverage is
+          expected for; Test globs are patterns whose matches are TEST/non-source files (a
+          stack folds its fixture/testdata convention into Test, e.g. `**/testdata/**`). The
+          binary bakes NO language-specific source/test convention (DD-1). Make TASK-003 green.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify manifest classification contract (code check)"
+        description: |
+          Run `backstop code check` over pkg/pack/manifest.go + its test. Confirms the
+          Classification type/field parse the source/test glob lists in declared order, an
+          absent block is the zero value with no error, and the go-toolchain reference shape
+          round-trips. Middle-phase verification — not the full gate.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_classification_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The language-neutral SourceClassifier (REQ-002) — NEW
+  # pkg/gate/classification.go. Doublestar match over merged source/test
+  # globs, test-wins-on-overlap, stores BOTH glob sets, zero baked literal.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Language-Neutral SourceClassifier"
+    description: |
+      Add pkg/gate/classification.go: the SourceClassifier the coverage consumer reads
+      instead of a baked `.go` literal. It holds the UNION of declared source AND test globs
+      (compiled github.com/bmatcuk/doublestar matchers) and answers IsMeasurableSource(path)
+      = matches some source glob AND no test glob (test-wins-on-overlap). It MUST store BOTH
+      glob sets — the stored TEST set is load-bearing for PLAN-SPEC-045's later
+      IsTestFile/HasTestGlobs. Zero baked language knowledge; data + match logic only.
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write SourceClassifier matrix + doublestar + no-baked-literal tests"
+        description: |
+          pkg/gate/classification_test.go — RED before classification.go exists:
+            - TestClassifier_SourceOnlyIsMeasurable: a path matching a declared SOURCE glob
+              and NO test glob is MEASURABLE (e.g. pkg/x/foo.go under source `**/*.go`)
+              (CLM-004).
+            - TestClassifier_SourceAndTestOverlapNotMeasurable: a path matching BOTH a source
+              and a test glob is NOT measurable — TEST-WINS-ON-OVERLAP (pkg/x/foo_test.go)
+              (CLM-005).
+            - TestClassifier_TestOnlyNotMeasurable: a path matching ONLY a test glob is NOT
+              measurable (CLM-006).
+            - TestClassifier_UnclassifiedNotMeasurable: a path matching NO declared glob is
+              NOT measurable (CLM-007).
+            - TestClassifier_UnionAcrossMultipleToolchainPacks: a classifier built from a go
+              pack (source `**/*.go`) AND a bun pack (source `**/*.ts`) measures BOTH a .go
+              and a .ts source file (polyglot union) (CLM-008).
+            - TestClassifier_NoBakedGoLiteral_GoNotMeasurableWithoutGoGlobs: with ONLY non-Go
+              globs declared (bun `**/*.ts`), a `.go` file is NOT measurable — proving no
+              baked `.go` literal (CLM-009).
+            - TestClassifier_GlobSemanticsDoublestarAndSegmentAware: `**/*.ts` matches a nested
+              app/a/b.ts; a non-doublestar `*.ts` does not match across separators; matching is
+              on the project-relative slash path (CLM-010).
+            - TestClassifier_NoBakedExtensionLiteralsInClassificationGo: a source guard scoped
+              to pkg/gate/classification.go (read the file) asserts it contains NO baked
+              `.go`/`_test.go`/`testdata` string literal — a reintroduced baked extension fails
+              (CLM-011). Scoped to classification.go ONLY (step_coverage.go's
+              coverageSpecRelevantToFile/packagePathMatches legitimately keep `.go`/`./...`
+              until SPEC-045).
+            - TestClassifier_RootFileMeasurableUnderDoublestarSourceGlob: under source `**/*.go`
+              a repo-ROOT file (embed.go) IS measurable — `**` matches zero directories
+              (CLM-023).
+            - TestClassifier_RootTestFileMatchesTestGlobNotMeasurable: a repo-ROOT foo_test.go
+              matches test `**/*_test.go` and is NOT measurable (CLM-023) — proving the matcher
+              does not silently drop root files (the gobwas under-match regression).
+          RED until NewSourceClassifier/IsMeasurableSource exist.
+        files:
+          - pkg/gate/classification_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-023
+        depends_on:
+          - TASK-001
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement SourceClassifier (doublestar, test-wins-on-overlap, stores both sets)"
+        description: |
+          pkg/gate/classification.go: define `type SourceClassifier struct` holding the
+          compiled UNION of source AND test glob sets; `func NewSourceClassifier(source, test
+          []string) SourceClassifier` compiling BOTH sets with github.com/bmatcuk/doublestar
+          (TRUE doublestar, zero-leading-segment — `**/*.go` matches a repo-ROOT file as well
+          as nested; NOT gobwas/glob) and RETAINING both sets on the struct (the test set is
+          load-bearing for PLAN-SPEC-045's IsTestFile/HasTestGlobs — do NOT drop it after
+          computing a source matcher); `func (c SourceClassifier) IsMeasurableSource(path
+          string) bool` = matches some source glob AND no test glob (test-wins-on-overlap),
+          so a `.go` file is false when only non-Go globs are declared (CLM-009); and
+          `func (c SourceClassifier) HasSourceGlobs() bool` reporting whether any source globs
+          are declared (consumed by REQ-004). Match on the project-relative slash path
+          (normalize consistent with pkg/gate/scope.go normalizeScopePath). Hold NO baked
+          `.go`/`_test.go`/`testdata` literal (CLM-011). Make TASK-006 green.
+        files:
+          - pkg/gate/classification.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-023
+        depends_on:
+          - TASK-006
+          - TASK-001
+
+      - id: TASK-008
+        type: verification
+        title: "Verify SourceClassifier (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/classification.go + its test. Confirms the
+          measurable matrix (source∧¬test), polyglot union, doublestar/zero-leading-segment
+          root-file matching, the no-baked-Go-literal behavior, and the scoped no-literal
+          source guard. Middle-phase verification — not the full gate.
+        files:
+          - pkg/gate/classification.go
+          - pkg/gate/classification_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-023
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: De-Go the coverage step + the anti-vacuous-green guard
+  # (REQ-002 consumer, REQ-003, REQ-004). DELETE coverageMeasurablePath,
+  # 4-arg classifier signature, dismantle the `threshold <= 0` early return,
+  # loud no-record guard distinct from below-threshold, capability-absent.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: De-Go'd Coverage Step + Anti-Vacuous-Green Guard"
+    description: |
+      Re-shape pkg/gate/step_coverage.go to consume the SourceClassifier instead of the baked
+      coverageMeasurablePath. The keystone deliverable: DISMANTLE the
+      `if threshold <= 0 { return pass }` early return so the measurable-source no-record scan
+      runs BEFORE/INDEPENDENT of any numeric threshold resolution, emit a LOUD blocking
+      no-record violation under a DISTINCT rule (distinct from below-threshold), and surface a
+      DISTINCT non-blocking "classification capability absent" state when no source globs are
+      declared. SHARED-FILE NOTE: this lands the CANONICAL 4-arg
+      StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier) signature that
+      PLAN-SPEC-044 ADOPTS (it must NOT regenerate the 3-arg form); the no-record guard keys on
+      "no record for the path at ALL (any metric)" so it composes with 044's (path,metric) index.
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write de-Go'd coverage-step guard + capability-absent tests"
+        description: |
+          pkg/gate/step_coverage_classifier_test.go — RED against the new 4-arg signature +
+          guard:
+            - TestCoverage_ChangedTSSourceFileNoRecordIsLoudBlockingNotVacuousGreen: the
+              LOAD-BEARING regression — a changed NON-Go source file (app/foo.ts) matching the
+              declared source glob, with NO coverage record and not excluded, yields a LOUD
+              blocking violation (severity error, status fail), NOT a silent green (CLM-012).
+            - TestCoverage_NoRecordDistinctFromBelowThreshold: a no-record changed file and a
+              below-threshold changed file produce DISTINGUISHABLE violations (different
+              rule/message) — the report never conflates "nothing measured" with "measured low"
+              (CLM-013).
+            - TestCoverage_NoRecordGuardFiresWithoutNumericThreshold: a changed measurable-source
+              file with no record REDs even when NO numeric threshold is declared in scope — the
+              declared source glob is itself the measurement promise (CLM-014).
+            - TestCoverage_ChangedSourceWithRecordNotFlaggedByNoRecordGuard: a changed
+              measurable-source file WITH a record present is NOT flagged by the no-record guard —
+              it is handed to the threshold verdict path (CLM-015).
+            - TestCoverage_ChangedTestFileNoRecordNotFlagged: a changed TEST file (app/foo.test.ts
+              matching the declared test glob) with no record does NOT trigger the loud guard
+              (CLM-016).
+            - TestCoverage_NoRecordGuardChecksAnyMetricRecordPresence: the guard keys on "no
+              record for the path AT ALL (any metric)" — a path carrying at least one record under
+              any metric is NOT a no-record error (the SPEC-044 seam) (CLM-017).
+            - TestCoverage_NoDeclaredSourceGlobsIsVisibleCapabilityAbsentNotSilentPass: with NO
+              source globs and in-scope changed files, the step returns a DISTINCT, VISIBLE
+              "classification capability absent" status/reason — never an unqualified pass
+              (CLM-018).
+            - TestCoverage_ClassificationCapabilityAbsentDoesNotBlock: that capability-absent state
+              is NON-blocking (status not fail solely because classification is absent) (CLM-019).
+          Tests construct a gate.SourceClassifier (from TASK-007) and call the 4-arg
+          StepCoverageThresholdScopedFunc directly; RED until TASK-010.
+        files:
+          - pkg/gate/step_coverage_classifier_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "De-Go step_coverage.go: classifier param, delete measurable-path, guard, capability-absent"
+        description: |
+          pkg/gate/step_coverage.go:
+            - Add the trailing `classifier SourceClassifier` parameter to
+              StepCoverageThresholdScopedFunc (the CANONICAL 4-arg form) and thread it into the
+              convenience wrapper StepCoverageThresholdFunc.
+            - DELETE coverageMeasurablePath (the baked `.go`/`_test.go`/`testdata` literals);
+              re-key coveragePathsInScope to filter in-scope changed files via
+              classifier.IsMeasurableSource (CLM-009 — no baked literal survives in the consumer).
+              Do NOT touch coverageSpecRelevantToFile / packagePathMatches — they legitimately
+              keep their `.go`/`./...` literals until SPEC-045 (out of scope here).
+            - DISMANTLE the `if threshold <= 0 { return pass }` early return (step_coverage.go:56-57)
+              and restructure so the measurable-source no-record scan runs BEFORE/INDEPENDENT of
+              threshold resolution.
+            - When a scan finds an in-scope changed measurable-source path with NO record for the
+              path AT ALL (any metric) and not pack-declared excluded, emit a LOUD blocking
+              violation under a DISTINCT rule (e.g. `coverage_unmeasured`) — distinct from
+              below-threshold (`coverage_threshold`), fired even with no numeric threshold in scope
+              (CLM-012..CLM-017). The "any record present for the path" predicate is the SPEC-044
+              seam — per-metric verdicts stay 044's.
+            - When classifier.HasSourceGlobs() is false and in-scope changed files exist, return a
+              DISTINCT non-blocking "classification capability absent" StepResult reusing the
+              EXISTING convention (the `warning`-status `<dim>_capability_absent` shape
+              PolarityStepResult/ClassCapabilityAbsent emit in traceability_polarity.go), as a
+              `coverage`-dimension capability-absent warning — never an unqualified pass
+              (CLM-018/CLM-019).
+            - Match on the same normalizeScopePath form the scope/record index use (path
+              normalization parity — mismatched normalization is a silent under-match).
+            - Retain the existing SPEC-041 exclusion-loudness and per-file threshold semantics.
+          Make TASK-009 green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-009
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify de-Go'd coverage step + guard (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/step_coverage.go + its classifier test.
+          Confirms coverageMeasurablePath is deleted, the 4-arg classifier signature is in place,
+          the `threshold <= 0` early return is dismantled, the no-record guard fires loud and
+          distinct (even without a numeric threshold), and the no-source-globs capability-absent
+          state is visible and non-blocking. Middle-phase verification — not the full gate.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_classifier_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-018
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Live gate wiring (REQ-005) + dogfood lockstep. mergeSourceClassifier
+  # over the DECLARED packs threaded through buildGateSteps/runGate, proven
+  # end-to-end; and the go-toolchain pack.yml classification block so the
+  # dogfood gate keeps measuring its own .go.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Live Gate Wiring + Dogfood Lockstep"
+    description: |
+      Thread the merged classifier into the LIVE gate coverage step at the real wiring seam
+      (buildGateSteps → buildCoverageStep → StepCoverageThresholdScopedFunc) and prove it
+      end-to-end by driving the full gate assembly, closing the SPEC-035/037 integration gap.
+      In the SAME change set, add the classification block to the backstop/go-toolchain pack.yml
+      (dogfood lockstep) so deleting the baked `.go` literal does not stop backstop-core measuring
+      its own `.go` coverage. The wiring (gate.go) and the pack DATA (pack.yml) are file-disjoint
+      and run in parallel.
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write end-to-end live-wiring tests (full gate assembly, no hand-merge)"
+        description: |
+          cmd/backstop/gate_classifier_wiring_test.go — drives the FULL gate assembly
+          (buildGateSteps/runGate) over the TASK-002 classifier-e2e testdata project (NOT a
+          hand-merged classifier handed to buildCoverageStep/StepCoverageThresholdScopedFunc
+          directly — that would leave the live mergeSourceClassifier call unexercised, the exact
+          SPEC-035/037 gap):
+            - TestGate_BuildGateStepsConsumesMergedClassifierEndToEnd: with a declared toolchain
+              pack whose source globs cover `.ts`, a changed `.ts` file with no coverage record
+              REDs the REAL assembled gate — proving the classifier is built-and-consumed on the
+              production path via the live mergeSourceClassifier(packs) call site in buildGateSteps
+              (CLM-020).
+            - TestGate_ClassifierMergesAcrossDeclaredToolchainPacks: with TWO toolchain packs
+              declared (go + bun), the coverage step measures BOTH a changed `.go` and a changed
+              `.ts` file from the merged glob set (UNION across declared packs) (CLM-021).
+            - TestGate_MergeSourceClassifierSourcesFromDeclaredPacksNotBridge: mergeSourceClassifier
+              builds from the FULL declared-manifest set (loadInstalledPacks over backstop.yml
+              packs:, passed wholesale with NO toolchain-only pre-filter; a manifest with no
+              `classification:` block contributes empty globs = zero to the union) and takes NO
+              `bridged` argument — given declared manifests where only a toolchain pack carries
+              source globs it produces a classifier whose source globs measure the in-scope changed
+              files, proving it survives SPEC-046's bridge deletion (CLM-022).
+          RED until TASK-013.
+        files:
+          - cmd/backstop/gate_classifier_wiring_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-002
+          - TASK-011
+
+      - id: TASK-013
+        type: implementation
+        title: "Add mergeSourceClassifier + thread the classifier through buildGateSteps"
+        description: |
+          cmd/backstop/gate.go:
+            - Add `func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier` that
+              unions the classification.source and classification.test globs across the FULL
+              declared-pack manifest set (the `[]*pack.Manifest` loadInstalledPacks resolves over
+              backstop.yml packs:). NO toolchain-only pre-filter (a manifest with no
+              `classification:` block contributes empty globs — zero to the union). It takes NO
+              `bridged` argument, so it is NOT orphaned when SPEC-046 deletes the language:-derived
+              bridge (loadBridgedToolchainPacks/toolchainPackName) — CLM-022.
+            - Modify buildCoverageStep to accept the merged `classifier gate.SourceClassifier` and
+              pass it into StepCoverageThresholdScopedFunc (the 4-arg form from TASK-010).
+            - Modify buildGateSteps (which already holds `packs, _ := loadInstalledPacks(...)`) to
+              call mergeSourceClassifier(packs) and thread the classifier through buildCoverageStep
+              — the LIVE wiring seam the REQ-005 e2e exercises (CLM-020/CLM-021).
+          Make TASK-012 green.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: implementation
+        title: "Dogfood lockstep: add classification block to go-toolchain pack.yml"
+        description: |
+          Add a `classification:` block to the backstop/go-toolchain pack so deleting the baked
+          `.go` literal (TASK-010) does NOT stop backstop-core measuring its own `.go` coverage —
+          the lockstep keeps the dogfood gate GREEN (and measuring, not merely capability-absent):
+            classification:
+              source: ["**/*.go"]
+              test: ["**/*_test.go", "**/testdata/**"]
+          Add it to BOTH the in-repo dogfood copy
+          (.backstop/packs/backstop/go-toolchain/pack.yml) AND the cmd/backstop testdata copy
+          (cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml) so the
+          local gate and the testdata gate both classify `.go`. This is the reference shape
+          TASK-003's TestManifest_GoToolchainClassificationReferenceShapeRoundTrips asserts (CLM-003).
+          DURABILITY: .backstop/packs/ is gitignored — the AUTHORITATIVE edit must also land in the
+          external backstop/go-toolchain pack repo (flagged for the dogfood lock / Seed 5); the
+          in-repo copy keeps the local gate green until that pack-repo edit is pulled. File-disjoint
+          from TASK-013 (gate.go), so the two impl tasks run in parallel.
+        files:
+          - .backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-003
+
+      - id: TASK-015
+        type: verification
+        title: "Verify live wiring + dogfood lockstep (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/gate.go + the wiring test + the
+          go-toolchain pack.yml classification block. Confirms mergeSourceClassifier unions the
+          declared packs (no bridged arg, no toolchain-only filter), the classifier is threaded
+          through buildGateSteps/buildCoverageStep into the 4-arg step, the e2e reds a changed
+          `.ts` file via the real assembled gate, and the go-toolchain classification block keeps
+          `.go` measurable. Middle-phase verification — the full gate runs in Phase 6.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_classifier_wiring_test.go
+          - .backstop/packs/backstop/go-toolchain/pack.yml
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-003
+        depends_on:
+          - TASK-013
+          - TASK-014
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Final comprehensive verification (full kill chain).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code check, test
+      verification, substantiveness, coverage (>=80%), contracts. This is the only phase that
+      runs `backstop gate`. It also runs `backstop artifact validate` over this plan (the only
+      artifact file touched). Critically, the dogfood gate MUST stay GREEN: the go-toolchain
+      classification block (TASK-014) must keep backstop-core's own `.go` measured after the baked
+      coverageMeasurablePath literal is deleted (TASK-010). Confirms every claim's mandated tests
+      are green across pkg/pack, pkg/gate, and cmd/backstop.
+    tasks:
+      - id: TASK-016
+        type: verification
+        title: "Run full gate + artifact validate over the complete SPEC-043 change"
+        description: |
+          Run `backstop gate` (artifact validation + code check + test verification +
+          substantiveness + coverage >=80% + contracts) across pkg/pack, pkg/gate, and
+          cmd/backstop, and `backstop artifact validate` over this plan. Confirm: (REQ-001) the
+          pack-declared classification contract parses onto pack.Manifest.Classification, absent
+          block = zero value; (REQ-002) the consumer derives the measurable-source set from the
+          MERGED UNION of declared globs (source∧¬test, test-wins-on-overlap), with no baked
+          `.go`/`_test.go`/`testdata` literal in the classification implementation and root files
+          matched via doublestar zero-leading-segment; (REQ-003) a changed measurable-source file
+          with no record (any metric) and not excluded is a LOUD blocking error under a distinct
+          rule, fired even with no numeric threshold (the `threshold <= 0` early return dismantled);
+          (REQ-004) no declared source globs yields a DISTINCT visible non-blocking capability-absent
+          state, never a silent pass; (REQ-005) the merged classifier is threaded into the LIVE gate
+          via mergeSourceClassifier(packs) over the declared-manifest set (no bridged arg) and proven
+          end-to-end through buildGateSteps/runGate. Confirm the dogfood gate stays GREEN — the
+          go-toolchain classification block keeps backstop-core's own `.go` measured.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/gate/classification.go
+          - pkg/gate/step_coverage.go
+          - cmd/backstop/gate.go
+          - plans/PLAN-SPEC-043-bundle012-spec043.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-005
+          - TASK-008
+          - TASK-011
+          - TASK-015
+          - TASK-004
+          - TASK-007
+          - TASK-010
+          - TASK-013
+          - TASK-014

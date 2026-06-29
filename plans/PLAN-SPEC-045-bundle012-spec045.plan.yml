@@ -1,0 +1,561 @@
+---
+plan_id: PLAN-SPEC-045
+spec_id: SPEC-045
+spec_version: 1.0.0
+created: "2026-06-29"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ ./pkg/pack/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-045 (BUNDLE-012 Spec Seed 2): de-Go's the gate CONSUMER's
+  test-verification discovery + the Go-package / `./...` relevance matchers. FOUR
+  coupled de-Go's: (1) test-FILE discovery via SPEC-043's pack-declared TEST globs
+  (new SourceClassifier.IsTestFile/HasTestGlobs); (2) test-NAME extraction from a NEW
+  pack-declared DATA field Manifest.TestNamePatterns compiled into a TestNameMatcher
+  (the baked funcPattern DELETED); (3) the substantiveness same-unit matcher
+  goFilePackageMatchesTarget (Go `package`-clause reader) -> language-neutral
+  testFileColocatedWithTarget (directory-leaf comparison); (4) the coverage
+  spec-relevance matchers coverageSpecRelevantToFile (drop `.go`/`_testdata.go`/`./...`
+  literals; directory matching only). Plus the EITHER-absent capability guard
+  (warning, not silent-pass nor mass false-fail) and the live-gate wiring proven
+  end-to-end ([[feedback_integration_gap]]).
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN PREREQUISITE — SPEC-043 (Seed 1) must land FIRST
+  ════════════════════════════════════════════════════════════════════════════
+  This plan CONSUMES SPEC-043's foundation contracts, which do NOT yet exist in
+  code: the `pkg/gate` `SourceClassifier` type (constructed via
+  NewSourceClassifier(source, test []string) with its test-glob set populated), the
+  `cmd/backstop` `mergeSourceClassifier` helper, and `pack.Manifest.Classification`.
+  TASK-006 ADDS IsTestFile/HasTestGlobs as same-package methods reading SPEC-043's
+  stored test-glob set; TASK-012 REUSES mergeSourceClassifier (does not fork it).
+  If SPEC-043 has not landed (the SourceClassifier / test-glob set absent or
+  renamed), Phase 2 and Phase 4 are BLOCKED, not workable-around — re-baking a
+  `_test.go` walk to unblock would re-violate the thin-executor principle. Sharp Edge:
+  the classifier must expose a PURE test-glob match (IsTestFile), NOT IsMeasurableSource
+  (source ∧ ¬test) — a test file is by definition not measurable source.
+
+  ════════════════════════════════════════════════════════════════════════════
+  DOGFOOD LOCKSTEP — funcPattern deletion + go-toolchain test_name_patterns
+  ════════════════════════════════════════════════════════════════════════════
+  Deleting funcPattern (TASK-006) means backstop-core stops discovering its OWN Go
+  tests UNLESS the installed `backstop/go-toolchain` pack.yml declares
+  `test_name_patterns` in the SAME change set. TASK-003 adds that DATA to the dogfood
+  copy AND the e2e testdata copies; TASK-006 depends_on TASK-003 to enforce the
+  lockstep ordering so `backstop gate` over backstop-core stays GREEN throughout. The
+  pack DATA also lands durably in the go-toolchain pack's OWN repo
+  ([[packs_always_external]]) — that external-repo edit is outside this tracked tree
+  and is carried alongside, not represented as a task file here.
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN FILE OVERLAP — serialize the implement phase with siblings
+  ════════════════════════════════════════════════════════════════════════════
+  Three files are co-edited by parallel BUNDLE-012 siblings; this plan's edits are
+  DISJOINT functions/fields but the implement phase must be serialized so concurrent
+  edits don't clobber:
+    - pkg/gate/step_coverage.go: SPEC-043 (measurable-path) + SPEC-044 ((path,metric)
+      loop) co-edit; THIS plan edits coverageSpecRelevantToFile/packagePathMatches only.
+    - cmd/backstop/gate.go: SPEC-046 (language-bridge deletion) co-edits; THIS plan
+      edits goFilePackageMatchesTarget/buildTestSubstantivenessStep + adds
+      mergeTestNameMatcher/testFileColocatedWithTarget only.
+    - pkg/pack/manifest.go: SPEC-043 adds Classification; THIS plan adds
+      TestNamePatterns (disjoint field).
+    - pkg/gate/step_testverify.go: the extractor is co-edited by SPEC-044.
+  Flagged for the cross-consistency pass.
+
+  Dependency order: manifest DATA field + dogfood lockstep (P1) -> de-Go'd discovery +
+  matcher + capability guard (P2, parallel with P3) / coverage relevance (P3) ->
+  co-location matcher + live-gate wiring (P4) -> full gate (P5). Every code-changing
+  phase writes tests FIRST (TDD) and runs `backstop code check`; the final phase runs
+  the full `backstop gate` + `backstop artifact validate`.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Pack-declared test-name DATA field + go-toolchain dogfood lockstep
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Manifest test_name_patterns DATA field + dogfood lockstep"
+    description: |
+      Add the NEW pack-declared DATA field Manifest.TestNamePatterns (the carrier for
+      the test-name/indicator regexes, REQ-002) and seed the go-toolchain pack DATA so
+      backstop-core keeps discovering its own Go tests once the baked funcPattern is
+      deleted in Phase 2 (the dogfood lockstep). The field is data-only; no language
+      knowledge enters the binary.
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Test manifest decodes test_name_patterns DATA"
+        description: |
+          In pkg/pack/manifest_test.go add TestManifest_DecodesTestNamePatterns:
+          decode a pack.yml whose `test_name_patterns:` block lists one or more
+          regexes and assert Manifest.TestNamePatterns equals the declared list (the
+          go `func Test...` regex declared AS DATA). Add a sibling case asserting the
+          field is nil/zero-value when the block is absent (optional field). The list
+          is opaque DATA — no compilation here.
+        files:
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-010
+        depends_on: []
+      - id: TASK-002
+        type: implementation
+        title: "Add Manifest.TestNamePatterns field"
+        description: |
+          In pkg/pack/manifest.go add the field
+          `TestNamePatterns []string `yaml:"test_name_patterns"`` to pack.Manifest
+          (optional; nil when absent). DISJOINT from SPEC-043's Classification field on
+          the same struct — add the field without touching Classification. Make
+          TestManifest_DecodesTestNamePatterns green.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: setup
+        title: "Declare test_name_patterns in go-toolchain pack DATA (dogfood + e2e testdata)"
+        description: |
+          Add the go `func Test...` regex AS DATA to the go-toolchain pack.yml so
+          backstop-core's own gate keeps discovering `func Test...` after funcPattern is
+          deleted (the dogfood lockstep — TASK-006 depends on this). Add the same
+          `test_name_patterns:` block to the e2e testdata go-toolchain pack, and add a
+          `test_name_patterns:` block (bun-shaped test(...)/describe(...)/it(...) regex)
+          to the e2e testdata typescript-toolchain pack so the Phase 4 end-to-end
+          discovery test has a declared `.test.ts` toolchain. Block to add:
+              test_name_patterns:
+                - "^\\s*func\\s+(Test\\w+)\\s*\\("
+          The typescript-toolchain testdata pack must ALSO carry SPEC-043's
+          classification.test globs (`**/*.test.ts`); confirm/seed them — flagged for
+          the cross-consistency pass. The durable external-repo copies are carried
+          alongside ([[packs_always_external]]).
+        files:
+          - .backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/typescript-toolchain/.backstop/packs/backstop/typescript-toolchain/pack.yml
+        claims:
+          - CLM-010
+          - CLM-034
+          - CLM-036
+        depends_on: []
+      - id: TASK-004
+        type: verification
+        title: "Code check the manifest field change"
+        description: |
+          Run `backstop code check` over the pkg/pack manifest change (field +
+          decode test). Confirms lint/build/test green for the new DATA field before
+          downstream packages consume it. Does NOT run the full gate (Phase 5 owns that).
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: De-Go'd test discovery + name extraction + capability-absent state
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: De-Go'd test-file discovery, TestNameMatcher, capability-absent (pkg/gate)"
+    description: |
+      Rewire pkg/gate/step_testverify.go to discover test FILES via SPEC-043's
+      pack-declared TEST globs (new SourceClassifier.IsTestFile/HasTestGlobs) and
+      extract test NAMES via the pack-declared TestNameMatcher (funcPattern DELETED).
+      Add the EITHER-absent capability guard (warning, not silent-pass nor mass false
+      not-found fail). All work is in the single file step_testverify.go (+ its test),
+      so it is intrinsically sequential within this phase and disjoint from Phase 3.
+      CONSUMES SPEC-043's SourceClassifier (cross-plan prerequisite — see notes).
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write discovery + matcher + capability-absent tests (red)"
+        description: |
+          In pkg/gate/step_testverify_test.go write the mandated tests against the new
+          signatures (collectTestFuncNamesScoped(codeDir, scope, classifier, matcher)
+          and StepTestVerificationScopedFunc(... classifier, matcher)).
+
+          REQ-001 discovery matrix (classifier.IsTestFile over declared TEST globs):
+            - TestTestVerify_TSTestFileDiscoveredViaDeclaredGlobs   (CLM-001, MANDATED)
+            - TestTestVerify_TSSpecFileDiscoveredViaDeclaredGlobs   (CLM-002)
+            - TestTestVerify_GoTestFileStillDiscoveredViaGoGlobs    (CLM-003, MANDATED)
+            - TestTestVerify_NonTestTSSourceNotDiscovered           (CLM-004)
+            - TestTestVerify_NonTestGoSourceNotDiscovered           (CLM-005)
+            - TestTestVerify_UnmatchedFileNotDiscovered             (CLM-006)
+            - TestTestVerify_NoBakedGoWalk_GoTestNotDiscoveredWithoutGoGlobs (CLM-007, de-Go proof)
+            - TestTestVerify_OutOfScopeTestFileSkipped              (CLM-008, scope retained)
+            - TestTestVerify_DiscoversAcrossUnionedTestGlobs        (CLM-009, union)
+
+          REQ-002 TestNameMatcher (FindName capture group 1 of first match):
+            - TestTestNameMatcher_ExtractsGoFuncNameFromDeclaredPattern   (CLM-010)
+            - TestTestNameMatcher_ExtractsTSTestNameFromDeclaredPattern   (CLM-011)
+            - TestTestNameMatcher_ExtractsTSDescribeNameFromDeclaredPattern (CLM-012)
+            - TestTestNameMatcher_ExtractsTSItNameFromDeclaredPattern     (CLM-013)
+            - TestTestNameMatcher_NonMatchingLineYieldsNoName             (CLM-014)
+            - TestTestNameMatcher_NoBakedFuncTest_GoLineNotExtractedWithoutGoPattern (CLM-015, de-Go proof)
+            - TestTestNameMatcher_InvalidRegexIsLoudError                 (CLM-016, loud-not-silent)
+            - TestTestVerify_NoBakedFuncTestRegexLiteral                  (CLM-017, source guard: no `func\s+(Test\w+)` literal remains in pkg/gate)
+            - TestTestNameMatcher_MergesPatternsAcrossPacks               (CLM-018, union)
+
+          REQ-005 capability-absent (EITHER missing => distinct visible warning):
+            - TestTestVerify_DiscoveryCapabilityAbsentIsVisibleWarningNotSilentOrFalseFail (CLM-031, both-absent)
+            - TestTestVerify_DiscoveryCapabilityAbsentDoesNotBlock        (CLM-032, non-blocking)
+            - TestTestVerify_CapabilityPresentGenuineMissStillFails       (CLM-033, no masking)
+            - TestTestVerify_TestGlobsDeclaredButNoNamePatterns_IsVisibleWarningNotMassFail (CLM-037, the PARTIAL trap)
+
+          Use hand-constructed SourceClassifier (via SPEC-043's NewSourceClassifier)
+          and TestNameMatcher inputs. Tests compile-fail / red until TASK-006 lands.
+        files:
+          - pkg/gate/step_testverify_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-037
+        depends_on: []
+      - id: TASK-006
+        type: implementation
+        title: "Rewire discovery/extraction to pack DATA, add capability guard, delete funcPattern"
+        description: |
+          In pkg/gate/step_testverify.go:
+            - Add TestNameMatcher type, NewTestNameMatcher(patterns []string)
+              (TestNameMatcher, error) (compile each regex; an INVALID regex returns a
+              LOUD construction error, never a silent drop), FindName(line) (string,
+              bool) (capture group 1 of first match), HasPatterns() bool.
+            - Add IsTestFile(path) bool and HasTestGlobs() bool as methods on SPEC-043's
+              SourceClassifier (same package), reading the test-glob set SPEC-043 stores.
+            - DELETE `var funcPattern = regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)`.
+            - Rewire collectTestFuncNamesScoped(codeDir, scope, classifier, matcher):
+              walk only classifier.IsTestFile(path) files (NO `_test.go` literal),
+              extract via matcher.FindName (NO funcPattern); retain scope filtering.
+              Thread classifier+matcher through collectTestFuncNames and
+              ResolveMandatedTestPaths.
+            - StepTestVerificationScopedFunc/StepTestVerificationFunc gain
+              classifier+matcher. Capability is PRESENT only when BOTH declared: when
+              `!classifier.HasTestGlobs() || !matcher.HasPatterns()` (EITHER missing)
+              and mandated tests exist, return a DISTINCT non-blocking `warning` status
+              whose Reason NAMES the missing input (intercepting the partial
+              globs-but-no-patterns case BEFORE it becomes a mass false not-found fail);
+              never an unqualified pass nor a mass not-found fail. When BOTH declared, a
+              genuinely-missing mandated test stays a LOUD blocking failure.
+            Use the existing ClassCapabilityAbsent/PolarityStepResult warning
+            convention. Depends on TASK-003 (dogfood pack DATA) so backstop's own gate
+            stays green after the deletion. Make TASK-005's tests green.
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-037
+        depends_on:
+          - TASK-005
+          - TASK-003
+      - id: TASK-007
+        type: verification
+        title: "Code check the de-Go'd discovery + matcher"
+        description: |
+          Run `backstop code check` over pkg/gate/step_testverify.go + its test.
+          Confirms lint/build/test/semgrep green: the `_test.go` walk and funcPattern
+          are gone, discovery keys only on the classifier + matcher, and the
+          capability-absent warning path is exercised. Diff-scoped; the full gate runs
+          in Phase 5.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_testverify_test.go
+        claims:
+          - CLM-007
+          - CLM-015
+          - CLM-017
+          - CLM-037
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Language-neutral coverage spec-relevance (pkg/gate/step_coverage.go)
+  # Parallel-eligible with Phase 2 — disjoint files.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: De-Go'd coverage spec-relevance matchers (pkg/gate)"
+    description: |
+      Drop the baked `.go`/`_testdata.go` suffix gate and the `./...`/`./<dir>`
+      test-command convention from coverageSpecRelevantToFile; relevance becomes pure
+      directory matching (packagePathMatches, retained + confirmed language-neutral)
+      against spec.ImplementationPackage plus a root fallback for a spec with no
+      specific implementation package (REQ-004). Disjoint from Phase 2's
+      step_testverify.go and from SPEC-043's/SPEC-044's edits to this same file
+      (different functions) — serialize the implement phase per notes.
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write coverage spec-relevance tests (red)"
+        description: |
+          Mandated tests for REQ-004. In pkg/gate/step_coverage_test.go:
+            - TestCoverageRelevance_TSFileInMatchingPackageIsRelevant      (CLM-024, de-Go proof: a changed `.ts` file in a matching dir IS relevant — the `.go` gate is gone)
+            - TestCoverageRelevance_GoFileInMatchingPackageStillRelevant   (CLM-025, no regression)
+            - TestCoverageRelevance_NonMatchingDirectoryNotRelevant        (CLM-026)
+            - TestCoverageRelevance_RootFallbackWithoutDotDotDotGlob       (CLM-027, root fallback without any `./...` literal)
+            - TestCoverageRelevance_SpecificSpecNotBroadenedByRootFallback (CLM-028, dropping `./...` narrows a package-scoped spec)
+            - TestPackagePathMatches_LanguageNeutralDirectoryMatching      (CLM-029, `.ts` dir matches identically to `.go` dir)
+          In pkg/gate/step_coverage_eradication_test.go:
+            - TestCoverageRelevance_NoBakedGoLiteralsInSpecRelevance       (CLM-030, source guard: no `.go`/`_testdata.go`/`./...` literal in coverageSpecRelevantToFile or packagePathMatches)
+          Red until TASK-009.
+        files:
+          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_coverage_eradication_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on: []
+      - id: TASK-009
+        type: implementation
+        title: "De-Go coverageSpecRelevantToFile; confirm packagePathMatches neutral"
+        description: |
+          In pkg/gate/step_coverage.go rewrite coverageSpecRelevantToFile(spec, file,
+          includeRootCommand): REMOVE the `.go`/`_testdata.go` suffix gate AND the
+          `./...`/`./<dir>` test-command substring matching. Relevance =
+          packagePathMatches(dir(file), spec.ImplementationPackage), plus a root
+          fallback applied ONLY when includeRootCommand && spec.ImplementationPackage is
+          empty/root (so a package-scoped spec is NOT over-broadened). Leave
+          packagePathMatches unchanged (already pure directory matching). Touch ONLY
+          these two functions — disjoint from SPEC-043/SPEC-044 edits in this file. Make
+          TASK-008's tests green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-008
+      - id: TASK-010
+        type: verification
+        title: "Code check the de-Go'd coverage relevance"
+        description: |
+          Run `backstop code check` over pkg/gate/step_coverage.go + its tests.
+          Confirms no `.go`/`_testdata.go`/`./...` literal remains in the relevance path
+          and directory matching is language-neutral. Diff-scoped; full gate in Phase 5.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_test.go
+        claims:
+          - CLM-024
+          - CLM-030
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Co-location matcher + live-gate wiring proven end-to-end (cmd/backstop)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Language-neutral co-location + merged-discovery live-gate wiring (cmd/backstop)"
+    description: |
+      Replace the Go `package`-clause reader with a language-neutral directory-leaf
+      co-location matcher (REQ-003), and thread the merged SourceClassifier + merged
+      TestNameMatcher into the LIVE test-verification and substantiveness steps, proven
+      END-TO-END (REQ-006, the integration gap). All edits are in cmd/backstop/gate.go,
+      reusing SPEC-043's mergeSourceClassifier; disjoint from SPEC-046's bridge deletion
+      in the same file (serialize the implement phase per notes).
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write co-location + end-to-end discovery tests (red)"
+        description: |
+          REQ-003 co-location unit tests (cmd/backstop/gate_substantiveness_coloc_test.go):
+            - TestColocated_SameDirectoryLeafIsSameUnit             (CLM-019)
+            - TestColocated_DifferentDirectoryNotSameUnit           (CLM-020)
+            - TestColocated_EmptyTargetIsFalse                      (CLM-021)
+            - TestColocated_TSFileSameUnitWithoutPackageClause      (CLM-022, de-Go proof: same-unit with NO `package` clause in the file)
+            - TestSubstantiveness_NoBakedGoPackageClauseReader      (CLM-023, source guard: goFilePackageMatchesTarget deleted from cmd/backstop/gate.go)
+
+          REQ-006 end-to-end gate tests (cmd/backstop/gate_discovery_e2e_test.go) over a
+          REAL declared toolchain pack (the testdata typescript-/go-toolchain packs from
+          TASK-003 — NOT a stubbed dispatcher):
+            - TestGate_TestVerificationConsumesMergedDiscoveryEndToEnd   (CLM-034, a `.test.ts` whose test name matches a mandated claim is discovered + verified by the REAL gate)
+            - TestGate_SubstantivenessUsesColocationEndToEnd             (CLM-035, a co-located TS test short-circuits same-unit with no Go package clause)
+            - TestGate_DiscoveryMergesAcrossDeclaredToolchainPacks       (CLM-036, go + bun packs together discover BOTH a `_test.go` and a `.test.ts` mandated test)
+          Add the minimal `.test.ts` fixture the e2e drives. Red until TASK-012.
+        files:
+          - cmd/backstop/gate_substantiveness_coloc_test.go
+          - cmd/backstop/gate_discovery_e2e_test.go
+          - cmd/backstop/testdata/spec045-discovery/app/widget/widget.test.ts
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-003
+      - id: TASK-012
+        type: implementation
+        title: "De-Go co-location matcher + wire merged discovery into the live gate"
+        description: |
+          In cmd/backstop/gate.go:
+            - DELETE goFilePackageMatchesTarget (the Go `package`-clause reader) and add
+              testFileColocatedWithTarget(filePath, targetPkg) bool =
+              `targetPkg != "" && filepath.Base(filepath.Dir(filePath)) == targetPkg`
+              (no file read, no clause).
+            - Add mergeTestNameMatcher(packSets ...[]*pack.Manifest)
+              (gate.TestNameMatcher, error): UNION of Manifest.TestNamePatterns across
+              the declared toolchain packs, compiled once; an invalid regex surfaces as
+              a LOUD config-error step (not a silently-empty matcher).
+            - REUSE SPEC-043's mergeSourceClassifier for the classifier.
+            - Update buildTestSubstantivenessStep to take + thread classifier+matcher
+              into ResolveMandatedTestPaths and to use testFileColocatedWithTarget for
+              the same-unit short-circuit.
+            - Thread both into the StepTestVerificationScopedFunc call site so the LIVE
+              gate consumes the merged discovery.
+          Disjoint from SPEC-046's bridge functions. Depends on TASK-006 (gate types +
+          new signatures), TASK-002 (Manifest.TestNamePatterns), TASK-011 (tests). Make
+          TASK-011's tests green.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-011
+          - TASK-006
+          - TASK-002
+      - id: TASK-013
+        type: verification
+        title: "Code check the co-location matcher + live-gate wiring"
+        description: |
+          Run `backstop code check` over cmd/backstop/gate.go + the co-location/e2e
+          tests. Confirms goFilePackageMatchesTarget is gone, the merged classifier +
+          matcher are wired into the live test-verification + substantiveness steps, and
+          an invalid pack regex is a loud config-error. Diff-scoped; the full gate runs
+          in Phase 5.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_substantiveness_coloc_test.go
+          - cmd/backstop/gate_discovery_e2e_test.go
+        claims:
+          - CLM-023
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final comprehensive verification — full kill chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Final Verification — Full Gate + Artifact Validate"
+    description: |
+      Run the full kill chain over the whole SPEC-045 change: artifact validation, code
+      check, test verification, substantiveness, coverage (>=80%), contracts. This is
+      the only phase that runs `backstop gate`. Confirms every claim's mandated tests
+      are green AND that backstop-core's OWN gate stays GREEN through the funcPattern
+      deletion (the dogfood lockstep held). Also runs `backstop artifact validate` over
+      this plan (the artifact file this change touches).
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Run full gate + artifact validate over the complete SPEC-045 change"
+        description: |
+          Run `backstop gate` (full kill chain: artifact validation + code check + test
+          verification + substantiveness + coverage + contracts) across pkg/gate,
+          pkg/pack, and cmd/backstop at >=80% coverage, and `backstop artifact validate`
+          over this plan. Confirm end-to-end:
+            - Test FILES are discovered via SPEC-043's pack-declared TEST globs
+              (IsTestFile), no baked `_test.go` walk: a `.test.ts` is discovered, a
+              `_test.go` is NOT when only bun globs are declared (CLM-001/003/007).
+            - Test NAMES come from the pack-declared TestNameMatcher; funcPattern is
+              DELETED; invalid regex is loud (CLM-010..018).
+            - The EITHER-absent guard surfaces a distinct visible warning (incl. the
+              partial globs-but-no-patterns case) and a genuine miss under full
+              capability still REDs (CLM-031/032/033/037).
+            - testFileColocatedWithTarget replaces the Go `package`-clause reader
+              (CLM-019..023); coverage relevance is directory-only, no
+              `.go`/`_testdata.go`/`./...` literals (CLM-024..030).
+            - The LIVE gate builds + consumes the merged classifier + matcher in BOTH
+              the test-verification and substantiveness steps, unioned across declared
+              toolchain packs, proven over a real `.test.ts` discovery (CLM-034/035/036).
+            - backstop-core's own `backstop gate` is GREEN (dogfood lockstep held).
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/step_coverage.go
+          - cmd/backstop/gate.go
+          - pkg/pack/manifest.go
+          - plans/PLAN-SPEC-045-bundle012-spec045.plan.yml
+        claims:
+          - CLM-007
+          - CLM-009
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-023
+          - CLM-030
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-006
+          - TASK-007
+          - TASK-009
+          - TASK-010
+          - TASK-012
+          - TASK-013
