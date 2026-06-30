@@ -96,6 +96,12 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no in-scope files to measure for coverage"}
 		}
 
+		// The metrics EXPLICITLY declared in any in-scope spec's
+		// coverage_metric_thresholds. The metric-granular coverage_metric_missing guard
+		// (REQ-005) fires only for THESE — a scalar-only spec declares none, so it never
+		// fires (CLM-017/CLM-019).
+		declaredMetrics := declaredCoverageMetrics(thresholds)
+
 		var violations []Violation
 
 		// A duplicate (path, metric) is a producer defect (two measurements of one file
@@ -129,6 +135,27 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 					Severity: "error",
 				})
 				continue
+			}
+
+			// METRIC-GRANULAR missing guard (REQ-005), DISTINCT from the path-level
+			// zero-record guard above: the path HAS records but is missing a metric
+			// EXPLICITLY declared in scope. Reached ONLY for has-records paths (the
+			// zero-record path took the continue above), and fired ONLY for in-scope
+			// CHANGED paths — an unchanged/all-mode path stays quiet (CLM-021), parallel
+			// to the exclusion-loudness scoping. The two guards never double-report or
+			// shadow: zero records ⇒ coverage_unmeasured ALONE; has-records-missing-metric
+			// ⇒ coverage_metric_missing ALONE (CLM-018/CLM-020, Sharp Edge 7).
+			if inScopeChanged {
+				for _, metric := range declaredMetrics {
+					if _, measured := metricRecords[metric]; !measured {
+						violations = append(violations, Violation{
+							Rule:     "coverage_metric_missing",
+							Message:  fmt.Sprintf("in-scope changed file %s has coverage records but is missing the explicitly-declared %q metric — refusing to pass with a declared metric silently unmeasured", path, metric),
+							File:     path,
+							Severity: "error",
+						})
+					}
+				}
 			}
 
 			// REQ-002: iterate EVERY metric record for the path and threshold each
@@ -293,6 +320,25 @@ func splitCoverageDupKey(key string) (path, metric string) {
 		return key[:i], key[i+len(coverageDupPairSep):]
 	}
 	return key, ""
+}
+
+// declaredCoverageMetrics returns the sorted, de-duplicated set of metric labels
+// EXPLICITLY declared across the selected specs' MetricThresholds maps (REQ-005). The
+// metric-granular coverage_metric_missing guard fires only for these — a scalar-only
+// spec contributes none, so the guard never fires for it (CLM-017/CLM-019).
+func declaredCoverageMetrics(sel coverageThresholdSelection) []string {
+	set := map[string]struct{}{}
+	for _, spec := range sel.Specs {
+		for metric := range spec.MetricThresholds {
+			set[metric] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for m := range set {
+		out = append(out, m)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // sortedCoverageMetrics returns the metric labels of a per-metric record map in
