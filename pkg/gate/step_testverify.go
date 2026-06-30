@@ -38,6 +38,12 @@ type specFrontmatter struct {
 		Level             string `yaml:"level"`
 		TestCommand       string `yaml:"test_command"`
 		CoverageThreshold int    `yaml:"coverage_threshold"`
+		// CoverageMetricThresholds is the OPTIONAL per-metric declared threshold map
+		// (SQ-2, SPEC-044 REQ-003): metric label → integer threshold. It is threaded
+		// onto SpecVerification.MetricThresholds; a metric absent from it uses the
+		// scalar coverage_threshold as its default. A spec declaring only this map
+		// (no scalar) is still extracted (the loosened gate below).
+		CoverageMetricThresholds map[string]int `yaml:"coverage_metric_thresholds"`
 	} `yaml:"verification"`
 	Claims []struct {
 		ID    string   `yaml:"id"`
@@ -313,11 +319,18 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 			continue // terminal specs are excluded from enforcement (ISSUE-031)
 		}
 
-		if fm.Verification.TestCommand != "" && fm.Verification.CoverageThreshold > 0 {
+		// The extraction gate is LOOSENED (SPEC-044 REQ-003): a spec is extracted when
+		// it declares a test command AND either a scalar coverage_threshold OR a
+		// per-metric coverage_metric_thresholds map. A spec declaring only per-metric
+		// thresholds (no scalar) is therefore still extracted; a scalar-only spec
+		// extracts with a nil MetricThresholds, preserving today's behavior (REQ-004).
+		if fm.Verification.TestCommand != "" &&
+			(fm.Verification.CoverageThreshold > 0 || len(fm.Verification.CoverageMetricThresholds) > 0) {
 			specs = append(specs, SpecVerification{
 				SpecID:                fm.Number,
 				TestCommand:           fm.Verification.TestCommand,
 				CoverageThreshold:     fm.Verification.CoverageThreshold,
+				MetricThresholds:      fm.Verification.CoverageMetricThresholds,
 				File:                  path,
 				ImplementationPackage: fm.Implementation.Package,
 			})
