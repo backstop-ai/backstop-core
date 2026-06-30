@@ -125,6 +125,15 @@ func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error {
 // resolveSubstantivenessPacksFn — the pack is resolved from the real installed
 // declaration and dispatched through the real engine, so the proof is unstubbable.
 func (w *e2eWorkspace) runProductionSubstantivenessStep() gate.StepResult {
-	step := buildTestSubstantivenessStep(w.specDir, w.root, w.root, nil)
+	// The workspace is a Go project; build the pack-shaped Go classifier + matcher the
+	// production substantiveness step now consumes to resolve mandated test file paths
+	// (mirrors the go-toolchain pack DATA — this Go self-toolchain harness is not on
+	// the language-neutral gate spine).
+	classifier := gate.NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+	matcher, err := gate.NewTestNameMatcher([]string{`^\s*func\s+(Test\w+)\s*\(`})
+	if err != nil {
+		return gate.StepResult{StepName: gate.StepTestSubstantiveness, Status: "fail", Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "compiling go test-name pattern: " + err.Error(), Severity: "error"}}}
+	}
+	step := buildTestSubstantivenessStep(w.specDir, w.root, w.root, nil, classifier, matcher)
 	return step(context.Background())
 }

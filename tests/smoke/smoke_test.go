@@ -234,6 +234,54 @@ func createBackstopRulesDir(t *testing.T, dir string) {
 	mustMkdir(t, filepath.Join(dir, ".backstop", "rules"))
 }
 
+// installSmokeGoToolchainPack declares + installs a LOCAL backstop/go-toolchain pack
+// carrying the pack-declared classification.test globs + test_name_patterns DATA (no
+// execution engines) so the gate's de-Go'd test-discovery capability is PRESENT
+// (SPEC-045): with the baked `_test.go` walk + `funcPattern` deleted, a project that
+// declares NO toolchain pack has test-discovery capability ABSENT (a non-blocking
+// warning), so a compliant project — and the missing-test/hollow scenarios that depend
+// on discovery — must declare one. It (re)writes backstop.yml with the pack declared,
+// the pack manifest under .backstop/packs/, and a local backstop.lock (local entries
+// skip the hash check; the lock is required because packs are now declared).
+func installSmokeGoToolchainPack(t *testing.T, dir string) {
+	t.Helper()
+	writeFile(t, filepath.Join(dir, "backstop.yml"),
+		"project: smoke-test\nlanguage: go\npacks:\n  backstop/go-toolchain: local\n")
+	// Declare ONLY the test globs + test_name_patterns (the de-Go'd test-discovery
+	// capability). Deliberately NO classification.source: declaring source globs would
+	// make coverage capability PRESENT, but this fixture has no coverage engine, so
+	// every changed `.go` would RED as coverage_unmeasured. Omitting source keeps
+	// coverage capability-absent (a non-blocking warning, as before) while
+	// test-discovery (test globs + patterns) is present.
+	packYml := "name: backstop/go-toolchain\n" +
+		"version: 1.0.0\n" +
+		"language: go\n" +
+		"archetype: code\n" +
+		"description: Smoke go-toolchain fixture — classification.test + test_name_patterns DATA only (no engines).\n" +
+		"classification:\n" +
+		"  test:\n" +
+		"    - \"**/*_test.go\"\n" +
+		"    - \"**/testdata/**\"\n" +
+		"test_name_patterns:\n" +
+		"  - \"^\\\\s*func\\\\s+(Test\\\\w+)\\\\s*\\\\(\"\n" +
+		"content:\n" +
+		"  sdk:\n" +
+		"    module: example/go-toolchain-fixture\n" +
+		"    version: 1.0.0\n" +
+		"    provides:\n" +
+		"      - classification\n"
+	writeFile(t, filepath.Join(dir, ".backstop", "packs", "backstop", "go-toolchain", "pack.yml"), packYml)
+	lock := "packs:\n" +
+		"    backstop/go-toolchain:\n" +
+		"        content_hash: \"\"\n" +
+		"        git_ref: null\n" +
+		"        install_date: 2026-01-01T00:00:00Z\n" +
+		"        name: backstop/go-toolchain\n" +
+		"        source_type: local\n" +
+		"        version: null\n"
+	writeFile(t, filepath.Join(dir, "backstop.lock"), lock)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -316,6 +364,7 @@ func TestSmoke_GatePassesOnCompliantProject(t *testing.T) {
 
 	dir := t.TempDir()
 	createBackstopYml(t, dir)
+	installSmokeGoToolchainPack(t, dir)
 	createBackstopRulesDir(t, dir)
 	createGoMod(t, dir, "smoketest")
 
@@ -406,6 +455,7 @@ func TestSmoke_GateFailsMissingMandatedTest(t *testing.T) {
 
 	dir := t.TempDir()
 	createBackstopYml(t, dir)
+	installSmokeGoToolchainPack(t, dir)
 	createBackstopRulesDir(t, dir)
 	createGoMod(t, dir, "smoketest")
 

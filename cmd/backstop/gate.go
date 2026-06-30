@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -624,25 +623,45 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// declared <lang>-toolchain packs), consumed per-FILE by the re-implemented
 	// coverage step (SPEC-041 REQ-001).
 
+	// LIVE DISCOVERY WIRING (SPEC-045 REQ-006): the merged SourceClassifier (test +
+	// source globs) and merged TestNameMatcher (test-name patterns) are built ONCE from
+	// the UNION of the declared-pack manifests and threaded into BOTH the
+	// test-verification and substantiveness steps, closing the integration gap where a
+	// correct discovery unit never reaches the live gate. mergeSourceClassifier /
+	// mergeTestNameMatcher take the wholesale `packs` (no toolchain-only pre-filter, no
+	// `bridged` arg) so they survive SPEC-046's bridge deletion. An invalid
+	// pack-declared test-name regex is a LOUD config-error step (never a silently-empty
+	// matcher that would make discovery find nothing and mass-fail every mandated test).
+	classifier := mergeSourceClassifier(packs)
+	matcher, matcherErr := mergeTestNameMatcher(packs)
+	if matcherErr != nil {
+		return []gate.StepFunc{
+			func(context.Context) gate.StepResult {
+				return gate.StepResult{
+					StepName:   "pack_loading",
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "pack_loading", Message: "compiling pack-declared test_name_patterns: " + matcherErr.Error(), Severity: "error"}},
+				}
+			},
+		}
+	}
+
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
-	// We use the project root as the code directory for walking test files.
-	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope)
+	// We use the project root as the code directory for walking test files. Both
+	// consume the merged classifier + matcher (the de-Go'd pack-declared discovery).
+	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope, classifier, matcher)
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
-	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope)
+	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope, classifier, matcher)
 
 	// Step 5: Coverage threshold consumes the canonical per-FILE
 	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
 	// bridged + declared toolchain packs — NOT a binary-resident `go test` runner
 	// (re-baking one would re-violate REQ-002). The records are sourced lazily at
-	// step-run time so the producer is exercised inside the gate (CLM-003).
-	// REQ-005 LIVE WIRING SEAM: union the pack-declared classification globs across
-	// the FULL declared-manifest set into the merged classifier and thread it into
-	// the coverage step. mergeSourceClassifier takes the wholesale `packs` (no
-	// toolchain-only filter, no `bridged` arg), so it is exercised on the assembled
-	// gate path the REQ-005 e2e drives (closing the SPEC-035/037 integration gap).
-	classifier := mergeSourceClassifier(packs)
+	// step-run time so the producer is exercised inside the gate (CLM-003). The merged
+	// classifier (above) is also threaded into the coverage step (SPEC-043 REQ-005).
 	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(bridged, packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
@@ -842,7 +861,7 @@ func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
 // conversion. A spy on the real dispatchPackEnginesFn seam mechanically proves the step
 // reached the dispatcher (CLM-015..017). When the substantiveness pack is not installed,
 // the step is a no-op (the capability classifier governs the warn/block polarity).
-func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
+func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc {
 	return func(_ context.Context) gate.StepResult {
 		mandated, err := gate.ExtractMandatedTests(specDir)
 		if err != nil {
@@ -853,8 +872,9 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
-		// Resolve file paths for found tests (the keying join's FilePath side).
-		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir)
+		// Resolve file paths for found tests (the keying join's FilePath side) via the
+		// SAME pack-declared discovery the verification step uses (classifier + matcher).
+		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir, classifier, matcher)
 
 		packs, err := resolveSubstantivenessPacks(projectRoot)
 		if err != nil {
@@ -911,7 +931,7 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 				continue
 			}
 			referenced := gate.ReferencedSetForTest(extraction, mt)
-			samePackage := goFilePackageMatchesTarget(mt.FilePath, mt.TargetPkg)
+			samePackage := testFileColocatedWithTarget(mt.FilePath, mt.TargetPkg)
 			if v, raised := gate.NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage); raised {
 				v.File = mt.FilePath
 				violations = append(violations, v)
@@ -933,33 +953,36 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 	}
 }
 
-// goFilePackageMatchesTarget reads a Go test file's `package <name>` clause as a string
-// and reports whether it identifies the target package (allowing the `_test` external
-// variant) — the language-agnostic samePackage derivation the gate set-join consumes,
-// mirroring the deleted analyzer's same-package short-circuit WITHOUT an AST walk.
-func goFilePackageMatchesTarget(filePath, targetPkg string) bool {
-	if targetPkg == "" {
-		return false
-	}
-	f, err := os.Open(filePath)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
+// testFileColocatedWithTarget reports whether a test file is the SAME UNIT as its
+// target by LANGUAGE-NEUTRAL directory-leaf comparison (SPEC-045 REQ-003): the leaf
+// of the test file's directory equals targetPkg. It REPLACES the deleted Go
+// `package`-clause reader — no file read, no `package` clause, carrying no Go
+// assumption, so a TS `.test.ts` co-located with its target is same-unit without any
+// clause existing. An empty targetPkg yields false (the preserved guard).
+func testFileColocatedWithTarget(filePath, targetPkg string) bool {
+	return targetPkg != "" && filepath.Base(filepath.Dir(filePath)) == targetPkg
+}
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "package ") {
-			continue
+// mergeTestNameMatcher unions Manifest.TestNamePatterns across the declared toolchain
+// packs and compiles ONE gate.TestNameMatcher (SPEC-045 REQ-006/CLM-018/CLM-036). It
+// is built where the manifests are visible (cmd/backstop) so pkg/gate takes no
+// pkg/pack dependency, and takes the wholesale declared-pack set (a manifest with no
+// test_name_patterns contributes nothing to the union — no toolchain-only pre-filter,
+// so it is NOT orphaned when SPEC-046 deletes the language: bridge). An INVALID
+// pack-declared regex surfaces as a LOUD construction error (the caller turns it into
+// a config-error step), never a silently-empty matcher that makes discovery find
+// nothing and then mass-fail every mandated test.
+func mergeTestNameMatcher(packSets ...[]*pack.Manifest) (gate.TestNameMatcher, error) {
+	var patterns []string
+	for _, set := range packSets {
+		for _, manifest := range set {
+			if manifest == nil {
+				continue
+			}
+			patterns = append(patterns, manifest.TestNamePatterns...)
 		}
-		name := strings.TrimSpace(strings.TrimPrefix(line, "package "))
-		if i := strings.IndexAny(name, " \t/"); i >= 0 {
-			name = name[:i]
-		}
-		return name == targetPkg || name == targetPkg+"_test" || strings.TrimSuffix(name, "_test") == targetPkg
 	}
-	return false
+	return gate.NewTestNameMatcher(patterns)
 }
 
 // coverageRecordsFn produces the canonical per-FILE []check.CoverageRecord the
