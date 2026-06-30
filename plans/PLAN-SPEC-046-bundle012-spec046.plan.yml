@@ -5,7 +5,7 @@ spec_version: 1.0.0
 created: "2026-06-29"
 status: draft
 target_module: cmd/backstop
-test_command: "go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ -race -coverprofile=cover.out"
+test_command: "go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ ./pkg/check/ -race -coverprofile=cover.out"
 coverage_threshold: 80
 
 notes: |
@@ -42,14 +42,32 @@ notes: |
   (P4 gate.go). No two gate.go tasks are ever parallel-eligible.
 
   ════════════════════════════════════════════════════════════════════════════
-  CROSS-PLAN SHARED-FILE SEAM (cmd/backstop/gate.go) — SERIALIZE AT IMPLEMENT TIME.
+  CROSS-PLAN DEPENDENCIES ON cmd/backstop/gate.go — NOT ALL SEAMS ARE SYMMETRIC.
   ════════════════════════════════════════════════════════════════════════════
-  gate.go is co-edited by FOUR BUNDLE-012 seeds. This seed's edits are DISJOINT but
-  share the file; flag for the cross-consistency / implement-phase serialization:
-    - SPEC-045 edits `goFilePackageMatchesTarget` (disjoint).
-    - SPEC-043 adds a `classifier SourceClassifier` param to `buildCoverageStep` and
-      adds `mergeSourceClassifier` built over the DECLARED toolchain-pack set.
-    - SPEC-044 changes the coverage `(path, metric)` record model.
+  gate.go is co-edited by FOUR BUNDLE-012 seeds, but the relationships are NOT
+  symmetric. One is a HARD BUILD-ORDER PREREQUISITE; the other two are genuinely
+  disjoint co-edits that merely share the file. Do NOT lump them as a single
+  "serialize at implement time" seam.
+
+  ─── HARD PREREQUISITE (must LAND FIRST, not just serialize) ───
+    - SPEC-043 (PLAN-SPEC-043) introduces `mergeSourceClassifier`, the `SourceClassifier`
+      type, and `SourceClassifier.HasSourceGlobs()`. THESE SYMBOLS DO NOT EXIST ON THIS
+      BRANCH (verified: absent from cmd/backstop + pkg/gate). THIS PLAN HARD-DEPENDS on
+      them: TASK-002 (CLM-022 classifier-survival guard), TASK-004 (CLM-022 fence the
+      declared-set call site), and TASK-007 (CLM-018/CLM-019 corroborating-only /
+      no-fork) all REFERENCE them. Therefore PLAN-SPEC-043 MUST be MERGED before this
+      plan's Phase 2 and Phase 3 execute — a co-edit serialization is INSUFFICIENT; the
+      classifier must already be present in the tree or Phase 2/3 cannot compile or
+      assert. IMPLEMENT-PHASE SEQUENCING: gate PLAN-SPEC-043 → main BEFORE dispatching
+      TASK-002/004/007. (Phase 1 fixtures and the pkg/gate/pkg/config moves that do not
+      touch the classifier are not 043-blocked, but the gate.go classifier-fence tasks
+      are.)
+
+  ─── DISJOINT CO-EDITS (share the file, serialize at implement time, no land-order) ───
+    - SPEC-045 edits `goFilePackageMatchesTarget` (disjoint region, no symbol this plan
+      reads — pure merge-time serialization on the shared file).
+    - SPEC-044 changes the coverage `(path, metric)` record model (disjoint axis on the
+      coverage call chain — composes, see B2 below; no land-order dependency).
     - THIS seed removes `bridged` from `coverageRecordsProducer` / `toolchainEnforcementStatus`
       / `countToolchainPacks` / the dispatch set / the early return; adds
       `declaredToolchainStackLabel`; threads `stack` through `wrapTraceabilityStep` →
@@ -363,6 +381,16 @@ phases:
       NAME set is empty (the single authoritative signal); reuse SPEC-043's single
       `SourceClassifier` (no fork). This phase removes the LAST pkg/gate `cfg.Language`
       reader so Phase 4 can delete the field.
+
+      Because TASK-009/010 change `CapabilityState`'s shape (adding `Stack`) and
+      `wrapTraceabilityStep`'s signature (4→5 args), the two EXISTING test files that are
+      compile-coupled to those symbols — `cmd/backstop/gate_wiring_test.go` (4-arg
+      `wrapTraceabilityStep` callers + `CapabilityState.Stack`-sourced stack assertions) and
+      `pkg/gate/traceability_polarity_step_test.go` (`cfgDeclaring` + `CapabilityState.Stack`
+      re-sourcing) — are rewritten HERE in TASK-020 (NOT deferred to Phase 4), so this phase's
+      verification (TASK-011) compiles and passes GREEN. TASK-020 also performs those files'
+      inert `config.Config.Language` strip (compile-safe while the field still exists), so the
+      Phase-4 field deletion only has the pkg/check bridge readers left to clear.
     tasks:
       - id: TASK-007
         type: test
@@ -477,6 +505,61 @@ phases:
           - TASK-009
           - TASK-006
 
+      - id: TASK-020
+        type: refactor
+        title: "Rewrite the rehome-coupled collateral tests onto CapabilityState.Stack + the 5-arg wrapper (cmd/backstop + pkg/gate)"
+        description: |
+          REHOME-COUPLED rewrites of the two EXISTING test files that are compile-coupled to
+          THIS phase's new symbols — `gate.CapabilityState.Stack` (added by TASK-009) and the
+          5-arg `wrapTraceabilityStep(cfg, dim, stepName, stack, delegate)` (introduced by
+          TASK-010). They MUST land in Phase 3 (NOT Phase 4): once TASK-009/010 land, these
+          files no longer compile against the old shape, so Phase-3's verification (TASK-011
+          `backstop code check`, which typechecks `_test.go` via the go-toolchain Lint+Test
+          executors) cannot go green until they are updated. Each file gets its FULL update
+          here — the signature fix, the `CapabilityState.Stack` re-sourcing, AND its inert
+          `config.Config.Language` strip (all three are compile-safe in Phase 3: the
+          `Config.Language` field still exists until the Phase-4 TASK-015 deletion):
+            - cmd/backstop/gate_wiring_test.go: (a) update the FOUR direct
+              `wrapTraceabilityStep(...)` callers (~L107/L139/L162/L185) from the 4-arg form
+              to the new 5-arg `(cfg, dim, stepName, stack, delegate)` signature, passing the
+              declared-pack stack label; (b) re-source the stack-label assertions from the new
+              `gate.CapabilityState.Stack` carrier instead of a `cfg.Language`-derived label;
+              (c) the 8 sites that use `Language:"typescript"` / `Language:"go"` to DRIVE the
+              class-2/class-3 capability-absent + intercept verdicts
+              (`class2_capability_absent_intercepts`,
+              `class3_declared_intent_unmet_intercepts`, etc.) REHOME onto INSTALLED-PACK
+              PRESENCE (the SPEC-037/038/041 keying that already drives the class switch) —
+              e.g. drive capability-absence via a NO-toolchain-pack-declared config and
+              class-3 via a declared dimension whose capability pack is absent — NOT via a
+              non-Go `language:` field. The classifier-intercept verdict assertions
+              (`wantReached` / `wantStatus`) are PRESERVED; only their language-keyed DRIVER +
+              the wrapper arity are rehomed. Do NOT read `cfg.Language`.
+            - pkg/gate/traceability_polarity_step_test.go: DROP `Language` from the
+              `cfgDeclaring(language …)` helper (~L12-15) AND re-source the stack-LABEL
+              assertions from the new `gate.CapabilityState.Stack` carrier (stack now flows
+              through `CapabilityState`, not `cfg.Language`). The class/verdict assertions
+              (ClassBrokenDeclared / ClassCapabilityAbsent / ClassDeclaredIntentUnmet) are
+              PRESERVED; only the language-keyed stack-label source moves. Do NOT read
+              `cfg.Language`.
+          D-081: these two files are touched by NO other task except the verifications/
+          deletion that serialize via depends_on — TASK-008 owns the NEW pkg/gate file
+          `traceability_polarity_stack_test.go` and TASK-009 owns the production
+          `traceability_polarity.go` (distinct files, no collision); the Phase-4 pkg/check
+          rewrites (TASK-019) no longer touch these files. After this task neither file reads
+          `config.Config.Language`. Refactor of existing tests; depends on TASK-009 (introduces
+          `CapabilityState.Stack`) AND TASK-010 (introduces the 5-arg `wrapTraceabilityStep`) —
+          the plan's consume-edge-to-introducer convention. Contributes (jointly with TASK-016
+          and TASK-019) to TASK-012's `TestConfig_NoTestAssertsConfigLanguage` guard going
+          GREEN.
+        files:
+          - cmd/backstop/gate_wiring_test.go
+          - pkg/gate/traceability_polarity_step_test.go
+        claims:
+          - CLM-025
+        depends_on:
+          - TASK-009
+          - TASK-010
+
       - id: TASK-011
         type: verification
         title: "Verify stack-label rehome (code check)"
@@ -487,7 +570,10 @@ phases:
           remains), the label is the declared-pack-name SET (polyglot union, no
           precedence; "unspecified" on the empty name set, not via HasSourceGlobs), no
           forked glob classifier was introduced, and classification verdicts are unchanged.
-          Middle-phase verification.
+          Also confirms the rehome-coupled test rewrites (TASK-020) compile against the new
+          symbols so the cmd/backstop + pkg/gate test trees typecheck GREEN — the reason
+          gate_wiring_test.go's 4→5-arg callers and traceability_polarity_step_test.go's
+          `CapabilityState.Stack` re-sourcing must land in THIS phase. Middle-phase verification.
         files:
           - pkg/gate/traceability_polarity.go
           - cmd/backstop/gate.go
@@ -501,6 +587,7 @@ phases:
         depends_on:
           - TASK-009
           - TASK-010
+          - TASK-020
 
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 4: Fully retire Config.Language (REQ-003). The COMPILE-FENCE move:
@@ -510,13 +597,44 @@ phases:
     name: "Phase 4: Fully retire the Config.Language field"
     description: |
       Delete the `Language` field from `config.Config` with NO remnant. First de-language
-      the remaining cmd/backstop readers (the `gateConfig` fallback seed, the
+      the remaining cmd/backstop PRODUCTION readers (the `gateConfig` fallback seed, the
       `deriveCapabilityState` coverage-arm message, the `code_check.go` assignment, the
-      e2e yml literal) and strip `language: go` from the dogfood `backstop.yml`; update the
-      existing language-keyed tests; THEN delete the field (last, so nothing fails to
-      compile). Because `backstop.yml` is parsed non-strict, a stray `language:` key parses
-      cleanly and is inert. The look-alikes `pack.Manifest.Language` and
+      e2e yml literal) and strip `language: go` from the dogfood `backstop.yml`; update ALL
+      existing language-keyed/-driven TESTS that read `config.Config.Language`. There are
+      exactly TEN `_test.go` readers across FOUR packages (verified on this branch): the
+      SIMPLE strips in TASK-016 (config_test.go, gate_capability_test.go,
+      gate_capability_rekey_test.go, gate_capability_contracts_rekey_test.go,
+      cutover_deletion_test.go, cutover_consistency_test.go); the pkg/check
+      `check.Options.Language`-bridge rewrites in TASK-019 (pkg/check/registry_test.go +
+      pkg/check/ts_executor_test.go); AND the REHOME-COUPLED rewrites in the Phase-3 task
+      TASK-020 (gate_wiring_test.go's language-driven class fixtures + its 4→5-arg
+      `wrapTraceabilityStep` callers; pkg/gate/traceability_polarity_step_test.go's
+      `cfgDeclaring` helper + its `CapabilityState.Stack`-re-sourced PolarityStepResult
+      stack/message tests) — which land in PHASE 3, not here, because they are compile-coupled
+      to that phase's `CapabilityState.Stack` + 5-arg `wrapTraceabilityStep` symbols, NOT to
+      the field deletion; only their inert `config.Config.Language` strip relates to this
+      retirement (done early in Phase 3, compile-safe while the field still exists) — THEN
+      delete the field (last, so nothing fails
+      to compile). The COMPILE FENCE spans FOUR packages: cmd/backstop, pkg/config, pkg/gate,
+      AND pkg/check (the pkg/check `check.Options.Language`-bridge readers and the pkg/gate
+      `cfgDeclaring` reader are collateral readers that would otherwise surface as late
+      compile breaks). Because `backstop.yml` is parsed non-strict, a stray `language:` key
+      parses cleanly and is inert. The look-alikes `pack.Manifest.Language` and
       `check.Options.Language` are SEPARATE fields and stay intact.
+
+      ── COMPLETENESS CONTRACT (why this file list is the KNOWN set, not a fragile boundary) ──
+      The exhaustiveness of the test-reader sweep is NOT guaranteed by hand-enumerating files
+      — it is MECHANICALLY enforced by two artifacts that go RED on ANY surviving reader:
+      (1) TASK-012's source-guard `TestConfig_NoTestAssertsConfigLanguage`, whose scope is the
+      FULL four-package set (cmd/backstop, pkg/config, pkg/gate, pkg/check) and which fails if
+      any `_test.go` in those packages still reads `cfg.Language` / `config.Config.Language`;
+      and (2) the plan's `test_command` (`./cmd/backstop/ ./pkg/gate/ ./pkg/config/
+      ./pkg/check/`), which compiles+runs all four packages so any missed reader surfaces as a
+      build break. Together these are the completeness contract: the TASK-016/TASK-019/TASK-020
+      file lists are the CURRENTLY-KNOWN reader set, and the guard+test_command catch any reader the
+      list misses (now or via future drift) — the list is a starting point, not a load-bearing
+      exhaustive boundary. SPEC-046 (updated in parallel) reframes this source-guard +
+      test_command pair as the formal completeness contract.
     tasks:
       - id: TASK-012
         type: test
@@ -531,9 +649,13 @@ phases:
               and the key is ignored (non-strict YAML) — the field is fully GONE, not
               rejected.
             - TestConfig_NoTestAssertsConfigLanguage: a source guard asserts NO `_test.go`
-              in cmd/backstop, pkg/config, or pkg/gate reads `cfg.Language` /
+              in cmd/backstop, pkg/config, pkg/gate, OR pkg/check reads `cfg.Language` /
               `config.Config.Language` — proving the existing language-keyed tests were
-              updated, not preserved (CLM-025).
+              updated, not preserved (CLM-025). Scope INCLUDES pkg/check: the
+              `config.Config{Language:…}` constructions + `cfg.Language` reads in
+              pkg/check/registry_test.go are collateral readers of the deleted field and
+              must be swept too (the look-alike `check.Options.Language` is a SEPARATE
+              fenced field and is explicitly EXCLUDED from this guard).
         files:
           - pkg/config/config_language_removal_test.go
         claims:
@@ -609,9 +731,17 @@ phases:
           to compile. Because backstop.yml is parsed non-strict, a stray `language:` key
           parses cleanly and is ignored (CLM-012). Do NOT touch `pack.Manifest.Language` or
           `check.Options.Language` (separate structs). Make TASK-012's field-removed +
-          inert-key guards green. Depends on TASK-012 (test), TASK-014 (readers de-language'd),
-          and TASK-016 (existing test assertions dropped) so the field can be removed
-          without breaking compilation.
+          inert-key guards green. Depends on TASK-012 (test), TASK-014 (production readers
+          de-language'd), TASK-016 (the 6 simple test strips dropped), TASK-019 (the 2
+          pkg/check `check.Options.Language`-bridge rewrites: registry_test.go +
+          ts_executor_test.go), AND the Phase-3 TASK-020 (the 2 rehome-coupled rewrites:
+          gate_wiring_test.go + pkg/gate/traceability_polarity_step_test.go) so ALL TEN
+          `config.Config.Language` test readers — plus every production reader — across
+          cmd/backstop, pkg/config, pkg/gate, AND pkg/check are gone before the field is
+          removed and nothing fails to compile. (Transitive check: TASK-016 covers 6 readers,
+          TASK-019 covers 2 (pkg/check), TASK-020 covers 2 (rehome-coupled) = the full known
+          set of 10; the completeness contract in the Phase-4 notes mechanically backstops any
+          miss.)
         files:
           - pkg/config/config.go
         claims:
@@ -621,13 +751,17 @@ phases:
           - TASK-012
           - TASK-014
           - TASK-016
+          - TASK-019
+          - TASK-020
 
       - id: TASK-016
         type: refactor
-        title: "Update the existing language-keyed tests (drop assertion + rewrite NonGo tests)"
+        title: "Strip cfg.Language from the simple language-keyed tests (assertion + token strips)"
         description: |
           Update, do NOT preserve, the EXISTING tests that encode the retired single-language
-          thesis (compile-coupled to the TASK-015 field deletion — they must land before it):
+          thesis via a SIMPLE `config.Config{Language:…}` strip / assertion drop
+          (compile-coupled to the TASK-015 field deletion — they must land before it). These
+          are token strips, NOT behavioral rewrites (the genuine rewrites are TASK-019):
             - pkg/config/config_test.go: DROP the `cfg.Language == "go"` assertion at line 26.
             - cmd/backstop/gate_capability_test.go: DELETE or REWRITE
               `TestCapabilityState_NonGoProject_DerivesAbsentClass2` and
@@ -635,11 +769,76 @@ phases:
               language-keyed capability thesis — capability-absence derived from a non-Go
               `language:` field) ONTO installed-pack presence (the SPEC-037/038/041 keying
               that already exists), so no test reads `cfg.Language`.
-          After this task TASK-012's `TestConfig_NoTestAssertsConfigLanguage` guard is GREEN.
-          Refactor of existing tests; depends on the guard test (TASK-012).
+            - cmd/backstop/gate_capability_rekey_test.go: STRIP the `Language: "go"` fields
+              from its 7 `config.Config{…}` constructions (the `Project: "rt", Language: "go"`
+              fixtures) — the class derivation already keys on installed-pack presence, so the
+              field is inert here; dropping it is behavior-preserving.
+            - cmd/backstop/gate_capability_contracts_rekey_test.go: STRIP the `Language: "go"`
+              fields from its 4 `config.Config{…}` constructions (same inert-field strip).
+            - cmd/backstop/cutover_deletion_test.go: STRIP `Language: "go"` from the lone
+              `config.Config{Language:"go"}` site at :186 (the language argument to
+              `check.DeclaredToolchainExecutorsForTest("go", …)` is a plain string literal and
+              is UNAFFECTED — only the `config.Config.Language` field read is removed).
+            - cmd/backstop/cutover_consistency_test.go: STRIP `Language: "go"` from the two
+              `config.Config{Language:"go"}` constructions at :28/:65 (inert-field strip; the
+              field is not behaviorally read here, so dropping it is behavior-preserving).
+          After this task these files no longer read `config.Config.Language`. Refactor of
+          existing tests; depends on the guard test (TASK-012). Disjoint file set from
+          TASK-019 (parallel-eligible). Contributes to TASK-012's
+          `TestConfig_NoTestAssertsConfigLanguage` guard going GREEN (jointly with TASK-019).
         files:
           - pkg/config/config_test.go
           - cmd/backstop/gate_capability_test.go
+          - cmd/backstop/gate_capability_rekey_test.go
+          - cmd/backstop/gate_capability_contracts_rekey_test.go
+          - cmd/backstop/cutover_deletion_test.go
+          - cmd/backstop/cutover_consistency_test.go
+        claims:
+          - CLM-025
+        depends_on:
+          - TASK-012
+
+      - id: TASK-019
+        type: refactor
+        title: "Rewrite the pkg/check check.Options.Language-bridge tests off config.Config.Language (pkg/check)"
+        description: |
+          GENUINE REWRITES (not token strips) of the pkg/check tests that use a `config.Config`
+          carrier to SOURCE the language for the SEPARATE, surviving `check.Options.Language`
+          field. These are coupled to the `config.Config.Language` DELETION (TASK-015), NOT to
+          the Phase-3 rehome — they touch no `CapabilityState` or `wrapTraceabilityStep`
+          symbol — so they stay in Phase 4 and land before the field deletion (the
+          rehome-coupled gate_wiring_test.go + traceability_polarity_step_test.go rewrites
+          moved to Phase-3 TASK-020). Compile-coupled to the TASK-015 field deletion — they
+          must land before it:
+            - pkg/check/registry_test.go: STOP reading the deleted `config.Config.Language`
+              — the `config.Config{Language:…}` constructions (:85, :96-98 and the
+              `Config: &config.Config{Language:…}` fixtures) drop the field, and the
+              `Options{Language: cfg.Language, …}` reads at :154/:203/:233/:258 pass the
+              language LITERAL directly (e.g. `Options{Language: "go", Config: cfg}`)
+              instead of sourcing it from `cfg.Language`. `check.Options.Language` is a
+              SEPARATE fenced field that SURVIVES the `config.Config.Language` deletion —
+              keep it; only the `config.Config.Language` read goes away. This is why
+              pkg/check is now in the plan's test_command + the CLM-025 guard scope: the
+              break here otherwise escapes both and surfaces only as a late compile error.
+            - pkg/check/ts_executor_test.go: the same `check.Options.Language`-BRIDGE pattern
+              as registry_test.go — the `Options{Language: noCmdCfg.Language, …}` /
+              `Options{Language: cmdCfg.Language, …}` reads at :20/:30 source the language
+              from the `config.Config` carriers `noCmdCfg`/`cmdCfg`. DROP the
+              `config.Config.Language` read and pass the language LITERAL directly into the
+              surviving fenced `check.Options.Language` (e.g. `Options{Language: "ts",
+              Config: noCmdCfg}`). `check.Options.Language` survives the
+              `config.Config.Language` deletion; only the `config.Config.Language` read goes
+              away. Not a token strip — a rewrite of the Options construction.
+          After this task neither pkg/check file reads `config.Config.Language`. The
+          rehome-coupled gate_wiring_test.go + pkg/gate/traceability_polarity_step_test.go
+          rewrites are NOT here — they moved to Phase-3 TASK-020 (compile-coupled to that
+          phase's `CapabilityState.Stack` + 5-arg `wrapTraceabilityStep`). Refactor of
+          existing tests; depends on the guard test (TASK-012). Disjoint file set from
+          TASK-016 and TASK-020 (parallel-eligible). Jointly with TASK-016 and TASK-020, makes
+          TASK-012's `TestConfig_NoTestAssertsConfigLanguage` guard GREEN.
+        files:
+          - pkg/check/registry_test.go
+          - pkg/check/ts_executor_test.go
         claims:
           - CLM-025
         depends_on:
@@ -649,17 +848,23 @@ phases:
         type: verification
         title: "Verify Config.Language retirement (code check)"
         description: |
-          Run `backstop code check` over the pkg/config + cmd/backstop field retirement.
-          Confirms `Config.Language` is gone, no `cfg.Language` reader or test assertion
-          remains in cmd/backstop / pkg/config / pkg/gate, a stray `language:` key parses
-          cleanly and is inert (verdict-invariant), the dogfood backstop.yml has no
-          `language:` key, and the look-alike pack/check `Language` fields are intact.
-          Middle-phase verification.
+          Run `backstop code check` over the pkg/config + cmd/backstop + pkg/check field
+          retirement. Confirms `Config.Language` is gone, no `cfg.Language` reader or test
+          assertion remains in cmd/backstop / pkg/config / pkg/gate / pkg/check (incl. the
+          rewritten gate_wiring_test.go + registry_test.go + ts_executor_test.go +
+          traceability_polarity_step_test.go collateral readers), a stray `language:` key
+          parses cleanly and is inert (verdict-invariant), the dogfood backstop.yml has no
+          `language:` key, and the look-alike `pack.Manifest.Language` /
+          `check.Options.Language` fields are intact. Middle-phase verification.
         files:
           - pkg/config/config.go
           - cmd/backstop/gate.go
           - cmd/backstop/code_check.go
           - cmd/backstop/gate_capability_test.go
+          - cmd/backstop/gate_wiring_test.go
+          - pkg/check/registry_test.go
+          - pkg/check/ts_executor_test.go
+          - pkg/gate/traceability_polarity_step_test.go
         claims:
           - CLM-011
           - CLM-012
@@ -671,6 +876,8 @@ phases:
           - TASK-014
           - TASK-015
           - TASK-016
+          - TASK-019
+          - TASK-020
 
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 5: Final comprehensive verification (full kill chain).
@@ -752,3 +959,5 @@ phases:
           - TASK-014
           - TASK-015
           - TASK-016
+          - TASK-019
+          - TASK-020

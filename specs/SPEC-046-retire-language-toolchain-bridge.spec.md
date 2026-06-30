@@ -58,7 +58,7 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ -race -coverprofile=cover.out
+  test_command: go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ ./pkg/check/ -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
@@ -141,11 +141,41 @@ requirements:
       `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` (which assert the OLD
       language-keyed capability thesis — capability-absence derived from a non-Go
       `language:` field rather than installed-pack presence) MUST be DELETED or REWRITTEN
-      onto installed-pack presence. After this seed it is PROHIBITED for ANY `_test.go`
-      file in `cmd/backstop` or `pkg/config` or `pkg/gate` to read `cfg.Language` /
+      onto installed-pack presence. The COLLATERAL `config.Config.Language` readers MUST
+      ALSO be updated — but the COMPLETENESS CONTRACT for that sweep is NOT a
+      hand-maintained file list (which has repeatedly proven to be whack-a-mole). It is the
+      SOURCE GUARD `TestConfig_NoTestAssertsConfigLanguage` (NO `_test.go` in
+      `cmd/backstop`, `pkg/config`, `pkg/gate`, OR `pkg/check` reads
+      `config.Config.Language`) PLUS the `test_command` compiling and running those four
+      packages — together they MECHANICALLY catch EVERY reader (a stale construction or
+      read either trips the guard or breaks compilation), and those four packages are
+      provably exhaustive because they are the only packages that read the field. The
+      implementer MUST therefore fix WHATEVER the guard and `test_command` flag, NOT only
+      the files named here; the enumeration below is ILLUSTRATIVE (the known readers at
+      authoring time), not the task boundary. Known readers, by treatment:
+      (a) MECHANICAL STRIPS — drop the inert `Language:` field, no behavioral change:
+      `cmd/backstop/cutover_deletion_test.go`,
+      `cmd/backstop/cutover_consistency_test.go`,
+      `cmd/backstop/gate_capability_rekey_test.go`, and
+      `cmd/backstop/gate_capability_contracts_rekey_test.go`.
+      (b) `check.Options.Language`-BRIDGE FIXES — both `pkg/check/registry_test.go` and
+      `pkg/check/ts_executor_test.go` build `Options{Language: cfg.Language, Config: cfg}`
+      from a `config.Config`; each MUST STOP reading the deleted `config.Config.Language`
+      and pass the language LITERAL directly into the SEPARATE, fenced
+      `check.Options.Language` field, which SURVIVES.
+      (c) REHOME-COUPLED BEHAVIORAL REWRITES — NOT token strips: drop the field AND
+      re-source the rendered stack-label assertions from `CapabilityState.Stack` (since
+      `language:` no longer drives the label), with capability/class verdicts driven by
+      installed-pack presence/absence: `cmd/backstop/gate_wiring_test.go` (its
+      `Language: "typescript"` fixtures DRIVE the class-2/class-3 capability-absent
+      verdicts) and `pkg/gate/traceability_polarity_step_test.go` (its `cfgDeclaring`
+      helper feeds `PolarityStepResult` message/stack assertions). After this seed it is
+      PROHIBITED for ANY `_test.go` file in `cmd/backstop`,
+      `pkg/config`, `pkg/gate`, or `pkg/check` to read `cfg.Language` /
       `config.Config.Language`. (NOTE: `pack.Manifest.Language` and
-      `check.Options.Language` are SEPARATE fields on other structs and are out of
-      scope.)
+      `check.Options.Language` are SEPARATE fields on other structs, are NOT deleted, and
+      MUST remain — the guard fences the look-alikes and trips ONLY on
+      `config.Config.Language`.)
     supports: language-neutral-consumer-ts-toolchain:REQ-005
   - id: REQ-004
     text: >
@@ -305,7 +335,34 @@ claims:
   # REQ-003 — existing language-keyed tests/fixtures updated, not preserved
   - id: CLM-025
     requirement: REQ-003
-    text: The tests encoding the retired single-language thesis are updated — the `cfg.Language == "go"` assertion at `pkg/config/config_test.go:26` is DROPPED, and `cmd/backstop/gate_capability_test.go`'s `TestCapabilityState_NonGoProject_DerivesAbsentClass2` and `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` (which encode the language-keyed capability thesis) are DELETED/REWRITTEN onto installed-pack presence; a source guard asserts NO `_test.go` in cmd/backstop, pkg/config, or pkg/gate reads `cfg.Language`/`config.Config.Language`
+    text: >
+      The COMPLETENESS CONTRACT for the language-reader sweep is the SOURCE GUARD
+      `TestConfig_NoTestAssertsConfigLanguage` (NO `_test.go` in cmd/backstop, pkg/config,
+      pkg/gate, OR pkg/check reads `cfg.Language`/`config.Config.Language`) PLUS the
+      `test_command` compiling/running those four packages — together they mechanically
+      catch EVERY reader (those four packages are the only ones that read the field, so the
+      guard scope is exhaustive), making the file list ILLUSTRATIVE (the known readers),
+      NOT the task boundary; the implementer fixes WHATEVER the guard/test_command flags,
+      not only the named files. Known readers, by treatment — mechanical STRIPS (drop the
+      inert `Language` field): `pkg/config/config_test.go:26` (`cfg.Language == "go"`
+      assertion DROPPED), `cmd/backstop/cutover_deletion_test.go`,
+      `cmd/backstop/cutover_consistency_test.go`,
+      `cmd/backstop/gate_capability_rekey_test.go`,
+      `cmd/backstop/gate_capability_contracts_rekey_test.go`, plus
+      `cmd/backstop/gate_capability_test.go`'s
+      `TestCapabilityState_NonGoProject_DerivesAbsentClass2`/`TestCapabilityState_NonGoUndeclared_NeverAutoPromotes`
+      (the language-keyed capability thesis) DELETED/REWRITTEN onto installed-pack
+      presence; `check.Options.Language`-BRIDGE fixes — `pkg/check/registry_test.go` AND
+      `pkg/check/ts_executor_test.go` STOP reading the deleted `config.Config.Language` and
+      pass the language LITERAL directly into the SEPARATE, surviving
+      `check.Options.Language`; REHOME-COUPLED behavioral REWRITES (drop the field AND
+      re-source the rendered stack-label assertions from `CapabilityState.Stack`, since
+      `language` no longer drives the label) — `cmd/backstop/gate_wiring_test.go`
+      (class-2/class-3 fixtures rehomed onto installed-pack presence) and
+      `pkg/gate/traceability_polarity_step_test.go` (its `cfgDeclaring` helper feeds
+      `PolarityStepResult` message/stack assertions). The guard fences the look-alike
+      `check.Options.Language`/`pack.Manifest.Language` (separate structs, NOT deleted) and
+      trips ONLY on `config.Config.Language`
     tests:
       - TestConfig_NoTestAssertsConfigLanguage
 
@@ -580,8 +637,28 @@ change in **`pkg/gate`**. Processing steps the planner must map tasks to:
    and delete/rewrite `gate_capability_test.go`'s
    `TestCapabilityState_NonGoProject_DerivesAbsentClass2` /
    `TestCapabilityState_NonGoUndeclared_NeverAutoPromotes` onto installed-pack presence.
-   Sweep every remaining test fixture and `config.Config{Language: ...}` construction so
-   NO `_test.go` reads `cfg.Language` (CLM-025).
+   Then sweep the COLLATERAL `config.Config.Language` readers. The completeness contract
+   is NOT the file list below (a hand-list has proven to be whack-a-mole) — it is the
+   CLM-025 source guard PLUS the `test_command` over `cmd/backstop` / `pkg/config` /
+   `pkg/gate` / `pkg/check`, which together compile-break or trip on EVERY reader (those
+   four are the only packages that read the field, so the guard scope is exhaustive); fix
+   WHATEVER they flag, not only the enumerated files. Mechanical STRIPS (drop the inert
+   `Language:` field): `cutover_deletion_test.go`, `cutover_consistency_test.go`,
+   `gate_capability_rekey_test.go`, `gate_capability_contracts_rekey_test.go`. Two
+   `check.Options.Language`-BRIDGE fixes — `pkg/check/registry_test.go` and
+   `pkg/check/ts_executor_test.go` (both build `Options{Language: cfg.Language, Config: cfg}`
+   from a `config.Config`) — STOP reading the deleted `config.Config.Language` and pass the
+   language literal directly into the SEPARATE, surviving `check.Options.Language`. Two
+   REHOME-COUPLED behavioral REWRITES (not token strips): `gate_wiring_test.go` (its
+   class-2/class-3 capability-absent fixtures rehomed onto installed-pack presence/absence)
+   and `pkg/gate/traceability_polarity_step_test.go` (its `cfgDeclaring` helper feeds
+   `PolarityStepResult` message/stack assertions) — both drop the field AND re-source the
+   rendered stack-label assertions from `CapabilityState.Stack`, since `language:` no
+   longer drives the label. The CLM-025 source guard runs over `cmd/backstop`, `pkg/config`,
+   `pkg/gate`, AND `pkg/check` (so the `pkg/check` readers, outside the original
+   three-package scope, cannot escape as a late compile break) and fences the look-alike
+   `check.Options.Language`/`pack.Manifest.Language` (NOT deleted), so NO `_test.go` in
+   those packages reads `cfg.Language`/`config.Config.Language` (CLM-025).
 
 4. **Add the declared-toolchain stack label and thread it through the wrapper
    (REQ-004 / SQ-1).** Add `declaredToolchainStackLabel(packs []*pack.Manifest) string`
@@ -618,6 +695,16 @@ Leaving them green would force an implementer to PRESERVE the bridge (a shim),
 defeating the spec. Each MUST be deleted or rewritten as listed (CLM-023/024/025); the
 source guards assert no surviving reference to the deleted symbols.
 
+**The `language:`-reader rows are ILLUSTRATIVE, not the task boundary.** The
+COMPLETENESS CONTRACT for the `config.Config.Language` sweep is the CLM-025 source guard
+(`TestConfig_NoTestAssertsConfigLanguage`) plus the `test_command` over the four packages
+that read the field (`cmd/backstop` / `pkg/config` / `pkg/gate` / `pkg/check`) — together
+they compile-break or trip on EVERY reader, so the implementer fixes WHATEVER they flag,
+not only the files tabled here. Hand-maintaining this list has repeatedly missed readers
+(it grew across review rounds); the guard + `test_command` is the durable, mechanical
+backstop. The four-package guard scope is provably exhaustive because those are the only
+packages that construct or read `config.Config.Language`.
+
 | Existing test file / location | Subject (deleted code) | Action | Claim |
 | --- | --- | --- | --- |
 | `cmd/backstop/gate_bridge_load_test.go` | `loadBridgedToolchainPacks` / `gateLanguage` (5×) | **DELETE** | CLM-023 |
@@ -625,12 +712,32 @@ source guards assert no surviving reference to the deleted symbols.
 | `cmd/backstop/cutover_noregress_test.go` | `loadBridgedToolchainPacks` cases | **DELETE / REWRITE** | CLM-023 |
 | `cmd/backstop/gate_no_toolchain_pack_test.go` | `toolchainEnforcementStatus(bridged, declared)` 2-arg | **REWRITE** to 1-arg `toolchainEnforcementStatus(declared)`; drop `bridged` cases | CLM-024 |
 | `cmd/backstop/gate_capability_test.go` | `NonGoProject_DerivesAbsentClass2` / `NonGoUndeclared_NeverAutoPromotes` (language-keyed capability thesis) | **DELETE / REWRITE** onto installed-pack presence | CLM-025 |
-| `pkg/config/config_test.go:26` | `cfg.Language == "go"` assertion | **DROP** the assertion | CLM-025 |
+| `pkg/config/config_test.go:26` | `cfg.Language == "go"` assertion | **STRIP** — drop the assertion | CLM-025 |
+| `cmd/backstop/cutover_deletion_test.go` | `config.Config{Language: "go"}` site | **STRIP** — drop the inert field | CLM-025 |
+| `cmd/backstop/cutover_consistency_test.go` | `config.Config{... Language: "go"}` (L28, L65) | **STRIP** — drop the inert field | CLM-025 |
+| `cmd/backstop/gate_capability_rekey_test.go` | `config.Config{... Language: "go"}` constructions / `cfg.Language` | **STRIP** — drop the inert field | CLM-025 |
+| `cmd/backstop/gate_capability_contracts_rekey_test.go` | `config.Config{... Language: "go"}` constructions | **STRIP** — drop the inert field | CLM-025 |
+| `pkg/check/registry_test.go` | builds `Options{Language: cfg.Language, Config: cfg}` from a `config.Config` | **BRIDGE-FIX** — stop reading the deleted `config.Config.Language`; pass the language literal directly into the surviving, fenced `check.Options.Language` | CLM-025 |
+| `pkg/check/ts_executor_test.go` | builds `Options{Language: noCmdCfg.Language ...}` / `Options{Language: cmdCfg.Language ...}` (L20, L30) | **BRIDGE-FIX** — stop reading the deleted `config.Config.Language`; pass the language literal directly into the surviving, fenced `check.Options.Language` | CLM-025 |
+| `cmd/backstop/gate_wiring_test.go` | `Language: "typescript"` DRIVES the class-2/class-3 capability-absent verdict fixtures | **REHOME REWRITE** (not a token strip) — rehome the verdicts onto installed-pack presence/absence AND re-source the rendered stack-label assertions from `CapabilityState.Stack` | CLM-025 |
+| `pkg/gate/traceability_polarity_step_test.go` | `cfgDeclaring(language ...)` helper (L12–15) feeds `PolarityStepResult` message/stack tests | **REHOME REWRITE** (not a token strip) — drop the field AND re-source the rendered stack-label assertions from `CapabilityState.Stack` | CLM-025 |
+
+The two **BRIDGE-FIX** files live in `pkg/check`, OUTSIDE the original guard scope
+(`cmd/backstop` / `pkg/config` / `pkg/gate`), so a stale `config.Config.Language` reader
+there would escape the guard and surface only as a late module-wide compile break — the
+guard scope is therefore EXTENDED to `pkg/check` (CLM-025). The two **REHOME REWRITE**
+files (`gate_wiring_test.go`, `traceability_polarity_step_test.go`) genuinely need design
+attention, NOT mechanical deletion: their assertions are about the rendered stack label,
+which `language:` used to drive and which is now sourced from `CapabilityState.Stack` —
+so they must re-source those assertions, not just delete the field token. The look-alike
+`check.Options.Language` and `pack.Manifest.Language` (e.g. `pkg/packval`'s
+`PackManifest.Language`) are SEPARATE fields on other structs, are NOT deleted, and MUST
+remain — the guard fences them and trips ONLY on `config.Config.Language`.
 
 After this seed, NO `_test.go` in `cmd/backstop` may reference
 `loadBridgedToolchainPacks` / `gateLanguage` / `toolchainPackName` (CLM-023), and NO
-`_test.go` in `cmd/backstop` / `pkg/config` / `pkg/gate` may read `cfg.Language` /
-`config.Config.Language` (CLM-025).
+`_test.go` in `cmd/backstop` / `pkg/config` / `pkg/gate` / `pkg/check` may read
+`cfg.Language` / `config.Config.Language` (CLM-025).
 
 ## Verification
 
@@ -638,8 +745,11 @@ After this seed, NO `_test.go` in `cmd/backstop` may reference
   `cmd/backstop` → `pkg/gate` → `pkg/config`, and the no-regression guarantee
   (CLM-007) is a live-gate wiring fact, so the spec is verified at integration level
   with end-to-end gate tests ([[feedback_integration_gap]]).
-- **Command:** `go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ -race
-  -coverprofile=cover.out`.
+- **Command:** `go test ./cmd/backstop/ ./pkg/gate/ ./pkg/config/ ./pkg/check/ -race
+  -coverprofile=cover.out` (matching the `test_command` frontmatter). `./pkg/check/` is
+  load-bearing: it is one of the four packages the CLM-025 completeness contract compiles
+  to catch every `config.Config.Language` reader, so omitting it would let a stale
+  `pkg/check` reader escape as a late module-wide compile break.
 - **Mandated tests** (named in `claims[]`):
   - `TestGate_DispatchesGoToolchainViaDeclaredPackPathWithoutLanguageField` (CLM-007)
     — the gate STILL dispatches go-toolchain for backstop-core via the declared-pack
@@ -667,6 +777,45 @@ After this seed, NO `_test.go` in `cmd/backstop` may reference
   e2e yml literal and many test fixtures. `pack.Manifest.Language` and
   `check.Options.Language` are LOOK-ALIKES on other structs — do NOT delete those; the
   grep must distinguish `config.Config.Language` from the pack/check fields.
+- **The reader list is whack-a-mole — the guard + `test_command`, not the enumeration,
+  is the completeness contract.** Successive review rounds kept surfacing
+  `config.Config.Language` readers the hand-list missed (e.g. `cutover_consistency_test.go`,
+  `ts_executor_test.go`, `traceability_polarity_step_test.go` were all found late). The
+  durable fix is to STOP treating the file list as authoritative: CLM-025's source guard
+  (`TestConfig_NoTestAssertsConfigLanguage` over `cmd/backstop` / `pkg/config` / `pkg/gate`
+  / `pkg/check`) plus the `test_command` compiling those four packages mechanically catch
+  EVERY reader. The guard scope is provably exhaustive because those four are the ONLY
+  packages that read the field. The implementer must fix WHATEVER the guard/`test_command`
+  flag — the enumeration is illustrative, not the boundary — so CLM-025 is satisfiable by
+  the mechanical contract rather than by a list that drifts.
+- **Collateral `config.Config.Language` readers live OUTSIDE the original guard scope —
+  most dangerously in `pkg/check`.** The first cut of CLM-025's guard covered only
+  `cmd/backstop` / `pkg/config` / `pkg/gate`, but `config.Config{Language: ...}` is also
+  constructed/read in `cmd/backstop/gate_wiring_test.go`,
+  `cmd/backstop/gate_capability_rekey_test.go`,
+  `cmd/backstop/gate_capability_contracts_rekey_test.go`,
+  `cmd/backstop/cutover_deletion_test.go`, `cmd/backstop/cutover_consistency_test.go`,
+  `pkg/gate/traceability_polarity_step_test.go`, and — outside the original three guarded
+  packages — `pkg/check/registry_test.go` and `pkg/check/ts_executor_test.go`, which
+  bridge `cfg.Language` → `check.Options.Language`. A stale reader in `pkg/check` would
+  slip past the guard and surface only as a late module-wide compile break, the exact gap
+  the PLAN review caught. The guard scope is EXTENDED to `pkg/check` and the `test_command`
+  runs `./pkg/check/`. The `pkg/check` rewrite is SUBTLE: `check.Options.Language` is a
+  SEPARATE, fenced field that SURVIVES — the fix is to pass the language LITERAL straight
+  into `check.Options.Language`, NOT to delete that field. Over-zealous deletion of the
+  look-alike is its own regression.
+- **Two test files are REHOME REWRITES, not token strips — they need design attention.**
+  `gate_wiring_test.go`'s `Language: "typescript"` fixtures DRIVE the class-2/class-3
+  capability-absent verdicts, and `pkg/gate/traceability_polarity_step_test.go`'s
+  `cfgDeclaring` helper feeds `PolarityStepResult` message/stack assertions. For BOTH,
+  merely deleting the field token would change what the cases test or strand a now-empty
+  label assertion. The verdicts must be rehomed onto installed-pack presence/absence — the
+  same language-keyed-thesis retirement REQ-005 mandates — AND the rendered stack-label
+  assertions must be re-sourced from the new `CapabilityState.Stack` carrier (since
+  `language:` no longer drives the label). These two are categorically distinct from the
+  mechanical strips (drop the inert field) and the `check.Options.Language` bridge-fixes
+  (re-target the literal): they alone require behavioral rework, so flag them for the
+  implementer as design-bearing, not deletion candidates.
 - **Inert vs rejected.** REQ-003 requires a stray `language:` key to parse cleanly and
   be ignored (non-strict YAML), NOT to error. Adding strict-mode rejection would be a
   scope violation and would break older configs in the wild. The field is *gone*, not
@@ -735,6 +884,22 @@ After this seed, NO `_test.go` in `cmd/backstop` may reference
   1-arg `toolchainEnforcementStatus`, `gate_capability_test.go`'s NonGo tests + the
   `config_test.go:26` `cfg.Language` assertion dropped — with no `_test.go` referencing
   the deleted symbols? (REQ-001/002/003/CLM-023/CLM-024/CLM-025.)
+- Is CLM-025 satisfied by the MECHANICAL completeness contract — the
+  `TestConfig_NoTestAssertsConfigLanguage` source guard over `cmd/backstop` / `pkg/config`
+  / `pkg/gate` / `pkg/check` PLUS the `test_command` compiling those four packages — rather
+  than by matching a hand-list? Does the guard PASS with NO surviving
+  `config.Config.Language` reader anywhere in those four packages (every reader the
+  guard/`test_command` flags is fixed, not only the enumerated ones)? Are BOTH `pkg/check`
+  bridge-fix files (`registry_test.go` AND `ts_executor_test.go`) — OUTSIDE the original
+  `cmd/backstop`/`pkg/config`/`pkg/gate` scope, hence the `./pkg/check/` extension —
+  updated to pass the language literal into the SEPARATE, surviving `check.Options.Language`,
+  with that look-alike (and `pack.Manifest.Language`) left intact rather than deleted?
+  (REQ-003/CLM-025.)
+- Were BOTH rehome-coupled rewrites — `gate_wiring_test.go` AND
+  `pkg/gate/traceability_polarity_step_test.go` — actually REWRITTEN (their
+  capability/class verdicts rehomed onto installed-pack presence/absence AND their rendered
+  stack-label assertions re-sourced from `CapabilityState.Stack`) rather than
+  token-stripped, so neither depends on the deleted `Language:` value? (REQ-003/CLM-025.)
 - Is the stack label threaded along `buildGateSteps → wrapTraceabilityStep →
   deriveCapabilityState` (the wrapper gains `stack`, all three call sites pass it), NOT
   injected straight into `deriveCapabilityState` past the wrapper? (REQ-004/CLM-016/CLM-021.)
