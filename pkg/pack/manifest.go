@@ -37,6 +37,19 @@ type Manifest struct {
 	// binary holds NO baked source/test convention — every stack supplies its own
 	// globs (DD-1, the thin-executor first principle).
 	Classification Classification `yaml:"classification"`
+	// TestNamePatterns holds the pack-declared test-name/indicator regexes parsed
+	// from the OPTIONAL top-level `test_name_patterns:` block (SPEC-045 REQ-002/
+	// CLM-010..CLM-018). Each pattern's capture group 1 is the test name; the
+	// gate merges the UNION across declared toolchain packs and compiles them into
+	// a gate.TestNameMatcher, replacing the DELETED baked `funcPattern`. The
+	// go-toolchain reference declares the `func Test...` regex AS DATA; a bun pack
+	// declares the `test(...)`/`describe(...)`/`it(...)` regexes. Optional;
+	// zero-value (nil) when the block is absent. The list is opaque DATA at parse
+	// time — no compilation here (the gate compiles it, loud-on-invalid). DISJOINT
+	// from SPEC-043's Classification field on this same struct (DD-1, the
+	// thin-executor first principle: no baked language/test convention in the
+	// binary).
+	TestNamePatterns []string `yaml:"test_name_patterns"`
 }
 
 // Classification is the pack-declared file-classification DATA (SPEC-043
