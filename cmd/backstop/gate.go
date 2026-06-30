@@ -637,7 +637,13 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// bridged + declared toolchain packs — NOT a binary-resident `go test` runner
 	// (re-baking one would re-violate REQ-002). The records are sourced lazily at
 	// step-run time so the producer is exercised inside the gate (CLM-003).
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, coverageRecordsProducer(bridged, packs, projectRoot))
+	// REQ-005 LIVE WIRING SEAM: union the pack-declared classification globs across
+	// the FULL declared-manifest set into the merged classifier and thread it into
+	// the coverage step. mergeSourceClassifier takes the wholesale `packs` (no
+	// toolchain-only filter, no `bridged` arg), so it is exercised on the assembled
+	// gate path the REQ-005 e2e drives (closing the SPEC-035/037 integration gap).
+	classifier := mergeSourceClassifier(packs)
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(bridged, packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
@@ -978,13 +984,35 @@ func coverageRecordsProducer(bridged, declared []*pack.Manifest, projectRoot str
 	}
 }
 
+// mergeSourceClassifier unions the classification.source and classification.test
+// globs across the FULL declared-pack manifest set into one gate.SourceClassifier
+// (SPEC-043 REQ-005/CLM-021/CLM-022). It takes the wholesale []*pack.Manifest set
+// loadInstalledPacks resolves over `backstop.yml packs:` — NOT a toolchain-only
+// pre-filter: a manifest with no `classification:` block contributes empty globs
+// (zero to the union), so no filter is needed or wanted. It takes NO `bridged`
+// argument: a toolchain is just an ordinary declared pack, so when SPEC-046
+// deletes the language:-derived bridge (loadBridgedToolchainPacks/
+// toolchainPackName) this merge is NOT orphaned. Built where the manifests are
+// visible (cmd/backstop) so pkg/gate takes no pkg/pack dependency.
+func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier {
+	var source, test []string
+	for _, manifest := range packs {
+		if manifest == nil {
+			continue
+		}
+		source = append(source, manifest.Classification.Source...)
+		test = append(test, manifest.Classification.Test...)
+	}
+	return gate.NewSourceClassifier(source, test)
+}
+
 // buildCoverageStep creates a StepFunc that extracts spec verifications and checks
 // the spec-declared coverage threshold PER FILE over the canonical
 // []check.CoverageRecord produced by the records producer (SPEC-042's
 // dispatchPackCoverage) — NOT a binary-resident `go test` runner (REQ-002). The
 // records are produced lazily inside the step so the producer is exercised in the
 // gate (CLM-003).
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, records coverageRecordsFn) gate.StepFunc {
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -1007,7 +1035,7 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, recor
 				}
 			}
 		}
-		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope)
+		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier)
 		return step(ctx)
 	}
 }

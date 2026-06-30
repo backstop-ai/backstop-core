@@ -1,0 +1,3 @@
+# Empty specs dir so ExtractSpecVerifications resolves (no declared specs) and the
+# coverage step reaches the classifier no-record guard rather than erroring on a
+# missing specs/ directory.
