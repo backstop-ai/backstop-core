@@ -79,32 +79,49 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 			return coverageClassificationCapabilityAbsent()
 		}
 
-		// REQ-003: the `if threshold <= 0 { return pass }` early return is DISMANTLED.
-		// The measurable-source no-record scan below runs independent of the numeric
-		// threshold, so a declared source glob is honored as the measurement promise
-		// even when coverageFloorForScope yields no positive floor.
+		// The threshold SELECTION is resolved once (which specs govern the in-scope
+		// changed files); the per-metric floor is then derived PER metric inside the
+		// loop via coverageThresholdForMetric. The SPEC-043 `if threshold <= 0 { return
+		// pass }` early return stays DISMANTLED: the path-level no-record scan below runs
+		// independent of any numeric floor, so a declared source glob is honored as the
+		// measurement promise even when no positive floor is declared.
 		thresholds := coverageThresholdsForScope(specs, scope)
-		threshold := coverageFloorForScope(thresholds)
 
-		byPath := indexCoverageByPath(coverage)
+		// REQ-001: the index is keyed by (path, metric) so line AND branch coexist with
+		// no last-write-wins overwrite; dupKeys lists (path, metric) pairs the producer
+		// double-emitted (a defect surfaced loudly below).
+		byPathMetric, dupKeys := indexCoverageByPathMetric(coverage)
 		paths := coveragePathsInScope(coverage, scope, classifier)
 		if len(paths) == 0 {
 			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no in-scope files to measure for coverage"}
 		}
 
 		var violations []Violation
+
+		// A duplicate (path, metric) is a producer defect (two measurements of one file
+		// under one metric). Surface it LOUDLY rather than silently keeping one survivor —
+		// the not-last-wins signal from indexCoverageByPathMetric (REQ-001/CLM-003).
+		for _, key := range dupKeys {
+			dupPath, dupMetric := splitCoverageDupKey(key)
+			violations = append(violations, Violation{
+				Rule:     "coverage_metric_collision",
+				Message:  fmt.Sprintf("duplicate coverage measurement for file %s under metric %q — a producer emitted two records for the same (path, metric); refusing to silently keep one", dupPath, dupMetric),
+				File:     dupPath,
+				Severity: "error",
+			})
+		}
+
 		for _, path := range paths {
-			record, hasRecord := resolveCoverageRecord(byPath, path)
+			metricRecords, hasRecords := resolveCoverageRecordsForPath(byPathMetric, path)
 			inScopeChanged := coveragePathInDiffScope(path, scope)
 
-			if !hasRecord {
-				// An in-scope changed measurable-source PATH with NO record for the
-				// path at all is a LOUD blocking error under the DISTINCT
-				// coverage_unmeasured rule — never a silent pass, and never conflated
-				// with below-threshold (coverage_threshold). Only a pack-DECLARED
-				// exclusion (carried as a record with Excluded==true) silences the
-				// requirement (REQ-003/CLM-012..017). The phrase "no coverage
-				// measurement" is retained for report continuity.
+			if !hasRecords {
+				// SPEC-043's PATH-LEVEL guard: an in-scope changed measurable-source path
+				// with NO record AT ALL (any metric) that is not pack-declared excluded is
+				// a LOUD blocking error under the DISTINCT coverage_unmeasured rule — never
+				// conflated with below-threshold. It is ordered BEFORE the per-metric loop
+				// so a zero-record path yields THIS guard ALONE and never the metric-
+				// granular coverage_metric_missing guard (Sharp Edge 7 / CLM-020).
 				violations = append(violations, Violation{
 					Rule:     "coverage_unmeasured",
 					Message:  fmt.Sprintf("no coverage measurement for in-scope changed measurable-source file %s (any metric) and it is not pack-declared excluded — refusing to pass with nothing measured", path),
@@ -114,38 +131,54 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 				continue
 			}
 
-			if record.Excluded {
-				// A declared exclusion of an in-scope CHANGED file is LOUDLY SURFACED
-				// (path + reason) — closing the "declare Excluded:true to suppress a
-				// changed file invisibly" vacuous-green vector. An UNCHANGED-file
-				// exclusion may stay quiet (CLM-025). The surfaced exclusion is a
-				// NON-blocking warning (Severity warning): the threshold check is
-				// skipped, but the suppression is visible.
-				if inScopeChanged {
+			// REQ-002: iterate EVERY metric record for the path and threshold each
+			// INDEPENDENTLY — no aggregation, no sibling-metric rescue. A single file may
+			// thus emit several verdicts (e.g. line passes, branch fails). Sorted for a
+			// deterministic report order.
+			for _, metric := range sortedCoverageMetrics(metricRecords) {
+				record := metricRecords[metric]
+
+				if record.Excluded {
+					// A declared exclusion of an in-scope CHANGED file is LOUDLY SURFACED at
+					// (path, metric) granularity — a NON-blocking warning; the threshold
+					// check is skipped but the suppression is visible (CLM-025). An
+					// UNCHANGED-file exclusion may stay quiet.
+					if inScopeChanged {
+						violations = append(violations, Violation{
+							Rule:     "coverage_exclusion",
+							Message:  fmt.Sprintf("coverage requirement for changed file %s (metric %s) is suppressed by a pack-declared exclusion%s", path, coverageMetricLabel(record), coverageExclusionReason(record)),
+							File:     path,
+							Severity: "warning",
+						})
+					}
+					continue
+				}
+
+				// Total==0 ⇒ N/A for THIS metric: skipped, NEVER a 0%-fail (CLM-009),
+				// while OTHER metrics on the same file are still thresholded.
+				if record.Total == 0 {
+					continue
+				}
+
+				// Resolve the metric's governing threshold (per-metric override or scalar
+				// default, strictest in scope). A non-positive threshold means none is
+				// declared for this metric in scope ⇒ SKIP it (CLM-015).
+				threshold := coverageThresholdForMetric(thresholds, metric)
+				if threshold <= 0 {
+					continue
+				}
+
+				// Verdict computed metric-BLIND from RAW COUNTS (CLM-010): the Metric label
+				// is consulted only as the threshold-lookup key and a report label, never
+				// ranked or interpreted.
+				if coverageBelowThreshold(record.Covered, record.Total, threshold) {
 					violations = append(violations, Violation{
-						Rule:     "coverage_exclusion",
-						Message:  fmt.Sprintf("coverage requirement for changed file %s is suppressed by a pack-declared exclusion%s", path, coverageExclusionReason(record)),
+						Rule:     "coverage_threshold",
+						Message:  fmt.Sprintf("file %s coverage %d/%d (%s) below threshold %d%%", path, record.Covered, record.Total, coverageMetricLabel(record), threshold),
 						File:     path,
-						Severity: "warning",
+						Severity: "error",
 					})
 				}
-				continue
-			}
-
-			// Total==0 (no executable lines) ⇒ N/A: skip the threshold check, NEVER
-			// a 0%-fail (CLM-026). Metric-blind: the gate computes the ratio from raw
-			// counts and never interprets Metric.
-			if record.Total == 0 {
-				continue
-			}
-
-			if coverageBelowThreshold(record.Covered, record.Total, threshold) {
-				violations = append(violations, Violation{
-					Rule:     "coverage_threshold",
-					Message:  fmt.Sprintf("file %s coverage %d/%d (%s) below threshold %d%%", path, record.Covered, record.Total, coverageMetricLabel(record), threshold),
-					File:     path,
-					Severity: "error",
-				})
 			}
 		}
 
@@ -188,17 +221,6 @@ func coverageExclusionReason(r check.CoverageRecord) string {
 		return " (declared metric: " + metric + ")"
 	}
 	return " (pack-declared exclusion)"
-}
-
-// indexCoverageByPath builds a path-keyed lookup over the canonical records,
-// normalizing each path to the gate's project-relative slash form so it matches
-// scope paths regardless of the producer's path style.
-func indexCoverageByPath(coverage []check.CoverageRecord) map[string]check.CoverageRecord {
-	byPath := make(map[string]check.CoverageRecord, len(coverage))
-	for _, r := range coverage {
-		byPath[normalizeScopePath("", r.Path)] = r
-	}
-	return byPath
 }
 
 // coverageDupPairSep joins a (path, metric) pair into the duplicate-key strings
@@ -263,32 +285,26 @@ func resolveCoverageRecordsForPath(byPathMetric map[string]map[string]check.Cove
 	return nil, false
 }
 
-// resolveCoverageRecord finds the record for a repo-relative scope path. It first
-// tries an exact match, then falls back to a record whose (normalized) path ENDS
-// WITH "/"+path. The fallback reconciles a producer that emits module/namespace-
-// qualified paths (e.g. "github.com/org/repo/pkg/x/f.go") against the gate's
-// repo-relative scope ("pkg/x/f.go"), WITHOUT the language-neutral consumer
-// learning any module/tool semantics. The suffix is anchored on a path separator
-// so "terminal.go" never matches "internal.go". A unique match is required: an
-// ambiguous suffix (two records ending the same way) is treated as no-match so
-// the loud not-measured check fires rather than silently picking one.
-func resolveCoverageRecord(byPath map[string]check.CoverageRecord, path string) (check.CoverageRecord, bool) {
-	if r, ok := byPath[path]; ok {
-		return r, true
+// splitCoverageDupKey reverses the coverageDupPairSep join, recovering the (path,
+// metric) pair from a duplicate-key string so the step can surface the offending
+// file and metric on the report.
+func splitCoverageDupKey(key string) (path, metric string) {
+	if i := strings.Index(key, coverageDupPairSep); i >= 0 {
+		return key[:i], key[i+len(coverageDupPairSep):]
 	}
-	suffix := "/" + path
-	var match check.CoverageRecord
-	found := 0
-	for recPath, r := range byPath {
-		if strings.HasSuffix(recPath, suffix) {
-			match = r
-			found++
-		}
+	return key, ""
+}
+
+// sortedCoverageMetrics returns the metric labels of a per-metric record map in
+// sorted order, so the per-(path, metric) verdict loop emits violations in a stable,
+// reproducible order regardless of Go's randomized map iteration.
+func sortedCoverageMetrics(metricRecords map[string]check.CoverageRecord) []string {
+	out := make([]string, 0, len(metricRecords))
+	for m := range metricRecords {
+		out = append(out, m)
 	}
-	if found == 1 {
-		return match, true
-	}
-	return check.CoverageRecord{}, false
+	sort.Strings(out)
+	return out
 }
 
 // coveragePathsInScope returns the sorted set of FILE paths to evaluate. In a
@@ -360,23 +376,6 @@ func coveragePathInDiffScope(path string, scope *GateScope) bool {
 		return false
 	}
 	return scope.Contains(path)
-}
-
-// coverageFloorForScope derives the single applicable per-file threshold from the
-// selected specs: the max declared threshold (so the strictest in-scope spec
-// governs), falling back to the code-scope floor when the scope collapses to code
-// with no spec-specific threshold.
-func coverageFloorForScope(sel coverageThresholdSelection) int {
-	if sel.CollapsedCodeScope {
-		return sel.MaxThreshold
-	}
-	maxThreshold := 0
-	for _, spec := range sel.Specs {
-		if spec.CoverageThreshold > maxThreshold {
-			maxThreshold = spec.CoverageThreshold
-		}
-	}
-	return maxThreshold
 }
 
 // coverageThresholdForMetric resolves the governing threshold for a SINGLE metric
