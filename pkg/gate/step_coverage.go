@@ -12,9 +12,15 @@ import (
 
 // SpecVerification holds the verification block fields from a spec.
 type SpecVerification struct {
-	SpecID                string
-	TestCommand           string
-	CoverageThreshold     int
+	SpecID            string
+	TestCommand       string
+	CoverageThreshold int
+	// MetricThresholds is the OPTIONAL per-metric declared threshold surface (SQ-2,
+	// REQ-003): metric label → integer threshold. A metric absent from the map uses
+	// CoverageThreshold as its default; a nil/empty map means scalar-only — the
+	// backward-compatible shape (REQ-004). It NEVER ranks or interprets a metric — it
+	// is consulted only as a lookup keyed by the pack-declared metric label.
+	MetricThresholds      map[string]int
 	File                  string
 	ImplementationPackage string
 }
@@ -368,6 +374,37 @@ func coverageFloorForScope(sel coverageThresholdSelection) int {
 	for _, spec := range sel.Specs {
 		if spec.CoverageThreshold > maxThreshold {
 			maxThreshold = spec.CoverageThreshold
+		}
+	}
+	return maxThreshold
+}
+
+// coverageThresholdForMetric resolves the governing threshold for a SINGLE metric
+// from the selected specs (REQ-003, SQ-2). It GENERALIZES coverageFloorForScope from
+// a single floor to a per-metric floor: for each selected spec the applicable
+// threshold for the metric is MetricThresholds[metric] if explicitly declared, else
+// CoverageThreshold (the scalar default); the governing value is the MAX across the
+// selected specs (the strictest in-scope spec governs, now per metric). It returns 0
+// when no threshold is declared for the metric in scope — the caller then SKIPS the
+// metric ("no threshold declared in scope ⇒ pass", at metric granularity). An
+// override declared for metric M never alters metric N: only MetricThresholds[metric]
+// is consulted, and the metric label is used solely as a map key (never ranked or
+// interpreted).
+func coverageThresholdForMetric(sel coverageThresholdSelection, metric string) int {
+	if sel.CollapsedCodeScope {
+		// In a collapsed code scope there are no file-specific specs to carry
+		// per-metric overrides; the single derived floor is the scalar default for
+		// every metric (backward-compatible with the per-file floor).
+		return sel.MaxThreshold
+	}
+	maxThreshold := 0
+	for _, spec := range sel.Specs {
+		applicable := spec.CoverageThreshold
+		if override, ok := spec.MetricThresholds[metric]; ok {
+			applicable = override
+		}
+		if applicable > maxThreshold {
+			maxThreshold = applicable
 		}
 	}
 	return maxThreshold
