@@ -13,6 +13,21 @@ description: >
   real authored typescript-toolchain pack is an ISSUE-027 follow-up. The engines
   are assume-present (no provision block) like the go-toolchain native engines,
   so they ride provisionEngines' on-PATH fail-loud, not the allowlist+lock pin.
+classification:
+  # File classification (SPEC-043 REQ-001) for the bun/TS stack: source + test
+  # globs the language-neutral consumer reads INSTEAD of a baked literal. The test
+  # globs let the de-Go'd discovery walk find a `.test.ts`/`.spec.ts` file.
+  source:
+    - "**/*.ts"
+    - "**/*.tsx"
+  test:
+    - "**/*.test.ts"
+    - "**/*.spec.ts"
+# Test-name extraction DATA (SPEC-045 REQ-002): the bun-shaped regex whose capture
+# group 1 is the test NAME string (the `test(...)`/`describe(...)`/`it(...)` arg).
+# Lets the merged TestNameMatcher extract a TS test name with zero baked literal.
+test_name_patterns:
+  - "(?:\\bit|\\btest|\\bdescribe)\\s*\\(\\s*['\"`]([^'\"`]+)"
 engines:
   ts-lint:
     command: eslint --format json

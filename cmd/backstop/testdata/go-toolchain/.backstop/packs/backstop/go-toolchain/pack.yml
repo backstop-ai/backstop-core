@@ -20,6 +20,11 @@ classification:
   test:
     - "**/*_test.go"
     - "**/testdata/**"
+# Test-name extraction DATA (SPEC-045 REQ-002): the Go test-name regex AS DATA;
+# capture group 1 is the test name. Mirrors the dogfood go-toolchain pack so the
+# e2e discovery path finds `func Test...` without a baked literal.
+test_name_patterns:
+  - "^\\s*func\\s+(Test\\w+)\\s*\\("
 engines:
   # Coverage: the FIRST coverage PRODUCER (SPEC-042 REQ-007). Declared via the
   # pack's engines: block (the SPEC-035 declared substrate) — NOT a baked
