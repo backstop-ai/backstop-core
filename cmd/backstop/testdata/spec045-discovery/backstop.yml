@@ -1,0 +1,9 @@
+# SPEC-045 REQ-006 e2e fixture: drives the FULL gate assembly (buildGateSteps) so the
+# LIVE mergeSourceClassifier + mergeTestNameMatcher call sites are exercised. Two
+# toolchain packs declared so discovery is proven as a UNION across declared packs
+# (go discovers `_test.go`, bun discovers `.test.ts`).
+project: spec045-discovery-fixture
+language: go
+packs:
+  backstop/go-toolchain: local
+  backstop/bun-toolchain: local
