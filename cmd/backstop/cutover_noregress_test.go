@@ -20,17 +20,15 @@ func TestAbsorbSpec034_Step2DeletionCompletedNotGoOnly(t *testing.T) {
 	if grepNonTestSource(t, cmdDir, "realCodeChecker") {
 		t.Error("SPEC-034's Step-2 deletion is not complete — realCodeChecker survives (CLM-023)")
 	}
-	// No Go-only assumption re-introduced in the bridge.
+	// No Go-only assumption in the toolchain wiring: SPEC-046 DELETED the
+	// language-derived bridge entirely, so lint/build/test run through the uniform
+	// declared-pack dispatch, language-agnostically. A reintroduced `language == "go"`
+	// short-circuit would resurrect the baked single-language assumption.
 	src := readFileStr(t, "gate.go")
 	for _, banned := range []string{`language != "go"`, `language == "go"`} {
 		if strings.Contains(src, banned) {
-			t.Errorf("a Go-only short-circuit %q was re-introduced; the cutover must stay language-agnostic (CLM-023)", banned)
+			t.Errorf("a Go-only short-circuit %q is present; toolchain dispatch must stay language-agnostic via the declared-pack path (CLM-023)", banned)
 		}
-	}
-	// The bridge resolves a non-Go language's own pack (generalization holds).
-	bridged, err := loadBridgedToolchainPacks(typescriptToolchainProjectRoot(t), "typescript", nil)
-	if err != nil || len(bridged) != 1 {
-		t.Fatalf("typescript must still resolve its own toolchain pack post-deletion (CLM-023), got %d packs err=%v", len(bridged), err)
 	}
 }
 

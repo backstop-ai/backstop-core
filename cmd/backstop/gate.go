@@ -256,33 +256,6 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 // Steps 1-2: delegate to real artifact validation and code check.
 // Steps 3-6: mechanical verification using grep/AST parsing.
 // Steps 7-9: deferred (baseline, waivers, ledger).
-// gateLanguage reads the project's declared language from backstop.yml so the
-// bridge can select the matching native toolchain pack. An unreadable config
-// defaults to the Go stack, mirroring check.Options' empty-language default.
-func gateLanguage(projectRoot string) string {
-	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
-	if err != nil || cfg == nil {
-		return "go"
-	}
-	if cfg.Language == "" {
-		return "go"
-	}
-	return cfg.Language
-}
-
-// toolchainPackName is the on-disk name of the reusable <lang>-toolchain
-// MECHANISM pack the bridge dispatches, DERIVED from the project's declared
-// language (SPEC-040 REQ-004/REQ-008/CLM-014): `go` -> `backstop/go-toolchain`,
-// `typescript` -> `backstop/typescript-toolchain`, etc. The cutover machinery is
-// LANGUAGE-AGNOSTIC — backstop bakes no per-language opinion here; the name is a
-// pure function of the declared language, so a new language needs only a new
-// <lang>-toolchain pack, no core code branch (CLM-015). It is a function (not a
-// package-level var/const) to keep the bridge free of package-level mutable
-// state.
-func toolchainPackName(language string) string {
-	return "backstop/" + language + "-toolchain"
-}
-
 // gateConfig loads the project's backstop.yml for the gate wiring, returning a
 // zero-value-safe config. An unreadable config yields a minimal config defaulting
 // to the Go stack (mirroring gateLanguage), so the traceability classifier still
@@ -471,50 +444,6 @@ func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, st
 	}
 }
 
-// loadBridgedToolchainPacks resolves the native <lang>-toolchain mechanism pack
-// the bridge routes the native lint/build/test passes through (SPEC-034
-// REQ-001/REQ-007). It is loaded from .backstop/packs/<name> on disk (so its
-// pack-relative convert scripts resolve for SandboxedRunStdout) and dispatched
-// through the SAME dispatchPackEngines step the declared packs use — NOT a
-// parallel dispatcher and NOT a pkg/check->pkg/pack/engine import. The pack and
-// this wiring land in lockstep (REQ-007): the bridge dispatches the pack's
-// engine bindings, so there is never a commit where the bridge is live but the
-// pack is absent. A missing pack directory yields no bridged packs (the bespoke
-// path is still live in phase 1 — no enforcement lapse), while a PRESENT but
-// malformed pack fails loud through the dispatch step like any broken pack.
-func loadBridgedToolchainPacks(projectRoot, language string, declared []*pack.Manifest) ([]*pack.Manifest, error) {
-	// LANGUAGE-AGNOSTIC resolution (SPEC-040 REQ-004/REQ-008/CLM-014): the
-	// on-disk pack name is DERIVED from the project's declared language, so a
-	// non-Go language resolves its OWN <lang>-toolchain pack. The go-only
-	// short-circuit is GONE (Sharp Edge 7). An empty language has no toolchain
-	// convention to resolve against, so it yields no bridged pack — which now
-	// feeds the no-toolchain-pack WARN-ONLY loud state, not a baked fallback.
-	if language == "" {
-		return nil, nil
-	}
-	packName := toolchainPackName(language)
-	// Dedupe: when the <lang>-toolchain pack is ALSO a declared+locked project
-	// pack (as it is when a project dogfoods it), the existing pack dispatch
-	// already runs it — the bridge must not re-add it and double-run lint/build/
-	// test. The bridge's value is dispatching the toolchain pack even when a
-	// project has NOT declared it; when it is declared, dispatch already covers it.
-	for _, m := range declared {
-		if m.NormalizedName == strings.ToLower(packName) {
-			return nil, nil
-		}
-	}
-	packPath := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(packName))
-	info, statErr := os.Stat(packPath)
-	if statErr != nil || !info.IsDir() {
-		return nil, nil
-	}
-	manifest, parseErr := pack.ParseManifestFile(filepath.Join(packPath, "pack.yml"))
-	if parseErr != nil {
-		return nil, fmt.Errorf("parsing toolchain pack %s: %w", packName, parseErr)
-	}
-	return []*pack.Manifest{manifest}, nil
-}
-
 // toolchainEnforcementStepName is the stable step name for the no-toolchain-pack
 // WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006). It is a function (not a
 // package-level var/const) to keep the file free of package-level mutable state.
@@ -535,12 +464,14 @@ func isToolchainPack(m *pack.Manifest) bool {
 	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
 }
 
-// countToolchainPacks counts the <lang>-toolchain packs in effect for the gate:
-// every bridged pack (the bridge only ever resolves a toolchain pack) plus every
-// DECLARED pack that is a toolchain pack by convention. It is the signal the
-// no-toolchain-pack WARN-ONLY loud state keys on (SPEC-040 REQ-005/REQ-006).
-func countToolchainPacks(bridged, declared []*pack.Manifest) int {
-	n := len(bridged)
+// countToolchainPacks counts the <lang>-toolchain packs DECLARED for the gate:
+// every DECLARED pack that is a toolchain pack by convention (normalized name
+// ending in `-toolchain`). A toolchain is an ordinary declared pack (SPEC-046
+// REQ-002) — there is no language-derived bridge set, so this keys on the
+// declared `packs:` set alone. It is the signal the no-toolchain-pack WARN-ONLY
+// loud state keys on (SPEC-040 REQ-005/REQ-006).
+func countToolchainPacks(declared []*pack.Manifest) int {
+	n := 0
 	for _, m := range declared {
 		if isToolchainPack(m) {
 			n++
@@ -550,17 +481,18 @@ func countToolchainPacks(bridged, declared []*pack.Manifest) int {
 }
 
 // toolchainEnforcementStatus returns the no-toolchain-pack WARN-ONLY loud
-// StepResult and true when ZERO <lang>-toolchain packs are in effect (none
-// bridged, none declared) — the anti-vacuous-green guardrail (SPEC-040
-// REQ-005/REQ-006, Sharp Edge 3). The step is a NON-FAILING "warning" carrying
-// the stable loud message in Reason, counted in GateResult.StepsWarned and
-// rendered on the human report surface; gate.Pass stays true and exit code stays
-// 0. When at least one toolchain pack IS in effect it returns (_, false): the
-// toolchain passes run through dispatchPackEngines and produce their own normal
-// pass/fail, so no warn state is emitted. Reusing the SPEC-036
-// "warning"/StepsWarned mechanism — no new status vocabulary is invented.
-func toolchainEnforcementStatus(bridged, declared []*pack.Manifest) (gate.StepResult, bool) {
-	if countToolchainPacks(bridged, declared) > 0 {
+// StepResult and true when ZERO <lang>-toolchain packs are DECLARED — the
+// anti-vacuous-green guardrail (SPEC-040 REQ-005/REQ-006, Sharp Edge 3). A
+// toolchain is an ordinary declared pack (SPEC-046 REQ-002), so the state keys on
+// the declared `packs:` set alone — no language-derived bridge input. The step is
+// a NON-FAILING "warning" carrying the stable loud message in Reason, counted in
+// GateResult.StepsWarned and rendered on the human report surface; gate.Pass stays
+// true and exit code stays 0. When at least one toolchain pack IS declared it
+// returns (_, false): the toolchain passes run through dispatchPackEngines and
+// produce their own normal pass/fail, so no warn state is emitted. Reusing the
+// SPEC-036 "warning"/StepsWarned mechanism — no new status vocabulary is invented.
+func toolchainEnforcementStatus(declared []*pack.Manifest) (gate.StepResult, bool) {
+	if countToolchainPacks(declared) > 0 {
 		return gate.StepResult{}, false
 	}
 	return gate.StepResult{
@@ -591,27 +523,6 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		}
 	}
 
-	// The BRIDGE (SPEC-034 REQ-001): resolve the native <lang>-toolchain
-	// mechanism pack so its lint/build/test engine bindings dispatch through the
-	// SAME dispatchPackEngines step the declared packs use. Computed here, before
-	// the no-declared-packs early return, so a Go project with no declared packs
-	// still gets its native toolchain enforced via the engine path (the pack
-	// engine step is built whenever there are declared OR bridged packs). A
-	// malformed native pack fails loud as a single config-error step.
-	bridged, bridgeErr := loadBridgedToolchainPacks(projectRoot, gateLanguage(projectRoot), packs)
-	if bridgeErr != nil {
-		return []gate.StepFunc{
-			func(context.Context) gate.StepResult {
-				return gate.StepResult{
-					StepName:   "pack_loading",
-					Status:     "fail",
-					ConfigErr:  true,
-					Violations: []gate.Violation{{Rule: "pack_loading", Message: bridgeErr.Error(), Severity: "error"}},
-				}
-			},
-		}
-	}
-
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
 	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
 
@@ -619,19 +530,20 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// test now run only through dispatchPackEngines. The baked shared `go test ./...`
 	// runner is ERADICATED (SPEC-041 REQ-002): coverage no longer reuses an in-binary
 	// whole-module exec. Coverage's per-FILE signal is now the declared toolchain
-	// coverage pass (SPEC-042's dispatchPackCoverage producer over the bridged +
-	// declared <lang>-toolchain packs), consumed per-FILE by the re-implemented
-	// coverage step (SPEC-041 REQ-001).
+	// coverage pass (SPEC-042's dispatchPackCoverage producer over the DECLARED
+	// <lang>-toolchain packs), consumed per-FILE by the re-implemented coverage step
+	// (SPEC-041 REQ-001).
 
 	// LIVE DISCOVERY WIRING (SPEC-045 REQ-006): the merged SourceClassifier (test +
 	// source globs) and merged TestNameMatcher (test-name patterns) are built ONCE from
 	// the UNION of the declared-pack manifests and threaded into BOTH the
 	// test-verification and substantiveness steps, closing the integration gap where a
 	// correct discovery unit never reaches the live gate. mergeSourceClassifier /
-	// mergeTestNameMatcher take the wholesale `packs` (no toolchain-only pre-filter, no
-	// `bridged` arg) so they survive SPEC-046's bridge deletion. An invalid
-	// pack-declared test-name regex is a LOUD config-error step (never a silently-empty
-	// matcher that would make discovery find nothing and mass-fail every mandated test).
+	// mergeTestNameMatcher take the wholesale declared `packs` set (no toolchain-only
+	// pre-filter) — a toolchain is just an ordinary declared pack (SPEC-046), so there
+	// is no language-derived bridge set to thread. An invalid pack-declared test-name
+	// regex is a LOUD config-error step (never a silently-empty matcher that would make
+	// discovery find nothing and mass-fail every mandated test).
 	classifier := mergeSourceClassifier(packs)
 	matcher, matcherErr := mergeTestNameMatcher(packs)
 	if matcherErr != nil {
@@ -658,11 +570,11 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	// Step 5: Coverage threshold consumes the canonical per-FILE
 	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
-	// bridged + declared toolchain packs — NOT a binary-resident `go test` runner
-	// (re-baking one would re-violate REQ-002). The records are sourced lazily at
-	// step-run time so the producer is exercised inside the gate (CLM-003). The merged
-	// classifier (above) is also threaded into the coverage step (SPEC-043 REQ-005).
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(bridged, packs, projectRoot))
+	// DECLARED toolchain packs — NOT a binary-resident `go test` runner (re-baking one
+	// would re-violate REQ-002). The records are sourced lazily at step-run time so the
+	// producer is exercised inside the gate (CLM-003). The merged classifier (above) is
+	// also threaded into the coverage step (SPEC-043 REQ-005).
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
@@ -682,8 +594,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// SPEC-040 KEYSTONE CUTOVER (REQ-001/CLM-001/CLM-008): the bespoke code-check /
 	// gate.StepCodeCheckScopedFunc Step-2 entry is GONE from the step list. Lint,
 	// build, and test enforcement now runs ONLY via dispatchPackEngines over the
-	// bridged + declared <lang>-toolchain packs (the pack_engines step below) — no
-	// dual-run, no parallel dispatcher, no pkg/check->pkg/pack/engine import. The
+	// DECLARED <lang>-toolchain packs (the pack_engines step below) — no dual-run, no
+	// parallel dispatcher, no pkg/check->pkg/pack/engine import. The
 	// SPEC-040 transitional shared go-test runner is ERADICATED by SPEC-041 REQ-002:
 	// coverage now consumes the per-FILE []check.CoverageRecord produced by the
 	// declared toolchain coverage pass (coverageRecordsProducer), not an in-binary
@@ -701,19 +613,19 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	}
 
 	// The no-toolchain-pack WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006, Sharp
-	// Edge 3): when ZERO <lang>-toolchain packs are in effect (none bridged, none
-	// declared), append a NON-FAILING "warning" step carrying the stable loud
-	// "enforcement not configured (0 toolchain packs)" message. gate.Pass stays
-	// true and exit 0, but "nothing ran" is impossible to mistake for "everything
-	// passed." This is LIVE on backstop-core's own dogfood gate run (its install
-	// lacks go-toolchain). Wired here so it flows through BOTH the no-declared-packs
-	// early return and the pack-dispatch path below.
-	if warnStep, emitted := toolchainEnforcementStatus(bridged, packs); emitted {
+	// Edge 3): when ZERO <lang>-toolchain packs are DECLARED, append a NON-FAILING
+	// "warning" step carrying the stable loud "enforcement not configured (0 toolchain
+	// packs)" message. gate.Pass stays true and exit 0, but "nothing ran" is impossible
+	// to mistake for "everything passed." A toolchain is an ordinary declared pack
+	// (SPEC-046), so this keys on the declared `packs:` set alone. Wired here so it
+	// flows through BOTH the no-declared-packs early return and the pack-dispatch path
+	// below.
+	if warnStep, emitted := toolchainEnforcementStatus(packs); emitted {
 		warn := warnStep
 		steps = append(steps, func(context.Context) gate.StepResult { return warn })
 	}
 
-	if len(packs) == 0 && len(bridged) == 0 {
+	if len(packs) == 0 {
 		return steps
 	}
 
@@ -741,15 +653,15 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	packValidatorStep := func(context.Context) gate.StepResult {
 		runner := &check.ExecCommandRunner{Dir: projectRoot}
-		// The bridge dispatches the native toolchain pack's engine bindings
-		// alongside the declared packs through the SAME substrate (SPEC-034
-		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
-		// still-live bespoke path (phase 1, no enforcement lapse).
+		// A <lang>-toolchain pack dispatches its lint/build/test engine bindings
+		// through the SAME substrate as every other declared pack (SPEC-046): a
+		// toolchain is an ordinary declared pack, so it flows through this uniform
+		// pack_engines dispatch — there is no language-derived bridge set.
 		// The generic pack_engines findings dispatch runs only the generic stages
 		// (lint/build/test/findings). Rules bound to a dedicated-step gate_type
 		// (substantiveness/contracts/coverage) are dispatched by their own gate step;
 		// running them here too would scan context-free and emit garbage findings.
-		dispatchPacks := excludeDedicatedStepRules(append(append([]*pack.Manifest{}, bridged...), packs...))
+		dispatchPacks := excludeDedicatedStepRules(packs)
 		// Split-provisioning fail-loud (SPEC-034 REQ-008): before dispatch, verify
 		// the assume-present Layer-0 native tools (go/golangci-lint) resolve on PATH.
 		// A missing one is a *check.ConfigError surfaced as a config-error step (exit
@@ -992,18 +904,19 @@ type coverageRecordsFn func(scope *gate.GateScope) ([]check.CoverageRecord, erro
 
 // coverageRecordsProducer returns a coverageRecordsFn that sources the canonical
 // per-FILE []check.CoverageRecord from SPEC-042's dispatchPackCoverage producer
-// over the bridged + declared toolchain packs. It NEVER constructs a
-// binary-resident `go test` runner (re-baking one would re-violate REQ-002); the
-// per-file coverage signal originates from the declared toolchain coverage pass.
-func coverageRecordsProducer(bridged, declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
+// over the DECLARED toolchain packs. It NEVER constructs a binary-resident
+// `go test` runner (re-baking one would re-violate REQ-002); the per-file coverage
+// signal originates from the declared toolchain coverage pass. A toolchain is an
+// ordinary declared pack (SPEC-046), so it keys on the declared `packs:` set alone
+// — there is no language-derived bridge set.
+func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
 	return func(scope *gate.GateScope) ([]check.CoverageRecord, error) {
-		coveragePacks := append(append([]*pack.Manifest{}, bridged...), declared...)
-		if len(coveragePacks) == 0 {
+		if len(declared) == 0 {
 			return nil, nil
 		}
 		runner := &check.ExecCommandRunner{Dir: projectRoot}
 		packDir := filepath.Join(projectRoot, ".backstop", "packs")
-		return dispatchPackCoverage(coveragePacks, packDir, projectRoot, scope, runner)
+		return dispatchPackCoverage(declared, packDir, projectRoot, scope, runner)
 	}
 }
 
@@ -1012,11 +925,11 @@ func coverageRecordsProducer(bridged, declared []*pack.Manifest, projectRoot str
 // (SPEC-043 REQ-005/CLM-021/CLM-022). It takes the wholesale []*pack.Manifest set
 // loadInstalledPacks resolves over `backstop.yml packs:` — NOT a toolchain-only
 // pre-filter: a manifest with no `classification:` block contributes empty globs
-// (zero to the union), so no filter is needed or wanted. It takes NO `bridged`
-// argument: a toolchain is just an ordinary declared pack, so when SPEC-046
-// deletes the language:-derived bridge (loadBridgedToolchainPacks/
-// toolchainPackName) this merge is NOT orphaned. Built where the manifests are
-// visible (cmd/backstop) so pkg/gate takes no pkg/pack dependency.
+// (zero to the union), so no filter is needed or wanted. A toolchain is just an
+// ordinary declared pack (SPEC-046), so this merge sources from the declared
+// `packs:` set with no language-derived bridge input and is never orphaned. Built
+// where the manifests are visible (cmd/backstop) so pkg/gate takes no pkg/pack
+// dependency.
 func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier {
 	var source, test []string
 	for _, manifest := range packs {

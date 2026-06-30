@@ -24,8 +24,8 @@ func TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication(t *testing.T) {
 	}
 	// Coverage's feed is now the per-FILE CoverageRecord producer over the
 	// dispatchPackCoverage channel.
-	if !strings.Contains(src, "coverageRecordsProducer(bridged, packs, projectRoot)") {
-		t.Fatal("buildCoverageStep must receive the per-FILE CoverageRecord producer (dispatchPackCoverage), the permanent SPEC-041 coverage feed")
+	if !strings.Contains(src, "coverageRecordsProducer(packs, projectRoot)") {
+		t.Fatal("buildCoverageStep must receive the per-FILE CoverageRecord producer (dispatchPackCoverage) over the DECLARED packs — the permanent SPEC-041 coverage feed, re-keyed off the deleted bridge by SPEC-046")
 	}
 
 	// Behavioral: the coverage step is still present in the built step list.

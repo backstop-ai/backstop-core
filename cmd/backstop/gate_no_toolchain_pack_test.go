@@ -15,15 +15,39 @@ func toolchainPackFixture(t *testing.T) *pack.Manifest {
 	return goToolchainManifest(t)
 }
 
-// noToolchainResult returns the no-toolchain-pack StepResult for an empty
-// toolchain set (0 bridged, 0 declared toolchain packs).
+// noToolchainResult returns the no-toolchain-pack StepResult for an empty declared
+// toolchain set (0 declared toolchain packs). SPEC-046: toolchainEnforcementStatus
+// takes a SINGLE declared-pack argument — a toolchain is an ordinary declared pack,
+// so there is no `bridged` input.
 func noToolchainResult(t *testing.T) gate.StepResult {
 	t.Helper()
-	res, emitted := toolchainEnforcementStatus(nil, nil)
+	res, emitted := toolchainEnforcementStatus(nil)
 	if !emitted {
 		t.Fatal("0 toolchain packs must emit a no-toolchain-pack StepResult, not nothing")
 	}
 	return res
+}
+
+// TestNoToolchainPack_EnforcementStatusRewrittenToDeclaredOnlyArg (CLM-024): the
+// no-toolchain-pack WARN state keys on the SINGLE declared-pack argument after the
+// bridge deletion — toolchainEnforcementStatus(declared) takes NO `bridged`
+// parameter. Zero declared toolchain packs emit the warn; a declared toolchain pack
+// suppresses it. (The 1-argument signature is itself compile-enforced here, so no
+// test can pin the removed `bridged` parameter.)
+func TestNoToolchainPack_EnforcementStatusRewrittenToDeclaredOnlyArg(t *testing.T) {
+	// Zero declared toolchain packs -> warn emitted (declared-only arg).
+	res, emitted := toolchainEnforcementStatus(nil)
+	if !emitted {
+		t.Fatal("zero DECLARED toolchain packs must emit the no-toolchain-pack warn state via the 1-arg signature")
+	}
+	if res.Status != "warning" {
+		t.Fatalf("the no-toolchain-pack state must be a non-failing warning, got %q", res.Status)
+	}
+	// A declared toolchain pack suppresses the warn — proving the helper keys on the
+	// declared set alone.
+	if _, emitted := toolchainEnforcementStatus([]*pack.Manifest{toolchainPackFixture(t)}); emitted {
+		t.Fatal("a DECLARED toolchain pack must suppress the no-toolchain-pack warn state (declared-only keying)")
+	}
 }
 
 // TestNoToolchainPack_DoesNotBlockGatePasses proves 0 toolchain packs does NOT
@@ -62,7 +86,7 @@ func TestNoToolchainPack_NotSilentPass(t *testing.T) {
 		t.Fatal("no-toolchain-pack state must NOT render as a normal green pass")
 	}
 	// A toolchain-packs-present run does NOT emit the warn state.
-	_, emitted := toolchainEnforcementStatus([]*pack.Manifest{toolchainPackFixture(t)}, nil)
+	_, emitted := toolchainEnforcementStatus([]*pack.Manifest{toolchainPackFixture(t)})
 	if emitted {
 		t.Fatal("a run WITH a toolchain pack must NOT emit the no-toolchain-pack warning")
 	}

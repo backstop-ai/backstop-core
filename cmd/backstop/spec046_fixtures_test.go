@@ -34,6 +34,20 @@ func spec046LoadFixture(t *testing.T, name string) *config.Config {
 	return cfg
 }
 
+// goToolchainProjectRoot returns the testdata project root whose .backstop/packs
+// holds the go-toolchain fixture pack — the Go worked example. (Relocated here from
+// the deleted bridge tests; surviving cutover/seam tests still use it. After the
+// SPEC-046 bridge deletion the project DECLARES backstop/go-toolchain in its
+// backstop.yml `packs:`, so the declared-pack path resolves it.)
+func goToolchainProjectRoot(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(repoRoot(t), "cmd", "backstop", "testdata", "go-toolchain")
+	if _, err := os.Stat(filepath.Join(root, ".backstop", "packs", "backstop", "go-toolchain")); err != nil {
+		t.Fatalf("go-toolchain fixture pack missing: %v", err)
+	}
+	return root
+}
+
 // spec046ToolchainManifest builds a declared-pack manifest STUB for a toolchain
 // pack named normalizedName (e.g. "backstop/go-toolchain", "backstop/bun-toolchain").
 // It lets the count/enforcement/stack-label assertions exercise the declared-pack
