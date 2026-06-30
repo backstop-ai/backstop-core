@@ -517,21 +517,29 @@ func coverageSpecRelevantToCodeScope(spec SpecVerification, scope *GateScope, in
 	return false
 }
 
+// coverageSpecRelevantToFile decides whether a spec's coverage threshold governs a
+// changed file by LANGUAGE-NEUTRAL directory matching (SPEC-045 REQ-004). The baked
+// Go source-extension suffix gate and the recursive-Go-package test-command-substring
+// convention are GONE: relevance is decided by packagePathMatches(dir,
+// spec.ImplementationPackage), plus a root fallback applied ONLY when
+// includeRootCommand AND the spec declares no specific implementation package — so a
+// package-scoped spec is matched by its package and is NEVER over-broadened
+// project-wide (CLM-028). A spec carrying no implementation package falls back to
+// project-wide relevance under includeRootCommand (CLM-027). Which changed files
+// actually need a coverage record is decided upstream by the SourceClassifier's
+// measurable-source guard, so dropping the `.go` gate does not create vacuous
+// coverage requirements for non-source changes.
 func coverageSpecRelevantToFile(spec SpecVerification, file string, includeRootCommand bool) bool {
-	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_testdata.go") {
-		return false
-	}
 	dir := filepath.Dir(file)
 	if dir == "." {
 		dir = ""
 	}
-	if spec.ImplementationPackage != "" && packagePathMatches(dir, spec.ImplementationPackage) {
-		return true
+	if spec.ImplementationPackage != "" {
+		return packagePathMatches(dir, spec.ImplementationPackage)
 	}
-	if spec.TestCommand == "" {
-		return false
-	}
-	return includeRootCommand && strings.Contains(spec.TestCommand, "./...") || strings.Contains(spec.TestCommand, "./"+dir)
+	// No specific implementation package: the spec is project-wide, relevant to any
+	// changed file under the root fallback (no Go-package glob literal involved).
+	return includeRootCommand
 }
 
 func packagePathMatches(changedDir string, specPackage string) bool {
