@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -291,7 +292,23 @@ func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
 	return policy
 }
 
-func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
+// deriveCapabilityState computes a dimension's CapabilityState from installed-pack
+// presence (SPEC-037/038/041) and STAMPS the cosmetic stack label (SPEC-046
+// REQ-004) carried on CapabilityState.Stack. The stack label is computed once in
+// buildGateSteps via declaredToolchainStackLabel(packs) and threaded here through
+// wrapTraceabilityStep (the sole caller); pkg/gate renders it instead of the retired
+// cfg.Language-derived stackLabel. The capability classification keys are
+// installed-pack-presence and are UNCHANGED by the rehome.
+func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, stack string) gate.CapabilityState {
+	cap := capabilityStateForDimension(cfg, dim)
+	cap.Stack = stack
+	return cap
+}
+
+// capabilityStateForDimension computes the Present/Working/PackOrCommand capability
+// state for a dimension from installed-pack presence alone (SPEC-037/038/041). The
+// cosmetic Stack label is stamped by the caller (deriveCapabilityState).
+func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
 	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
 	// substantiveness analyzer is DELETED, so the substantiveness capability is now
 	// "the substantiveness pack is INSTALLED / resolvable" — NOT cfg.Language +
@@ -424,16 +441,18 @@ func contractsPackInstalled(cfg *config.Config) bool {
 
 // wrapTraceabilityStep wraps a traceability analyzer step (the delegate) with
 // the SPEC-036 polarity classifier so the classifier runs IN FRONT OF the
-// analyzer: it derives the CapabilityState (cfg.Language + baked-analyzer
-// presence), classifies the dimension, and for class 1/2/3 returns
-// PolarityStepResult WITHOUT reaching the analyzer (intercept). Only the
-// none/proceed outcome (declared-and-working or undeclared-but-present) falls
-// through to the unchanged delegate (REQ-008). The delegate is taken as a
-// parameter so the wiring test can spy on whether the analyzer is reached
-// (CLM-028).
-func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, delegate gate.StepFunc) gate.StepFunc {
+// analyzer: it derives the CapabilityState (installed-pack presence), classifies
+// the dimension, and for class 1/2/3 returns PolarityStepResult WITHOUT reaching
+// the analyzer (intercept). Only the none/proceed outcome (declared-and-working or
+// undeclared-but-present) falls through to the unchanged delegate (REQ-008). The
+// delegate is taken as a parameter so the wiring test can spy on whether the
+// analyzer is reached (CLM-028). The `stack` parameter is the declared-toolchain
+// stack label (SPEC-046 REQ-004), threaded into deriveCapabilityState so the
+// rehomed classifier renders it on CapabilityState.Stack — deriveCapabilityState is
+// reached ONLY through this wrapper, so the label is stamped here, never past it.
+func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, stack string, delegate gate.StepFunc) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
-		cap := deriveCapabilityState(cfg, dim)
+		cap := deriveCapabilityState(cfg, dim, stack)
 		class := gate.ClassifyDimension(cfg, dim, cap)
 		if class != gate.ClassNone {
 			// Intercept — do NOT reach the analyzer.
@@ -462,6 +481,45 @@ func noToolchainPackMessage() string { return "enforcement not configured (0 too
 // convention, not a hardcoded pack name, so any language's toolchain pack counts.
 func isToolchainPack(m *pack.Manifest) bool {
 	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
+}
+
+// declaredToolchainStackLabel derives the cosmetic traceability stack label from the
+// SET of declared toolchain packs (SPEC-046 REQ-004 / SQ-1). Each declared toolchain
+// pack's normalized name has its namespace prefix and the "-toolchain" suffix
+// stripped (e.g. "backstop/go-toolchain" -> "go", "backstop/bun-toolchain" -> "bun"),
+// and the resulting stack names are joined as a SET (deduped + sorted, NO precedence
+// and NO overlap winner) — a polyglot repo's label names EVERY declared stack.
+//
+// Returns "unspecified" when the declared toolchain-pack-NAME set is empty — the
+// SINGLE authoritative empty-fallback signal (the label is name-derived). SPEC-043's
+// SourceClassifier.HasSourceGlobs() is CORROBORATING ONLY and MUST NOT drive this
+// fallback: it can diverge from the pack-name set (a declared toolchain pack with no
+// `classification` source globs has a non-empty pack-name set yet HasSourceGlobs()
+// == false). This is a NAME-set helper, NOT a glob classifier — SPEC-043's single
+// gate.SourceClassifier remains the ONLY glob classifier (no fork, CLM-019).
+func declaredToolchainStackLabel(packs []*pack.Manifest) string {
+	seen := map[string]bool{}
+	var stacks []string
+	for _, m := range packs {
+		if !isToolchainPack(m) {
+			continue
+		}
+		name := m.NormalizedName
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		name = strings.TrimSuffix(name, "-toolchain")
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		stacks = append(stacks, name)
+	}
+	if len(stacks) == 0 {
+		return "unspecified"
+	}
+	sort.Strings(stacks)
+	return strings.Join(stacks, ", ")
 }
 
 // countToolchainPacks counts the <lang>-toolchain packs DECLARED for the gate:
@@ -581,15 +639,19 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
-	// CapabilityState from cfg.Language + baked-Go-analyzer presence (no pack, no
-	// engine), classifies the dimension, and intercepts for class 1/2/3 (analyzer
-	// not reached); only declared-and-working / undeclared-but-present fall
-	// through to the UNCHANGED analyzer (REQ-008). The analyzer files themselves
-	// are untouched — the wrapper intercepts at the wiring boundary.
+	// CapabilityState from installed-pack presence (no pack, no engine), classifies
+	// the dimension, and intercepts for class 1/2/3 (analyzer not reached); only
+	// declared-and-working / undeclared-but-present fall through to the UNCHANGED
+	// analyzer (REQ-008). The analyzer files themselves are untouched — the wrapper
+	// intercepts at the wiring boundary. SPEC-046 REQ-004: the cosmetic stack label is
+	// computed ONCE from the declared toolchain-pack-NAME set and threaded into all
+	// three wrappers (and thence deriveCapabilityState) so the rehomed classifier
+	// renders it on CapabilityState.Stack — no cfg.Language read.
 	traceabilityCfg := gateConfig(projectRoot)
-	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, testSubstantivenessStep)
-	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, coverageStep)
-	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, contractStep)
+	stackLabel := declaredToolchainStackLabel(packs)
+	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, stackLabel, testSubstantivenessStep)
+	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, stackLabel, coverageStep)
+	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, stackLabel, contractStep)
 
 	// SPEC-040 KEYSTONE CUTOVER (REQ-001/CLM-001/CLM-008): the bespoke code-check /
 	// gate.StepCodeCheckScopedFunc Step-2 entry is GONE from the step list. Lint,

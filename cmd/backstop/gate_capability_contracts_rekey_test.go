@@ -25,7 +25,7 @@ func goCfgWithContractsPack() *config.Config {
 // INSTALLED / resolvable" (read from cfg.Packs), NOT the deleted go/parser analyzer
 // and NOT a built-in tier. Installed -> Present/Working; absent -> capability-absent.
 func TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T) {
-	cap := deriveCapabilityState(goCfgWithContractsPack(), gate.DimensionContracts)
+	cap := deriveCapabilityState(goCfgWithContractsPack(), gate.DimensionContracts, "")
 	if !cap.Present || !cap.Working {
 		t.Fatalf("contracts with the pack installed must be Present/Working, got %+v (CLM-050)", cap)
 	}
@@ -34,7 +34,7 @@ func TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T)
 	}
 
 	absent := &config.Config{Project: "rt", Language: "go"}
-	capAbsent := deriveCapabilityState(absent, gate.DimensionContracts)
+	capAbsent := deriveCapabilityState(absent, gate.DimensionContracts, "")
 	if capAbsent.Present {
 		t.Errorf("contracts with NO pack installed must be capability-absent, got Present=true (CLM-050)")
 	}
@@ -52,13 +52,13 @@ func TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T)
 func TestCapability_RekeyIsContractsOnly_CoverageStaysBaked_SubstantivenessUntouched(t *testing.T) {
 	goNoPacks := &config.Config{Project: "rt", Language: "go"}
 
-	if deriveCapabilityState(goNoPacks, gate.DimensionCoverage).Present {
+	if deriveCapabilityState(goNoPacks, gate.DimensionCoverage, "").Present {
 		t.Error("COVERAGE must be absent on a Go project with no toolchain pack (re-keyed, analyzer eradicated) (CLM-051)")
 	}
-	if deriveCapabilityState(goNoPacks, gate.DimensionContracts).Present {
+	if deriveCapabilityState(goNoPacks, gate.DimensionContracts, "").Present {
 		t.Error("CONTRACTS must be absent on a Go project with no contracts pack (re-keyed) (CLM-051)")
 	}
-	if deriveCapabilityState(goNoPacks, gate.DimensionSubstantiveness).Present {
+	if deriveCapabilityState(goNoPacks, gate.DimensionSubstantiveness, "").Present {
 		t.Error("SUBSTANTIVENESS must be absent on a Go project with no substantiveness pack (Seed 3, untouched) (CLM-051)")
 	}
 }
@@ -72,13 +72,13 @@ func TestCapability_RekeyIsContractsOnly_CoverageStaysBaked_SubstantivenessUntou
 func TestCapability_ShippedCapabilityTest_MigratedForContractsRekey(t *testing.T) {
 	goNoPacks := &config.Config{Project: "rt", Language: "go"}
 
-	if deriveCapabilityState(goNoPacks, gate.DimensionContracts).Present {
+	if deriveCapabilityState(goNoPacks, gate.DimensionContracts, "").Present {
 		t.Error("post-migration, DimensionContracts must NOT be baked-Go-present on a Go project (CLM-052)")
 	}
-	if deriveCapabilityState(goNoPacks, gate.DimensionCoverage).Present {
+	if deriveCapabilityState(goNoPacks, gate.DimensionCoverage, "").Present {
 		t.Error("post-SPEC-041, DimensionCoverage must NOT be baked-Go-present (analyzer eradicated, now pack-keyed) (CLM-052)")
 	}
-	if !deriveCapabilityState(goCfgWithContractsPack(), gate.DimensionContracts).Present {
+	if !deriveCapabilityState(goCfgWithContractsPack(), gate.DimensionContracts, "").Present {
 		t.Error("with the contracts pack installed, DimensionContracts must be Present (CLM-052)")
 	}
 }

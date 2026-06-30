@@ -32,7 +32,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 
 	// Pack installed -> Present/Working, and the PackOrCommand names the PACK, not a
 	// baked Go analyzer.
-	installed := deriveCapabilityState(goCfgWithSubstPack(), dim)
+	installed := deriveCapabilityState(goCfgWithSubstPack(), dim, "")
 	if !installed.Present || !installed.Working {
 		t.Errorf("pack installed: want Present+Working, got %+v", installed)
 	}
@@ -46,7 +46,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 
 	// Pack absent + undeclared -> capability-absent (class 2).
 	absentCfg := &config.Config{Project: "rt", Language: "go"}
-	absent := deriveCapabilityState(absentCfg, dim)
+	absent := deriveCapabilityState(absentCfg, dim, "")
 	if absent.Present {
 		t.Errorf("pack absent: want Present=false, got %+v", absent)
 	}
@@ -59,7 +59,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 	declaredCfg.Enforcement.Toolchain = map[string]config.ToolchainPass{
 		"substantiveness": {GateType: string(dim)},
 	}
-	if got := gate.ClassifyDimension(declaredCfg, dim, deriveCapabilityState(declaredCfg, dim)); got != gate.ClassDeclaredIntentUnmet {
+	if got := gate.ClassifyDimension(declaredCfg, dim, deriveCapabilityState(declaredCfg, dim, "")); got != gate.ClassDeclaredIntentUnmet {
 		t.Errorf("absent + declared: class = %v, want ClassDeclaredIntentUnmet (block)", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *tes
 
 	// COVERAGE arm RE-KEYED — pack-resolvable, NOT the deleted baked analyzer: absent
 	// without a coverage toolchain pack.
-	covCap := deriveCapabilityState(goCfg, gate.DimensionCoverage)
+	covCap := deriveCapabilityState(goCfg, gate.DimensionCoverage, "")
 	if covCap.Present || covCap.Working {
 		t.Errorf("coverage on go with no toolchain pack must be capability-absent (baked analyzer eradicated); got %+v", covCap)
 	}
@@ -87,23 +87,23 @@ func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *tes
 
 	// With a go-toolchain pack installed, coverage flips to Present.
 	covCfg := &config.Config{Project: "rt", Language: "go", Packs: config.Packs{"backstop/go-toolchain": "local"}}
-	covInstalled := deriveCapabilityState(covCfg, gate.DimensionCoverage)
+	covInstalled := deriveCapabilityState(covCfg, gate.DimensionCoverage, "")
 	if !covInstalled.Present || !covInstalled.Working {
 		t.Errorf("coverage with a go-toolchain pack installed must be Present+Working; got %+v", covInstalled)
 	}
 
 	// SUBSTANTIVENESS arm — keyed on the installed pack: absent without it.
-	subCap := deriveCapabilityState(goCfg, gate.DimensionSubstantiveness)
+	subCap := deriveCapabilityState(goCfg, gate.DimensionSubstantiveness, "")
 	if subCap.Present {
 		t.Errorf("substantiveness on go with no pack must be capability-absent; got %+v", subCap)
 	}
-	subInstalled := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness)
+	subInstalled := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness, "")
 	if !subInstalled.Present {
 		t.Errorf("substantiveness with the pack installed must be Present; got %+v", subInstalled)
 	}
 	// Coverage keying is invariant to the SUBSTANTIVENESS pack (it reads only the
 	// toolchain/coverage declaration, not the substantiveness pack).
-	covWithSubstPack := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionCoverage)
+	covWithSubstPack := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionCoverage, "")
 	if covWithSubstPack != covCap {
 		t.Errorf("coverage keying must be invariant to the substantiveness pack; with=%+v without=%+v", covWithSubstPack, covCap)
 	}
@@ -120,18 +120,18 @@ func TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey(t *testin
 
 	// Coverage arm: INSTALLED-pack keying (absent without a coverage toolchain pack,
 	// present with). No longer the deleted baked-Go analyzer.
-	if deriveCapabilityState(goCfg, gate.DimensionCoverage).Present {
+	if deriveCapabilityState(goCfg, gate.DimensionCoverage, "").Present {
 		t.Errorf("migrated test: coverage on go with NO toolchain pack must be Absent (re-keyed, analyzer eradicated)")
 	}
-	if !deriveCapabilityState(goCfgWithToolchain, gate.DimensionCoverage).Present {
+	if !deriveCapabilityState(goCfgWithToolchain, gate.DimensionCoverage, "").Present {
 		t.Errorf("migrated test: coverage with a go-toolchain pack installed must be Present (re-keyed)")
 	}
 
 	// Substantiveness arm: INSTALLED-pack keying (absent without the pack, present with).
-	if deriveCapabilityState(goCfg, gate.DimensionSubstantiveness).Present {
+	if deriveCapabilityState(goCfg, gate.DimensionSubstantiveness, "").Present {
 		t.Errorf("migrated test: substantiveness on go with NO pack must be Absent (re-keyed)")
 	}
-	if !deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness).Present {
+	if !deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness, "").Present {
 		t.Errorf("migrated test: substantiveness with the pack installed must be Present (re-keyed)")
 	}
 }

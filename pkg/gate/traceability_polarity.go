@@ -67,9 +67,8 @@ func (c PolarityClass) String() string {
 
 // CapabilityState describes whether a dimension's capability exists for the
 // project's stack and whether its declared command ran/parsed cleanly. It is
-// computed by the gate wiring (from cfg.Language + baked-analyzer presence on
-// the existing binary) and handed to the classifier, which contains NO
-// language- or tool-specific branch of its own.
+// computed by the gate wiring (from installed-pack presence) and handed to the
+// classifier, which contains NO language- or tool-specific branch of its own.
 //
 //   - Present: the capability exists for this project's stack at all.
 //   - Working: the capability ran and parsed cleanly (only meaningful when
@@ -78,11 +77,16 @@ func (c PolarityClass) String() string {
 //   - PackOrCommand: the exact pack or command the dimension needs or ran, for
 //     fail-loud-and-useful messages.
 //   - Detail: free-form detail (the observed failure / expected-vs-got hint).
+//   - Stack: the cosmetic stack label for fail-loud messages, derived from the SET
+//     of declared toolchain-pack NAMES and stamped by cmd/backstop's
+//     deriveCapabilityState (SPEC-046 REQ-004). It REPLACES the retired
+//     language-derived stackLabel; pkg/gate no longer reads any config language field.
 type CapabilityState struct {
 	Present       bool
 	Working       bool
 	PackOrCommand string
 	Detail        string
+	Stack         string
 }
 
 // declaredDimension reports whether dim is DECLARED: cfg.Enforcement.Toolchain
@@ -183,15 +187,6 @@ func waivedDimension(cfg *config.Config, dim TraceabilityDimension) bool {
 	return false
 }
 
-// stackLabel returns the project's stack/language for fail-loud messages,
-// defaulting to "unspecified" when cfg.Language is empty.
-func stackLabel(cfg *config.Config) string {
-	if cfg == nil || cfg.Language == "" {
-		return "unspecified"
-	}
-	return cfg.Language
-}
-
 // capLabel returns the exact pack/command a dimension needs or ran, for
 // fail-loud-and-useful messages, defaulting to a generic phrase when the wiring
 // supplied none.
@@ -215,7 +210,16 @@ func capLabel(cap CapabilityState) string {
 // A waive can NEVER reach a class-1/class-3 result: the waive branch is only
 // consulted for class 2 (CLM-023/024).
 func PolarityStepResult(stepName string, dim TraceabilityDimension, class PolarityClass, cfg *config.Config, cap CapabilityState) StepResult {
-	stack := stackLabel(cfg)
+	// The stack label is the declared-toolchain-pack-derived label carried on the
+	// CapabilityState (stamped in cmd/backstop's deriveCapabilityState, SPEC-046
+	// REQ-004) — pkg/gate no longer reads any config language field. A CapabilityState
+	// that carries no stack renders "unspecified" (render hygiene only; the
+	// AUTHORITATIVE empty-set→"unspecified" signal is declaredToolchainStackLabel in
+	// cmd/backstop).
+	stack := cap.Stack
+	if stack == "" {
+		stack = "unspecified"
+	}
 	pc := capLabel(cap)
 
 	switch class {

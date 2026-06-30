@@ -7,12 +7,13 @@ import (
 	"github.com/bmanson/backstop-core/pkg/config"
 )
 
-// goCfgDeclaring builds a config (language go) that declares dim with the given
-// waived flag, for PolarityStepResult message/waive tests.
-func cfgDeclaring(language string, dim TraceabilityDimension, waived bool) *config.Config {
+// cfgDeclaring builds a config that declares dim with the given waived flag, for
+// PolarityStepResult message/waive tests. SPEC-046: it no longer carries a
+// `language:` field — the stack label is rehomed onto CapabilityState.Stack, so the
+// rendered stack comes from the cap, not the config.
+func cfgDeclaring(dim TraceabilityDimension, waived bool) *config.Config {
 	return &config.Config{
-		Project:  "p",
-		Language: language,
+		Project: "p",
 		Enforcement: config.Enforcement{
 			Toolchain: map[string]config.ToolchainPass{
 				"test": {Command: "cmd", Format: "fmt", GateType: string(dim), Waived: waived},
@@ -26,7 +27,7 @@ func cfgDeclaring(language string, dim TraceabilityDimension, waived bool) *conf
 // blocks at exit 2 and is NEVER downgraded to a warning / exit 0, for every
 // class-1 trigger (command error, unparseable output, unknown key).
 func TestBrokenDeclared_NeverDowngradedToWarn(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionSubstantiveness, false)
+	cfg := cfgDeclaring(DimensionSubstantiveness, false)
 	cap := CapabilityState{Present: true, Working: false, PackOrCommand: "go test ./...", Detail: "exit status 1"}
 	res := PolarityStepResult(StepTestSubstantiveness, DimensionSubstantiveness, ClassBrokenDeclared, cfg, cap)
 
@@ -46,7 +47,7 @@ func TestBrokenDeclared_NeverDowngradedToWarn(t *testing.T) {
 // passes (exit 0) and contributes nothing to a non-zero exit code, and its
 // violation is severity-tagged "warning".
 func TestCapabilityAbsent_StatusNotFail_NoExitContribution(t *testing.T) {
-	cfg := cfgDeclaring("typescript", DimensionContracts, false) // declares contracts, but we classify coverage (undeclared)
+	cfg := cfgDeclaring(DimensionContracts, false) // declares contracts, but we classify coverage (undeclared)
 	cap := CapabilityState{Present: false, PackOrCommand: "a typescript coverage pack"}
 	res := PolarityStepResult(StepCoverageThreshold, DimensionCoverage, ClassCapabilityAbsent, cfg, cap)
 
@@ -86,7 +87,7 @@ func TestCapabilityAbsent_NeverAutoPromotesToBlocking(t *testing.T) {
 // declared-intent-unmet result sets ConfigErr=true (status fail) — it blocks at
 // exit 2 and is NOT downgraded to a class-2 warn-and-pass.
 func TestDeclaredIntentUnmet_NotDowngradedToWarnAndPass(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionCoverage, false)
+	cfg := cfgDeclaring(DimensionCoverage, false)
 	cap := CapabilityState{Present: false, PackOrCommand: "the go coverage analyzer"}
 	res := PolarityStepResult(StepCoverageThreshold, DimensionCoverage, ClassDeclaredIntentUnmet, cfg, cap)
 
@@ -130,7 +131,7 @@ func TestCapabilityAbsent_Undeclared_WarnsAndPassesExit0(t *testing.T) {
 // DECLARED-INTENT-UNMET and blocks at exit 2 (ConfigErr true) — a broken promise,
 // not a warn-and-pass.
 func TestDeclaredIntentUnmet_MissingCapability_BlocksExit2(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionCoverage, false)
+	cfg := cfgDeclaring(DimensionCoverage, false)
 	cap := CapabilityState{Present: false, PackOrCommand: "the declared coverage capability"}
 
 	class := ClassifyDimension(cfg, DimensionCoverage, cap)
@@ -150,7 +151,7 @@ func TestDeclaredIntentUnmet_MissingCapability_BlocksExit2(t *testing.T) {
 // waived has its class-2 advisory suppressed to a plain pass and the gate still
 // passes (exit 0).
 func TestWaive_SuppressesClass2Advisory_StillPasses(t *testing.T) {
-	cfg := cfgDeclaring("typescript", DimensionCoverage, true) // coverage waived
+	cfg := cfgDeclaring(DimensionCoverage, true) // coverage waived
 	cap := CapabilityState{Present: false, PackOrCommand: "a typescript coverage pack"}
 	res := PolarityStepResult(StepCoverageThreshold, DimensionCoverage, ClassCapabilityAbsent, cfg, cap)
 
@@ -171,7 +172,7 @@ func TestWaive_SuppressesClass2Advisory_StillPasses(t *testing.T) {
 // TestWaive_DoesNotSilenceClass1BrokenDeclared (CLM-023): a waive on a dimension
 // does NOT silence a class-1 broken-declared failure — it still blocks at exit 2.
 func TestWaive_DoesNotSilenceClass1BrokenDeclared(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionSubstantiveness, true) // waived, but broken
+	cfg := cfgDeclaring(DimensionSubstantiveness, true) // waived, but broken
 	cap := CapabilityState{Present: true, Working: false, Detail: "exit status 1"}
 	res := PolarityStepResult(StepTestSubstantiveness, DimensionSubstantiveness, ClassBrokenDeclared, cfg, cap)
 
@@ -184,7 +185,7 @@ func TestWaive_DoesNotSilenceClass1BrokenDeclared(t *testing.T) {
 // dimension does NOT silence a class-3 declared-intent-unmet failure — it still
 // blocks at exit 2.
 func TestWaive_DoesNotSilenceClass3DeclaredIntentUnmet(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionCoverage, true) // waived, but declared+missing
+	cfg := cfgDeclaring(DimensionCoverage, true) // waived, but declared+missing
 	cap := CapabilityState{Present: false}
 	res := PolarityStepResult(StepCoverageThreshold, DimensionCoverage, ClassDeclaredIntentUnmet, cfg, cap)
 
@@ -194,17 +195,20 @@ func TestWaive_DoesNotSilenceClass3DeclaredIntentUnmet(t *testing.T) {
 }
 
 // TestMessage_Class2_NamesDimensionStackPackAndDeclareOrWaive (CLM-018): a
-// class-2 advisory message names the dimension, the project's stack/language,
-// the exact pack/command to adopt, and the declare-or-waive next step.
+// class-2 advisory message names the dimension, the project's stack (re-sourced
+// from CapabilityState.Stack, not cfg.Language), the exact pack/command to adopt,
+// and the declare-or-waive next step.
 func TestMessage_Class2_NamesDimensionStackPackAndDeclareOrWaive(t *testing.T) {
-	cfg := cfgDeclaring("typescript", DimensionContracts, false)
-	cap := CapabilityState{Present: false, PackOrCommand: "a typescript contracts pack"}
+	cfg := cfgDeclaring(DimensionContracts, false)
+	// The stack label is now carried on CapabilityState.Stack (SPEC-046 rehome), so
+	// the rendered "ts" stack is sourced from the cap, not a cfg.Language field.
+	cap := CapabilityState{Present: false, PackOrCommand: "a typescript contracts pack", Stack: "ts"}
 	res := PolarityStepResult(StepContractSignature, DimensionContracts, ClassCapabilityAbsent, cfg, cap)
 	if len(res.Violations) == 0 {
 		t.Fatal("class 2 must carry an advisory violation")
 	}
 	msg := res.Violations[0].Message
-	for _, want := range []string{"contracts", "typescript", "a typescript contracts pack", "declare", "waive"} {
+	for _, want := range []string{"contracts", "ts", "a typescript contracts pack", "declare", "waive"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("class 2 message missing %q; got: %s", want, msg)
 		}
@@ -215,7 +219,7 @@ func TestMessage_Class2_NamesDimensionStackPackAndDeclareOrWaive(t *testing.T) {
 // command/format error message carries expected-vs-got detail (the declared
 // command/format and the observed failure).
 func TestMessage_Class1_CarriesExpectedVsGot(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionSubstantiveness, false)
+	cfg := cfgDeclaring(DimensionSubstantiveness, false)
 	cap := CapabilityState{Present: true, Working: false, PackOrCommand: "go test ./...", Detail: "exit status 1: panic"}
 	res := PolarityStepResult(StepTestSubstantiveness, DimensionSubstantiveness, ClassBrokenDeclared, cfg, cap)
 	if len(res.Violations) == 0 {
@@ -233,7 +237,7 @@ func TestMessage_Class1_CarriesExpectedVsGot(t *testing.T) {
 // declared-intent-unmet message names the declared dimension and the specific
 // missing capability plus the fix.
 func TestMessage_Class3_NamesMissingCapabilityAndFix(t *testing.T) {
-	cfg := cfgDeclaring("go", DimensionCoverage, false)
+	cfg := cfgDeclaring(DimensionCoverage, false)
 	cap := CapabilityState{Present: false, PackOrCommand: "the go coverage analyzer"}
 	res := PolarityStepResult(StepCoverageThreshold, DimensionCoverage, ClassDeclaredIntentUnmet, cfg, cap)
 	if len(res.Violations) == 0 {
@@ -262,9 +266,9 @@ func TestMessage_NoBareExitCodeOrUnannotatedFailure(t *testing.T) {
 		cfg   *config.Config
 		cap   CapabilityState
 	}{
-		{"class1", DimensionSubstantiveness, ClassBrokenDeclared, cfgDeclaring("go", DimensionSubstantiveness, false), CapabilityState{Present: true, Working: false, PackOrCommand: "go test ./...", Detail: "boom"}},
-		{"class2", DimensionCoverage, ClassCapabilityAbsent, cfgDeclaring("typescript", DimensionContracts, false), CapabilityState{Present: false, PackOrCommand: "a ts coverage pack"}},
-		{"class3", DimensionContracts, ClassDeclaredIntentUnmet, cfgDeclaring("go", DimensionContracts, false), CapabilityState{Present: false, PackOrCommand: "the go contract analyzer"}},
+		{"class1", DimensionSubstantiveness, ClassBrokenDeclared, cfgDeclaring(DimensionSubstantiveness, false), CapabilityState{Present: true, Working: false, PackOrCommand: "go test ./...", Detail: "boom"}},
+		{"class2", DimensionCoverage, ClassCapabilityAbsent, cfgDeclaring(DimensionContracts, false), CapabilityState{Present: false, PackOrCommand: "a ts coverage pack"}},
+		{"class3", DimensionContracts, ClassDeclaredIntentUnmet, cfgDeclaring(DimensionContracts, false), CapabilityState{Present: false, PackOrCommand: "the go contract analyzer"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
