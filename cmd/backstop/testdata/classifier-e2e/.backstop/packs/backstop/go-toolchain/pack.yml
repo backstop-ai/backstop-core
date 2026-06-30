@@ -1,0 +1,23 @@
+# E2E fixture toolchain pack. Carries ONLY the pack-declared classification block
+# (the unit under test) plus minimal SDK content so the manifest validates with
+# NO execution engines — keeping the e2e hermetic (no real `go test`). The merged
+# classifier's source globs (**/*.go) classify pkg/x/foo.go as measurable; with no
+# coverage engine there is no record, so the no-record guard reds it (CLM-021).
+name: backstop/go-toolchain
+version: 1.0.0
+language: go
+archetype: code
+description: >
+  E2E classifier fixture: go-toolchain classification block only (no engines).
+classification:
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+    - "**/testdata/**"
+content:
+  sdk:
+    module: example/go-toolchain-fixture
+    version: 1.0.0
+    provides:
+      - classification
