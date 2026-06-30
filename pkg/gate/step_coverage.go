@@ -195,6 +195,68 @@ func indexCoverageByPath(coverage []check.CoverageRecord) map[string]check.Cover
 	return byPath
 }
 
+// coverageDupPairSep joins a (path, metric) pair into the duplicate-key strings
+// indexCoverageByPathMetric returns. A tab never appears in a file path or a
+// pack-declared metric label, so the verdict loop can split it back apart to
+// surface the path and metric of a duplicate-measurement producer defect.
+const coverageDupPairSep = "\t"
+
+// indexCoverageByPathMetric builds a (path, metric)-keyed index over the canonical
+// records (REQ-001): the outer key is the normalizeScopePath project-relative path
+// (so it matches scope paths regardless of the producer's path style, exactly as the
+// old path-keyed index did), the inner key is the Metric label, and the value is the
+// canonical record. A file carrying line AND branch retains BOTH — neither overwrites
+// the other. The second return value lists the (path, metric) keys seen MORE THAN
+// ONCE (joined by coverageDupPairSep) so the step can surface them as loud coverage
+// errors rather than silently collapsing them last-wins — a duplicate (path, metric)
+// is a duplicate-measurement producer defect. REPLACES indexCoverageByPath.
+func indexCoverageByPathMetric(coverage []check.CoverageRecord) (map[string]map[string]check.CoverageRecord, []string) {
+	byPathMetric := make(map[string]map[string]check.CoverageRecord, len(coverage))
+	var dupKeys []string
+	for _, r := range coverage {
+		path := normalizeScopePath("", r.Path)
+		inner, ok := byPathMetric[path]
+		if !ok {
+			inner = make(map[string]check.CoverageRecord)
+			byPathMetric[path] = inner
+		}
+		if _, exists := inner[r.Metric]; exists {
+			// Loud, not last-wins: keep the first record and report the duplicate so
+			// the step blocks rather than silently dropping half the measurements.
+			dupKeys = append(dupKeys, path+coverageDupPairSep+r.Metric)
+			continue
+		}
+		inner[r.Metric] = r
+	}
+	return byPathMetric, dupKeys
+}
+
+// resolveCoverageRecordsForPath returns ALL metric records for a repo-relative scope
+// path (REQ-001). It first tries an exact match, then falls back to the UNIQUE
+// record-path whose normalized path ENDS WITH "/"+path — the same separator-anchored,
+// unique-match-required reconciliation resolveCoverageRecord used for module/namespace-
+// qualified producer paths, now returning the whole per-metric map. An ambiguous suffix
+// (two qualified paths ending the same way) is treated as no-match so the loud guards
+// fire rather than silently picking one. REPLACES resolveCoverageRecord.
+func resolveCoverageRecordsForPath(byPathMetric map[string]map[string]check.CoverageRecord, path string) (map[string]check.CoverageRecord, bool) {
+	if m, ok := byPathMetric[path]; ok {
+		return m, true
+	}
+	suffix := "/" + path
+	var match map[string]check.CoverageRecord
+	found := 0
+	for recPath, m := range byPathMetric {
+		if strings.HasSuffix(recPath, suffix) {
+			match = m
+			found++
+		}
+	}
+	if found == 1 {
+		return match, true
+	}
+	return nil, false
+}
+
 // resolveCoverageRecord finds the record for a repo-relative scope path. It first
 // tries an exact match, then falls back to a record whose (normalized) path ENDS
 // WITH "/"+path. The fallback reconciles a producer that emits module/namespace-
