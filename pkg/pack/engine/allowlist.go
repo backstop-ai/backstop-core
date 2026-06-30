@@ -31,6 +31,22 @@ func TrustedToolAllowlist() map[string]string {
 		// "*" lock value the dispatch gate supplies for an un-provisioned tool.
 		"grep": "*",
 		"rg":   "*",
+		// The Bun/TypeScript toolchain tools the backstop/bun-toolchain pack declares
+		// its lint/format/build/test/coverage commands with (SPEC-047 REQ-001). Like
+		// grep/rg they are Layer-0/runtime tools backstop does NOT introduce or
+		// auto-provision (they ride the user's installed Bun toolchain, not the lock
+		// pin), so the trust requirement is PRESENCE — a "*" pin matched by the assumed
+		// "*" lock value the dispatch gate supplies for an un-provisioned tool. The
+		// allowlist is the trust floor that lets the pack-DECLARED commands clear it; it
+		// is NEVER a command source (the commands live in the pack engines: block).
+		"oxlint": "*",
+		"bun":    "*",
+		// The allowlist KEY is a tool-name lookup datum (the trust floor that gates
+		// which pack-declared commands may run), NOT a baked routing/command literal —
+		// it never sources a command. The B2 token rule catches baked routing; an
+		// allowlist key is the opposite, so it is suppressed on this line.
+		"tsc":      "*", // nosemgrep: no-baked-language-token
+		"prettier": "*",
 	}
 }
 

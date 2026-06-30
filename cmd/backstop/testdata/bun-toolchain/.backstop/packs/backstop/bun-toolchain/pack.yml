@@ -1,0 +1,109 @@
+name: backstop/bun-toolchain
+version: 1.0.0
+language: typescript
+archetype: enforcement
+description: >
+  Reusable Bun/TypeScript native-toolchain MECHANISM pack (SPEC-047 REQ-001):
+  runs the Bun stack's lint/format/typecheck/test/coverage passes through the
+  engine-dispatch substrate and normalizes their output to SARIF (findings) or
+  coverage-records. Mechanism only — it carries NO coding-standards rules (those
+  would live in a separate, opinionated pack). Convention: one <runtime>-toolchain
+  pack bundles a runtime's whole native toolchain (DD-2: keyed to the Bun runtime).
+  Hand-authored from the backstop/go-toolchain pack.yml template (OQ-5: the
+  pack-authoring CLI reboot is Track-B / ISSUE-032, out of scope).
+classification:
+  # File classification (SPEC-043 REQ-001): the pack-declared source/test globs the
+  # language-neutral coverage consumer reads INSTEAD of a baked extension literal.
+  # A .ts/.tsx file is measurable SOURCE; a .test.ts/.spec.ts file is TEST (the
+  # consumer resolves source/test overlap in favor of test). The binary holds NO
+  # baked TS convention — these globs ARE the convention (DD-1).
+  source:
+    - "**/*.ts"
+    - "**/*.tsx"
+  test:
+    - "**/*.test.ts"
+    - "**/*.spec.ts"
+engines:
+  # Lint: oxlint as a findings engine. gate_type lint routes its findings to the
+  # lint dimension. A project-wide pass (oxlint scans the project tree); the
+  # project root is shaped via project_target, never bolted on.
+  oxlint:
+    command: oxlint --format=json
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "."
+    category: mechanism
+    gate_type: lint
+  # Format-as-lint (DD-3): `prettier --check` is a LINT-CATEGORY SARIF findings
+  # engine — it rides the EXISTING lint dimension (gate_type lint) and introduces
+  # NO new "format" gate dimension. The convert turns the unformatted-file list
+  # into one lint-category SARIF finding per file.
+  prettier:
+    command: prettier --check
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "."
+    convert: scripts/format-to-sarif.sh
+    category: mechanism
+    gate_type: lint
+  # Build: `tsc --noEmit` typecheck as a findings engine. gate_type build routes
+  # its findings to the build dimension. tsc self-targets via tsconfig.json, so no
+  # project_target is appended.
+  typecheck:
+    command: tsc --noEmit
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: build
+  # Test: `bun test` as a findings engine. gate_type test routes its findings to
+  # the test dimension. bun discovers its own tests, so no project_target.
+  bun-test:
+    command: bun test
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+  # Coverage: the coverage PRODUCER. gate_type coverage routes the convert output
+  # to the coverage-records channel (check.ParsePackCoverage), DISTINCT from the
+  # SARIF findings channel. `bun test --coverage --coverage-reporter=lcov` writes
+  # an lcov report to a FILE (coverage/lcov.info), so stdout_artifact declares that
+  # file as the engine's real output; the pack-relative convert
+  # (scripts/coverage-to-records.sh) turns the lcov into per-file line+branch
+  # coverage records (SPEC-044 bun producer record-shape).
+  bun-coverage:
+    command: bun test --coverage --coverage-reporter=lcov
+    stdout_artifact: coverage/lcov.info
+    input_mode: none
+    convert: scripts/coverage-to-records.sh
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: coverage
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: bun-lint
+        engine: oxlint
+        risk_class: correctness
+        category: toolchain
+        justification: Native Bun/TS lint pass via oxlint; findings normalized to SARIF.
+      - id: bun-format
+        engine: prettier
+        risk_class: style
+        category: toolchain
+        justification: Native prettier --check format pass; unformatted files normalized to lint-category SARIF (format-as-lint, DD-3).
+      - id: bun-build
+        engine: typecheck
+        risk_class: correctness
+        category: toolchain
+        justification: Native TypeScript typecheck (tsc --noEmit); type errors normalized to SARIF.
+      - id: bun-test
+        engine: bun-test
+        risk_class: correctness
+        category: toolchain
+        justification: Native Bun test pass; test failures normalized to SARIF.
+      - id: bun-coverage
+        engine: bun-coverage
+        risk_class: correctness
+        category: toolchain
+        justification: Native Bun coverage pass; lcov normalized to per-file line+branch coverage records.
