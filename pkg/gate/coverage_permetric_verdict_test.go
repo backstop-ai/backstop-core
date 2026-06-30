@@ -69,6 +69,33 @@ func TestCoverage_SameFileLineAndBranchThresholdedIndependentlyNoCollision(t *te
 	}
 }
 
+// TestCoverage_DuplicatePathMetricSurfacedLoudlyInVerdict (CLM-003, verdict level):
+// the verdict loop surfaces a duplicate (path, metric) from the index's dup-key
+// return as a LOUD blocking coverage_metric_collision — a producer that double-emits
+// one metric for one file is a defect, never silently collapsed to one survivor.
+func TestCoverage_DuplicatePathMetricSurfacedLoudlyInVerdict(t *testing.T) {
+	records := []check.CoverageRecord{
+		{Path: "src/foo.ts", Covered: 95, Total: 100, Measured: true, Metric: "line"},
+		{Path: "src/foo.ts", Covered: 40, Total: 100, Measured: true, Metric: "line"},
+	}
+	result := runPerMetric(records, perMetricSpec("src/foo.ts", 90, nil),
+		diffScopeFor("src/foo.ts"), bunClassifier())
+
+	if result.Status != "fail" {
+		t.Fatalf("a duplicate (path, metric) must red loudly, got %s: %#v", result.Status, result.Violations)
+	}
+	v, ok := violationForRule(result.Violations, "coverage_metric_collision")
+	if !ok {
+		t.Fatalf("expected a coverage_metric_collision violation, got %#v", result.Violations)
+	}
+	if v.File != "src/foo.ts" || v.Severity != "error" {
+		t.Errorf("the collision must be a blocking error naming the file, got %#v", v)
+	}
+	if !strings.Contains(v.Message, "line") || !strings.Contains(v.Message, "duplicate") {
+		t.Errorf("the collision message must name the duplicated metric, got %q", v.Message)
+	}
+}
+
 // TestCoverage_BothMetricsPassNoViolation (CLM-006): a file whose line AND branch
 // both pass their thresholds produces NO violation.
 func TestCoverage_BothMetricsPassNoViolation(t *testing.T) {
