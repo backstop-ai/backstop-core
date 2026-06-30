@@ -8,6 +8,18 @@ description: >
   their output to SARIF. Mechanism only — it carries NO coding-standards rules
   (those live in the separate, opinionated backstop-go-pack). Convention:
   one <lang>-toolchain pack bundles a language's whole native toolchain.
+classification:
+  # File classification (SPEC-043 REQ-001): the pack-declared source/test globs the
+  # language-neutral coverage consumer reads INSTEAD of a baked `.go` literal. Once
+  # coverageMeasurablePath's baked literal is deleted, a `.go` file is measurable
+  # ONLY because this block declares it — the dogfood lockstep that keeps
+  # backstop-core measuring its own coverage. The fixture/testdata convention is
+  # folded into the test list (no separate baked testdata dimension).
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+    - "**/testdata/**"
 engines:
   # Coverage: the FIRST coverage PRODUCER (SPEC-042 REQ-007). Declared via the
   # pack's engines: block (the SPEC-035 declared substrate) — NOT a baked
