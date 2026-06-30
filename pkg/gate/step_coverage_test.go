@@ -312,3 +312,76 @@ func TestCoverage_BelowThresholdRawCountArithmetic(t *testing.T) {
 		t.Error("1/3 (~33.3%) must be below threshold 34")
 	}
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SPEC-045 REQ-004 — language-neutral coverage spec-relevance
+// coverageSpecRelevantToFile decides relevance by DIRECTORY matching against
+// spec.ImplementationPackage (packagePathMatches) plus a root fallback — no baked
+// `.go`/`_testdata.go` suffix gate, no `./...` test-command convention.
+// ════════════════════════════════════════════════════════════════════════════
+
+// TestCoverageRelevance_TSFileInMatchingPackageIsRelevant (CLM-024, de-Go proof):
+// a changed `.ts` file in a directory matching a spec's implementation package IS
+// relevant — proving the baked `.go` suffix gate is gone.
+func TestCoverageRelevance_TSFileInMatchingPackageIsRelevant(t *testing.T) {
+	spec := SpecVerification{SpecID: "SPEC-X", ImplementationPackage: "app/widget"}
+	if !coverageSpecRelevantToFile(spec, "app/widget/foo.ts", false) {
+		t.Fatal("a changed .ts file in a matching dir must be spec-relevant (the .go suffix gate is gone)")
+	}
+}
+
+// TestCoverageRelevance_GoFileInMatchingPackageStillRelevant (CLM-025, no
+// regression): a changed `.go` file in a matching directory is STILL relevant.
+func TestCoverageRelevance_GoFileInMatchingPackageStillRelevant(t *testing.T) {
+	spec := SpecVerification{SpecID: "SPEC-X", ImplementationPackage: "pkg/gate"}
+	if !coverageSpecRelevantToFile(spec, "pkg/gate/foo.go", false) {
+		t.Fatal("a changed .go file in a matching dir must STILL be spec-relevant")
+	}
+}
+
+// TestCoverageRelevance_NonMatchingDirectoryNotRelevant (CLM-026): a changed file
+// in a directory NOT matching the spec's implementation package is NOT relevant.
+func TestCoverageRelevance_NonMatchingDirectoryNotRelevant(t *testing.T) {
+	spec := SpecVerification{SpecID: "SPEC-X", ImplementationPackage: "app/widget"}
+	if coverageSpecRelevantToFile(spec, "other/dir/foo.ts", false) {
+		t.Fatal("a changed file in a non-matching dir must NOT be spec-relevant")
+	}
+}
+
+// TestCoverageRelevance_RootFallbackWithoutDotDotDotGlob (CLM-027, de-Go proof):
+// the root fallback applies a spec with NO specific implementation package
+// project-wide when includeRootCommand is true — WITHOUT any `./...` test-command
+// literal (the test command here contains no `./...`).
+func TestCoverageRelevance_RootFallbackWithoutDotDotDotGlob(t *testing.T) {
+	spec := SpecVerification{SpecID: "SPEC-X", ImplementationPackage: "", TestCommand: "bun test"}
+	if !coverageSpecRelevantToFile(spec, "anywhere/foo.ts", true) {
+		t.Fatal("a spec with no impl package must be project-wide relevant under the root fallback, with no ./... literal")
+	}
+}
+
+// TestCoverageRelevance_SpecificSpecNotBroadenedByRootFallback (CLM-028): a spec
+// WITH a specific implementation package is NOT made relevant to a non-matching
+// directory by the root fallback (dropping `./...` narrows a package-scoped spec).
+func TestCoverageRelevance_SpecificSpecNotBroadenedByRootFallback(t *testing.T) {
+	spec := SpecVerification{SpecID: "SPEC-X", ImplementationPackage: "app/widget", TestCommand: "go test ./..."}
+	if coverageSpecRelevantToFile(spec, "other/dir/foo.go", true) {
+		t.Fatal("includeRootCommand must NOT over-broaden a package-scoped spec to a non-matching dir")
+	}
+}
+
+// TestPackagePathMatches_LanguageNeutralDirectoryMatching (CLM-029):
+// packagePathMatches matches a `.ts` directory identically to a `.go` directory —
+// it is pure directory matching carrying no extension/language assumption.
+func TestPackagePathMatches_LanguageNeutralDirectoryMatching(t *testing.T) {
+	if !packagePathMatches("app/widget", "app/widget") {
+		t.Error("identical dirs must match")
+	}
+	// The same directory string matches identically regardless of what language
+	// lives there — packagePathMatches never inspects an extension.
+	if packagePathMatches("app/widget", "app/widget") != packagePathMatches("pkg/gate", "pkg/gate") {
+		t.Error("directory matching must be language-neutral (a .ts dir matches identically to a .go dir)")
+	}
+	if packagePathMatches("app/widget", "app/other") {
+		t.Error("non-matching dirs must not match")
+	}
+}

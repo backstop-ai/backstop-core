@@ -65,3 +65,22 @@ func TestCoverage_NoGoCoverageParsingOrGoModReaderRemains(t *testing.T) {
 		}
 	}
 }
+
+// TestCoverageRelevance_NoBakedGoLiteralsInSpecRelevance (CLM-030, source guard):
+// no baked `.go`/`_testdata.go`/`./...` string literal remains in
+// coverageSpecRelevantToFile or packagePathMatches (the whole step_coverage.go
+// file is free of them after the de-Go) — the relevance path keys only on
+// directory matching.
+func TestCoverageRelevance_NoBakedGoLiteralsInSpecRelevance(t *testing.T) {
+	src := readStepCoverageSource(t)
+	banned := []string{
+		`.go"`,           // a baked Go source-extension suffix literal
+		"_testdata.go",   // the baked testdata-suffix gate
+		"./...",          // the baked Go-package recursive glob convention
+	}
+	for _, b := range banned {
+		if strings.Contains(src, b) {
+			t.Errorf("step_coverage.go still contains a baked Go literal %q in the spec-relevance path — relevance must key only on directory matching (CLM-030)", b)
+		}
+	}
+}
