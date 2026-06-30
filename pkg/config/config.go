@@ -17,13 +17,26 @@ import (
 const defaultBaselineTTL = 15 * time.Minute
 
 // Config is the typed representation of backstop.yml.
+//
+// SPEC-046: the single-language `language` field is RETIRED — a project is described
+// by its declared packs, not one baked language. An existing backstop.yml may still
+// carry a `language:` key; it is absorbed by LegacyKeys below and ignored. The
+// look-alikes pack.Manifest.Language and check.Options.Language are SEPARATE fields on
+// other structs and are unaffected.
 type Config struct {
-	Project       string            `yaml:"project" json:"project"`
-	Language      string            `yaml:"language" json:"language"`
-	Runtimes      []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
-	Enforcement   Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
-	Packs         Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
-	Registries    map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	Project     string            `yaml:"project" json:"project"`
+	Runtimes    []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
+	Enforcement Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
+	Packs       Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
+	Registries  map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	// LegacyKeys absorbs retired/legacy top-level keys (the SPEC-046 `language:` key)
+	// so an existing backstop.yml carrying one parses cleanly under the strict
+	// (KnownFields) decoder rather than erroring — the field is GONE, not rejected
+	// (CLM-012). Truly-unknown top-level keys are still rejected by the JSON-schema
+	// additionalProperties:false pass (which lists `language` as the only allowed-but-
+	// ignored legacy property), so strictness is preserved: only schema-allowed legacy
+	// keys are tolerated here. It carries no behavior and is never read (json:"-").
+	LegacyKeys map[string]any `yaml:",inline" json:"-"`
 }
 
 // Enforcement holds the enforcement configuration block.

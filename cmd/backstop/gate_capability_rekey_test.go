@@ -17,7 +17,6 @@ import (
 func goCfgWithSubstPack() *config.Config {
 	return &config.Config{
 		Project:  "rt",
-		Language: "go",
 		Packs:    config.Packs{"backstop/substantiveness": "local"},
 	}
 }
@@ -45,7 +44,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 	}
 
 	// Pack absent + undeclared -> capability-absent (class 2).
-	absentCfg := &config.Config{Project: "rt", Language: "go"}
+	absentCfg := &config.Config{Project: "rt"}
 	absent := deriveCapabilityState(absentCfg, dim, "")
 	if absent.Present {
 		t.Errorf("pack absent: want Present=false, got %+v", absent)
@@ -55,7 +54,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 	}
 
 	// Pack absent + DECLARED -> declared-intent-unmet (class 3, block).
-	declaredCfg := &config.Config{Project: "rt", Language: "go"}
+	declaredCfg := &config.Config{Project: "rt"}
 	declaredCfg.Enforcement.Toolchain = map[string]config.ToolchainPass{
 		"substantiveness": {GateType: string(dim)},
 	}
@@ -73,7 +72,7 @@ func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *test
 // overturned — that was coverage's deferred re-impl, now landed).
 func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *testing.T) {
 	// No packs installed.
-	goCfg := &config.Config{Project: "rt", Language: "go"}
+	goCfg := &config.Config{Project: "rt"}
 
 	// COVERAGE arm RE-KEYED — pack-resolvable, NOT the deleted baked analyzer: absent
 	// without a coverage toolchain pack.
@@ -86,7 +85,7 @@ func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *tes
 	}
 
 	// With a go-toolchain pack installed, coverage flips to Present.
-	covCfg := &config.Config{Project: "rt", Language: "go", Packs: config.Packs{"backstop/go-toolchain": "local"}}
+	covCfg := &config.Config{Project: "rt", Packs: config.Packs{"backstop/go-toolchain": "local"}}
 	covInstalled := deriveCapabilityState(covCfg, gate.DimensionCoverage, "")
 	if !covInstalled.Present || !covInstalled.Working {
 		t.Errorf("coverage with a go-toolchain pack installed must be Present+Working; got %+v", covInstalled)
@@ -115,8 +114,8 @@ func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *tes
 // analyzer is eradicated). This guards that the shipped test was migrated, not
 // silently broken, and ./cmd/backstop/ stays green.
 func TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey(t *testing.T) {
-	goCfg := &config.Config{Project: "rt", Language: "go"}
-	goCfgWithToolchain := &config.Config{Project: "rt", Language: "go", Packs: config.Packs{"backstop/go-toolchain": "local"}}
+	goCfg := &config.Config{Project: "rt"}
+	goCfgWithToolchain := &config.Config{Project: "rt", Packs: config.Packs{"backstop/go-toolchain": "local"}}
 
 	// Coverage arm: INSTALLED-pack keying (absent without a coverage toolchain pack,
 	// present with). No longer the deleted baked-Go analyzer.

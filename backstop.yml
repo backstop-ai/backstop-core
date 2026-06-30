@@ -1,5 +1,4 @@
 project: backstop-core
-language: go
 packs:
     backstop/contracts: local
     backstop/go-standards: local

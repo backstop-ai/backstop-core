@@ -26,7 +26,6 @@ func TestCutover_CodeCheckSubcommandSurvivesWithDeclaredToolchain(t *testing.T) 
 	// lint/build/test) still resolves a non-empty executor set through the reduced
 	// resolveToolchain — proving the subcommand's run path keeps working.
 	cfg := &config.Config{
-		Language: "go",
 		Enforcement: config.Enforcement{
 			Toolchain: map[string]config.ToolchainPass{
 				"lint": {Command: "golangci-lint run", Format: "sarif"},
@@ -63,7 +62,6 @@ func TestCutover_NoDeletedSymbolHasSurvivingCaller(t *testing.T) {
 	// resolveToolchain still produces executors for a declared toolchain (the
 	// surviving code check subcommand's path). Exercised through the exported seam.
 	cfg := &config.Config{
-		Language: "go",
 		Enforcement: config.Enforcement{
 			Toolchain: map[string]config.ToolchainPass{
 				"lint": {Command: "golangci-lint run", Format: "sarif"},

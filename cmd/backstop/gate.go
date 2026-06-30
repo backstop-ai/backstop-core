@@ -258,26 +258,17 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 // Steps 3-6: mechanical verification using grep/AST parsing.
 // Steps 7-9: deferred (baseline, waivers, ledger).
 // gateConfig loads the project's backstop.yml for the gate wiring, returning a
-// zero-value-safe config. An unreadable config yields a minimal config defaulting
-// to the Go stack (mirroring gateLanguage), so the traceability classifier still
-// derives a concrete CapabilityState rather than panicking.
+// zero-value-safe config. An unreadable config yields an empty config (no language
+// seed — SPEC-046 retired the single-language field), so the traceability classifier
+// still derives a concrete CapabilityState rather than panicking.
 func gateConfig(projectRoot string) *config.Config {
 	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
 	if err != nil || cfg == nil {
-		return &config.Config{Language: "go"}
+		return &config.Config{}
 	}
 	return cfg
 }
 
-// deriveCapabilityState computes the CapabilityState for a traceability
-// dimension on the EXISTING binary from cfg.Language + baked-Go-analyzer presence
-// ONLY — no pack, no engine (SPEC-036 REQ-003/CLM-029). The only traceability
-// capability that exists on the existing binary is the baked Go analyzers
-// (step_testverify / step_coverage / step_contract), which are Go-specific. So a
-// dimension is Present/Working iff cfg.Language == "go" (the baked analyzer
-// applies); for any non-Go stack the capability is Absent, so an undeclared
-// dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
-// mis-applied Go analyzer.
 // gatePolicyFromConfig converts the declared enforcement.policy table into the gate's
 // per-dimension policy map. Returns nil when none is declared, leaving every dimension
 // at the default (block, no baseline).
@@ -297,7 +288,7 @@ func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
 // REQ-004) carried on CapabilityState.Stack. The stack label is computed once in
 // buildGateSteps via declaredToolchainStackLabel(packs) and threaded here through
 // wrapTraceabilityStep (the sole caller); pkg/gate renders it instead of the retired
-// cfg.Language-derived stackLabel. The capability classification keys are
+// language-derived stackLabel. The capability classification keys are
 // installed-pack-presence and are UNCHANGED by the rehome.
 func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, stack string) gate.CapabilityState {
 	cap := capabilityStateForDimension(cfg, dim)
@@ -311,8 +302,8 @@ func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, s
 func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
 	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
 	// substantiveness analyzer is DELETED, so the substantiveness capability is now
-	// "the substantiveness pack is INSTALLED / resolvable" — NOT cfg.Language +
-	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
+	// "the substantiveness pack is INSTALLED / resolvable" — NOT a baked language
+	// analyzer, and NOT a built-in tier. Present/Working iff the
 	// substantiveness pack is installed (declared in backstop.yml's packs map). As of
 	// SPEC-041 ALL THREE traceability dimensions (substantiveness, contracts, AND
 	// coverage) are installed-pack-keyed — no asymmetry fence remains; the baked Go
@@ -334,7 +325,7 @@ func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimens
 
 	// CONTRACTS RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go contract
 	// analyzer is DELETED, so the contracts capability is now "the contracts pack is
-	// INSTALLED / resolvable" — NOT cfg.Language + baked-analyzer presence, and NOT a
+	// INSTALLED / resolvable" — NOT a baked language analyzer, and NOT a
 	// built-in tier. Present/Working iff the contracts pack is installed (declared in
 	// backstop.yml's packs map). The COVERAGE arm below is ALSO installed-pack-keyed
 	// as of SPEC-041 (the baked Go coverage analyzer is eradicated) — symmetric with
@@ -358,7 +349,7 @@ func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimens
 	// COVERAGE-ARM RE-KEY (SPEC-041 REQ-001). The baked Go coverage analyzer
 	// (pkg/gate/step_coverage.go's `go test -coverprofile` machinery) is ERADICATED,
 	// so the coverage capability is now "a coverage-producing toolchain pack is
-	// installed / in effect" — NOT cfg.Language + baked-analyzer presence (that arm
+	// installed / in effect" — NOT a baked language analyzer (that arm
 	// claimed a deleted analyzer and would push an uninstalled Go project into a
 	// loud-block instead of the capability-absent warn). This MIRRORS the
 	// substantiveness (SPEC-037) and contracts (SPEC-038) re-keys: Present/Working iff
@@ -372,14 +363,10 @@ func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimens
 			PackOrCommand: "the installed coverage toolchain pack",
 		}
 	}
-	lang := "go"
-	if cfg != nil && cfg.Language != "" {
-		lang = cfg.Language
-	}
 	return gate.CapabilityState{
 		Present:       false,
 		Working:       false,
-		PackOrCommand: "a " + lang + "-toolchain pack declaring a coverage engine (install it: `backstop pack add`)",
+		PackOrCommand: "a toolchain pack declaring a coverage engine (install it: `backstop pack add`)",
 	}
 }
 
@@ -646,7 +633,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// intercepts at the wiring boundary. SPEC-046 REQ-004: the cosmetic stack label is
 	// computed ONCE from the declared toolchain-pack-NAME set and threaded into all
 	// three wrappers (and thence deriveCapabilityState) so the rehomed classifier
-	// renders it on CapabilityState.Stack — no cfg.Language read.
+	// renders it on CapabilityState.Stack — no language read.
 	traceabilityCfg := gateConfig(projectRoot)
 	stackLabel := declaredToolchainStackLabel(packs)
 	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, stackLabel, testSubstantivenessStep)

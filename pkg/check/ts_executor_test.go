@@ -17,7 +17,7 @@ func TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired(t *testing.T) {
 	// Post-cutover: typescript with no declared toolchain yields an EMPTY executor
 	// set (no baked stack), NOT a config error.
 	noCmdCfg := loadConfigFromYAML(t, tsNoTestCommandBackstopYML)
-	emptyExecs, err := buildExecutorsForConfigErr(Options{Language: noCmdCfg.Language, Config: noCmdCfg}, runner)
+	emptyExecs, err := buildExecutorsForConfigErr(Options{Language: "typescript", Config: noCmdCfg}, runner)
 	if err != nil {
 		t.Fatalf("an undeclared typescript project must resolve to an empty executor set, not error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestCodeCheck_TSTestCommand_ExplicitDeclarationRequired(t *testing.T) {
 
 	// Positive: typescript WITH a declared toolchain.
 	cmdCfg := loadConfigFromYAML(t, tsBackstopYML)
-	execs, posErr := buildExecutorsForConfigErr(Options{Language: cmdCfg.Language, Config: cmdCfg}, runner)
+	execs, posErr := buildExecutorsForConfigErr(Options{Language: "typescript", Config: cmdCfg}, runner)
 	if posErr != nil {
 		t.Fatalf("typescript stack with test_command errored: %v", posErr)
 	}

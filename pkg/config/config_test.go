@@ -23,9 +23,8 @@ func TestConfig_Struct_AllFields(t *testing.T) {
 	if cfg.Project != "my-service" {
 		t.Errorf("Project = %q, want %q", cfg.Project, "my-service")
 	}
-	if cfg.Language != "go" {
-		t.Errorf("Language = %q, want %q", cfg.Language, "go")
-	}
+	// SPEC-046: the `language` field is retired; the full-backstop.yml fixture may
+	// still carry a `language:` key but it is now an inert, ignored legacy key.
 	if len(cfg.Runtimes) != 2 {
 		t.Errorf("Runtimes length = %d, want 2", len(cfg.Runtimes))
 	}

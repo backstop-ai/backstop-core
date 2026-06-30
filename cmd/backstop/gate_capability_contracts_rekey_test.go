@@ -17,7 +17,7 @@ import (
 // goCfgWithContractsPack builds a Go config declaring the contracts pack installed
 // (value "local" models the dogfood-installed local pack).
 func goCfgWithContractsPack() *config.Config {
-	return &config.Config{Project: "rt", Language: "go", Packs: config.Packs{"backstop/contracts": "local"}}
+	return &config.Config{Project: "rt", Packs: config.Packs{"backstop/contracts": "local"}}
 }
 
 // TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer (CLM-050): for the
@@ -33,7 +33,7 @@ func TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T)
 		t.Errorf("contracts must NOT key on the deleted baked analyzer; got %q (CLM-050)", cap.PackOrCommand)
 	}
 
-	absent := &config.Config{Project: "rt", Language: "go"}
+	absent := &config.Config{Project: "rt"}
 	capAbsent := deriveCapabilityState(absent, gate.DimensionContracts, "")
 	if capAbsent.Present {
 		t.Errorf("contracts with NO pack installed must be capability-absent, got Present=true (CLM-050)")
@@ -50,7 +50,7 @@ func TestCapability_ContractsKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T)
 // dimensions (coverage, contracts, substantiveness) return absent. (The "stays baked"
 // in the name is the predating SPEC-038-era invariant this test now overturns.)
 func TestCapability_RekeyIsContractsOnly_CoverageStaysBaked_SubstantivenessUntouched(t *testing.T) {
-	goNoPacks := &config.Config{Project: "rt", Language: "go"}
+	goNoPacks := &config.Config{Project: "rt"}
 
 	if deriveCapabilityState(goNoPacks, gate.DimensionCoverage, "").Present {
 		t.Error("COVERAGE must be absent on a Go project with no toolchain pack (re-keyed, analyzer eradicated) (CLM-051)")
@@ -70,7 +70,7 @@ func TestCapability_RekeyIsContractsOnly_CoverageStaysBaked_SubstantivenessUntou
 // migration's load-bearing property: neither contracts NOR coverage is baked-Go-keyed
 // any longer.
 func TestCapability_ShippedCapabilityTest_MigratedForContractsRekey(t *testing.T) {
-	goNoPacks := &config.Config{Project: "rt", Language: "go"}
+	goNoPacks := &config.Config{Project: "rt"}
 
 	if deriveCapabilityState(goNoPacks, gate.DimensionContracts, "").Present {
 		t.Error("post-migration, DimensionContracts must NOT be baked-Go-present on a Go project (CLM-052)")

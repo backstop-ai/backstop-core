@@ -126,12 +126,15 @@ dispatch with a 2-second execution budget.`,
 			// Step 6: Build check options. Pack rule findings are dispatched
 			// group-by-engine in step 9 (SPEC-031 REQ-011) through the declared
 			// engine path, not fed into any in-process semgrep executor.
+			// SPEC-046: config.Config.Language is retired, so the config-sourced
+			// Language assignment is dropped. check.Options.Language (a SEPARATE,
+			// surviving field) is left at its empty-language default — behavior-preserving
+			// for the empty case; declared toolchains carry their own commands.
 			opts := check.Options{
 				Mode:        mode,
 				FilePath:    fileFlag,
 				BackstopDir: filepath.Join(projectRoot, ".backstop"),
 				ProjectDir:  projectRoot,
-				Language:    cfg.Language,
 				Config:      cfg,
 			}
 

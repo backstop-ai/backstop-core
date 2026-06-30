@@ -20,10 +20,10 @@ func TestPolarity_StackLabelNoLongerReadsConfigLanguage(t *testing.T) {
 		t.Fatalf("reading traceability_polarity.go: %v", err)
 	}
 	if strings.Contains(string(src), "func stackLabel") {
-		t.Error("stackLabel must be DELETED from pkg/gate — the cfg.Language-derived label is rehomed onto CapabilityState.Stack (CLM-021)")
+		t.Error("stackLabel must be DELETED from pkg/gate — the language-derived label is rehomed onto CapabilityState.Stack (CLM-021)")
 	}
-	if strings.Contains(string(src), "cfg.Language") {
-		t.Error("pkg/gate must no longer read cfg.Language — the stack label is carried on CapabilityState.Stack (CLM-021)")
+	if strings.Contains(string(src), "cfg."+"Language") {
+		t.Error("pkg/gate must no longer read the config language field — the stack label is carried on CapabilityState.Stack (CLM-021)")
 	}
 
 	// The rendered stack label comes from cap.Stack, not from any language field:

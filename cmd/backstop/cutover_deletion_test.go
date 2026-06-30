@@ -183,7 +183,7 @@ func TestCutover_ResolveToolchainRetainedDeclaredOnly(t *testing.T) {
 	// REDUCED to declared-only (behavioral, via the exported pkg/check seam): a Go
 	// project with NO declared enforcement.toolchain yields an EMPTY lint/build/test
 	// executor set (no baked go stack overlay) and does NOT error.
-	execs, err := check.DeclaredToolchainExecutorsForTest("go", &config.Config{Language: "go"})
+	execs, err := check.DeclaredToolchainExecutorsForTest("go", &config.Config{})
 	if err != nil {
 		t.Fatalf("a Go project with no declared toolchain must not error (declared-only resolve), got: %v", err)
 	}

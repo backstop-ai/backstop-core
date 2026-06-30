@@ -15,8 +15,8 @@ import (
 // Go analyzer. The same undeclared dimension on a Go project with the baked
 // analyzer present is capability-present.
 func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
-	tsCfg := &config.Config{Project: "rt", Language: "typescript"}
-	goCfg := &config.Config{Project: "rt", Language: "go"}
+	tsCfg := &config.Config{Project: "rt"}
+	goCfg := &config.Config{Project: "rt"}
 
 	// MIGRATED FOR SPEC-041 (CLM-052 + REQ-001): ALL THREE traceability dimensions are
 	// now INSTALLED-pack keyed — the baked Go contracts (SPEC-038), substantiveness
@@ -69,7 +69,7 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 // capability-absent dimension never auto-promotes to blocking across repeated
 // derivation+classification runs — it stays class 2.
 func TestCapabilityState_NonGoUndeclared_NeverAutoPromotes(t *testing.T) {
-	tsCfg := &config.Config{Project: "rt", Language: "typescript"}
+	tsCfg := &config.Config{Project: "rt"}
 	for i := 0; i < 5; i++ {
 		cap := deriveCapabilityState(tsCfg, gate.DimensionCoverage, "")
 		got := gate.ClassifyDimension(tsCfg, gate.DimensionCoverage, cap)

@@ -81,8 +81,7 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	// through the engine path, or hits the no-toolchain-pack WARN state). It is no
 	// longer a baked stack.
 	tsUndeclared := buildExecutorsForConfig(Options{
-		Language: "typescript",
-		Config:   &config.Config{Language: "typescript"},
+		Config:   &config.Config{},
 	}, runner)
 	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
 		if _, ok := tsUndeclared[ct]; ok {
@@ -93,9 +92,7 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	// TypeScript WITH a declared toolchain: the generic commandExecutor still
 	// builds from the DECLARED entries (the surviving code check subcommand path).
 	tsDeclared := buildExecutorsForConfig(Options{
-		Language: "typescript",
 		Config: &config.Config{
-			Language: "typescript",
 			Enforcement: config.Enforcement{
 				TestCommand: "vitest run",
 				Toolchain: map[string]config.ToolchainPass{
@@ -151,7 +148,10 @@ func TestCodeCheck_Registry_CustomToolchainFromConfig(t *testing.T) {
 		"cargo": []byte(regexLinesSampleTxt),
 	}}
 
-	execs := buildExecutorsForConfig(Options{Language: cfg.Language, Config: cfg}, runner)
+	// SPEC-046: config.Config.Language is retired — pass the language LITERAL into the
+	// surviving, fenced check.Options.Language (the declaredStackBackstopYML fixture is
+	// a `rust` stack).
+	execs := buildExecutorsForConfig(Options{Language: "rust", Config: cfg}, runner)
 
 	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
 		ce, ok := execs[ct].(*commandExecutor)
@@ -200,7 +200,8 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("non_go_typo_key_is_config_error", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, unknownKeyRustBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL into the surviving check.Options.Language.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "rust", Config: cfg}, runner)
 		if err == nil {
 			t.Fatalf("buildExecutorsForConfigErr returned nil error for an out-of-vocabulary key; got executors %v (silent skip is the bug)", execs)
 		}
@@ -230,7 +231,9 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("go_language_typo_key_is_config_error", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, unknownKeyGoBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL ("go") into the surviving check.Options.Language
+		// — this subtest exercises the go path explicitly.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "go", Config: cfg}, runner)
 		if err == nil {
 			t.Fatalf("go-language project with a typo'd toolchain key returned nil error; the guard must run before the go early-return (silent non-enforcement on the dominant path)")
 		}
@@ -255,7 +258,8 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("findings_key_is_accepted", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, findingsKeyRustBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL into the surviving check.Options.Language.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "rust", Config: cfg}, runner)
 		if err != nil {
 			t.Fatalf("a `findings:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
 		}

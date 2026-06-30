@@ -45,9 +45,10 @@ func newE2EWorkspace(tmp string) (*e2eWorkspace, error) {
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating e2e spec dir: %w", err)
 	}
-	// Minimal backstop.yml (Go project, no packs yet). distribution.Add appends the
-	// substantiveness pack to this when the workspace is installed.
-	ymlContent := "project: e2e\nlanguage: go\npacks: {}\n"
+	// Minimal backstop.yml (no packs yet). distribution.Add appends the
+	// substantiveness pack to this when the workspace is installed. SPEC-046: no
+	// `language:` key — a project is described by its declared packs.
+	ymlContent := "project: e2e\npacks: {}\n"
 	if err := os.WriteFile(filepath.Join(tmp, "backstop.yml"), []byte(ymlContent), 0o644); err != nil {
 		return nil, fmt.Errorf("writing e2e backstop.yml: %w", err)
 	}
