@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
 
@@ -20,18 +19,6 @@ import (
 func spec046FixturePath(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join(repoRoot(t), "cmd", "backstop", "testdata", name)
-}
-
-// spec046LoadFixture loads a spec046 testdata gate config through the real config
-// loader (exercising the actual strict-decode + schema path, which after SPEC-046
-// accepts a config with no `language:` field and ignores a stray `language:` key).
-func spec046LoadFixture(t *testing.T, name string) *config.Config {
-	t.Helper()
-	cfg, err := config.LoadConfigFromPath(spec046FixturePath(t, name))
-	if err != nil {
-		t.Fatalf("loading spec046 fixture %s: %v", name, err)
-	}
-	return cfg
 }
 
 // goToolchainProjectRoot returns the testdata project root whose .backstop/packs
