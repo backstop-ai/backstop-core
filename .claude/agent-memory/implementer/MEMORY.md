@@ -1,2 +1,8 @@
 - [Agent-guard blocks testdata](feedback_agent_guard_testdata.md) — implementer Write/Edit blocked on non-Go/non-.backstop files; use Bash to create fixtures + memory
 - [Dogfood/gate quirks (SPEC-031)](project_dogfood_gate_quirks.md) — contract checker collapsed defined types; no-global-mutable-state false-fired on const; both fixed by precision, not weakening
+- [Pack dispatch not bypass](feedback_pack_dispatch_not_bypass.md) — pack-consuming gate steps route engine exec through dispatchPackEngines seam (sandbox+allowlist), never raw exec; spy the sandbox seam in the E2E
+- [Net-negative gate baseline](feedback_netnegative_gate_baseline.md) — behavior-preserving diffs go gate-RED on pre-existing pack_engines findings (whole-file scope, no local baseline); prove net-new=0 via HEAD-vs-NOW semgrep, fix only yours, report inherited red to the user
+- [Coverage producer stream bug](project_coverage_producer_stream_bug.md) — SPEC-042 producer feeds the convert go-test's SUMMARY stdout not the cover.out profile; changed .go files get no record so gate falsely reds; fix = declared stdout_artifact
+- [Struct-contract compiler gap](project_struct_contract_compiler_gap.md) — contracts pack compile-signature.sh handles only func sigs; every `type X struct` contract reds under --file gate scope (pre-existing, codebase-wide); diff-scope gate unaffected
+- [Semgrep key-literal FP](feedback_semgrep_key_literal_fp.md) — secrets pack flags "Hardcoded credentials" on any key/secret/token/password identifier assigned a string literal; rename to clear
+- [Smoke dark-pack pre-failures](project_smoke_darkpack_prefailures.md) — tests/smoke has 4 PRE-EXISTING substantiveness/contracts/coverage failures; diff against a green base before claiming a regression

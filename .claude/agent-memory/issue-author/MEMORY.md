@@ -1,0 +1,2 @@
+- [ISSUE-024 thin-executor dogfood rule](project_thin_executor_dogfood.md) — blocked on SPEC-035 pattern-arg + BUNDLE-009 OQ-7; lives in backstop/go-standards pack, not binary
+- [Scaffold stub filename bug](feedback_stub_filename_extension.md) — stubs may be missing `.issue.` middle; git mv to fix before authoring; validator silently skips non-matching filenames

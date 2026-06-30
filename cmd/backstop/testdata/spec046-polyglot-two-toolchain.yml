@@ -1,0 +1,4 @@
+project: spec046-polyglot
+packs:
+    backstop/go-toolchain: local
+    backstop/bun-toolchain: local

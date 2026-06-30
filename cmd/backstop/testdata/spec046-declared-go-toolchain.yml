@@ -1,0 +1,3 @@
+project: spec046-declared
+packs:
+    backstop/go-toolchain: local

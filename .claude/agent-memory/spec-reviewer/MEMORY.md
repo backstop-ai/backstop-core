@@ -1,0 +1,26 @@
+- [Re-key faithfulness](feedback_rekey_faithfulness.md) — when a spec re-keys an existing validation contract, diff against live code not bundle "e.g." prose
+- [Parser locus seam](feedback_parser_locus_seam.md) — pack engine dispatch vs native toolchain registry are separate call paths; removal claims must name the right locus
+- [Sandbox CombinedOutput](feedback_sandbox_combinedoutput.md) — convert pipe via SandboxedRun still uses CombinedOutput; contradicts the spec's clean-stdout REQ for SARIF
+- [Existing test coupling](feedback_existing_test_coupling.md) — removal specs must name existing tests that assert the old behavior, not just the new replacement claims
+- [Findings-engine shaping](feedback_findings_engine_shaping.md) — runFindingsEngine appends projectRoot + has no file-mode notion; reusing it for go build/test is more than a crash-guard add
+- [Tool-name eradication surface](feedback_toolname_eradication_surface.md) — eradication specs under-count: grep the literal string + name-keyed maps + config keys, not just the renamed symbol
+- [SPEC-035 ready to plan](project_spec035_ready_to_plan.md) — passed review #3 (v1.1.0); four residual findings closed + verified vs live code
+- [SPEC-036 ready to plan](project_spec036_ready_to_plan.md) — passed review #2 (v1.1.0); BUNDLE-009 Seed 1 fail-loud; three FAIL findings closed + verified vs live code
+
+- [Substantiveness dispatch seam](feedback_substantiveness_dispatch_seam.md) — SPEC-037 Q2 set-join needs per-test symbol extraction; existing dispatchPackEngines is a flat-violations path, not that
+- [SPEC-038 ready to plan](project_spec038_review1_fail.md) — passed review #2 (v1.1.0); Seed 4 contracts pack; four deletion-surface blockers closed + verified vs live code
+- [SPEC-037 ready to plan](project_spec037_review.md) — passed re-review (v1.2.1); 3 SPEC-036 capability re-key blockers closed + verified vs live code
+- [SPEC-040 passed review](project_spec040_review.md) — BUNDLE-011 Seed 2 keystone cutover; PASS w/ one prose nit; TS-stack-reality + coverage-seam + golden + vacuous-green all verified vs main
+- [ProjectWide locus seam](feedback_projectwide_locus_seam.md) — "re-express build exemption" specs anchor to orphaned gate.go:1173; real locus is the engine path (ScopeKind→ProjectWide bridge that doesn't exist yet)
+- [Vestigial retain via test-liveness](feedback_vestigial_retain_via_test_liveness.md) — a spec retaining a branch "because tests exercise it" may preserve vestigial code; demand a PRODUCTION producer, not a tempdir fixture
+- [Catalog DELETED mislabel](feedback_catalog_deleted_mislabel.md) — SPEC-041 catalog tags pkg/check sites DELETED, but no sibling spec deletes the CheckType enum surface; they survive → guard reds on arrival
+- [Deletion strands downstream deadcode](feedback_deletion_strands_downstream_deadcode.md) — a whole-branch delete can strand its downstream consumer (sole-fed) as dead+untested; don't mislabel it "surviving API intact"
+- [Coverage producer gap](feedback_coverage_producer_gap.md) — SPEC-041's per-file CoverageRecord has no producer; go-toolchain go-test emits failure findings only, no coverage; SPEC-040-side corrective
+- [SPEC-042 review #1 FAIL](project_spec042_review1.md) — coverage PRODUCER; deliverables sound, but cites SPEC-041's CoverageRecord as main-verified (it's draft, type absent) + false go-build/go-test engines:-block analogy
+- [Sibling draft not landed](feedback_sibling_draft_not_landed.md) — a spec citing a co-developed sibling's type as "verified on main" when that sibling is still draft and the symbol doesn't exist
+- [Shared-function signature conflict](feedback_shared_function_signature_conflict.md) — sibling specs co-rewriting one function declare contradictory signatures; diff the literal signature lines, validator misses it
+- [Deleted concept orphans consumer](feedback_deleted_concept_orphans_consumer.md) — when spec X deletes a concept spec Y still sources from, check X's edit-set covers Y's call site or it's an orphan
+- [BUNDLE-012 cross-consistency FAIL](project_bundle012_crosspass.md) — 5-spec cutover; 3 blockers: StepCoverage sig conflict (043/044), `bridged` orphan (043/046), zero-baseline granularity absent in per-dimension policy (047 REQ-008)
+- [SPEC-044 passed review](project_spec044_review.md) — multi-metric (path,metric) records, Seed 4; PASS, B1 4-arg sig matches 043, REQ-006 no-new-type verified vs live parser
+- [SPEC-047 review](project_spec047_review.md) — BUNDLE-012 Seed 5 bun pack+proof+ratchet; PASS w/ 2 prose should-fixes; REQ-007 per-pack policy key verified vs live (SourcePack exists, pack_engines premise holds), closes crosspass blocker #3
+- [SPEC-046 ready to plan](project_spec046_review1.md) — passed review #4; completeness contract reframed to mechanical guard+test_command over 4 pkgs (list illustrative); all 10 config.Config.Language readers enumerated, guard scope provably exhaustive

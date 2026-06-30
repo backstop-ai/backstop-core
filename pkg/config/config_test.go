@@ -72,15 +72,16 @@ func TestConfig_LoaderValidatesAgainstSchema(t *testing.T) {
 	}
 }
 
-// TestConfig_RequiredFields_ProjectAndLanguage verifies YAML missing project
-// or language field fails. (CLM-035)
+// TestConfig_RequiredFields_ProjectAndLanguage verifies YAML missing the project
+// field fails. (CLM-035) SPEC-046: `language` is RETIRED and no longer required —
+// a config missing only `language` parses cleanly, so only project-missing cases
+// remain failing (the `language: go` line in the first case is now an inert key).
 func TestConfig_RequiredFields_ProjectAndLanguage(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
 	}{
 		{"missing project", "language: go\n"},
-		{"missing language", "project: my-svc\n"},
 		{"missing both", "runtimes:\n  - go1.25\n"},
 	}
 	for _, tc := range tests {

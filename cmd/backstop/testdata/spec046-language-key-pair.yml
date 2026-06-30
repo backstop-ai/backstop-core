@@ -1,0 +1,4 @@
+project: spec046-langkey
+language: go
+packs:
+    backstop/go-toolchain: local
