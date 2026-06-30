@@ -34,10 +34,19 @@ func coverageSpecs(threshold int) []SpecVerification {
 	return []SpecVerification{{SpecID: "SPEC-X", TestCommand: "go test ./...", CoverageThreshold: threshold}}
 }
 
+// goClassifier is the go-toolchain reference classification (source **/*.go, test
+// **/*_test.go + **/testdata/**) these existing per-FILE coverage tests assume —
+// after SPEC-043 de-Go'd coverageMeasurablePath, measurability comes from the
+// pack-declared globs, so the Go-shaped tests supply the Go globs explicitly.
+func goClassifier() SourceClassifier {
+	return NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+}
+
 // runCoverage runs the re-implemented per-FILE coverage step over the given
-// records/specs/scope and returns the StepResult.
+// records/specs/scope and returns the StepResult, threading the go-toolchain
+// classifier (the 4-arg SPEC-043 signature).
 func runCoverage(records []check.CoverageRecord, threshold int, scope *GateScope) StepResult {
-	return StepCoverageThresholdScopedFunc(records, coverageSpecs(threshold), scope)(context.Background())
+	return StepCoverageThresholdScopedFunc(records, coverageSpecs(threshold), scope, goClassifier())(context.Background())
 }
 
 // diffScopeFor builds a diff-mode GateScope over the given project-relative files.

@@ -25,9 +25,9 @@ const defaultCodeScopeCoverageFloor = 90
 // coverage threshold PER FILE over the canonical []check.CoverageRecord (the
 // SINGLE shared type from SPEC-042 — Path/Covered/Total/Measured/Excluded/Metric,
 // RAW COUNTS, file granularity). It is the convenience wrapper that delegates to
-// the scoped form with a nil scope.
-func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVerification) StepFunc {
-	return StepCoverageThresholdScopedFunc(coverage, specs, nil)
+// the scoped form with a nil scope, now carrying the SourceClassifier (SPEC-043).
+func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVerification, classifier SourceClassifier) StepFunc {
+	return StepCoverageThresholdScopedFunc(coverage, specs, nil, classifier)
 }
 
 // StepCoverageThresholdScopedFunc CONSUMES the canonical per-FILE
@@ -43,23 +43,45 @@ func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVeri
 //   - A measured file whose Covered/Total ratio is below the applicable threshold
 //     produces a blocking coverage_threshold violation, regardless of its
 //     directory siblings (CLM-007/CLM-009/CLM-010).
-//   - An in-scope changed PATH with NO record that is NOT pack-declared-excluded is
-//     a LOUD blocking error (severity error), never a silent pass (CLM-008).
+//   - An in-scope changed measurable-source PATH with NO record for the path AT
+//     ALL (any metric) that is NOT pack-declared-excluded is a LOUD blocking error
+//     under the DISTINCT coverage_unmeasured rule — distinct from below-threshold,
+//     and fired even when no positive numeric threshold is in scope, because the
+//     `if threshold <= 0 { return pass }` early return is DISMANTLED so the
+//     no-record scan runs BEFORE/INDEPENDENT of threshold resolution (REQ-003).
 //   - A pack-declared-excluded path is SKIPPED from the threshold check; but a
 //     declared exclusion of an IN-SCOPE CHANGED file is LOUDLY SURFACED (path +
 //     reason) on the report — never silently dropped (CLM-025).
 //   - The pack-declared Metric label is SURFACED on the report and NEVER
 //     interpreted, compared, or branched on (CLM-027).
-func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope) StepFunc {
+//
+// The MEASURABLE-SOURCE set is derived from the SourceClassifier (the merged
+// union of pack-declared source/test globs), NOT a baked extension literal
+// (REQ-002): coverageMeasurablePath is DELETED. When the classifier declares no
+// source globs at all and in-scope changed files exist, the step surfaces a
+// DISTINCT non-blocking "classification capability absent" warning instead of a
+// silent pass (REQ-004). The no-record predicate is "any record for the path" so
+// it composes with SPEC-044's (path, metric) index; per-metric verdicts are
+// SPEC-044's.
+func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope, classifier SourceClassifier) StepFunc {
 	return func(_ context.Context) StepResult {
-		thresholds := coverageThresholdsForScope(specs, scope)
-		threshold := coverageFloorForScope(thresholds)
-		if threshold <= 0 {
-			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no coverage threshold declared in scope"}
+		// REQ-004: no declared source globs + in-scope changed files => a DISTINCT
+		// visible, non-blocking capability-absent state — never a silent pass. This
+		// is checked FIRST, before threshold/path resolution, because with no source
+		// globs the measurable set is empty and the step would otherwise pass quietly.
+		if !classifier.HasSourceGlobs() && scopeHasChangedFiles(scope) {
+			return coverageClassificationCapabilityAbsent()
 		}
 
+		// REQ-003: the `if threshold <= 0 { return pass }` early return is DISMANTLED.
+		// The measurable-source no-record scan below runs independent of the numeric
+		// threshold, so a declared source glob is honored as the measurement promise
+		// even when coverageFloorForScope yields no positive floor.
+		thresholds := coverageThresholdsForScope(specs, scope)
+		threshold := coverageFloorForScope(thresholds)
+
 		byPath := indexCoverageByPath(coverage)
-		paths := coveragePathsInScope(coverage, scope)
+		paths := coveragePathsInScope(coverage, scope, classifier)
 		if len(paths) == 0 {
 			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no in-scope files to measure for coverage"}
 		}
@@ -70,12 +92,16 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 			inScopeChanged := coveragePathInDiffScope(path, scope)
 
 			if !hasRecord {
-				// An in-scope changed PATH with NO record is a LOUD blocking error —
-				// never a silent pass. Only a pack-DECLARED exclusion (carried as a
-				// record with Excluded==true) silences the requirement (CLM-008).
+				// An in-scope changed measurable-source PATH with NO record for the
+				// path at all is a LOUD blocking error under the DISTINCT
+				// coverage_unmeasured rule — never a silent pass, and never conflated
+				// with below-threshold (coverage_threshold). Only a pack-DECLARED
+				// exclusion (carried as a record with Excluded==true) silences the
+				// requirement (REQ-003/CLM-012..017). The phrase "no coverage
+				// measurement" is retained for report continuity.
 				violations = append(violations, Violation{
-					Rule:     "coverage_threshold",
-					Message:  fmt.Sprintf("no coverage measurement for in-scope changed file %s and it is not pack-declared excluded — refusing to pass with nothing measured", path),
+					Rule:     "coverage_unmeasured",
+					Message:  fmt.Sprintf("no coverage measurement for in-scope changed measurable-source file %s (any metric) and it is not pack-declared excluded — refusing to pass with nothing measured", path),
 					File:     path,
 					Severity: "error",
 				})
@@ -202,7 +228,7 @@ func resolveCoverageRecord(byPath map[string]check.CoverageRecord, path string) 
 // (so the loud "no record for a changed file" check fires per changed path). In
 // all-mode (or nil scope) it is every record's path (the full project sweep flags
 // every below-threshold file, never a whole-repo aggregate).
-func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope) []string {
+func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope, classifier SourceClassifier) []string {
 	set := map[string]struct{}{}
 	if scope == nil || scope.Mode == GateScopeModeAll {
 		for _, r := range coverage {
@@ -211,7 +237,11 @@ func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope) []s
 	} else {
 		for _, f := range scope.Files {
 			clean := normalizeScopePath(scope.ProjectRoot, f)
-			if !coverageMeasurablePath(clean) {
+			// The MEASURABLE-SOURCE decision comes from the pack-declared globs
+			// (SourceClassifier), never a baked extension literal (REQ-002): a path
+			// is in-scope-to-measure iff it matches a declared source glob and no
+			// declared test glob (test-wins-on-overlap).
+			if !classifier.IsMeasurableSource(clean) {
 				continue
 			}
 			set[clean] = struct{}{}
@@ -225,29 +255,32 @@ func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope) []s
 	return out
 }
 
-// coverageMeasurablePath reports whether a changed-file path is one coverage can
-// be expected for: a source file, excluding spec docs, test files, and testdata
-// fixtures (which carry no coverage requirement). This is language-agnostic by
-// shape — it keys on path conventions, not a Go-package model.
-func coverageMeasurablePath(path string) bool {
-	if path == "" || strings.HasSuffix(path, ".spec.md") {
-		return false
+// scopeHasChangedFiles reports whether the scope is a diff/file scope carrying at
+// least one in-scope changed file. It is the precondition for the REQ-004
+// classification-capability-absent state (no source globs declared yet changed
+// files exist), distinguishing it from an all-mode sweep.
+func scopeHasChangedFiles(scope *GateScope) bool {
+	return scope != nil && scope.Mode != GateScopeModeAll && len(scope.Files) > 0
+}
+
+// coverageClassificationCapabilityAbsent builds the DISTINCT, VISIBLE, NON-blocking
+// "classification capability absent" StepResult for REQ-004: when no declared
+// toolchain pack carries a classification.source list the step cannot classify
+// which changed files are measurable source, so it surfaces a warning rather than
+// an unqualified pass. It reuses the EXISTING capability-absent convention (the
+// warning-status `<dim>_capability_absent` shape PolarityStepResult emits) as a
+// coverage-dimension advisory: Severity warning, ConfigErr false, exit 0.
+func coverageClassificationCapabilityAbsent() StepResult {
+	msg := fmt.Sprintf(
+		"coverage classification capability absent: no pack-declared %s globs are in effect, so the gate cannot determine which in-scope changed files are measurable source — install/declare a toolchain pack carrying a classification.source list. This advisory is non-blocking (exit 0).",
+		DimensionCoverage,
+	)
+	return StepResult{
+		StepName:   StepCoverageThreshold,
+		Status:     "warning",
+		ConfigErr:  false,
+		Violations: []Violation{{Rule: string(DimensionCoverage) + "_capability_absent", Message: msg, Severity: "warning"}},
 	}
-	if strings.HasSuffix(path, "_test.go") {
-		return false
-	}
-	if !strings.HasSuffix(path, ".go") {
-		// Non-Go source files are measured only when the producer emits a record
-		// for them; they are not synthesized as required paths here (the producer,
-		// not the gate, decides the measured set for other languages).
-		return false
-	}
-	for _, segment := range strings.Split(path, "/") {
-		if segment == "testdata" {
-			return false
-		}
-	}
-	return true
 }
 
 // coveragePathInDiffScope reports whether path is an in-scope CHANGED file under a
