@@ -27,6 +27,29 @@ type Manifest struct {
 	// fallback registry so a rule's declared engine resolves to the pack-declared
 	// binding when present.
 	Engines map[string]EngineSpec `yaml:"engines"`
+	// Classification holds the pack-declared file-classification globs parsed from
+	// the OPTIONAL top-level `classification:` block (SPEC-043 REQ-001/CLM-001).
+	// A toolchain pack declares which files are SOURCE (coverage is expected for
+	// them) and which are TEST/non-source via two glob lists; the language-neutral
+	// coverage consumer reads the MERGED UNION of these across all declared packs
+	// instead of a baked `.go` literal. The block is OPTIONAL: a manifest with no
+	// `classification:` yields the zero value with no parse error (CLM-002). The
+	// binary holds NO baked source/test convention — every stack supplies its own
+	// globs (DD-1, the thin-executor first principle).
+	Classification Classification `yaml:"classification"`
+}
+
+// Classification is the pack-declared file-classification DATA (SPEC-043
+// REQ-001/CLM-001): two OPTIONAL glob lists a toolchain pack declares under the
+// top-level `classification:` block. Source globs are patterns whose matches are
+// SOURCE files coverage is expected for; Test globs are patterns whose matches
+// are TEST/non-source files — a stack folds its fixture/testdata convention into
+// Test (e.g. `**/testdata/**`) rather than a separate baked dimension. Absent
+// block => zero value, no error (CLM-002). The binary bakes NO language-specific
+// source/test convention; every stack supplies its own globs (DD-1).
+type Classification struct {
+	Source []string `yaml:"source"`
+	Test   []string `yaml:"test"`
 }
 
 // EngineSpec is one entry in a pack manifest's top-level `engines:` block: the
