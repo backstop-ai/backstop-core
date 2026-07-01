@@ -131,6 +131,13 @@ func ApplyPolicy(steps []StepResult, baseline *BaselineArtifact, policy map[stri
 // s.NewViolations is set to the blocking counted set so the report attributes the
 // verdict. The net-new set is computed ONCE over the whole step; a source that
 // grandfathers reads it, a zero-baseline source ignores it.
+//
+// NIL-BASELINE FAIL-LOUD: with NO baseline (a fresh checkout before the CI-pulled
+// baseline is present), a baseline:true source CANNOT grandfather — every finding
+// counts, exactly MIRRORING the unscoped path (which also counts all findings when
+// baseline is nil). This is the anti-vacuous-green invariant: a missing baseline must
+// never SILENTLY grandfather a whole dimension to green — the degraded case blocks,
+// it does not pass. (Verified by TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen.)
 func applyScopedPolicy(s StepResult, p DimensionPolicy, baseline *BaselineArtifact, scope *GateScope) StepResult {
 	newSet := map[string]bool{}
 	if baseline != nil {
@@ -157,8 +164,11 @@ func applyScopedPolicy(s StepResult, p DimensionPolicy, baseline *BaselineArtifa
 		}
 
 		counts := true
-		if eff.Baseline {
-			// Grandfathering preserved for this source: only net-new counts.
+		if eff.Baseline && baseline != nil {
+			// Grandfathering preserved for this source: only net-new counts. Gated on a
+			// PRESENT baseline — with no baseline (baseline == nil) grandfathering is
+			// impossible, so counts stays true and the finding blocks (fail-loud),
+			// mirroring the unscoped path. A nil baseline must never silently grandfather.
 			counts = newSet[EnrichViolationIdentity(v).IdentityHash]
 		}
 		if !counts {

@@ -178,7 +178,12 @@ func TestRatchet_FlipSequencedAfterPillarASitesClean(t *testing.T) {
 
 // pillarASitesClean reports whether the three Pillar-A consumer sites carry NO baked
 // neutral-spine language literal (`.go`/`_test.go`/`./...`) — the de-Go'd precondition
-// for the terminal flip.
+// for the terminal flip. This is a coarse source-text PROXY for the ordering guard;
+// the REAL wall is the LIVE gate under the flip (a reintroduced literal REDs — proven
+// by TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright / CLM-034). The proxy is
+// STRICT: it counts ANY such literal as not-clean, INCLUDING a nosemgrep-suppressed
+// one — a suppressed baked literal is still a baked assumption on the neutral spine,
+// and the de-Go'd sites carry none, so the strict proxy never false-negatives here.
 func pillarASitesClean(t *testing.T) bool {
 	t.Helper()
 	for _, rel := range []string{
@@ -191,10 +196,8 @@ func pillarASitesClean(t *testing.T) bool {
 			t.Fatalf("read %s: %v", rel, err)
 		}
 		for _, banned := range []string{`"` + `.go"`, `"_test` + `.go"`, `"./` + `..."`} {
-			for _, line := range strings.Split(string(src), "\n") {
-				if strings.Contains(line, banned) && !strings.Contains(line, "nosemgrep") {
-					return false
-				}
+			if strings.Contains(string(src), banned) {
+				return false
 			}
 		}
 	}

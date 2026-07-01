@@ -85,6 +85,47 @@ func TestPolicy_SelfPackFlipLeavesGoToolchainBaselinedFindingGrandfathered(t *te
 	}
 }
 
+// TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen proves the
+// anti-vacuous-green invariant for the per-source path: with NO baseline (nil — a
+// fresh checkout before the CI-pulled baseline is present), a baseline:TRUE scoped
+// source cannot grandfather, so its findings BLOCK (fail-loud), exactly mirroring the
+// unscoped path. A nil baseline must NEVER silently flip a whole dimension to green —
+// which would be the vacuous-green the bundle fights, in the very code that flips
+// backstop/self to block.
+func TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen(t *testing.T) {
+	// A go-standards finding on a baseline:TRUE source (the dimension default), plus a
+	// backstop/self finding on the zero-baseline scoped source — both under a policy
+	// that HAS per-source scoping (so the scoped path runs).
+	gostd := vioSrc(goStdRule, "pkg/x/x.go", "gostdregion", "backstop/go-standards")
+	self := vioSrc(selfNeutralRule, "pkg/gate/foo.go", "freshneutralspine", "backstop/self")
+	step := StepResult{StepName: "pack_engines", Status: "fail", Violations: []Violation{gostd, self}}
+
+	// NIL baseline: grandfathering is impossible. Both the baseline:true go-standards
+	// finding AND the zero-baseline self finding must COUNT and BLOCK — never silently
+	// grandfathered to green.
+	got := ApplyPolicy([]StepResult{step}, nil, selfScopedPolicy(), nil)[0]
+	if got.Status != "fail" {
+		t.Fatalf("with a nil baseline, a scoped block dimension must FAIL-LOUD (block all findings), not silently grandfather to green; got %s", got.Status)
+	}
+	// Both findings must be in the blocking set — neither is grandfathered without a
+	// baseline (the degraded case blocks; it does not pass).
+	sawGostd, sawSelf := false, false
+	for _, v := range got.NewViolations {
+		switch v.SourcePack {
+		case "backstop/go-standards":
+			sawGostd = true
+		case "backstop/self":
+			sawSelf = true
+		}
+	}
+	if !sawGostd {
+		t.Error("a baseline:true source's finding must BLOCK when no baseline is present (cannot grandfather without a baseline) — mirroring the unscoped fail-loud path")
+	}
+	if !sawSelf {
+		t.Error("the zero-baseline scoped source's finding must block")
+	}
+}
+
 // TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline is the DENYLIST: the
 // flip is delivered via the per-pack/source key (filtering on
 // gate.Violation.SourcePack), NOT a whole-dimension pack_engines:{block,
