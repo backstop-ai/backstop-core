@@ -2,9 +2,9 @@
 title: "Multi Metric Coverage Records"
 number: SPEC-044
 created: "2026-06-28"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -644,3 +644,11 @@ the diff.
   missing-metric guard (REQ-005) serves at metric granularity.
 - [[feedback_zero_baked_checks]] — the metric-blindness in REQ-002/REQ-003: policy lives in
   declared numbers, not in the binary; the gate never ranks metrics.
+
+## Version History
+
+- **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 2 code shipped
+  and passed impl-review PASS; the multi-metric `(path, metric)` coverage-record model
+  and the metric-granular missing-metric guard are live. No requirement, claim, or
+  contract text changed — lifecycle transition only.
+- **1.0.0** (2026-06-28) — Initial spec authored from BUNDLE-012 Seed 2.

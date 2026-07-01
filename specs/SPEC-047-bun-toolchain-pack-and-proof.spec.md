@@ -2,9 +2,9 @@
 title: "Bun Toolchain Pack And Two-Surface Proof"
 number: SPEC-047
 created: "2026-06-28"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -853,3 +853,17 @@ files, sibling seams):
   (canonical, unchanged); the dogfood `backstop.yml` `enforcement.policy` block +
   `.backstop/baseline.json` (the ratchet/flip surface); `.backstop/packs/backstop/self/pack.yml`
   (the neutral-spine rule family).
+
+## Version History
+
+- **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 4 code shipped
+  and passed impl-review PASS; the `backstop/bun-toolchain` pack, the in-repo fixture
+  end-to-end proof, and the ratchet→block flip are live. No requirement, claim, or
+  contract text changed — lifecycle transition only.
+  - **OUTSTANDING ACCEPTANCE — REQ-005.** REQ-005's *external executed acceptance* (the
+    guarded manual `bun-gate` run over the opencode fork, producing real run-evidence) is
+    the ONE open user-manual acceptance and is **NOT yet done** — it awaits the user's
+    manual run. `status: implemented` reflects that the code shipped and passed
+    impl-review; it does **not** assert REQ-005's executed run-evidence has been captured.
+    Tracked separately by the user.
+- **1.0.0** (2026-06-28) — Initial spec authored from BUNDLE-012 Seed 4.

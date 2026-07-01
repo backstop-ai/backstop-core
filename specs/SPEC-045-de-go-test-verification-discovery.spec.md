@@ -2,9 +2,9 @@
 title: "De-Go'd Test-Verification Discovery + Language-Neutral Package/Spec-Relevance Matchers"
 number: SPEC-045
 created: "2026-06-28"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -766,3 +766,11 @@ matcher in **`cmd/backstop`**. Processing steps the planner maps tasks to:
   `StepTestVerificationScopedFunc` call site (~L629); `pkg/gate/step_coverage.go`
   `coverageSpecRelevantToFile` (~L343), `packagePathMatches` (~L360); `pkg/pack/manifest.go`
   `Manifest`; reference `.backstop/packs/backstop/go-toolchain/pack.yml`.
+
+## Version History
+
+- **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 1 (Pillar A) code
+  shipped and passed impl-review PASS; the de-Go'd test-verification discovery and the
+  language-neutral package/spec-relevance matchers are live. No requirement, claim, or
+  contract text changed — lifecycle transition only.
+- **1.0.0** (2026-06-28) — Initial spec authored from BUNDLE-012 Seed 1 (Pillar A).

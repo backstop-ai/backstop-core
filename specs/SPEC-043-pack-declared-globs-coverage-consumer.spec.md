@@ -2,9 +2,9 @@
 title: "Pack-Declared File-Classification Globs + De-Go'd Coverage Measurable-Path"
 number: SPEC-043
 created: "2026-06-28"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -765,3 +765,11 @@ processing steps the planner must map tasks to:
   `coveragePathsInScope` (~L205), `StepCoverageThresholdScopedFunc` (~L53);
   `cmd/backstop/gate.go` `buildCoverageStep` (~L987); `pkg/pack/manifest.go` `Manifest`
   (~L14); reference `.backstop/packs/backstop/go-toolchain/pack.yml`.
+
+## Version History
+
+- **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 1 code shipped
+  and passed impl-review PASS; the pack-declared `classification` globs block and the
+  `pkg/gate` `SourceClassifier` (with the de-Go'd coverage measurable-path consumer) are
+  live. No requirement, claim, or contract text changed — lifecycle transition only.
+- **1.0.0** (2026-06-28) — Initial spec authored from BUNDLE-012 Seed 1.

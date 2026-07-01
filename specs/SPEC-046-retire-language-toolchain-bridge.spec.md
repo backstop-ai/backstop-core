@@ -2,9 +2,9 @@
 title: "Retire Language Toolchain Bridge"
 number: SPEC-046
 created: "2026-06-28"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -518,7 +518,7 @@ tracing to BUNDLE-012 REQ-004/REQ-005 via `supports`. Summary:
 | REQ-001 | Delete the bridge (`loadBridgedToolchainPacks` / `toolchainPackName` / `gateLanguage` / the auto-load); toolchain packs load ONLY via the declared-pack path and dispatch uniformly; the bridge never synthesizes a pack; `bridged` removed from the gate wiring. | REQ-004 |
 | REQ-002 | Dogfood does NOT regress (go-toolchain dispatched via `packs:` with no `language:`); polyglot declares 2+ toolchain packs; `countToolchainPacks` / `toolchainEnforcementStatus` / `coverageRecordsProducer` key on declared packs only. | REQ-004 |
 | REQ-003 | Fully remove `Config.Language`, the dogfood `language: go`, and every `cfg.Language` reader; a stray `language:` key parses cleanly and is inert. | REQ-005 |
-| REQ-004 | Rehome the stack label off `cfg.Language` onto the declared-toolchain set; consume SPEC-043's `SourceClassifier` (`HasSourceGlobs`); SQ-1 = merged union, set-valued label, no precedence; capability/polarity verdicts unchanged. | REQ-005 |
+| REQ-004 | Rehome the stack label off `cfg.Language` onto the declared toolchain-pack-NAME set (the SINGLE authoritative signal, name-derived); reuse SPEC-043's single `SourceClassifier` for the polyglot glob union, with `HasSourceGlobs` CORROBORATING only (can diverge from the pack-name set — NOT the authoritative label driver); SQ-1 = merged union, set-valued label, no precedence; capability/polarity verdicts unchanged. | REQ-005 |
 
 ### Toolchain-pack acquisition matrix (REQ-001 / REQ-002)
 
@@ -946,3 +946,16 @@ After this seed, NO `_test.go` in `cmd/backstop` may reference
   (~L188), `CapabilityState` (~L81), `PolarityStepResult` (~L217); `pkg/config/config.go`
   `Config.Language` (~L22); `cmd/backstop/code_check.go` (~L134);
   `cmd/backstop/gate_substantiveness_e2e.go` (~L50); dogfood `backstop.yml` (`language: go`).
+
+## Version History
+
+- **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 3 (Pillar B) code
+  shipped and passed impl-review PASS; the `language:`-derived toolchain bridge is deleted,
+  `Config.Language` is fully retired, and the traceability stack label is rehomed onto the
+  declared toolchain-pack-NAME set (SQ-1 resolved). Also corrected the REQ-004
+  summary-table row to match the REQ-004 body: `HasSourceGlobs` is CORROBORATING only, not
+  the authoritative label driver — the label keys on the declared toolchain-pack-NAME set.
+  No requirement, claim, or contract text changed — lifecycle transition plus one
+  cosmetic table-consistency fix.
+- **1.0.0** (2026-06-28) — Initial spec authored from BUNDLE-012 Seed 3 (Pillar B); SQ-1
+  owned and resolved here.

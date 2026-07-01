@@ -35,7 +35,9 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 		wantStatus  string
 	}{
 		{
-			// Class 2: typescript undeclared coverage -> capability-absent, intercept.
+			// Class 2: no declared coverage pass AND no installed toolchain pack backing
+			// the dimension -> capability-absent -> intercept. (Installed-pack-keyed, not
+			// language-keyed: the cfg declares no language and none is consulted.)
 			name:        "class2_capability_absent_intercepts",
 			cfg:         &config.Config{Project: "p"},
 			dim:         gate.DimensionCoverage,
@@ -43,10 +45,9 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 			wantStatus:  "warning",
 		},
 		{
-			// Class 3: go declared coverage but capability forced missing -> intercept.
-			// We force class 3 by declaring coverage on a stack whose baked analyzer
-			// derivation marks it absent (typescript declared coverage = declared +
-			// absent = class 3).
+			// Class 3: a coverage pass is DECLARED (intent) but no installed toolchain
+			// pack backs it -> capability declared-but-unmet -> intercept. Installed-pack-
+			// keyed absence, not language-derived (no language field is set or consulted).
 			name: "class3_declared_intent_unmet_intercepts",
 			cfg: &config.Config{Project: "p", Enforcement: config.Enforcement{
 				Toolchain: map[string]config.ToolchainPass{
