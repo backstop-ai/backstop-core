@@ -59,9 +59,19 @@ type Enforcement struct {
 // dimension is enforced (level) and whether its pre-existing findings are
 // grandfathered (baseline). Level is "off" (don't enforce), "warn" (surface,
 // non-blocking), or "block" (fail the gate); empty defaults to "block".
+//
+// Sources is the OPTIONAL per-PACK / per-rule-SOURCE scoping (SPEC-047 REQ-007),
+// keyed by the pack/rule-source name (matched against gate.Violation.SourcePack). A
+// source-scoped override applies its level+baseline ONLY to that pack's findings
+// within the dimension; every OTHER pack's findings keep the dimension default (or
+// their own scoped override). This lets `backstop/self` flip to block + zero
+// baseline on the shared `pack_engines` dimension WITHOUT disturbing
+// go-standards/go-toolchain's baselined style debt. Absent Sources ⇒ the entry is
+// dimension-only and behaves exactly as before (backward compatible, CLM-036).
 type DimensionPolicy struct {
-	Level    string `yaml:"level,omitempty" json:"level,omitempty"`
-	Baseline bool   `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	Level    string                     `yaml:"level,omitempty" json:"level,omitempty"`
+	Baseline bool                       `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	Sources  map[string]DimensionPolicy `yaml:"sources,omitempty" json:"sources,omitempty"`
 }
 
 // ToolchainPass is a single declared pass binding in enforcement.toolchain: the

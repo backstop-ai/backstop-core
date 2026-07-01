@@ -297,9 +297,25 @@ func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
 	}
 	policy := make(map[string]gate.DimensionPolicy, len(cfg.Enforcement.Policy))
 	for dim, p := range cfg.Enforcement.Policy {
-		policy[dim] = gate.DimensionPolicy{Level: p.Level, Baseline: p.Baseline}
+		policy[dim] = dimensionPolicyFromConfig(p)
 	}
 	return policy
+}
+
+// dimensionPolicyFromConfig maps one config.DimensionPolicy row (including its
+// OPTIONAL per-PACK/per-rule-SOURCE overrides) into the gate's gate.DimensionPolicy
+// (SPEC-047 REQ-007). The per-source scope carries through verbatim so a scoped entry
+// (e.g. backstop/self → block + zero baseline) reaches gate.ApplyPolicy's per-source
+// filtering. An entry with no sources maps to the dimension-only shape (unchanged).
+func dimensionPolicyFromConfig(p config.DimensionPolicy) gate.DimensionPolicy {
+	out := gate.DimensionPolicy{Level: p.Level, Baseline: p.Baseline}
+	if len(p.Sources) > 0 {
+		out.Sources = make(map[string]gate.DimensionPolicy, len(p.Sources))
+		for src, sp := range p.Sources {
+			out.Sources[src] = gate.DimensionPolicy{Level: sp.Level, Baseline: sp.Baseline}
+		}
+	}
+	return out
 }
 
 // deriveCapabilityState computes a dimension's CapabilityState from installed-pack
