@@ -269,6 +269,25 @@ func gateConfig(projectRoot string) *config.Config {
 	return cfg
 }
 
+// bunAcceptanceEnabled reports whether the external Bun-fork acceptance (SPEC-047
+// REQ-005) may run: true ONLY when the acceptance env var is set AND the bun
+// toolchain is on PATH. The guarded acceptance test calls t.Skip() when this is
+// false, so backstop-core's Go CI never invokes the real bun/oxlint/tsc/prettier
+// toolchain (CLM-029) — the executed proof runs in the fork's own environment. This
+// is the ONLY new production symbol this spec adds to gate.go; the live dispatch of
+// the bun pack is the UNIFORM toolchain-pack dispatch SPEC-046 already provides, so
+// there is NO per-pack branch here — the guard only gates whether the fork
+// acceptance test executes.
+func bunAcceptanceEnabled() bool {
+	if os.Getenv("BACKSTOP_BUN_ACCEPTANCE") == "" {
+		return false
+	}
+	// The acceptance requires the real bun toolchain; its presence on PATH is the
+	// second condition, so an env var set in a bun-free environment still skips.
+	_, err := exec.LookPath("bun")
+	return err == nil
+}
+
 // gatePolicyFromConfig converts the declared enforcement.policy table into the gate's
 // per-dimension policy map. Returns nil when none is declared, leaving every dimension
 // at the default (block, no baseline).
