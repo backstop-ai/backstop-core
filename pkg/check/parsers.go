@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -148,9 +149,18 @@ type sarifLog struct {
 					} `json:"artifactLocation"`
 					Region struct {
 						StartLine int `json:"startLine"`
+						Snippet   struct {
+							Text string `json:"text"`
+						} `json:"snippet"`
 					} `json:"region"`
 				} `json:"physicalLocation"`
 			} `json:"locations"`
+			// PartialFingerprints is the SARIF stable, content-derived fingerprint
+			// (semgrep emits these). When present it is the line-INDEPENDENT identity
+			// the baseline keys on, so multiple same-rule findings in one file stay
+			// distinct and a finding survives unrelated line shifts. Engines that omit
+			// it fall back to the snippet text, then to the coarse message identity.
+			PartialFingerprints map[string]string `json:"partialFingerprints"`
 			// Suppressions is the SARIF suppression list (ISSUE-017). A result with a
 			// non-empty suppressions array is INACTIVE per the SARIF spec — e.g.
 			// semgrep, in --sarif mode, emits `// nosemgrep`-suppressed findings as
@@ -185,23 +195,46 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 			if len(r.Suppressions) > 0 {
 				continue
 			}
-			file, line := "", 0
+			file, line, snippet := "", 0, ""
 			if len(r.Locations) > 0 {
 				pl := r.Locations[0].PhysicalLocation
 				file = pl.ArtifactLocation.URI
 				line = pl.Region.StartLine
+				snippet = strings.TrimSpace(pl.Region.Snippet.Text)
 			}
 			violations = append(violations, Violation{
-				Pass:     target,
-				File:     file,
-				Line:     line,
-				Message:  r.Message.Text,
-				Severity: sarifSeverity(r.Level),
-				Rule:     r.RuleID,
+				Pass:        target,
+				File:        file,
+				Line:        line,
+				Message:     r.Message.Text,
+				Severity:    sarifSeverity(r.Level),
+				Rule:        r.RuleID,
+				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet),
 			})
 		}
 	}
 	return violations, nil
+}
+
+// sarifFingerprint derives a content-based, line-INDEPENDENT identity for a SARIF
+// result: the partialFingerprints (deterministically ordered) when the engine emits
+// them, else the region snippet text. Returns "" when the engine provides neither,
+// in which case the baseline falls back to its coarse message-level identity. Reads
+// no source and knows no language — it consumes only what the SARIF carries.
+func sarifFingerprint(partial map[string]string, snippet string) string {
+	if len(partial) > 0 {
+		keys := make([]string, 0, len(partial))
+		for k := range partial {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+"="+partial[k])
+		}
+		return strings.Join(parts, ";")
+	}
+	return snippet
 }
 
 // sarifSeverity maps a SARIF level to the check severity vocabulary. SARIF

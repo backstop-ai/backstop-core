@@ -234,6 +234,76 @@ func createBackstopRulesDir(t *testing.T, dir string) {
 	mustMkdir(t, filepath.Join(dir, ".backstop", "rules"))
 }
 
+// installSmokeGoToolchainPack declares + installs a LOCAL backstop/go-toolchain pack
+// carrying the pack-declared classification.test globs + test_name_patterns DATA (no
+// execution engines) so the gate's de-Go'd test-discovery capability is PRESENT
+// (SPEC-045): with the baked `_test.go` walk + `funcPattern` deleted, a project that
+// declares NO toolchain pack has test-discovery capability ABSENT (a non-blocking
+// warning), so a compliant project — and the missing-test/hollow scenarios that depend
+// on discovery — must declare one. It (re)writes backstop.yml with the pack declared,
+// the pack manifest under .backstop/packs/, and a local backstop.lock (local entries
+// skip the hash check; the lock is required because packs are now declared).
+func installSmokeGoToolchainPack(t *testing.T, dir string) {
+	t.Helper()
+	writeFile(t, filepath.Join(dir, "backstop.yml"),
+		"project: smoke-test\nlanguage: go\npacks:\n  backstop/go-toolchain: local\n")
+	// Declare ONLY the test globs + test_name_patterns (the de-Go'd test-discovery
+	// capability). Deliberately NO classification.source: declaring source globs would
+	// make coverage capability PRESENT, but this fixture has no coverage engine, so
+	// every changed `.go` would RED as coverage_unmeasured. Omitting source keeps
+	// coverage capability-absent (a non-blocking warning, as before) while
+	// test-discovery (test globs + patterns) is present.
+	packYml := "name: backstop/go-toolchain\n" +
+		"version: 1.0.0\n" +
+		"language: go\n" +
+		"archetype: code\n" +
+		"description: Smoke go-toolchain fixture — classification.test + test_name_patterns DATA only (no engines).\n" +
+		"classification:\n" +
+		"  test:\n" +
+		"    - \"**/*_test.go\"\n" +
+		"    - \"**/testdata/**\"\n" +
+		"test_name_patterns:\n" +
+		"  - \"^\\\\s*func\\\\s+(Test\\\\w+)\\\\s*\\\\(\"\n" +
+		"content:\n" +
+		"  sdk:\n" +
+		"    module: example/go-toolchain-fixture\n" +
+		"    version: 1.0.0\n" +
+		"    provides:\n" +
+		"      - classification\n"
+	writeFile(t, filepath.Join(dir, ".backstop", "packs", "backstop", "go-toolchain", "pack.yml"), packYml)
+	lock := "packs:\n" +
+		"    backstop/go-toolchain:\n" +
+		"        content_hash: \"\"\n" +
+		"        git_ref: null\n" +
+		"        install_date: 2026-01-01T00:00:00Z\n" +
+		"        name: backstop/go-toolchain\n" +
+		"        source_type: local\n" +
+		"        version: null\n"
+	writeFile(t, filepath.Join(dir, "backstop.lock"), lock)
+}
+
+// createBackstopYmlDeclaring writes a backstop.yml that DECLARES a single
+// traceability dimension via enforcement.toolchain (gate_type) WITHOUT installing
+// the pack that provides its capability. Post-cutover (SPEC-037/038/041) the baked
+// Go analyzers for substantiveness/contracts/coverage are deleted, so a declared-
+// but-unprovided dimension is a broken promise: the SPEC-036 polarity classifier
+// lands it in ClassDeclaredIntentUnmet and the gate BLOCKS (exit 2) with a
+// `<dim>_declared_intent_unmet` violation — an engine-free RED with teeth. (True
+// code-content defect detection — hollow test / low coverage / signature mismatch —
+// now requires an installed pack engine and is covered by the pending installed-pack
+// acceptance smoke; see project_gate_dogfood_mostly_dark.)
+func createBackstopYmlDeclaring(t *testing.T, dir, gateType string) {
+	t.Helper()
+	content := "project: smoke-test\nlanguage: go\n" +
+		"enforcement:\n" +
+		"  toolchain:\n" +
+		"    declared-pass:\n" +
+		"      command: \"true\"\n" +
+		"      format: \"sarif\"\n" +
+		"      gate_type: \"" + gateType + "\"\n"
+	writeFile(t, filepath.Join(dir, "backstop.yml"), content)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -255,8 +325,14 @@ func mustMkdir(t *testing.T, dir string) {
 func parseGateJSON(t *testing.T, raw string) gateResult {
 	t.Helper()
 	var result gateResult
-	// Gate output may have non-JSON lines; find the JSON object.
+	// Gate output may have non-JSON lines (e.g. a trailing "Error: gate: exit code 2"
+	// on a blocking exit); slice to the outermost JSON object before decoding.
 	trimmed := strings.TrimSpace(raw)
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if end := strings.LastIndex(trimmed, "}"); end > start {
+			trimmed = trimmed[start : end+1]
+		}
+	}
 	if err := json.Unmarshal([]byte(trimmed), &result); err != nil {
 		t.Fatalf("failed to parse gate JSON output: %v\nraw output:\n%s", err, raw)
 	}
@@ -316,6 +392,7 @@ func TestSmoke_GatePassesOnCompliantProject(t *testing.T) {
 
 	dir := t.TempDir()
 	createBackstopYml(t, dir)
+	installSmokeGoToolchainPack(t, dir)
 	createBackstopRulesDir(t, dir)
 	createGoMod(t, dir, "smoketest")
 
@@ -373,21 +450,28 @@ func TestCompute_ReturnsNil(t *testing.T) {
 		t.Errorf("expected pass=true, got false\nsteps: %+v", result.Steps)
 	}
 
-	// Steps 3 (test_verification) and 4 (test_substantiveness) should pass.
+	// test_verification is the one traceability dimension the fixture wires a
+	// capability for (the go-toolchain pack declares classification.test +
+	// test_name_patterns), so it runs for real and PASSES on the compliant fixture.
 	testVerify := findStep(t, result, "test_verification")
 	if testVerify.Status != "pass" {
 		t.Errorf("test_verification: expected pass, got %s; violations: %+v", testVerify.Status, testVerify.Violations)
 	}
 
-	testSub := findStep(t, result, "test_substantiveness")
-	if testSub.Status != "pass" {
-		t.Errorf("test_substantiveness: expected pass, got %s; violations: %+v", testSub.Status, testSub.Violations)
-	}
-
-	// Step 6 (contract_signature) should pass.
-	contract := findStep(t, result, "contract_signature")
-	if contract.Status != "pass" {
-		t.Errorf("contract_signature: expected pass, got %s; violations: %+v", contract.Status, contract.Violations)
+	// Post-cutover (SPEC-037/038/041) substantiveness, coverage, and contracts are
+	// installed-pack-keyed capabilities with NO baked Go analyzer. The compliant
+	// fixture declares NONE of those packs (and does not declare them via
+	// enforcement.toolchain), so each lands ClassCapabilityAbsent: a conspicuous
+	// non-blocking `warning` (exit 0), never a vacuous pass. This is the honest
+	// packs-only shape — the gate says "I can't check this, adopt the pack" rather
+	// than silently greening. (The declared-but-unprovided BLOCK path is proven by
+	// the TestSmoke_GateBlocksDeclared* scenarios; real content-defect detection is
+	// covered by the pending installed-pack acceptance smoke.)
+	for _, dim := range []string{"test_substantiveness", "coverage_threshold", "contract_signature"} {
+		step := findStep(t, result, dim)
+		if step.Status != "warning" {
+			t.Errorf("%s: expected warning (capability absent), got %s; violations: %+v", dim, step.Status, step.Violations)
+		}
 	}
 
 	// Deferred steps should be skipped.
@@ -406,6 +490,7 @@ func TestSmoke_GateFailsMissingMandatedTest(t *testing.T) {
 
 	dir := t.TempDir()
 	createBackstopYml(t, dir)
+	installSmokeGoToolchainPack(t, dir)
 	createBackstopRulesDir(t, dir)
 	createGoMod(t, dir, "smoketest")
 
@@ -463,206 +548,83 @@ func TestSomethingElse(t *testing.T) {
 	}
 }
 
-// --- Scenario 3: Hollow test — gate step 4 fails ---
+// --- Scenarios 3–5: declared-but-unprovided dimension → gate BLOCKS (exit 2) ---
+//
+// Post-cutover (SPEC-037/038/041) the baked Go analyzers for substantiveness,
+// coverage, and contracts are DELETED — each is now an installed-pack-keyed
+// capability. So a project that DECLARES a dimension via enforcement.toolchain
+// (gate_type) but does NOT install the pack that provides it has made a broken
+// promise: the SPEC-036 polarity classifier lands it in ClassDeclaredIntentUnmet
+// and the gate BLOCKS with a `<dim>_declared_intent_unmet` violation (ConfigErr →
+// exit 2). This is the engine-free RED-with-teeth these smoke tests assert.
+//
+// (These scenarios previously asserted in-binary detection of a hollow test, low
+// coverage, and a signature mismatch from code content alone. That is no longer
+// possible: those defects are only detectable by an installed pack ENGINE, and are
+// covered by the pending installed-pack acceptance smoke — see
+// project_gate_dogfood_mostly_dark. Retitled to reflect what they now prove.)
 
-func TestSmoke_GateFailsHollowTest(t *testing.T) {
+// blocksDeclaredWithoutPack is the shared body for the three broken-promise
+// scenarios: a project declaring dim via enforcement.toolchain with no providing
+// pack must BLOCK (exit 2) with the dimension's declared_intent_unmet violation.
+func blocksDeclaredWithoutPack(t *testing.T, dim, stepName string) {
+	t.Helper()
 	if binaryPath == "" {
 		t.Skip("binary not built")
 	}
 
 	dir := t.TempDir()
-	createBackstopYml(t, dir)
+	createBackstopYmlDeclaring(t, dir, dim)
 	createBackstopRulesDir(t, dir)
 	createGoMod(t, dir, "smoketest")
-
-	createGoSource(t, dir, "smoke", `package smoke
-
-func Compute(x int) error {
-	return nil
-}
-`)
-
-	// Mandated test exists but is hollow (empty body, no assertions).
-	createGoTest(t, dir, "smoke", `package smoke
-
-import "testing"
-
-func TestCompute_ReturnsNil(t *testing.T) {}
-`)
-
-	createSpec(t, dir, specOpts{
-		implPackage: "pkg/smoke",
-		claims: []claimOpts{
-			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
-		},
-	})
+	// An empty specs dir so the (undeclared) test_verification step has nothing to
+	// verify rather than erroring on a missing specs/ dir — the ONLY step that must
+	// fail is the declared-but-unprovided dimension's.
+	mustMkdir(t, filepath.Join(dir, "specs"))
 
 	out, exitCode := runBackstop(t, dir, "gate", "--json")
 
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d\noutput:\n%s", exitCode, out)
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2 (broken-promise block), got %d\noutput:\n%s", exitCode, out)
 	}
 
 	result := parseGateJSON(t, out)
-	testSub := findStep(t, result, "test_substantiveness")
+	step := findStep(t, result, stepName)
 
-	if testSub.Status != "fail" {
-		t.Errorf("test_substantiveness: expected fail, got %s", testSub.Status)
+	if step.Status != "fail" {
+		t.Errorf("%s: expected fail (declared-intent-unmet), got %s; violations: %+v", stepName, step.Status, step.Violations)
 	}
 
-	if len(testSub.Violations) == 0 {
-		t.Error("expected at least one violation for hollow test")
-	}
-}
-
-// --- Scenario 4: Coverage below threshold — gate step 5 fails ---
-
-func TestSmoke_GateFailsCoverageBelowThreshold(t *testing.T) {
-	if binaryPath == "" {
-		t.Skip("binary not built")
-	}
-
-	dir := t.TempDir()
-	createBackstopYml(t, dir)
-	createBackstopRulesDir(t, dir)
-	createGoMod(t, dir, "smoketest")
-
-	// Source with multiple branches so coverage will be low.
-	createGoSource(t, dir, "smoke", `package smoke
-
-func Compute(x int) error {
-	if x < 0 {
-		return nil
-	}
-	if x > 100 {
-		return nil
-	}
-	if x == 42 {
-		return nil
-	}
-	if x == 7 {
-		return nil
-	}
-	return nil
-}
-`)
-
-	// Test that only covers one branch.
-	createGoTest(t, dir, "smoke", `package smoke
-
-import "testing"
-
-func TestCompute_ReturnsNil(t *testing.T) {
-	err := Compute(1)
-	if err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-}
-`)
-
-	// Spec declares coverage_threshold: 95 which cannot be met.
-	createSpec(t, dir, specOpts{
-		implPackage:       "pkg/smoke",
-		coverageThreshold: 95,
-		testPkg:           "./pkg/smoke/...",
-		claims: []claimOpts{
-			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
-		},
-	})
-
-	out, exitCode := runBackstop(t, dir, "gate", "--json")
-
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d\noutput:\n%s", exitCode, out)
-	}
-
-	result := parseGateJSON(t, out)
-	coverage := findStep(t, result, "coverage_threshold")
-
-	if coverage.Status != "fail" {
-		t.Errorf("coverage_threshold: expected fail, got %s", coverage.Status)
-	}
-
-	// Verify violation mentions the threshold.
+	// The violation must be the broken-promise rule, and its message must name the
+	// missing pack/capability (fail-loud-and-useful), not a code-content finding.
 	found := false
-	for _, v := range coverage.Violations {
-		if strings.Contains(v.Message, "below threshold") || strings.Contains(v.Message, "95") {
+	for _, v := range step.Violations {
+		if v.Rule == dim+"_declared_intent_unmet" && strings.Contains(v.Message, "broken promise") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected coverage violation mentioning threshold, got: %+v", coverage.Violations)
+		t.Errorf("expected a %s_declared_intent_unmet broken-promise violation, got: %+v", dim, step.Violations)
 	}
 }
 
-// --- Scenario 5: Contract signature mismatch — gate step 6 fails ---
+// --- Scenario 3: substantiveness declared, no pack → block ---
 
-func TestSmoke_GateFailsContractSignatureMismatch(t *testing.T) {
-	if binaryPath == "" {
-		t.Skip("binary not built")
-	}
-
-	dir := t.TempDir()
-	createBackstopYml(t, dir)
-	createBackstopRulesDir(t, dir)
-	createGoMod(t, dir, "smoketest")
-
-	// Code has `func Compute(x string) error` — parameter is string.
-	createGoSource(t, dir, "smoke", `package smoke
-
-func Compute(x string) error {
-	return nil
+func TestSmoke_GateBlocksDeclaredSubstantivenessWithoutPack(t *testing.T) {
+	blocksDeclaredWithoutPack(t, "substantiveness", "test_substantiveness")
 }
-`)
 
-	createGoTest(t, dir, "smoke", `package smoke
+// --- Scenario 4: coverage declared, no pack → block ---
 
-import "testing"
-
-func TestCompute_ReturnsNil(t *testing.T) {
-	err := Compute("hello")
-	if err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
+func TestSmoke_GateBlocksDeclaredCoverageWithoutPack(t *testing.T) {
+	blocksDeclaredWithoutPack(t, "coverage", "coverage_threshold")
 }
-`)
 
-	// Spec contract declares `func Compute(x int) error` — parameter is int.
-	createSpec(t, dir, specOpts{
-		implPackage: "pkg/smoke",
-		claims: []claimOpts{
-			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
-		},
-		contracts: []contractOpts{
-			{file: "pkg/smoke/smoke.go", name: "Compute", kind: "function", signature: "func Compute(x int) error"},
-		},
-	})
+// --- Scenario 5: contracts declared, no pack → block ---
 
-	out, exitCode := runBackstop(t, dir, "gate", "--json")
-
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d\noutput:\n%s", exitCode, out)
-	}
-
-	result := parseGateJSON(t, out)
-	contract := findStep(t, result, "contract_signature")
-
-	if contract.Status != "fail" {
-		t.Errorf("contract_signature: expected fail, got %s", contract.Status)
-	}
-
-	// Verify violation mentions signature mismatch.
-	found := false
-	for _, v := range contract.Violations {
-		if strings.Contains(v.Message, "mismatch") || strings.Contains(v.Message, "Compute") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected contract violation mentioning mismatch, got: %+v", contract.Violations)
-	}
+func TestSmoke_GateBlocksDeclaredContractsWithoutPack(t *testing.T) {
+	blocksDeclaredWithoutPack(t, "contracts", "contract_signature")
 }
 
 // --- Scenario 6: Code standards violation — code check catches it ---

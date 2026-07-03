@@ -45,9 +45,10 @@ func newE2EWorkspace(tmp string) (*e2eWorkspace, error) {
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating e2e spec dir: %w", err)
 	}
-	// Minimal backstop.yml (Go project, no packs yet). distribution.Add appends the
-	// substantiveness pack to this when the workspace is installed.
-	ymlContent := "project: e2e\nlanguage: go\npacks: {}\n"
+	// Minimal backstop.yml (no packs yet). distribution.Add appends the
+	// substantiveness pack to this when the workspace is installed. SPEC-046: no
+	// `language:` key — a project is described by its declared packs.
+	ymlContent := "project: e2e\npacks: {}\n"
 	if err := os.WriteFile(filepath.Join(tmp, "backstop.yml"), []byte(ymlContent), 0o644); err != nil {
 		return nil, fmt.Errorf("writing e2e backstop.yml: %w", err)
 	}
@@ -125,6 +126,15 @@ func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error {
 // resolveSubstantivenessPacksFn — the pack is resolved from the real installed
 // declaration and dispatched through the real engine, so the proof is unstubbable.
 func (w *e2eWorkspace) runProductionSubstantivenessStep() gate.StepResult {
-	step := buildTestSubstantivenessStep(w.specDir, w.root, w.root, nil)
+	// The workspace is a Go project; build the pack-shaped Go classifier + matcher the
+	// production substantiveness step now consumes to resolve mandated test file paths
+	// (mirrors the go-toolchain pack DATA — this Go self-toolchain harness is not on
+	// the language-neutral gate spine).
+	classifier := gate.NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+	matcher, err := gate.NewTestNameMatcher([]string{`^\s*func\s+(Test\w+)\s*\(`})
+	if err != nil {
+		return gate.StepResult{StepName: gate.StepTestSubstantiveness, Status: "fail", Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "compiling go test-name pattern: " + err.Error(), Severity: "error"}}}
+	}
+	step := buildTestSubstantivenessStep(w.specDir, w.root, w.root, nil, classifier, matcher)
 	return step(context.Background())
 }

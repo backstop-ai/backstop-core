@@ -1,0 +1,23 @@
+# SPEC-045 e2e go-toolchain fixture: carries the pack-declared classification (test
+# globs) AND test_name_patterns (the `func Test...` regex AS DATA) the de-Go'd
+# discovery consumes. Archetype code + SDK content so it validates with no engines.
+name: backstop/go-toolchain
+version: 1.0.0
+language: go
+archetype: code
+description: >
+  E2E go-toolchain fixture: classification + test_name_patterns DATA only.
+classification:
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+    - "**/testdata/**"
+test_name_patterns:
+  - "^\\s*func\\s+(Test\\w+)\\s*\\("
+content:
+  sdk:
+    module: example/go-toolchain-fixture
+    version: 1.0.0
+    provides:
+      - classification

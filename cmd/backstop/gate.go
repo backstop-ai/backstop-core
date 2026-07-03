@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,6 +114,10 @@ func runGate(cmd *cobra.Command, args []string) error {
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	opts = append(opts, gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
 
+	if policy := gatePolicyFromConfig(cfg); len(policy) > 0 {
+		opts = append(opts, gate.WithPolicy(policy))
+	}
+
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
 
@@ -132,6 +136,13 @@ func runGate(cmd *cobra.Command, args []string) error {
 		noColor := gate.NoColorFromEnv()
 		output := gate.FormatHuman(result, noColor)
 		cmd.Print(output)
+		// Informational: report terminal (retired) artifacts excluded from
+		// enforcement (ISSUE-031 CLM-017). Purely informational — it is NOT a
+		// warning or violation and does not affect the gate verdict; retirement
+		// is deliberate. Silent when zero (no noise).
+		if notice := terminalExclusionNotice(filepath.Join(projectRoot, "specs")); notice != "" {
+			cmd.Println(notice)
+		}
 	}
 
 	if exitCode != 0 {
@@ -141,6 +152,23 @@ func runGate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+// terminalExclusionNotice returns an informational one-line summary of the
+// terminal (retired) specs in specDir that the gate excluded from enforcement
+// (ISSUE-031 CLM-017). It returns "" when no terminal specs are present (or the
+// dir is unreadable) so the gate emits no noise in the common case. The line is
+// informational only — it never affects the gate verdict.
+func terminalExclusionNotice(specDir string) string {
+	count, err := gate.CountTerminalSpecs(specDir)
+	if err != nil || count == 0 {
+		return ""
+	}
+	noun := "retired artifact"
+	if count != 1 {
+		noun += "s"
+	}
+	return fmt.Sprintf("ℹ %d %s excluded from enforcement (terminal status)", count, noun)
 }
 
 func resolveBaselineCache(path string, ttl time.Duration) (*gate.BaselineArtifact, string, time.Time) {
@@ -229,56 +257,92 @@ func changedFilesAgainstOriginMain(projectRoot string) ([]string, error) {
 // Steps 1-2: delegate to real artifact validation and code check.
 // Steps 3-6: mechanical verification using grep/AST parsing.
 // Steps 7-9: deferred (baseline, waivers, ledger).
-// gateLanguage reads the project's declared language from backstop.yml so the
-// bridge can select the matching native toolchain pack. An unreadable config
-// defaults to the Go stack, mirroring check.Options' empty-language default.
-func gateLanguage(projectRoot string) string {
-	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
-	if err != nil || cfg == nil {
-		return "go"
-	}
-	if cfg.Language == "" {
-		return "go"
-	}
-	return cfg.Language
-}
-
-// nativeToolchainPackName is the on-disk name of the reusable Go
-// native-toolchain MECHANISM pack (SPEC-034 REQ-007) the bridge dispatches. It
-// is a function (not a package-level var/const) to keep the bridge free of
-// package-level mutable state.
-func nativeToolchainPackName() string { return "backstop/go-toolchain" }
-
 // gateConfig loads the project's backstop.yml for the gate wiring, returning a
-// zero-value-safe config. An unreadable config yields a minimal config defaulting
-// to the Go stack (mirroring gateLanguage), so the traceability classifier still
-// derives a concrete CapabilityState rather than panicking.
+// zero-value-safe config. An unreadable config yields an empty config (no language
+// seed — SPEC-046 retired the single-language field), so the traceability classifier
+// still derives a concrete CapabilityState rather than panicking.
 func gateConfig(projectRoot string) *config.Config {
 	cfg, err := config.LoadConfigFromPath(filepath.Join(projectRoot, "backstop.yml"))
 	if err != nil || cfg == nil {
-		return &config.Config{Language: "go"}
+		return &config.Config{}
 	}
 	return cfg
 }
 
-// deriveCapabilityState computes the CapabilityState for a traceability
-// dimension on the EXISTING binary from cfg.Language + baked-Go-analyzer presence
-// ONLY — no pack, no engine (SPEC-036 REQ-003/CLM-029). The only traceability
-// capability that exists on the existing binary is the baked Go analyzers
-// (step_testverify / step_coverage / step_contract), which are Go-specific. So a
-// dimension is Present/Working iff cfg.Language == "go" (the baked analyzer
-// applies); for any non-Go stack the capability is Absent, so an undeclared
-// dimension lands in class 2 (warn, exit 0) — not a silent pass and not a
-// mis-applied Go analyzer.
-func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
-	// SUBSTANTIVENESS-ONLY RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked
-	// Go substantiveness analyzer is DELETED, so the substantiveness capability is now
-	// "the substantiveness pack is INSTALLED / resolvable" — NOT cfg.Language +
-	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
-	// substantiveness pack is installed (declared in backstop.yml's packs map). This
-	// arm is DIMENSION-ASYMMETRIC: the coverage and contracts arms below stay on the
-	// existing baked-Go keying UNCHANGED (HARD FENCE — coverage descoped, contracts
-	// keeps its baked analyzer until SPEC-038/Seed 4 ships its pack).
+// bunAcceptanceEnabled reports whether the external Bun-fork acceptance (SPEC-047
+// REQ-005) may run: true ONLY when the acceptance env var is set AND the bun
+// toolchain is on PATH. The guarded acceptance test calls t.Skip() when this is
+// false, so backstop-core's Go CI never invokes the real bun/oxlint/tsc/prettier
+// toolchain (CLM-029) — the executed proof runs in the fork's own environment. This
+// is the ONLY new production symbol this spec adds to gate.go; the live dispatch of
+// the bun pack is the UNIFORM toolchain-pack dispatch SPEC-046 already provides, so
+// there is NO per-pack branch here — the guard only gates whether the fork
+// acceptance test executes.
+func bunAcceptanceEnabled() bool {
+	if os.Getenv("BACKSTOP_BUN_ACCEPTANCE") == "" {
+		return false
+	}
+	// The acceptance requires the real bun toolchain; its presence on PATH is the
+	// second condition, so an env var set in a bun-free environment still skips.
+	_, err := exec.LookPath("bun")
+	return err == nil
+}
+
+// gatePolicyFromConfig converts the declared enforcement.policy table into the gate's
+// per-dimension policy map. Returns nil when none is declared, leaving every dimension
+// at the default (block, no baseline).
+func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
+	if cfg == nil || len(cfg.Enforcement.Policy) == 0 {
+		return nil
+	}
+	policy := make(map[string]gate.DimensionPolicy, len(cfg.Enforcement.Policy))
+	for dim, p := range cfg.Enforcement.Policy {
+		policy[dim] = dimensionPolicyFromConfig(p)
+	}
+	return policy
+}
+
+// dimensionPolicyFromConfig maps one config.DimensionPolicy row (including its
+// OPTIONAL per-PACK/per-rule-SOURCE overrides) into the gate's gate.DimensionPolicy
+// (SPEC-047 REQ-007). The per-source scope carries through verbatim so a scoped entry
+// (e.g. backstop/self → block + zero baseline) reaches gate.ApplyPolicy's per-source
+// filtering. An entry with no sources maps to the dimension-only shape (unchanged).
+func dimensionPolicyFromConfig(p config.DimensionPolicy) gate.DimensionPolicy {
+	out := gate.DimensionPolicy{Level: p.Level, Baseline: p.Baseline}
+	if len(p.Sources) > 0 {
+		out.Sources = make(map[string]gate.DimensionPolicy, len(p.Sources))
+		for src, sp := range p.Sources {
+			out.Sources[src] = gate.DimensionPolicy{Level: sp.Level, Baseline: sp.Baseline}
+		}
+	}
+	return out
+}
+
+// deriveCapabilityState computes a dimension's CapabilityState from installed-pack
+// presence (SPEC-037/038/041) and STAMPS the cosmetic stack label (SPEC-046
+// REQ-004) carried on CapabilityState.Stack. The stack label is computed once in
+// buildGateSteps via declaredToolchainStackLabel(packs) and threaded here through
+// wrapTraceabilityStep (the sole caller); pkg/gate renders it instead of the retired
+// language-derived stackLabel. The capability classification keys are
+// installed-pack-presence and are UNCHANGED by the rehome.
+func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, stack string) gate.CapabilityState {
+	cap := capabilityStateForDimension(cfg, dim)
+	cap.Stack = stack
+	return cap
+}
+
+// capabilityStateForDimension computes the Present/Working/PackOrCommand capability
+// state for a dimension from installed-pack presence alone (SPEC-037/038/041). The
+// cosmetic Stack label is stamped by the caller (deriveCapabilityState).
+func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
+	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
+	// substantiveness analyzer is DELETED, so the substantiveness capability is now
+	// "the substantiveness pack is INSTALLED / resolvable" — NOT a baked language
+	// analyzer, and NOT a built-in tier. Present/Working iff the
+	// substantiveness pack is installed (declared in backstop.yml's packs map). As of
+	// SPEC-041 ALL THREE traceability dimensions (substantiveness, contracts, AND
+	// coverage) are installed-pack-keyed — no asymmetry fence remains; the baked Go
+	// analyzers for all three are eradicated.
 	if dim == gate.DimensionSubstantiveness {
 		if substantivenessPackInstalled(cfg) {
 			return gate.CapabilityState{
@@ -294,15 +358,14 @@ func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) g
 		}
 	}
 
-	// CONTRACTS-ONLY RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go
-	// contract analyzer is DELETED (REQ-001/Phase 6), so the contracts capability is
-	// now "the contracts pack is INSTALLED / resolvable" — NOT cfg.Language +
-	// baked-analyzer presence, and NOT a built-in tier. Present/Working iff the
-	// contracts pack is installed (declared in backstop.yml's packs map). This arm is
-	// DIMENSION-ASYMMETRIC: the SUBSTANTIVENESS arm above was re-keyed by Seed 3 (LEFT
-	// AS-IS); the COVERAGE arm below STAYS baked-Go (coverage descoped, no pack — HARD
-	// FENCE). Absent+undeclared lands class-2 (warn, exit 0) and absent+declared
-	// class-3 (block) via the SPEC-036 classifier upstream.
+	// CONTRACTS RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go contract
+	// analyzer is DELETED, so the contracts capability is now "the contracts pack is
+	// INSTALLED / resolvable" — NOT a baked language analyzer, and NOT a
+	// built-in tier. Present/Working iff the contracts pack is installed (declared in
+	// backstop.yml's packs map). The COVERAGE arm below is ALSO installed-pack-keyed
+	// as of SPEC-041 (the baked Go coverage analyzer is eradicated) — symmetric with
+	// this arm, no fence. Absent+undeclared lands class-2 (warn, exit 0) and
+	// absent+declared class-3 (block) via the SPEC-036 classifier upstream.
 	if dim == gate.DimensionContracts {
 		if contractsPackInstalled(cfg) {
 			return gate.CapabilityState{
@@ -318,27 +381,50 @@ func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) g
 		}
 	}
 
-	// COVERAGE arm — UNCHANGED baked-Go keying (the asymmetry fence; coverage descoped).
-	lang := "go"
-	if cfg != nil && cfg.Language != "" {
-		lang = cfg.Language
-	}
-	if lang == "go" {
-		// The baked Go analyzer for this dimension is compiled into the binary
-		// and applies to a Go project. Present and Working.
+	// COVERAGE-ARM RE-KEY (SPEC-041 REQ-001). The baked Go coverage analyzer
+	// (pkg/gate/step_coverage.go's `go test -coverprofile` machinery) is ERADICATED,
+	// so the coverage capability is now "a coverage-producing toolchain pack is
+	// installed / in effect" — NOT a baked language analyzer (that arm
+	// claimed a deleted analyzer and would push an uninstalled Go project into a
+	// loud-block instead of the capability-absent warn). This MIRRORS the
+	// substantiveness (SPEC-037) and contracts (SPEC-038) re-keys: Present/Working iff
+	// a coverage toolchain pack is declared. Absent+undeclared lands class-2 (warn,
+	// exit 0) and absent+declared class-3 (block) via the SPEC-036 classifier upstream
+	// — never a vacuous green and never a vacuous loud-red.
+	if coverageToolchainPackInstalled(cfg) {
 		return gate.CapabilityState{
 			Present:       true,
 			Working:       true,
-			PackOrCommand: "the baked Go " + string(dim) + " analyzer",
+			PackOrCommand: "the installed coverage toolchain pack",
 		}
 	}
-	// Non-Go stack: no baked Go analyzer applies and no pack provides the
-	// dimension on the existing binary — capability Absent.
 	return gate.CapabilityState{
 		Present:       false,
 		Working:       false,
-		PackOrCommand: "a " + lang + " " + string(dim) + " pack",
+		PackOrCommand: "a toolchain pack declaring a coverage engine (install it: `backstop pack add`)",
 	}
+}
+
+// coverageToolchainPackInstalled reports whether a coverage-producing toolchain
+// PACK is INSTALLED: a `<lang>-toolchain` pack is declared in backstop.yml's packs
+// map. It is the installed-pack-resolvable signal the coverage CAPABILITY keys on
+// after the baked Go coverage analyzer's eradication (SPEC-041 REQ-001), MIRRORING
+// contractsPackInstalled / substantivenessPackInstalled. It reads ONLY the packs
+// declaration surface — NOT enforcement.toolchain (that is the DECLARATION the
+// SPEC-036 classifier reads separately to tell class-2 capability-absent from
+// class-3 declared-intent-unmet; conflating the two would mask a declared-but-
+// unprovided coverage pass as capability-present). The coverage producer lives in
+// an installed pack, never compiled in.
+func coverageToolchainPackInstalled(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	for name := range cfg.Packs {
+		if strings.HasSuffix(name, "-toolchain") {
+			return true
+		}
+	}
+	return false
 }
 
 // substantivenessPackInstalled reports whether the substantiveness pack is INSTALLED
@@ -377,16 +463,18 @@ func contractsPackInstalled(cfg *config.Config) bool {
 
 // wrapTraceabilityStep wraps a traceability analyzer step (the delegate) with
 // the SPEC-036 polarity classifier so the classifier runs IN FRONT OF the
-// analyzer: it derives the CapabilityState (cfg.Language + baked-analyzer
-// presence), classifies the dimension, and for class 1/2/3 returns
-// PolarityStepResult WITHOUT reaching the analyzer (intercept). Only the
-// none/proceed outcome (declared-and-working or undeclared-but-present) falls
-// through to the unchanged delegate (REQ-008). The delegate is taken as a
-// parameter so the wiring test can spy on whether the analyzer is reached
-// (CLM-028).
-func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, delegate gate.StepFunc) gate.StepFunc {
+// analyzer: it derives the CapabilityState (installed-pack presence), classifies
+// the dimension, and for class 1/2/3 returns PolarityStepResult WITHOUT reaching
+// the analyzer (intercept). Only the none/proceed outcome (declared-and-working or
+// undeclared-but-present) falls through to the unchanged delegate (REQ-008). The
+// delegate is taken as a parameter so the wiring test can spy on whether the
+// analyzer is reached (CLM-028). The `stack` parameter is the declared-toolchain
+// stack label (SPEC-046 REQ-004), threaded into deriveCapabilityState so the
+// rehomed classifier renders it on CapabilityState.Stack — deriveCapabilityState is
+// reached ONLY through this wrapper, so the label is stamped here, never past it.
+func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, stack string, delegate gate.StepFunc) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
-		cap := deriveCapabilityState(cfg, dim)
+		cap := deriveCapabilityState(cfg, dim, stack)
 		class := gate.ClassifyDimension(cfg, dim, cap)
 		if class != gate.ClassNone {
 			// Intercept — do NOT reach the analyzer.
@@ -397,41 +485,102 @@ func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, st
 	}
 }
 
-// loadBridgedToolchainPacks resolves the native <lang>-toolchain mechanism pack
-// the bridge routes the native lint/build/test passes through (SPEC-034
-// REQ-001/REQ-007). It is loaded from .backstop/packs/<name> on disk (so its
-// pack-relative convert scripts resolve for SandboxedRunStdout) and dispatched
-// through the SAME dispatchPackEngines step the declared packs use — NOT a
-// parallel dispatcher and NOT a pkg/check->pkg/pack/engine import. The pack and
-// this wiring land in lockstep (REQ-007): the bridge dispatches the pack's
-// engine bindings, so there is never a commit where the bridge is live but the
-// pack is absent. A missing pack directory yields no bridged packs (the bespoke
-// path is still live in phase 1 — no enforcement lapse), while a PRESENT but
-// malformed pack fails loud through the dispatch step like any broken pack.
-func loadBridgedToolchainPacks(projectRoot, language string, declared []*pack.Manifest) ([]*pack.Manifest, error) {
-	if language != "" && language != "go" {
-		return nil, nil
+// toolchainEnforcementStepName is the stable step name for the no-toolchain-pack
+// WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006). It is a function (not a
+// package-level var/const) to keep the file free of package-level mutable state.
+func toolchainEnforcementStepName() string { return "toolchain_enforcement" }
+
+// noToolchainPackMessage is the stable, recognizable loud message the
+// no-toolchain-pack WARN-ONLY state renders on the gate's human report surface
+// and reflects in the machine summary (SPEC-040 REQ-006). It must never be
+// collapsed into a normal green — "nothing ran" must be impossible to mistake
+// for "everything passed."
+func noToolchainPackMessage() string { return "enforcement not configured (0 toolchain packs)" }
+
+// isToolchainPack reports whether a manifest is a <lang>-toolchain pack — the
+// convention is a normalized name ending in "-toolchain" (backstop/go-toolchain,
+// backstop/typescript-toolchain, …). Routing is by the toolchain-pack naming
+// convention, not a hardcoded pack name, so any language's toolchain pack counts.
+func isToolchainPack(m *pack.Manifest) bool {
+	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
+}
+
+// declaredToolchainStackLabel derives the cosmetic traceability stack label from the
+// SET of declared toolchain packs (SPEC-046 REQ-004 / SQ-1). Each declared toolchain
+// pack's normalized name has its namespace prefix and the "-toolchain" suffix
+// stripped (e.g. "backstop/go-toolchain" -> "go", "backstop/bun-toolchain" -> "bun"),
+// and the resulting stack names are joined as a SET (deduped + sorted, NO precedence
+// and NO overlap winner) — a polyglot repo's label names EVERY declared stack.
+//
+// Returns "unspecified" when the declared toolchain-pack-NAME set is empty — the
+// SINGLE authoritative empty-fallback signal (the label is name-derived). SPEC-043's
+// SourceClassifier.HasSourceGlobs() is CORROBORATING ONLY and MUST NOT drive this
+// fallback: it can diverge from the pack-name set (a declared toolchain pack with no
+// `classification` source globs has a non-empty pack-name set yet HasSourceGlobs()
+// == false). This is a NAME-set helper, NOT a glob classifier — SPEC-043's single
+// gate.SourceClassifier remains the ONLY glob classifier (no fork, CLM-019).
+func declaredToolchainStackLabel(packs []*pack.Manifest) string {
+	seen := map[string]bool{}
+	var stacks []string
+	for _, m := range packs {
+		if !isToolchainPack(m) {
+			continue
+		}
+		name := m.NormalizedName
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		name = strings.TrimSuffix(name, "-toolchain")
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		stacks = append(stacks, name)
 	}
-	// Dedupe: when the native toolchain pack is ALSO a declared+locked project
-	// pack (as it is when backstop-core dogfoods it), the existing pack dispatch
-	// already runs it — the bridge must not re-add it and double-run lint/build/
-	// test. The bridge's value is dispatching the native pack even when a Go
-	// project has NOT declared it; when it is declared, dispatch already covers it.
+	if len(stacks) == 0 {
+		return "unspecified"
+	}
+	sort.Strings(stacks)
+	return strings.Join(stacks, ", ")
+}
+
+// countToolchainPacks counts the <lang>-toolchain packs DECLARED for the gate:
+// every DECLARED pack that is a toolchain pack by convention (normalized name
+// ending in `-toolchain`). A toolchain is an ordinary declared pack (SPEC-046
+// REQ-002) — there is no language-derived bridge set, so this keys on the
+// declared `packs:` set alone. It is the signal the no-toolchain-pack WARN-ONLY
+// loud state keys on (SPEC-040 REQ-005/REQ-006).
+func countToolchainPacks(declared []*pack.Manifest) int {
+	n := 0
 	for _, m := range declared {
-		if m.NormalizedName == strings.ToLower(nativeToolchainPackName()) {
-			return nil, nil
+		if isToolchainPack(m) {
+			n++
 		}
 	}
-	packPath := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(nativeToolchainPackName()))
-	info, statErr := os.Stat(packPath)
-	if statErr != nil || !info.IsDir() {
-		return nil, nil
+	return n
+}
+
+// toolchainEnforcementStatus returns the no-toolchain-pack WARN-ONLY loud
+// StepResult and true when ZERO <lang>-toolchain packs are DECLARED — the
+// anti-vacuous-green guardrail (SPEC-040 REQ-005/REQ-006, Sharp Edge 3). A
+// toolchain is an ordinary declared pack (SPEC-046 REQ-002), so the state keys on
+// the declared `packs:` set alone — no language-derived bridge input. The step is
+// a NON-FAILING "warning" carrying the stable loud message in Reason, counted in
+// GateResult.StepsWarned and rendered on the human report surface; gate.Pass stays
+// true and exit code stays 0. When at least one toolchain pack IS declared it
+// returns (_, false): the toolchain passes run through dispatchPackEngines and
+// produce their own normal pass/fail, so no warn state is emitted. Reusing the
+// SPEC-036 "warning"/StepsWarned mechanism — no new status vocabulary is invented.
+func toolchainEnforcementStatus(declared []*pack.Manifest) (gate.StepResult, bool) {
+	if countToolchainPacks(declared) > 0 {
+		return gate.StepResult{}, false
 	}
-	manifest, parseErr := pack.ParseManifestFile(filepath.Join(packPath, "pack.yml"))
-	if parseErr != nil {
-		return nil, fmt.Errorf("parsing native toolchain pack %s: %w", nativeToolchainPackName(), parseErr)
-	}
-	return []*pack.Manifest{manifest}, nil
+	return gate.StepResult{
+		StepName:   toolchainEnforcementStepName(),
+		Status:     "warning",
+		Reason:     noToolchainPackMessage(),
+		Violations: []gate.Violation{},
+	}, true
 }
 
 func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFunc {
@@ -454,70 +603,89 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		}
 	}
 
-	// The BRIDGE (SPEC-034 REQ-001): resolve the native <lang>-toolchain
-	// mechanism pack so its lint/build/test engine bindings dispatch through the
-	// SAME dispatchPackEngines step the declared packs use. Computed here, before
-	// the no-declared-packs early return, so a Go project with no declared packs
-	// still gets its native toolchain enforced via the engine path (the pack
-	// engine step is built whenever there are declared OR bridged packs). A
-	// malformed native pack fails loud as a single config-error step.
-	bridged, bridgeErr := loadBridgedToolchainPacks(projectRoot, gateLanguage(projectRoot), packs)
-	if bridgeErr != nil {
+	// Step 1: Artifact validation — delegates to ValidateArtifacts.
+	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
+
+	// Step 2 ("Code check") is GONE as a gate step (SPEC-040 REQ-001): lint/build/
+	// test now run only through dispatchPackEngines. The baked shared `go test ./...`
+	// runner is ERADICATED (SPEC-041 REQ-002): coverage no longer reuses an in-binary
+	// whole-module exec. Coverage's per-FILE signal is now the declared toolchain
+	// coverage pass (SPEC-042's dispatchPackCoverage producer over the DECLARED
+	// <lang>-toolchain packs), consumed per-FILE by the re-implemented coverage step
+	// (SPEC-041 REQ-001).
+
+	// LIVE DISCOVERY WIRING (SPEC-045 REQ-006): the merged SourceClassifier (test +
+	// source globs) and merged TestNameMatcher (test-name patterns) are built ONCE from
+	// the UNION of the declared-pack manifests and threaded into BOTH the
+	// test-verification and substantiveness steps, closing the integration gap where a
+	// correct discovery unit never reaches the live gate. mergeSourceClassifier /
+	// mergeTestNameMatcher take the wholesale declared `packs` set (no toolchain-only
+	// pre-filter) — a toolchain is just an ordinary declared pack (SPEC-046), so there
+	// is no language-derived bridge set to thread. An invalid pack-declared test-name
+	// regex is a LOUD config-error step (never a silently-empty matcher that would make
+	// discovery find nothing and mass-fail every mandated test).
+	classifier := mergeSourceClassifier(packs)
+	matcher, matcherErr := mergeTestNameMatcher(packs)
+	if matcherErr != nil {
 		return []gate.StepFunc{
 			func(context.Context) gate.StepResult {
 				return gate.StepResult{
 					StepName:   "pack_loading",
 					Status:     "fail",
 					ConfigErr:  true,
-					Violations: []gate.Violation{{Rule: "pack_loading", Message: bridgeErr.Error(), Severity: "error"}},
+					Violations: []gate.Violation{{Rule: "pack_loading", Message: "compiling pack-declared test_name_patterns: " + matcherErr.Error(), Severity: "error"}},
 				}
 			},
 		}
 	}
 
-	// Step 1: Artifact validation — delegates to ValidateArtifacts.
-	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
-
-	// Step 2: Code check — delegates to pkg/check.Run with ScopeModeAll. Pack
-	// rule findings are dispatched group-by-engine in the pack engine step below
-	// (SPEC-031 REQ-011), not through an in-process rule-config feed.
-	// One shared runner so the whole-module `go test ./...` executes ONCE and
-	// feeds both code_check (test FAILs) and coverage_threshold (per-package
-	// coverage), instead of running the suite twice (~94s of duplicate work).
-	sharedTest := newSharedTestRunner(projectRoot)
-	codeChecker := &realCodeChecker{projectRoot: projectRoot, sharedRunner: sharedTest}
-
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
-	// We use the project root as the code directory for walking test files.
-	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope)
+	// We use the project root as the code directory for walking test files. Both
+	// consume the merged classifier + matcher (the de-Go'd pack-declared discovery).
+	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope, classifier, matcher)
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
-	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope)
+	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope, classifier, matcher)
 
-	// Step 5: Coverage threshold needs spec verifications and a command runner.
-	// It shares sharedTest so its whole-module coverage read reuses code_check's
-	// already-executed `go test ./...` instead of running the suite again.
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, sharedTest)
+	// Step 5: Coverage threshold consumes the canonical per-FILE
+	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
+	// DECLARED toolchain packs — NOT a binary-resident `go test` runner (re-baking one
+	// would re-violate REQ-002). The records are sourced lazily at step-run time so the
+	// producer is exercised inside the gate (CLM-003). The merged classifier (above) is
+	// also threaded into the coverage step (SPEC-043 REQ-005).
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
-	// CapabilityState from cfg.Language + baked-Go-analyzer presence (no pack, no
-	// engine), classifies the dimension, and intercepts for class 1/2/3 (analyzer
-	// not reached); only declared-and-working / undeclared-but-present fall
-	// through to the UNCHANGED analyzer (REQ-008). The analyzer files themselves
-	// are untouched — the wrapper intercepts at the wiring boundary.
+	// CapabilityState from installed-pack presence (no pack, no engine), classifies
+	// the dimension, and intercepts for class 1/2/3 (analyzer not reached); only
+	// declared-and-working / undeclared-but-present fall through to the UNCHANGED
+	// analyzer (REQ-008). The analyzer files themselves are untouched — the wrapper
+	// intercepts at the wiring boundary. SPEC-046 REQ-004: the cosmetic stack label is
+	// computed ONCE from the declared toolchain-pack-NAME set and threaded into all
+	// three wrappers (and thence deriveCapabilityState) so the rehomed classifier
+	// renders it on CapabilityState.Stack — no language read.
 	traceabilityCfg := gateConfig(projectRoot)
-	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, testSubstantivenessStep)
-	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, coverageStep)
-	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, contractStep)
+	stackLabel := declaredToolchainStackLabel(packs)
+	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, stackLabel, testSubstantivenessStep)
+	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, stackLabel, coverageStep)
+	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, stackLabel, contractStep)
 
+	// SPEC-040 KEYSTONE CUTOVER (REQ-001/CLM-001/CLM-008): the bespoke code-check /
+	// gate.StepCodeCheckScopedFunc Step-2 entry is GONE from the step list. Lint,
+	// build, and test enforcement now runs ONLY via dispatchPackEngines over the
+	// DECLARED <lang>-toolchain packs (the pack_engines step below) — no dual-run, no
+	// parallel dispatcher, no pkg/check->pkg/pack/engine import. The
+	// SPEC-040 transitional shared go-test runner is ERADICATED by SPEC-041 REQ-002:
+	// coverage now consumes the per-FILE []check.CoverageRecord produced by the
+	// declared toolchain coverage pass (coverageRecordsProducer), not an in-binary
+	// `go test`.
 	steps := []gate.StepFunc{
 		gate.StepArtifactValidationScopedFunc(artifactValidator, activeScope),
-		gate.StepCodeCheckScopedFunc(codeChecker, activeScope),
 		testVerifyStep,
 		testSubstantivenessStep,
 		coverageStep,
@@ -528,7 +696,20 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		gate.StepLedgerIntegrityScopedFunc(activeScope),
 	}
 
-	if len(packs) == 0 && len(bridged) == 0 {
+	// The no-toolchain-pack WARN-ONLY loud state (SPEC-040 REQ-005/REQ-006, Sharp
+	// Edge 3): when ZERO <lang>-toolchain packs are DECLARED, append a NON-FAILING
+	// "warning" step carrying the stable loud "enforcement not configured (0 toolchain
+	// packs)" message. gate.Pass stays true and exit 0, but "nothing ran" is impossible
+	// to mistake for "everything passed." A toolchain is an ordinary declared pack
+	// (SPEC-046), so this keys on the declared `packs:` set alone. Wired here so it
+	// flows through BOTH the no-declared-packs early return and the pack-dispatch path
+	// below.
+	if warnStep, emitted := toolchainEnforcementStatus(packs); emitted {
+		warn := warnStep
+		steps = append(steps, func(context.Context) gate.StepResult { return warn })
+	}
+
+	if len(packs) == 0 {
 		return steps
 	}
 
@@ -556,15 +737,15 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 
 	packValidatorStep := func(context.Context) gate.StepResult {
 		runner := &check.ExecCommandRunner{Dir: projectRoot}
-		// The bridge dispatches the native toolchain pack's engine bindings
-		// alongside the declared packs through the SAME substrate (SPEC-034
-		// REQ-001/CLM-001/CLM-003), standing the engine path up ALONGSIDE the
-		// still-live bespoke path (phase 1, no enforcement lapse).
+		// A <lang>-toolchain pack dispatches its lint/build/test engine bindings
+		// through the SAME substrate as every other declared pack (SPEC-046): a
+		// toolchain is an ordinary declared pack, so it flows through this uniform
+		// pack_engines dispatch — there is no language-derived bridge set.
 		// The generic pack_engines findings dispatch runs only the generic stages
 		// (lint/build/test/findings). Rules bound to a dedicated-step gate_type
 		// (substantiveness/contracts/coverage) are dispatched by their own gate step;
 		// running them here too would scan context-free and emit garbage findings.
-		dispatchPacks := excludeDedicatedStepRules(append(append([]*pack.Manifest{}, bridged...), packs...))
+		dispatchPacks := excludeDedicatedStepRules(packs)
 		// Split-provisioning fail-loud (SPEC-034 REQ-008): before dispatch, verify
 		// the assume-present Layer-0 native tools (go/golangci-lint) resolve on PATH.
 		// A missing one is a *check.ConfigError surfaced as a config-error step (exit
@@ -606,10 +787,13 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		}
 	}
 
+	// Order: lock, artifact (steps[0]), pack_engines dispatch, then the remaining
+	// steps (test_verification onward — the code_check Step-2 entry is gone, so
+	// steps[1:] now begins at test_verification).
 	packed := make([]gate.StepFunc, 0, len(steps)+2)
 	packed = append(packed, lockStep)
-	packed = append(packed, steps[0], steps[1], packValidatorStep)
-	packed = append(packed, steps[2:]...)
+	packed = append(packed, steps[0], packValidatorStep)
+	packed = append(packed, steps[1:]...)
 	return packed
 }
 
@@ -673,7 +857,7 @@ func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
 // conversion. A spy on the real dispatchPackEnginesFn seam mechanically proves the step
 // reached the dispatcher (CLM-015..017). When the substantiveness pack is not installed,
 // the step is a no-op (the capability classifier governs the warn/block polarity).
-func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
+func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc {
 	return func(_ context.Context) gate.StepResult {
 		mandated, err := gate.ExtractMandatedTests(specDir)
 		if err != nil {
@@ -684,8 +868,9 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
-		// Resolve file paths for found tests (the keying join's FilePath side).
-		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir)
+		// Resolve file paths for found tests (the keying join's FilePath side) via the
+		// SAME pack-declared discovery the verification step uses (classifier + matcher).
+		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir, classifier, matcher)
 
 		packs, err := resolveSubstantivenessPacks(projectRoot)
 		if err != nil {
@@ -742,7 +927,7 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 				continue
 			}
 			referenced := gate.ReferencedSetForTest(extraction, mt)
-			samePackage := goFilePackageMatchesTarget(mt.FilePath, mt.TargetPkg)
+			samePackage := testFileColocatedWithTarget(mt.FilePath, mt.TargetPkg)
 			if v, raised := gate.NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage); raised {
 				v.File = mt.FilePath
 				violations = append(violations, v)
@@ -764,38 +949,90 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 	}
 }
 
-// goFilePackageMatchesTarget reads a Go test file's `package <name>` clause as a string
-// and reports whether it identifies the target package (allowing the `_test` external
-// variant) — the language-agnostic samePackage derivation the gate set-join consumes,
-// mirroring the deleted analyzer's same-package short-circuit WITHOUT an AST walk.
-func goFilePackageMatchesTarget(filePath, targetPkg string) bool {
-	if targetPkg == "" {
-		return false
-	}
-	f, err := os.Open(filePath)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "package ") {
-			continue
-		}
-		name := strings.TrimSpace(strings.TrimPrefix(line, "package "))
-		if i := strings.IndexAny(name, " \t/"); i >= 0 {
-			name = name[:i]
-		}
-		return name == targetPkg || name == targetPkg+"_test" || strings.TrimSuffix(name, "_test") == targetPkg
-	}
-	return false
+// testFileColocatedWithTarget reports whether a test file is the SAME UNIT as its
+// target by LANGUAGE-NEUTRAL directory-leaf comparison (SPEC-045 REQ-003): the leaf
+// of the test file's directory equals targetPkg. It REPLACES the deleted Go
+// `package`-clause reader — no file read, no `package` clause, carrying no Go
+// assumption, so a TS `.test.ts` co-located with its target is same-unit without any
+// clause existing. An empty targetPkg yields false (the preserved guard).
+func testFileColocatedWithTarget(filePath, targetPkg string) bool {
+	return targetPkg != "" && filepath.Base(filepath.Dir(filePath)) == targetPkg
 }
 
-// buildCoverageStep creates a StepFunc that extracts spec verifications
-// and runs coverage checks using a real command runner.
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runner gate.CommandRunner) gate.StepFunc {
+// mergeTestNameMatcher unions Manifest.TestNamePatterns across the declared toolchain
+// packs and compiles ONE gate.TestNameMatcher (SPEC-045 REQ-006/CLM-018/CLM-036). It
+// is built where the manifests are visible (cmd/backstop) so pkg/gate takes no
+// pkg/pack dependency, and takes the wholesale declared-pack set (a manifest with no
+// test_name_patterns contributes nothing to the union — no toolchain-only pre-filter,
+// so it is NOT orphaned when SPEC-046 deletes the language: bridge). An INVALID
+// pack-declared regex surfaces as a LOUD construction error (the caller turns it into
+// a config-error step), never a silently-empty matcher that makes discovery find
+// nothing and then mass-fail every mandated test.
+func mergeTestNameMatcher(packSets ...[]*pack.Manifest) (gate.TestNameMatcher, error) {
+	var patterns []string
+	for _, set := range packSets {
+		for _, manifest := range set {
+			if manifest == nil {
+				continue
+			}
+			patterns = append(patterns, manifest.TestNamePatterns...)
+		}
+	}
+	return gate.NewTestNameMatcher(patterns)
+}
+
+// coverageRecordsFn produces the canonical per-FILE []check.CoverageRecord the
+// coverage step consumes (SPEC-041 CLM-003). It is the typed seam between the gate
+// and SPEC-042's dispatchPackCoverage producer.
+type coverageRecordsFn func(scope *gate.GateScope) ([]check.CoverageRecord, error)
+
+// coverageRecordsProducer returns a coverageRecordsFn that sources the canonical
+// per-FILE []check.CoverageRecord from SPEC-042's dispatchPackCoverage producer
+// over the DECLARED toolchain packs. It NEVER constructs a binary-resident
+// `go test` runner (re-baking one would re-violate REQ-002); the per-file coverage
+// signal originates from the declared toolchain coverage pass. A toolchain is an
+// ordinary declared pack (SPEC-046), so it keys on the declared `packs:` set alone
+// — there is no language-derived bridge set.
+func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
+	return func(scope *gate.GateScope) ([]check.CoverageRecord, error) {
+		if len(declared) == 0 {
+			return nil, nil
+		}
+		runner := &check.ExecCommandRunner{Dir: projectRoot}
+		packDir := filepath.Join(projectRoot, ".backstop", "packs")
+		return dispatchPackCoverage(declared, packDir, projectRoot, scope, runner)
+	}
+}
+
+// mergeSourceClassifier unions the classification.source and classification.test
+// globs across the FULL declared-pack manifest set into one gate.SourceClassifier
+// (SPEC-043 REQ-005/CLM-021/CLM-022). It takes the wholesale []*pack.Manifest set
+// loadInstalledPacks resolves over `backstop.yml packs:` — NOT a toolchain-only
+// pre-filter: a manifest with no `classification:` block contributes empty globs
+// (zero to the union), so no filter is needed or wanted. A toolchain is just an
+// ordinary declared pack (SPEC-046), so this merge sources from the declared
+// `packs:` set with no language-derived bridge input and is never orphaned. Built
+// where the manifests are visible (cmd/backstop) so pkg/gate takes no pkg/pack
+// dependency.
+func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier {
+	var source, test []string
+	for _, manifest := range packs {
+		if manifest == nil {
+			continue
+		}
+		source = append(source, manifest.Classification.Source...)
+		test = append(test, manifest.Classification.Test...)
+	}
+	return gate.NewSourceClassifier(source, test)
+}
+
+// buildCoverageStep creates a StepFunc that extracts spec verifications and checks
+// the spec-declared coverage threshold PER FILE over the canonical
+// []check.CoverageRecord produced by the records producer (SPEC-042's
+// dispatchPackCoverage) — NOT a binary-resident `go test` runner (REQ-002). The
+// records are produced lazily inside the step so the producer is exercised in the
+// gate (CLM-003).
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -806,10 +1043,19 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, runne
 			}
 		}
 
-		if runner == nil {
-			runner = &gate.ExecCommandRunner{Dir: projectRoot}
+		var coverage []check.CoverageRecord
+		if records != nil {
+			coverage, err = records(scope)
+			if err != nil {
+				return gate.StepResult{
+					StepName:   gate.StepCoverageThreshold,
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to produce coverage records: " + err.Error(), Severity: "error"}},
+				}
+			}
 		}
-		step := gate.StepCoverageThresholdScopedFunc(runner, specs, scope)
+		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier)
 		return step(ctx)
 	}
 }
@@ -1037,144 +1283,6 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 		})
 	}
 	return violations, nil
-}
-
-// realCodeChecker implements gate.CodeChecker by calling pkg/check.Run.
-type realCodeChecker struct {
-	projectRoot string
-	// runnerForTest is a test-only injection seam: when set, runCheck routes
-	// through check.RunWith with this hermetic runner so gate-layer
-	// scope-semantics tests can drive CheckScoped without shelling out to live
-	// tools. Nil in production (check.Run).
-	runnerForTest check.CommandRunner
-	// sharedRunner, if set, is a PRODUCTION runner injected so the whole-module
-	// `go test ./...` pass is shared with the coverage step (run once, not
-	// twice). Non-go-test commands delegate to a plain exec, so lint/build/
-	// semgrep behave exactly as the default check.Run path.
-	sharedRunner check.CommandRunner
-}
-
-func (c *realCodeChecker) CheckAll(_ context.Context) ([]gate.Violation, error) {
-	return c.runCheck(context.Background(), check.ScopeModeAll, nil)
-}
-
-func (c *realCodeChecker) CheckScoped(ctx context.Context, scope *gate.GateScope) ([]gate.Violation, error) {
-	if scope == nil || scope.Mode == gate.GateScopeModeAll {
-		return c.runCheck(ctx, check.ScopeModeAll, nil)
-	}
-	// Carry the ENTIRE scoped file list through ONE runCheck — no per-file loop.
-	// Per-pass ScopeKind then shapes the arg list: lint gets all scoped files in
-	// one invocation; build/typecheck runs project-wide once ignoring the list;
-	// test is dependency-mapped once with full-suite fallback. The old per-file
-	// loop invoked lint N×(1 file) and build N× project-wide, which both
-	// violated the per-pass scope semantics (Constraint 2/3, CLM-008).
-	return c.runCheck(ctx, check.ScopeModeDiff, scope.Files)
-}
-
-func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, files []string) ([]gate.Violation, error) {
-	// The checker is bound to the project root it was constructed with;
-	// CWD-based discovery is only a fallback for an unset root. Re-discovering
-	// from CWD here would silently retarget the check at whatever repo the
-	// process happens to run inside (and lets gate tests recurse into the
-	// host repo's own test suite).
-	pRoot := c.projectRoot
-	if pRoot == "" || pRoot == "." {
-		if cfgPath, cfgErr := config.DiscoverConfigPath(); cfgErr == nil {
-			pRoot = filepath.Dir(cfgPath)
-		}
-	}
-
-	backstopDir := filepath.Join(pRoot, ".backstop")
-
-	// Check .backstop/ directory validity. Missing .backstop is a step
-	// failure, not a config error — gate should continue with other steps.
-	if verr := check.ValidateBackstopDir(pRoot); verr != nil {
-		return nil, fmt.Errorf("validating .backstop directory: %w", verr)
-	}
-
-	opts := check.Options{
-		Mode:        mode,
-		BackstopDir: backstopDir,
-		ProjectDir:  pRoot,
-	}
-	// An explicit scoped file list (diff/file gate scope) is carried via the
-	// Files branch — a SINGLE Run covering all scoped files, not a per-file
-	// loop. Paths are project-relative as they arrive from the gate scope.
-	if len(files) > 0 {
-		opts.Files = files
-	}
-
-	// Load config to select the toolchain stack (language). The Language/Config
-	// fields drive registry selection; a declared language with no toolchain
-	// surfaces as a *check.ConfigError from check.Run, wrapped below into
-	// gate.ConfigError for exit 2.
-	cfg, err := config.LoadConfig()
-	if err == nil {
-		opts.Language = cfg.Language
-		opts.Config = cfg
-	}
-
-	result, runErr := c.runWithOpts(ctx, opts)
-	if runErr != nil {
-		return nil, &gate.ConfigError{Err: runErr}
-	}
-
-	return checkViolationsToGate(result.AllViolations()), nil
-}
-
-// runWithOpts dispatches to check.Run in production, or to check.RunWith with
-// the injected hermetic runner when the test seam is set. This keeps the gate's
-// scope-semantics tests bounded (no live tool) while production keeps the exact
-// check.Run path.
-func (c *realCodeChecker) runWithOpts(ctx context.Context, opts check.Options) (*check.Result, error) {
-	if c.runnerForTest != nil {
-		return check.RunWith(ctx, check.RunOptions{
-			Options: opts,
-			Runner:  c.runnerForTest,
-		})
-	}
-	// Production with a shared runner: route through RunWith so the whole-module
-	// go test pass goes through sharedRunner (deduped with coverage).
-	if c.sharedRunner != nil {
-		return check.RunWith(ctx, check.RunOptions{Options: opts, Runner: c.sharedRunner})
-	}
-	return check.Run(ctx, opts)
-}
-
-// checkViolationsToGate converts check.Violations to gate.Violations, carrying
-// the structured rule ID across the bridge. A pack-namespaced semgrep check_id
-// (pack.NamespacedRuleID format "org/pack/rule-id") is preserved on gate
-// Violation.Rule; SourcePack is derived as everything before the LAST "/" —
-// the two-segment pack NormalizedName "org/pack" — matching the layer-3
-// convention at pack_gate.go (SourcePack = manifest.NormalizedName). When a
-// violation carries no Rule (built-in lint/build/test passes), Rule falls back
-// to the pass name and SourcePack is empty.
-func checkViolationsToGate(cvs []check.Violation) []gate.Violation {
-	var violations []gate.Violation
-	for _, cv := range cvs {
-		rule := cv.Rule
-		sourcePack := ""
-		if rule == "" {
-			rule = cv.Pass.String()
-		} else if idx := strings.LastIndex(rule, "/"); idx >= 0 {
-			sourcePack = rule[:idx]
-		}
-		violations = append(violations, gate.Violation{
-			Rule:     rule,
-			File:     cv.File,
-			Message:  cv.Message,
-			Severity: cv.Severity,
-			// ProjectWide is set from the originating CheckType, INDEPENDENT of
-			// the parser-populated Rule: the build pass (Go go-build and TS tsc/
-			// typecheck) runs project-wide, so its violations are exempt from
-			// gate scope-filtering even when Rule is non-empty (e.g. "TS2304").
-			// Keying off cv.Pass — not the Rule string — is what makes the
-			// exemption correct for the tsc/sarif parsers (Constraint 3).
-			ProjectWide: cv.Pass == check.CheckTypeBuild,
-			SourcePack:  sourcePack,
-		})
-	}
-	return violations
 }
 
 // firstNonNil returns the first non-nil error from errs, or nil if all are nil.

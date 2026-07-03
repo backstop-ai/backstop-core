@@ -1,0 +1,824 @@
+---
+plan_id: PLAN-SPEC-042
+spec_id: SPEC-042
+spec_version: 1.0.0
+created: "2026-06-24"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/check/ ./pkg/pack/engine/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-042 (BUNDLE-011 Spec Seed 4, DD-7 / REQ-014/015/016): the coverage
+  PRODUCER — the second normalized output type (coverage-records, distinct from SARIF
+  findings), the canonical check.CoverageRecord type + ParsePackCoverage parser, the
+  dispatchPackCoverage routing path, the go-toolchain coverage engine (binding + convert
+  script), and the REAL un-stubbed installed-pack end-to-end producer test.
+
+  ════════════════════════════════════════════════════════════════════════════
+  SEED 2 PREREQUISITE — SPEC-040 (toolchain-pack dispatch substrate)
+  ════════════════════════════════════════════════════════════════════════════
+  This spec's coverage engine RIDES the toolchain-pack dispatch substrate SPEC-040
+  (Seed 2) establishes — the `go-toolchain` pack + its installed-pack convert dispatch
+  via resolveSandboxedRunStdout. dispatchPackCoverage is the coverage analogue of
+  runFindingsEngine's run->convert step and reuses that same sandboxed-convert seam.
+  The real end-to-end test (Phase 5) drives an INSTALLED go-toolchain pack — so the
+  installed-pack go-toolchain substrate from SPEC-040 must be present. If the
+  go-toolchain testdata pack / installed-pack dispatch is not yet landed, Phase 5 is
+  BLOCKED, not workable-around (re-baking a `go test -coverprofile` exec into the
+  binary to unblock it would re-violate the thin-executor principle and REQ-007 —
+  that is the failure mode, not a workaround).
+
+  ════════════════════════════════════════════════════════════════════════════
+  SEED 3 PRODUCER↔CONSUMER CONTRACT — SPEC-041 consumes what this spec produces
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-042 is the PRODUCER; SPEC-041 (Seed 3) is the CONSUMER. Both are DRAFT sibling
+  specs — neither CoverageRecord exists in code yet. This spec defines the CANONICAL
+  check.CoverageRecord{Path, Covered, Total, Measured, Excluded, Metric} (raw counts,
+  no percent, no "package" noun); SPEC-041's drafted consumer record
+  {Path, Pct, Measured, Excluded} is RECONCILED to it (Pct -> Covered/Total + Metric).
+  A SINGLE shared type crosses producer (dispatchPackCoverage) and consumer (SPEC-041's
+  StepCoverageThreshold), no second divergent shape, no lossy translation (REQ-006).
+  This plan AUTHORS THE PRODUCER ONLY — it does NOT author SPEC-041's coverage gate
+  STEP, threshold verdict, non-vacuousness guard, or CheckType-consumer catalog (those
+  are SPEC-041's). Where this plan asserts "the gate consumes the records" (CLM-011,
+  CLM-014, CLM-016, CLM-018, CLM-019, CLM-025) it does so over a MINIMAL test-local
+  consumer / the records-flow boundary, NOT by re-authoring SPEC-041's step. This must
+  land WITH or BEFORE SPEC-041's coverage step (Seed 3 is unsatisfiable without it).
+  Flagged for producer↔consumer coherence review (REQ-006, Sharp Edge 6).
+
+  ════════════════════════════════════════════════════════════════════════════
+  REAL INSTALLED-PACK E2E IS LOAD-BEARING (Sharp Edge 5, REQ-008)
+  ════════════════════════════════════════════════════════════════════════════
+  The pack-provisioning integration gap is RECURRING (it bit SPEC-035 P4, SPEC-037
+  Seed 3, SPEC-035 Seed 4): a producer "tested" with testdata + a stubbed dispatcher
+  returning canned records leaves the real installed-pack convert path unexercised, so
+  a broken coverage-to-records.sh / mis-declared binding / convert-parser shape
+  mismatch ships green. Phase 5 mandates the UN-STUBBED path — the real
+  dispatchPackCoverage running the pack's REAL scripts/coverage-to-records.sh via
+  resolveSandboxedRunStdout (convert NOT stubbed, NO parallel raw-exec) — mirroring the
+  existing dispatch_astgrep_e2e_test.go harness, over measured-passing /
+  measured-failing / Total==0(N/A) files, asserting a correct gate verdict (CLM-024/025).
+
+  ════════════════════════════════════════════════════════════════════════════
+  ROUTE ON DECLARED GateType, NEVER TOOL/COMMAND IDENTITY (Sharp Edge 1/7)
+  ════════════════════════════════════════════════════════════════════════════
+  The coverage channel routes SOLELY on binding.GateType == engine.GateTypeCoverage —
+  no command sniff (`-coverprofile`), no pack-name check, no engine-name check. Coverage
+  is a DISTINCT typed output ([]check.CoverageRecord), never tunneled through SARIF
+  result.properties (CLM-007). dispatchPackCoverage bakes NO go/Go-profile knowledge
+  (CLM-022); that knowledge lives entirely in the pack data (binding command + convert
+  script). The go-toolchain coverage engine is declared via the pack's engines: block
+  (the SPEC-035 declared-engine substrate), NOT the baked DefaultRegistry.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures for the parser, the routing matrix, and the
+  # real-e2e Go coverage profiles. No production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    description: |
+      Create the shared testdata the TDD phases consume: coverage-records JSON
+      fixtures for the parser (measured-passing, measured-failing, Total==0 N/A,
+      empty-metric-on-measured fail-loud, language-agnostic line/branch shape,
+      coverage-tunneled-through-SARIF-properties negative), the per-gate-type binding
+      fixtures for the routing matrix (coverage vs lint/build/test/findings), and the
+      real Go coverage-profile fixtures the un-stubbed e2e convert runs over
+      (measured-and-passing, measured-and-failing, Total==0 no-executable-lines). No
+      production code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold coverage-records JSON parser fixtures"
+        description: |
+          Create coverage-records JSON fixtures (the SECOND normalized output type —
+          NOT SARIF) under pkg/check/testdata that drive ParsePackCoverage's edge
+          cases:
+            - a measured-and-PASSING file record (Measured true, Covered/Total high)
+              alongside a measured-and-failing one — the census carries passing files,
+              not only shortfalls (CLM-008).
+            - a Total==0 no-executable-lines record (pure declarations/interfaces:
+              Covered 0, Total 0, Measured true) — the N/A fixture (CLM-013).
+            - a MEASURED record with an EMPTY Metric — the fail-loud fixture (CLM-017).
+            - a language-AGNOSTIC record set as a future typescript-toolchain engine
+              would emit (Metric "line"/"branch") — proves no Go assumption baked into
+              the parser/record shape (CLM-023).
+            - a SARIF document carrying coverage-shaped data in result.properties — the
+              tunneling negative fixture the coverage path must REJECT (CLM-007).
+          Fixtures only; the parser assertions live in the Phase-2 test task.
+        files:
+          - pkg/check/testdata/coverage-records-measured-passing.json
+          - pkg/check/testdata/coverage-records-total-zero-na.json
+          - pkg/check/testdata/coverage-records-empty-metric.json
+          - pkg/check/testdata/coverage-records-language-agnostic.json
+          - pkg/check/testdata/coverage-tunneled-through-sarif-properties.json
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-013
+          - CLM-017
+          - CLM-023
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold per-gate-type routing-matrix binding fixtures"
+        description: |
+          Create the engine-binding fixtures + a shared test helper driving the
+          gate-type routing matrix (REQ-001), under cmd/backstop/testdata and a
+          cmd/backstop test helper:
+            - a COVERAGE binding (gate_type coverage, engine.GateTypeCoverage) whose
+              convert output is the coverage-records JSON (CLM-001/CLM-002).
+            - LINT (golangci, GateTypeLint), BUILD (go-build, GateTypeBuild), TEST
+              (go-test, GateTypeTest), and FINDINGS (semgrep/ast-grep, GateTypeFindings)
+              bindings — each must route to SARIF (ParsePackFindings), never the records
+              channel (CLM-003/CLM-004/CLM-005/CLM-006).
+          Helper/fixtures only; the routing assertions live in the Phase-3 test tasks.
+        files:
+          - cmd/backstop/testdata/coverage-routing-bindings.yml
+          - cmd/backstop/coverage_dispatch_helpers_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Scaffold real Go coverage-profile e2e fixtures (passing/failing/N-A)"
+        description: |
+          Create REAL Go `-coverprofile` profile fixtures the un-stubbed e2e convert
+          (scripts/coverage-to-records.sh, Phase 4) runs over, plus the tiny Go source
+          tree they describe, under cmd/backstop/testdata/go-toolchain-coverage:
+            - a profile block for a measured-AND-PASSING file (most statements covered).
+            - a profile block for a measured-AND-FAILING (below-threshold) file (few
+              statements covered).
+            - a file with NO executable statements (pure declarations/interface) so the
+              profile yields Total==0 — the N/A cell (CLM-013/CLM-025).
+          These are the inputs to the Phase-5 real-e2e (CLM-024/CLM-025); the convert
+          script + parser turn them into per-file records. Fixtures only.
+        files:
+          - cmd/backstop/testdata/go-toolchain-coverage/cover-passing.out
+          - cmd/backstop/testdata/go-toolchain-coverage/cover-failing.out
+          - cmd/backstop/testdata/go-toolchain-coverage/cover-total-zero.out
+        claims:
+          - CLM-024
+          - CLM-025
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The canonical check.CoverageRecord + check.ParsePackCoverage.
+  # The single shared carrier (REQ-003/004/005/006) the producer emits and
+  # the consumer (SPEC-041) consumes. Raw counts, Total==0 preserved,
+  # empty-metric fails loud, no "package" noun.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Canonical CoverageRecord + ParsePackCoverage"
+    description: |
+      Define pkg/check/coverage.go: the canonical per-FILE, path-keyed
+      check.CoverageRecord{Path, Covered, Total, Measured, Excluded, Metric} with RAW
+      COUNTS (no pre-computed percent, no "package" noun) and check.ParsePackCoverage,
+      the coverage analogue of ParsePackFindings — the SECOND normalized output type's
+      parser. The parser preserves Total==0 faithfully (no synthesized 0% — REQ-004) and
+      fail-louds on a measured record with an empty Metric (REQ-005). This is the SINGLE
+      shared carrier SPEC-041's drafted consumer record is reconciled to (REQ-006) —
+      coordinate the reconciliation with SPEC-041, do not fork a second shape.
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write CoverageRecord + ParsePackCoverage parser tests"
+        description: |
+          pkg/check/coverage_test.go — RED before coverage.go exists, driven by the
+          Phase-1 JSON fixtures:
+            - TestCoverageRecord_RawCountsNoPrecomputedPercent: CoverageRecord is
+              {Path, Covered, Total, Measured, Excluded, Metric} with raw integer counts
+              (Covered, Total) and NO Pct/percent float field — a structural assertion
+              over the field set (CLM-010).
+            - TestCoverageRecord_PerFilePathKeyedNoPackageNoun: the record is per-FILE
+              and path-keyed; there is NO Package field / no package-granular modeling —
+              Path is a file path (CLM-012).
+            - TestParseCoverage_TotalZeroPreservedAsNA: a no-executable-lines fixture
+              (Total 0) parses with Total==0 preserved faithfully — ParsePackCoverage
+              does NOT synthesize a 0% value (CLM-013).
+            - TestParseCoverage_EmptyMetricOnMeasuredRecordFailsLoud: a MEASURED record
+              with an empty Metric is a fail-loud parse error, never silently accepted
+              as blank (CLM-017).
+            - TestParseCoverage_LanguageAgnosticRecordShape: the language-agnostic
+              fixture (Metric "line"/"branch", as a typescript-toolchain engine would
+              emit) parses through the SAME ParsePackCoverage into the SAME
+              CoverageRecord shape — no Go-specific assumption baked in (CLM-023).
+          The empty-metric and Total==0 tests are the anti-silent-comparison /
+          anti-0%-fail core (Sharp Edges 2 and 3).
+        files:
+          - pkg/check/coverage_test.go
+        claims:
+          - CLM-010
+          - CLM-012
+          - CLM-013
+          - CLM-017
+          - CLM-023
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Define CoverageRecord + implement ParsePackCoverage"
+        description: |
+          pkg/check/coverage.go: define the canonical
+          CoverageRecord{Path string, Covered int, Total int, Measured bool,
+          Excluded bool, Metric string} (raw counts, NO percent, NO "package" noun —
+          REQ-003/CLM-010/CLM-012) and ParsePackCoverage([]byte) ([]CoverageRecord,
+          error) — the coverage analogue of ParsePackFindings parsing the coverage-records
+          JSON (the SECOND normalized output type, DISTINCT from SARIF). It preserves
+          Total==0 faithfully — no synthesized 0% (REQ-004/CLM-013); it fail-louds on a
+          MEASURED record with an empty Metric (REQ-005/CLM-017); and it is NOT SARIF —
+          it must not accept a SARIF document, so coverage tunneled through SARIF
+          result.properties is rejected (the parser parses coverage-records JSON only —
+          the routing-level CLM-007 guard lives in Phase 3). The language-agnostic shape
+          carries any pack-declared Metric unchanged (CLM-023). This is the single shared
+          carrier reconciled with SPEC-041's drafted consumer record (REQ-006) — do not
+          fork a second shape. Make TASK-004 green.
+        files:
+          - pkg/check/coverage.go
+        claims:
+          - CLM-010
+          - CLM-012
+          - CLM-013
+          - CLM-017
+          - CLM-023
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify CoverageRecord + parser (code check)"
+        description: |
+          Run `backstop code check` over pkg/check/coverage.go + its test. Confirms the
+          canonical record + ParsePackCoverage build and the parser tests pass (raw
+          counts, no package noun, Total==0 preserved, empty-metric fails loud,
+          language-agnostic shape). Middle-phase verification — not the full gate.
+        files:
+          - pkg/check/coverage.go
+          - pkg/check/coverage_test.go
+        claims:
+          - CLM-010
+          - CLM-012
+          - CLM-013
+          - CLM-017
+          - CLM-023
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: dispatchPackCoverage — the coverage-records dispatch channel.
+  # Routes SOLELY on declared GateType (coverage -> ParsePackCoverage; the four
+  # findings types -> SARIF), distinct typed output, never tunneled through
+  # SARIF properties, bakes no Go-coverage knowledge. (REQ-001/REQ-002.)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: dispatchPackCoverage Routing Channel"
+    description: |
+      Add the coverage-records dispatch path dispatchPackCoverage to
+      cmd/backstop/pack_gate.go — the coverage analogue of runFindingsEngine's
+      run->convert step that TERMINATES in check.ParsePackCoverage (NOT
+      ParsePackFindings). It routes purely on the binding's DECLARED GateType
+      (engine.GateTypeCoverage), so a coverage engine's output is NEVER parsed as SARIF
+      and none of lint/build/test/findings is ever parsed as coverage-records. The
+      records are a DISTINCT typed output ([]check.CoverageRecord), never coverage
+      tunneled through SARIF result.properties, and the channel carries records for
+      measured-and-passing files preserving the measured-vs-not-measured distinction.
+      The path bakes NO go/-coverprofile/Go-profile knowledge. (REQ-001, REQ-002.)
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write coverage-routing matrix tests (coverage vs lint/build/test/findings)"
+        description: |
+          cmd/backstop/coverage_dispatch_routing_test.go — RED before dispatchPackCoverage
+          exists, using the Phase-1 routing-matrix bindings:
+            - TestDispatch_CoverageGateTypeRoutesToRecordsParser: a coverage engine
+              (binding GateType == engine.GateTypeCoverage) has its convert output routed
+              through check.ParsePackCoverage and produces []check.CoverageRecord —
+              records, NOT SARIF violations, come back (CLM-001).
+            - TestDispatch_CoverageEngineOutputNotParsedAsSarif: a coverage engine's
+              convert output is NEVER parsed as SARIF — ParsePackFindings is not invoked
+              for a GateTypeCoverage engine (CLM-002).
+            - TestDispatch_LintEngineRoutesToSarifNotCoverage: a LINT engine (golangci,
+              GateTypeLint) routes to SARIF (ParsePackFindings), NOT the records channel
+              (CLM-003).
+            - TestDispatch_BuildEngineRoutesToSarifNotCoverage: a BUILD engine (go-build,
+              GateTypeBuild) routes to SARIF, NOT the records channel (CLM-004).
+            - TestDispatch_TestEngineRoutesToSarifNotCoverage: a TEST engine (go-test,
+              GateTypeTest) routes to SARIF, NOT the records channel — a test-failure
+              engine and a coverage engine over the same `go test` family stay distinct
+              channels (CLM-005).
+            - TestDispatch_FindingsEngineRoutesToSarifNotCoverage: a FINDINGS engine
+              (semgrep/ast-grep, GateTypeFindings) routes to SARIF, NOT the records
+              channel (CLM-006).
+          Red — the coverage path does not exist; only runFindingsEngine/SARIF exists.
+        files:
+          - cmd/backstop/coverage_dispatch_routing_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-008
+        type: test
+        title: "Write coverage-channel distinctness + measured-vs-not-measured tests"
+        description: |
+          cmd/backstop/coverage_dispatch_channel_test.go — the load-bearing
+          channel-distinctness assertions (Sharp Edges 1 and 4):
+            - TestDispatch_CoverageNotTunneledThroughSarifProperties: the coverage
+              channel is a DISTINCT typed output ([]check.CoverageRecord), never coverage
+              tunneled through a SARIF result's properties — a SARIF document carrying
+              coverage-shaped result.properties is NOT accepted by the coverage path and
+              a coverage record is NOT emitted as a SARIF result (CLM-007).
+            - TestCoverage_ChannelCarriesMeasuredPassingFiles: the channel carries a
+              record for a MEASURED-AND-PASSING file (Measured true, Covered/Total above
+              any threshold) — the census includes passing files, not only shortfalls;
+              an engine emitting only below-threshold records is a SARIF-findings stream
+              in disguise and is rejected (CLM-008).
+            - TestCoverage_MeasuredPassedVsNotMeasuredDistinguished: a file the engine
+              should have measured but did NOT (absent from the records) is
+              distinguishable as not-measured (Measured false / no record) from
+              measured-and-passed, asserted by feeding a record-set that omits an
+              expected file and observing the not-measured signal survives to the
+              consumer boundary — the load-bearing reason coverage cannot be SARIF
+              (CLM-009).
+            - TestDispatch_NoBakedGoCoverageKnowledge: a guard asserting
+              cmd/backstop/pack_gate.go constructs no `go test -coverprofile` command and
+              parses no Go coverage-profile text in the coverage path — the Go-toolchain
+              coverage knowledge lives in the pack, not the binary (CLM-022).
+          Red — the distinct coverage path does not exist yet.
+        files:
+          - cmd/backstop/coverage_dispatch_channel_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-022
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement dispatchPackCoverage (declared-GateType routing channel)"
+        description: |
+          cmd/backstop/pack_gate.go: add dispatchPackCoverage(packs, packDir,
+          projectRoot, scope, runner) ([]check.CoverageRecord, error) — the coverage
+          analogue of runFindingsEngine's run->convert step. For each installed-pack
+          engine whose binding declares gate_type coverage (engine.GateTypeCoverage),
+          run the engine command via the runner, pipe its stdout through the pack's
+          declared convert via resolveSandboxedRunStdout, and parse the normalized output
+          via check.ParsePackCoverage — TERMINATING in the coverage-records parser, NOT
+          ParsePackFindings (REQ-001/CLM-001/CLM-002). Route PURELY on the binding's
+          DECLARED GateType — no command sniff, no pack/engine-name check — so a
+          lint/build/test/findings engine is never parsed as coverage-records
+          (CLM-003..CLM-006) and a coverage engine is never parsed as SARIF (CLM-002).
+          The records are a DISTINCT typed output ([]check.CoverageRecord), never coverage
+          tunneled through SARIF properties (CLM-007). The channel carries records for
+          measured-and-passing files (CLM-008), preserving the measured-vs-not-measured
+          distinction (CLM-009). Bake NO go/-coverprofile/Go-profile knowledge into this
+          path (CLM-022) — reuse the same resolveSandboxedRunStdout convert seam
+          runFindingsEngine uses. Make TASK-007 and TASK-008 green.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-022
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: test
+        title: "Write metric-surfacing, metric-blind verdict, and N/A verdict tests"
+        description: |
+          cmd/backstop/coverage_dispatch_verdict_test.go — the records-to-consumer
+          boundary assertions over a MINIMAL test-local consumer (NOT SPEC-041's full
+          step, which is fenced to Seed 3):
+            - TestCoverage_MetricLabelCarriedAndSurfacedOnReport: the pack-declared
+              Metric label (e.g. "statement") is carried through the channel unchanged
+              and SURFACED on the report surface for measured records, so a statement-%
+              is never silently compared against a branch-% under one number (CLM-015).
+            - TestCoverage_GateIsMetricBlind: the consumer stays metric-BLIND — two
+              records with DIFFERENT Metric labels but identical Covered/Total produce
+              identical verdicts; the gate never interprets/compares/branches on Metric,
+              only surfaces it (CLM-016).
+            - TestCoverage_TotalZeroIsNAnotFail: a Total==0 record is treated as N/A by
+              the verdict (skipped), never a 0%-fail — feeding it yields no coverage
+              shortfall, where a naive 0/0 -> 0% would have failed (CLM-014).
+            - TestCoverageRecord_GateComputesPercentFromRawCounts: the consumer computes
+              the threshold verdict from Covered/Total (staying metric-blind) — feeding
+              raw counts, the pass/fail verdict matches Covered/Total >= threshold, with
+              the producer never emitting a percentage (CLM-011).
+          Red — the channel + minimal consumer boundary do not exist yet.
+        files:
+          - cmd/backstop/coverage_dispatch_verdict_test.go
+        claims:
+          - CLM-011
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-011
+        type: implementation
+        title: "Surface Metric + wire records to a metric-blind N/A-aware consumer boundary"
+        description: |
+          cmd/backstop/pack_gate.go (coverage path) + the report/consumer boundary: carry
+          the pack-declared Metric through the channel unchanged and SURFACE it on the
+          report for measured records (REQ-005/CLM-015), and expose the produced
+          []check.CoverageRecord to a metric-BLIND, N/A-aware consumer boundary so a
+          Total==0 record is treated as N/A/skip (never a 0%-fail — REQ-004/CLM-014) and
+          two records differing only in Metric produce identical verdicts (CLM-016). This
+          is the PRODUCER side of the boundary only — the actual threshold verdict logic
+          is SPEC-041's StepCoverageThreshold (fenced to Seed 3); this task asserts the
+          records flow with Metric surfaced and N/A preserved over a MINIMAL test-local
+          consumer, not by re-authoring SPEC-041's step. The minimal consumer computes the
+          verdict from Covered/Total (CLM-011) so the producer never emits a percentage.
+          Make TASK-010 green. Depends on TASK-009 (the dispatch path the records flow
+          from).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-011
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-010
+          - TASK-009
+
+      - id: TASK-012
+        type: test
+        title: "Write single-reconciled-type + untranslated-flow producer↔consumer tests"
+        description: |
+          cmd/backstop/coverage_producer_consumer_test.go — the REQ-006 contract
+          assertions (Sharp Edge 6), over the producer side + the records-flow boundary:
+            - TestCoverageRecord_SingleReconciledTypeAcrossProducerAndConsumer: a SINGLE
+              check.CoverageRecord type is the shared carrier across producer (dispatch)
+              and consumer — the consumer boundary consumes the same canonical type the
+              producer emits, with NO second divergent shape (no producer-local +
+              consumer-local CoverageRecord) (CLM-018).
+            - TestCoverageRecord_ProducerRecordsFlowToCoverageStepUntranslated: the
+              producer-emitted []check.CoverageRecord is consumed directly with NO lossy
+              producer->consumer translation layer — the records dispatch produces flow to
+              the coverage-step boundary unchanged (no counts->percent / metric-dropping
+              shim) (CLM-019).
+          Red against the not-yet-wired records flow.
+        files:
+          - cmd/backstop/coverage_producer_consumer_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-013
+        type: implementation
+        title: "Flow producer records to the coverage-step boundary untranslated"
+        description: |
+          cmd/backstop/pack_gate.go (+ the gate wiring that hands records to the coverage
+          step): the []check.CoverageRecord dispatchPackCoverage produces flow to the
+          gate's coverage-step boundary as the SINGLE shared canonical type with NO lossy
+          producer->consumer translation layer (no counts->percent shim, no metric drop) —
+          the same check.CoverageRecord crosses the producer/consumer boundary
+          (CLM-018/CLM-019). Do NOT author SPEC-041's StepCoverageThreshold verdict logic
+          (fenced to Seed 3) — this task only proves the records cross the boundary
+          untranslated as the shared type. Make TASK-012 green. Depends on TASK-009/TASK-011
+          (the records-producing path).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-012
+          - TASK-009
+          - TASK-011
+
+      - id: TASK-014
+        type: verification
+        title: "Verify coverage dispatch channel (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/pack_gate.go + the coverage
+          dispatch tests. Confirms dispatchPackCoverage routes on declared GateType
+          (coverage -> records, the four findings types -> SARIF), the channel is a
+          distinct typed output never tunneled through SARIF properties, carries
+          measured-and-passing records and preserves measured-vs-not-measured, surfaces
+          Metric, stays metric-blind, treats Total==0 as N/A, flows the single reconciled
+          type untranslated, and bakes no Go-coverage knowledge. Middle-phase verification.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-018
+          - CLM-019
+          - CLM-022
+        depends_on:
+          - TASK-009
+          - TASK-011
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: The go-toolchain coverage engine — the first concrete producer.
+  # Pack DATA (binding via the engines: block + convert script) carries all
+  # Go-toolchain knowledge; the dispatch stays tool/language-blind. (REQ-007.)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: go-toolchain Coverage Engine (Pack Data)"
+    description: |
+      Declare the go-toolchain pack's coverage engine via the pack's engines: block
+      (the SPEC-035 declared-engine substrate — NOT the baked DefaultRegistry): a binding
+      with gate_type coverage, command `go test -coverprofile=...`, and convert
+      scripts/coverage-to-records.sh, plus a coverage rule that fills it. Write the
+      convert script that reads a Go -coverprofile profile on stdin and emits per-file
+      coverage-records JSON (Metric "statement") on stdout — NOT SARIF — re-expressing
+      Go coverage-profile knowledge OUTSIDE the binary (the coverage analogue of
+      test-to-sarif.sh) and emitting a record for measured-and-PASSING files too, not
+      only shortfalls. (REQ-007.)
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write go-toolchain coverage-engine declaration + convert-script tests"
+        description: |
+          cmd/backstop/go_toolchain_coverage_test.go — RED before the pack declaration +
+          script exist:
+            - TestGoToolchain_CoverageEngineDeclaredWithCoverageGateType: the go-toolchain
+              pack declares a coverage engine whose binding fills gate_type coverage,
+              whose command runs `go test -coverprofile`, and whose pack-relative convert
+              (scripts/coverage-to-records.sh) is declared — asserted against the parsed
+              pack.yml + binding records, AND asserted to be declared via the pack's
+              engines: block (declared substrate), not the baked DefaultRegistry (CLM-020,
+              Review Question 7).
+            - TestGoToolchain_ConvertProfileToPerFileStatementRecords: feeding a REAL Go
+              coverage profile (the Phase-1 fixtures) to the actual
+              scripts/coverage-to-records.sh yields per-file CoverageRecords stamped
+              Metric "statement" (Go's -coverprofile granularity), with a record for at
+              least one measured-and-PASSING file (not only shortfalls — CLM-008/Sharp
+              Edge 4) — proven by running the script over the fixture and parsing its
+              stdout via check.ParsePackCoverage (CLM-021).
+          Red — the coverage engine declaration + convert script do not exist.
+        files:
+          - cmd/backstop/go_toolchain_coverage_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-003
+          - TASK-006
+
+      - id: TASK-016
+        type: implementation
+        title: "Declare the go-toolchain coverage engine + rule in pack.yml"
+        description: |
+          cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml:
+          add the coverage engine to the pack's engines: block (the SPEC-035 declared
+          substrate — NOT the baked DefaultRegistry) with gate_type coverage, command
+          `go test -coverprofile=...`, and convert scripts/coverage-to-records.sh, plus a
+          coverage rule (id go-coverage, engine go-coverage) that fills it. All
+          Go-toolchain coverage knowledge lives in this pack DATA; the dispatch path stays
+          tool/language-blind. Do NOT mirror the baked DefaultRegistry golangci/go-build/
+          go-test bindings (those are the eradication target — wrong template). Make
+          TASK-015's declaration assertion (CLM-020) green.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+        claims:
+          - CLM-020
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: implementation
+        title: "Write scripts/coverage-to-records.sh (profile → per-file statement records)"
+        description: |
+          cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh:
+          read a Go `-coverprofile` profile on stdin and emit per-file coverage-records
+          JSON ({path, covered, total, measured, excluded, metric:"statement"}) on
+          stdout — NOT SARIF. Aggregate the profile's per-block statement counts into
+          per-FILE Covered/Total, stamp Metric "statement" (Go's -coverprofile
+          granularity), and emit a record for measured-and-PASSING files too, not only
+          shortfalls (REQ-002/CLM-008/Sharp Edge 4). A file with no executable statements
+          yields Total==0 (the N/A cell — never coerced to 0%). The script re-expresses Go
+          coverage-profile knowledge OUTSIDE the binary (the coverage analogue of
+          test-to-sarif.sh). Make TASK-015's convert assertion (CLM-021) green. Separate
+          file from TASK-016's pack.yml so the two impl tasks are file-disjoint, each
+          test-led by TASK-015.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-021
+        depends_on:
+          - TASK-015
+
+      - id: TASK-018
+        type: verification
+        title: "Verify go-toolchain coverage engine declaration + convert (code check)"
+        description: |
+          Run `backstop code check` over the go-toolchain pack.yml coverage engine +
+          convert script + their test. Confirms the coverage engine is declared via the
+          engines: block (not DefaultRegistry) with gate_type coverage, and the convert
+          script turns a real Go profile into per-file Metric "statement" records
+          (passing files included). Middle-phase verification.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-016
+          - TASK-017
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: REAL un-stubbed installed-pack end-to-end producer test.
+  # The pack-provisioning integration-gap guard (Sharp Edge 5, REQ-008): the
+  # real dispatchPackCoverage running the pack's REAL coverage-to-records.sh
+  # via resolveSandboxedRunStdout over passing/failing/N-A files.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Real Installed-Pack End-to-End Producer Test"
+    description: |
+      Prove the go-toolchain coverage engine through the UN-STUBBED sandboxed dispatch —
+      the real dispatchPackCoverage executing the INSTALLED pack's REAL
+      scripts/coverage-to-records.sh via resolveSandboxedRunStdout (convert NOT stubbed,
+      NO parallel raw-exec path), mirroring the existing dispatch_astgrep_e2e_test.go
+      harness. The produced per-file records feed the gate's coverage-step boundary over
+      at least one measured-and-PASSING file, one measured-and-FAILING file, and one
+      Total==0 (N/A) file, and the verdict over them is correct (failing REDs; passing
+      and N/A do not). A stubbed convert returning canned records would NOT satisfy this.
+      (REQ-008.) Depends on the SPEC-040 installed-pack go-toolchain substrate.
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Write the real un-stubbed installed-pack coverage e2e test"
+        description: |
+          cmd/backstop/dispatch_coverage_e2e_test.go — the real-e2e producer test
+          (mirror dispatch_astgrep_e2e_test.go), un-stubbed convert:
+            - TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack: the INSTALLED
+              go-toolchain pack's coverage engine runs through the UN-STUBBED sandboxed
+              dispatch — the real dispatchPackCoverage executes the pack's REAL
+              scripts/coverage-to-records.sh via resolveSandboxedRunStdout (convert NOT
+              stubbed, NO parallel raw-exec; a fake runner supplies the Go profile stdout
+              from the Phase-1 fixtures, but the CONVERT is the real script on disk) and
+              produces real per-file CoverageRecords; a stubbed convert returning canned
+              records would NOT satisfy this — the test asserts the real script actually
+              ran (CLM-024).
+            - TestGoToolchain_RealEndToEndRecordsDriveCorrectGateVerdict: the real-e2e
+              records the gate consumes include a MEASURED-AND-PASSING file, a
+              MEASURED-AND-FAILING (below-threshold) file, and a Total==0 (N/A) file, and
+              the gate's verdict over them is correct (the failing file REDs; the passing
+              and N/A files do not) — proving the producer feeds a NON-VACUOUS consumer
+              over the real convert (CLM-025). The verdict is checked at the
+              producer->consumer boundary established in Phase 3, NOT by re-authoring
+              SPEC-041's step.
+          Red until Phases 3 and 4 are green; this phase is the integration capstone.
+        files:
+          - cmd/backstop/dispatch_coverage_e2e_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-003
+          - TASK-014
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Verify real installed-pack coverage e2e (code check)"
+        description: |
+          Run `backstop code check` over the cmd/backstop coverage e2e test + the
+          go-toolchain pack. Confirms the un-stubbed installed-pack convert path runs the
+          REAL coverage-to-records.sh via resolveSandboxedRunStdout, produces real per-file
+          records, and drives a correct non-vacuous verdict over passing/failing/N-A files
+          (a stub would not pass it). Middle-phase verification — the full gate runs in
+          Phase 6.
+        files:
+          - cmd/backstop/dispatch_coverage_e2e_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-019
+          - TASK-009
+          - TASK-016
+          - TASK-017
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Final comprehensive verification (full kill chain).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code check,
+      test verification, substantiveness, coverage (>=80%), contracts. This is the only
+      phase that runs `backstop gate`. Confirms every claim's tests are green: the
+      coverage-records channel routes on declared GateType (coverage -> ParsePackCoverage;
+      lint/build/test/findings -> SARIF), is a distinct typed output never tunneled
+      through SARIF properties, carries passing files and preserves measured-vs-not-
+      measured, the canonical CoverageRecord is the single reconciled shared type (raw
+      counts, no package noun, Total==0 N/A, empty-metric fails loud, metric surfaced +
+      gate metric-blind), the go-toolchain coverage engine is declared in the pack
+      (not the binary) with a real convert, and the REAL un-stubbed installed-pack e2e
+      drives a non-vacuous verdict over passing/failing/N-A files. Also validates this
+      plan + the spec (artifact files touched: this .plan.yml).
+    tasks:
+      - id: TASK-021
+        type: verification
+        title: "Run full gate over the complete SPEC-042 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) across pkg/check,
+          cmd/backstop, and pkg/pack/engine at >=80% coverage, and `backstop artifact
+          validate` over this plan + the spec. Confirm: the coverage-records channel is a
+          SECOND normalized output type routed SOLELY on binding.GateType ==
+          engine.GateTypeCoverage — coverage -> check.ParsePackCoverage, the four
+          findings/output types -> SARIF, never tunneled through SARIF properties
+          (REQ-001/002); the canonical check.CoverageRecord{Path, Covered, Total,
+          Measured, Excluded, Metric} carries raw counts (no percent, no package noun),
+          Total==0 preserved as N/A, empty Metric on a measured record fails loud, Metric
+          surfaced + gate metric-blind, a SINGLE reconciled type crosses producer/consumer
+          untranslated (REQ-003/004/005/006); the go-toolchain coverage engine is declared
+          via the pack's engines: block with a real coverage-to-records.sh convert and
+          bakes no Go-coverage knowledge into the binary (REQ-007); and the REAL un-stubbed
+          installed-pack e2e (real convert via resolveSandboxedRunStdout) drives a correct
+          NON-VACUOUS verdict over measured-passing / measured-failing / Total==0(N/A)
+          files (REQ-008).
+        files:
+          - pkg/check/coverage.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - plans/PLAN-SPEC-042-coverage-production-engine.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-006
+          - TASK-014
+          - TASK-018
+          - TASK-020
+          - TASK-005
+          - TASK-009
+          - TASK-011
+          - TASK-013
+          - TASK-016
+          - TASK-017
+          - TASK-019

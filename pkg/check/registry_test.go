@@ -75,39 +75,49 @@ func TestCodeCheck_Registry_SelectsToolchainByLanguage(t *testing.T) {
 	defaultExec := buildExecutorsForConfig(Options{Language: ""}, runner)
 	assertGoStackConstructsNoExecutors(t, "language absent", defaultExec)
 
-	// TypeScript stack: distinct executor types from Go (generic commandExecutor
-	// bound to eslint/tsc/declared-test). Semgrep runs through the pack engine,
-	// so the registry constructs no semgrep executor.
-	tsExec := buildExecutorsForConfig(Options{
-		Language: "typescript",
+	// TypeScript with NO declared toolchain: after the SPEC-040 cutover the baked
+	// builtin TS stack (eslint/tsc/regex-lines) is DELETED, so an undeclared TS
+	// project constructs NO executors (it now resolves a typescript-toolchain PACK
+	// through the engine path, or hits the no-toolchain-pack WARN state). It is no
+	// longer a baked stack.
+	tsUndeclared := buildExecutorsForConfig(Options{
+		Config:   &config.Config{},
+	}, runner)
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
+		if _, ok := tsUndeclared[ct]; ok {
+			t.Errorf("undeclared TS %v executor = %T, want none (the baked TS stack is deleted)", ct, tsUndeclared[ct])
+		}
+	}
+
+	// TypeScript WITH a declared toolchain: the generic commandExecutor still
+	// builds from the DECLARED entries (the surviving code check subcommand path).
+	tsDeclared := buildExecutorsForConfig(Options{
 		Config: &config.Config{
-			Language: "typescript",
 			Enforcement: config.Enforcement{
 				TestCommand: "vitest run",
+				Toolchain: map[string]config.ToolchainPass{
+					"lint":  {Command: "eslint --format json", Format: "eslint-json"},
+					"build": {Command: "tsc --noEmit", Format: "tsc"},
+				},
 			},
 		},
 	}, runner)
-	if _, ok := tsExec[CheckTypeLint].(*commandExecutor); !ok {
-		t.Errorf("TS lint executor type = %T, want *commandExecutor", tsExec[CheckTypeLint])
+	if _, ok := tsDeclared[CheckTypeLint].(*commandExecutor); !ok {
+		t.Errorf("declared TS lint executor type = %T, want *commandExecutor", tsDeclared[CheckTypeLint])
 	}
-	if _, ok := tsExec[CheckTypeBuild].(*commandExecutor); !ok {
-		t.Errorf("TS build executor type = %T, want *commandExecutor", tsExec[CheckTypeBuild])
+	if _, ok := tsDeclared[CheckTypeBuild].(*commandExecutor); !ok {
+		t.Errorf("declared TS build executor type = %T, want *commandExecutor", tsDeclared[CheckTypeBuild])
 	}
-	if _, ok := tsExec[CheckTypeTest].(*commandExecutor); !ok {
-		t.Errorf("TS test executor type = %T, want *commandExecutor", tsExec[CheckTypeTest])
+	if _, ok := tsDeclared[CheckTypeTest].(*commandExecutor); !ok {
+		t.Errorf("declared TS test executor type = %T, want *commandExecutor", tsDeclared[CheckTypeTest])
 	}
-	if _, ok := tsExec[CheckTypeFindings]; ok {
-		t.Errorf("TS stack must construct no semgrep executor (it runs through the pack engine), got %T", tsExec[CheckTypeFindings])
-	}
-
-	// The TS lint command must be eslint-derived, distinct from golangci-lint.
-	tsLint, _ := tsExec[CheckTypeLint].(*commandExecutor)
+	tsLint, _ := tsDeclared[CheckTypeLint].(*commandExecutor)
 	if tsLint != nil && !strings.HasPrefix(tsLint.command, "eslint") {
-		t.Errorf("TS lint command = %q, want an eslint command", tsLint.command)
+		t.Errorf("declared TS lint command = %q, want an eslint command", tsLint.command)
 	}
-	tsBuild, _ := tsExec[CheckTypeBuild].(*commandExecutor)
+	tsBuild, _ := tsDeclared[CheckTypeBuild].(*commandExecutor)
 	if tsBuild != nil && !strings.Contains(tsBuild.command, "tsc") {
-		t.Errorf("TS build command = %q, want a tsc command", tsBuild.command)
+		t.Errorf("declared TS build command = %q, want a tsc command", tsBuild.command)
 	}
 }
 
@@ -138,7 +148,10 @@ func TestCodeCheck_Registry_CustomToolchainFromConfig(t *testing.T) {
 		"cargo": []byte(regexLinesSampleTxt),
 	}}
 
-	execs := buildExecutorsForConfig(Options{Language: cfg.Language, Config: cfg}, runner)
+	// SPEC-046: config.Config.Language is retired — pass the language LITERAL into the
+	// surviving, fenced check.Options.Language (the declaredStackBackstopYML fixture is
+	// a `rust` stack).
+	execs := buildExecutorsForConfig(Options{Language: "rust", Config: cfg}, runner)
 
 	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
 		ce, ok := execs[ct].(*commandExecutor)
@@ -187,7 +200,8 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("non_go_typo_key_is_config_error", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, unknownKeyRustBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL into the surviving check.Options.Language.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "rust", Config: cfg}, runner)
 		if err == nil {
 			t.Fatalf("buildExecutorsForConfigErr returned nil error for an out-of-vocabulary key; got executors %v (silent skip is the bug)", execs)
 		}
@@ -217,7 +231,9 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("go_language_typo_key_is_config_error", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, unknownKeyGoBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL ("go") into the surviving check.Options.Language
+		// — this subtest exercises the go path explicitly.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "go", Config: cfg}, runner)
 		if err == nil {
 			t.Fatalf("go-language project with a typo'd toolchain key returned nil error; the guard must run before the go early-return (silent non-enforcement on the dominant path)")
 		}
@@ -242,7 +258,8 @@ func TestCodeCheck_Registry_UnknownToolchainPassKeyIsConfigError(t *testing.T) {
 	t.Run("findings_key_is_accepted", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, findingsKeyRustBackstopYML)
 
-		execs, err := buildExecutorsForConfigErr(Options{Language: cfg.Language, Config: cfg}, runner)
+		// SPEC-046: pass the language LITERAL into the surviving check.Options.Language.
+		execs, err := buildExecutorsForConfigErr(Options{Language: "rust", Config: cfg}, runner)
 		if err != nil {
 			t.Fatalf("a `findings:` toolchain key must be accepted as in-vocabulary, got error: %v", err)
 		}

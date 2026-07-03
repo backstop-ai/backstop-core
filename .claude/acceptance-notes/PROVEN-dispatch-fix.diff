@@ -1,0 +1,89 @@
+diff --git a/cmd/backstop/pack_gate.go b/cmd/backstop/pack_gate.go
+index 8ac0810..ab00eb2 100644
+--- a/cmd/backstop/pack_gate.go
++++ b/cmd/backstop/pack_gate.go
+@@ -553,17 +553,26 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
+ 	// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
+ 	// ProjectTarget and must NOT have a scan target bolted on — appending <root>
+ 	// to `go build ./...` is wrong (CLM-005, Ratified Design Constraint 3).
+-	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+-		// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
+-		// `code check --file` hook scopes `go test` to the changed file's package,
+-		// not ./..., to stay within its tight budget. fileModeTestTarget returns the
+-		// package selector ONLY for the native go-test engine under a file-mode
+-		// scope (pack_gate_filemode.go); every other project-wide pass keeps its
+-		// ProjectTarget so unchanged-file breakage still fails a full run.
+-		if target, ok := fileModeTestTarget(binding, scope); ok {
+-			cmdArgs = append(cmdArgs, target)
+-		} else {
+-			cmdArgs = append(cmdArgs, binding.ProjectTarget)
++	if binding.ScopeKind == engine.ScopeKindProjectWide {
++		// A project-wide toolchain pass shapes its OWN target and must NOT have a
++		// scan target bolted on. When it declares a ProjectTarget (go build ./...,
++		// golangci-lint run ./...), append that. When it declares NONE, the engine
++		// self-targets — tsc --noEmit reads tsconfig.json, `bun test` discovers its
++		// own tests — and appending <projectRoot> is WRONG: `tsc --noEmit <dir>`
++		// treats the path as a file and IGNORES tsconfig, silently typechecking
++		// nothing (vacuous green). So append nothing for an empty ProjectTarget.
++		if binding.ProjectTarget != "" {
++			// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
++			// `code check --file` hook scopes `go test` to the changed file's package,
++			// not ./..., to stay within its tight budget. fileModeTestTarget returns the
++			// package selector ONLY for the native go-test engine under a file-mode
++			// scope (pack_gate_filemode.go); every other project-wide pass keeps its
++			// ProjectTarget so unchanged-file breakage still fails a full run.
++			if target, ok := fileModeTestTarget(binding, scope); ok {
++				cmdArgs = append(cmdArgs, target)
++			} else {
++				cmdArgs = append(cmdArgs, binding.ProjectTarget)
++			}
+ 		}
+ 	} else {
+ 		// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
+@@ -590,24 +599,43 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
+ 	// finding-free pass, and must fail loud rather than read as a silent green
+ 	// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
+ 
++	// Select the bytes the convert/shape-guard see (mirrors runCoverageEngine). By
++	// default a findings engine's payload IS its stdout. When the binding declares a
++	// stdout_artifact, the engine writes its real machine-readable output to that FILE
++	// (relative to the run's working dir = projectRoot) and prints only summary/noise
++	// to stdout — e.g. `bun test` writes JUnit XML to a --reporter-outfile while its
++	// stdout is a human summary, and reading stdout would find no <testcase> and
++	// silently green a failing test suite. Read the FILE and feed THAT. The filename
++	// is pack DATA; this stays tool/language-blind. A declared-but-missing artifact is
++	// a fail-loud broken run, not a silent fall-back to the noise stdout.
++	payload := stdout
++	if binding.StdoutArtifact != "" {
++		artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
++		body, readErr := os.ReadFile(artifactPath)
++		if readErr != nil {
++			return nil, fmt.Errorf("pack %s findings engine %q: declared stdout_artifact %q not produced (%s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
++		}
++		payload = body
++	}
++
+ 	// Strict-SARIF guard for a config-file engine that assumes a NATIVE SARIF tool
+ 	// (golangci-lint v2): a v1/too-old binary emits non-SARIF JSON that the lenient
+ 	// parser would silently read as zero findings — vacuous green. Fail loud,
+ 	// engine-attributed, instead (SPEC-034 REQ-005/CLM-019, Sharp Edge 5). The
+ 	// guard lives in pack_gate_golint.go and is a no-op unless binding.StrictSarif.
+ 	if binding.Convert == "" {
+-		if shapeErr := requireLintSarifShape(manifest, binding, stdout); shapeErr != nil {
++		if shapeErr := requireLintSarifShape(manifest, binding, payload); shapeErr != nil {
+ 			return nil, fmt.Errorf("validating SARIF shape for pack %s: %w", manifest.NormalizedName, shapeErr)
+ 		}
+ 	}
+ 
+-	sarifBytes := stdout
++	sarifBytes := payload
+ 	if binding.Convert != "" {
+ 		convertPath := filepath.Join(packRoot, filepath.FromSlash(binding.Convert))
+ 		if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
+ 			return nil, fmt.Errorf("broken pack %s: missing convert script %s", manifest.NormalizedName, convertPath)
+ 		}
+-		converted, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, stdout)
++		converted, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, payload)
+ 		if convErr != nil {
+ 			return nil, fmt.Errorf("pack %s: convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
+ 		}

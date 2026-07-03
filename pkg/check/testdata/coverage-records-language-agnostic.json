@@ -1,0 +1,4 @@
+[
+  {"path": "src/app/router.ts", "covered": 140, "total": 160, "measured": true, "excluded": false, "metric": "line"},
+  {"path": "src/app/branchy.ts", "covered": 12, "total": 40, "measured": true, "excluded": false, "metric": "branch"}
+]

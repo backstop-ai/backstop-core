@@ -1,0 +1,18 @@
+// Fixture: a COSMETIC .Pass.String() display/serialization site that MUST be
+// EXCLUDED from the completeness guard's discovery scope (SPEC-041 CLM-022). It
+// carries no gate-semantic decision — it only renders a label — so the bounded
+// guard must NOT discover it (the negative case for the bounded-scope
+// assertion). .go.txt so it is not compiled; the guard scans it as a fixture.
+package fixture
+
+import (
+	"fmt"
+
+	"github.com/bmanson/backstop-core/pkg/check"
+)
+
+// renderLabel is a cosmetic display site: it stringifies the pass for a log
+// line. No scope/exemption/dispatch decision is keyed here.
+func renderLabel(v check.Violation) string {
+	return fmt.Sprintf("[%s] %s", v.Pass.String(), v.Message)
+}

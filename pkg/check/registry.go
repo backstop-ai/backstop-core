@@ -50,56 +50,14 @@ type Toolchain struct {
 	TestCommand string
 }
 
-// builtinToolchains returns the predefined built-in stacks (go, typescript).
-// After the SPEC-034 cutover the go stack declares NO build/test/lint entries:
-// those passes run through the go-toolchain pack engines (dispatchPackEngines),
-// not pkg/check. The go stack therefore contributes only its routable `.go`
-// extension and the shared semgrep executor. The typescript stack is fully
-// data-driven via the generic commandExecutor.
-func builtinToolchain(language string) (Toolchain, bool) {
-	switch language {
-	case "go":
-		return Toolchain{
-			Entries:    map[CheckType]ToolchainEntry{},
-			Extensions: []string{".go"},
-		}, true
-	case "typescript":
-		return Toolchain{
-			Entries: map[CheckType]ToolchainEntry{
-				CheckTypeLint: {
-					Command:    "eslint --format json",
-					Format:     "eslint-json",
-					Extensions: []string{".ts", ".tsx"},
-					ScopeKind:  ScopeKindFileArgs,
-				},
-				CheckTypeBuild: {
-					Command:    "tsc --noEmit",
-					Format:     "tsc",
-					Extensions: []string{".ts", ".tsx"},
-					ScopeKind:  ScopeKindProjectWide,
-				},
-				// Test entry's command is filled from enforcement.test_command
-				// at construction time; format parses generic test output.
-				CheckTypeTest: {
-					Format:     "regex-lines",
-					Extensions: []string{".ts", ".tsx"},
-					ScopeKind:  ScopeKindDependencyMapped,
-				},
-			},
-			Extensions: []string{".ts", ".tsx"},
-		}, true
-	default:
-		return Toolchain{}, false
-	}
-}
-
-// commandExecutor is the generic PassExecutor backing the typescript built-in
-// stack and every declared stack. It is parameterized by a command string, a
-// parser resolved from the named format, a ScopeKind, and the CommandRunner
-// seam. After the SPEC-034 cutover this is the SINGLE construction route for
-// every stack's lint/build/test passes — the Go stack runs its build/test/lint
-// through the go-toolchain pack engines instead, so it constructs no
-// commandExecutor of its own (only the shared semgrep executor).
+// commandExecutor is the generic PassExecutor backing every DECLARED stack. It
+// is parameterized by a command string, a parser resolved from the named format,
+// a ScopeKind, and the CommandRunner seam. After the SPEC-040 keystone cutover
+// it is the SINGLE construction route for the standalone `backstop code check`
+// subcommand's lint/build/test passes, built ONLY from DECLARED
+// enforcement.toolchain entries — there is NO baked builtin stack overlay (the
+// gate's lint/build/test enforcement runs through the <lang>-toolchain pack
+// engines via dispatchPackEngines, not pkg/check).
 type commandExecutor struct {
 	pass                  CheckType
 	command               string
@@ -248,23 +206,20 @@ func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckTy
 	return execs, nil
 }
 
-// resolveToolchain produces the effective Toolchain for a language by starting
-// from the built-in stack (if any), then overlaying enforcement.toolchain
-// declarations from config. A declared-only language (no built-in) requires an
-// enforcement.toolchain declaration; otherwise it is a config error. The TS
-// test pass requires enforcement.test_command (constraint 1).
-func resolveToolchain(language string, cfg *config.Config) (Toolchain, error) {
-	toolchain, builtin := builtinToolchain(language)
+// resolveToolchain produces the effective Toolchain for a language from the
+// DECLARED enforcement.toolchain entries ONLY (SPEC-040 REQ-002/CLM-007). The
+// baked built-in go/ts toolchain stacks are DELETED — the actual zero-baked-checks
+// violation — so there is no built-in overlay: a Go/TS project (or any language)
+// with NO declared toolchain yields an EMPTY toolchain rather than a baked stack.
+// This serves the SURVIVING `backstop code check` subcommand; the gate's
+// lint/build/test enforcement runs through the <lang>-toolchain pack engines via
+// dispatchPackEngines, not this path. A declared toolchain with an explicit
+// test_command still wires the test pass; an unknown format is still a fail-loud
+// *ConfigError downstream (lookupParser).
+func resolveToolchain(_ string, cfg *config.Config) (Toolchain, error) {
 	declared := declaredEntries(cfg)
 
-	if !builtin && len(declared) == 0 {
-		return Toolchain{}, &ConfigError{Message: fmt.Sprintf(
-			"no toolchain for declared language %q: add a built-in stack or declare enforcement.toolchain in backstop.yml", language)}
-	}
-
-	if toolchain.Entries == nil {
-		toolchain.Entries = map[CheckType]ToolchainEntry{}
-	}
+	toolchain := Toolchain{Entries: map[CheckType]ToolchainEntry{}}
 
 	// Overlay declared entries (command/format/extensions/test_dependency).
 	for ct, decl := range declared {
@@ -279,8 +234,10 @@ func resolveToolchain(language string, cfg *config.Config) (Toolchain, error) {
 		toolchain.Entries[ct] = entry
 	}
 
-	// Apply the explicit test command (TS/declared) to the test entry.
-	if cfg != nil && cfg.Enforcement.TestCommand != "" {
+	// Apply the explicit test command (declared stacks) to the test entry, but
+	// ONLY when a toolchain is actually declared — an undeclared project resolves
+	// to a genuinely EMPTY toolchain (no executor), the no-toolchain-pack baseline.
+	if len(declared) > 0 && cfg != nil && cfg.Enforcement.TestCommand != "" {
 		toolchain.TestCommand = cfg.Enforcement.TestCommand
 		testEntry := toolchain.Entries[CheckTypeTest]
 		if testEntry.Command == "" {
@@ -293,12 +250,21 @@ func resolveToolchain(language string, cfg *config.Config) (Toolchain, error) {
 		toolchain.Entries[CheckTypeTest] = testEntry
 	}
 
-	// TS test pass requires an explicit command (enforced in TASK-010 path).
-	if err := requireTestCommand(language, toolchain); err != nil {
-		return Toolchain{}, err
-	}
-
 	return toolchain, nil
+}
+
+// DeclaredToolchainExecutorsForTest is an EXPORTED test seam (SPEC-040
+// CLM-007/CLM-030/CLM-031): it builds the lint/build/test executor map from the
+// DECLARED enforcement.toolchain entries via the RETAINED
+// buildExecutorsForConfigErr -> resolveToolchain path, with no baked stack
+// overlay. It lets cmd/backstop's cutover tests assert that a project with NO
+// declared toolchain yields an EMPTY executor set (no baked go/ts stack) while a
+// project WITH a declared toolchain still resolves a non-empty set — proving the
+// surviving `code check` subcommand path is not stranded by the built-in stack's
+// deletion. It is the only consumer-visible hook into the unexported constructor.
+func DeclaredToolchainExecutorsForTest(language string, cfg *config.Config) (map[CheckType]PassExecutor, error) {
+	opts := Options{Language: language, Config: cfg}
+	return buildExecutorsForConfigErr(opts, nil)
 }
 
 // validateToolchainKeys is the single source of truth for enforcement.toolchain
@@ -364,18 +330,3 @@ func defaultScopeKind(ct CheckType, current ScopeKind) ScopeKind {
 	}
 }
 
-// requireTestCommand enforces that a typescript stack (and any declared stack
-// whose test pass relies on an explicit command) has a non-empty test command.
-// Missing it is a *ConfigError (exit 2), never a silent skip (constraint 1,
-// CLM-004).
-func requireTestCommand(language string, toolchain Toolchain) error {
-	if language != "typescript" {
-		return nil
-	}
-	testEntry, has := toolchain.Entries[CheckTypeTest]
-	if !has || testEntry.Command == "" {
-		return &ConfigError{Message: fmt.Sprintf(
-			"language %q requires enforcement.test_command in backstop.yml: the test pass command must be explicitly declared (no package.json detection)", language)}
-	}
-	return nil
-}

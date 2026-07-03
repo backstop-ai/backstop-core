@@ -4,13 +4,25 @@ schema_version: bundle/v1
 
 bundle:
   name: runtime-hooks
-  version: "0.2.0"
+  version: "0.3.0"
   created: "2026-03-30"
-  updated: "2026-03-30"
+  updated: "2026-06-27"
   category: feature
 
 status:
-  maturity: defined
+  maturity: deprecated
+  reason: >
+    This bundle's specific framing — agent-first enforcement via SDK hooks
+    intercepting tool-use at code-generation time, per the original ADR-0014
+    era — has been superseded by the evolution of backstop's runtime strategy:
+    the pivot to customizing opencode, then to direct source customization,
+    with Claude Code as the current stopgap runtime, and the broader
+    bounded-agency / DAG-of-DAGs enforcement model. The enforcement-at-codegen
+    CONCEPT lives on in that later work, but there is no single named successor
+    bundle, so the correct terminal state is `deprecated` (retired/superseded,
+    retained for reference), not `replaced` (which would require a typed
+    replaced-by reference). The problem and design content below is retained
+    as-is for reference and is intentionally NOT brought to completeness.
 
 problem:
   summary: >
@@ -364,6 +376,12 @@ None remaining. All seven original OQs resolved 2026-03-30.
   driven file-type dispatch, hard file scope blocking, layered context injection
   with PostCompact recovery, Copilot SDK deferred to post-alpha, session state
   persistence for compaction survival.
+- 0.3.0 (2026-06-27): Retired to terminal maturity `deprecated`. The
+  agent-first-enforcement-via-SDK-hooks framing was superseded by backstop's
+  later runtime strategy (opencode customization → direct source customization,
+  Claude Code as stopgap, bounded-agency / DAG-of-DAGs model). No single named
+  successor bundle, so `deprecated` rather than `replaced`. Existing problem and
+  design content retained unchanged for reference; not advanced to completeness.
 
 ## References
 

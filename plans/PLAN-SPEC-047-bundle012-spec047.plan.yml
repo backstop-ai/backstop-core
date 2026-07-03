@@ -1,0 +1,878 @@
+---
+plan_id: PLAN-SPEC-047
+spec_id: SPEC-047
+spec_version: 1.0.0
+created: "2026-06-29"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ ./pkg/gate/ ./pkg/check/ ./pkg/config/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-047 (BUNDLE-012 Spec Seed 5 of 5) — the INTEGRATION + PROOF spec. It
+  consumes SPEC-043/044/045/046 contracts as FIXED interfaces and edits NONE of their core
+  logic. Its owned surfaces are small: the `backstop/bun-toolchain` pack DATA (pack.yml +
+  convert scripts, authored under the in-repo testdata fixture path, which is the tracked
+  durable copy), the in-repo static fixture, the guarded external acceptance test +
+  `bunAcceptanceEnabled()`, the trust-allowlist entries, the per-PACK/per-rule-SOURCE
+  enforcement-policy extension (pkg/config + pkg/gate.ApplyPolicy + the cmd/backstop
+  gatePolicyFromConfig mapping seam), and the dogfood baseline + `backstop/self` enforcement
+  flip.
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN SEQUENCING — THIS PLAN IS LAST OF FIVE
+  ════════════════════════════════════════════════════════════════════════════
+  Phase 7 (REQ-006, the ratchet → block flip) is BLOCKED ON and sequenced AFTER
+  PLAN-SPEC-043, PLAN-SPEC-044, PLAN-SPEC-045, and PLAN-SPEC-046 being IMPLEMENTED and their
+  Pillar-A sites de-Go'd and CLEAN. The flip un-grandfathers the `backstop/self` neutral-spine
+  findings in this strict order — (1) coverage measurable-path (SPEC-043) → (2) test-verify
+  discovery (SPEC-045) → (3) go-package/`./...` matchers (SPEC-043) — and only then flips
+  `backstop/self` to `block` + ZERO baseline. depends_on can only reference task IDs WITHIN
+  this plan; the cross-PLAN gate is enforced by ordering Phase 7 last AND by the implementer
+  refusing to apply the terminal flip while any of the three sites still flags (CLM-035 is the
+  ordering guard). Performing the flip early would RED backstop-core's own dogfood gate on the
+  not-yet-de-Go'd sites — backstop gate MUST stay GREEN throughout (CLAUDE invariant).
+
+  ════════════════════════════════════════════════════════════════════════════
+  PACKS ARE ALWAYS EXTERNAL — THE IN-REPO COPY IS GITIGNORED DATA
+  ════════════════════════════════════════════════════════════════════════════
+  The authoritative `backstop/bun-toolchain` pack lives in its OWN repo, hand-authored from
+  the `backstop/go-toolchain` pack.yml template (OQ-5: the pack-authoring CLI is broken; the
+  reboot is Track-B / ISSUE-032, OUT of scope — do not use `pack new`). The `.backstop/packs/`
+  copy is gitignored, so the DURABLE tracked artifact in this repo is the testdata-fixture copy
+  under cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/ (the
+  contracts' declared paths). The external repo MUST carry the same pack DATA — flagged for the
+  implementer's durability note.
+
+  ════════════════════════════════════════════════════════════════════════════
+  ZERO BUN DEPENDENCY IN GO CI (REQ-004 vs REQ-005)
+  ════════════════════════════════════════════════════════════════════════════
+  The in-repo fixture proof (Phase 4) STUBS the runner — it feeds the PRE-CAPTURED lcov into
+  the COVERAGE channel (gate_type coverage, NOT the SARIF channel) and runs only the real
+  POSIX-shell convert over DATA. No real bun/oxlint/tsc/prettier process ever runs in
+  backstop-core's Go CI (CLM-025). The REQUIRED external executed gate (Phase 5) runs on the
+  real Bun fork (backstop-runtime) and is a guarded test that SKIPS (never FAILS) when
+  bunAcceptanceEnabled() is false. Because the Go-CI guard makes it auto-skip, REQ-005 is
+  CLOSED only by a documented MANUAL run on the fork with the captured RED-then-green
+  `backstop gate` output recorded as run-evidence in the implementation verification log — the
+  executed proof, not the skipped Go-CI stub.
+
+  ════════════════════════════════════════════════════════════════════════════
+  SHARED gate.go — SERIALIZED, NOT PARALLEL
+  ════════════════════════════════════════════════════════════════════════════
+  cmd/backstop/gate.go is touched by TWO tasks: TASK-013 (bunAcceptanceEnabled, REQ-005) and
+  TASK-018 (gatePolicyFromConfig per-pack scope mapping, REQ-007). They are serialized via an
+  explicit dependency (TASK-018 → TASK-014) so they are never parallel-eligible over the shared
+  file (D-081). The bun pack itself is dispatched by SPEC-046's UNIFORM toolchain-pack dispatch
+  with NO per-pack branch — bunAcceptanceEnabled() is the ONLY new production symbol in gate.go.
+
+  ════════════════════════════════════════════════════════════════════════════
+  go-toolchain's OWN classification block is SPEC-043's deliverable — NOT this plan's
+  ════════════════════════════════════════════════════════════════════════════
+  This plan authors ONLY the BUN pack's classification + test globs. SPEC-043 adds the
+  classification block (and SPEC-045 the test_name_patterns) to the go-toolchain pack in
+  lockstep with the baked-literal deletions. Do not duplicate or move the go block here
+  (cross-consistency seam item, flagged for the BUNDLE-012 final pass).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — the DATA the TDD phases consume. lcov convert-input
+  # fixtures (line+branch, BRF:0 N/A) and the in-repo static end-to-end
+  # fixture tree (backstop.yml + .ts/.test.ts + pre-captured lcov + the
+  # seeded-defect variant). No production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures and Scaffolding"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold lcov convert-input fixtures (line+branch, BRF:0 N/A)"
+        description: |
+          Create the lcov `.info` input fixtures the Phase-3 convert tests run the real
+          scripts/coverage-to-records.sh over:
+            - a normal lcov block with per-file LF/LH (line) AND BRF/BRH (branch) counts for
+              a measured `.ts` source file (drives CLM-015/016/017/020/021).
+            - an lcov block for a file with NO branchable code (BRF:0) alongside real LF/LH —
+              the branch-N/A fixture (drives CLM-018: branch record total:0, line still
+              measured).
+            - an lcov block exercising raw-counts-not-aggregated (e.g. line 95/100, branch
+              60/100) so the convert is proven to emit two raw-count records, never a rolled-up
+              number (drives CLM-021).
+          DATA only — the convert + parser assertions live in the Phase-3 test task.
+        files:
+          - cmd/backstop/testdata/bun-coverage/lcov-line-branch.info
+          - cmd/backstop/testdata/bun-coverage/lcov-no-branch-na.info
+          - cmd/backstop/testdata/bun-coverage/lcov-raw-counts.info
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-020
+          - CLM-021
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold the in-repo static bun-toolchain end-to-end fixture (non-pack DATA)"
+        description: |
+          Create the in-repo static fixture's NON-pack DATA under
+          cmd/backstop/testdata/bun-toolchain/ (the bun pack.yml + scripts are authored in
+          Phase 2/3; this task creates everything else the live gate runs over):
+            - backstop.yml declaring `backstop/bun-toolchain: local` in packs: with NO
+              `language:` field (SPEC-046 — toolchain packs are ordinary declared packs).
+            - a few `src/*.ts` source files and `src/*.test.ts` test files.
+            - a PRE-CAPTURED coverage/lcov.info matching the source tree (the stubbed
+              `bun test --coverage` output).
+            - a SEEDED-DEFECT variant: a changed `.ts` source file with NO coverage record in
+              the lcov (or a below-threshold record) — the input that must RED the gate
+              (CLM-024), kept as a sibling lcov/source variant so the green and red fixtures
+              are both exercised.
+          DATA only — the end-to-end gate assertions live in the Phase-4 test task. The pack
+          itself (pack.yml + convert scripts) is authored separately so this setup is
+          file-disjoint from the pack-authoring tasks.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/backstop.yml
+          - cmd/backstop/testdata/bun-toolchain/src/app.ts
+          - cmd/backstop/testdata/bun-toolchain/src/app.test.ts
+          - cmd/backstop/testdata/bun-toolchain/coverage/lcov.info
+          - cmd/backstop/testdata/bun-toolchain/coverage/lcov-seeded-defect.info
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The bun pack DATA — the five-engine matrix + classification
+  # block + the trust-allowlist entries (REQ-001, REQ-002). prettier rides
+  # the EXISTING lint dimension (no new "format" dimension). Every command
+  # rides the declared-engine trust substrate, never baked.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Bun Pack Engine Matrix + Classification + Trust Allowlist"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Write the bun pack engine-declaration matrix + trust-substrate tests"
+        description: |
+          cmd/backstop/bun_pack_engines_test.go — RED before the bun pack.yml + allowlist
+          entries exist. Asserts against the parsed bun pack.yml binding records + the
+          engine.TrustedToolAllowlist():
+            - TestBunPack_OxlintEngineDeclaredAsLint: an `oxlint` engine is declared, routed to
+              the lint dimension (gate_type lint) (CLM-001).
+            - TestBunPack_PrettierCheckDeclaredAsLintCategoryFormat: a `prettier --check` engine
+              is declared as a LINT-category SARIF findings engine routed to the lint dimension
+              (gate_type lint), format ≈ lint per DD-3 (CLM-002).
+            - TestBunPack_TscTypecheckDeclaredAsBuild: a `tsc --noEmit` / bun typecheck engine is
+              declared, routed to the build dimension (gate_type build) (CLM-003).
+            - TestBunPack_BunTestDeclaredAsTest: a `bun test` engine is declared, routed to the
+              test dimension (gate_type test) (CLM-004).
+            - TestBunPack_BunCoverageLcovDeclaredAsCoverage: a
+              `bun test --coverage --coverage-reporter=lcov` engine is declared, routed to the
+              coverage dimension (gate_type coverage), with a pack-relative convert
+              (scripts/coverage-to-records.sh) + lcov stdout_artifact (CLM-005).
+            - TestBunPack_PrettierIntroducesNoFormatGateDimension: DENYLIST — after loading the
+              bun pack the gate's dimension set is UNCHANGED (lint/build/test/coverage); no new
+              "format" dimension is created and prettier is NOT routed anywhere but lint
+              (CLM-006, the DD-3 sharp edge).
+            - TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate: every bun engine's tool
+              (`oxlint`/`bun`/`tsc`/`prettier`) is on engine.TrustedToolAllowlist() and the
+              commands are pack-DECLARED, NOT baked-into-the-binary command strings (CLM-007).
+          Red — the pack.yml and the four allowlist entries do not exist yet.
+        files:
+          - cmd/backstop/bun_pack_engines_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "Write the bun pack classification + measurable-source matrix tests"
+        description: |
+          cmd/backstop/bun_pack_classification_test.go — RED before the bun pack.yml
+          classification block exists. Asserts the SPEC-043 classification contract (consumed,
+          NOT redefined) under the bun pack's globs ALONE — source S = {**/*.ts, **/*.tsx},
+          test T = {**/*.test.ts, **/*.spec.ts}:
+            - TestBunPack_ClassificationGlobsParseOntoManifest: the classification block parses
+              onto the SPEC-043 pack.Manifest.Classification field intact (CLM-008).
+            - TestBunClassifier_TsSourceIsMeasurable: `src/app.ts` is MEASURABLE source (CLM-009).
+            - TestBunClassifier_TsxSourceIsMeasurable: `src/Button.tsx` is MEASURABLE (CLM-010).
+            - TestBunClassifier_TestTsNotMeasurable: `src/app.test.ts` is NOT measurable —
+              matches both a source and a test glob; test-WINS-on-overlap (CLM-011).
+            - TestBunClassifier_SpecTsNotMeasurable: `src/app.spec.ts` is NOT measurable — relies
+              on test-wins-on-overlap, NOT glob exclusivity (`.spec.ts` ⊂ `.ts`) (CLM-012, sharp
+              edge).
+            - TestBunClassifier_GoFileNotMeasurableUnderBunPack: `pkg/x/foo.go` is NOT measurable
+              under the bun pack alone (no Go glob declared) — proves no baked Go literal leaks
+              across packs into the classifier (CLM-013).
+            - TestBunClassifier_UnclassifiedMarkdownNotMeasurable: `README.md` matches neither
+              glob and is NOT measurable (CLM-014).
+          Red — the bun pack.yml classification block does not exist yet.
+        files:
+          - cmd/backstop/bun_pack_classification_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Author the bun pack.yml (five engines + classification) + prettier format-to-sarif convert"
+        description: |
+          Hand-author the bun pack DATA from the go-toolchain template, under the tracked
+          testdata-fixture path (the durable in-repo copy; the external repo carries the same):
+            - cmd/backstop/.../bun-toolchain/pack.yml: declare EXACTLY five engines with
+              gate_type routing — `oxlint` (lint), `prettier --check` as a lint-category SARIF
+              findings engine via a convert (lint, NO new "format" dimension — DD-3),
+              `tsc --noEmit`/bun typecheck (build), `bun test` (test),
+              `bun test --coverage --coverage-reporter=lcov` (coverage) with
+              stdout_artifact: coverage/lcov.info + convert: scripts/coverage-to-records.sh.
+              Plus the SPEC-043 classification block (source **/*.ts,**/*.tsx; test
+              **/*.test.ts,**/*.spec.ts). Mechanism only — NO coding-standards rules (mirror
+              go-toolchain). Makes CLM-001..006, 008..014 green.
+            - cmd/backstop/.../bun-toolchain/scripts/format-to-sarif.sh: the prettier convert —
+              one lint-category SARIF finding per unformatted file (mechanism for CLM-002).
+          The coverage convert (scripts/coverage-to-records.sh) is a SEPARATE file authored in
+          Phase 3 so the two impl tasks stay file-disjoint. Make TASK-003 (CLM-001..006) and
+          TASK-004 (CLM-008..014) green.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/pack.yml
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/format-to-sarif.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Allowlist oxlint/bun/tsc/prettier in the declared-engine trust substrate"
+        description: |
+          pkg/pack/engine/allowlist.go: add `oxlint`, `bun`, `tsc`, `prettier` to
+          TrustedToolAllowlist() so backstop will run the bun pack's DECLARED commands through
+          the trust floor (the in-repo fixture stubs execution; the allowlist is what lets the
+          external acceptance's real commands clear the floor). These are Layer-0/runtime tools
+          backstop does not auto-provision, so pin to presence ("*") like grep/rg unless a lock
+          pin is warranted — match the existing allowlist convention and its comments. NO baked
+          command strings; the allowlist is the trust floor, not a command source. Make
+          TASK-003's CLM-007 assertion green. File-disjoint from TASK-005, so parallel-eligible.
+        files:
+          - pkg/pack/engine/allowlist.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-003
+
+      - id: TASK-007
+        type: verification
+        title: "Verify the bun pack matrix + classification + allowlist (code check)"
+        description: |
+          Run `backstop code check` over the bun pack.yml + format-to-sarif.sh + the allowlist
+          edit + their tests. Confirms the five-engine matrix (oxlint→lint, prettier→lint with
+          NO new dimension, tsc→build, bun test→test, bun coverage→coverage), the
+          classification block + the six-cell measurable-source matrix, and the trust-substrate
+          allowlist (oxlint/bun/tsc/prettier) all hold. Middle-phase verification — not the full
+          gate.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/pack.yml
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/format-to-sarif.sh
+          - pkg/pack/engine/allowlist.go
+          - cmd/backstop/bun_pack_engines_test.go
+          - cmd/backstop/bun_pack_classification_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The lcov coverage convert (REQ-003) — emits the SPEC-044 bun
+  # producer record-shape: two canonical check.CoverageRecords per file
+  # (line LF/LH, branch BRF/BRH), raw counts, through the EXISTING
+  # check.ParsePackCoverage with NO new type/field/schema fork.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: lcov → line+branch Coverage Convert"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write the lcov convert line+branch record-shape tests"
+        description: |
+          cmd/backstop/bun_coverage_convert_test.go — RED before scripts/coverage-to-records.sh
+          exists. Runs the REAL convert over the Phase-1 lcov fixtures and parses its stdout
+          through the EXISTING check.ParsePackCoverage (the SPEC-044 contract, consumed not
+          redefined):
+            - TestBunCoverageConvert_EmitsLineAndBranchPerFileSharingPath: for each measured
+              source file the convert emits EXACTLY TWO records sharing the same Path — one
+              metric "line", one metric "branch" — never a single collapsed record (CLM-015).
+            - TestBunCoverageConvert_LineCountsFromLcovLfLh: the line record carries raw
+              covered=LH, total=LF — not a pre-computed percentage (CLM-016).
+            - TestBunCoverageConvert_BranchCountsFromLcovBrfBrh: the branch record carries raw
+              covered=BRH, total=BRF — not a pre-computed percentage (CLM-017).
+            - TestBunCoverageConvert_NoBranchableCodeEmitsTotalZeroBranchRecord: a BRF:0 file
+              emits a branch record with total:0 (the N/A cell, never coerced to 0%) carrying
+              metric:"branch" + measured:true, while its line record is still measured (CLM-018;
+              empty-metric fail-loud sharp edge — the N/A cell must still carry the metric label).
+            - TestBunCoverageConvert_RecordsParseThroughCanonicalParsePackCoverageNoNewType: the
+              emitted records parse through the EXISTING check.ParsePackCoverage into canonical
+              check.CoverageRecords with NO new type/field/schema fork — DisallowUnknownFields
+              accepts the exact {path,covered,total,measured,excluded,metric} keys and rejects
+              any stray field (CLM-019, sharp edge).
+            - TestBunCoverage_LineAndBranchIndexUnderPathMetricNoCollision: the line+branch
+              records index under the SPEC-044 (path, metric) key for one Path with NO collision
+              — both metrics survive (CLM-020).
+            - TestBunCoverageConvert_RawCountsNotPrecomputedPercentNoAggregation: DENYLIST —
+              feeding line 95/100 + branch 60/100 yields two raw-count records, never one
+              aggregated/averaged value or a pre-computed percent (CLM-021).
+          Red — the convert script does not exist yet.
+        files:
+          - cmd/backstop/bun_coverage_convert_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Write scripts/coverage-to-records.sh (lcov → line+branch records)"
+        description: |
+          cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/coverage-to-records.sh:
+          POSIX awk (macOS system awk, like go-toolchain's convert), reading lcov on stdin,
+          accumulating per-`SF:` file LF/LH (line) and BRF/BRH (branch), and emitting a JSON
+          array of canonical records — TWO per file: {metric:"line", covered:LH, total:LF} and
+          {metric:"branch", covered:BRH, total:BRF}, both measured:true, excluded:false. Raw
+          counts only — NO percent, NO aggregation, NO collapsed record (CLM-015/016/017/021).
+          A BRF:0 file emits a branch record carrying total:0 + metric:"branch" (the N/A cell,
+          never coerced to 0%) while its line record is still measured (CLM-018). The output
+          uses EXACTLY the canonical {path,covered,total,measured,excluded,metric} keys so it
+          parses through the EXISTING check.ParsePackCoverage with NO new field
+          (CLM-019/020) — DisallowUnknownFields is unforgiving. A converter banner on stderr
+          exercises clean-stdout capture (as go-toolchain does). Make TASK-008 green.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the lcov coverage convert (code check)"
+        description: |
+          Run `backstop code check` over scripts/coverage-to-records.sh + its test. Confirms the
+          convert emits two raw-count records per file (line LF/LH, branch BRF/BRH) through the
+          existing check.CoverageRecord/ParsePackCoverage with no new type/field, the (path,
+          metric) index has no collision, and a BRF:0 file yields a branch record with total:0
+          carrying metric:"branch". Middle-phase verification.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/coverage-to-records.sh
+          - cmd/backstop/bun_coverage_convert_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: In-repo static fixture END-TO-END proof (REQ-004). The live
+  # gate over the fixture with the runner STUBBED — proves the consumer +
+  # glob classification + line/branch parsing through the REAL merged
+  # classifier + dispatch, with ZERO bun dependency in Go CI. Test-only:
+  # the dispatch is SPEC-046's uniform path (no new production code here).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: In-Repo Static Fixture End-to-End Proof"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write the in-repo fixture end-to-end gate proof (stubbed runner, zero bun dep)"
+        description: |
+          cmd/backstop/bun_fixture_e2e_test.go — an EXECUTED gate over the Phase-1/Phase-2 bun
+          fixture, runner STUBBED via the existing fixtureRunner{byCmd:…} pattern (feeding the
+          PRE-CAPTURED lcov as the `bun test --coverage` engine output into the COVERAGE channel,
+          gate_type coverage — NOT the SARIF channel; the convert output is coverage-records
+          JSON, not SARIF). Consumes SPEC-043's merged SourceClassifier + SPEC-046's uniform
+          toolchain-pack dispatch as FIXED — no new production code:
+            - TestBunFixture_StaticTestdataExistsWithPackTsFilesAndPrecapturedLcov: the fixture
+              exists with a backstop.yml declaring backstop/bun-toolchain as an ordinary pack
+              with NO language field, the bun pack.yml, .ts source + .test.ts files, and a
+              pre-captured lcov .info (CLM-022).
+            - TestBunFixture_GateMeasuresTsCoverageFromPrecapturedLcovRunnerStubbed: the executed
+              gate runs the REAL convert over the pre-captured lcov and measures the .ts source
+              file's line AND branch coverage end-to-end (CLM-023 — the load-bearing consumer
+              proof).
+            - TestBunFixture_TsClassifiedMeasurableSourceViaDeclaredGlobsEndToEnd: the .ts source
+              is classified MEASURABLE source via the bun pack's declared globs in the LIVE gate
+              path — the SPEC-043 merged classifier consumes the bun pack's globs (CLM-026).
+            - TestBunFixture_SeededUncoveredTsSourceRedsGateNotVacuousGreen: the seeded-defect
+              variant (a changed .ts source with NO coverage record) REDs the gate loudly — the
+              SPEC-043 anti-vacuous-green guard fires for the non-Go file (CLM-024).
+            - TestBunFixture_NoRealBunOxlintTscPrettierInvokedInGoCI: the test invokes NO real
+              bun/oxlint/tsc/prettier process — only the POSIX convert runs over the
+              pre-captured lcov DATA, keeping Go CI bun-free (CLM-025).
+          Test-only phase: no new production code (the dispatch is SPEC-046's uniform path), so
+          no verification task — the passing executed gate IS the proof. Green once Phases 2–3
+          land.
+        files:
+          - cmd/backstop/bun_fixture_e2e_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+        depends_on:
+          - TASK-002
+          - TASK-007
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: The REQUIRED external executed acceptance (REQ-005), guarded so
+  # the real bun toolchain stays OUT of backstop-core's Go CI.
+  # bunAcceptanceEnabled() is the ONLY new production symbol.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Guarded External Bun-Fork Acceptance"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Write the guarded external Bun-fork acceptance test (skip-when-bun-absent)"
+        description: |
+          cmd/backstop/bun_acceptance_test.go — RED before bunAcceptanceEnabled() exists. The
+          REQUIRED external executed gate, guarded so it SKIPS (never FAILS) in Go CI:
+            - TestAcceptance_SkippedWhenBunToolchainAbsentKeepsGoCIBunFree: the test calls
+              t.Skip() when bunAcceptanceEnabled() is false (bun absent / the acceptance env var
+              unset), so backstop-core's Go CI never invokes the real bun toolchain (CLM-029).
+            - TestAcceptance_ForkBunGateRedThenGreenOnSeededDefect: when enabled, it runs the
+              real `backstop gate` over the Bun fork (backstop-runtime) wired packs-only
+              (backstop.yml declaring backstop/bun-toolchain + `pack add` from its own repo),
+              and asserts RED on a seeded lint/format/type/test/coverage defect, then green when
+              fixed — RED-then-green (CLM-027).
+            - TestAcceptance_ForkGatesPacksOnlyViaDeclaredBunToolchainPack: the fork gates
+              PACKS-ONLY via the declared bun pack — no baked language path participates; the bun
+              pack's engines are the only toolchain source (CLM-028).
+          Document the minimal fork wiring (the single-acceptance backstop.yml + `pack add`);
+          productionizing the fork CI is OUT of scope. Note for the implementer: REQ-005 is
+          CLOSED only by a documented MANUAL run on the fork capturing the RED-then-green
+          `backstop gate` output as run-evidence — the skipped Go-CI stub does not close it.
+        files:
+          - cmd/backstop/bun_acceptance_test.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-007
+
+      - id: TASK-013
+        type: implementation
+        title: "Add bunAcceptanceEnabled() guard to gate.go"
+        description: |
+          cmd/backstop/gate.go: add `func bunAcceptanceEnabled() bool` (the ONLY new production
+          symbol) — true ONLY when the bun toolchain is on PATH AND the acceptance env var is
+          set. The guarded acceptance test calls t.Skip() when this is false, so backstop-core's
+          Go CI never invokes the real bun/oxlint/tsc/prettier toolchain. The live dispatch of
+          the bun pack is SPEC-046's UNIFORM toolchain-pack dispatch — do NOT add a per-pack
+          branch. Make TASK-012's CLM-027/028/029 green (the enabled path runs in the fork's env;
+          in Go CI the guard returns false and the test skips). Touches gate.go, which TASK-018
+          also edits — serialized via TASK-018 → TASK-014 so the two gate.go edits are never
+          parallel (D-081).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: verification
+        title: "Verify the guarded acceptance + bunAcceptanceEnabled (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/gate.go (bunAcceptanceEnabled) + the
+          acceptance test. Confirms the acceptance SKIPS when bun is absent (Go CI stays
+          bun-free), and that when enabled it gates the fork packs-only RED-then-green on a
+          seeded defect. Middle-phase verification — the manual fork run-evidence is captured
+          separately (see TASK-012). Also the serialization anchor for the shared gate.go edit
+          (TASK-018 depends on this).
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/bun_acceptance_test.go
+        claims:
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Per-PACK / per-rule-SOURCE enforcement granularity (REQ-007) —
+  # the mechanism REQ-006's flip is expressed through. Scope a policy entry
+  # to a pack (keyed off gate.Violation.SourcePack) so backstop/self flips
+  # to block + zero baseline WITHOUT disturbing go-standards/go-toolchain's
+  # baselined style debt on the shared pack_engines dimension.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Per-Pack Enforcement Policy Granularity"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Write config per-pack policy parse + backward-compat tests"
+        description: |
+          pkg/config/config_perpack_test.go — RED before config.DimensionPolicy gains the
+          per-pack/source scope:
+            - TestPolicy_PackScopedEntryParsesAndUnscopedEntryUnchanged: a pack-scoped policy
+              entry (e.g. `pack_engines` scoped to source `backstop/self` with level block +
+              baseline false) parses onto the EXTENDED config Enforcement.Policy /
+              DimensionPolicy structure, AND an unscoped (dimension-only) entry keeps its current
+              behavior — backward compatible (CLM-036).
+          Red — the config schema has no per-pack/source scope yet.
+        files:
+          - pkg/config/config_perpack_test.go
+        claims:
+          - CLM-036
+        depends_on: []
+
+      - id: TASK-016
+        type: test
+        title: "Write the shared-dimension per-pack enforcement matrix tests"
+        description: |
+          pkg/gate/policy_perpack_test.go — RED before ApplyPolicy gains per-PACK/per-rule-SOURCE
+          scoping. With backstop/self flipped to block + ZERO baseline via the scoped key, on the
+          SHARED pack_engines dimension:
+            - TestPolicy_SelfPackFlipBlocksFreshNeutralSpineFinding: a FRESH neutral-spine
+              (baked-language) finding sourced from backstop/self BLOCKS the gate (fails)
+              (CLM-037).
+            - TestPolicy_SelfPackFlipLeavesGoStandardsBaselinedFindingGrandfathered: a baselined
+              go-standards style finding on the same dimension does NOT block — stays
+              grandfathered, unaffected by the backstop/self-scoped flip (CLM-038).
+            - TestPolicy_SelfPackFlipLeavesGoToolchainBaselinedFindingGrandfathered: a baselined
+              go-toolchain style finding on the same dimension does NOT block — stays
+              grandfathered (CLM-039).
+            - TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline: DENYLIST — the flip is
+              delivered via the per-pack/source key (filtering on gate.Violation.SourcePack), NOT
+              a whole-dimension pack_engines:{level:block, baseline:false} entry (which would
+              wrongly block go-standards/go-toolchain baselined debt); the whole-dimension
+              zero-baseline is proven ABSENT (CLM-040).
+          Red — ApplyPolicy keys strictly per-dimension today.
+        files:
+          - pkg/gate/policy_perpack_test.go
+        claims:
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on: []
+
+      - id: TASK-017
+        type: implementation
+        title: "Extend config DimensionPolicy with per-pack/source scope"
+        description: |
+          pkg/config/config.go: extend Enforcement.Policy / DimensionPolicy so a policy entry can
+          SCOPE to a pack/rule-source (keyed off gate.Violation.SourcePack) — the backstop.yml
+          mirror of the policy row gains the per-PACK/per-rule-SOURCE scoping so a `pack_engines`
+          entry can target backstop/self's findings independently. Backward compatible: an
+          unscoped (dimension-only) entry parses and behaves exactly as today. Exact shape
+          (nested per-source overrides vs. composite key) is this plan's call; the constraint is
+          a scoped entry must not change enforcement for OTHER packs on the same dimension. Make
+          TASK-015's CLM-036 green. File-disjoint from TASK-018, so parallel-eligible.
+        files:
+          - pkg/config/config.go
+        claims:
+          - CLM-036
+        depends_on:
+          - TASK-015
+
+      - id: TASK-018
+        type: implementation
+        title: "Apply per-pack/source scoping in gate.ApplyPolicy + the config→gate mapping"
+        description: |
+          pkg/gate/policy.go: extend gate.DimensionPolicy + ApplyPolicy so a SCOPED entry's
+          level+baseline apply ONLY to findings whose gate.Violation.SourcePack matches the
+          scope, while every OTHER pack's findings on the same dimension keep their default (or
+          separately-configured) grandfathered policy. ApplyPolicy's EXTERNAL signature stays
+          UNCHANGED; an unscoped (dimension-only) entry keeps current behavior. Also update
+          cmd/backstop/gate.go gatePolicyFromConfig to carry the new per-pack/source scope from
+          config.DimensionPolicy into gate.DimensionPolicy (the mapping seam). Makes CLM-037/038/
+          039/040 green. Depends on TASK-016 (test, TDD) and TASK-014 (verification) — the latter
+          SERIALIZES this task's gate.go edit after TASK-013's gate.go edit so the two are never
+          parallel-eligible over the shared file (D-081). The cross-package wiring (config scope
+          → gate scope → ApplyPolicy filtering) honors the integration-gap lesson: the matrix is
+          proven through the live policy path, not a constructed DimensionPolicy.
+        files:
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-016
+          - TASK-014
+
+      - id: TASK-019
+        type: verification
+        title: "Verify the per-pack enforcement granularity (code check)"
+        description: |
+          Run `backstop code check` over pkg/config/config.go + pkg/gate/policy.go +
+          cmd/backstop/gate.go + their tests. Confirms a pack-scoped entry parses + is backward
+          compatible (unscoped behaves as today), and on the shared pack_engines dimension the
+          backstop/self flip BLOCKS a fresh neutral-spine finding while go-standards AND
+          go-toolchain baselined debt stay grandfathered, with NO whole-dimension zero-baseline.
+          Middle-phase verification.
+        files:
+          - pkg/config/config.go
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+          - pkg/config/config_perpack_test.go
+          - pkg/gate/policy_perpack_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-017
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: The ratchet → block flip (REQ-006) + FINAL comprehensive
+  # verification. SEQUENCED LAST, gated on PLAN-SPEC-043/044/045/046 being
+  # implemented and the three Pillar-A sites de-Go'd + clean. The terminal
+  # flip uses the REQ-007 per-pack key (NOT a whole-dimension zero-baseline).
+  # This is the ONLY phase that runs `backstop gate` + `backstop artifact
+  # validate` (final kill chain, code + artifact).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Ratchet → Block Flip + Final Verification"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Write the ratchet sequencing + terminal flip + the-wall tests"
+        description: |
+          cmd/backstop/bun_ratchet_flip_test.go — RED before the baseline ratchet + the
+          backstop/self enforcement flip land. Proves the sequenced un-grandfathering, the
+          terminal flip, the ordering guard, and the wall:
+            - TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo: SITE 1 — after the
+              coverage measurable-path is de-Go'd (SPEC-043), the committed baseline carries ZERO
+              backstop/self neutral-spine findings for pkg/gate/step_coverage.go's measurable-path
+              site (CLM-030).
+            - TestRatchet_TestVerifyDiscoverySiteUnGrandfatheredAfterDeGo: SITE 2 — after
+              test-verify discovery is de-Go'd (SPEC-045), ZERO neutral-spine findings remain for
+              pkg/gate/step_testverify.go's discovery site (CLM-031).
+            - TestRatchet_GoPackageMatchersSiteUnGrandfatheredAfterDeGo: SITE 3 — after the
+              go-package/`./...` matchers are de-Go'd (SPEC-043), ZERO neutral-spine findings
+              remain for cmd/backstop/gate.go's goFilePackageMatchesTarget +
+              step_coverage.go's coverageSpecRelevantToFile sites (CLM-032).
+            - TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean: TERMINAL
+              FLIP — with all three sites clean, the dogfood backstop.yml sets backstop/self's
+              neutral-spine enforcement to level block with a ZERO baseline VIA the REQ-007
+              per-pack key (CLM-033).
+            - TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright: THE WALL — after the flip,
+              a deliberately reintroduced baked `.go`/`_test.go`/Go-package literal on a
+              neutral-spine site REDs the gate outright as net-new against the zero baseline
+              (CLM-034).
+            - TestRatchet_FlipSequencedAfterPillarASitesClean: ORDERING GUARD — the terminal flip
+              is PROHIBITED while any of the three Pillar-A sites still flags; with a
+              still-flagging site, the flip is not applied (gated on SPEC-043/045/046 landing
+              first) (CLM-035).
+          Red until the per-pack key (Phase 6) is in place AND the three sibling plans' de-Go
+          sites are clean.
+        files:
+          - cmd/backstop/bun_ratchet_flip_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-019
+
+      - id: TASK-021
+        type: implementation
+        title: "Apply the sequenced baseline ratchet + the terminal backstop/self block flip"
+        description: |
+          SEQUENCED LAST, gated on PLAN-SPEC-043/044/045/046 being implemented and their three
+          Pillar-A sites de-Go'd + clean (depends_on can only name in-plan tasks; the cross-PLAN
+          gate is the LAST-phase ordering + CLM-035's ordering guard — do NOT apply the flip
+          while any site still flags, or backstop-core's dogfood gate REDs).
+            - .backstop/baseline.json: regenerate so each de-Go'd site's backstop/self
+              neutral-spine findings drop out, in order — (1) coverage measurable-path → (2)
+              test-verify discovery → (3) go-package/`./...` matchers (CLM-030/031/032).
+            - backstop.yml: once ALL THREE sites are clean, set backstop/self's neutral-spine
+              enforcement on pack_engines to level: block with a ZERO baseline (baseline: false)
+              VIA the REQ-007 per-PACK/source key scoped to backstop/self — NOT a
+              whole-`pack_engines` zero-baseline (which would wrongly block go-standards/
+              go-toolchain debt) (CLM-033/035). A future baked-language regression then REDs
+              outright (CLM-034).
+          Make TASK-020 green. This is the closing step; verify backstop gate stays GREEN
+          (TASK-022) immediately after.
+        files:
+          - backstop.yml
+          - .backstop/baseline.json
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Run the full gate + artifact validate over the complete SPEC-047 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check + test
+          verification + substantiveness + coverage >=80% + contracts) across cmd/backstop,
+          pkg/gate, pkg/check, and pkg/config, AND `backstop artifact validate` over this plan
+          (artifact file touched: this .plan.yml). The ONLY phase that runs the full gate +
+          artifact validate (code + artifact, REQ-004). Confirm every claim's mandated tests are
+          green:
+            - the bun pack declares the five-engine matrix (oxlint→lint, prettier→lint with NO
+              new dimension, tsc→build, bun test→test, bun coverage→coverage) through the trust
+              substrate (CLM-001..007), the classification block + six-cell measurable matrix
+              (CLM-008..014);
+            - the lcov convert emits two raw-count records per file (line/branch) through the
+              existing check.CoverageRecord/ParsePackCoverage with no new type/field, BRF:0 →
+              branch total:0 (CLM-015..021);
+            - the in-repo fixture measures .ts line+branch coverage end-to-end with the runner
+              stubbed (zero bun dep), and a seeded uncovered .ts REDs not vacuous-green
+              (CLM-022..026);
+            - the guarded acceptance skips bun-free in Go CI (CLM-027..029, the executed
+              RED-then-green proof captured as fork run-evidence);
+            - the per-pack enforcement key flips backstop/self to block + zero baseline
+              independently while go-standards/go-toolchain stay grandfathered, no whole-dimension
+              zero-baseline (CLM-036..040);
+            - the sequenced ratchet + terminal flip leave the dogfood gate GREEN and a
+              reintroduced baked literal REDs outright (CLM-030..035).
+          The dogfood gate MUST be GREEN. Verify the bun pack DATA is durably carried in its
+          EXTERNAL repo (the in-repo .backstop/packs copy is gitignored) and the fork
+          run-evidence is recorded.
+        files:
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/pack.yml
+          - cmd/backstop/testdata/bun-toolchain/.backstop/packs/backstop/bun-toolchain/scripts/coverage-to-records.sh
+          - pkg/pack/engine/allowlist.go
+          - pkg/config/config.go
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+          - backstop.yml
+          - .backstop/baseline.json
+          - plans/PLAN-SPEC-047-bundle012-spec047.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+        depends_on:
+          - TASK-007
+          - TASK-010
+          - TASK-011
+          - TASK-014
+          - TASK-019
+          - TASK-021
+          - TASK-005
+          - TASK-006
+          - TASK-009
+          - TASK-013
+          - TASK-017
+          - TASK-018

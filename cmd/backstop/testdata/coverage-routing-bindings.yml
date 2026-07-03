@@ -1,0 +1,46 @@
+# Per-gate-type engine-binding fixtures for the coverage dispatch routing matrix
+# (SPEC-042 REQ-001). Each binding is keyed by gate_type; the routing-matrix tests
+# build in-memory manifests carrying an engine of each gate_type and assert the
+# DECLARED gate_type — never a tool/command/pack-name sniff — selects the channel:
+#   coverage  -> check.ParsePackCoverage   (the NEW coverage-records channel)
+#   lint/build/test/findings -> check.ParsePackFindings (SARIF)
+#
+# These are reference declarations mirroring the in-memory bindings the helper
+# constructs (coverage_dispatch_helpers_test.go); the helper is the source of truth
+# the routing tests drive, this file documents the matrix.
+engines:
+  cov-engine:
+    command: cov-tool run
+    input_mode: none
+    convert: scripts/coverage-to-records.sh
+    scope_kind: project-wide
+    project_target: "."
+    gate_type: coverage
+  lint-engine:
+    command: lint-tool run
+    input_mode: none
+    convert: scripts/lint-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "."
+    gate_type: lint
+  build-engine:
+    command: build-tool run
+    input_mode: none
+    convert: scripts/build-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "."
+    gate_type: build
+  test-engine:
+    command: test-tool run
+    input_mode: none
+    convert: scripts/test-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "."
+    gate_type: test
+  findings-engine:
+    command: findings-tool scan
+    input_mode: rule-flags
+    input_flag: --config
+    convert: scripts/findings-to-sarif.sh
+    scope_kind: file-args
+    gate_type: findings

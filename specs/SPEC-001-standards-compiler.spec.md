@@ -2,7 +2,13 @@
 title: "SPEC-001: Standards Compiler"
 number: SPEC-001
 created: "2026-03-29"
-status: active
+status: deprecated
+reason: >
+  The standards-compiler model (.standard.md → compiler → enforcement manifest,
+  pkg/compile) is strategically retired under the packs-only direction
+  (ISSUE-030 / BUNDLE-011). There is no single named successor — enforcement now
+  comes from external packs, not a compiled native manifest — so this spec is
+  deprecated rather than replaced.
 schema_version: spec/v1
 spec_version: 1.0.0
 

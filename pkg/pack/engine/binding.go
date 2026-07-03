@@ -114,6 +114,15 @@ type EngineBinding struct {
 	// for a SARIF-native engine; non-empty for a tool whose native output is not
 	// SARIF (e.g. ast-grep). REQ-007/REQ-008.
 	Convert string `yaml:"convert"`
+	// StdoutArtifact, when non-empty, names a FILE (relative to the run's working
+	// dir) that the engine writes its real output to INSTEAD of stdout. The
+	// dispatch then feeds THAT file's contents — not the command's stdout — into
+	// the Convert. It exists for tools whose stdout is summary/noise while the
+	// payload lands in a file (e.g. a coverage pass that writes a profile to a
+	// file and prints only a test summary to stdout). The filename is pack DATA —
+	// the binary stays tool/language-blind: it knows only "this engine's output is
+	// in a declared file", never what the file means.
+	StdoutArtifact string `yaml:"stdout_artifact"`
 	// Provision is an optional pinned install descriptor. Nil => assumed-present
 	// Layer-0 engine (REQ-019).
 	Provision *Provision `yaml:"provision"`
@@ -158,6 +167,17 @@ type EngineBinding struct {
 	// this inline in the engines: block; the validator reads it FROM the binding,
 	// not from a name-keyed map. The zero value (empty lists) imposes no contract.
 	FieldContract FieldContract `yaml:"field_contract"`
+	// ExemptFromScopeFilter, when true, marks an engine whose violations are EXEMPT
+	// from diff-scope filtering — they are stamped gate.Violation.ProjectWide on the
+	// engine path (cmd/backstop/pack_gate.go) so an out-of-scope (unchanged-file)
+	// violation still REDs a diff-scoped gate (SPEC-041 REQ-004/CLM-011). It is the
+	// DECLARED replacement for the deleted baked `cv.Pass == check.CheckTypeBuild`
+	// identity check AND the SPEC-040 transitional `GateType == GateTypeBuild` seam:
+	// no CheckType enum identity and no GateType identity drives scope — the property
+	// is explicit and per-binding. It is DECOUPLED from ScopeKind (which stays
+	// arg-shaping-only): the go-build engine declares it true; golangci and go-test
+	// declare it false/unset (CLM-017). Resolution is per-violation (REQ-007).
+	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
 }
 
 // Registry maps an engine name to its EngineBinding. The gate looks up a rule's
@@ -292,6 +312,15 @@ func DefaultRegistry() Registry {
 			Convert:       "scripts/build-to-sarif.sh",
 			CrashGuard:    true,
 			Category:      EngineCategoryMechanism,
+			GateType:      GateTypeBuild,
+			// ExemptFromScopeFilter true is the PERMANENT, DECLARED build-exemption
+			// (SPEC-041 REQ-004/CLM-011): engine-path build violations carry
+			// gate.Violation.ProjectWide so an unchanged-file build break is not
+			// silently diff-scope-filtered. This REPLACES the SPEC-040 transitional
+			// `GateType == GateTypeBuild` seam — the property is explicit per-binding
+			// and DECOUPLED from ScopeKind (CLM-017). go-build is the ONLY default
+			// engine that declares it; golangci/go-test leave it false/unset.
+			ExemptFromScopeFilter: true,
 		},
 		"go-test": {
 			Command:       "go test",
@@ -301,6 +330,7 @@ func DefaultRegistry() Registry {
 			Convert:       "scripts/test-to-sarif.sh",
 			CrashGuard:    true,
 			Category:      EngineCategoryMechanism,
+			GateType:      GateTypeTest,
 			// Runs per Go package: the file-mode package scoping (`code check
 			// --file`) keys off THIS flag, not a "go test" name sniff (REQ-006b/
 			// CLM-024). go-build is project-wide too but does NOT set it.

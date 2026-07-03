@@ -57,7 +57,8 @@
       "required_keys": ["maturity"],
       "properties": {
         "maturity": {
-          "enum": ["idea", "exploring", "defined", "ready"]
+          "enum": ["idea", "exploring", "defined", "ready", "delivered", "replaced", "canceled", "deprecated"],
+          "description": "Lifecycle maturity. Live: idea, exploring, defined, ready. Success terminal: delivered. Retirement terminal: replaced (requires replaced-by), canceled, deprecated."
         }
       }
     },

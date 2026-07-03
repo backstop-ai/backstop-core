@@ -1,0 +1,4 @@
+project: go-toolchain-fixture
+language: go
+packs:
+    backstop/go-toolchain: local

@@ -1,0 +1,534 @@
+---
+plan_id: PLAN-SPEC-048
+spec_id: SPEC-048
+spec_version: 1.0.0
+created: "2026-06-30"
+status: draft
+target_module: cmd/backstop
+test_command: "go test ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-048: the two PROVEN findings-engine dispatch fixes in
+  cmd/backstop/pack_gate.go (self-targeting arg-shaping + stdout_artifact honoring),
+  the LOAD-BEARING real end-to-end proof over an installed-pack fixture driven by a
+  REAL check.CommandRunner, and the two surfaced-debt alignments (the runCoverageEngine
+  %v->%w wrap + the phantom SPEC-040 contract retire). The reference implementation is
+  .claude/acceptance-notes/PROVEN-dispatch-fix.diff — small, hand-verified, and already
+  known to work; the RISK is concentrated in the TESTS that prove it, so every fix is
+  authored failing-FIRST (TDD).
+
+  ════════════════════════════════════════════════════════════════════════════
+  THE STUB IS WHY BOTH BUGS SHIPPED — THE E2E MUST USE A REAL RUNNER (Sharp Edge 1)
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-043..047 all proved the dispatch through a canned-stdout fixtureRunner (the
+  fixtureRunner{byCmd:…} in cmd/backstop/bun_fixture_e2e_test.go) that returns bytes
+  directly AS stdout — it never writes a stdout_artifact FILE and never observes the
+  appended args, so it masked BOTH defects. REQ-003's proof (Phase 3) is worthless if
+  it reuses that stub. It MUST drive a REAL check.CommandRunner (check.ExecCommandRunner
+  with Dir=projectRoot) executing a COMMITTED POSIX fake-engine script, and it MUST FAIL
+  against the pre-fix dispatch. The fake engine self-targets (reads its own config /
+  scans its cwd), writes its findings to the declared stdout_artifact FILE, prints only
+  human NOISE to stdout, and is arg-SENSITIVE — it SUPPRESSES its seeded finding if a
+  stray path arg is bolted on — so the one e2e regression-guards DEFECT-1 (a bolted-on
+  projectRoot would silence the finding = vacuous green) AND DEFECT-2 (stdout noise has
+  no findings). DEFECT-1 is ALSO guarded independently by CLM-001's recording-runner
+  unit test; the e2e and the unit test are complementary, not redundant.
+
+  Sharp Edge 2 (CLEAN must be green for the RIGHT reason): the CLEAN variant goes GREEN
+  because the fake self-targeted and genuinely found nothing — NOT because a stray arg
+  made it scan nothing. The fake's arg-sensitivity encodes exactly this: with correct
+  (empty) arg-shaping it scans its self-target and reports honestly (seeded->finding,
+  clean->none); a bolted-on arg would make even the SEEDED variant read clean, which
+  CLM-009's seeded->RED assertion forbids.
+
+  ════════════════════════════════════════════════════════════════════════════
+  TESTDATA PACK FILES ARE COMMITTABLE (verified 2026-06-30)
+  ════════════════════════════════════════════════════════════════════════════
+  The gitignore rule `.backstop/packs/` does NOT bite the testdata tree: the existing
+  cmd/backstop/testdata/bun-toolchain/.backstop/packs/… pack.yml + scripts are TRACKED
+  (git ls-files confirms; git check-ignore returns not-ignored). So the committed fake
+  pack for the e2e lives under a testdata sibling and is committed, not gitignored. The
+  fake pack is placed at cmd/backstop/testdata/bun-dispatch-e2e/ (a sibling of the
+  coverage-shaped bun-toolchain fixture) so the existing coverage e2e is left undisturbed.
+  The fake engine command must be pinned/allowlisted in the fixture pack.yml so the
+  dispatch trust gate (checkEngineToolAllowed) passes over a REAL runner.
+
+  ════════════════════════════════════════════════════════════════════════════
+  ONE FILE, ONE IMPL TASK FOR THE DISPATCH FIX; DEBT LANDS BEFORE THE FINAL GATE
+  ════════════════════════════════════════════════════════════════════════════
+  REQ-001 (self-target), REQ-002 (stdout_artifact) and REQ-004a (%w) all edit the SAME
+  file (cmd/backstop/pack_gate.go), so they are ONE implementation task fed by two
+  parallel test tasks — not serialized impl-on-impl. Editing pack_gate.go pulls the
+  whole file into diff scope, so `backstop gate` will NOT go green until BOTH debt items
+  are resolved: REQ-004a (%w, same file) AND REQ-004b (the phantom SPEC-040 contract).
+  REQ-004b therefore lands (Phase 4) BEFORE the final full-gate phase. The SPEC-040 edit
+  MUST be routed through the spec-author agent by the implementer (NOT hand-edited) and
+  MUST NOT be a re-baseline/waiver — the phantom dispatchBuildViolationProjectWide symbol
+  is REALIGNED to the shipped EngineBinding.ExemptFromScopeFilter -> gate.Violation.ProjectWide
+  mechanism so contract_signature is honest.
+
+  ════════════════════════════════════════════════════════════════════════════
+  THIN-EXECUTOR INVARIANT
+  ════════════════════════════════════════════════════════════════════════════
+  project_target and stdout_artifact are pack DATA. No tsc/bun/go literal enters the
+  arg-shaping or payload-selection code — the fix stays tool/language-blind, and the
+  fake engine is a POSIX script (NO real bun/tsc/oxlint/go in backstop-core's Go CI).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — the COMMITTED fake-engine installed-pack fixture the
+  # load-bearing real-runner e2e (Phase 3) drives. DATA only, no production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Committed Fake-Engine Installed-Pack Fixture"
+    description: |
+      Create the committed installed-pack fixture the REQ-003 real-runner e2e executes
+      over — a sibling of the coverage-shaped bun-toolchain fixture so the existing
+      coverage tests are undisturbed. The fixture declares a PROJECT-WIDE findings engine
+      with an EMPTY project_target and a declared stdout_artifact, executed by a COMMITTED
+      deterministic POSIX fake-engine script that emulates the self-targeting-toolchain
+      I/O contract: it writes its real machine-readable (SARIF) findings to the declared
+      stdout_artifact FILE, prints only human-summary NOISE to stdout, self-targets (reads
+      its cwd / own config — does NOT depend on a bolted-on projectRoot arg), and is
+      arg-SENSITIVE (suppresses its seeded finding if a stray path arg is appended, so the
+      e2e regression-guards DEFECT-1). The fake command is pinned/allowlisted in pack.yml
+      so the dispatch trust gate passes over a real runner. Seeded vs clean is driven by a
+      marker in the self-targeted source (the test swaps it via a temp copy, mirroring the
+      existing lcov-seeded pattern). No production code changes here.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold committed fake-engine findings-pack fixture for the real-runner e2e"
+        description: |
+          Under cmd/backstop/testdata/bun-dispatch-e2e/ create the committed installed-pack
+          fixture the Phase-3 e2e drives via a REAL check.CommandRunner:
+            - backstop.yml declaring the fake pack as an ordinary pack (NO language field,
+              SPEC-046 convention).
+            - the fake pack.yml declaring a PROJECT-WIDE findings engine (gate_type
+              findings, scope project-wide) with an EMPTY project_target and a declared
+              stdout_artifact (the FILE the engine writes findings to), plus a findings
+              rule that fills it. The engine command is the committed POSIX script,
+              pinned/allowlisted so checkEngineToolAllowed passes over a real runner.
+            - scripts/fake-engine.sh: a deterministic POSIX fake that (i) writes SARIF
+              findings to the declared stdout_artifact FILE (a finding when the
+              self-targeted source carries the seeded marker; NONE when clean), (ii) prints
+              only human-summary NOISE to stdout (no SARIF/<result>), (iii) SELF-TARGETS
+              (reads cwd=projectRoot / its own config — never requires a projectRoot arg),
+              and (iv) is arg-SENSITIVE: if a stray path arg is appended it scans nothing
+              and emits NO finding (so a bolted-on projectRoot would vacuous-green even the
+              seeded variant — the DEFECT-1 trap the e2e guards).
+            - src/app.ts: the self-targeted source carrying the seeded-vs-clean marker.
+          Committed testdata (verified committable — the .backstop/packs gitignore does not
+          bite testdata). Fixture DATA only; the e2e assertions live in the Phase-3 test.
+        files:
+          - cmd/backstop/testdata/bun-dispatch-e2e/backstop.yml
+          - cmd/backstop/testdata/bun-dispatch-e2e/.backstop/packs/backstop/bun-dispatch-e2e/pack.yml
+          - cmd/backstop/testdata/bun-dispatch-e2e/.backstop/packs/backstop/bun-dispatch-e2e/scripts/fake-engine.sh
+          - cmd/backstop/testdata/bun-dispatch-e2e/src/app.ts
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The dispatch fix — self-targeting arg-shaping (REQ-001) +
+  # stdout_artifact payload selection (REQ-002) + the runCoverageEngine %w
+  # debt (REQ-004a). All in cmd/backstop/pack_gate.go: two parallel test
+  # tasks feed ONE implementation task (one file), then middle verification.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: runFindingsEngine Self-Target + stdout_artifact Dispatch Fix"
+    description: |
+      Reproduce .claude/acceptance-notes/PROVEN-dispatch-fix.diff via TDD. Two disjoint
+      failing-first test files (the REQ-001 arg-shaping matrix over a recording runner;
+      the REQ-002 stdout_artifact payload matrix + the REQ-004a coverage %w mirror) drive
+      a SINGLE edit to cmd/backstop/pack_gate.go: (1) the project-wide branch condition
+      changes from `ScopeKind==ProjectWide && ProjectTarget != ""` to `ScopeKind==ProjectWide`,
+      appending ProjectTarget ONLY when non-empty (keeping the fileModeTestTarget package-
+      selector edge) and NOTHING when empty (self-target — DEFECT-1 fix); the file-args
+      else branch is untouched. (2) A payload-selection step mirroring runCoverageEngine:
+      when binding.StdoutArtifact != "" read filepath.Join(projectRoot,
+      filepath.FromSlash(StdoutArtifact)) as the payload and feed it to BOTH
+      requireLintSarifShape AND the convert (sarifBytes := payload), fail-loud (%w) naming
+      pack+command+artifact+path when the file is missing, stdout unchanged when empty
+      (DEFECT-2 fix). (3) REQ-004a: runCoverageEngine's stdout_artifact-missing error
+      changes %v->%w so the os.ReadFile error is unwrappable, erasing the last %v/%w
+      divergence between the two mirrored payload-selection blocks. No tsc/bun/go literal.
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write the REQ-001 project-wide arg-shaping matrix tests (recording runner)"
+        description: |
+          cmd/backstop/pack_gate_findings_selftarget_test.go — failing-first over the real
+          runFindingsEngine, capturing the dispatched args via a RECORDING check.CommandRunner:
+            - TestRunFindingsEngine_ProjectWideEmptyTargetSelfTargetsNoRootAppended: a
+              project-wide engine (ScopeKindProjectWide) with an EMPTY ProjectTarget appends
+              NOTHING — the recorded command args carry NO projectRoot and NO scan target,
+              so the engine self-targets (the DEFECT-1 fix). RED pre-fix (the empty-target
+              engine currently falls to the file-args else branch and gets projectRoot
+              bolted on) (CLM-001).
+            - TestRunFindingsEngine_ProjectWideWithTargetAppendsProjectTarget: a project-wide
+              engine with a NON-EMPTY ProjectTarget ("./...") appends that ProjectTarget
+              unchanged — the go-toolchain engines are UNAFFECTED by the self-target change
+              (CLM-002).
+            - TestRunFindingsEngine_FileArgsScopeAppendsScopeFilesUnchanged: a non-project-wide
+              (file-args) rule-fed engine still appends the gate's in-scope changed files
+              (or projectRoot under a nil / GateScopeModeAll whole-repo scope) — the
+              empty-target self-target change did NOT leak into the file-args branch (CLM-003).
+            - TestRunFindingsEngine_FileModeGoTestPackageScopingPreserved: PRESERVATION —
+              under a file-mode scope the native go-test project-wide engine (ProjectTarget
+              "./...") still receives its changed file's PACKAGE selector via
+              fileModeTestTarget, not projectRoot; the restructured branch keeps the
+              SPEC-034 file-mode package-scoping edge intact (CLM-004).
+        files:
+          - cmd/backstop/pack_gate_findings_selftarget_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "Write the REQ-002 stdout_artifact payload matrix + REQ-004a coverage %w tests"
+        description: |
+          cmd/backstop/pack_gate_findings_artifact_test.go — failing-first over
+          runFindingsEngine (and runCoverageEngine for the %w mirror):
+            - TestRunFindingsEngine_StdoutArtifactFileFeedsConvertNotStdout: with
+              StdoutArtifact set and the file PRESENT, the FILE's bytes (not the noise
+              stdout) are fed to the convert — a findings-bearing artifact over a
+              finding-free stdout yields the file's findings (the DEFECT-2 fix). RED
+              pre-fix (runFindingsEngine ignores StdoutArtifact and converts stdout) (CLM-005).
+            - TestRunFindingsEngine_StdoutArtifactFileFeedsStrictSarifShapeGuard: with
+              StdoutArtifact set, file PRESENT, and NO convert declared, the FILE's bytes
+              (not stdout) are what requireLintSarifShape validates — payload selection
+              applies to the shape-guard path too, not only the convert path (CLM-006).
+            - TestRunFindingsEngine_StdoutArtifactMissingFailsLoud: with StdoutArtifact set
+              but the file MISSING, runFindingsEngine fails loud — an error naming the pack,
+              the engine command, the declared artifact, and the resolved path — and does
+              NOT silently fall back to reading stdout (CLM-007).
+            - TestRunFindingsEngine_NoStdoutArtifactUsesStdoutPayload: with StdoutArtifact
+              EMPTY, the payload remains the engine's stdout unchanged (backward compatible)
+              (CLM-008).
+            - TestRunCoverageEngine_StdoutArtifactMissingWrapsReadError: runCoverageEngine's
+              stdout_artifact-missing branch wraps the underlying read error with %w —
+              errors.Is / errors.Unwrap reaches the os.ReadFile error, matching the
+              findings-path fail-loud branch (REQ-004a). RED pre-fix (%v breaks the chain)
+              (CLM-012).
+          These are the anti-vacuous-green core: the artifact FILE is the source of truth,
+          a missing artifact is a broken run (not a finding-free pass), and the two engines'
+          payload-selection blocks stay behaviorally mirrored.
+        files:
+          - cmd/backstop/pack_gate_findings_artifact_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-012
+        depends_on: []
+
+      - id: TASK-004
+        type: implementation
+        title: "Implement self-target arg-shaping + stdout_artifact selection + coverage %w"
+        description: |
+          Edit cmd/backstop/pack_gate.go to reproduce PROVEN-dispatch-fix.diff, making
+          TASK-002 and TASK-003 green:
+            - REQ-001: change the project-wide branch condition from
+              `binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != ""`
+              to `binding.ScopeKind == engine.ScopeKindProjectWide`, and INSIDE it append
+              binding.ProjectTarget ONLY when non-empty (retaining the nested
+              fileModeTestTarget package-selector edge for the native go-test engine); an
+              EMPTY ProjectTarget appends NOTHING (self-target). It is PROHIBITED for
+              projectRoot (or any scan target) to reach a project-wide empty-target engine's
+              args. The file-args else branch is UNCHANGED (CLM-001/CLM-002/CLM-003/CLM-004).
+            - REQ-002: after runner.RunStdout, add `payload := stdout`; when
+              binding.StdoutArtifact != "" read filepath.Join(projectRoot,
+              filepath.FromSlash(binding.StdoutArtifact)) and on a read error return a
+              fail-loud %w-wrapped error naming pack + engine command + declared artifact +
+              resolved path (no silent stdout fallback); else payload = body. Feed `payload`
+              (not stdout) to BOTH requireLintSarifShape AND the convert
+              (resolveSandboxedRunStdout()(convertPath, nil, packRoot, payload)), and set
+              `sarifBytes := payload` for the no-convert path. Empty StdoutArtifact keeps
+              stdout (CLM-005/CLM-006/CLM-007/CLM-008).
+            - REQ-004a: in runCoverageEngine's stdout_artifact-missing branch change
+              `(read %s: %v)` to a %w-wrapped form so the os.ReadFile error is unwrappable,
+              mirroring the new findings-path branch (CLM-012).
+          Stay tool/language-blind: no tsc/bun/go literal — project_target and
+          stdout_artifact are pack DATA. Single-file edit; external signatures unchanged.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-006
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the dispatch fix (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/pack_gate.go and the two dispatch
+          test files. Confirms the project-wide branch appends ProjectTarget only when
+          non-empty and NOTHING when empty (self-target, no projectRoot bolted on), the
+          go-toolchain "./..." engines and the file-mode go-test package-selector edge are
+          preserved, the file-args branch is unchanged, runFindingsEngine honors
+          stdout_artifact for BOTH the shape-guard and the convert with a fail-loud (%w)
+          missing-artifact branch, empty StdoutArtifact keeps stdout, and runCoverageEngine's
+          missing-artifact error now wraps with %w. Middle-phase verification — not the full
+          gate (the phantom SPEC-040 contract still reds the full gate until Phase 4).
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_findings_selftarget_test.go
+          - cmd/backstop/pack_gate_findings_artifact_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: THE LOAD-BEARING PROOF — a REAL end-to-end gate over the committed
+  # installed-pack fixture driven by a REAL check.CommandRunner + the committed
+  # fake engine. Exercises BOTH fixes on the real dispatch path; fails pre-fix.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Real Installed-Pack End-to-End Dispatch Proof"
+    description: |
+      The pack-provisioning integration-gap guard (Sharp Edge 1, REQ-003): a REAL gate
+      over the Phase-1 installed-pack fixture that exercises the ACTUAL dispatch path
+      (runFindingsEngine via dispatchPackEngines) driven by a REAL check.CommandRunner
+      (check.ExecCommandRunner with Dir=projectRoot) executing the committed POSIX fake
+      engine — NOT a stubbed dispatcher and NOT the canned-stdout fixtureRunner that
+      masked both defects. The fake self-targets, writes findings to its stdout_artifact
+      FILE, and prints noise to stdout, so this ONE test exercises BOTH fixes: seeded->RED
+      (carrying the finding), clean->GREEN (found nothing because it self-targeted, NOT
+      because a stray arg made it scan nothing — Sharp Edge 2). It MUST FAIL against the
+      pre-fix dispatch, so the e2e (TASK-006) is authored and observed RED BEFORE the
+      Phase-2 dispatch impl (TASK-004 depends_on TASK-006, exactly as it depends on the
+      unit-test tasks) — the impl greens it. This phase adds no production code; its
+      verification (TASK-007) runs after the impl.
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write the real-runner installed-pack e2e (fails pre-fix, catches both bugs)"
+        description: |
+          cmd/backstop/bun_dispatch_e2e_test.go — the load-bearing proof, driving
+          dispatchPackEngines over the Phase-1 fixture with a REAL check.CommandRunner
+          (check.ExecCommandRunner{Dir: projectRoot} executing the committed fake-engine.sh
+          — NO stub, NO canned-stdout fixtureRunner, NO real bun/tsc/oxlint/go):
+            - TestBunDispatchE2E_SeededFindingInStdoutArtifactRedsGate: with the seeded
+              marker present, the fake writes a finding to its stdout_artifact FILE while
+              its stdout is noise; the gate goes RED carrying that finding (not vacuous
+              green) (CLM-009).
+            - TestBunDispatchE2E_CleanFixtureGreenGate: the SAME fixture with NO seeded
+              marker (clean, via a temp copy) goes GREEN over the real dispatch — the
+              finding is genuinely absent because the fake self-targeted and found nothing,
+              proving the CLM-009 RED is the finding and not a spurious dispatch failure
+              (CLM-010).
+            - TestBunDispatchE2E_RealRunnerFakeEngineSelfTargetsAndReadsArtifactCatchesBothBugs:
+              the capstone — asserts the run used NO stubbed dispatcher / NO canned-stdout
+              runner and NO real bun/tsc/oxlint/go, that the fake self-targets (does not
+              rely on a bolted-on projectRoot arg — a stray arg would suppress even the
+              seeded finding, so a green-when-seeded here would expose DEFECT-1), and that
+              findings come from the stdout_artifact FILE while stdout is human noise (so a
+              stdout-fed convert would expose DEFECT-2). This ONE test exercises BOTH fixes
+              on the real path and MUST FAIL against the pre-fix dispatch (CLM-011).
+          Authored failing-first: this task is ordered BEFORE the Phase-2 dispatch impl
+          (TASK-004 depends_on TASK-006), so an implementer following the DAG observes it
+          seeded->RED against pre-fix code, then the impl greens it. A version that passes
+          against pre-fix code proves nothing.
+        files:
+          - cmd/backstop/bun_dispatch_e2e_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-001
+
+      - id: TASK-007
+        type: verification
+        title: "Verify the real-runner installed-pack e2e (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/bun_dispatch_e2e_test.go. Confirms
+          the e2e drives the REAL dispatch (runFindingsEngine via dispatchPackEngines)
+          through a REAL check.CommandRunner executing the committed fake engine — seeded
+          -> RED carrying the finding, clean -> GREEN for the right reason — with NO stub /
+          canned-stdout runner and NO real bun/tsc/oxlint/go, and that it would FAIL against
+          the pre-fix dispatch. Middle-phase verification; depends on the Phase-2 dispatch
+          implementation the e2e proves.
+        files:
+          - cmd/backstop/bun_dispatch_e2e_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-006
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Surfaced-debt REQ-004b — retire the phantom SPEC-040 contract.
+  # Routed through the spec-author agent (NOT hand-edited); realigned, never
+  # re-baselined. Must land before the final full gate (it reds the gate today).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Retire the Phantom SPEC-040 Contract"
+    description: |
+      Align the second surfaced debt (REQ-004b): SPEC-040's contracts block declares
+      dispatchBuildViolationProjectWide (kind: variable) — a named symbol that NEVER
+      existed; SPEC-041 REQ-004 superseded that transitional approach with the shipped
+      EngineBinding.ExemptFromScopeFilter field mapping per-violation to
+      gate.Violation.ProjectWide. The stale entry MUST be REALIGNED so it references the
+      real shipped mechanism and contract_signature reports an HONEST contract for SPEC-040
+      — NOT silenced by adding the phantom symbol to a baseline/waiver. The SPEC-040
+      artifact edit MUST be routed through the spec-author agent by the implementer, never
+      hand-edited. Because editing pack_gate.go (Phase 2) pulls the whole file into diff
+      scope, the full gate stays RED on this phantom broken-promise until this lands — so
+      it precedes the final full-gate phase.
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write the phantom-contract-retired assertion (fails while the phantom exists)"
+        description: |
+          cmd/backstop/spec040_contract_test.go — failing-first while the phantom symbol
+          is still declared:
+            - TestSpec040Contract_PhantomBuildViolationSymbolRetired: parses
+              specs/SPEC-040-toolchain-pack-cutover.spec.md and asserts its contracts no
+              longer declare the phantom dispatchBuildViolationProjectWide (kind: variable)
+              symbol, and that the realigned contract references the shipped
+              EngineBinding.ExemptFromScopeFilter -> gate.Violation.ProjectWide mechanism
+              (SPEC-041 REQ-004) so contract_signature is honest — not silenced by a
+              baseline/waiver. RED while the phantom entry is present (CLM-013).
+        files:
+          - cmd/backstop/spec040_contract_test.go
+        claims:
+          - CLM-013
+        depends_on: []
+
+      - id: TASK-009
+        type: implementation
+        title: "Realign the SPEC-040 phantom contract via the spec-author agent"
+        description: |
+          Route through the spec-author agent (NOT a hand-edit) an evolution of
+          specs/SPEC-040-toolchain-pack-cutover.spec.md that REMOVES the phantom
+          dispatchBuildViolationProjectWide (kind: variable) contract entry and REALIGNS it
+          to the real shipped mechanism — EngineBinding.ExemptFromScopeFilter mapping
+          per-violation to gate.Violation.ProjectWide (the SPEC-041 REQ-004 shipment) — so
+          contract_signature reports an honest contract for SPEC-040. It is PROHIBITED to
+          make contract_signature green by adding the phantom symbol to a baseline/waiver;
+          this is a REALIGNMENT of a stale predating artifact, never a re-baseline. Makes
+          TASK-008 green.
+        files:
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the realigned SPEC-040 contract (code check + artifact validate)"
+        description: |
+          Run `backstop code check` over cmd/backstop/spec040_contract_test.go and
+          `backstop artifact validate` over the evolved specs/SPEC-040-toolchain-pack-cutover.spec.md.
+          Confirms the phantom dispatchBuildViolationProjectWide symbol is gone, the contract
+          references the real ExemptFromScopeFilter -> Violation.ProjectWide mechanism, the
+          SPEC-040 artifact still validates structurally, and contract_signature is honest
+          (not baselined/waived). Middle-phase verification — the full gate runs in Phase 5.
+        files:
+          - cmd/backstop/spec040_contract_test.go
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final comprehensive verification — the full kill chain over the
+  # whole change (code + artifacts). The only phase that runs `backstop gate`.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the complete SPEC-048 change: artifact validation,
+      code check, test verification, substantiveness, coverage (>=80%), contracts. The
+      gate goes green ONLY now that BOTH debt items are resolved (the %w in pack_gate.go
+      and the realigned SPEC-040 contract). Confirms every claim's mandated tests are
+      green: the project-wide findings engine self-targets on an empty ProjectTarget
+      (no projectRoot bolted on) while go-toolchain "./..." engines and the file-mode
+      go-test package edge are preserved; runFindingsEngine honors stdout_artifact for
+      both the shape-guard and the convert with a fail-loud %w missing branch; the REAL
+      installed-pack e2e over a real CommandRunner reds on a seeded finding and greens
+      clean for the right reason; runCoverageEngine wraps its missing-artifact error with
+      %w; and the phantom SPEC-040 contract is honestly realigned. Also validates the
+      artifact files this change touched (this plan + SPEC-040).
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Run the full gate over the complete SPEC-048 change"
+        description: |
+          Run `backstop gate` (the full kill chain: artifact validation + code check +
+          test verification + substantiveness + coverage + contracts) and
+          `backstop artifact validate` over this plan + the evolved SPEC-040, plus
+          `go test ./cmd/backstop/ -race -coverprofile=cover.out` (>=80%). Confirm:
+          runFindingsEngine's project-wide branch appends ProjectTarget only when non-empty
+          and NOTHING when empty (self-target — no projectRoot reaches an empty-target
+          engine), the go-toolchain "./..." engines and the SPEC-034 file-mode go-test
+          package-selector edge are UNAFFECTED, and the file-args branch is unchanged
+          (REQ-001); runFindingsEngine reads stdout_artifact as the payload for BOTH
+          requireLintSarifShape and the convert, empty keeps stdout, and a
+          declared-but-missing artifact fail-louds %w-wrapped (REQ-002); the REAL
+          installed-pack e2e driven by a real check.CommandRunner over the committed fake
+          engine reds on a seeded finding and greens clean for the right reason, failing
+          against the pre-fix dispatch (REQ-003); runCoverageEngine's missing-artifact error
+          wraps with %w (REQ-004a); and SPEC-040's phantom dispatchBuildViolationProjectWide
+          contract is realigned to the shipped ExemptFromScopeFilter -> Violation.ProjectWide
+          mechanism with contract_signature honest, not baselined/waived (REQ-004b). No
+          tsc/bun/go literal enters the dispatch.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/bun_dispatch_e2e_test.go
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+          - plans/PLAN-SPEC-048-engine-dispatch-selftarget-stdout-artifact.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-007
+          - TASK-010
+          - TASK-004
+          - TASK-006
+          - TASK-009

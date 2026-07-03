@@ -316,3 +316,59 @@ func TestEngine_NoForbiddenImports(t *testing.T) {
 		}
 	}
 }
+
+// TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind proves
+// EngineBinding carries an ExemptFromScopeFilter bool DECOUPLED from ScopeKind:
+// the DefaultRegistry go-build engine declares it true, golangci and go-test
+// declare it false/unset — asserted against the declared binding records
+// (SPEC-041 CLM-011).
+func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t *testing.T) {
+	reg := DefaultRegistry()
+
+	build, err := reg.Lookup("go-build")
+	if err != nil {
+		t.Fatalf("go-build binding must exist: %v", err)
+	}
+	if !build.ExemptFromScopeFilter {
+		t.Error("go-build must declare exempt_from_scope_filter:true — it is the build-pass exemption (CLM-011)")
+	}
+
+	for _, name := range []string{"golangci", "go-test"} {
+		b, err := reg.Lookup(name)
+		if err != nil {
+			t.Fatalf("%s binding must exist: %v", name, err)
+		}
+		if b.ExemptFromScopeFilter {
+			t.Errorf("%s must NOT declare exempt_from_scope_filter — only go-build is exempt (CLM-011)", name)
+		}
+	}
+}
+
+// TestExemption_ScopeKindDecoupledFromExemptDecision proves ScopeKind and
+// ExemptFromScopeFilter are independent: golangci/go-build/go-test all remain
+// ScopeKindProjectWide (each still appends its ./... ProjectTarget) while ONLY
+// go-build is exempt_from_scope_filter — ScopeKind is NOT consulted for the
+// exempt/ProjectWide decision (SPEC-041 CLM-017).
+func TestExemption_ScopeKindDecoupledFromExemptDecision(t *testing.T) {
+	reg := DefaultRegistry()
+	for _, name := range []string{"golangci", "go-build", "go-test"} {
+		b, err := reg.Lookup(name)
+		if err != nil {
+			t.Fatalf("%s binding must exist: %v", name, err)
+		}
+		if b.ScopeKind != ScopeKindProjectWide {
+			t.Errorf("%s must stay ScopeKindProjectWide (arg-shaping), got %v (CLM-017)", name, b.ScopeKind)
+		}
+		if b.ProjectTarget != "./..." {
+			t.Errorf("%s must keep its ./... ProjectTarget (arg-shaping), got %q (CLM-017)", name, b.ProjectTarget)
+		}
+	}
+	// Decoupling: all three share ScopeKindProjectWide, yet ONLY go-build is exempt.
+	// If ScopeKind drove the exempt decision, golangci/go-test would be exempt too.
+	golangci, _ := reg.Lookup("golangci")
+	build, _ := reg.Lookup("go-build")
+	gotest, _ := reg.Lookup("go-test")
+	if !(build.ExemptFromScopeFilter && !golangci.ExemptFromScopeFilter && !gotest.ExemptFromScopeFilter) {
+		t.Error("exempt decision must be DECOUPLED from ScopeKind: same ScopeKindProjectWide, divergent exempt values (CLM-017)")
+	}
+}

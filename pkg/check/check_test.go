@@ -147,20 +147,15 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 		}},
 	}
 
-	// Manifest that only routes .py to semgrep
-	manifest := &Manifest{
-		rules: []ManifestRule{
-			{
-				Extensions: []string{".py"},
-				CheckTypes: []string{"semgrep"},
-				parsed:     []CheckType{CheckTypeFindings},
-			},
-		},
-	}
-
+	// The built-in default manifest does NOT route a non-Go file (script.py) to
+	// the native lint/build/test passes — those are .go/.ts/.tsx-only. So for a
+	// non-Go file in scope, lint/build/test are non-applicable and must be
+	// skipped (never invoked), which is the property under test. (Driven through
+	// the default manifest after the rule-matching path was deleted; no hand-built
+	// rule table.)
 	engine := &Engine{
 		Executors: executors,
-		Manifest:  manifest,
+		Manifest:  defaultManifest(),
 	}
 
 	result, err := engine.RunPasses(context.Background(), []string{"script.py"})
@@ -168,30 +163,29 @@ func TestCodeCheck_NonApplicablePassSkipped(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Only semgrep should have been invoked
+	// The native passes are non-applicable to a non-Go file: none invoked.
 	if invoked[CheckTypeLint] {
-		t.Error("lint was invoked for .py file")
+		t.Error("lint was invoked for a non-Go (.py) file; it is non-applicable")
 	}
 	if invoked[CheckTypeBuild] {
-		t.Error("build was invoked for .py file")
+		t.Error("build was invoked for a non-Go (.py) file; it is non-applicable")
 	}
 	if invoked[CheckTypeTest] {
-		t.Error("test was invoked for .py file")
-	}
-	if !invoked[CheckTypeFindings] {
-		t.Error("semgrep was NOT invoked for .py file")
+		t.Error("test was invoked for a non-Go (.py) file; it is non-applicable")
 	}
 
-	// Check that skipped passes are recorded
-	skippedCount := 0
+	// The non-applicable native passes are recorded as skipped (not silently
+	// dropped). At least lint/build/test must appear as skipped pass results.
+	skipped := map[CheckType]bool{}
 	for _, pr := range result.PassResults {
 		if pr.Skipped {
-			skippedCount++
+			skipped[pr.Pass] = true
 		}
 	}
-	// lint, build, test should be skipped; only semgrep should run
-	if skippedCount != 3 {
-		t.Errorf("got %d skipped passes, want 3", skippedCount)
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest} {
+		if !skipped[ct] {
+			t.Errorf("%v was not recorded as a skipped pass for a non-applicable file", ct)
+		}
 	}
 }
 
@@ -588,7 +582,9 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		t.Errorf("got %d pass results, want 4", len(result.PassResults))
 	}
 
-	// Now test with a .txt file — only semgrep should run with default manifest
+	// Now test with a .txt file — after REQ-007 removed the non-Go catch-all, a
+	// non-Go file routes to NOTHING under the default manifest, so no pass runs
+	// and all four are skipped.
 	txtFile := filepath.Join(dir, "notes.txt")
 	os.WriteFile(txtFile, []byte("some notes"), 0o644)
 
@@ -624,29 +620,23 @@ func TestCodeCheck_FileFlag_RoutesByType(t *testing.T) {
 		t.Fatalf("RunWith txt: %v", err)
 	}
 
-	// Only semgrep should be invoked for .txt (default manifest)
-	if invoked2[CheckTypeLint] {
-		t.Error("lint was invoked for .txt file")
-	}
-	if invoked2[CheckTypeBuild] {
-		t.Error("build was invoked for .txt file")
-	}
-	if invoked2[CheckTypeTest] {
-		t.Error("test was invoked for .txt file")
-	}
-	if !invoked2[CheckTypeFindings] {
-		t.Error("semgrep was NOT invoked for .txt file")
+	// No pass should be invoked for .txt — a non-Go file routes to nothing under
+	// the default manifest (the non-Go catch-all was removed in REQ-007).
+	for _, ct := range []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings} {
+		if invoked2[ct] {
+			t.Errorf("%v was invoked for a non-Go (.txt) file; it routes to nothing", ct)
+		}
 	}
 
-	// Verify that lint, build, test were skipped
+	// All four passes are recorded as skipped (non-applicable to a non-Go file).
 	skippedCount := 0
 	for _, pr := range result2.PassResults {
 		if pr.Skipped {
 			skippedCount++
 		}
 	}
-	if skippedCount != 3 {
-		t.Errorf("got %d skipped passes for .txt, want 3", skippedCount)
+	if skippedCount != 4 {
+		t.Errorf("got %d skipped passes for .txt, want 4 (non-Go routes to nothing)", skippedCount)
 	}
 }
 

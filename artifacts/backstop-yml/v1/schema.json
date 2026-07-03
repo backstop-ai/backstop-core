@@ -5,8 +5,7 @@
   "description": "Schema for backstop.yml project configuration. Defines required and optional fields for project manifests.",
   "type": "object",
   "required": [
-    "project",
-    "language"
+    "project"
   ],
   "additionalProperties": false,
   "properties": {
@@ -17,7 +16,7 @@
     },
     "language": {
       "type": "string",
-      "description": "Primary language",
+      "description": "RETIRED (SPEC-046): no longer read by backstop; a project is described by its declared packs, not one baked language. Retained as an allowed-but-ignored legacy key so an existing backstop.yml carrying it still parses cleanly; never required",
       "minLength": 1
     },
     "runtimes": {

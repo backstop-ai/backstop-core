@@ -1,0 +1,4 @@
+project: typescript-toolchain-fixture
+language: typescript
+packs:
+  backstop/typescript-toolchain: local

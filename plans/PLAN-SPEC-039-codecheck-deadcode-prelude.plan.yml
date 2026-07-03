@@ -1,0 +1,586 @@
+---
+plan_id: PLAN-SPEC-039
+spec_id: SPEC-039
+created: "2026-06-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/ ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements SPEC-039 — Seed 1 of BUNDLE-011, the behavior-preserving DEAD-CODE
+  PRELUDE that lands FIRST (before SPEC-040's pkg/check.Run cutover) to shrink the
+  surface pkg/check/manifest.go presents to the rewrite. Two verified-dead /
+  verified-no-op deletions, both inside pkg/check/manifest.go, and nothing else.
+
+  STRICT SCOPE FENCE (belongs to siblings — MUST NOT be authored here):
+    - SPEC-040 (Seed 2, DOWNSTREAM consumer): the wholesale pkg/check.Run Step-2
+      cutover, builtinToolchain/realCodeChecker deletion, the go-toolchain pack,
+      the gate step, and the golden-equivalence harness. This plan does NOT touch
+      realCodeChecker / builtinToolchain / any gate STEP.
+    - SPEC-041 (Seed 3): coverage / step_coverage.go / CheckType-consumer catalog.
+    - ISSUE-030: the .standard.md SCAFFOLDER (pkg/pack/scaffold.go) — only the
+      READER is in scope here; the scaffolder is asserted UNTOUCHED (CLM-018).
+
+  THE TWO DELETIONS (pkg/check/manifest.go ONLY):
+    REQ-010 — DELETE the ENTIRE dead .manifest.json reader (compiled AND legacy
+      arms) AND the rule-matching path it strands: compiledManifestFile + its
+      methods (routableExtensions/isCompiled/hasSemgrepSignal/legacyRules/
+      deriveRules); combinedRule; languageExtensions; manifestFile;
+      parseCheckTypes (PLURAL); hasRoutableRule; the .manifest.json-walking body
+      of LoadManifest (incl. the manifest-path zero-routable ConfigError
+      EMISSION); and the stranded matchesRule/matchGlobPattern/
+      matchDoubleStarPattern/ManifestRule plus Manifest.rules/Manifest.isDefaults.
+      RESULT: LoadManifest reduces to read-dir-or-skip → return defaultManifest();
+      RouteFile collapses to return m.routeFileDefaults(path); Manifest becomes an
+      EMPTY struct; defaultManifest() returns &Manifest{}.
+    REQ-007 — DELETE the already-no-op non-Go catch-all in routeFileDefaults (the
+      `default: return []CheckType{CheckTypeFindings}` arm). The .go/.ts/.tsx
+      all-four-passes case is PRESERVED BYTE-FOR-BYTE; a non-matching extension
+      then returns the EMPTY slice.
+
+  PRESERVE (explicit prohibition on deletion): the ConfigError TYPE
+    (pkg/check/errors.go) + every .manifest.json-INDEPENDENT trigger
+    (missing-toolchain in registry.go via resolveToolchain/validateToolchainKeys,
+    no-command, unknown-format in parsers.go); parseCheckType (SINGULAR — used by
+    validateToolchainKeys); RouteFile; routeFileDefaults; defaultManifest; the
+    CheckType enum and all four pass constants; the registry.go executor-building
+    code; pkg/pack/scaffold.go.
+
+  DELETION-TDD MODEL (matches PLAN-ISSUE-018 / SPEC-034 pattern):
+    Each deletion is a REFACTOR (it MODIFIES existing code) guarded by a preceding
+    TEST task that supplies (a) DELETION-ASSERTION tests — scan non-test .go
+    sources under pkg/check and assert the deleted symbols are ABSENT (model:
+    pkg/validate/deletion_assertion_test.go) — and (b) BEHAVIOR-PRESERVING tests
+    that pin the surviving routing/gate RESULT. The deletion-assertion tests are
+    RED while the symbols exist and go GREEN only after the refactor, preventing
+    silent reintroduction.
+
+  ORPHAN RECONCILIATION IS IN-PHASE WITH THE DELETION (compile-coupling): the
+    .manifest.json arm is referenced by TEST callers in BOTH swept packages
+    (pkg/check/manifest_test.go, pkg/check/ts_routing_test.go,
+    cmd/backstop/code_check_test.go, cmd/backstop/gate_scope_test.go). Per the
+    align-predating-artifacts principle, every orphan is deleted or rewritten to
+    the post-deletion truth IN THE SAME REFACTOR TASK as the deletion that orphans
+    it — otherwise the package will not compile. Four orphan families: (a)
+    .manifest.json-reader orphans → DELETE; (b) routing-schema/ConfigError "ride
+    the arm" orphans → DELETE or REWRITE off the fixture; (c) rule-matching
+    orphans → DELETE; (d) surviving-API-altered-by-REQ-007 → REWRITE the assertion
+    to non-Go → empty.
+
+  SHARP EDGE — behavior-preserving assertion must pin VIOLATIONS + EXIT, NOT the
+    PassResults list. Post-REQ-007 a non-Go file routes to nothing, so its
+    Skipped("no executor configured") findings PassResult vanishes — an intended,
+    observable delta to the PassResults inventory (could nudge StepsSkipped) that
+    does NOT change the violation set or exit code. CLM-005's
+    TestCodeCheck_NonGoFile_GateResultUnchangedAfterCatchAllRemoval MUST assert
+    violations + exit, never an exact PassResults list, or it will spuriously fail.
+
+  SHARP EDGE — STOP-AND-REPORT if any deletion's dead/no-op premise is FALSE: a
+    production .manifest.json writer, a non-test caller of deriveRules/isCompiled/
+    etc., a SECOND .manifest.json-tied ConfigError trigger, or a pkg/check findings
+    executor. Do not author the deletion around a live edge.
+
+  COVERAGE GREEN ON A NET-NEGATIVE DIFF (90% threshold over pkg/check):
+    This is mostly deletion — the denominator (surviving routing layer) shrinks to
+    LoadManifest + RouteFile + routeFileDefaults + defaultManifest + parseCheckType.
+    The behavior-preserving tests authored in the test tasks call directly into
+    every surviving line: LoadManifest over a missing dir AND the repo's
+    .backstop/rules path (both → defaults); RouteFile/routeFileDefaults for
+    .go/.ts/.tsx (all-four) and a non-Go file (empty); parseCheckType is exercised
+    via validateToolchainKeys (registry path). Sequencing keeps the gate green:
+    the deletion-assertion + behavior-preserving tests are authored in the SAME
+    task batch as the deletion and DELETE the dead code's now-orphaned tests in the
+    same change, so no covered-but-deleted code strands a test and no surviving
+    line goes uncovered. Net effect: coverage RISES (dead uncovered-by-meaningful-
+    -assertions code leaves; small surviving surface is exhaustively pinned).
+
+  STRUCTURE:
+    Phase 1: Deletion-assertion + behavior-preserving test scaffolding (TDD red)
+             for BOTH requirements, in disjoint NEW test files so they parallelize.
+    Phase 2: REQ-010 — delete the whole .manifest.json reader + stranded
+             rule-matching path; reconcile its orphans across both packages;
+             middle-phase verification.
+    Phase 3: REQ-007 — delete the non-Go catch-all; reconcile its orphans;
+             middle-phase verification. (Sequenced AFTER Phase 2 because both edit
+             the single shared file pkg/check/manifest.go — D-081.)
+    Phase 4: Comprehensive final verification (backstop gate + artifact validate).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD red — deletion-assertion + behavior-preserving tests
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Deletion-Assertion + Behavior-Preserving Tests (TDD Red)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "REQ-010 deletion-assertion + surviving-API tests for the .manifest.json reader and stranded rule-matching path"
+        description: |
+          Add the SPEC-039 REQ-010 deletion-assertion suite (model:
+          pkg/validate/deletion_assertion_test.go) plus the surviving-API +
+          behavior-preserving assertions, in a NEW file
+          pkg/check/manifest_deadcode_test.go so it is disjoint from the existing
+          manifest_test.go (which TASK-004 edits). These tests are RED now (the
+          symbols still exist) and go GREEN only after TASK-004's deletion.
+
+          DELETION-ASSERTION tests (scan non-test .go sources under pkg/check,
+          assert the named identifiers / branches are ABSENT):
+            - TestCompiledManifestReader_Removed — no `type compiledManifestFile`
+              declaration survives (CLM-010).
+            - TestCompiledManifestReader_MethodsRemoved — none of deriveRules,
+              isCompiled, hasSemgrepSignal, legacyRules, routableExtensions are
+              declared (CLM-011).
+            - TestCompiledManifestReader_CombinedRuleAndLanguageExtensionsRemoved —
+              no `type combinedRule` and no `languageExtensions` declaration
+              (CLM-012).
+            - TestLoadManifest_NoCompiledManifestBranch — LoadManifest's body does
+              not decode a compiledManifestFile or branch on isCompiled() (CLM-013).
+            - TestLoadManifest_NoManifestJSONRead — LoadManifest's body contains no
+              `.manifest.json` suffix match / decode of a manifestFile (CLM-013).
+            - TestLoadManifest_LegacyArmHelpersRemoved — manifestFile,
+              parseCheckTypes (PLURAL), and hasRoutableRule are absent from
+              non-test source (CLM-019).
+            - TestRuleMatchingPath_Removed — matchesRule, matchGlobPattern,
+              matchDoubleStarPattern, and `type ManifestRule` are absent, and the
+              Manifest struct declares no `rules` or `isDefaults` field (CLM-021).
+          SURVIVING-API / behavior-preserving tests (must hold BEFORE and AFTER —
+          they pin that the reduction does not alter routing on this repo):
+            - TestLoadManifest_ManifestJSONIgnoredReturnsDefaults — a .manifest.json
+              placed in a t.TempDir() rules dir is IGNORED; LoadManifest returns
+              defaultManifest() (reversal guard, CLM-019). NOTE: written so it is
+              GREEN only post-deletion (pre-deletion the reader would honor it) —
+              this is a post-state assertion grouped with the deletion suite.
+            - TestLoadManifest_RepoRulesDirStillRoutesGo — LoadManifest over the
+              repo's .backstop/rules path (absent — no rules dir, no .manifest.json
+              anywhere) returns defaults and routes .go → {lint,build,test,findings}
+              (CLM-014).
+            - TestLoadManifest_MissingDirReturnsDefaults — LoadManifest over an
+              absent/unreadable dir returns the default manifest, nil error (CLM-015).
+            - TestManifest_SurvivingAPIIntact — Manifest (empty struct), RouteFile,
+              routeFileDefaults, parseCheckType (SINGULAR), defaultManifest, the
+              CheckType enum, and the ConfigError TYPE are all present and route a
+              .go file to all four passes (compile-and-route smoke, CLM-016).
+          All deletion-assertion tests MUST fail now and pass only after TASK-004.
+        files:
+          - pkg/check/manifest_deadcode_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-019
+          - CLM-021
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "REQ-010 ConfigError-trigger-preserved + scaffolder-untouched tests"
+        description: |
+          Add the REQ-010 PRESERVATION tests in a NEW file
+          cmd/backstop/manifest_configerror_test.go (disjoint from
+          code_check_test.go, which TASK-005 edits). These guard that deleting the
+          manifest-path ConfigError EMISSION does not remove the ConfigError TYPE or
+          any .manifest.json-INDEPENDENT trigger, and that the scaffolder is
+          out-of-scope.
+            - TestCodeCheck_MissingToolchain_StillConfigErrorAfterManifestBranchRemoval —
+              a declared language with no toolchain still emits a *ConfigError and
+              exits 2 on BOTH the standalone code-check and gate paths (the trigger
+              comes from resolveToolchain/validateToolchainKeys in registry.go, which
+              runs unconditionally — independent of .manifest.json) (CLM-020).
+            - TestStandardScaffolder_Untouched — pkg/pack/scaffold.go still exists
+              and this change does not reference/remove it (scope fence for
+              ISSUE-030) (CLM-018).
+          The MissingToolchain assertion must hold before AND after the deletion
+          (it tests a PRESERVED trigger); author it so it is meaningful post-cutover
+          (drives the exit-2 via the registry path, NOT via any .manifest.json
+          fixture). The scaffolder test is a pure presence check.
+        files:
+          - cmd/backstop/manifest_configerror_test.go
+        claims:
+          - CLM-018
+          - CLM-020
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "REQ-007 catch-all deletion-assertion + routing + behavior-preserving tests"
+        description: |
+          Add the REQ-007 suite in a NEW file
+          pkg/check/route_catchall_test.go (disjoint from manifest_test.go /
+          ts_routing_test.go, which TASK-006 edits), plus the gate-result
+          behavior-preserving test in a NEW file
+          cmd/backstop/route_catchall_gate_test.go. RED now, GREEN only after
+          TASK-006's catch-all deletion.
+
+          pkg/check/route_catchall_test.go:
+            - TestRouteFileDefaults_NonGoCatchAll_Removed — DELETION-ASSERTION: no
+              non-test .go source under pkg/check contains a routeFileDefaults
+              `default` arm returning []CheckType{CheckTypeFindings} (scan source)
+              (CLM-001).
+            - TestRouteFileDefaults_NonGoFileRoutesToNothing — a non-.go/.ts/.tsx
+              file (README.md, config.yml, notes.txt) routes via RouteFile on the
+              default manifest to the EMPTY slice (CLM-002, and the surviving
+              assertion for CLM-007).
+            - TestRouteFileDefaults_GoFileStillRoutesAllPasses — a .go file still
+              routes to {lint,build,test,findings} (CLM-003).
+            - TestRouteFileDefaults_TsFilesStillRouteAllPasses — .ts and .tsx still
+              route to {lint,build,test,findings} (CLM-004).
+            - TestCodeCheck_FindingsHasNoCheckExecutor — the executor map built for
+              code-check on the default-manifest path contains lint/build/test only,
+              never findings — substantiating the deleted catch-all could not have
+              run anything (CLM-006).
+            - TestCheckType_NeutralFindings_UnknownExtRoutesEmpty — the
+              SPEC-035-style neutral-findings rename stays pinned on surviving sites
+              (.go still routes findings) while an unknown extension now routes EMPTY
+              (CLM-007).
+          cmd/backstop/route_catchall_gate_test.go:
+            - TestCodeCheck_NonGoFile_GateResultUnchangedAfterCatchAllRemoval — a
+              code-check run with non-Go files in scope yields the SAME violation set
+              and exit code as before the deletion. CRITICAL (sharp edge): assert on
+              VIOLATIONS + EXIT CODE ONLY — do NOT assert an exact PassResults list,
+              because the Skipped("no executor configured") findings entry for non-Go
+              files intentionally disappears post-deletion (CLM-005).
+        files:
+          - pkg/check/route_catchall_test.go
+          - cmd/backstop/route_catchall_gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: REQ-010 — delete the .manifest.json reader + stranded path
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: REQ-010 — Delete the .manifest.json Reader + Stranded Rule-Matching Path"
+    tasks:
+      - id: TASK-004
+        type: refactor
+        title: "Delete the whole .manifest.json reader + rule-matching path in manifest.go; reconcile pkg/check orphans"
+        description: |
+          Execute the REQ-010 deletion in pkg/check/manifest.go (Step 1 of the
+          spec), turning TASK-001's deletion-assertion suite GREEN. DELETE, in this
+          single task (production deletion + in-package orphan reconciliation
+          together, or pkg/check will not compile):
+
+          PRODUCTION DELETIONS (pkg/check/manifest.go):
+            1. languageExtensions map.
+            2. combinedRule struct.
+            3. compiledManifestFile struct + ALL its methods routableExtensions,
+               isCompiled, hasSemgrepSignal, legacyRules, deriveRules.
+            4. manifestFile decode struct, the parseCheckTypes (PLURAL) helper, and
+               the hasRoutableRule helper.
+            5. The .manifest.json-walking/decoding body of LoadManifest: the
+               os.ReadDir loop filtering/decoding .manifest.json entries, the
+               manifestFilesPresent bookkeeping, and the manifest-path zero-routable
+               ConfigError EMISSION (the `...routable...` message). LoadManifest
+               reduces to: attempt to read the dir (or skip) and return
+               defaultManifest(), nil in ALL cases — it no longer reads
+               .manifest.json at all. KEEP the signature
+               `func LoadManifest(dir string) (*Manifest, error)`.
+            6. The STRANDED rule-matching path (its sole producer was the deleted
+               `&Manifest{rules: allRules}`): matchesRule, matchGlobPattern,
+               matchDoubleStarPattern, ManifestRule, and the Manifest.rules /
+               Manifest.isDefaults fields. RouteFile collapses to
+               `return m.routeFileDefaults(path)`; Manifest becomes an EMPTY struct;
+               defaultManifest() returns &Manifest{}.
+          RETAIN (do NOT delete): parseCheckType (SINGULAR — used by
+            validateToolchainKeys in registry.go); RouteFile; routeFileDefaults
+            (UNCHANGED in this task — REQ-007's catch-all removal is Phase 3);
+            defaultManifest; the CheckType enum; the ConfigError TYPE
+            (pkg/check/errors.go — NOT edited here).
+
+          STOP-AND-REPORT if authoring surfaces a live edge (a production
+          .manifest.json writer, a non-test caller of any deleted compiled-schema
+          symbol, or a SECOND .manifest.json-tied ConfigError trigger) — do not
+          author the deletion around it.
+
+          IN-PACKAGE ORPHAN RECONCILIATION (pkg/check, same task):
+            pkg/check/manifest_test.go — DELETE the .manifest.json-reader orphans:
+              the compiled Python derive-routing tests
+              (TestCodeCheck_LoadManifest_DerivesRoutingFromCompiledManifest family,
+              STD-PY); the legacy .manifest.json-loading tests
+              (TestRouting_ReadsBackstopDirManifestWhenPresent,
+              TestCodeCheck_LoadManifest_NoRoutableRulesIsConfigError, and the other
+              writeManifest/writeRawManifest route-table tests). DELETE the
+              rule-matching orphans: TestCodeCheck_Routing_PathPatternMatching, the
+              direct glob unit tests TestCodeCheck_Routing_MatchGlobPattern_EdgeCases
+              and TestCodeCheck_Routing_MatchDoubleStarPattern_EdgeCases, and the
+              remaining writeManifest route-table tests. Remove the now-unused
+              writeManifest/writeRawManifest helpers and any imports they leave
+              dangling. PRESERVE the manifest_test.go tests that do NOT touch the
+              reader or rule-matching (default-manifest routing assertions stay).
+            pkg/check/ts_routing_test.go — DELETE the compiled TS/declared-stack
+              routing tests TestCodeCheck_Routing_TSFilesRouteAllPasses and
+              TestCodeCheck_Routing_DeclaredStackExtensionsRoute (they feed compiled
+              .manifest.json fixtures). KEEP the TS EXECUTOR-parsing tests
+              (buildExecutorsForConfig-driven, no .manifest.json) — they never touch
+              the reader.
+            pkg/check/check_test.go — RECONCILE the deleted-symbol stranding at
+              ~line 152, inside TestCodeCheck_NonApplicablePassSkipped: it builds a
+              `&Manifest{rules: []ManifestRule{{Extensions:[".py"], ...}}}` literal —
+              a construction off the DELETED Manifest.rules field + DELETED
+              ManifestRule type, exercising the deleted rule-matching path. With the
+              rule-matching path gone, a non-default Manifest can no longer be built,
+              so REWRITE this case off the deleted symbols: drive the
+              "non-applicable pass is skipped" behavior through the default manifest
+              (a .py / non-Go file routes to the EMPTY slice post-REQ-007, or — to
+              keep this task's pre-REQ-007 routing — assert the skip via the executor
+              map / default routing, NOT via a hand-built rule table). If the test
+              case ONLY exercised the deleted rule-matching path and nothing
+              survives the rewrite, DELETE that case. Preserve the test's surviving
+              intent (a routed pass with no applicable file is skipped) without
+              referencing Manifest.rules / ManifestRule.
+            pkg/check/semgrep_removal_test.go — RECONCILE the deleted-field read at
+              ~line 176, inside TestNoFallback_PopulatedRulesDirNotASource (a
+              SPEC-030 test): `if !m.isDefaults` reads the DELETED Manifest.isDefaults
+              field (hard compile error). REWRITE the assertion to the post-deletion
+              truth WITHOUT reading the now-deleted field: a .backstop/rules dir
+              containing only STD-*.semgrep.yml (no *.manifest.json) yields the
+              built-in default manifest — assert that via LoadManifest's surviving
+              contract (it returns defaultManifest() and routes "main.go" to the
+              built-in pass set: len(m.RouteFile("main.go")) > 0), which is exactly
+              the SPEC-030 intent (the populated rules dir must NOT become an implicit
+              rule/route source). KEEP the existing RouteFile("main.go") assertion
+              that already follows; only the `m.isDefaults` line is replaced. Do NOT
+              gut the SPEC-030 no-fallback guarantee — re-express it on the surviving
+              API.
+          NOTE (reviewer-confirmed false alarms — do NOT touch):
+            cmd/backstop/sandbox_posture_test.go and
+            cmd/backstop/standards_removal_test.go reference these names only in
+            comments / via surviving API and do not strand on the deletion.
+          After this task pkg/check compiles and `go test ./pkg/check/` passes, and
+          TASK-001's deletion-assertion + surviving-API tests are GREEN.
+          (cmd/backstop orphan reconciliation is TASK-005, same phase.)
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+          - pkg/check/ts_routing_test.go
+          - pkg/check/check_test.go
+          - pkg/check/semgrep_removal_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: refactor
+        title: "Reconcile cmd/backstop .manifest.json orphans against the reader deletion"
+        description: |
+          Reconcile the cmd/backstop orphans stranded by TASK-004's reader deletion
+          (Step 3 family b of the spec) so `go test ./cmd/backstop/` compiles and
+          passes. The test_command sweeps BOTH packages, so this MUST land with the
+          REQ-010 deletion (this phase). No orphan left red, no work-arounds.
+
+          cmd/backstop/code_check_test.go:
+            - TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit —
+              DELETE (its `routable` ConfigError IS the deleted manifest-path
+              emission; nothing production-side reproduces it).
+            - TestCLI_TSDeclaredStack_SmokeEndToEnd — REWRITE off its compiled
+              .manifest.json fixture: route .ts via the default manifest + declared
+              toolchain (no .manifest.json at all) so the end-to-end smoke survives
+              on the surviving routing.
+            - TestCodeCheck_MissingToolchain_* + the missingToolchainProject helper —
+              REWRITE to DROP the now-ignored routing.manifest.json write. The exit-2
+              assertion still holds because the missing-toolchain ConfigError comes
+              from resolveToolchain (registry.go), which runs unconditionally
+              regardless of routing — independent of .manifest.json.
+          cmd/backstop/gate_scope_test.go:
+            - REWRITE the gate-scope legacy-manifest tests (the
+              {extensions, check_types} .manifest.json fixtures) OFF the
+              .manifest.json fixture to the default-manifest routing.
+          Do NOT touch realCodeChecker / builtinToolchain / any gate STEP (SPEC-040
+          scope). This task only un-strands tests; it adds no production behavior.
+          After this task cmd/backstop compiles and its suite passes, with
+          TASK-002's preservation tests GREEN.
+        files:
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/gate_scope_test.go
+        claims:
+          - CLM-017
+          - CLM-020
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the REQ-010 reader deletion via backstop code check"
+        description: |
+          Run `backstop code check --all` to confirm the whole-reader +
+          rule-matching deletion builds, lints, and passes tests across pkg/check
+          and cmd/backstop with no dangling reference and no coverage regression.
+          Confirm TASK-001's deletion-assertion + surviving-API tests and TASK-002's
+          preservation tests are GREEN, and that no deleted REQ-010 symbol survives.
+          Use the backstop CLI surface only — do NOT prescribe raw go test / go vet.
+        files:
+          - pkg/check/manifest_deadcode_test.go
+          - cmd/backstop/manifest_configerror_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-019
+          - CLM-021
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: REQ-007 — delete the non-Go catch-all (sequenced after Phase 2:
+  # shares pkg/check/manifest.go with TASK-004, so it cannot run in parallel)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: REQ-007 — Delete the Non-Go Catch-All in routeFileDefaults"
+    tasks:
+      - id: TASK-007
+        type: refactor
+        title: "Delete the non-Go catch-all in routeFileDefaults; reconcile its altered-assertion orphans"
+        description: |
+          Execute the REQ-007 deletion in pkg/check/manifest.go (Step 2 of the
+          spec), turning TASK-003's REQ-007 suite GREEN. This task depends on
+          TASK-004 (REQ-010) because both edit the SINGLE shared file
+          pkg/check/manifest.go — serialize the edits (D-081); REQ-010's larger
+          removal lands first, then this targeted branch removal.
+
+          PRODUCTION DELETION (pkg/check/manifest.go, routeFileDefaults ONLY):
+            - DELETE the `default: return []CheckType{CheckTypeFindings}` arm. KEEP
+              the `.go`/`.ts`/`.tsx` → {lint,build,test,findings} matched case
+              BYTE-FOR-BYTE. With the default arm gone, a non-matching extension
+              returns the EMPTY slice (no findings).
+          PROHIBITED: altering the matched case, removing any of the four CheckType
+            constants, or touching registry.go executor-building code.
+          STOP-AND-REPORT if a pkg/check findings executor surfaces (it would mean
+            the catch-all was NOT a no-op).
+
+          ORPHAN RECONCILIATION — REWRITE the surviving-API tests altered by REQ-007
+          to assert non-Go → EMPTY (Step 3 family d), in the SAME task:
+            pkg/check/manifest_test.go:
+              - TestRouting_NonGoFileRoutesToSemgrepAfterRemoval — rewrite to assert
+                the EMPTY route.
+              - TestCodeCheck_Routing_DefaultsWhenNoManifest (script.py → was
+                findings) — rewrite to assert the EMPTY route.
+              - TestCodeCheck_Routing_NoExtension (Makefile → was findings) — rewrite
+                to assert the EMPTY route.
+              - TestCheckType_SemgrepRenamedToNeutralFindings — update its
+                unknown-extension assertion (defaultManifest().RouteFile("notes.txt"))
+                to expect the EMPTY route, while keeping the neutral-findings rename
+                pinned on surviving sites (.go still routes findings).
+          After this task pkg/check + cmd/backstop compile and pass, TASK-003's
+          REQ-007 deletion-assertion + behavior-preserving tests are GREEN, and no
+          test is left red.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-008
+        type: verification
+        title: "Verify the REQ-007 catch-all deletion via backstop code check"
+        description: |
+          Run `backstop code check --all` to confirm the non-Go catch-all removal
+          builds, lints, and passes tests across pkg/check and cmd/backstop with no
+          coverage regression. Confirm TASK-003's REQ-007 deletion-assertion +
+          gate-result behavior-preserving tests are GREEN (non-Go → empty; .go/.ts/
+          .tsx still all-four; violation set + exit unchanged). Use the backstop CLI
+          surface only — do NOT prescribe raw go test / go vet.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/route_catchall_test.go
+          - cmd/backstop/route_catchall_gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive final verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Final Verification"
+    tasks:
+      - id: TASK-009
+        type: verification
+        title: "Full kill chain — backstop gate + artifact validate, GREEN"
+        description: |
+          Final-phase comprehensive verification of the complete behavior-preserving
+          prelude. Because the plan touches .go files, run `backstop gate` (full
+          kill chain: artifact validation, code check, test verification,
+          substantiveness, coverage, contracts) and confirm it is GREEN at --all /
+          repo scope — confirming the coverage gate stays at/above 90% over
+          pkg/check despite the net-negative diff (surviving routing layer fully
+          pinned by the behavior-preserving tests). Because the change set also
+          includes an artifact (this plan file), run `backstop artifact validate`
+          and confirm PLAN-SPEC-039 is not in any failure listing.
+
+          Confirm the SPEC-039 acceptance bars hold: .go routing byte-for-byte
+          unchanged; LoadManifest over a missing dir AND the repo .backstop/rules
+          path both return defaults; the missing-toolchain ConfigError still
+          exits 2 via the registry path; the non-Go gate result (violations + exit)
+          is unchanged; and realCodeChecker / builtinToolchain / the gate step were
+          NOT touched (SPEC-040 fence intact). This task verifies the combined
+          REQ-010 + REQ-007 deletions across both code and artifact work categories.
+        files:
+          - pkg/check/manifest.go
+          - pkg/check/manifest_deadcode_test.go
+          - plans/PLAN-SPEC-039-codecheck-deadcode-prelude.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006
+          - TASK-007
+          - TASK-008

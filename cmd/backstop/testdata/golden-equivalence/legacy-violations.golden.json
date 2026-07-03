@@ -1,0 +1,58 @@
+[
+  {
+    "Rule": "backstop/go-toolchain/errcheck",
+    "File": "pkg/widget/widget.go",
+    "Message": "Error return value is not checked",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-build",
+    "File": "pkg/widget/widget.go",
+    "Message": "declared and not used: count",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-build",
+    "File": "pkg/gadget/gadget.go",
+    "Message": "syntax error: unexpected newline, expecting }",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-build",
+    "File": "pkg/widget/widget.go",
+    "Message": "undefined: Frobnicate",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-test",
+    "File": "gadget_test.go",
+    "Message": "TestGadgetSpin: spin did not engage",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-test",
+    "File": "",
+    "Message": "TestNoPos failed",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/go-test",
+    "File": "widget_test.go",
+    "Message": "TestWidgetFrobnicate: expected 5, got 7",
+    "Severity": "error",
+    "SourcePack": "backstop/go-toolchain"
+  },
+  {
+    "Rule": "backstop/go-toolchain/ineffassign",
+    "File": "pkg/gadget/gadget.go",
+    "Message": "ineffectual assignment to count",
+    "Severity": "warning",
+    "SourcePack": "backstop/go-toolchain"
+  }
+]

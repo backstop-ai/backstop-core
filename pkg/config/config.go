@@ -17,13 +17,26 @@ import (
 const defaultBaselineTTL = 15 * time.Minute
 
 // Config is the typed representation of backstop.yml.
+//
+// SPEC-046: the single-language `language` field is RETIRED — a project is described
+// by its declared packs, not one baked language. An existing backstop.yml may still
+// carry a `language:` key; it is absorbed by LegacyKeys below and ignored. The
+// look-alikes pack.Manifest.Language and check.Options.Language are SEPARATE fields on
+// other structs and are unaffected.
 type Config struct {
-	Project       string            `yaml:"project" json:"project"`
-	Language      string            `yaml:"language" json:"language"`
-	Runtimes      []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
-	Enforcement   Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
-	Packs         Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
-	Registries    map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	Project     string            `yaml:"project" json:"project"`
+	Runtimes    []string          `yaml:"runtimes,omitempty" json:"runtimes,omitempty"`
+	Enforcement Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
+	Packs       Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
+	Registries  map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	// LegacyKeys absorbs retired/legacy top-level keys (the SPEC-046 `language:` key)
+	// so an existing backstop.yml carrying one parses cleanly under the strict
+	// (KnownFields) decoder rather than erroring — the field is GONE, not rejected
+	// (CLM-012). Truly-unknown top-level keys are still rejected by the JSON-schema
+	// additionalProperties:false pass (which lists `language` as the only allowed-but-
+	// ignored legacy property), so strictness is preserved: only schema-allowed legacy
+	// keys are tolerated here. It carries no behavior and is never read (json:"-").
+	LegacyKeys map[string]any `yaml:",inline" json:"-"`
 }
 
 // Enforcement holds the enforcement configuration block.
@@ -33,6 +46,32 @@ type Enforcement struct {
 	BaselineTTL       string                    `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
 	TestCommand       string                    `yaml:"test_command,omitempty" json:"test_command,omitempty"`
 	Toolchain         map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`
+	// Policy is the per-dimension enforcement policy, keyed by gate dimension
+	// (the step/gate_type name, e.g. "pack_engines", "coverage_threshold"). Each
+	// entry sets the enforcement level and whether pre-existing findings are
+	// grandfathered against the baseline. A dimension with no entry keeps the
+	// default behavior (block, no baseline). The keys are backstop's universal
+	// dimension vocabulary — never a tool or language name.
+	Policy map[string]DimensionPolicy `yaml:"policy,omitempty" json:"policy,omitempty"`
+}
+
+// DimensionPolicy is one row of the enforcement policy table: how strictly a gate
+// dimension is enforced (level) and whether its pre-existing findings are
+// grandfathered (baseline). Level is "off" (don't enforce), "warn" (surface,
+// non-blocking), or "block" (fail the gate); empty defaults to "block".
+//
+// Sources is the OPTIONAL per-PACK / per-rule-SOURCE scoping (SPEC-047 REQ-007),
+// keyed by the pack/rule-source name (matched against gate.Violation.SourcePack). A
+// source-scoped override applies its level+baseline ONLY to that pack's findings
+// within the dimension; every OTHER pack's findings keep the dimension default (or
+// their own scoped override). This lets `backstop/self` flip to block + zero
+// baseline on the shared `pack_engines` dimension WITHOUT disturbing
+// go-standards/go-toolchain's baselined style debt. Absent Sources ⇒ the entry is
+// dimension-only and behaves exactly as before (backward compatible, CLM-036).
+type DimensionPolicy struct {
+	Level    string                     `yaml:"level,omitempty" json:"level,omitempty"`
+	Baseline bool                       `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	Sources  map[string]DimensionPolicy `yaml:"sources,omitempty" json:"sources,omitempty"`
 }
 
 // ToolchainPass is a single declared pass binding in enforcement.toolchain: the

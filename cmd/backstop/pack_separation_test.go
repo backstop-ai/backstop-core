@@ -84,11 +84,15 @@ func TestGoToolchainPack_MechanismOnlyNoStandards(t *testing.T) {
 
 	// Direct structural restatement of the contract: every rule is a toolchain
 	// mechanism engine; none is a standards engine; none has a `standard:` field.
+	// The classification resolves through the pack manifest (resolveEngineRegistry(m))
+	// so a PACK-declared mechanism engine (e.g. the SPEC-042 go-coverage producer,
+	// category: mechanism, declared in the engines: block) classifies correctly — the
+	// baked-registry-only (nil) lookup would miss a pack-declared engine.
 	for _, r := range rules {
-		if !isToolchainMechanismEngine(nil, r.Engine) {
+		if !isToolchainMechanismEngine(m, r.Engine) {
 			t.Errorf("rule %q binds engine %q, which is not a toolchain mechanism engine — standards opinion must not live in the toolchain pack", r.ID, r.Engine)
 		}
-		if isStandardsOpinionEngine(nil, r.Engine) {
+		if isStandardsOpinionEngine(m, r.Engine) {
 			t.Errorf("rule %q binds standards engine %q in the toolchain pack (opinion bleed)", r.ID, r.Engine)
 		}
 		if r.Standard != "" {
@@ -132,7 +136,10 @@ func TestGoStandardsPack_OpinionOnlyNoToolchain(t *testing.T) {
 // engine set, so the pack is dispatchable the moment it is installed.
 func TestGoToolchainPack_LandsInLockstepWithBridge(t *testing.T) {
 	m := goToolchainManifest(t)
-	reg := resolveEngineRegistry(nil)
+	// Resolve through the pack manifest so a PACK-declared engine (the SPEC-042
+	// go-coverage producer, declared in the engines: block) is in lockstep too — the
+	// baked-registry-only (nil) lookup would miss it and falsely read as a drift.
+	reg := resolveEngineRegistry(m)
 
 	var sawBuild, sawTest, sawLint bool
 	for _, r := range m.Content.Ruleset.Rules {

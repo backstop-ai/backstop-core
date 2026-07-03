@@ -4,12 +4,22 @@ schema_version: bundle/v1
 
 bundle:
   name: standards-compiler
-  version: "0.2.0"
+  version: "0.3.0"
   created: "2026-03-29"
+  updated: "2026-06-27"
   category: feature
 
 status:
-  maturity: defined
+  maturity: deprecated
+  reason: >
+    The standards-compiler model (.standard.md → compiler → per-standard
+    enforcement manifest, the pkg/compile package) is strategically retired
+    under the packs-only direction (ISSUE-030 / BUNDLE-010 / BUNDLE-011).
+    pkg/compile has been deleted and SPEC-001 was set to deprecated. There is
+    no single named successor bundle — packs-only is a direction, not a 1:1
+    bundle replacement — so the correct terminal state is deprecated, not
+    replaced. The bundle's problem/design content is retained for historical
+    reference; it is not being completed.
 
 problem:
   summary: >
@@ -192,3 +202,8 @@ None remaining. All original OQs and bonus questions resolved 2026-03-29.
 - 0.2.0 (2026-03-29): All 9 questions resolved. Maturity advanced to defined.
   Key decisions: lazy merge at CLI runtime, ecosystem delegation for metrics,
   includes dropped for v1, proactive remediation at pack adoption.
+- 0.3.0 (2026-06-27): Deprecated. The standards-compiler model is strategically
+  retired under the packs-only direction (ISSUE-030 / BUNDLE-010 / BUNDLE-011);
+  pkg/compile deleted and SPEC-001 set to deprecated. No single successor
+  bundle, so terminal state is deprecated (not replaced). Problem/design
+  content retained for reference, not completed.

@@ -1,0 +1,3 @@
+project: bun-toolchain-fixture
+packs:
+    backstop/bun-toolchain: local

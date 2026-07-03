@@ -1,0 +1,35 @@
+name: backstop/bun-dispatch-e2e
+version: 1.0.0
+language: typescript
+archetype: enforcement
+description: >
+  Committed fake-engine findings pack for the SPEC-048 REAL-runner installed-pack
+  e2e (REQ-003). It declares a single PROJECT-WIDE findings engine with an EMPTY
+  project_target (self-target) and a declared stdout_artifact (the FILE the engine
+  writes its machine-readable SARIF findings to, while its stdout is human noise).
+  The engine command is a committed deterministic POSIX fake (scripts/fake-engine.sh)
+  that models the self-targeting-toolchain I/O contract and is ARG-SENSITIVE: a
+  stray path arg suppresses its finding, so the e2e regression-guards DEFECT-1 (a
+  bolted-on projectRoot) and DEFECT-2 (stdout noise carries no findings). NO real
+  bun/tsc/oxlint/go runs in backstop-core's Go CI — the fake is a POSIX script.
+engines:
+  # Project-wide findings engine with an EMPTY project_target: it self-targets
+  # (scans its own cwd), so the dispatch must append NOTHING (DEFECT-1). Its real
+  # findings land in the declared stdout_artifact FILE; stdout is human noise
+  # (DEFECT-2). No convert: the artifact is already SARIF.
+  fake-engine:
+    command: fake-engine.sh
+    stdout_artifact: findings.sarif
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: fake-selftarget
+        engine: fake-engine
+        risk_class: correctness
+        category: toolchain
+        justification: Self-targeting fake findings engine; SARIF findings written to the declared stdout_artifact FILE, stdout is human noise.

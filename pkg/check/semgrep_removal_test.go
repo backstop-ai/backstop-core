@@ -173,13 +173,21 @@ func TestNoFallback_PopulatedRulesDirNotASource(t *testing.T) {
 	}
 	// A dir with no *.manifest.json yields the built-in default manifest; the
 	// leftover compiled-standards file must not resurrect a second rule source.
-	if !m.isDefaults {
-		t.Error("a .backstop/rules dir containing only STD-*.semgrep.yml (no *.manifest.json) must yield the built-in default manifest; the leftover compiled-standards file must NOT become an implicit rule/route source")
+	// Post-SPEC-039 (the .manifest.json reader is deleted) this is asserted via
+	// LoadManifest's surviving contract: it returns the built-in default routing,
+	// so a .go file gets the full default pass set (lint/build/test/findings) and
+	// a non-Go file matched by no built-in rule routes to the catch-all default —
+	// the populated rules dir altered nothing. The leftover STD-*.semgrep.yml is
+	// never collected as a rule/route source.
+	goChecks := m.RouteFile("main.go")
+	wantGo := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
+	if len(goChecks) != len(wantGo) {
+		t.Errorf("a .backstop/rules dir containing only STD-*.semgrep.yml (no *.manifest.json) must yield the built-in default manifest; .go routed to %v, want the full default pass set %v", goChecks, wantGo)
 	}
-	// And it routes by built-in defaults, not by anything sourced from the dir:
-	// a .go file gets the default pass set, proving the populated dir altered nothing.
-	if got := m.RouteFile("main.go"); len(got) == 0 {
-		t.Error("default manifest must still route a .go file by built-in defaults; the populated rules dir must not have replaced default routing with an empty route table")
+	for _, ct := range wantGo {
+		if !containsCheckType(goChecks, ct) {
+			t.Errorf(".go default routing missing %v: got %v (populated rules dir must NOT become an implicit rule/route source)", ct, goChecks)
+		}
 	}
 }
 

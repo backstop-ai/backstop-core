@@ -22,6 +22,18 @@ import (
 // hollowBody is a hollow Go test body (calls a subject, asserts nothing).
 const hollowBody = "\tdoSubject()\n"
 
+// goSubstDiscovery builds the pack-shaped Go classifier + matcher (the go-toolchain
+// pack DATA) the substantiveness step now consumes to resolve mandated Go test paths.
+func goSubstDiscovery(t *testing.T) (gate.SourceClassifier, gate.TestNameMatcher) {
+	t.Helper()
+	classifier := gate.NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+	matcher, err := gate.NewTestNameMatcher([]string{`^\s*func\s+(Test\w+)\s*\(`})
+	if err != nil {
+		t.Fatalf("NewTestNameMatcher(go): %v", err)
+	}
+	return classifier, matcher
+}
+
 // injectSubstantivenessManifest overrides the resolveSubstantivenessPacksFn seam so the
 // step dispatches the substantiveness pack set (the dispatch ITSELF is spied, so the
 // manifest need not be on disk for the wiring proof). Production resolves the pack from
@@ -125,7 +137,8 @@ func TestWiring_SubstantivenessStepRoutesThroughDispatchSeam(t *testing.T) {
 		return nil, nil
 	}
 
-	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil)
+	classifier, matcher := goSubstDiscovery(t)
+	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil, classifier, matcher)
 	_ = step(context.Background())
 
 	if invocations == 0 {
@@ -165,7 +178,8 @@ func TestWiring_UnwiredSubstantivenessStep_FailsDispatchSpy(t *testing.T) {
 	writeSubstantivenessSpec(t, specDir)
 	writeMandatedTestFile(t, codeDir, "subject_test.go", "TestSubjectHollow", hollowBody)
 	injectSubstantivenessManifest(t)
-	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil)
+	classifier, matcher := goSubstDiscovery(t)
+	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil, classifier, matcher)
 	_ = step(context.Background())
 	if invocations == 0 {
 		t.Fatal("the wired step must reach the dispatch seam (non-zero), distinguishing it from the unwired path")
@@ -196,7 +210,8 @@ func TestWiring_NoBakedAnalyzerDelegateInvoked(t *testing.T) {
 		}}, nil
 	}
 
-	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil)
+	classifier, matcher := goSubstDiscovery(t)
+	step := buildTestSubstantivenessStep(specDir, codeDir, codeDir, nil, classifier, matcher)
 	result := step(context.Background())
 
 	if result.Status != "fail" {

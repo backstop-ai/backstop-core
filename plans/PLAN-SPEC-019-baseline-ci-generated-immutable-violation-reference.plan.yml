@@ -96,6 +96,7 @@ phases:
           - "Verification item 12 coverage is enforced for rule-set-change exception behavior"
         depends_on:
           - task-001
+          - task-003
 
   - id: phase-2
     name: "Baseline subsystem implementation"

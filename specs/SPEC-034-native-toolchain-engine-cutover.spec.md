@@ -2,12 +2,33 @@
 title: "Native Toolchain Engine Cutover"
 number: SPEC-034
 created: "2026-06-18"
-status: draft
+status: replaced
+replaced-by: BUNDLE-011
 schema_version: spec/v1
 spec_version: 1.0.0
 
 implementation:
   summary: >
+    ⚠️ TOMBSTONE — EFFECTIVELY SUPERSEDED (verified against `main` @ 2026-06-24). DO NOT
+    pick this spec up as live, plannable work despite its `draft` status. SPEC-034's
+    cutover was implemented on branch `feat/bundle-010-impl`, but ONLY its BRIDGE half
+    reached `main`: `loadBridgedToolchainPacks` (defined cmd/backstop/gate.go:411,
+    invoked at gate.go:464) routes a native `<lang>-toolchain` pack through
+    `dispatchPackEngines`. The DELETION half did NOT reach `main` — on `main`,
+    `realCodeChecker` → `pkg/check.Run` is STILL the live gate Step 2
+    (cmd/backstop/gate.go:481 comment, :488 wiring; the bespoke executors are still
+    constructed via `buildExecutorsForConfigErr` at pkg/check/check.go:293), and
+    `builtinToolchain` (pkg/check/registry.go:59) is STILL the live native-toolchain
+    source. (Note: the old `goBuiltinExecutors` name is NOT present under that name on
+    `main`; `builtinToolchain` is the current symbol.) The remaining cutover + deletion
+    scope has been ABSORBED BY BUNDLE-011 (Seed 2 → SPEC-040; recorded in BUNDLE-011
+    REQ-008 / DD-4 / RDQ-4), which will spec and implement the work from there,
+    generalized beyond Go to any `<lang>-toolchain` pack. This spec is now
+    `status: replaced`, `replaced-by: BUNDLE-011` — the terminal-state vocabulary
+    ratified by ISSUE-031 (artifact terminal states) made the correct terminal state
+    `replaced` (with a typed `replaced-by` ref), NOT `superseded` (which is an
+    ADR-only concept and never became a spec state). The original intent and phased
+    design below are retained verbatim for traceability. ⚠️ ——
     Bridge the native Go CODE-CHECK toolchain (the lint, build, and test passes) onto
     the EXISTING engine-dispatch substrate, then DELETE the bespoke toolchain path.
     Today the gate runs two disjoint substrates at the cmd/backstop level:
@@ -511,6 +532,34 @@ contracts:
 
 ## Overview
 
+> ⚠️ **TOMBSTONE — THIS SPEC IS EFFECTIVELY SUPERSEDED.** *(Verified against `main` @
+> 2026-06-24.)* **DO NOT pick this up as live, plannable work** despite its `draft`
+> status.
+>
+> - **Only the BRIDGE half landed on `main`.** SPEC-034's cutover was implemented on
+>   branch `feat/bundle-010-impl`, but only its bridge reached `main`:
+>   `loadBridgedToolchainPacks` (defined `cmd/backstop/gate.go:411`, invoked at
+>   `gate.go:464`) routes a native `<lang>-toolchain` pack through
+>   `dispatchPackEngines`.
+> - **The DELETION half did NOT land.** On `main`, `realCodeChecker` → `pkg/check.Run`
+>   is **still the live gate Step 2** (`cmd/backstop/gate.go:481` comment, `:488`
+>   wiring; the bespoke executors are still constructed via
+>   `buildExecutorsForConfigErr` at `pkg/check/check.go:293`), and `builtinToolchain`
+>   (`pkg/check/registry.go:59`) is **still the live native-toolchain source**. *(The
+>   old `goBuiltinExecutors` name is no longer present under that name on `main`;
+>   `builtinToolchain` is the current symbol.)*
+> - **The remaining scope is ABSORBED BY BUNDLE-011.** The cutover + deletion scope
+>   has been absorbed by **BUNDLE-011** (Seed 2 → SPEC-040; recorded in BUNDLE-011
+>   **REQ-008 / DD-4 / RDQ-4**), which will spec and implement the work from there,
+>   **generalized beyond Go** to any `<lang>-toolchain` pack.
+> - **Why it stays `draft`.** This spec remains `status: draft` ONLY because the spec
+>   schema currently has **no terminal state**; that gap is tracked by **ISSUE-031**
+>   (artifact terminal states), which will add a real `superseded` state — at which
+>   point SPEC-034 should be flipped to it.
+>
+> The original intent, phased design, requirements, and claims below are retained
+> verbatim for traceability.
+
 This spec is the **native code-check toolchain half** of BUNDLE-010 — the
 companion to SPEC-031's pack-side engine dispatch. SPEC-031 first-classed the
 `engine` field and built the `EngineBinding` table, the `config-file` / `sandbox`
@@ -924,6 +973,16 @@ rule. `go-toolchain` is the reference instance.
 
 ## References
 
+- **BUNDLE-011** (collapse-legacy-codecheck-into-packs) — **the absorbing bundle.**
+  Per BUNDLE-011 **REQ-008 / DD-4 / RDQ-4**, BUNDLE-011 absorbs SPEC-034's unfinished
+  deletion scope (the bridge landed; the deletion did not) and **generalizes the
+  cutover beyond Go** to any `<lang>-toolchain` pack. The work is **Seed 2 → SPEC-040**.
+  SPEC-034 is marked SUPERSEDED-in-prose here; the actual cutover + deletion proceeds
+  from BUNDLE-011/SPEC-040, NOT from this spec.
+- **ISSUE-031** (artifact terminal states) — tracks the schema gap that forces this
+  spec to stay `status: draft`: the spec schema has **no terminal state** today.
+  ISSUE-031 will add a real `superseded` state; once it lands, SPEC-034 should be
+  flipped to it (this prose tombstone is the interim marker).
 - **BUNDLE-010** (pluggable-pack-engines) — discharges **REQ-018** (engine-shape-
   agnostic, Layer-0 native toolchain first-class; "adding a native linter must be a
   declaration, no backstop Go"), **REQ-019** (split provisioning; "EnsureSemgrep's

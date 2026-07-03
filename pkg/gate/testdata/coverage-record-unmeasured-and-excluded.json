@@ -1,0 +1,5 @@
+[
+  {"path": "pkg/measured/ok.go", "covered": 90, "total": 100, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/excluded/generated.go", "covered": 0, "total": 0, "measured": false, "excluded": true, "metric": ""},
+  {"path": "pkg/excluded/vendored.go", "covered": 0, "total": 0, "measured": false, "excluded": true, "metric": ""}
+]

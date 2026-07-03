@@ -136,13 +136,21 @@ enforcement:
       extensions: [".rs"]
 `
 
-// tsBackstopYML is a typescript config WITH enforcement.test_command declared
-// (the explicit TS test command — CLM-004 positive case).
+// tsBackstopYML is a typescript config that DECLARES its full lint/build/test
+// toolchain (the SPEC-040 cutover deleted the baked TS builtin stack, so a TS
+// project that wants the standalone code check subcommand to build executors
+// declares them explicitly via enforcement.toolchain).
 const tsBackstopYML = `project: ts-example
 language: typescript
 enforcement:
   test_command: "vitest run"
   toolchain:
+    lint:
+      command: "eslint --format json"
+      format: eslint-json
+    build:
+      command: "tsc --noEmit"
+      format: tsc
     test:
       command: "vitest run"
       format: regex-lines

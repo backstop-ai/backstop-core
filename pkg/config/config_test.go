@@ -23,9 +23,8 @@ func TestConfig_Struct_AllFields(t *testing.T) {
 	if cfg.Project != "my-service" {
 		t.Errorf("Project = %q, want %q", cfg.Project, "my-service")
 	}
-	if cfg.Language != "go" {
-		t.Errorf("Language = %q, want %q", cfg.Language, "go")
-	}
+	// SPEC-046: the `language` field is retired; the full-backstop.yml fixture may
+	// still carry a `language:` key but it is now an inert, ignored legacy key.
 	if len(cfg.Runtimes) != 2 {
 		t.Errorf("Runtimes length = %d, want 2", len(cfg.Runtimes))
 	}
@@ -72,15 +71,16 @@ func TestConfig_LoaderValidatesAgainstSchema(t *testing.T) {
 	}
 }
 
-// TestConfig_RequiredFields_ProjectAndLanguage verifies YAML missing project
-// or language field fails. (CLM-035)
+// TestConfig_RequiredFields_ProjectAndLanguage verifies YAML missing the project
+// field fails. (CLM-035) SPEC-046: `language` is RETIRED and no longer required —
+// a config missing only `language` parses cleanly, so only project-missing cases
+// remain failing (the `language: go` line in the first case is now an inert key).
 func TestConfig_RequiredFields_ProjectAndLanguage(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
 	}{
 		{"missing project", "language: go\n"},
-		{"missing language", "project: my-svc\n"},
 		{"missing both", "runtimes:\n  - go1.25\n"},
 	}
 	for _, tc := range tests {

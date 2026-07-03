@@ -1,0 +1,6 @@
+[
+  {"path": "pkg/raw/full.go", "covered": 80, "total": 100, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/raw/decls.go", "covered": 0, "total": 0, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/raw/branchy.go", "covered": 70, "total": 100, "measured": true, "excluded": false, "metric": "branch"},
+  {"path": "pkg/raw/liney.ts", "covered": 88, "total": 100, "measured": true, "excluded": false, "metric": "line"}
+]

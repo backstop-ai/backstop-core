@@ -1,0 +1,670 @@
+---
+plan_id: PLAN-SPEC-044
+spec_id: SPEC-044
+spec_version: 1.0.0
+created: "2026-06-29"
+status: draft
+target_module: pkg/gate
+test_command: "go test ./pkg/gate/ -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements SPEC-044 (BUNDLE-012 Spec Seed 4, REQ-007 / SQ-2): the CONSUMER-side
+  evolution of the coverage record model so MULTIPLE metrics per file (line AND branch)
+  coexist and are thresholded INDEPENDENTLY. Entirely within pkg/gate — the canonical
+  check.CoverageRecord{...Metric} and check.ParsePackCoverage are UNCHANGED (no new type,
+  no new field; the parser already keeps multiple records per path). Three production
+  surfaces change:
+    1. pkg/gate/step_coverage.go — re-key the index by (path, metric)
+       (indexCoverageByPathMetric / resolveCoverageRecordsForPath REPLACE the path-keyed
+       indexCoverageByPath / resolveCoverageRecord), per-metric threshold selection
+       (coverageThresholdForMetric generalizing coverageFloorForScope), the per-(path,metric)
+       verdict loop, the duplicate-(path,metric) loud collision, and the metric-granular
+       coverage_metric_missing guard.
+    2. pkg/gate/step_coverage.go — SpecVerification gains MetricThresholds map[string]int.
+    3. pkg/gate/step_testverify.go — the spec-frontmatter Verification struct gains
+       coverage_metric_thresholds; ExtractSpecVerifications populates MetricThresholds and
+       loosens the extraction gate so a spec declaring only per-metric thresholds (no scalar)
+       is still extracted.
+
+  ════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN DEPENDENCY ON PLAN-SPEC-043 (parallel sibling, shared file)
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-043 OWNS the canonical 4-arg StepCoverageThresholdScopedFunc(coverage, specs, scope,
+  classifier SourceClassifier) signature, the classifier-derived in-scope measurable PATH
+  SET, and the PATH-LEVEL "changed source path with NO record at all -> loud error" guard.
+  THIS plan ADOPTS that 4-arg signature verbatim and owns ONLY the inner (path, metric)
+  record model reached through it. The Phase 4 verdict-loop rewire (TASK-011) therefore has a
+  CROSS-PLAN dependency on SPEC-043's signature/measurable-set tasks AND on SPEC-043's
+  removal of the `threshold <= 0` early-return (this plan's per-metric-ONLY case — a spec
+  declaring only coverage_metric_thresholds with no scalar — is unreachable until that
+  early-return is dismantled). The implement-phase orchestrator MUST serialize SPEC-043's
+  step_coverage.go signature/guard/early-return work BEFORE this plan's TASK-011/TASK-013.
+  The two guards compose at DIFFERENT granularities and must not shadow or double-report:
+  SPEC-043 = "path has ZERO records"; this plan = "path HAS records but is missing an
+  EXPLICITLY-declared metric" (Sharp Edge 7 / CLM-020).
+
+  ════════════════════════════════════════════════════════════════════════════
+  CO-EDIT SEAM ON step_testverify.go WITH PLAN-SPEC-045
+  ════════════════════════════════════════════════════════════════════════════
+  SPEC-045 (de-go-test-verification-discovery) ALSO edits pkg/gate/step_testverify.go —
+  it reworks collectTestFuncNamesScoped / the baked funcPattern into a pack-declared
+  TestNameMatcher. THIS plan's step_testverify.go edit is DISJOINT in concern (it adds the
+  coverage_metric_thresholds frontmatter field + MetricThresholds extraction + loosened
+  extraction gate). The edits will merge-conflict if implemented independently; flagged for
+  the implement-phase orchestrator to serialize and for the cross-consistency pass. This
+  plan's loosened extraction gate (per-metric-only specs still extracted) MUST survive
+  alongside SPEC-045's discovery rework.
+
+  ════════════════════════════════════════════════════════════════════════════
+  BUILD-GREEN SEQUENCING (keep backstop gate GREEN throughout)
+  ════════════════════════════════════════════════════════════════════════════
+  Phases 2 and 3 add the new index/resolver/threshold functions + the MetricThresholds
+  field/extraction ADDITIVELY (the old path-keyed index and verdict loop stay live and
+  building). Phase 4 is the single rewire point: TASK-011 re-points
+  StepCoverageThresholdScopedFunc at the (path, metric) index + per-metric thresholds and
+  removes the now-dead indexCoverageByPath / resolveCoverageRecord / coverageFloorForScope.
+  The new functions added in Phases 2-3 are referenced by their package-local tests until
+  the rewire, so the package builds clean at every phase boundary.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — the bun-shaped coverage-records JSON fixture.
+  # The extraction-test spec fixtures are written in-test via the existing
+  # writeSpecFixture helper, so the only committed fixture is the bun record set.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Test Fixtures"
+    description: |
+      Create the bun-shaped coverage-records JSON fixture the REQ-006 contract tests parse
+      through the EXISTING check.ParsePackCoverage: two canonical records per source file
+      sharing one Path, one Metric "line" and one Metric "branch", each with raw
+      {covered, total, measured, excluded} counts. This is the record shape Seed 5
+      (SPEC-047, the bun coverage producer) targets; locking it here proves the consumer is
+      producer-agnostic. No production code in this phase.
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold the bun-shaped (line+branch) coverage-records JSON fixture"
+        description: |
+          Create pkg/gate/testdata/coverage-bun-line-branch.json — a coverage-records JSON
+          document as the bun coverage producer (SPEC-047 / Seed 5) will emit: for at least
+          two measured source files, TWO records each sharing the SAME Path, one with
+          Metric "line" and one with Metric "branch", carrying raw {covered, total,
+          measured, excluded} counts (e.g. one file line 95/100 passing + branch 60/100
+          below a 70 bar; one file with both passing). Flows through the EXISTING
+          check.CoverageRecord / check.ParsePackCoverage with NO new type/field/schema fork
+          (REQ-006). Fixture only — the parse/index/threshold assertions live in Phases 2
+          and 4.
+        files:
+          - pkg/gate/testdata/coverage-bun-line-branch.json
+        claims:
+          - CLM-022
+          - CLM-023
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: (path, metric) index foundation (REQ-001).
+  # indexCoverageByPathMetric + resolveCoverageRecordsForPath added ADDITIVELY
+  # (old path-keyed index stays live until the Phase 4 rewire). Multi-metric
+  # coexistence, single-metric back-compat shape, loud duplicate detection,
+  # per-metric qualified-suffix fallback, and bun-shape parse+index.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: (path, metric) Index Foundation"
+    description: |
+      Add the (path, metric)-keyed index and resolver to pkg/gate/step_coverage.go:
+      indexCoverageByPathMetric returning map[string]map[string]check.CoverageRecord (outer
+      key the normalizeScopePath project-relative path, inner key the Metric label) PLUS the
+      list of (path, metric) keys seen MORE THAN ONCE (duplicate-measurement producer
+      defects), and resolveCoverageRecordsForPath returning the whole per-metric map for a
+      scope path via the SAME exact-then-unique-suffix (separator-anchored, ambiguous ⇒
+      no-match) fallback the old resolveCoverageRecord used. Added alongside the existing
+      indexCoverageByPath (which the live verdict loop still calls) so the package keeps
+      building; the rewire is Phase 4. A bun-shaped record set parses through the EXISTING
+      check.ParsePackCoverage and indexes here with no collision (REQ-006).
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write (path, metric) index + bun-parse/index tests"
+        description: |
+          pkg/gate/coverage_index_test.go — RED before indexCoverageByPathMetric /
+          resolveCoverageRecordsForPath exist:
+            - TestIndexByPathMetric_LineAndBranchCoexistNoCollision: a file with two records
+              under one Path (Metric "line" and "branch") indexes so BOTH are retained —
+              the path's inner map has exactly two metric entries, neither overwriting the
+              other (CLM-001).
+            - TestIndexByPathMetric_SingleMetricIndexesToOneEntry: a single-metric file (one
+              "statement" record per path) indexes to exactly one (path, metric) entry — the
+              backward-compatible shape, proving the index is a strict generalization of the
+              old one-record-per-path index (CLM-002).
+            - TestIndexByPathMetric_DuplicatePathMetricFailsLoud: two records sharing the
+              SAME (path, metric) are reported in the index's duplicate-key return value (a
+              duplicate-measurement producer defect) rather than silently collapsed to one
+              survivor — the loud-not-last-wins signal (CLM-003).
+            - TestIndexByPathMetric_QualifiedPathSuffixResolvesPerMetric: a record set
+              emitted under a module/namespace-qualified Path
+              ("github.com/org/repo/pkg/x/f.go") with metrics line and branch resolves via
+              resolveCoverageRecordsForPath for the repo-relative scope path "pkg/x/f.go"
+              returning BOTH metric records; an AMBIGUOUS suffix (two qualified paths ending
+              the same way) is no-match so the loud guards fire (CLM-004).
+            - TestBunShape_LineAndBranchParseAndIndexThroughCanonicalType: the bun fixture
+              (TASK-001) parses through the EXISTING check.ParsePackCoverage into two
+              canonical check.CoverageRecords and indexes under (path, metric) with no
+              collision — no new type, no new field, no schema fork (CLM-022).
+          Red — only the path-keyed indexCoverageByPath exists.
+        files:
+          - pkg/gate/coverage_index_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-022
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Add indexCoverageByPathMetric + resolveCoverageRecordsForPath"
+        description: |
+          pkg/gate/step_coverage.go: add indexCoverageByPathMetric(coverage
+          []check.CoverageRecord) (map[string]map[string]check.CoverageRecord, []string) —
+          outer key normalizeScopePath("", r.Path), inner key r.Metric, value the canonical
+          record; the []string return lists (path, metric) keys seen MORE THAN ONCE so the
+          step can surface them loudly (CLM-001/CLM-002/CLM-003). Add
+          resolveCoverageRecordsForPath(byPathMetric, path) (map[string]check.CoverageRecord,
+          bool) returning ALL metric records for a repo-relative scope path: exact-match
+          first, else the UNIQUE separator-anchored "/"+path suffix fallback (ambiguous ⇒
+          no-match) the old resolveCoverageRecord used, now returning the whole per-metric
+          map (CLM-004). A bun-shaped record set indexes here without collision (CLM-022).
+          ADDITIVE: leave indexCoverageByPath / resolveCoverageRecord in place (the live
+          verdict loop still calls them); the rewire + removal is TASK-011. Make TASK-002
+          green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-022
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify (path, metric) index foundation (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/step_coverage.go + coverage_index_test.go.
+          Confirms the (path, metric) index retains line+branch with no collision, the
+          single-metric shape indexes to one entry, duplicate (path, metric) is reported in
+          the dup-key list (not collapsed), the per-metric qualified-suffix fallback resolves
+          (ambiguous ⇒ no-match), and a bun-shaped set parses+indexes through the canonical
+          type. Middle-phase verification — not the full gate.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/coverage_index_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-022
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: per-metric declared thresholds — SQ-2 resolution (REQ-003).
+  # MetricThresholds on SpecVerification + coverageThresholdForMetric (per-metric
+  # floor, override-or-default, strictest-governs-per-metric) +
+  # coverage_metric_thresholds frontmatter extraction with a loosened gate.
+  # Both added additively; the verdict loop consumes them in Phase 4.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Per-Metric Declared Thresholds (SQ-2)"
+    description: |
+      Resolve SQ-2 as PER-METRIC declared thresholds with a scalar default. Add
+      MetricThresholds map[string]int to SpecVerification and
+      coverageThresholdForMetric(sel, metric) (generalizing coverageFloorForScope from a
+      single floor to a per-metric floor: per spec, MetricThresholds[metric] if declared else
+      the scalar CoverageThreshold; the governing value is the MAX across selected specs;
+      0 when none ⇒ metric skipped). In pkg/gate/step_testverify.go add
+      coverage_metric_thresholds (map[string]int) to the spec-frontmatter Verification struct,
+      populate SpecVerification.MetricThresholds in ExtractSpecVerifications, and LOOSEN the
+      extraction gate so a spec declaring only per-metric thresholds (no scalar) is still
+      extracted (nil map preserves today's scalar-only behavior). Added additively; the
+      Phase 4 verdict loop consumes coverageThresholdForMetric.
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write per-metric threshold-selection tests (coverageThresholdForMetric)"
+        description: |
+          pkg/gate/coverage_threshold_metric_test.go — RED before coverageThresholdForMetric
+          and SpecVerification.MetricThresholds exist (constructs []SpecVerification directly):
+            - TestThreshold_PerMetricOverrideAppliedScalarDefaultForUnlisted: a spec with
+              coverage_threshold 90 and coverage_metric_thresholds {branch: 70} resolves
+              branch ⇒ 70 and the unlisted line ⇒ 90 (scalar default) — branch 65/100 fails
+              against 70, line 92/100 passes against 90 (CLM-011).
+            - TestThreshold_UnlistedMetricUsesScalarDefault: a metric with no override falls
+              back to the scalar coverage_threshold, identical to the metric-blind scalar
+              path today (CLM-012).
+            - TestThreshold_StrictestSpecGovernsPerMetric: two in-scope specs declaring
+              branch overrides 70 and 80 ⇒ the governing branch threshold is the MAX (80);
+              the per-metric selection takes the max of each spec's applicable
+              override-or-default PER METRIC (CLM-013).
+            - TestThreshold_OverrideForOneMetricDoesNotAffectAnother: declaring branch 70
+              leaves the line threshold at the scalar default — overrides are isolated per
+              metric (CLM-014).
+            - TestThreshold_MetricWithNoDeclaredThresholdSkipped: a metric whose resolved
+              threshold is <= 0 (no scalar and no override in scope) resolves to 0 so the
+              caller SKIPS it rather than failing — "no threshold declared in scope ⇒ pass"
+              at metric granularity (CLM-015).
+          Red — the per-metric floor and the MetricThresholds field do not exist.
+        files:
+          - pkg/gate/coverage_threshold_metric_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: test
+        title: "Write coverage_metric_thresholds extraction + loosened-gate tests"
+        description: |
+          pkg/gate/step_testverify_metric_test.go — RED before the frontmatter field /
+          extraction exist (writes spec fixtures in-test via the existing writeSpecFixture-style
+          temp-dir helper):
+            - TestExtractSpecVerifications_PopulatesMetricThresholds: a spec whose
+              verification block declares coverage_threshold 90 and coverage_metric_thresholds
+              {branch: 70} extracts to a SpecVerification with CoverageThreshold 90 and
+              MetricThresholds {"branch": 70} (CLM-011).
+            - TestExtractSpecVerifications_PerMetricOnlyNoScalarStillExtracted: a spec
+              declaring coverage_metric_thresholds {branch: 70} WITHOUT a scalar
+              coverage_threshold is STILL extracted (the loosened gate) — proving the
+              per-metric-only declaration path is supported (CLM-015).
+            - TestExtractSpecVerifications_NilMetricThresholdsPreservesScalarOnly: a spec with
+              only the scalar coverage_threshold (no coverage_metric_thresholds) extracts with
+              a nil/empty MetricThresholds — the backward-compatible scalar-only shape (CLM-012).
+          Red — the Verification struct has no coverage_metric_thresholds and the extraction
+          gate still requires a scalar threshold.
+        files:
+          - pkg/gate/step_testverify_metric_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-004
+
+      - id: TASK-007
+        type: implementation
+        title: "Add SpecVerification.MetricThresholds + coverageThresholdForMetric"
+        description: |
+          pkg/gate/step_coverage.go: extend SpecVerification with MetricThresholds
+          map[string]int (nil/empty ⇒ scalar-only, backward-compatible). Add
+          coverageThresholdForMetric(sel coverageThresholdSelection, metric string) int
+          generalizing coverageFloorForScope from a single floor to a per-metric floor: for
+          each selected spec the applicable threshold for the metric is
+          MetricThresholds[metric] if declared else CoverageThreshold (scalar default); the
+          governing value is the MAX across selected specs (strictest governs, per metric);
+          return 0 when no threshold is declared for the metric in scope (caller skips). An
+          override for metric M never alters metric N (CLM-011/CLM-012/CLM-013/CLM-014/CLM-015).
+          ADDITIVE: coverageFloorForScope stays live until the Phase 4 rewire (TASK-011
+          removes it). Make TASK-005 green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: implementation
+        title: "Thread coverage_metric_thresholds through ExtractSpecVerifications"
+        description: |
+          pkg/gate/step_testverify.go: add coverage_metric_thresholds
+          (map[string]int, `yaml:"coverage_metric_thresholds"`) to the spec-frontmatter
+          Verification struct; populate SpecVerification.MetricThresholds from it in
+          ExtractSpecVerifications; and LOOSEN the existing extraction gate
+          (TestCommand != "" && CoverageThreshold > 0) so a spec declaring per-metric
+          thresholds WITHOUT a scalar is still extracted (a nil map preserves today's
+          scalar-only behavior) (CLM-011/CLM-012/CLM-015). CO-EDIT SEAM: SPEC-045 also edits
+          this file (collectTestFuncNamesScoped / TestNameMatcher) — disjoint concern; this
+          loosened gate must survive the merge (see plan notes). Depends on TASK-007 (the
+          MetricThresholds field this extraction populates) + TASK-006. Make TASK-006 green.
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify per-metric thresholds + extraction (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/step_coverage.go,
+          pkg/gate/step_testverify.go, and their metric tests. Confirms coverageThresholdForMetric
+          resolves override-or-default, strictest-governs-per-metric (MAX), isolates overrides
+          per metric, and returns 0 (skip) when undeclared; and that ExtractSpecVerifications
+          populates MetricThresholds and still extracts a per-metric-only (no-scalar) spec
+          while preserving nil for scalar-only specs. Middle-phase verification.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/coverage_threshold_metric_test.go
+          - pkg/gate/step_testverify_metric_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: per-(path, metric) verdict loop + metric-missing guard.
+  # The single rewire point inside StepCoverageThresholdScopedFunc (adopting
+  # SPEC-043's 4-arg signature). Independent per-metric thresholding, no
+  # sibling-metric rescue, per-(path,metric) N/A + Excluded, loud duplicate
+  # collision, backward-compat, bun-shape thresholding, and the metric-granular
+  # coverage_metric_missing guard. CROSS-PLAN: serialize after SPEC-043.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Per-(path, metric) Verdict Loop + Metric-Missing Guard"
+    description: |
+      Rewire StepCoverageThresholdScopedFunc (the 4-arg form owned by SPEC-043:
+      (coverage, specs, scope, classifier SourceClassifier)) to consume the (path, metric)
+      index and per-metric thresholds: for each in-scope path admitted to SPEC-043's
+      measurable set that HAS records, iterate EVERY metric record via
+      resolveCoverageRecordsForPath; resolve each metric's threshold via
+      coverageThresholdForMetric (skip when <= 0); compute the verdict metric-BLIND from RAW
+      COUNTS (Covered*100 >= Total*threshold); preserve Total==0 ⇒ N/A and the Excluded
+      loud-surfacing at (path, metric) granularity; emit a below-threshold violation per
+      FAILING metric (a passing sibling never rescues a failing one); surface
+      duplicate-(path,metric) collisions loudly; and add the metric-granular
+      coverage_metric_missing guard. Remove the now-dead indexCoverageByPath /
+      resolveCoverageRecord / coverageFloorForScope. CROSS-PLAN: depends on SPEC-043 having
+      landed the 4-arg signature, the classifier-derived measurable set, and the removal of
+      the `threshold <= 0` early-return (this plan's per-metric-only case needs it). The
+      coverage_metric_missing guard must COMPOSE with — never shadow or double-report —
+      SPEC-043's path-level zero-record guard (Sharp Edge 7).
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Write per-(path, metric) verdict + backward-compat + bun-threshold tests"
+        description: |
+          pkg/gate/coverage_permetric_verdict_test.go — RED before the verdict loop is
+          rewired (drives StepCoverageThresholdScopedFunc with multi-metric record sets):
+            - TestCoverage_SameFileLineAndBranchThresholdedIndependentlyNoCollision: the
+              keystone — one file carrying line 95/100 (line threshold 90, pass) AND branch
+              60/100 (branch threshold 70, fail) produces EXACTLY ONE violation (branch); the
+              passing line metric is NOT flagged and did NOT collide (CLM-005).
+            - TestCoverage_BothMetricsPassNoViolation: a file whose line AND branch both pass
+              their thresholds produces NO violation (CLM-006).
+            - TestCoverage_BothMetricsFailTwoViolations: a file whose line AND branch both
+              fail produces TWO violations — one per (path, metric) — each metric reds
+              independently (CLM-007).
+            - TestCoverage_BelowThresholdMetricNotRescuedByPassingSibling: a below-threshold
+              metric reds even when a SIBLING metric on the SAME file passes — no aggregation
+              or sibling-metric rescue (CLM-008).
+            - TestCoverage_TotalZeroPerMetricIsNAOtherMetricStillThresholded: a Total==0
+              record for ONE metric is N/A (skipped, never a 0%-fail) while the OTHER metric
+              on the same file is still thresholded (CLM-009).
+            - TestCoverage_VerdictMetricBlindOnRawCounts: two records with DIFFERENT metric
+              labels but IDENTICAL Covered/Total against the SAME applicable threshold produce
+              IDENTICAL verdicts — the label is never ordered/ranked/interpreted in the ratio
+              (CLM-010).
+            - TestBackwardCompat_StatementOnlyRecordsIdenticalToScalarBehavior: a
+              go-toolchain-shaped record set (one "statement" record per path) against a
+              scalar-only spec yields verdicts IDENTICAL to the pre-existing one-record-per-path
+              behavior — measured-passing passes, below-threshold reds, Total==0 is N/A (CLM-016).
+            - TestBunShape_LineAndBranchThresholdedThroughSharedConsumerPath: a bun-shaped
+              line+branch record set thresholds each metric independently through the SAME
+              consumer path the statement records flow through — the consumer is
+              producer-agnostic (CLM-023).
+          Red — the verdict loop still keys by path alone (last-write-wins) and applies a
+          single floor.
+        files:
+          - pkg/gate/coverage_permetric_verdict_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-016
+          - CLM-023
+        depends_on:
+          - TASK-001
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "Rewire the verdict loop to per-(path, metric) thresholding"
+        description: |
+          pkg/gate/step_coverage.go: rewire StepCoverageThresholdScopedFunc (SPEC-043's
+          4-arg form) to consume indexCoverageByPathMetric + resolveCoverageRecordsForPath +
+          coverageThresholdForMetric. For each in-scope path (from SPEC-043's
+          classifier-derived measurable set) that HAS records, iterate EVERY metric record;
+          resolve the metric's threshold via coverageThresholdForMetric and SKIP when <= 0;
+          compute the verdict metric-BLIND from raw counts (reuse coverageBelowThreshold:
+          Covered*100 < Total*threshold); preserve Total==0 ⇒ N/A and the Excluded
+          loud-surfacing at (path, metric) granularity; emit a below-threshold violation per
+          FAILING metric naming the metric + raw counts + the metric-specific threshold (a
+          passing sibling never rescues a failing one — CLM-005/CLM-006/CLM-007/CLM-008/
+          CLM-009/CLM-010); surface duplicate-(path,metric) collisions loudly from
+          indexCoverageByPathMetric's dup-key return (CLM-003). A statement-only set + a
+          scalar-only spec produces identical verdicts to today (CLM-016); a bun-shaped set
+          thresholds each metric through this same path (CLM-023). REMOVE the now-dead
+          indexCoverageByPath / resolveCoverageRecord / coverageFloorForScope. CROSS-PLAN:
+          adopt SPEC-043's 4-arg signature + measurable set + early-return removal verbatim;
+          do NOT re-derive them. Make TASK-010 green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-016
+          - CLM-023
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: test
+        title: "Write metric-missing guard + no-false-positive + distinctness tests"
+        description: |
+          pkg/gate/coverage_metric_missing_test.go — RED before the coverage_metric_missing
+          guard exists:
+            - TestMetricMissing_DeclaredBranchUnmeasuredOnChangedPathFailsLoud: with branch
+              EXPLICITLY declared in coverage_metric_thresholds, an in-scope CHANGED path that
+              has a line record but NO branch record is a LOUD blocking coverage_metric_missing
+              error — refusing to pass with the declared branch metric silently unmeasured
+              (CLM-018).
+            - TestMetricMissing_NoFalsePositiveWhenNoMetricDeclared: with NO per-metric override
+              (scalar-only spec), an in-scope changed path with only a line record does NOT
+              trigger the guard — it fires ONLY for explicitly-declared metrics (CLM-019).
+            - TestMetricMissing_DistinctFromPathLevelNoRecordGuard: a path with ZERO records is
+              SPEC-043's path-level guard's case (NOT coverage_metric_missing), while a path
+              WITH records missing an explicitly-declared metric is coverage_metric_missing —
+              the two rules emit distinctly and do not duplicate or shadow (CLM-020).
+            - TestMetricMissing_UnchangedPathMissingMetricStaysQuiet: an UNCHANGED / all-mode
+              path missing an explicitly-declared metric stays QUIET — the guard is scoped to
+              in-scope CHANGED paths, parallel to the exclusion-loudness scoping (CLM-021).
+            - TestBackwardCompat_StatementOnlyNoCollisionNoMetricMissingGuard: a statement-only
+              record set with no coverage_metric_thresholds triggers NEITHER a (path, metric)
+              collision NOR the declared-metric-not-measured guard — the scalar-only path is
+              free of the new guards (CLM-017).
+          Red — the metric-missing guard does not exist yet.
+        files:
+          - pkg/gate/coverage_metric_missing_test.go
+        claims:
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-009
+
+      - id: TASK-013
+        type: implementation
+        title: "Add the metric-granular coverage_metric_missing guard"
+        description: |
+          pkg/gate/step_coverage.go: in StepCoverageThresholdScopedFunc, for each metric M
+          EXPLICITLY declared in any in-scope spec's coverage_metric_thresholds, if an in-scope
+          CHANGED path has at least one record but NONE with Metric == M, emit a LOUD blocking
+          coverage_metric_missing violation (severity error) — refusing to pass with a declared
+          metric silently unmeasured (CLM-018). Fire ONLY for explicitly-declared metrics
+          (a scalar-only spec never triggers it — CLM-017/CLM-019) and ONLY for in-scope CHANGED
+          paths (unchanged/all-mode paths stay quiet — CLM-021). Keep DISTINCT from SPEC-043's
+          path-level zero-record guard: order the checks so a zero-record path yields SPEC-043's
+          guard ALONE and a has-records-missing-declared-metric path yields this guard ALONE —
+          never both, never one shadowing the other (CLM-020, Sharp Edge 7). Depends on TASK-011
+          (the rewired per-metric loop this guard slots into). Make TASK-012 green.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-012
+          - TASK-011
+
+      - id: TASK-014
+        type: verification
+        title: "Verify per-metric verdict loop + metric-missing guard (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/step_coverage.go + the Phase-4 verdict and
+          metric-missing tests. Confirms: each (path, metric) is thresholded independently with
+          no sibling-metric rescue, the keystone line-pass/branch-fail file yields exactly one
+          violation, Total==0/Excluded are per-(path,metric), the verdict is metric-blind from
+          raw counts, duplicate (path, metric) reds loudly, statement-only + scalar-only is
+          identical to today with no new guards firing, a bun-shaped set thresholds through the
+          shared path, and coverage_metric_missing fires only for explicitly-declared metrics on
+          in-scope changed paths — distinct from SPEC-043's path-level guard. Middle-phase
+          verification — the full gate runs in Phase 5.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/coverage_permetric_verdict_test.go
+          - pkg/gate/coverage_metric_missing_test.go
+        claims:
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-023
+        depends_on:
+          - TASK-011
+          - TASK-013
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final comprehensive verification (full kill chain).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the whole change: artifact validation, code check, test
+      verification, substantiveness, coverage (>=90%), contracts. This is the only phase that
+      runs `backstop gate`, plus `backstop artifact validate` over this plan (the .plan.yml
+      artifact touched). Confirms every claim's tests are green: the (path, metric) index
+      retains line+branch (loud on duplicate); each metric is thresholded independently
+      (per-metric declared thresholds with a scalar default, strictest-governs-per-metric,
+      no sibling rescue, metric-blind raw-count verdict, per-(path,metric) N/A + Excluded);
+      backward-compat with the single-statement go-toolchain producer is exact; the
+      coverage_metric_missing guard fires only for explicitly-declared metrics on in-scope
+      changed paths, distinct from SPEC-043's path-level guard; and a bun-shaped record set
+      parses + indexes + thresholds through the unchanged canonical type/parser. Keeps
+      backstop-core's own gate GREEN.
+    tasks:
+      - id: TASK-015
+        type: verification
+        title: "Run full gate + artifact validate over the complete SPEC-044 change"
+        description: |
+          Run `backstop gate` (artifact validation + code check + test verification +
+          substantiveness + coverage + contracts) across pkg/gate at >=90% coverage, and
+          `backstop artifact validate` over this plan. Confirm: indexCoverageByPathMetric /
+          resolveCoverageRecordsForPath re-key the index by (path, metric) so line+branch
+          coexist with no last-wins, a duplicate (path, metric) reds loudly, and the
+          per-metric qualified-suffix fallback is preserved (REQ-001); each (path, metric)
+          record is thresholded INDEPENDENTLY, metric-blind from raw counts, with no
+          sibling-metric rescue and per-(path,metric) Total==0/Excluded handling (REQ-002);
+          per-metric declared thresholds resolve via coverage_metric_thresholds +
+          coverageThresholdForMetric with the scalar coverage_threshold as the default and
+          strictest-governs-per-metric, an undeclared metric skipped, an override for M not
+          altering N (REQ-003); a statement-only record set + scalar-only spec is identical to
+          today with no collision and no metric-missing guard (REQ-004); the
+          coverage_metric_missing guard fires only for explicitly-declared metrics on in-scope
+          changed paths, distinct from SPEC-043's path-level guard (REQ-005); and a bun-shaped
+          line+branch set flows through the EXISTING check.CoverageRecord + check.ParsePackCoverage
+          with no new type/field and thresholds through the same consumer path (REQ-006). Verify
+          the SPEC-043 4-arg signature + SPEC-045 step_testverify.go co-edit reconciled cleanly.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_testverify.go
+          - plans/PLAN-SPEC-044-bundle012-spec044.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-004
+          - TASK-009
+          - TASK-014
+          - TASK-003
+          - TASK-007
+          - TASK-008
+          - TASK-011
+          - TASK-013

@@ -567,96 +567,92 @@ phases:
     tasks:
       - id: TASK-014
         type: test
-        title: "Write tests for coverage threshold step"
+        title: "Write congruence test asserting the gate exposes a coverage_threshold step over a declared per-file record"
         description: |
-          Write failing tests in pkg/gate/step_coverage_test.go.
+          RECONCILIATION (SPEC-010 REQ-016 / CLM-048, post-BUNDLE-011): SPEC-010
+          no longer owns a coverage MECHANISM. The retired baked machinery
+          (`StepCoverageThresholdFunc`, `go test -coverprofile`, the
+          `coverage: NN.N% of statements` regex parse) and its six old
+          `TestGate_CoverageThreshold_*` tests (`_MeetsThreshold`,
+          `_BelowThreshold`, `_IgnoresSpecTestCommandForScheduling`,
+          `_TestCommandNotFound`, `_NoCoverageSummaryLine`,
+          `_ParsesCoverageSummaryLine`) are DELETED by PLAN-SPEC-041 TASK-025,
+          and SPEC-010's old CLM-049/050/057/058/059 are RETIRED.
 
-          Tests:
-            - TestGate_CoverageThreshold_MeetsThreshold (CLM-048): coverage
-              output shows 85.0% with threshold 80 → pass
-            - TestGate_CoverageThreshold_BelowThreshold (CLM-049): coverage
-              output shows 65.0% with threshold 80 → fail
-            - TestGate_CoverageThreshold_UsesSpecTestCommand (CLM-050): verify
-              step uses the test_command from spec verification block
-            - TestGate_CoverageThreshold_TestCommandNotFound (CLM-057): test
-              command is not found / fails to execute → fail with error details
-            - TestGate_CoverageThreshold_NoCoverageSummaryLine (CLM-058): test
-              output lacks "coverage: NN.N% of statements" → fail with reason
-            - TestGate_CoverageThreshold_ParsesCoverageSummaryLine (CLM-059):
-              verify parsing of "coverage: 82.5% of statements" format
+          The single high-level claim that remains for SPEC-010 is CLM-048: the
+          gate exposes a `coverage_threshold` step that consumes a declared
+          per-file coverage record rather than the retired baked path. The
+          MANDATED test for CLM-048 is SPEC-041's
+          `TestCoverage_ConsumesDeclaredPerFileCoverageRecord`, which is authored
+          by PLAN-SPEC-041 TASK-008 in pkg/gate/step_coverage_test.go and owned
+          there (per-file record format, per-file enforcement, non-vacuousness,
+          metric-labeling, exclusions are all SPEC-041/SPEC-042's). PLAN-SPEC-010
+          does NOT re-create that test.
 
-          Tests use a mock command executor to simulate go test output without
-          actually running tests.
+          This task is the SPEC-010-side congruence check: write a single
+          assertion in pkg/gate/step_coverage_congruence_test.go,
+          TestGate_CoverageThreshold_ExposesDeclaredPerFileStep (CLM-048), that
+          confirms the gate's coverage step is present under the canonical
+          step_name "coverage_threshold" (StepCoverageThreshold constant from
+          pkg/gate/result.go) and is wired over the declared per-file coverage
+          record — NOT over any baked `go test`/`-coverprofile`/`coverage:`
+          parsing path. The substantive per-file behavior is exercised by
+          SPEC-041's TestCoverage_ConsumesDeclaredPerFileCoverageRecord
+          (cross-referenced, not duplicated here).
         files:
-          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_coverage_congruence_test.go
         claims:
           - CLM-048
-          - CLM-049
-          - CLM-050
-          - CLM-057
-          - CLM-058
-          - CLM-059
         depends_on:
           - TASK-004
 
       - id: TASK-015
         type: implementation
-        title: "Implement coverage threshold step function"
+        title: "Wire the gate's coverage_threshold step to the declared per-file record (no baked coverage path)"
         description: |
-          Create pkg/gate/step_coverage.go with:
+          RECONCILIATION (SPEC-010 REQ-016 / CLM-048): ensure the gate exposes a
+          `coverage_threshold` step whose implementation consumes a declared
+          per-file coverage record. The coverage step's substantive
+          implementation (consuming []check.CoverageRecord, per-file threshold
+          enforcement, non-vacuousness, exclusions) is OWNED and authored by
+          PLAN-SPEC-041 (its re-implemented pkg/gate/step_coverage.go) — this
+          task does NOT re-implement that mechanism and MUST NOT reintroduce a
+          baked `go test -coverprofile` / `coverage: NN.N% of statements` path
+          (that is a drift defect per SPEC-010 sharp edge "Coverage mechanism is
+          owned elsewhere — do not re-bake it here").
 
-          Interface CommandRunner:
-            - Run(ctx context.Context, name string, args ...string) ([]byte, error)
-            - Abstraction for executing external commands (testable)
-
-          Function StepCoverageThreshold(runner CommandRunner, specs []SpecVerification) StepFunc:
-            - For each spec with a coverage_threshold:
-              - Get test_command from spec verification block
-              - Append -coverprofile if not already present
-              - Execute via CommandRunner
-              - If command fails to execute → violation with error details
-              - Parse stdout for "coverage: NN.N% of statements" line
-              - If summary line not found → violation "coverage summary line
-                not found in test output"
-              - If coverage < threshold → violation with actual vs expected
-            - Returns StepResult with step_name "coverage_threshold"
-
-          Function parseCoverageLine(output string) (float64, bool):
-            - Regex match on "coverage: (\\d+\\.\\d+)% of statements"
-            - Returns percentage and whether the line was found
-
-          Type SpecVerification struct:
-            - SpecID string
-            - TestCommand string
-            - CoverageThreshold int
-
-          Sharp edge: test command failure is a step failure (exit 1), NOT a
-          config error (exit 2). The step reports the error in violations.
+          SPEC-010's responsibility here is only the wiring/exposure: the
+          orchestrator's coverage step is registered under the canonical
+          step_name "coverage_threshold" (StepCoverageThreshold) and dispatches
+          to the SPEC-041-owned per-file coverage step, so that the gate output
+          contract includes the coverage step over the declared per-file record.
+          Make TestGate_CoverageThreshold_ExposesDeclaredPerFileStep pass without
+          adding any baked coverage parsing.
         files:
           - pkg/gate/step_coverage.go
         claims:
           - CLM-048
-          - CLM-049
-          - CLM-050
-          - CLM-057
-          - CLM-058
-          - CLM-059
         depends_on:
           - TASK-014
 
       - id: TASK-016
         type: verification
-        title: "Verify coverage threshold tests pass"
+        title: "Verify the coverage_threshold step congruence (declared per-file record, no baked path)"
         description: |
-          Run coverage threshold tests and lint:
-            - go test ./pkg/gate/ -run "TestGate_CoverageThreshold" -race -v
-            - go vet ./pkg/gate/
+          Run the SPEC-010-side congruence check that the gate exposes the
+          coverage_threshold step over the declared per-file record:
+            - backstop code check
+          The substantive per-file coverage verdict tests
+          (TestCoverage_ConsumesDeclaredPerFileCoverageRecord and the
+          non-vacuousness suite) are owned and verified by PLAN-SPEC-041; this
+          verification only confirms SPEC-010's congruence assertion
+          (TestGate_CoverageThreshold_ExposesDeclaredPerFileStep) and that no
+          baked coverage path was reintroduced.
         files:
           - pkg/gate/step_coverage.go
-          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_coverage_congruence_test.go
         claims:
           - CLM-048
-          - CLM-058
         depends_on:
           - TASK-015
 
@@ -1103,7 +1099,7 @@ phases:
           - pkg/gate/step_testverify.go
           - pkg/gate/step_testverify_test.go
           - pkg/gate/step_coverage.go
-          - pkg/gate/step_coverage_test.go
+          - pkg/gate/step_coverage_congruence_test.go
           - pkg/gate/step_contract.go
           - pkg/gate/step_contract_test.go
           - pkg/gate/gate.go

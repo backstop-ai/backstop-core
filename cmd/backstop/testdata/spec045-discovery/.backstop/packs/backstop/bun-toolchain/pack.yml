@@ -1,0 +1,24 @@
+# SPEC-045 e2e bun-toolchain fixture: the NON-Go toolchain whose declared test globs
+# (**/*.test.ts) + test_name_patterns (the test(...)/describe(...)/it(...) regex)
+# let the de-Go'd discovery find a `.test.ts` file and extract its test NAME string.
+name: backstop/bun-toolchain
+version: 1.0.0
+language: typescript
+archetype: code
+description: >
+  E2E bun-toolchain fixture: classification + test_name_patterns DATA only.
+classification:
+  source:
+    - "**/*.ts"
+    - "**/*.tsx"
+  test:
+    - "**/*.test.ts"
+    - "**/*.spec.ts"
+test_name_patterns:
+  - "(?:\\bit|\\btest|\\bdescribe)\\s*\\(\\s*['\"`]([^'\"`]+)"
+content:
+  sdk:
+    module: example/bun-toolchain-fixture
+    version: 1.0.0
+    provides:
+      - classification

@@ -287,152 +287,6 @@ func chdirTemp(t *testing.T, dir string) func() {
 	}
 }
 
-// TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit pins the
-// fail-loud boundary for REQ-002 on the standalone path: a zero-routable
-// manifest dir must surface from LoadManifest through check.Run and the
-// code-check command as an exit-2 config error — not a green skip. The
-// checkRunFn stub delegates to the real check.RunWith (real LoadManifest,
-// real error path) with a hermetic ensurer so no tool is installed or run.
-func TestCodeCheck_LoadManifest_ConfigErrorPropagatesToCodeCheckExit(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: zero-routable\nlanguage: go\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// Rules present but no matchers and no compiled-schema discriminator:
-	// zero routable rules.
-	zeroRoutable := `{"rules": [{"check_types": []}]}`
-	if err := os.WriteFile(filepath.Join(rulesDir, "broken.manifest.json"), []byte(zeroRoutable), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-
-	restore := chdirTemp(t, dir)
-	defer restore()
-
-	origRun := checkRunFn
-	defer func() { checkRunFn = origRun }()
-	checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-		return check.RunWith(ctx, check.RunOptions{
-			Options: opts,
-		})
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"code", "check", "--all"})
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("code check --all returned nil error for a zero-routable manifest dir; want exit-2 config error")
-	}
-	var exitErr *ExitCodeError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
-	}
-	if exitErr.Code != ExitConfigError {
-		t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
-	}
-	if !strings.Contains(exitErr.Message, "routable") {
-		t.Errorf("message %q should name the zero-routable condition", exitErr.Message)
-	}
-}
-
-// missingToolchainProject scaffolds a temp project whose backstop.yml declares a
-// language with no built-in toolchain and no enforcement.toolchain declaration.
-// A valid go-routable compiled manifest is written so routing is NOT the
-// blocker — the registry's missing-toolchain config error is. Returns the
-// project dir.
-func missingToolchainProject(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	// language: rust with no enforcement.toolchain → no toolchain available.
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: no-toolchain\nlanguage: rust\n"), 0o644); err != nil {
-		t.Fatalf("write backstop.yml: %v", err)
-	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// A routable manifest so LoadManifest does NOT fail first — the only failure
-	// must be the missing toolchain.
-	manifest := `{"rules": [{"extensions": [".rs"], "check_types": ["lint", "build", "test"]}]}`
-	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	// A source file so the scope is non-empty.
-	if err := os.WriteFile(filepath.Join(dir, "lib.rs"), []byte("fn main() {}\n"), 0o644); err != nil {
-		t.Fatalf("write lib.rs: %v", err)
-	}
-	return dir
-}
-
-// TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError pins CLM-007: a
-// language declared in backstop.yml that has NO built-in toolchain AND no
-// enforcement.toolchain declaration is an exit-2 config error on BOTH CLI
-// paths — the standalone code-check command and the gate step-2 path — never a
-// skip-with-warning and never a green pass. Mirrors ISSUE-005's
-// ConfigErrorPropagatesTo{CodeCheck,Gate}Exit boundary tests.
-func TestCodeCheck_MissingToolchain_DeclaredLanguageIsConfigError(t *testing.T) {
-	// ---- Standalone path: backstop code check --all exits 2. ----
-	t.Run("standalone_code_check", func(t *testing.T) {
-		dir := missingToolchainProject(t)
-		restore := chdirTemp(t, dir)
-		defer restore()
-
-		origRun := checkRunFn
-		defer func() { checkRunFn = origRun }()
-		checkRunFn = func(ctx context.Context, opts check.Options) (*check.Result, error) {
-			return check.RunWith(ctx, check.RunOptions{
-				Options: opts,
-			})
-		}
-
-		root := NewRootCommand()
-		root.SetArgs([]string{"code", "check", "--all"})
-		err := root.Execute()
-		if err == nil {
-			t.Fatal("code check --all returned nil for a declared language with no toolchain; want exit-2 config error")
-		}
-		var exitErr *ExitCodeError
-		if !errors.As(err, &exitErr) {
-			t.Fatalf("error %T (%v) is not an *ExitCodeError", err, err)
-		}
-		if exitErr.Code != ExitConfigError {
-			t.Errorf("exit code = %d, want %d (config error)", exitErr.Code, ExitConfigError)
-		}
-		if !strings.Contains(exitErr.Message, "toolchain") {
-			t.Errorf("message %q should name the missing toolchain", exitErr.Message)
-		}
-	})
-
-	// ---- Gate path: step 2 (code check) yields a config-error step, exit 2. ----
-	t.Run("gate_step_code_check", func(t *testing.T) {
-		dir := missingToolchainProject(t)
-		restore := chdirTemp(t, dir)
-		defer restore()
-
-		checker := &realCodeChecker{projectRoot: dir}
-		scope := &gate.GateScope{Mode: gate.GateScopeModeAll}
-		step := gate.StepCodeCheckScopedFunc(checker, scope)
-		g := gate.New(gate.WithSteps([]gate.StepFunc{step}), gate.WithScope(scope))
-
-		result, exitCode := g.Run(context.Background())
-		if exitCode != 2 {
-			t.Fatalf("gate exit code = %d, want 2 (config error)", exitCode)
-		}
-		if len(result.Steps) != 1 {
-			t.Fatalf("got %d steps, want 1", len(result.Steps))
-		}
-		if !result.Steps[0].ConfigErr {
-			t.Error("step ConfigErr = false, want true (missing toolchain is a config error)")
-		}
-		if result.Pass {
-			t.Error("gate Pass = true; a missing toolchain must never read as green")
-		}
-	})
-}
-
 // unknownToolchainKeyProject scaffolds a temp project whose backstop.yml
 // declares an enforcement.toolchain block containing an out-of-vocabulary pass
 // key. A routable compiled manifest is written so manifest routing is NOT the
@@ -455,15 +309,12 @@ enforcement:
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte(backstopYML), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// A routable manifest so LoadManifest does NOT fail first — the only failure
-	// must be the bad toolchain key.
-	manifest := `{"rules": [{"extensions": [".go", ".rs"], "check_types": ["lint", "build", "test"]}]}`
-	if err := os.WriteFile(filepath.Join(rulesDir, "routing.manifest.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
+	// The bad toolchain key surfaces from validateToolchainKeys (registry path),
+	// independent of routing — no .manifest.json is needed (the reader was
+	// deleted in SPEC-039 and would ignore one anyway). .backstop/ must still
+	// exist (ValidateBackstopDir), but carries no manifest.
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
+		t.Fatalf("mkdir .backstop: %v", err)
 	}
 	// A source file so the scope is non-empty.
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
@@ -563,17 +414,13 @@ enforcement:
 		t.Fatalf("write backstop.yml: %v", err)
 	}
 
-	rulesDir := filepath.Join(dir, ".backstop", "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
+		t.Fatalf("mkdir .backstop: %v", err)
 	}
-	// Compiled manifest, language typescript, NO semgrep signal: .ts routes
-	// lint/build/test only — the semgrep pass (and EnsureSemgrep's network
-	// install) can never fire in this smoke.
-	manifest := `{"standard":"STD-TS-001","language":"typescript","rules":[{"id":"TS-001","enforcement":"native"}]}`
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-TS-001.manifest.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
+	// No .manifest.json: the .ts files route via the built-in default manifest
+	// (the .manifest.json reader was deleted in SPEC-039). .ts → all four passes,
+	// but findings has no pkg/check executor, so it is recorded as Skipped and
+	// never fires — the declared lint/build/test fakes are what produce output.
 
 	srcDir := filepath.Join(dir, "src")
 	if err := os.MkdirAll(srcDir, 0o755); err != nil {

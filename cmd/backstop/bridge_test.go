@@ -65,7 +65,10 @@ func TestBridge_NativePassesRunThroughDispatchPackEngines(t *testing.T) {
 		"golangci-lint": readFixture(t, "golangci-v2.sarif"),
 	}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	// Partition dedicated-step gate-types (the SPEC-042 coverage producer) out of the
+	// SARIF findings dispatch as the production gate does — coverage routes to the
+	// coverage-records channel, leaving the three native SARIF passes here.
+	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (all three native passes): %v", err)
 	}

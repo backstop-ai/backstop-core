@@ -35,20 +35,21 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 		wantStatus  string
 	}{
 		{
-			// Class 2: typescript undeclared coverage -> capability-absent, intercept.
+			// Class 2: no declared coverage pass AND no installed toolchain pack backing
+			// the dimension -> capability-absent -> intercept. (Installed-pack-keyed, not
+			// language-keyed: the cfg declares no language and none is consulted.)
 			name:        "class2_capability_absent_intercepts",
-			cfg:         &config.Config{Project: "p", Language: "typescript"},
+			cfg:         &config.Config{Project: "p"},
 			dim:         gate.DimensionCoverage,
 			wantReached: false,
 			wantStatus:  "warning",
 		},
 		{
-			// Class 3: go declared coverage but capability forced missing -> intercept.
-			// We force class 3 by declaring coverage on a stack whose baked analyzer
-			// derivation marks it absent (typescript declared coverage = declared +
-			// absent = class 3).
+			// Class 3: a coverage pass is DECLARED (intent) but no installed toolchain
+			// pack backs it -> capability declared-but-unmet -> intercept. Installed-pack-
+			// keyed absence, not language-derived (no language field is set or consulted).
 			name: "class3_declared_intent_unmet_intercepts",
-			cfg: &config.Config{Project: "p", Language: "typescript", Enforcement: config.Enforcement{
+			cfg: &config.Config{Project: "p", Enforcement: config.Enforcement{
 				Toolchain: map[string]config.ToolchainPass{
 					"test": {Command: "c", Format: "f", GateType: string(gate.DimensionCoverage)},
 				},
@@ -60,7 +61,7 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 		{
 			// Class 1: unknown gate_type -> broken-declared, intercept.
 			name: "class1_unknown_key_intercepts",
-			cfg: &config.Config{Project: "p", Language: "go", Enforcement: config.Enforcement{
+			cfg: &config.Config{Project: "p", Enforcement: config.Enforcement{
 				Toolchain: map[string]config.ToolchainPass{
 					"lint": {Command: "c", Format: "f", GateType: "bogus"},
 				},
@@ -70,9 +71,13 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 			wantStatus:  "fail",
 		},
 		{
-			// None/proceed: go undeclared coverage, baked analyzer present -> fall through.
-			name:        "undeclared_present_falls_through",
-			cfg:         &config.Config{Project: "p", Language: "go"},
+			// None/proceed: go undeclared coverage WITH a coverage toolchain pack
+			// installed -> capability present -> fall through (SPEC-041 re-key:
+			// coverage capability is now INSTALLED-pack-keyed, not the deleted baked
+			// analyzer; "present" requires a <lang>-toolchain pack in the packs map).
+			name: "undeclared_present_falls_through",
+			cfg: &config.Config{Project: "p",
+				Packs: config.Packs{"backstop/go-toolchain": "local"}},
 			dim:         gate.DimensionCoverage,
 			wantReached: true,
 			wantStatus:  "pass",
@@ -84,7 +89,7 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 			// the deleted baked analyzer. With the pack installed AND declared, the
 			// dimension is declared+present+working -> none/proceed -> fall through.
 			name: "declared_working_falls_through",
-			cfg: &config.Config{Project: "p", Language: "go",
+			cfg: &config.Config{Project: "p",
 				Packs: config.Packs{"backstop/substantiveness": "local"},
 				Enforcement: config.Enforcement{
 					Toolchain: map[string]config.ToolchainPass{
@@ -100,7 +105,7 @@ func TestWiring_ClassifierInterceptsClass123_AndFallsThroughWhenWorking(t *testi
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			spy := &spyDelegate{}
-			wrapped := wrapTraceabilityStep(tc.cfg, tc.dim, "step", spy.step)
+			wrapped := wrapTraceabilityStep(tc.cfg, tc.dim, "step", "", spy.step)
 			res := wrapped(context.Background())
 			if spy.reached != tc.wantReached {
 				t.Errorf("analyzer reached = %v, want %v (intercept/fall-through wiring)", spy.reached, tc.wantReached)
@@ -120,7 +125,7 @@ func TestNoAnalyzerChange_Substantiveness_VerdictPreserved(t *testing.T) {
 	// SPEC-037 re-key: substantiveness is INSTALLED-pack-keyed, so "working" requires
 	// the pack installed (packs map) — declared+present+working falls through to the
 	// delegate, preserving its verdict.
-	cfg := &config.Config{Project: "p", Language: "go",
+	cfg := &config.Config{Project: "p",
 		Packs: config.Packs{"backstop/substantiveness": "local"},
 		Enforcement: config.Enforcement{
 			Toolchain: map[string]config.ToolchainPass{
@@ -132,7 +137,7 @@ func TestNoAnalyzerChange_Substantiveness_VerdictPreserved(t *testing.T) {
 	delegate := func(_ context.Context) gate.StepResult {
 		return gate.StepResult{StepName: gate.StepTestSubstantiveness, Status: "fail", Violations: []gate.Violation{{Rule: "hollow", Message: "hollow test"}}}
 	}
-	wrapped := wrapTraceabilityStep(cfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, delegate)
+	wrapped := wrapTraceabilityStep(cfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, "", delegate)
 	res := wrapped(context.Background())
 	if res.Status != "fail" || len(res.Violations) == 0 {
 		t.Errorf("declared-and-working must fall through and preserve the analyzer's fail verdict, got %#v", res)
@@ -145,7 +150,7 @@ func TestNoAnalyzerChange_Substantiveness_VerdictPreserved(t *testing.T) {
 // installed (packs map) — declared+present+working falls through to the delegate,
 // preserving its verdict, exactly as the substantiveness arm does post-Seed-3.
 func TestNoAnalyzerChange_Contracts_VerdictPreserved(t *testing.T) {
-	cfg := &config.Config{Project: "p", Language: "go",
+	cfg := &config.Config{Project: "p",
 		Packs: config.Packs{"backstop/contracts": "local"},
 		Enforcement: config.Enforcement{
 			Toolchain: map[string]config.ToolchainPass{
@@ -155,24 +160,30 @@ func TestNoAnalyzerChange_Contracts_VerdictPreserved(t *testing.T) {
 	delegate := func(_ context.Context) gate.StepResult {
 		return gate.StepResult{StepName: gate.StepContractSignature, Status: "pass", Violations: []gate.Violation{}}
 	}
-	wrapped := wrapTraceabilityStep(cfg, gate.DimensionContracts, gate.StepContractSignature, delegate)
+	wrapped := wrapTraceabilityStep(cfg, gate.DimensionContracts, gate.StepContractSignature, "", delegate)
 	res := wrapped(context.Background())
 	if res.Status != "pass" {
 		t.Errorf("declared-and-working contracts must fall through to the analyzer's pass verdict, got %#v", res)
 	}
 }
 
-// TestNoAnalyzerChange_Coverage_VerdictPreserved (CLM-027).
+// TestNoAnalyzerChange_Coverage_VerdictPreserved (CLM-027). UPDATED FOR SPEC-041:
+// "declared-and-working" coverage now requires a coverage toolchain PACK installed
+// (the capability is INSTALLED-pack-keyed after the baked analyzer's eradication),
+// so the config installs go-toolchain AND declares the coverage pass — making the
+// dimension declared+present+working -> none/proceed -> fall through to the delegate.
 func TestNoAnalyzerChange_Coverage_VerdictPreserved(t *testing.T) {
-	cfg := &config.Config{Project: "p", Language: "go", Enforcement: config.Enforcement{
-		Toolchain: map[string]config.ToolchainPass{
-			"test": {Command: "go test ./...", Format: "go-test", GateType: string(gate.DimensionCoverage)},
-		},
-	}}
+	cfg := &config.Config{Project: "p",
+		Packs: config.Packs{"backstop/go-toolchain": "local"},
+		Enforcement: config.Enforcement{
+			Toolchain: map[string]config.ToolchainPass{
+				"test": {Command: "go test ./...", Format: "go-test", GateType: string(gate.DimensionCoverage)},
+			},
+		}}
 	delegate := func(_ context.Context) gate.StepResult {
 		return gate.StepResult{StepName: gate.StepCoverageThreshold, Status: "fail", Violations: []gate.Violation{{Rule: "coverage", Message: "below threshold"}}}
 	}
-	wrapped := wrapTraceabilityStep(cfg, gate.DimensionCoverage, gate.StepCoverageThreshold, delegate)
+	wrapped := wrapTraceabilityStep(cfg, gate.DimensionCoverage, gate.StepCoverageThreshold, "", delegate)
 	res := wrapped(context.Background())
 	if res.Status != "fail" {
 		t.Errorf("declared-and-working coverage must fall through to the analyzer's below-threshold fail verdict, got %#v", res)
@@ -187,7 +198,7 @@ func TestNoAnalyzerChange_Coverage_VerdictPreserved(t *testing.T) {
 func TestBuildGateSteps_WiresTraceabilityWrappers(t *testing.T) {
 	projectRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(
-		"project: rt\nlanguage: typescript\n"), 0o644); err != nil {
+		"project: rt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(projectRoot, ".backstop"), 0o755); err != nil {

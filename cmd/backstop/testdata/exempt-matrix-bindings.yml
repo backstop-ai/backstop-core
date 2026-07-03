@@ -1,0 +1,67 @@
+# Engine-binding fixtures for the exempt_from_scope_filter matrix (SPEC-041
+# REQ-004/REQ-007). Each binding is keyed by gate_type; the matrix tests build
+# in-memory bindings carrying exempt_from_scope_filter and assert the DECLARED
+# property — never a CheckType enum identity or a tool/command/pack-name sniff —
+# drives gate.Violation.ProjectWide on the engine path (pack_gate.go), consumed
+# end-to-end by the REAL filterViolations (pkg/gate/scope.go).
+#
+#   go-build  -> exempt_from_scope_filter: true   (ProjectWide -> unchanged-file break still REDs)
+#   golangci  -> exempt_from_scope_filter: false  (unchanged-file lint violation filtered)
+#   go-test   -> exempt_from_scope_filter: false  (unchanged-file test violation filtered)
+#   findings  -> exempt_from_scope_filter: false  (unchanged-file finding filtered)
+#
+# These are reference declarations mirroring the in-memory bindings the helper
+# constructs (exempt_test_helpers_test.go); the helper is the source of truth
+# the matrix tests drive, this file documents the matrix. ScopeKind stays
+# project-wide for all three Go engines (arg-shaping) and is DECOUPLED from the
+# exempt decision (CLM-017).
+engines:
+  go-build:
+    command: go build
+    input_mode: none
+    convert: scripts/build-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: build
+    exempt_from_scope_filter: true
+  golangci:
+    command: golangci-lint run --output.sarif.path stdout --show-stats=false
+    input_mode: config-file
+    input_flag: --config
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: lint
+    exempt_from_scope_filter: false
+  go-test:
+    command: go test
+    input_mode: none
+    convert: scripts/test-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: test
+    exempt_from_scope_filter: false
+  findings:
+    command: semgrep --sarif --quiet
+    input_mode: rule-flags
+    input_flag: --config
+    scope_kind: file-args
+    gate_type: findings
+    exempt_from_scope_filter: false
+  # Divergent build pair for the per-violation / true-conflict tiebreak
+  # (CLM-018/CLM-019): two build bindings with DIFFERING exempt values.
+  go-build-exempt:
+    command: build-exempt run
+    input_mode: none
+    convert: scripts/build-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: build
+    exempt_from_scope_filter: true
+  go-build-nonexempt:
+    command: build-nonexempt run
+    input_mode: none
+    convert: scripts/build-to-sarif.sh
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: build
+    exempt_from_scope_filter: false

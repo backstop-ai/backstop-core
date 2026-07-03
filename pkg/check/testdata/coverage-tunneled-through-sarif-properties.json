@@ -1,0 +1,18 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "results": [
+        {
+          "ruleId": "coverage",
+          "level": "note",
+          "message": {"text": "coverage smuggled through SARIF properties"},
+          "properties": {"covered": 92, "total": 100, "measured": true, "metric": "statement"},
+          "locations": [
+            {"physicalLocation": {"artifactLocation": {"uri": "pkg/svc/handler.go"}, "region": {"startLine": 1}}}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -52,6 +52,12 @@ type Violation struct {
 	// "org/pack/rule-id") so violations are attributable to their source pack.
 	// Empty for passes that have no per-rule identity (lint/build/test).
 	Rule string
+	// Fingerprint is a content-based, line-INDEPENDENT identity carried from the
+	// SARIF result (partialFingerprints or region snippet). It flows to
+	// gate.Violation.RegionHash so the baseline keeps multiple same-rule findings
+	// in one file distinct and survives unrelated line shifts. Empty when the
+	// engine emits neither, leaving the coarse message-level fallback.
+	Fingerprint string
 }
 
 // PassResult holds the result of a single validation pass.

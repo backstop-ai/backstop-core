@@ -1,0 +1,6 @@
+[
+  {"path": "src/foo.ts", "covered": 95, "total": 100, "measured": true, "excluded": false, "metric": "line"},
+  {"path": "src/foo.ts", "covered": 60, "total": 100, "measured": true, "excluded": false, "metric": "branch"},
+  {"path": "src/bar.ts", "covered": 98, "total": 100, "measured": true, "excluded": false, "metric": "line"},
+  {"path": "src/bar.ts", "covered": 85, "total": 100, "measured": true, "excluded": false, "metric": "branch"}
+]

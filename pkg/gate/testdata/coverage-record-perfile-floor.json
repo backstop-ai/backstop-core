@@ -1,0 +1,5 @@
+[
+  {"path": "pkg/widget/widget.go", "covered": 95, "total": 100, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/widget/helper.go", "covered": 2, "total": 100, "measured": true, "excluded": false, "metric": "statement"},
+  {"path": "pkg/gadget/gadget.go", "covered": 50, "total": 100, "measured": true, "excluded": false, "metric": "statement"}
+]

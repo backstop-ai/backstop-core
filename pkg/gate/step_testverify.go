@@ -3,6 +3,7 @@ package gate
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,7 +25,12 @@ type MandatedTest struct {
 // specFrontmatter is a minimal representation of spec YAML frontmatter
 // for extracting claims, mandated test names, verification blocks, and contracts.
 type specFrontmatter struct {
-	Number         string `yaml:"number"`
+	Number string `yaml:"number"`
+	// Status is the spec lifecycle status. Terminal statuses (replaced, canceled,
+	// deprecated — ISSUE-031 DQ-1) cause the spec to be EXCLUDED from gate
+	// enforcement: its mandated tests, verifications, and contracts are not
+	// extracted, because a retired spec's promises are deliberately no longer held.
+	Status         string `yaml:"status"`
 	Implementation struct {
 		Package string `yaml:"package"`
 	} `yaml:"implementation"`
@@ -32,6 +38,12 @@ type specFrontmatter struct {
 		Level             string `yaml:"level"`
 		TestCommand       string `yaml:"test_command"`
 		CoverageThreshold int    `yaml:"coverage_threshold"`
+		// CoverageMetricThresholds is the OPTIONAL per-metric declared threshold map
+		// (SQ-2, SPEC-044 REQ-003): metric label → integer threshold. It is threaded
+		// onto SpecVerification.MetricThresholds; a metric absent from it uses the
+		// scalar coverage_threshold as its default. A spec declaring only this map
+		// (no scalar) is still extracted (the loosened gate below).
+		CoverageMetricThresholds map[string]int `yaml:"coverage_metric_thresholds"`
 	} `yaml:"verification"`
 	Claims []struct {
 		ID    string   `yaml:"id"`
@@ -72,6 +84,9 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 		if err != nil {
 			continue // skip unparseable specs
 		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		}
 
 		targetPkg := TargetPackageName(fm.Implementation.Package)
 
@@ -88,6 +103,45 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 		}
 	}
 	return tests, nil
+}
+
+// isTerminalSpecStatus reports whether a spec status is an end-of-life state
+// (ISSUE-031 DQ-1). Terminal specs are excluded from gate enforcement — their
+// mandated tests and contracts are no longer held as live promises. This is the
+// single source of truth the mandated-test step, the contract step, and the
+// verification step all key on.
+func isTerminalSpecStatus(status string) bool {
+	switch status {
+	case "replaced", "canceled", "deprecated":
+		return true
+	default:
+		return false
+	}
+}
+
+// CountTerminalSpecs returns the number of spec files in specDir whose status is
+// terminal (replaced/canceled/deprecated) and are therefore excluded from gate
+// enforcement. The gate command reports this as an informational line (CLM-017).
+// Unparseable specs are not counted (they cannot be classified as terminal).
+func CountTerminalSpecs(specDir string) (int, error) {
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return 0, fmt.Errorf("reading spec dir %s: %w", specDir, err)
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+			continue
+		}
+		fm, err := parseSpecFrontmatter(filepath.Join(specDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if isTerminalSpecStatus(fm.Status) {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // parseSpecFrontmatter reads YAML frontmatter from a spec markdown file.
@@ -121,18 +175,73 @@ func parseSpecFrontmatter(path string) (*specFrontmatter, error) {
 	return &fm, nil
 }
 
-// funcPattern matches Go test function declarations.
-var funcPattern = regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)
+// TestNameMatcher holds the compiled UNION of pack-declared test-name regexes
+// (SPEC-045 REQ-002). It replaces the DELETED baked Go-shaped `funcPattern`: the
+// test-name/indicator pattern now comes from pack DATA (Manifest.TestNamePatterns),
+// merged across declared toolchain packs and compiled here. It carries NO language
+// knowledge — data (the declared patterns) plus match logic only (DD-1). Each
+// pattern's capture group 1 is the test name.
+type TestNameMatcher struct {
+	patterns []*regexp.Regexp
+}
+
+// NewTestNameMatcher compiles the merged list of pack-declared test-name regexes
+// (SPEC-045 REQ-002/CLM-016). An INVALID regex returns a LOUD construction error —
+// never a silently-dropped pattern that would make discovery find nothing and then
+// mass-fail every mandated test. Each pattern must expose capture group 1 as the
+// test name; a nil/empty list yields a matcher whose HasPatterns reports false.
+func NewTestNameMatcher(patterns []string) (TestNameMatcher, error) {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, p := range patterns {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return TestNameMatcher{}, fmt.Errorf("invalid test_name_pattern %q: %w", p, err)
+		}
+		compiled = append(compiled, re)
+	}
+	return TestNameMatcher{patterns: compiled}, nil
+}
+
+// FindName returns capture group 1 of the FIRST declared pattern that matches the
+// line, or ok=false (SPEC-045 REQ-002/CLM-010..CLM-015). With only bun patterns
+// declared, a Go `func TestFoo(` line returns ok=false — no baked Go literal.
+func (m TestNameMatcher) FindName(line string) (string, bool) {
+	for _, re := range m.patterns {
+		if sub := re.FindStringSubmatch(line); len(sub) > 1 {
+			return sub[1], true
+		}
+	}
+	return "", false
+}
+
+// HasPatterns reports whether any test-name patterns are declared (SPEC-045
+// REQ-005), so the step can surface the DISTINCT discovery-capability-absent state
+// instead of a misleading mass not-found fail.
+func (m TestNameMatcher) HasPatterns() bool { return len(m.patterns) > 0 }
 
 // StepTestVerificationFunc returns a StepFunc that verifies mandated test names
-// exist as actual test functions in the codebase. This is a mechanical check —
-// grep for exact function name in *_test.go files.
-func StepTestVerificationFunc(specDir, codeDir string) StepFunc {
-	return StepTestVerificationScopedFunc(specDir, codeDir, nil)
+// exist as actual test functions in the codebase. This is a mechanical check:
+// discover test FILES via the pack-declared TEST globs (classifier.IsTestFile) and
+// extract test NAMES via the pack-declared TestNameMatcher — no baked `_test.go`
+// walk, no baked `func Test` regex.
+func StepTestVerificationFunc(specDir, codeDir string, classifier SourceClassifier, matcher TestNameMatcher) StepFunc {
+	return StepTestVerificationScopedFunc(specDir, codeDir, nil, classifier, matcher)
 }
 
 // StepTestVerificationScopedFunc verifies tests only in files allowed by scope.
-func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope) StepFunc {
+//
+// Discovery needs BOTH inputs — test globs to FIND the test file AND name patterns
+// to EXTRACT the test name — so capability is PRESENT only when BOTH are declared.
+// When `!classifier.HasTestGlobs() || !matcher.HasPatterns()` (EITHER missing) and
+// mandated tests exist, the step returns a DISTINCT non-blocking `warning` whose
+// Reason NAMES the missing input (SPEC-045 REQ-005/CLM-031/CLM-032/CLM-037),
+// intercepting the partial globs-but-no-patterns case BEFORE FindName returning
+// false for every line becomes a mass false "not found" fail — never an unqualified
+// pass nor a mass not-found fail. The guard MUST stay either-absent (`||`): an AND
+// guard would let a globs-but-no-patterns pack slip through as "capability present"
+// and mass-fail every mandated test. When BOTH are declared (capability fully
+// present), a genuinely-missing mandated test stays a LOUD blocking failure.
+func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher) StepFunc {
 	return func(_ context.Context) StepResult {
 		mandated, err := ExtractMandatedTests(specDir)
 		if err != nil {
@@ -151,9 +260,16 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope) S
 			}
 		}
 
-		found := collectTestFuncNames(codeDir)
+		// EITHER-absent capability guard (REQ-005). Checked BEFORE the discovery walk
+		// so a partial config (globs but no patterns) cannot become a mass not-found
+		// fail misattributing the config gap to the codebase.
+		if !classifier.HasTestGlobs() || !matcher.HasPatterns() {
+			return testDiscoveryCapabilityAbsent(classifier.HasTestGlobs(), matcher.HasPatterns())
+		}
+
+		found := collectTestFuncNames(codeDir, classifier, matcher)
 		if scope != nil && scope.Mode != GateScopeModeAll {
-			mandated = ResolveMandatedTestPaths(mandated, codeDir)
+			mandated = ResolveMandatedTestPaths(mandated, codeDir, classifier, matcher)
 		}
 
 		var violations []Violation
@@ -190,20 +306,56 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope) S
 	}
 }
 
-// collectTestFuncNames walks codeDir recursively and finds all test function
-// names in *_test.go files using grep-level line matching.
-func collectTestFuncNames(codeDir string) map[string]string {
-	return collectTestFuncNamesScoped(codeDir, nil)
+// testDiscoveryCapabilityAbsent builds the DISTINCT, VISIBLE, NON-blocking warning
+// for REQ-005: when EITHER the test globs OR the test-name patterns are not declared
+// (capability is present only when BOTH are), the step cannot discover/verify
+// mandated tests, so it surfaces a warning that NAMES the missing input rather than
+// (a) silently passing or (b) mass-failing every mandated test as falsely "not
+// found". It reuses the EXISTING capability-absent convention (warning status,
+// ConfigErr false, exit 0) the traceability/coverage dimensions emit.
+func testDiscoveryCapabilityAbsent(hasGlobs, hasPatterns bool) StepResult {
+	var missing string
+	switch {
+	case !hasGlobs && !hasPatterns:
+		missing = "no toolchain pack declares classification.test globs (to find test files) NOR test_name_patterns (to extract test names)"
+	case !hasGlobs:
+		missing = "no toolchain pack declares classification.test globs to find test files"
+	default: // !hasPatterns
+		missing = "no toolchain pack declares test_name_patterns to extract test names (test files may be found, but no test name can be read from them)"
+	}
+	msg := "test-discovery capability absent: " + missing +
+		" — install/declare a toolchain pack carrying both classification.test globs and test_name_patterns. This advisory is non-blocking (exit 0); it is NOT a report that the mandated tests are missing from the codebase."
+	return StepResult{
+		StepName:   StepTestVerification,
+		Status:     "warning",
+		ConfigErr:  false,
+		Reason:     "test-discovery capability absent (" + missing + ")",
+		Violations: []Violation{{Rule: "test_verification_capability_absent", Message: msg, Severity: "warning"}},
+	}
 }
 
-func collectTestFuncNamesScoped(codeDir string, scope *GateScope) map[string]string {
-	found := make(map[string]string) // funcName → filePath
+// collectTestFuncNames walks codeDir recursively and finds all test names in
+// pack-declared TEST files (classifier.IsTestFile) by applying the pack-declared
+// TestNameMatcher per line — no baked `_test.go` walk, no baked `func Test` regex.
+func collectTestFuncNames(codeDir string, classifier SourceClassifier, matcher TestNameMatcher) map[string]string {
+	return collectTestFuncNamesScoped(codeDir, nil, classifier, matcher)
+}
+
+func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher) map[string]string {
+	found := make(map[string]string) // testName → filePath
 
 	_ = filepath.Walk(codeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
-		if !strings.HasSuffix(info.Name(), "_test.go") {
+		// Discovery keys on the pack-declared TEST globs (REQ-001), never a baked
+		// extension literal. The classifier matches on the project-relative path,
+		// so derive it from codeDir.
+		rel, relErr := filepath.Rel(codeDir, path)
+		if relErr != nil {
+			rel = path
+		}
+		if !classifier.IsTestFile(rel) {
 			return nil
 		}
 		if scope != nil && scope.Mode != GateScopeModeAll && !scope.Contains(path) {
@@ -218,8 +370,8 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope) map[string]str
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			if matches := funcPattern.FindStringSubmatch(scanner.Text()); len(matches) > 1 {
-				found[matches[1]] = path
+			if name, ok := matcher.FindName(scanner.Text()); ok {
+				found[name] = path
 			}
 		}
 		return nil
@@ -261,12 +413,22 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 		if err != nil {
 			continue // skip unparseable specs
 		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		}
 
-		if fm.Verification.TestCommand != "" && fm.Verification.CoverageThreshold > 0 {
+		// The extraction gate is LOOSENED (SPEC-044 REQ-003): a spec is extracted when
+		// it declares a test command AND either a scalar coverage_threshold OR a
+		// per-metric coverage_metric_thresholds map. A spec declaring only per-metric
+		// thresholds (no scalar) is therefore still extracted; a scalar-only spec
+		// extracts with a nil MetricThresholds, preserving today's behavior (REQ-004).
+		if fm.Verification.TestCommand != "" &&
+			(fm.Verification.CoverageThreshold > 0 || len(fm.Verification.CoverageMetricThresholds) > 0) {
 			specs = append(specs, SpecVerification{
 				SpecID:                fm.Number,
 				TestCommand:           fm.Verification.TestCommand,
 				CoverageThreshold:     fm.Verification.CoverageThreshold,
+				MetricThresholds:      fm.Verification.CoverageMetricThresholds,
 				File:                  path,
 				ImplementationPackage: fm.Implementation.Package,
 			})
@@ -294,6 +456,9 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 		fm, err := parseSpecFrontmatter(path)
 		if err != nil {
 			continue // skip unparseable specs
+		}
+		if isTerminalSpecStatus(fm.Status) {
+			continue // terminal specs are excluded from enforcement (ISSUE-031)
 		}
 
 		for _, c := range fm.Contracts {
@@ -328,8 +493,8 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 // ResolveMandatedTestPaths takes mandated tests and a map of found test functions
 // (from collectTestFuncNames) and fills in the FilePath field for each found test.
 // Returns the updated list.
-func ResolveMandatedTestPaths(mandated []MandatedTest, codeDir string) []MandatedTest {
-	found := collectTestFuncNames(codeDir)
+func ResolveMandatedTestPaths(mandated []MandatedTest, codeDir string, classifier SourceClassifier, matcher TestNameMatcher) []MandatedTest {
+	found := collectTestFuncNames(codeDir, classifier, matcher)
 	for i := range mandated {
 		if path, ok := found[mandated[i].FuncName]; ok {
 			mandated[i].FilePath = path

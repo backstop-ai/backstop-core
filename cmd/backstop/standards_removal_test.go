@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"go/parser"
 	"go/token"
 	"os"
@@ -143,25 +142,13 @@ func TestGate_SucceedsWithoutStandards(t *testing.T) {
 	restore := chdirTemp(t, dir)
 	defer restore()
 
-	runner := &recordingRunner{}
-	checker := &realCodeChecker{
-		projectRoot:   dir,
-		runnerForTest: runner,
-	}
-
-	violations, err := checker.runCheck(context.Background(), check.ScopeModeFile, []string{filepath.Join(dir, "main.go")})
-	if err != nil {
-		t.Fatalf("runCheck on a project with no compiled standards must succeed, got error: %v", err)
-	}
-	// A finding-free recording runner yields no violations; the point is the run
-	// did not error on the missing standards directory.
-	if len(violations) != 0 {
-		t.Errorf("expected no violations from a clean finding-free run, got %d: %+v", len(violations), violations)
-	}
-
 	// Routing survives the standards removal: check.LoadManifest over the empty
 	// rules dir falls back to the default manifest and still routes .go to the
-	// four passes (the invariant REQ-003 preserves).
+	// four passes (the invariant REQ-003 preserves). The former assertion that
+	// drove a *realCodeChecker.runCheck is removed by the SPEC-040 cutover (gate
+	// Step 2 / realCodeChecker no longer exist); the surviving, load-bearing
+	// invariant is that the manifest still routes .go cleanly without a compiled
+	// standards directory.
 	manifest, loadErr := check.LoadManifest(filepath.Join(dir, ".backstop", "rules"))
 	if loadErr != nil {
 		t.Fatalf("check.LoadManifest: %v", loadErr)

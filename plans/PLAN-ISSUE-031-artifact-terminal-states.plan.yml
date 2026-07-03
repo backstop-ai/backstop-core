@@ -1,0 +1,793 @@
+---
+plan_id: PLAN-ISSUE-031
+spec_id: ISSUE-031
+created: "2026-06-27"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... ./pkg/gate/... ./pkg/schema/... ./cmd/backstop/..."
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-031 (issue→plan reactive track) — adds terminal / end-of-life
+  status vocabulary to the four SDLC artifact types that lack it (spec, bundle,
+  plan, directive) plus issue, teaches the validators to accept + constrain the
+  new states, makes `backstop gate` EXCLUDE terminal-state artifacts from
+  enforcement, and reconciles the two confirmed victims (SPEC-001, SPEC-034).
+
+  The issue's Solution section is implementation-ready and authoritative; its
+  Resolved Design Decisions (DQ-1..DQ-4) are ratified. ISSUE-031 carries no
+  formal CLM array (it is at status `open`), so this plan defines plan-local
+  claims (CLM-001..CLM-020) that enumerate every schema-change row, validation
+  rule, gate-exclusion behavior, and reconciliation in the Solution. Mapping:
+
+    CLM-001  spec/v1 schema status enum += replaced, canceled, deprecated
+    CLM-002  bundle/v1 + bundle/v2 maturity enum += delivered, replaced,
+             canceled, deprecated
+    CLM-003  plan/v1 schema status enum += replaced, canceled
+    CLM-004  directive/v1 directive.status enum += replaced, canceled
+    CLM-005  issue/v1 issue.status enum += replaced, canceled (keep closed)
+    CLM-006  adr/v2, standard/v1, capability/v1 UNCHANGED (negative pin)
+    CLM-007  spec.go accepts the new spec terminal states (schema-driven enum)
+    CLM-008  plan.go planStatuses map accepts replaced, canceled
+    CLM-009  bundle.go maturityLevels map accepts delivered + retirement states
+    CLM-010  directive.go validStatuses map accepts replaced, canceled
+    CLM-011  issue.go issueStatuses map accepts replaced, canceled
+    CLM-012  status==replaced REQUIRES a well-formed typed replaced-by ref
+             (BUNDLE/SPEC/ISSUE/PLAN/DIR-NNN; array allowed); fail-loud when
+             missing/malformed (DQ-2)
+    CLM-013  status==canceled|deprecated accept an OPTIONAL free-text reason;
+             validation never requires it (DQ-2)
+    CLM-014  terminal-state artifacts are EXEMPT from the maturity / required-
+             section / claim-completeness rules that only apply to live work
+             (a replaced spec needs no complete claims; a terminal bundle is
+             not held to defined-maturity section requirements)
+    CLM-015  gate mandated-test extraction EXCLUDES terminal-status specs
+             (DQ-1, the ~622-red fix)
+    CLM-016  gate contract_signature enforcement EXCLUDES terminal-status specs
+             (DQ-1)
+    CLM-017  gate reports an INFORMATIONAL count of excluded terminal artifacts
+             (not a warning) (DQ-1)
+    CLM-018  reconcile SPEC-001 status: active -> deprecated; validates clean +
+             is gate-excluded
+    CLM-019  reconcile SPEC-034 status: draft -> replaced, replaced-by:
+             BUNDLE-011; validates clean + is gate-excluded
+    CLM-020  deprecated is limited to spec + bundle; NOT added to plan,
+             directive, or issue (DQ-4 negative pin)
+
+  TESTING CONSTRAINT (sandbox): `go vet` is blocked in the sandbox; tests run via
+  `go test` directly. Middle-phase verification tasks therefore use
+  `backstop code check` (which the sandbox supports) and the implementer runs
+  `go test` for the inner loop. The FINAL phase runs the full `backstop gate`
+  over the REAL tree (not the sandbox) plus `backstop artifact validate`.
+
+  TERMINAL-STATE SET (the shared predicate the gate exclusion keys on):
+  replaced, canceled, deprecated. For specs this reads from the spec frontmatter
+  `status`. The single chokepoint is pkg/gate/step_testverify.go's
+  parseSpecFrontmatter / specFrontmatter (consumed by ExtractMandatedTests,
+  ExtractSpecVerifications, ExtractContractEntries) — add a Status field there and
+  filter at each Extract* site so BOTH the mandated-test step and the contract
+  step are gated by one source of truth, with the excluded count returned for the
+  informational gate line.
+
+  RECONCILIATION ROUTING: the SPEC-001 / SPEC-034 status edits in Phase 5 are
+  artifact edits that route through the spec-author agent at implementation time
+  (per the artifact-workflow rule: never hand-edit artifacts). The plan tasks
+  describe the target state + the validate/gate-exclusion proof; they do NOT
+  authorize hand-editing the .spec.md frontmatter.
+
+  STRUCTURE:
+    Phase 1: Schema enum additions (all artifacts/*/schema.json) — pure data,
+             with a schema-loading test, then verify.
+    Phase 2: Validator acceptance of the new states (spec/plan/bundle/directive/
+             issue) — TDD, runs in parallel-disjoint validator files.
+    Phase 3: replaced-by enforcement, reason-optional, and terminal-state
+             exemption from live-work requirements — TDD.
+    Phase 4: Gate exclusion of terminal-state artifacts + informational count
+             (the load-bearing ~622-red fix) — TDD.
+    Phase 5: Reconcile SPEC-001 + SPEC-034 (via spec-author) and verify the gate
+             now excludes them.
+    Phase 6: Comprehensive final verification — backstop gate + artifact validate.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Schema enum additions
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Add Terminal-State Vocabulary to Artifact Schemas"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Schema-load tests asserting the new terminal states are present in each schema enum"
+        description: |
+          RED phase. Add tests that load each modified schema JSON via pkg/schema
+          and assert its status/maturity enum now contains the new terminal
+          values, AND that the unchanged schemas (adr/v2, standard/v1,
+          capability/v1) are NOT modified (CLM-006 negative pin). These tests
+          fail until TASK-002 edits the schema files.
+
+          Assert, per the issue's per-type table:
+            - spec/v1 status enum contains "replaced", "canceled", "deprecated"
+              (CLM-001) and still contains the originals (draft,
+              ready-for-implementation, implemented).
+            - bundle/v1 AND bundle/v2 status.maturity enum contains "delivered",
+              "replaced", "canceled", "deprecated" (CLM-002) plus the originals.
+            - plan/v1 status enum contains "replaced", "canceled" and NOT
+              "deprecated" (CLM-003 + CLM-020 negative).
+            - directive/v1 directive.status enum contains "replaced", "canceled"
+              and NOT "deprecated" (CLM-004 + CLM-020 negative).
+            - issue/v1 issue.status enum contains "replaced", "canceled", still
+              contains "closed", and NOT "deprecated" (CLM-005 + CLM-020).
+            - adr/v2, standard/v1, capability/v1 enums are byte-for-byte
+              unchanged vs. their committed values (CLM-006).
+
+          Mandated test names: TestSchema_SpecV1_HasTerminalStates,
+          TestSchema_BundleV1V2_HasDeliveredAndRetirementStates,
+          TestSchema_PlanV1_HasRetirementStatesNoDeprecated,
+          TestSchema_DirectiveV1_HasRetirementStatesNoDeprecated,
+          TestSchema_IssueV1_HasRetirementStatesKeepsClosed,
+          TestSchema_AdrStandardCapability_Unchanged.
+          Place in pkg/schema/terminal_states_test.go.
+        files:
+          - pkg/schema/terminal_states_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-020
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Add terminal-state values to the spec/bundle/plan/directive/issue schema enums"
+        description: |
+          GREEN phase. Edit the schema JSON files to add the terminal-state
+          vocabulary exactly per the issue's per-type table. NO other schema
+          change; do not touch adr/v2, standard/v1, capability/v1.
+
+            - artifacts/spec/v1/schema.json: add "replaced", "canceled",
+              "deprecated" to metadata.properties.status.enum (CLM-001).
+            - artifacts/bundle/v1/schema.json AND
+              artifacts/bundle/v2/schema.json: add "delivered" (success
+              terminal) plus "replaced", "canceled", "deprecated" to
+              nested_blocks.status.properties.maturity.enum (CLM-002).
+            - artifacts/plan/v1/schema.json: add "replaced", "canceled" to
+              metadata.properties.status.enum (CLM-003). Do NOT add
+              "deprecated" (CLM-020).
+            - artifacts/directive/v1/schema.json: add "replaced", "canceled" to
+              nested_blocks.directive.properties.status.enum (CLM-004). Do NOT
+              add "deprecated" (CLM-020).
+            - artifacts/issue/v1/schema.json: add "replaced", "canceled" to
+              nested_blocks.issue.properties.status.enum, keep "closed"
+              (CLM-005). Do NOT add "deprecated" (CLM-020).
+
+          Update each schema's "description" / status field description prose
+          only where it enumerates allowed values, to keep the doc honest. This
+          turns TASK-001 green. Depends on the schema-load test task (TDD).
+        files:
+          - artifacts/spec/v1/schema.json
+          - artifacts/bundle/v1/schema.json
+          - artifacts/bundle/v2/schema.json
+          - artifacts/plan/v1/schema.json
+          - artifacts/directive/v1/schema.json
+          - artifacts/issue/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-020
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify schema enum additions via backstop code check"
+        description: |
+          Fast inner-loop verification. Run `backstop code check` to confirm the
+          schema JSON edits parse, the schema-load tests from TASK-001 now pass,
+          and no other package regressed. Use the backstop CLI surface only — do
+          NOT prescribe raw `go test` / `go vet` (vet is sandbox-blocked).
+          Confirms CLM-001..CLM-006 and CLM-020 at the schema layer.
+        files:
+          - pkg/schema/terminal_states_test.go
+          - artifacts/spec/v1/schema.json
+          - artifacts/bundle/v2/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-020
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Validators accept the new terminal states
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Validators Accept Terminal States"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Validator-acceptance tests: each new terminal state validates as a legal status"
+        description: |
+          RED phase. Add fixture-driven tests asserting each validator now
+          ACCEPTS the new terminal status values (no spec/invalid-status,
+          plan/invalid-status, bundle/maturity, directive/invalid-status,
+          issue/invalid-status violation is raised). For replaced-status
+          fixtures, include a well-formed replaced-by so this acceptance test is
+          not entangled with the Phase-3 replaced-by enforcement.
+
+            - spec.go: a spec with status "deprecated" and one with "canceled"
+              validate without a spec/invalid-status violation; a "replaced"
+              spec WITH a valid replaced-by validates clean (CLM-007).
+            - plan.go: a plan with status "replaced" (valid replaced-by) and one
+              with "canceled" validate without plan/invalid-status (CLM-008).
+            - bundle.go: a bundle with maturity "delivered", "canceled",
+              "deprecated", and "replaced" (valid replaced-by) validate without a
+              maturity violation (CLM-009).
+            - directive.go: a directive with status "replaced" (valid
+              replaced-by) and one with "canceled" validate without
+              directive/invalid-status (CLM-010).
+            - issue.go: an issue with status "replaced" (valid replaced-by) and
+              one with "canceled" validate without issue/invalid-status, and
+              "closed" still validates (CLM-011).
+
+          Mandated test names: TestValidateSpec_AcceptsTerminalStates,
+          TestValidatePlan_AcceptsRetirementStates,
+          TestValidateBundle_AcceptsDeliveredAndRetirementMaturity,
+          TestValidateDirective_AcceptsRetirementStates,
+          TestValidateIssue_AcceptsRetirementStatesKeepsClosed.
+          Add fixtures under pkg/validate/testdata/terminal/. These tests fail
+          until TASK-005..TASK-007 land. Depends only on the schema phase
+          (TASK-003) so the loaded schema enums back the spec validator.
+        files:
+          - pkg/validate/terminal_acceptance_test.go
+          - pkg/validate/testdata/terminal/spec-deprecated.spec.md
+          - pkg/validate/testdata/terminal/plan-replaced.plan.yml
+          - pkg/validate/testdata/terminal/bundle-delivered.bundle.md
+          - pkg/validate/testdata/terminal/directive-canceled.directive.md
+          - pkg/validate/testdata/terminal/issue-replaced.issue.md
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Update plan.go + directive.go hardcoded status maps to accept retirement states"
+        description: |
+          GREEN phase for the two simplest hardcoded maps. These two validators
+          live in disjoint files from TASK-006/TASK-007 so they are
+          parallel-eligible within the phase.
+
+            - pkg/validate/plan.go: add "replaced": true, "canceled": true to
+              the planStatuses map (currently {draft, ready, implementing,
+              completed}); update the two error-message strings that enumerate
+              the allowed statuses (CLM-008).
+            - pkg/validate/directive.go: add "replaced": true, "canceled": true
+              to the validStatuses map in validateDirectiveBlock (currently
+              {queued, active, specced, done}); update the directive/invalid-status
+              message (CLM-010).
+
+          Do NOT add "deprecated" to either (CLM-020). Turns the plan +
+          directive arms of TASK-004 green. Depends on TASK-004 (TDD).
+        files:
+          - pkg/validate/plan.go
+          - pkg/validate/directive.go
+        claims:
+          - CLM-008
+          - CLM-010
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Update bundle.go maturityLevels to accept delivered + retirement states"
+        description: |
+          GREEN phase for bundle maturity. pkg/validate/bundle.go: add
+          "delivered": true, "replaced": true, "canceled": true,
+          "deprecated": true to the maturityLevels map (currently {idea,
+          exploring, defined, ready}); update the maturity-enum error message
+          that lists allowed values (CLM-009). Disjoint file from TASK-005 and
+          TASK-007 — parallel-eligible. Turns the bundle arm of TASK-004 green.
+          Depends on TASK-004 (TDD).
+        files:
+          - pkg/validate/bundle.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-007
+        type: implementation
+        title: "Update issue.go issueStatuses to accept retirement states (keep closed)"
+        description: |
+          GREEN phase for issue status. pkg/validate/issue.go: add
+          "replaced": true, "canceled": true to the issueStatuses map (currently
+          {open, ready, in-progress, blocked, closed}), keeping "closed"
+          (CLM-011). Do NOT add "deprecated" (CLM-020). Decide whether the new
+          retirement states belong in the traceability-required set: they do
+          NOT — a replaced/canceled issue is terminal work that should not be
+          held to full REQ→CLM→test traceability (this is the issue-side of the
+          terminal exemption; the precise relaxation is asserted here and
+          extended for replaced-by in Phase 3). Disjoint file from TASK-005 and
+          TASK-006 — parallel-eligible. Turns the issue arm of TASK-004 green.
+          Depends on TASK-004 (TDD).
+        files:
+          - pkg/validate/issue.go
+        claims:
+          - CLM-011
+        depends_on:
+          - TASK-004
+
+      - id: TASK-008
+        type: verification
+        title: "Verify validator acceptance of terminal states via backstop code check"
+        description: |
+          Fast inner-loop verification. Run `backstop code check` to confirm the
+          plan/directive/bundle/issue validator edits build and that the
+          acceptance tests from TASK-004 pass across pkg/validate. Note: the
+          spec validator (CLM-007) is schema-driven (it reads StatusEnum loaded
+          in Phase 1), so the spec arm passes with no spec.go code change —
+          confirm that here. Use the backstop CLI surface only. Covers
+          CLM-007..CLM-011.
+        files:
+          - pkg/validate/plan.go
+          - pkg/validate/bundle.go
+          - pkg/validate/directive.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: replaced-by enforcement, optional reason, terminal exemption
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: replaced-by Enforcement, Optional reason, Terminal Exemption"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Tests for replaced-by enforcement, optional reason, and terminal-state exemption from live-work rules"
+        description: |
+          RED phase covering the three validation rules from DQ-2 + the Solution
+          terminal-exemption requirement.
+
+          replaced-by enforcement (CLM-012):
+            - A spec/plan/bundle/directive/issue with status (or maturity)
+              "replaced" and NO replaced-by field raises a fail-loud violation
+              (rule e.g. <type>/replaced-by-required).
+            - A "replaced" artifact whose replaced-by is malformed (not matching
+              ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$) raises a
+              <type>/replaced-by-malformed violation.
+            - A well-formed single ref (e.g. "BUNDLE-011") validates clean.
+            - An ARRAY of well-formed refs (multi-absorber) validates clean; an
+              array containing one malformed entry raises the malformed
+              violation.
+
+          optional reason (CLM-013):
+            - A "canceled" artifact WITH a free-text reason validates clean; one
+              WITHOUT reason ALSO validates clean (reason is never required).
+            - Same for "deprecated" on spec + bundle.
+
+          terminal exemption (CLM-014):
+            - A spec with status "replaced" (+ replaced-by) and NO claims / NO
+              complete Verification block does NOT raise the live-work
+              completeness violations (claim-completeness, claim-tests-empty,
+              etc.) that a draft/ready spec would.
+            - A bundle with maturity "deprecated" is NOT held to the
+              defined/ready required-section + requirements[] gates.
+            - An issue with status "replaced" is NOT held to the
+              closed/ready traceability requirement (REQ→CLM→tests).
+
+          Mandated test names: TestValidate_ReplacedRequiresReplacedBy,
+          TestValidate_ReplacedByMustBeTypedRef,
+          TestValidate_ReplacedByAcceptsArray,
+          TestValidate_CanceledDeprecatedReasonOptional,
+          TestValidateSpec_TerminalExemptFromClaimCompleteness,
+          TestValidateBundle_TerminalExemptFromMaturityGates,
+          TestValidateIssue_TerminalExemptFromTraceability.
+          Add fixtures under pkg/validate/testdata/terminal/. These fail until
+          TASK-010..TASK-011 land. Depends on the Phase-2 acceptance tests +
+          impls (the statuses must already be legal before enforcing the
+          conditional rules).
+        files:
+          - pkg/validate/terminal_rules_test.go
+          - pkg/validate/testdata/terminal/spec-replaced-no-replacedby.spec.md
+          - pkg/validate/testdata/terminal/spec-replaced-malformed.spec.md
+          - pkg/validate/testdata/terminal/bundle-deprecated-mingate.bundle.md
+          - pkg/validate/testdata/terminal/issue-replaced-no-traceability.issue.md
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Implement shared replaced-by enforcement + optional-reason helper and wire into all five validators"
+        description: |
+          GREEN phase for the conditional status rules. Add a shared helper (e.g.
+          validateRetirementFields in a new pkg/validate/terminal.go) that, given
+          an artifact's status/maturity and frontmatter:
+            - when status == "replaced": require a replaced-by field; accept a
+              single string OR a []string; each value MUST match
+              ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$. Emit
+              <type>/replaced-by-required (absent) or <type>/replaced-by-malformed
+              (bad ref) — fail-loud, error severity (CLM-012).
+            - when status == "canceled" or "deprecated": a "reason" field MAY be
+              present (any string) but is NEVER required — emit nothing for its
+              absence (CLM-013).
+          Wire this helper into Spec, Plan, Bundle, Directive, Issue validators,
+          passing each the type-specific rule prefix and the terminal-state set
+          appropriate to that type (deprecated only meaningful for spec/bundle).
+          This task edits the five validator files; it depends on TASK-009 (TDD)
+          AND on the Phase-2 impl tasks (TASK-005/006/007) because it edits the
+          SAME validator files (serializes the shared-file edit per D-081).
+        files:
+          - pkg/validate/terminal.go
+          - pkg/validate/spec.go
+          - pkg/validate/plan.go
+          - pkg/validate/bundle.go
+          - pkg/validate/directive.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-009
+          - TASK-005
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-011
+        type: implementation
+        title: "Exempt terminal-state artifacts from live-work completeness/maturity/traceability rules"
+        description: |
+          GREEN phase for the terminal exemption (CLM-014). Add a single
+          isTerminalStatus predicate (in pkg/validate/terminal.go) over
+          {replaced, canceled, deprecated} and guard the live-work-only
+          requirement checks so a terminal artifact is not held to them:
+            - spec.go: when status is terminal, SKIP the claim-completeness /
+              claim-tests-empty / claim→requirement live-work checks (a replaced
+              spec must validate with no/partial claims). Keep structural checks
+              (filename, status enum, replaced-by) active.
+            - bundle.go: when maturity is terminal, SKIP validateMaturityGates +
+              validateBundleRequirements (the defined/ready required-section and
+              requirements[] gates). Keep core bundle-block + replaced-by checks.
+            - issue.go: when status is terminal (replaced/canceled), exclude it
+              from the traceabilityRequired set so REQ→CLM→tests is not enforced.
+          This is a precise relaxation: a retired artifact validates cleanly
+          while live artifacts keep full rigor. Edits spec.go, bundle.go,
+          issue.go (subset of TASK-010's files) — depends on TASK-010 to
+          serialize the shared-file edits, and on TASK-009 (TDD).
+        files:
+          - pkg/validate/spec.go
+          - pkg/validate/bundle.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-014
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Verify replaced-by enforcement + exemption via backstop code check"
+        description: |
+          Fast inner-loop verification. Run `backstop code check` to confirm the
+          shared terminal helper + the five validator wirings + the exemption
+          guards build and that all Phase-3 tests (TASK-009) pass. Use the
+          backstop CLI surface only. Covers CLM-012, CLM-013, CLM-014.
+        files:
+          - pkg/validate/terminal.go
+          - pkg/validate/spec.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-010
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Gate excludes terminal-state artifacts (the ~622-red fix)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Gate Excludes Terminal-State Artifacts From Enforcement"
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Tests proving terminal-status specs are excluded from mandated-test + contract enforcement, with an informational excluded count"
+        description: |
+          RED phase for the load-bearing gate-exclusion behavior (DQ-1). Use
+          testdata spec fixtures: one ACTIVE spec mandating a test name that does
+          NOT exist (would normally fail test_verification) and declaring a
+          contract for a deleted symbol (would normally fail contract_signature),
+          plus a copy of the SAME spec marked status "replaced" (with valid
+          replaced-by) and another marked "deprecated".
+
+          Assert:
+            - ExtractMandatedTests over the fixture spec dir SKIPS specs whose
+              status is terminal (replaced/canceled/deprecated): a deprecated
+              spec's mandated tests are NOT returned, so its missing test does
+              NOT produce a test_verification failure (CLM-015).
+            - ExtractContractEntries (and ExtractSpecVerifications) likewise SKIP
+              terminal-status specs, so a replaced spec's dead contract is NOT
+              enforced (CLM-016).
+            - The active control spec is STILL extracted/enforced (proves the
+              filter is status-scoped, not a blanket skip).
+            - The extraction surfaces a COUNT of excluded terminal specs that the
+              gate can report (CLM-017) — assert the count equals the number of
+              terminal fixtures.
+
+          Mandated test names:
+          TestExtractMandatedTests_SkipsTerminalSpecs,
+          TestExtractContractEntries_SkipsTerminalSpecs,
+          TestExtractSpecVerifications_SkipsTerminalSpecs,
+          TestGateExclusion_DeprecatedSpecMandatedTestsNotEnforced,
+          TestGateExclusion_ReplacedSpecContractsNotEnforced,
+          TestGateExclusion_ReportsExcludedCount.
+          Place in pkg/gate/terminal_exclusion_test.go with fixtures under
+          pkg/gate/testdata/terminal/. Fails until TASK-014. Depends on Phase-3
+          (terminal vocabulary + validation must exist first).
+        files:
+          - pkg/gate/terminal_exclusion_test.go
+          - pkg/gate/testdata/terminal/spec-active-broken.spec.md
+          - pkg/gate/testdata/terminal/spec-deprecated-broken.spec.md
+          - pkg/gate/testdata/terminal/spec-replaced-broken.spec.md
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+      - id: TASK-014
+        type: implementation
+        title: "Add a Status field + terminal filter to the spec-frontmatter extraction chokepoint"
+        description: |
+          GREEN phase. pkg/gate/step_testverify.go is the single chokepoint:
+          specFrontmatter is parsed by parseSpecFrontmatter and consumed by
+          ExtractMandatedTests, ExtractSpecVerifications, and
+          ExtractContractEntries.
+            - Add `Status string \`yaml:"status"\`` to the specFrontmatter struct.
+            - Add an isTerminalSpecStatus(status) predicate over
+              {replaced, canceled, deprecated}.
+            - In ExtractMandatedTests, ExtractSpecVerifications, and
+              ExtractContractEntries: after parseSpecFrontmatter, if the status is
+              terminal, SKIP the spec (do not append its tests/verifications/
+              contracts) and increment an excluded counter (CLM-015 + CLM-016).
+            - Return / expose the excluded count so the gate command can report
+              it (e.g. add an ExtractMandatedTestsWithExcluded returning
+              (tests, excludedCount, err), or a shared CountTerminalSpecs(specDir)
+              helper used by the gate orchestration). Keep the existing exported
+              signatures working (add the count via a new function or a struct)
+              so other callers don't break.
+          This is the load-bearing change that drops the ~622 stale broken-promise
+          reds once specs are marked terminal. Depends on TASK-013 (TDD).
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Report the informational excluded-terminal-artifact count in the gate command output"
+        description: |
+          GREEN phase for the operator-facing count (CLM-017). In
+          cmd/backstop/gate.go, where the test_verification / contract steps are
+          built (specDir is computed at ~line 556 and ExtractSpecVerifications /
+          ExtractContractEntries are called), obtain the excluded-terminal count
+          (via the helper TASK-014 exposes) and emit an INFORMATIONAL line — e.g.
+          "N retired artifacts excluded" — NOT a warning, NOT a violation, and it
+          must not affect the gate verdict (retirement is deliberate, per DQ-1).
+          When the count is zero, emit nothing (no noise). This is a cmd-layer
+          presentation task gated on the pkg/gate exclusion logic.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-017
+        depends_on:
+          - TASK-014
+          - TASK-016
+
+      - id: TASK-016
+        type: test
+        title: "Command-level test asserting the gate prints the excluded count and stays green for a terminal-only broken artifact"
+        description: |
+          RED-then-green at the cmd layer for CLM-017. Add a cmd/backstop test
+          that runs the gate's test_verification + contract wiring over a fixture
+          tree containing a terminal (deprecated/replaced) spec with a broken
+          mandated test + dead contract, and asserts: (a) the gate output
+          contains the informational excluded-count line, (b) the excluded spec
+          produced NO test_verification / contract_signature failure, (c) the
+          count line does not flip the verdict to fail. Place in
+          cmd/backstop/gate_terminal_exclusion_test.go with a fixture spec under
+          a testdata dir. This is a test task (no production code) verifying the
+          TASK-015 cmd wiring end-to-end; depends on TASK-013 (the pkg-level test
+          foundation) per TDD ordering for test tasks.
+        files:
+          - cmd/backstop/gate_terminal_exclusion_test.go
+          - cmd/backstop/testdata/terminal/spec-deprecated-broken.spec.md
+        claims:
+          - CLM-017
+        depends_on:
+          - TASK-013
+
+      - id: TASK-017
+        type: verification
+        title: "Verify gate terminal-exclusion behavior via backstop code check"
+        description: |
+          Fast inner-loop verification. Run `backstop code check` to confirm the
+          step_testverify.go extraction filter, the gate.go count line, and both
+          the pkg/gate and cmd/backstop exclusion tests build and pass. Use the
+          backstop CLI surface only. Covers CLM-015, CLM-016, CLM-017.
+        files:
+          - pkg/gate/step_testverify.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-014
+          - TASK-015
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Reconcile the two confirmed victims (via spec-author)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Reconcile SPEC-001 and SPEC-034 to Terminal States"
+    tasks:
+      - id: TASK-018
+        type: refactor
+        title: "Reconcile SPEC-001 (active -> deprecated) and SPEC-034 (draft -> replaced, replaced-by BUNDLE-011) via the spec-author"
+        description: |
+          The two issue-mandated reconciliations, now unblocked by the terminal
+          vocabulary + validation + exemption. ROUTING: these are artifact edits
+          and MUST be made through the spec-author agent at implementation time
+          (per the artifact-workflow rule — never hand-edit a .spec.md). This
+          task describes the target state and the proof; it does NOT authorize
+          hand-editing frontmatter.
+
+            - SPEC-001 (specs/SPEC-001-standards-compiler.spec.md): change
+              status from "active" (currently INVALID — fails spec/invalid-status
+              today) to "deprecated". Rationale: the standards-compiler model is
+              strategically retired (ISSUE-030 / BUNDLE-011); no single named
+              successor, so deprecated (not replaced). After the change, the spec
+              validates clean — the terminal exemption (CLM-014) means its
+              pre-existing claim/requirement completeness failures no longer fire
+              (CLM-018).
+            - SPEC-034 (specs/SPEC-034-native-toolchain-engine-cutover.spec.md):
+              change status from "draft" to "replaced" and add
+              replaced-by: BUNDLE-011 (BUNDLE-011 REQ-008 mandates this
+              tombstoning; the deletion scope was absorbed there). The replaced-by
+              enforcement (CLM-012) is satisfied by the typed ref; the spec
+              validates clean (CLM-019).
+
+          This is a refactor of existing artifacts (modifying committed specs),
+          so it is typed refactor and depends on the validation work
+          (TASK-012 — replaced-by + exemption) and the gate-exclusion work
+          (TASK-017) that make the new states honest and gate-safe.
+        files:
+          - specs/SPEC-001-standards-compiler.spec.md
+          - specs/SPEC-034-native-toolchain-engine-cutover.spec.md
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-010
+          - TASK-011
+          - TASK-014
+          - TASK-015
+
+      - id: TASK-019
+        type: verification
+        title: "Verify SPEC-001 + SPEC-034 validate clean and are gate-excluded via backstop artifact validate + code check"
+        description: |
+          Verify the reconciliations. Run `backstop artifact validate` and
+          confirm SPEC-001 and SPEC-034 no longer appear in any failure listing
+          (SPEC-001's spec/invalid-status + claim failures are gone; SPEC-034
+          validates as a well-formed replaced spec). Run `backstop code check`
+          to confirm no code regressed. Confirm via the gate-exclusion path that
+          both specs' mandated tests + contracts are now skipped (they are
+          terminal) — i.e. they are counted among the excluded artifacts, not
+          enforced. Use the backstop CLI surface only. Covers CLM-018, CLM-019.
+        files:
+          - specs/SPEC-001-standards-compiler.spec.md
+          - specs/SPEC-034-native-toolchain-engine-cutover.spec.md
+        claims:
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Comprehensive final verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Comprehensive Final Verification"
+    tasks:
+      - id: TASK-020
+        type: verification
+        title: "Full kill chain — backstop gate + artifact validate, GREEN over the real tree"
+        description: |
+          Final-phase comprehensive verification of the whole change set, run
+          over the REAL tree (not the sandbox).
+
+          Because the plan touches .go files (pkg/schema, pkg/validate, pkg/gate,
+          cmd/backstop), run `backstop gate` (full kill chain: code check, test
+          verification, substantiveness, coverage, contracts) and confirm GREEN.
+          The gate run must demonstrate the load-bearing outcome: the ~622 stale
+          broken-promise reds from the removed-standards-compiler mandated tests +
+          deleted-pkg/compile contracts are GONE because SPEC-001 (deprecated) and
+          SPEC-034 (replaced) — and any other now-terminal specs — are excluded
+          from enforcement, with the informational excluded-count line present.
+
+          Because the change set also includes artifacts (the six schema JSON
+          files, the two reconciled specs, and this plan file), run
+          `backstop artifact validate` and confirm PLAN-ISSUE-031, the reconciled
+          specs, and all edited schemas validate clean with no failures.
+
+          This task covers both work categories (code + artifact) and depends on
+          the terminal validation, gate-exclusion, and reconciliation work.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/validate/terminal.go
+          - specs/SPEC-001-standards-compiler.spec.md
+          - plans/PLAN-ISSUE-031-artifact-terminal-states.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-011
+          - TASK-014
+          - TASK-015
+          - TASK-017
+          - TASK-018
+          - TASK-019

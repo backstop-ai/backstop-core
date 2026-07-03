@@ -1,0 +1,16 @@
+// Fixture: an injected GATE-SEMANTIC CheckType-keying site that is ABSENT from
+// the CheckTypeConsumerCatalog (SPEC-041 CLM-023). The completeness guard must
+// DISCOVER this site (an identity comparison that drives a scope/exemption
+// decision) and FAIL because no catalog entry covers it — proving the guard is
+// not a tautology. This file is .go.txt so it is NOT compiled into the package;
+// the guard scans it as a discovery-scope source fixture.
+package fixture
+
+import "github.com/bmanson/backstop-core/pkg/check"
+
+// dropMe is a gate-semantic keying site: it keys a scope/exemption decision on
+// CheckType identity. An unlisted site of this shape is a dropped gate step.
+func dropMe(v check.Violation) bool {
+	// Gate-semantic: a ProjectWide/scope decision keyed on CheckType identity.
+	return v.Pass == check.CheckTypeBuild
+}

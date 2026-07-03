@@ -132,6 +132,10 @@ func Spec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 		}
 	}
 
+	// 5b. Retirement fields — replaced-by required+typed when status==replaced;
+	// reason optional for canceled/deprecated (ISSUE-031 DQ-2).
+	specViolations = append(specViolations, validateRetirementFields(art, art.Metadata["status"], "spec")...)
+
 	// 6. Extension-specific required metadata (spec_version)
 	for _, key := range sch.ExtensionMetadata {
 		found := false
@@ -164,24 +168,30 @@ func Spec(art *artifact.ParsedArtifact, sch *schema.Schema) ValidationResult {
 		}
 	}
 
-	// 8. Verification block — level and threshold
-	specViolations = append(specViolations, validateVerification(art, "spec")...)
+	// Terminal-state exemption (ISSUE-031 CLM-014): a retired spec (replaced/
+	// canceled/deprecated) is not held to live-work completeness. Structural
+	// checks above (filename, slug, number, status enum, replaced-by, schema
+	// version) still apply; the completeness blocks below are skipped.
+	if !isTerminalStatus(art.Metadata["status"]) {
+		// 8. Verification block — level and threshold
+		specViolations = append(specViolations, validateVerification(art, "spec")...)
 
-	// 9. Implementation block — summary and package
-	specViolations = append(specViolations, validateImplementation(art, "spec")...)
+		// 9. Implementation block — summary and package
+		specViolations = append(specViolations, validateImplementation(art, "spec")...)
 
-	// 10. Requirements array — well-formed REQ-NNN entries
-	reqIDs := validateRequirements(art)
-	specViolations = append(specViolations, reqIDs.violations...)
+		// 10. Requirements array — well-formed REQ-NNN entries
+		reqIDs := validateRequirements(art)
+		specViolations = append(specViolations, reqIDs.violations...)
 
-	// 11. Claims array — well-formed CLM-NNN entries with valid REQ references
-	specViolations = append(specViolations, validateClaims(art, reqIDs.ids)...)
+		// 11. Claims array — well-formed CLM-NNN entries with valid REQ references
+		specViolations = append(specViolations, validateClaims(art, reqIDs.ids)...)
 
-	// 12. Contracts — provides/consumes API surface
-	specViolations = append(specViolations, validateContracts(art.Frontmatter, art.Filename, "spec")...)
+		// 12. Contracts — provides/consumes API surface
+		specViolations = append(specViolations, validateContracts(art.Frontmatter, art.Filename, "spec")...)
 
-	// 13. Capabilities — optional UC-NNN references
-	specViolations = append(specViolations, validateCapabilities(art.Frontmatter, art.Filename, "spec")...)
+		// 13. Capabilities — optional UC-NNN references
+		specViolations = append(specViolations, validateCapabilities(art.Frontmatter, art.Filename, "spec")...)
+	}
 
 	// 14. Review Questions — optional section content validation
 	specViolations = append(specViolations, validateReviewQuestions(art)...)

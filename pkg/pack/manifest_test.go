@@ -845,6 +845,40 @@ content:
 	}
 }
 
+// TestManifest_DecodesTestNamePatterns (CLM-010): a pack.yml top-level
+// `test_name_patterns:` block listing one or more regexes decodes onto
+// pack.Manifest.TestNamePatterns (a string slice) in DECLARED ORDER — the
+// pack-declared test-name DATA the gate compiles into a TestNameMatcher,
+// replacing the deleted baked funcPattern. A sibling case asserts the field is
+// nil/zero when the block is absent (the field is OPTIONAL). The list is opaque
+// DATA here — no compilation occurs at parse time.
+func TestManifest_DecodesTestNamePatterns(t *testing.T) {
+	src := classificationManifestPrefix + `test_name_patterns:
+  - "^\\s*func\\s+(Test\\w+)\\s*\\("
+  - "(?:\\bit|\\btest|\\bdescribe)\\s*\\(\\s*['\"` + "`" + `]([^'\"` + "`" + `]+)"
+`
+	m, err := ParseManifest([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	want := []string{
+		`^\s*func\s+(Test\w+)\s*\(`,
+		"(?:\\bit|\\btest|\\bdescribe)\\s*\\(\\s*['\"`]([^'\"`]+)",
+	}
+	if !reflect.DeepEqual(m.TestNamePatterns, want) {
+		t.Fatalf("TestNamePatterns = %#v, want %#v (declared order, opaque DATA)", m.TestNamePatterns, want)
+	}
+
+	// Sibling: the block is OPTIONAL — absent => nil/zero, no parse error.
+	bare, err := ParseManifest([]byte(classificationManifestPrefix))
+	if err != nil {
+		t.Fatalf("a manifest with no test_name_patterns block must parse without error, got: %v", err)
+	}
+	if len(bare.TestNamePatterns) != 0 {
+		t.Errorf("absent block must yield zero-value (nil) TestNamePatterns, got %#v", bare.TestNamePatterns)
+	}
+}
+
 func TestParseManifestFile_Success(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pack.yml")

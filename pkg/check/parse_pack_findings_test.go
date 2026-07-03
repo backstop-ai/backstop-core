@@ -117,3 +117,51 @@ func TestParsePackFindings_SuppressedResultsDropped(t *testing.T) {
 		}
 	}
 }
+
+// TestParsePackFindings_FingerprintFromSarif asserts the content-based,
+// line-INDEPENDENT identity is carried off the SARIF result: partialFingerprints
+// (deterministically ordered) when present, else the region snippet text, else
+// empty (the coarse message-level fallback). This is what stops multiple same-rule
+// findings in one file from collapsing in the baseline.
+func TestParsePackFindings_FingerprintFromSarif(t *testing.T) {
+	const withFP = `{"version":"2.1.0","runs":[{"results":[
+		{"ruleId":"R","level":"error","message":{"text":"M"},
+		 "partialFingerprints":{"b":"222","a":"111"},
+		 "locations":[{"physicalLocation":{"artifactLocation":{"uri":"f.go"},"region":{"startLine":10,"snippet":{"text":"ignored := os.Remove(p)"}}}}]}
+	]}]}`
+	vs, err := ParsePackFindings([]byte(withFP))
+	if err != nil {
+		t.Fatalf("ParsePackFindings: %v", err)
+	}
+	if len(vs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(vs))
+	}
+	// partialFingerprints win over snippet, ordered by key for determinism.
+	if got := vs[0].Fingerprint; got != "a=111;b=222" {
+		t.Errorf("fingerprint from partialFingerprints = %q, want %q", got, "a=111;b=222")
+	}
+
+	const snippetOnly = `{"version":"2.1.0","runs":[{"results":[
+		{"ruleId":"R","level":"error","message":{"text":"M"},
+		 "locations":[{"physicalLocation":{"artifactLocation":{"uri":"f.go"},"region":{"startLine":10,"snippet":{"text":"  ignored := os.Remove(p)  "}}}}]}
+	]}]}`
+	vs2, err := ParsePackFindings([]byte(snippetOnly))
+	if err != nil {
+		t.Fatalf("ParsePackFindings(snippet): %v", err)
+	}
+	if got := vs2[0].Fingerprint; got != "ignored := os.Remove(p)" {
+		t.Errorf("fingerprint from snippet = %q, want trimmed snippet", got)
+	}
+
+	const neither = `{"version":"2.1.0","runs":[{"results":[
+		{"ruleId":"R","level":"error","message":{"text":"M"},
+		 "locations":[{"physicalLocation":{"artifactLocation":{"uri":"f.go"},"region":{"startLine":10}}}]}
+	]}]}`
+	vs3, err := ParsePackFindings([]byte(neither))
+	if err != nil {
+		t.Fatalf("ParsePackFindings(neither): %v", err)
+	}
+	if got := vs3[0].Fingerprint; got != "" {
+		t.Errorf("fingerprint with no partialFingerprints/snippet = %q, want empty", got)
+	}
+}
