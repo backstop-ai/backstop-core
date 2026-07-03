@@ -19,6 +19,14 @@ not repeat it. Keep this file short.
   to be gate-enforced — a dogfooded rule failing on baked language/tool literals in the gate
   path; until that exists, it is still law.) See MEMORY: [[feedback_zero_baked_checks]].
 
+## Packs (external by design — do not re-litigate)
+- **Packs live OUTSIDE core; the lock file is the durability boundary.** Every pack lives in
+  its own repo and installs into gitignored `.backstop/packs/` (like `node_modules`).
+  `backstop.lock` (tracked) is the durable record — you reinstall packs as needed. Gitignored
+  or absent pack content is **NOT** a durability gap, a "dark gate", or a defect. Never frame
+  external/uncommitted packs as a problem, never propose vendoring them into core, and never
+  treat "not committed" as "not durable." See MEMORY: [[feedback_packs_always_external]].
+
 ## Artifact workflow
 - **Two tracks only:** `issue → plan` (reactive) OR `bundle → spec → plan → implementation`
   (feature). Specs are NEVER standalone — always from a bundle. Issues NEVER get specs.
