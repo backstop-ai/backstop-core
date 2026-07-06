@@ -31,6 +31,7 @@ func baseManifest() *packval.PackManifest {
 				Rules: []packval.Rule{
 					{
 						ID:         "R1",
+						Engine:     "semgrep",
 						File:       "rules/r1.yml",
 						RiskClass:  "security",
 						Layer:      3,
@@ -60,7 +61,6 @@ func makePackDir(t *testing.T) string {
 	writeFile(t, dir, "fixtures/p.go", "package p")
 	writeFile(t, dir, "fixtures/n.go", "package p")
 	writeFile(t, dir, "validators/v.sh", "#!/bin/sh\nexit 0\n")
-	writeFile(t, dir, "go.mod", "module example.com/x\n\ngo 1.25.0\n")
 	writeFile(t, dir, "pack.yml", strings.TrimSpace(`
 name: acme/example
 version: 1.0.0
@@ -70,6 +70,7 @@ content:
   ruleset:
     rules:
       - id: R1
+        engine: semgrep
         file: rules/r1.yml
         risk_class: security
         layer: 3

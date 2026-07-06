@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$`)
+var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, never reassigned
 
 func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
@@ -29,10 +29,13 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 	} else if !semverRe.MatchString(pack.Version) {
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "version", Message: "version must be semver", ManifestPath: "version"})
 	}
+	// language is a REQUIRED documentation field, but the harness bakes NO
+	// language-specific gate: a pack in ANY language validates (ISSUE-019 / DIR-014).
+	// The retired go-only rejection made the harness structurally incapable of
+	// validating a non-Go pack — a baked language assumption, now removed. The field
+	// stays for docs; it is never used to reject a pack.
 	if pack.Language == "" {
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "required", Message: "language is required", ManifestPath: "language"})
-	} else if pack.Language != "go" {
-		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "language", Message: "unsupported language", ManifestPath: "language"})
 	}
 	if pack.Archetype == "" {
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "required", Message: "archetype is required", ManifestPath: "archetype"})

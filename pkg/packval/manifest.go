@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,6 +16,30 @@ type PackManifest struct {
 	Archetype  string            `json:"archetype" yaml:"archetype"`
 	Content    Content           `json:"content" yaml:"content"`
 	ToolConfig []ToolConfigEntry `json:"tool_config,omitempty" yaml:"tool_config,omitempty"`
+	// Engines is the pack's optional engine block: name -> binding, DATA the pack
+	// declares to add or OVERRIDE an execution engine (ISSUE-019). resolveEngine
+	// merges these OVER baseengines.Registry(), a pack-declared engine winning over a
+	// same-named base binding. The binding carries the command as DATA, so the harness
+	// bakes no tool name.
+	Engines map[string]engine.EngineBinding `json:"engines,omitempty" yaml:"engines,omitempty"`
+}
+
+// resolveEngine resolves an engine name against the base engine registry merged with
+// the pack's declared engines: block, a pack-declared engine WINNING over a same-named
+// base binding (ISSUE-019). An unknown engine — present in neither — fails loud via
+// engine.Registry.Lookup; the harness never silently skips or defaults.
+func resolveEngine(pack *PackManifest, name string) (engine.EngineBinding, error) {
+	reg := baseengines.Registry()
+	if pack != nil {
+		for n, binding := range pack.Engines {
+			reg[n] = binding
+		}
+	}
+	binding, err := reg.Lookup(name)
+	if err != nil {
+		return engine.EngineBinding{}, fmt.Errorf("resolving rule engine %q: %w", name, err)
+	}
+	return binding, nil
 }
 
 type Content struct {
@@ -28,6 +54,7 @@ type Ruleset struct {
 
 type Rule struct {
 	ID            string    `json:"id" yaml:"id"`
+	Engine        string    `json:"engine,omitempty" yaml:"engine,omitempty"`
 	File          string    `json:"file,omitempty" yaml:"file,omitempty"`
 	Tool          string    `json:"tool,omitempty" yaml:"tool,omitempty"`
 	RiskClass     string    `json:"risk_class,omitempty" yaml:"risk_class,omitempty"`
@@ -43,6 +70,7 @@ type Rule struct {
 type ToolConfigEntry struct {
 	ID         string  `json:"id,omitempty" yaml:"id,omitempty"`
 	RequiredBy string  `json:"required_by,omitempty" yaml:"required_by,omitempty"`
+	Engine     string  `json:"engine,omitempty" yaml:"engine,omitempty"`
 	Tool       string  `json:"tool" yaml:"tool"`
 	File       string  `json:"file" yaml:"file"`
 	RiskClass  string  `json:"risk_class,omitempty" yaml:"risk_class,omitempty"`
@@ -75,7 +103,7 @@ func (f *FixtureRef) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		BypassAttempt bool   `yaml:"bypass_attempt"`
 	}
 	if err := unmarshal(&obj); err != nil {
-		return err
+		return fmt.Errorf("unmarshal fixture ref: %w", err)
 	}
 	f.Path = obj.Path
 	f.BypassAttempt = obj.BypassAttempt
@@ -89,12 +117,18 @@ type PairsWith struct {
 }
 
 type Scaffold struct {
-	ID           string            `json:"id" yaml:"id"`
-	Path         string            `json:"path" yaml:"path"`
-	Tier         string            `json:"tier,omitempty" yaml:"tier,omitempty"`
-	TestCommand  string            `json:"test_command,omitempty" yaml:"test_command,omitempty"`
-	SampleConfig map[string]string `json:"sample_config,omitempty" yaml:"sample_config,omitempty"`
-	PairsWith    PairsWith         `json:"pairs_with,omitempty" yaml:"pairs_with,omitempty"`
+	ID   string `json:"id" yaml:"id"`
+	Path string `json:"path" yaml:"path"`
+	Tier string `json:"tier,omitempty" yaml:"tier,omitempty"`
+	// TestIndicator is the pack-DECLARED substring a skeleton scaffold's files must
+	// contain to count as carrying test structure (e.g. "func Test", "describe(",
+	// "@Test") — ISSUE-019. The skeleton check reads this from the manifest instead of
+	// hardwiring a Go "_test.go" / "func Test" scan, so the harness bakes no language
+	// convention. Empty => only the language-neutral "has structure" check applies.
+	TestIndicator string            `json:"test_indicator,omitempty" yaml:"test_indicator,omitempty"`
+	TestCommand   string            `json:"test_command,omitempty" yaml:"test_command,omitempty"`
+	SampleConfig  map[string]string `json:"sample_config,omitempty" yaml:"sample_config,omitempty"`
+	PairsWith     PairsWith         `json:"pairs_with,omitempty" yaml:"pairs_with,omitempty"`
 }
 
 type SDK struct {
@@ -104,7 +138,7 @@ type SDK struct {
 func ParseManifest(path string) (*PackManifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
 	}
 	var out PackManifest
 	if err := yaml.Unmarshal(data, &out); err != nil {

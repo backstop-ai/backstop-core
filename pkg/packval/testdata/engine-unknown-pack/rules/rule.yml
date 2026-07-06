@@ -1,0 +1,6 @@
+rules:
+  - id: r-unknown
+    pattern: whatever(...)
+    message: x
+    languages: [generic]
+    severity: ERROR

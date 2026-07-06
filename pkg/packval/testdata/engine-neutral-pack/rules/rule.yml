@@ -1,0 +1,6 @@
+rules:
+  - id: no-foobar
+    pattern: foobar(...)
+    message: foobar is banned
+    languages: [generic]
+    severity: ERROR

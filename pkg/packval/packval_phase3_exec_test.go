@@ -7,46 +7,50 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"github.com/bmanson/backstop-core/pkg/packval"
 )
 
 func TestPackVal_DefaultExecutorImplementsInterface(t *testing.T) {
-	var _ packval.FixtureExecutor = &packval.DefaultExecutor{}
-}
-func TestPackVal_MockExecutorSemgrep(t *testing.T) {
-	m := &packval.MockExecutor{SemgrepFn: func(_, _, _ string) (packval.ExecutionResult, error) {
-		return packval.ExecutionResult{Passed: true}, nil
-	}}
-	r, _ := m.RunSemgrep("", "", "")
-	if !r.Passed {
-		t.Fatal("expected pass")
+	// Compile-time assertion that DefaultExecutor satisfies the interface:
+	// this blank assignment fails to compile if it ever stops satisfying it.
+	var _ packval.FixtureExecutor = (*packval.DefaultExecutor)(nil) // nosemgrep: go.core.no-global-mutable-state — blank compile-time interface assertion, not mutable state
+	// Runtime behavior check: the validator seam returns a non-fired result for a
+	// missing validator rather than panicking.
+	d := &packval.DefaultExecutor{}
+	r, err := d.RunValidator(t.TempDir(), "/nonexistent/v.sh", []string{"x"})
+	if err != nil {
+		t.Fatalf("RunValidator should absorb exec failure, got err: %v", err)
+	}
+	if r.Passed {
+		t.Fatal("a missing validator must not report a passing result")
 	}
 }
-func TestPackVal_MockExecutorToolConfig(t *testing.T) {
-	m := &packval.MockExecutor{ToolConfigFn: func(_, _, _, _ string) (packval.ExecutionResult, error) {
+func TestPackVal_MockExecutorEngine(t *testing.T) {
+	m := &packval.MockExecutor{EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (packval.ExecutionResult, error) {
 		return packval.ExecutionResult{Passed: true}, nil
 	}}
-	r, _ := m.RunToolConfig("", "", "", "")
-	if !r.Passed {
-		t.Fatal("expected pass")
+	r, err := m.RunEngine("", engine.EngineBinding{}, nil)
+	if err != nil || !r.Passed {
+		t.Fatalf("expected pass, err=%v", err)
 	}
 }
 func TestPackVal_MockExecutorValidator(t *testing.T) {
 	m := &packval.MockExecutor{ValidatorFn: func(_, _ string, _ []string) (packval.ExecutionResult, error) {
 		return packval.ExecutionResult{Passed: true}, nil
 	}}
-	r, _ := m.RunValidator("", "", nil)
-	if !r.Passed {
-		t.Fatal("expected pass")
+	r, err := m.RunValidator("", "", nil)
+	if err != nil || !r.Passed {
+		t.Fatalf("expected pass, err=%v", err)
 	}
 }
 func TestPackVal_MockExecutorScaffoldTest(t *testing.T) {
 	m := &packval.MockExecutor{ScaffoldTestFn: func(_, _, _ string) (packval.ExecutionResult, error) {
 		return packval.ExecutionResult{Passed: true}, nil
 	}}
-	r, _ := m.RunScaffoldTest("", "", "")
-	if !r.Passed {
-		t.Fatal("expected pass")
+	r, err := m.RunScaffoldTest("", "", "")
+	if err != nil || !r.Passed {
+		t.Fatalf("expected pass, err=%v", err)
 	}
 }
 
@@ -124,21 +128,25 @@ func TestPackVal_P3_SandboxAllowsExecution(t *testing.T) {
 	}
 }
 
+// targetsAreNegative reports whether the dispatched targets reference a negative
+// fixture (named with an "n." segment). The generic RunEngine seam receives the
+// rule/config file plus the fixture path as targets, so the mock keys on the fixture.
+func targetsAreNegative(targets []string) bool {
+	for _, t := range targets {
+		if strings.Contains(t, "n.") {
+			return true
+		}
+	}
+	return false
+}
+
 func newFixtureMock(passPos bool, failNeg bool) *packval.MockExecutor {
 	return &packval.MockExecutor{
-		SemgrepFn: func(_, _, fixture string) (packval.ExecutionResult, error) {
-			isNeg := strings.Contains(fixture, "n.")
-			if isNeg {
+		EngineFn: func(_ string, _ engine.EngineBinding, targets []string) (packval.ExecutionResult, error) {
+			if targetsAreNegative(targets) {
 				return packval.ExecutionResult{Passed: !failNeg, Output: "R1"}, nil
 			}
 			return packval.ExecutionResult{Passed: passPos, Output: "R1"}, nil
-		},
-		ToolConfigFn: func(_, _, _, fixture string) (packval.ExecutionResult, error) {
-			isNeg := strings.Contains(fixture, "n.")
-			if isNeg {
-				return packval.ExecutionResult{Passed: false}, nil
-			}
-			return packval.ExecutionResult{Passed: true}, nil
 		},
 		ValidatorFn: func(_, _ string, fixtures []string) (packval.ExecutionResult, error) {
 			for _, f := range fixtures {
@@ -198,30 +206,21 @@ func TestPackVal_P3_SemgrepRuleIDMatch(t *testing.T) {
 		t.Fatal("expected pass")
 	}
 }
-func TestPackVal_P3_ToolConfigTempModule(t *testing.T) {
+func TestPackVal_P3_ToolConfigDispatchesGeneric(t *testing.T) {
+	// The tool_config fixture path routes through the generic engine dispatch, no
+	// baked Go module-tidy pre-flight (ISSUE-019).
 	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
+	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
 	dir := makePackDir(t)
 	writeFile(t, dir, ".golangci.yml", "")
-	goModBefore, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		t.Fatalf("read go.mod before: %v", err)
-	}
 	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
 	if r.Status != "pass" {
 		t.Fatalf("expected pass, got %s: %+v", r.Status, r.Errors)
 	}
-	goModAfter, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		t.Fatalf("read go.mod after: %v", err)
-	}
-	if string(goModBefore) != string(goModAfter) {
-		t.Fatal("go.mod was modified — temp copy not used")
-	}
 }
 func TestPackVal_P3_ToolConfigPositiveClean(t *testing.T) {
 	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
+	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
 	dir := makePackDir(t)
 	writeFile(t, dir, ".golangci.yml", "")
 	if packval.RunFixtures(m, dir, newFixtureMock(true, true)).Status != "pass" {
@@ -230,11 +229,13 @@ func TestPackVal_P3_ToolConfigPositiveClean(t *testing.T) {
 }
 func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
+	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
 	dir := makePackDir(t)
 	writeFile(t, dir, ".golangci.yml", "")
 	mock := newFixtureMock(true, true)
-	mock.ToolConfigFn = func(_, _, _, _ string) (packval.ExecutionResult, error) {
+	// Force the tool_config negative fixture to "fire" (Passed=true) so the
+	// negative-not-triggered guard trips.
+	mock.EngineFn = func(_ string, _ engine.EngineBinding, _ []string) (packval.ExecutionResult, error) {
 		return packval.ExecutionResult{Passed: true}, nil
 	}
 	if packval.RunFixtures(m, dir, mock).Status != "fail" {
@@ -243,31 +244,15 @@ func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 }
 func TestPackVal_P3_ToolConfigNegativeTriggered(t *testing.T) {
 	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
+	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
 	dir := makePackDir(t)
 	writeFile(t, dir, ".golangci.yml", "")
 	if packval.RunFixtures(m, dir, newFixtureMock(true, true)).Status != "pass" {
 		t.Fatal("pass")
 	}
 }
-func TestPackVal_P3_GoModTidyRuns(t *testing.T) {
-	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
-	dir := makePackDir(t)
-	writeFile(t, dir, ".golangci.yml", "")
-	if packval.RunFixtures(m, dir, newFixtureMock(true, true)).Status != "pass" {
-		t.Fatal("pass")
-	}
-}
-func TestPackVal_P3_GoModTidyFails(t *testing.T) {
-	m := baseManifest()
-	m.ToolConfig = []packval.ToolConfigEntry{{ID: "T1", Tool: "golangci-lint", File: ".golangci.yml", RiskClass: "style", Claims: m.Content.Ruleset.Rules[0].Claims}}
-	dir := makePackDir(t)
-	_ = os.Remove(filepath.Join(dir, "go.mod"))
-	if packval.RunFixtures(m, dir, newFixtureMock(true, true)).Status != "fail" {
-		t.Fatal("fail")
-	}
-}
+// The go-mod-tidy pre-flight tests are retired (ISSUE-019): packval bakes no Go
+// module-tidy step, so removing go.mod no longer fails a tool_config fixture run.
 func TestPackVal_P3_NegativeFixtureEngineLimitationHint(t *testing.T) {
 	r := packval.RunFixtures(baseManifest(), makePackDir(t), newFixtureMock(true, false))
 	found := false
@@ -398,9 +383,9 @@ func TestPackVal_P3_SkeletonScaffoldStructure(t *testing.T) {
 		t.Fatal("pass")
 	}
 }
-func TestPackVal_P3_SkeletonScaffoldTestNames(t *testing.T) {
+func TestPackVal_P3_SkeletonScaffoldTestIndicatorSatisfied(t *testing.T) {
 	m := baseManifest()
-	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", Path: "scaf", Tier: "skeleton"}}
+	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", Path: "scaf", Tier: "skeleton", TestIndicator: "func Test"}}
 	dir := makePackDir(t)
 	writeFile(t, dir, "scaf/template_test.go", "package x\n\nfunc TestExample(t *testing.T) {}\n")
 	r := packval.RunFixtures(m, dir, newFixtureMock(true, true))
@@ -408,8 +393,8 @@ func TestPackVal_P3_SkeletonScaffoldTestNames(t *testing.T) {
 		t.Fatalf("expected pass, got %s", r.Status)
 	}
 	for _, w := range r.Warnings {
-		if w.Check == "scaffold-skeleton-test-names" {
-			t.Fatal("should not warn when test function names are present")
+		if w.Check == "scaffold-skeleton-test-indicator" {
+			t.Fatal("should not warn when the declared test indicator is present")
 		}
 	}
 }

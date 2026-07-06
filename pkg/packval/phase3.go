@@ -3,10 +3,10 @@ package packval
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,6 +26,8 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 	}
 
 	for _, rule := range pack.Content.Ruleset.Rules {
+		var binding engine.EngineBinding
+		haveBinding := false
 		if rule.File != "" {
 			ruleFilePath := filepath.Join(packDir, rule.File)
 			ruleData, err := os.ReadFile(ruleFilePath)
@@ -44,11 +46,21 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 					Message: fmt.Sprintf("pack rule ID %q not found in rule file %s", rule.ID, rule.File),
 				})
 			}
+			// Resolve the rule's DECLARED engine to a binding (base registry merged
+			// with the pack's engines: block). An unknown engine fails loud, naming it
+			// — never a silent skip (ISSUE-019).
+			b, resErr := resolveEngine(pack, rule.Engine)
+			if resErr != nil {
+				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "engine-resolve", Rule: rule.ID, Message: resErr.Error()})
+			} else {
+				binding = b
+				haveBinding = true
+			}
 		}
 		for _, claim := range rule.Claims {
 			for _, f := range claim.Fixtures.Positive {
-				if rule.File != "" {
-					r, err := executor.RunSemgrep(packDir, rule.File, f.Path)
+				if rule.File != "" && haveBinding {
+					r, err := executor.RunEngine(packDir, binding, []string{rule.File, f.Path})
 					if err != nil || !r.Passed {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-positive", Rule: rule.ID, Claim: claim.ID, Message: "positive fixture failed"})
 					}
@@ -61,8 +73,8 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				}
 			}
 			for _, f := range claim.Fixtures.Negative {
-				if rule.File != "" {
-					r, err := executor.RunSemgrep(packDir, rule.File, f.Path)
+				if rule.File != "" && haveBinding {
+					r, err := executor.RunEngine(packDir, binding, []string{rule.File, f.Path})
 					if err != nil {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-negative", Rule: rule.ID, Claim: claim.ID, Message: "negative fixture run failed"})
 					} else if r.Passed {
@@ -105,19 +117,22 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		if tc.ID == "" {
 			continue
 		}
-		if err := goModTidyTempCopy(packDir); err != nil {
-			res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "go-mod-tidy", Rule: tc.ID, Message: err.Error()})
+		// A pack that needs setup before fixture execution declares it (e.g. on its
+		// engine binding); packval bakes NO Go module-tidy pre-flight (ISSUE-019).
+		binding, resErr := resolveEngine(pack, tc.Engine)
+		if resErr != nil {
+			res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "engine-resolve", Rule: tc.ID, Message: resErr.Error()})
 			continue
 		}
 		for _, claim := range tc.Claims {
 			for _, f := range claim.Fixtures.Positive {
-				r, err := executor.RunToolConfig(packDir, tc.Tool, tc.File, f.Path)
+				r, err := executor.RunEngine(packDir, binding, []string{tc.File, f.Path})
 				if err != nil || !r.Passed {
 					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-positive", Rule: tc.ID, Claim: claim.ID, Message: "tool_config positive failed"})
 				}
 			}
 			for _, f := range claim.Fixtures.Negative {
-				r, err := executor.RunToolConfig(packDir, tc.Tool, tc.File, f.Path)
+				r, err := executor.RunEngine(packDir, binding, []string{tc.File, f.Path})
 				if err != nil {
 					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-negative", Rule: tc.ID, Claim: claim.ID, Message: "tool_config negative failed"})
 				} else if r.Passed {
@@ -165,23 +180,26 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 			entries, err := os.ReadDir(path)
 			if err != nil || len(entries) == 0 {
 				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "scaffold-skeleton", Rule: scaffold.ID, Message: "skeleton scaffold missing structure"})
-			} else {
-				hasTestFunc := false
+			} else if scaffold.TestIndicator != "" {
+				// Language-neutral: a skeleton carries test structure if ANY of its
+				// files contains the pack-DECLARED indicator (ISSUE-019). No file-suffix
+				// or function-name convention is baked in.
+				hasIndicator := false
 				for _, entry := range entries {
-					if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+					if entry.IsDir() {
 						continue
 					}
 					data, readErr := os.ReadFile(filepath.Join(path, entry.Name()))
-					if readErr == nil && strings.Contains(string(data), "func Test") {
-						hasTestFunc = true
+					if readErr == nil && strings.Contains(string(data), scaffold.TestIndicator) {
+						hasIndicator = true
 						break
 					}
 				}
-				if !hasTestFunc {
+				if !hasIndicator {
 					res.Warnings = append(res.Warnings, ValidationWarning{
 						Phase:   res.Phase,
-						Check:   "scaffold-skeleton-test-names",
-						Message: "skeleton scaffold has no test function names in _test.go files",
+						Check:   "scaffold-skeleton-test-indicator",
+						Message: "skeleton scaffold has no file containing the pack-declared test indicator",
 					})
 				}
 			}
@@ -200,45 +218,6 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		res.Status = "fail"
 	}
 	return res
-}
-
-func goModTidyTempCopy(packDir string) error {
-	tmp, err := os.MkdirTemp("", "packval-tidy-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	if err := copyDir(packDir, tmp); err != nil {
-		return err
-	}
-	cmd := exec.Command("go", "mod", "tidy")
-	cmd.Dir = tmp
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("go mod tidy failed: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode())
-	})
 }
 
 // semgrepFileContainsRuleID parses a semgrep YAML rule file and checks

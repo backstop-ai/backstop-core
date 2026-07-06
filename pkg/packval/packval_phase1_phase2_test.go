@@ -62,7 +62,10 @@ func TestPackVal_ParseManifestMissingFile(t *testing.T) {
 }
 func TestPackVal_ParseManifestRulesExtracted(t *testing.T) {
 	dir := makePackDir(t)
-	m, _ := packval.ParseManifest(filepath.Join(dir, "pack.yml"))
+	m, err := packval.ParseManifest(filepath.Join(dir, "pack.yml"))
+	if err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
 	if len(m.Content.Ruleset.Rules) == 0 {
 		t.Fatal("expected rules")
 	}
@@ -128,13 +131,19 @@ func TestPackVal_SkippedPhaseReason(t *testing.T) {
 	t.Fatal("expected at least one skipped phase")
 }
 func TestPackVal_TextFormat(t *testing.T) {
-	out, _ := packval.FormatResult(&packval.Result{Status: "pass"}, "text")
+	out, err := packval.FormatResult(&packval.Result{Status: "pass"}, "text")
+	if err != nil {
+		t.Fatalf("format: %v", err)
+	}
 	if !strings.Contains(out, "status") {
 		t.Fatal("text")
 	}
 }
 func TestPackVal_DefaultFormatJSON(t *testing.T) {
-	out, _ := packval.FormatResult(&packval.Result{Status: "pass"}, "")
+	out, err := packval.FormatResult(&packval.Result{Status: "pass"}, "")
+	if err != nil {
+		t.Fatalf("format: %v", err)
+	}
 	if !strings.Contains(out, `"status"`) {
 		t.Fatal("json default")
 	}
@@ -196,11 +205,12 @@ func TestPackVal_P1_InvalidVersion(t *testing.T) {
 		t.Fatal("expected fail")
 	}
 }
-func TestPackVal_P1_UnsupportedLanguage(t *testing.T) {
+func TestPackVal_P1_NonGoLanguageAccepted(t *testing.T) {
+	// The harness is language-neutral (ISSUE-019): a non-Go language is accepted.
 	m := baseManifest()
 	m.Language = "java"
-	if packval.RunStructural(m, makePackDir(t)).Status != "fail" {
-		t.Fatal("expected fail")
+	if packval.RunStructural(m, makePackDir(t)).Status != "pass" {
+		t.Fatal("expected pass for a non-Go pack (no language gate)")
 	}
 }
 func TestPackVal_P1_LanguageGoAccepted(t *testing.T) {

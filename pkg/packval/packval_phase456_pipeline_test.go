@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"github.com/bmanson/backstop-core/pkg/packval"
 )
 
@@ -256,7 +257,22 @@ func TestPackVal_CheckRunsManifestOnlyPhases(t *testing.T) {
 		}
 	}
 }
-func TestPackVal_CheckSkipsPhase3(t *testing.T) { TestPackVal_CheckRunsManifestOnlyPhases(t) }
+func TestPackVal_CheckSkipsPhase3(t *testing.T) {
+	dir := makePackDir(t)
+	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "check"}).Run()
+	sawManifestPhase := false
+	for _, ph := range r.Phases {
+		if ph.Phase == "phase3-fixtures" && ph.Status != "skipped" {
+			t.Fatal("phase3 fixtures must not execute in check mode")
+		}
+		if ph.Phase == "phase1-structural" {
+			sawManifestPhase = true
+		}
+	}
+	if !sawManifestPhase {
+		t.Fatal("check mode must still run the manifest-only phases")
+	}
+}
 func TestPackVal_TestRunsAllSixPhases(t *testing.T) {
 	dir := makePackDir(t)
 	p := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "test", Executor: &packval.MockExecutor{}})
@@ -302,7 +318,7 @@ content:
 }
 func TestPackVal_EarlyTermination_P3FailSkipsP4P5P6(t *testing.T) {
 	dir := makePackDir(t)
-	mock := &packval.MockExecutor{SemgrepFn: func(_, _, _ string) (packval.ExecutionResult, error) {
+	mock := &packval.MockExecutor{EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (packval.ExecutionResult, error) {
 		return packval.ExecutionResult{Passed: false}, nil
 	}}
 	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "test", Executor: mock}).Run()
@@ -372,6 +388,7 @@ content:
   ruleset:
     rules:
       - id: R1
+        engine: semgrep
         file: rules/r1.yml
         risk_class: security
         layer: 1
@@ -400,9 +417,15 @@ func TestPackVal_Idempotent(t *testing.T) {
 }
 func TestPackVal_NoSideEffects(t *testing.T) {
 	dir := makePackDir(t)
-	before, _ := os.ReadFile(filepath.Join(dir, "pack.yml"))
+	before, err := os.ReadFile(filepath.Join(dir, "pack.yml"))
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
 	_ = packval.NewPipeline(dir, packval.PipelineOptions{Mode: "check"}).Run()
-	after, _ := os.ReadFile(filepath.Join(dir, "pack.yml"))
+	after, err := os.ReadFile(filepath.Join(dir, "pack.yml"))
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
 	if string(before) != string(after) {
 		t.Fatal("unexpected side effects")
 	}

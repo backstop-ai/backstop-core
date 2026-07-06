@@ -1,0 +1,490 @@
+---
+plan_id: PLAN-ISSUE-019
+spec_id: ISSUE-019
+created: "2026-07-06"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... -race"
+coverage_threshold: 90
+
+notes: |
+  DIR-014 thin-executor eradication, cluster E. De-Gos the pkg/packval pack-
+  authoring validation harness so it bakes ZERO tool/language knowledge. Accounts
+  for the 3 backstop/self findings on pkg/packval/executor.go (2) +
+  pkg/packval/phase3.go (1); the final gate confirms 3 -> 0.
+
+  ── ISSUE-TEXT STALENESS RECONCILED (for the user) ────────────────────────────
+  The issue (2026-06-21) states this work "follows SPEC-035 and must be planned
+  and implemented after SPEC-035 lands." That precondition is SATISFIED: SPEC-035
+  is delivered AND ISSUE-027 (delivered 2026-07-06) completed the engine model.
+  The shared substrate this plan builds on now EXISTS on main:
+    * pkg/pack/engine — EngineBinding type, Registry (name -> binding), Lookup
+      (fail-loud on unknown engine), and CheckToolAllowed (the pure trust-floor).
+    * pkg/baseengines.Registry() — the embedded base-engines pack loaded through
+      the normal pack parse path, yielding the 4 generic engines (semgrep,
+      ast-grep, sandbox, config-file) as DATA, not Go literals.
+  So the issue's "blocked on / sequence after SPEC-035" language is stale — this
+  plan proceeds and CONSUMES that substrate rather than reinventing an engine
+  model inside packval. The issue's line-number references have drifted by 1-2
+  lines but the sites are all present and verified (2026-07-06):
+    executor.go:10 (RunSemgrep interface method), :26 (exec.Command("semgrep")),
+    :36 (case "golangci-lint" switch); phase3.go:51,65 (RunSemgrep call sites),
+    :214 (exec.Command("go","mod","tidy") in goModTidyTempCopy), :171/:175
+    (_test.go / "func Test" skeleton scan); phase1.go:34 (Language != "go" gate);
+    manifest.go:13 (PackManifest.Language field — RETAINED for docs).
+
+  ── CONVERGENCE-PATH DECISION: (b), build on the low-level engine model ────────
+  The issue's key architectural question is HOW packval reaches the engine
+  dispatch, given pkg/packval CANNOT import cmd/backstop (where the gate's
+  runFindingsEngine / dispatchPackEngines live). Two options were weighed:
+    (a) EXTRACT the gate's runFindingsEngine into a pkg-level function both the
+        gate and packval call.
+    (b) packval builds on the LOWER-LEVEL engine.Registry / EngineBinding +
+        CheckToolAllowed + baseengines.Registry() directly, with its own thin
+        runner (reusing packval's existing SandboxedRun).
+  CHOSEN: (b). Justification:
+    1. CONFINEMENT. This plan's file scope stays inside pkg/packval/ (+ testdata).
+       (a) would edit cmd/backstop/pack_gate.go — the LIVE gate path the user
+       flagged as risky to disturb — for zero functional gain to the gate.
+    2. DATA-MODEL IMPEDANCE. packval has its OWN manifest model (PackManifest /
+       Rule / Claim / Fixtures), DISTINCT from pkg/pack.Manifest / pack.Rule that
+       runFindingsEngine is typed against. Reusing (a) forces a lossy
+       PackManifest -> pack.Manifest conversion for no benefit.
+    3. SEMANTIC MISMATCH. runFindingsEngine produces DIFF-SCOPED gate.Violations
+       and carries ~80% logic packval does not need (scope-shaping,
+       ExemptFromScopeFilter, project-wide toolchain targets, stdout_artifact,
+       strict-SARIF). packval's need is narrow: run one engine against ONE fixture
+       file and decide fired / did-not-fire. A thin runner is the right size.
+    4. THE INVARIANT WE CARE ABOUT IS SHARED EITHER WAY. "Zero baked tool/language
+       knowledge" is enforced by consuming engine.EngineBinding (engine-as-DATA) +
+       CheckToolAllowed (trust floor) + baseengines.Registry() (base engines as
+       DATA). (b) consumes exactly these, so there is NO parallel engine model and
+       NO baked tool literal — packval CONVERGES onto the shared engine DATA model,
+       which is precisely what the issue's "converge, don't invent a parallel
+       adapter" demands. Only the gate-specific ORCHESTRATION (legitimately gate-
+       only) is not shared.
+    5. NO IMPORT CYCLE. Verified: pkg/pack/engine and pkg/baseengines do NOT import
+       packval (engine's import_cycle_test guards this; the binding.go "packval"
+       token is a doc comment, not an import). packval already lives above pkg/pack.
+       So packval -> baseengines -> {pkg/pack, engine} is acyclic and safe.
+  This choice is NOT left open — (b) is clearly correct given the confinement
+  requirement. (a) was considered and rejected. If the user wants gate/packval to
+  literally share one runFindingsEngine later, that is a separate extract-and-share
+  refactor of the live gate path, out of scope here.
+
+  ── HOW packval RESOLVES A RULE -> BINDING (design direction for the impl) ─────
+  Mirror the gate's resolveEngineRegistry at packval's own layer: a rule (and a
+  tool_config entry) declares an ENGINE NAME; packval resolves it against a
+  registry = baseengines.Registry() merged with any pack-declared engines
+  (PackManifest gains an optional Engines map), a pack-declared engine WINNING over
+  a same-named base binding. The resolved EngineBinding.Command (pack DATA) + its
+  InputFlag + the fixture targets are handed to the thin runner, which FIRST calls
+  engine.CheckToolAllowed (the trust floor — an un-allowlisted / unpinned tool's
+  command is NEVER run, fail-loud) and THEN executes via packval.SandboxedRun. No
+  tool-name literal, no switch, anywhere in packval.
+
+  ── REAL-E2E EMPHASIS (recurring pack-provisioning integration gap) ────────────
+  packval has historically been tested through STUBBED executors (MockExecutor),
+  leaving the REAL DefaultExecutor dispatch unproven — the recurring integration
+  gap. This plan MANDATES a real un-stubbed path: unit-level fail-loud tests drive
+  the REAL DefaultExecutor + real resolver (no external tool needed for the
+  unknown-engine / un-allowlisted-tool fail-loud assertions), and the FINAL phase
+  runs `backstop pack test` over a REAL fixture pack (its Pipeline routes Mode
+  "test" -> RunFixtures -> DefaultExecutor, the genuine dispatch) in the gate env
+  where the base engine tool is installed. A missing/unknown engine MUST fail loud,
+  never silent-green.
+
+  ── PARALLELISM NOTE (why this plan is mostly sequential) ──────────────────────
+  pkg/packval is a SINGLE Go package: the whole package must compile at every
+  task boundary, and the FixtureExecutor interface change ripples through the
+  shared coverage_*_test.go files. That tightly constrains parallelism. The one
+  genuine parallel branch IS taken: Phase 2 (remove the Language gate, phase1.go +
+  coverage_error_paths_test.go + a new test file) is FILE-DISJOINT from Phase 1
+  (executor.go / manifest.go / phase3.go + its test files) and runs in parallel
+  with it. Phase 3 (Go-preflight removal + skeleton generalization) shares
+  phase3.go/manifest.go with Phase 1 AND coverage_error_paths_test.go with Phase 2,
+  so it is sequenced after both. This is honest given the package boundary, not
+  under-parallelization.
+
+  ── VERIFICATION VEHICLE ──────────────────────────────────────────────────────
+  `backstop code check` was DELETED (ISSUE-018). Middle-phase verification uses
+  scoped `go test ./pkg/packval/... -race`; the FINAL phase uses `backstop gate`
+  (full kill chain incl. artifact validation for this plan file + the backstop/self
+  no-baked dimension over executor.go + phase3.go) PLUS `backstop pack test` for
+  the real-e2e dispatch.
+
+  ── NON-SCOPE (per the issue) ─────────────────────────────────────────────────
+  pkg/packval/sandbox.go sandbox-exec (cluster G / ISSUE-020, security-elevated)
+  is OUT. This plan does NOT touch sandbox.go's sandboxing; it only REUSES the
+  existing SandboxedRun as the thin runner.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Converge the executor onto the shared engine model (sites 1 + 2 call-sites)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold a language-neutral testdata fixture pack for real-dispatch tests"
+        description: |
+          Create a small, language-NEUTRAL fixture pack under
+          pkg/packval/testdata/ that declares its engine as DATA (an engines: block
+          plus a rule that references the base semgrep engine by name and carries a
+          positive + negative fixture). This pack is the vehicle both the Phase-1
+          real-dispatch unit tests (TASK-002) and the Phase-4 real-e2e
+          `backstop pack test` (TASK-010) run against, proving the un-stubbed
+          DefaultExecutor path end to end.
+          Also add an "unknown-engine" variant whose rule names an engine that
+          exists in NEITHER baseengines.Registry() NOR the pack's engines: block, so
+          the fail-loud path (unknown engine -> error, never silent green) has a
+          real fixture. Keep the packs minimal DATA (pack.yml + a rule file + two
+          fixture files); no Go. Match the packval PackManifest shape
+          (name/version/language/archetype/content.ruleset.rules with claims +
+          fixtures, plus the new engines: block and per-rule engine: field).
+        files:
+          - pkg/packval/testdata/engine-neutral-pack/pack.yml
+          - pkg/packval/testdata/engine-neutral-pack/rules/rule.yml
+          - pkg/packval/testdata/engine-neutral-pack/fixtures/positive.txt
+          - pkg/packval/testdata/engine-neutral-pack/fixtures/negative.txt
+          - pkg/packval/testdata/engine-unknown-pack/pack.yml
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write failing tests: generic engine dispatch from a pack-declared binding, allowlist-gated, no tool literals"
+        description: |
+          New test file pkg/packval/engine_dispatch_test.go proving the de-Go'd
+          executor + phase3 resolution — RED until TASK-003 lands. Mandated names:
+            - TestExecutor_RunEngineDispatchesFromBinding (CLM-002): a
+              DefaultExecutor.RunEngine(packDir, binding, targets) call runs the
+              command taken from binding.Command (pack DATA) with binding.InputFlag +
+              the fixture targets appended — assert the constructed argv comes from
+              the binding, NOT a hardcoded tool name.
+            - TestExecutor_RunEngineGatedByAllowlist (CLM-002, CLM-009): a binding
+              whose tool is NOT on the trusted-tool allowlist (or is unpinned) is
+              NEVER executed — RunEngine returns a fail-loud error from
+              engine.CheckToolAllowed BEFORE the command is handed to the runner.
+            - TestExecutor_NoRunSemgrepMethod (CLM-004): source-grep executor.go and
+              assert the identifier "RunSemgrep" is absent from the FixtureExecutor
+              interface, DefaultExecutor, and MockExecutor (deletion assertion).
+            - TestExecutor_ToolConfigResolvesViaBindingNotSwitch (CLM-003): source-
+              grep executor.go and assert NO `case "golangci-lint"`, no
+              exec.Command("golangci-lint", ...) and no exec.Command("semgrep", ...)
+              literal remains; RunToolConfig routes through the same generic
+              binding + allowlist path.
+            - TestPhase3_ResolvesRuleEngineFromRegistry (CLM-005, CLM-009): RunFixtures
+              over the engine-neutral testdata pack (TASK-001) resolves the rule's
+              declared engine to a binding from baseengines.Registry() merged with the
+              pack's engines: block and dispatches through RunEngine — assert the
+              resolver was consulted (a pack-declared engine wins over a same-named
+              base binding).
+            - TestPhase3_UnknownEngineFailsLoud (CLM-009, CLM-010): RunFixtures over
+              the engine-unknown testdata pack, with the REAL DefaultExecutor (no
+              mock), yields a fail-loud error/validation failure naming the unknown
+              engine — never a silent pass.
+          Assertions must exercise real resolved values / real source content, not
+          canned plumbing. The fail-loud tests need no external tool installed.
+        files:
+          - pkg/packval/engine_dispatch_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Replace RunSemgrep + the golangci switch with generic engine dispatch; add the rule->binding resolver"
+        description: |
+          Make TASK-002 green. This is the tightly-coupled interface change; the
+          whole pkg/packval package must compile, so the executor edit, the phase3
+          fixture call-site repoint, the manifest additions, and the migration of the
+          existing tests that reference the removed symbols land TOGETHER.
+            - executor.go: REMOVE RunSemgrep from the FixtureExecutor interface,
+              DefaultExecutor, and MockExecutor. Add
+              RunEngine(packDir string, binding engine.EngineBinding, targets []string)
+              (ExecutionResult, error) in its place. DefaultExecutor.RunEngine splits
+              binding.Command, appends binding.InputFlag + targets, gates the run with
+              engine.CheckToolAllowed(allowlist, tool, binding.Provision version) —
+              fail-loud, command NEVER handed to the runner when un-allowlisted — then
+              executes via packval.SandboxedRun (the existing thin runner). REPLACE the
+              RunToolConfig `switch strings.ToLower(tool)` / case "golangci-lint" /
+              default with resolution of the tool_config's declared engine to a binding
+              and the SAME generic RunEngine path — delete both exec.Command literals.
+              MockExecutor gains an EngineFn seam and drops SemgrepFn.
+            - manifest.go: add an `Engine` field (engine name) to Rule and
+              ToolConfigEntry; add an optional `Engines` map (name ->
+              engine.EngineBinding) to PackManifest; add a resolver
+              (e.g. resolveEngine(pack, name) (engine.EngineBinding, error)) that merges
+              baseengines.Registry() with pack.Engines, pack-declared WINNING, and
+              fail-louds via Registry.Lookup on an unknown engine. Keep the Language
+              field untouched here (Phase 2 owns the gate).
+            - phase3.go: repoint the two RunSemgrep call sites (positive + negative
+              fixture) to resolve the rule's engine -> binding then call RunEngine with
+              [fixture path] as targets; repoint the two tool_config call sites to the
+              same generic path. Do NOT touch goModTidyTempCopy or the skeleton block
+              here (Phase 3 owns those) — leave them compiling.
+            - Migrate the existing tests that reference the removed symbols so the
+              package compiles: coverage_boost_test.go (RunSemgrep missing-binary,
+              RunToolConfig golangci/unsupported-tool, MockExecutor nil RunSemgrep) and
+              packval_phase3_exec_test.go (MockExecutorSemgrep, newFixtureMock SemgrepFn,
+              the golangci-lint tool_config cases) -> rewrite against RunEngine /
+              EngineFn and pack-declared engines.
+          No tool-name literal may remain in executor.go or the phase3 call sites.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/manifest.go
+          - pkg/packval/phase3.go
+          - pkg/packval/coverage_boost_test.go
+          - pkg/packval/packval_phase3_exec_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-009
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "go test the de-Go'd dispatch"
+        description: |
+          Inner-loop verification (backstop code check is deleted — use go test):
+          run `go test ./pkg/packval/... -race` and confirm TASK-002's tests are
+          green: RunEngine dispatches from the pack-declared binding, the allowlist
+          gate fail-louds, RunSemgrep + the golangci switch are gone, phase3 resolves
+          rule -> binding from the merged registry, and the unknown-engine fixture
+          fails loud through the REAL DefaultExecutor. Confirm the whole pkg/packval
+          package still builds after the interface change.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/phase3.go
+          - pkg/packval/engine_dispatch_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-009
+        depends_on:
+          - TASK-003
+
+  - id: phase-2
+    name: "Phase 2: Remove the Language hard gate (site 3) — parallel with Phase 1"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing tests: a non-Go pack is not rejected on the language field"
+        description: |
+          New test file pkg/packval/language_neutral_test.go proving the harness no
+          longer rejects packs by language — RED until TASK-006 lands. Mandated names:
+            - TestPhase1_NonGoLanguageNotRejected (CLM-008): RunStructural on a
+              PackManifest with Language "typescript" (and a second case "rust")
+              produces NO "unsupported language" ValidationError and NO error whose
+              ManifestPath is "language" for the value being non-go — the pack
+              validates structurally as far as the language field is concerned.
+            - TestPhase1_LanguageGateSourceGone (CLM-008): source-grep phase1.go and
+              assert the `!= "go"` comparison and the "unsupported language" message
+              are absent (deletion assertion) while the PackManifest.Language field
+              itself (manifest.go) is RETAINED.
+          This test file is FILE-DISJOINT from every Phase-1 file, so Phase 2 runs in
+          parallel with Phase 1.
+        files:
+          - pkg/packval/language_neutral_test.go
+        claims:
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-006
+        type: implementation
+        title: "Delete the Language != \"go\" rejection in phase1; keep the field for docs"
+        description: |
+          Make TASK-005 green. In phase1.go RunStructural, REMOVE the
+          `else if pack.Language != "go"` branch that appends the "unsupported
+          language" ValidationError (the hard ceiling that makes the harness
+          structurally incapable of validating a non-Go pack). The Language field on
+          PackManifest (manifest.go:13) is RETAINED — it may stay for documentation;
+          only the rejecting guard is deleted. Do NOT convert this into a different
+          hard gate (no "must be one of <list>"): the harness must not reject packs on
+          language. Migrate the now-obsolete assertion in coverage_error_paths_test.go
+          (TestPackVal_P1_UnsupportedLanguage currently expects rejection) to assert
+          the pack is ACCEPTED — the language value no longer produces an error.
+          Touch ONLY phase1.go + coverage_error_paths_test.go here; these are
+          file-disjoint from all Phase-1 files.
+        files:
+          - pkg/packval/phase1.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "go test the language-neutral structural phase"
+        description: |
+          Inner-loop verification (go test): run
+          `go test ./pkg/packval/... -run 'Phase1|Language|Structural' -race` and
+          confirm TASK-005's tests are green — a TypeScript/Rust pack passes the
+          language field check, the `!= "go"` branch is gone, and the migrated
+          coverage_error_paths_test.go case now asserts acceptance. Confirm the
+          package still builds.
+        files:
+          - pkg/packval/phase1.go
+          - pkg/packval/language_neutral_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-006
+
+  - id: phase-3
+    name: "Phase 3: Remove the Go pre-flight + generalize the skeleton scaffold check (site 2 remainder)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write failing tests: go-mod-tidy preflight gone; skeleton check reads a pack-declared indicator"
+        description: |
+          New test file pkg/packval/pack_declared_setup_test.go — RED until TASK-009
+          lands. Mandated names:
+            - TestPhase3_GoModTidyPreflightGone (CLM-006): source-grep phase3.go and
+              assert "goModTidyTempCopy" and exec.Command("go", "mod", "tidy") are
+              absent (deletion assertion); the tool_config fixture path no longer runs
+              a baked Go module-tidy pre-flight.
+            - TestScaffoldSkeleton_UsesPackDeclaredIndicator (CLM-007): a skeleton
+              scaffold whose pack-DECLARED test indicator (a new manifest field, e.g.
+              Scaffold.TestIndicator) is satisfied by a NON-Go file passes the skeleton
+              check; the check no longer hardwires "_test.go" / "func Test". Assert a
+              non-Go skeleton (e.g. a *.spec.ts containing the declared indicator) is
+              accepted, and that absence of the declared indicator warns GENERICALLY
+              (not with Go-specific wording).
+            - TestScaffoldSkeleton_NoGoTestLiteral (CLM-007): source-grep phase3.go and
+              assert the skeleton block no longer contains the "_test.go" suffix scan or
+              the "func Test" literal.
+          If removing goModTidyTempCopy orphans copyDir, a further assertion may
+          confirm copyDir is also removed; keep semgrepFileContainsRuleID (it parses a
+          rule file's ids and is engine-agnostic YAML, not a baked tool invocation).
+        files:
+          - pkg/packval/pack_declared_setup_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Remove goModTidyTempCopy + its call site; generalize the skeleton scaffold check to pack-declared data"
+        description: |
+          Make TASK-008 green.
+            - phase3.go: DELETE goModTidyTempCopy and its call site in the tool_config
+              loop (the `if err := goModTidyTempCopy(packDir); ...` block and the
+              "go-mod-tidy" ValidationError). If a pack genuinely needs setup before
+              fixture execution it declares it (e.g. a setup command on its
+              EngineBinding); packval no longer bakes a Go module-tidy step. If copyDir
+              becomes unused after this deletion, remove it too.
+            - phase3.go skeleton block: REPLACE the Go-hardwired scan
+              (strings.HasSuffix(name, "_test.go") + strings.Contains(data, "func Test"))
+              with a check driven by a pack-DECLARED indicator read from the manifest
+              (add Scaffold.TestIndicator, or an equivalent manifest field, in
+              manifest.go). When the scaffold declares no indicator, fall back to a
+              language-neutral "skeleton has structure" check (already present) and a
+              GENERIC warning — never Go-specific wording.
+            - manifest.go: add the pack-declared skeleton indicator field consumed
+              above. (manifest.go is shared with Phase 1 TASK-003 but Phase 3 is
+              sequenced strictly after Phase 1 via TASK-008's dependency, so the edits
+              do not race.)
+            - Migrate the goModTidyTempCopy assertions in coverage_error_paths_test.go
+              so the package compiles (that file is shared with Phase 2 TASK-006 but
+              Phase 3 is sequenced after Phase 2 via TASK-008's dependency).
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/manifest.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "go test the pack-declared setup + skeleton generalization"
+        description: |
+          Inner-loop verification (go test): run `go test ./pkg/packval/... -race`
+          and confirm TASK-008's tests are green — goModTidyTempCopy /
+          exec.Command("go","mod","tidy") are gone, the skeleton check keys off the
+          pack-declared indicator with a non-Go skeleton accepted, and no "_test.go" /
+          "func Test" literal remains in phase3.go. Confirm the whole package builds
+          and the previously-migrated Phase-1/Phase-2 tests still pass.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/manifest.go
+          - pkg/packval/pack_declared_setup_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+  - id: phase-4
+    name: "Phase 4: Real-e2e dispatch + full gate — self-findings 3->0"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Real-e2e `backstop pack test` + `backstop gate`: un-stubbed dispatch fires, self-findings 3->0, module green"
+        description: |
+          Final comprehensive verification — the real un-stubbed dispatch AND the full
+          kill chain. This is the load-bearing anti-regression against the recurring
+          pack-provisioning integration gap (packval proven only through mocks):
+            - REAL-E2E: run `backstop pack test pkg/packval/testdata/engine-neutral-pack`
+              — its Pipeline runs Mode "test" -> RunFixtures with the REAL
+              DefaultExecutor (nil executor default), so this exercises the genuine
+              generic dispatch (resolve rule -> binding from baseengines.Registry()
+              merged with the pack's engines:, allowlist-gate, run via SandboxedRun)
+              against a real fixture pack, in the gate env where the base engine tool is
+              installed. Confirm the positive fixture fires and the negative does not,
+              through the un-stubbed path — NOT a mock. Also run
+              `backstop pack test pkg/packval/testdata/engine-unknown-pack` and confirm
+              it FAILS LOUD naming the unknown engine (never silent green).
+            - `backstop gate --json` — the full kill chain (artifact validation for
+              this plan file, code verification, test verification, substantiveness,
+              coverage, contracts, and the backstop/self no-baked dimension).
+            - CONFIRM the backstop/self findings on pkg/packval/executor.go (2) +
+              pkg/packval/phase3.go (1) drop from 3 to 0 (the RunSemgrep / semgrep /
+              golangci-lint / go-mod-tidy tool-and-language literals are gone). Report
+              the before/after self-finding count for both files.
+            - `go test ./... -race` — the whole module builds and passes; no residual
+              tool-name or Go-language literal in the de-Go'd sites (grep-confirm
+              executor.go + phase3.go carry no "semgrep"/"golangci-lint"/"go mod tidy"/
+              "_test.go"/"func Test" invocation literals; phase1.go carries no
+              `!= "go"` gate).
+            - EXPLICITLY ENUMERATE any newly-lit gate reds for triage — a genuine new
+              red (e.g. a fixture pack now failing loud where it silently passed) is the
+              eradication doing its job, NOT a regression to paper over. Do NOT force
+              green by re-baking a tool literal or re-adding a language gate.
+        files:
+          - plans/PLAN-ISSUE-019-de-go-packval-harness.plan.yml
+          - pkg/packval/executor.go
+          - pkg/packval/phase3.go
+          - pkg/packval/phase1.go
+        claims:
+          - CLM-006
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-010

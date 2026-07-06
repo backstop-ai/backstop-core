@@ -1,0 +1,19 @@
+name: acme/engine-unknown
+version: 1.0.0
+language: generic
+archetype: enforcement
+content:
+  ruleset:
+    rules:
+      - id: r-unknown
+        engine: no-such-engine
+        file: rules/rule.yml
+        risk_class: correctness
+        layer: 2
+        claims:
+          - id: C1
+            fixtures:
+              positive:
+                - fixtures/positive.txt
+              negative:
+                - fixtures/negative.txt

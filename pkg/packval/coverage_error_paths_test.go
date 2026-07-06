@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // --- Phase 1 error paths ---
@@ -29,17 +31,14 @@ func TestPackVal_P1_InvalidSemver(t *testing.T) {
 	}
 }
 
-func TestPackVal_P1_UnsupportedLanguage(t *testing.T) {
+func TestPackVal_P1_NonGoLanguageAccepted(t *testing.T) {
+	// The harness is language-neutral (ISSUE-019): a non-Go language is NOT rejected.
 	m := &PackManifest{Name: "a/b", Version: "1.0.0", Language: "rust", Archetype: "enforcement", Content: Content{Ruleset: Ruleset{Rules: []Rule{{ID: "r1", RiskClass: "correctness"}}}}}
 	r := RunStructural(m, t.TempDir())
-	hasLangErr := false
 	for _, e := range r.Errors {
 		if e.Check == "language" {
-			hasLangErr = true
+			t.Errorf("language must not be rejected, got: %+v", e)
 		}
-	}
-	if !hasLangErr {
-		t.Error("expected language error for unsupported language")
 	}
 }
 
@@ -340,33 +339,8 @@ func TestPackVal_P3_SemgrepMatchingRule(t *testing.T) {
 	}
 }
 
-func TestPackVal_P3_CopyDir_NonexistentSource(t *testing.T) {
-	err := copyDir("/nonexistent/source", t.TempDir())
-	if err == nil {
-		t.Error("expected error for nonexistent source dir")
-	}
-}
-
-func TestPackVal_P3_CopyDir_ValidCopy(t *testing.T) {
-	src := t.TempDir()
-	os.WriteFile(filepath.Join(src, "file.txt"), []byte("hello"), 0o644)
-	os.MkdirAll(filepath.Join(src, "sub"), 0o755)
-	os.WriteFile(filepath.Join(src, "sub", "nested.txt"), []byte("world"), 0o644)
-
-	dst := t.TempDir()
-	err := copyDir(src, dst)
-	if err != nil {
-		t.Fatalf("copyDir: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(dst, "file.txt"))
-	if err != nil || string(data) != "hello" {
-		t.Error("expected copied file content to match")
-	}
-	data, err = os.ReadFile(filepath.Join(dst, "sub", "nested.txt"))
-	if err != nil || string(data) != "world" {
-		t.Error("expected nested file content to match")
-	}
-}
+// copyDir was the helper of the retired goModTidyTempCopy pre-flight; both were
+// removed with the baked Go module-tidy step (ISSUE-019), so their tests are retired.
 
 // --- Phase 3 RunFixtures error branches ---
 
@@ -406,18 +380,15 @@ func TestPackVal_P3_SemgrepPositiveFixtureFails(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644)
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
-		ID: "r1", File: "rule.yml",
+		ID: "r1", Engine: "semgrep", File: "rule.yml",
 		Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
 			Positive: []FixtureRef{{Path: "good.go"}},
 			Negative: []FixtureRef{{Path: "bad.go"}},
 		}}},
 	}}}}}
 	mock := &MockExecutor{
-		SemgrepFn: func(_, _, fp string) (ExecutionResult, error) {
-			if fp == "good.go" {
-				return ExecutionResult{Passed: false, ExitCode: 1}, nil // positive fails
-			}
-			return ExecutionResult{Passed: false, ExitCode: 1}, nil // negative triggers (correct)
+		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
+			return ExecutionResult{Passed: false, ExitCode: 1}, nil // positive fails / negative triggers
 		},
 	}
 	r := RunFixtures(m, dir, mock)
@@ -436,14 +407,14 @@ func TestPackVal_P3_SemgrepNegativeNotTriggered(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644)
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
-		ID: "r1", File: "rule.yml",
+		ID: "r1", Engine: "semgrep", File: "rule.yml",
 		Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
 			Positive: []FixtureRef{{Path: "good.go"}},
 			Negative: []FixtureRef{{Path: "bad.go"}},
 		}}},
 	}}}}}
 	mock := &MockExecutor{
-		SemgrepFn: func(_, _, fp string) (ExecutionResult, error) {
+		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
 			return ExecutionResult{Passed: true, ExitCode: 0}, nil // both pass — negative not triggered
 		},
 	}
@@ -511,10 +482,9 @@ func TestPackVal_P3_ValidatorNegativePassesUnexpectedly(t *testing.T) {
 
 func TestPackVal_P3_ToolConfigPositiveFails(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0o644)
 	m := &PackManifest{
 		ToolConfig: []ToolConfigEntry{{
-			ID: "tc1", Tool: "golangci-lint", File: ".golangci.yml",
+			ID: "tc1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml",
 			Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
 				Positive: []FixtureRef{{Path: "good.go"}},
 				Negative: []FixtureRef{{Path: "bad.go"}},
@@ -522,10 +492,7 @@ func TestPackVal_P3_ToolConfigPositiveFails(t *testing.T) {
 		}},
 	}
 	mock := &MockExecutor{
-		ToolConfigFn: func(_, _, _, fp string) (ExecutionResult, error) {
-			if fp == "good.go" {
-				return ExecutionResult{Passed: false, ExitCode: 1}, nil
-			}
+		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
 			return ExecutionResult{Passed: false, ExitCode: 1}, nil
 		},
 	}
@@ -543,10 +510,9 @@ func TestPackVal_P3_ToolConfigPositiveFails(t *testing.T) {
 
 func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0o644)
 	m := &PackManifest{
 		ToolConfig: []ToolConfigEntry{{
-			ID: "tc1", Tool: "golangci-lint", File: ".golangci.yml",
+			ID: "tc1", Engine: "config-file", Tool: "golangci-lint", File: ".golangci.yml",
 			Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
 				Positive: []FixtureRef{{Path: "good.go"}},
 				Negative: []FixtureRef{{Path: "bad.go"}},
@@ -554,7 +520,7 @@ func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 		}},
 	}
 	mock := &MockExecutor{
-		ToolConfigFn: func(_, _, _, _ string) (ExecutionResult, error) {
+		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
 			return ExecutionResult{Passed: true, ExitCode: 0}, nil
 		},
 	}
@@ -599,26 +565,6 @@ func TestPackVal_P3_MultiFileValidator(t *testing.T) {
 	}
 }
 
-// --- goModTidyTempCopy error path ---
-
-func TestPackVal_P3_GoModTidyCopy_NoGoMod(t *testing.T) {
-	dir := t.TempDir()
-	err := goModTidyTempCopy(dir)
-	// go mod tidy in a dir without go.mod may error — we just exercise the path
-	_ = err
-}
-
-func TestPackVal_P3_GoModTidyCopy_WithGoMod(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n\ngo 1.21\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644)
-	err := goModTidyTempCopy(dir)
-	if err != nil {
-		t.Logf("goModTidyTempCopy: %v (may fail without network, acceptable)", err)
-	}
-	// Verify original go.mod unchanged
-	data, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if string(data) != "module test\n\ngo 1.21\n" {
-		t.Error("go.mod was modified — should use temp copy")
-	}
-}
+// The goModTidyTempCopy baked Go module-tidy pre-flight was removed (ISSUE-019):
+// packval bakes no Go toolchain step, so its error-path tests are retired. A pack
+// that needs setup declares it on its engine binding.

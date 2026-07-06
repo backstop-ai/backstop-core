@@ -1,0 +1,32 @@
+name: acme/engine-neutral
+version: 1.0.0
+# Deliberately NON-Go: proves the harness gates a pack whose language is not "go"
+# (the Language field is docs-only after ISSUE-019 removes the != "go" gate).
+language: generic
+archetype: enforcement
+# Engines block: the engine is DATA. This re-declares "semgrep" (same name as a
+# base-engines binding) to prove pack-declared WINS over the base binding in the
+# merged registry. It mirrors the runnable base semgrep so real dispatch works.
+engines:
+  semgrep:
+    command: semgrep --sarif --quiet
+    input_mode: rule-flags
+    input_flag: "--config"
+    provision:
+      tool: semgrep
+      version: 1.96.0
+content:
+  ruleset:
+    rules:
+      - id: no-foobar
+        engine: semgrep
+        file: rules/rule.yml
+        risk_class: correctness
+        layer: 2
+        claims:
+          - id: C1
+            fixtures:
+              positive:
+                - fixtures/positive.txt
+              negative:
+                - fixtures/negative.txt

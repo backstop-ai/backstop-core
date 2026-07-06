@@ -4,6 +4,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // --- resultFromCmd coverage ---
@@ -147,15 +149,34 @@ func TestPackVal_AllRules_WithToolConfig(t *testing.T) {
 	}
 }
 
-func TestPackVal_DefaultExecutor_RunToolConfig_GolangciLint(t *testing.T) {
+// TestPackVal_DefaultExecutor_RunEngine_CleanRunNoFindings exercises the generic
+// engine dispatch when the (un-provisioned) command runs cleanly but emits no
+// findings: RunEngine reports Passed=false (did not fire) with no error — the
+// negative-fixture-clean path.
+func TestPackVal_DefaultExecutor_RunEngine_CleanRunNoFindings(t *testing.T) {
 	d := &DefaultExecutor{}
-	// golangci-lint likely not installed but exercises the "golangci-lint" branch
-	result, err := d.RunToolConfig(t.TempDir(), "golangci-lint", "config.yml", "fixture.go")
+	binding := engine.EngineBinding{Command: "true", InputMode: engine.InputModeNone}
+	result, err := d.RunEngine(t.TempDir(), binding, nil)
 	if err != nil {
-		t.Fatalf("RunToolConfig returned error: %v", err)
+		t.Fatalf("a clean run with no findings must not error: %v", err)
 	}
-	// Command will fail (no real config/fixture) but we exercised the code path
-	_ = result
+	if result.Passed {
+		t.Error("no findings must read as did-not-fire (Passed=false)")
+	}
+}
+
+// TestPackVal_DefaultExecutor_RunEngine_BadSarif surfaces a parse failure when the
+// engine emits non-SARIF bytes rather than reading it as a silent finding-free pass.
+func TestPackVal_DefaultExecutor_RunEngine_BadSarif(t *testing.T) {
+	d := &DefaultExecutor{}
+	binding := engine.EngineBinding{Command: "printf not-sarif", InputMode: engine.InputModeNone}
+	result, err := d.RunEngine(t.TempDir(), binding, nil)
+	if err == nil {
+		t.Fatal("expected a parse error when the engine emits non-SARIF output")
+	}
+	if result.Passed {
+		t.Error("unparseable output must not read as a fired result")
+	}
 }
 
 // --- MockExecutor nil fn branches ---
@@ -164,14 +185,9 @@ func TestPackVal_MockExecutor_NilFunctions(t *testing.T) {
 	m := &MockExecutor{}
 
 	// All nil fns should return default pass result
-	r1, err := m.RunSemgrep("", "", "")
+	r1, err := m.RunEngine("", engine.EngineBinding{}, nil)
 	if err != nil || !r1.Passed {
-		t.Error("nil SemgrepFn should return pass")
-	}
-
-	r2, err := m.RunToolConfig("", "", "", "")
-	if err != nil || !r2.Passed {
-		t.Error("nil ToolConfigFn should return pass")
+		t.Error("nil EngineFn should return pass")
 	}
 
 	r3, err := m.RunValidator("", "", nil)
@@ -187,34 +203,17 @@ func TestPackVal_MockExecutor_NilFunctions(t *testing.T) {
 
 // --- DefaultExecutor coverage (exercise error paths without real tools) ---
 
-func TestPackVal_DefaultExecutor_RunToolConfig_UnsupportedTool(t *testing.T) {
+func TestPackVal_DefaultExecutor_RunEngine_MissingBinary(t *testing.T) {
+	// A binding whose command names a non-existent binary: cmd.Run fails, stdout is
+	// empty, so there is no SARIF to parse — RunEngine reports the failure loud.
 	d := &DefaultExecutor{}
-	_, err := d.RunToolConfig("/tmp", "unknown-tool", "config.yml", "fixture.go")
+	binding := engine.EngineBinding{Command: "definitely-not-a-real-binary-xyz --go", InputMode: engine.InputModeNone}
+	result, err := d.RunEngine(t.TempDir(), binding, []string{"nonexistent"})
 	if err == nil {
-		t.Error("expected error for unsupported tool")
+		t.Fatal("expected error for missing binary with no SARIF output")
 	}
-	if !strings.Contains(err.Error(), "unsupported tool") {
-		t.Errorf("expected 'unsupported tool' error, got %q", err.Error())
-	}
-}
-
-func TestPackVal_DefaultExecutor_RunSemgrep_MissingBinary(t *testing.T) {
-	// This will fail because semgrep likely isn't installed in test env
-	// but it exercises the code path and resultFromCmd
-	d := &DefaultExecutor{}
-	result, err := d.RunSemgrep(t.TempDir(), "nonexistent.yml", "nonexistent.go")
-	// err should be nil (resultFromCmd absorbs exec errors)
-	if err != nil {
-		t.Fatalf("RunSemgrep returned error: %v", err)
-	}
-	// The command will fail (semgrep not found or bad args) but that's OK
-	// We just care that resultFromCmd handled it
-	if result.Passed && result.ExitCode == 0 {
-		// semgrep somehow ran — that's fine too
-		return
-	}
-	if result.ExitCode == 0 {
-		t.Error("expected non-zero exit for missing semgrep/bad args")
+	if result.Passed {
+		t.Error("missing binary must not read as a fired result")
 	}
 }
 
