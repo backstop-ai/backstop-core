@@ -6,13 +6,146 @@ issue:
   id: ISSUE-018
   title: "Remove confirmed-dead / vestigial baked-in code surfaced by the eradication audit"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-06"
 
 complexity:
   scope: cross-cutting
   uncertainty: exploratory
   risk: moderate
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/check/... ./pkg/validate/... ./cmd/backstop/... -race"
+
+implementation:
+  summary: >
+    Deleted the vestigial `backstop code check` command and the dead in-process
+    check engine (pkg/check Run/RunWith/registry/manifest routing) that only it
+    drove, preserving the live SARIF/coverage surface the gate's
+    dispatchPackEngines path depends on; trimmed the dead eslint/tsc/regex-lines
+    format parsers; reconciled the SPEC-041 CheckType-consumer catalog; and
+    exempted (not yet de-baked) the fileCategory `.go` literal via a scoped
+    neutral-spine marker, tracked onward as ISSUE-033.
+  package: pkg/check, cmd/backstop, pkg/validate
+
+requirements:
+  - id: REQ-001
+    text: >
+      The vestigial `backstop code check` command and its CLI registration
+      must be removed entirely — the CLI surface for it must resolve as
+      absent, not merely have its symbols orphaned.
+  - id: REQ-002
+    text: >
+      The dead in-process check engine (Engine/Run/RunWith, the
+      toolchain-executor registry, and manifest.go's file-extension routing)
+      reachable only from the deleted command must be deleted, while the live
+      SARIF/coverage surface consumed by the gate's dispatchPackEngines path
+      (ParsePackFindings, parseSarif, lookupParser, sarifFingerprint,
+      sarifSeverity, and the shared Violation/CheckType/CommandRunner/
+      ConfigError/CoverageRecord types) survives untouched.
+  - id: REQ-003
+    text: >
+      The dead output-format parsers (eslint-json, tsc, regex-lines) that
+      only the deleted toolchain-executor registry consumed must be trimmed
+      from formatParsers, clearing the associated self-pack baked-language
+      findings while the sarif entry remains the sole live format.
+  - id: REQ-004
+    text: >
+      The SPEC-041 CheckType-consumer catalog must be reconciled so its rows
+      for the deleted sites (C-4/C-6/C-7/C-8) are removed and its
+      completeness guard stays green, while the surviving live site (C-5)
+      remains correctly cataloged.
+  - id: REQ-005
+    text: >
+      The `fileCategory` `.go`-suffix baked-language literal in
+      pkg/validate/plan.go must no longer fire the self-pack
+      no-language-literal-on-neutral-spine finding, without changing its
+      classification behavior (`.go` still "code", non-Go still "").
+  - id: REQ-006
+    text: >
+      After the deletion, `go build ./...` and `go test ./...` must be clean,
+      and the gate's dispatchPackEngines path — which never used the deleted
+      command — must be unaffected.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: >
+      The `backstop code check` command and its `codeCmd` CLI registration
+      are removed from cmd/backstop; the `code check` subcommand resolves as
+      absent from the built root command.
+    tests:
+      - TestCodeCheckCommand_Removed
+      - TestCodeCheckSubcommand_AbsentFromCLI
+  - id: CLM-002
+    requirement: REQ-002
+    text: >
+      The dead in-process check engine (Engine/RunPasses/Run/RunWith/Options,
+      the toolchain-executor registry, and manifest.go's LoadManifest/RouteFile/
+      routeFileDefaults) is absent from non-test pkg/check source.
+    tests:
+      - TestInProcessCheckEngine_Removed
+  - id: CLM-003
+    requirement: REQ-002
+    text: >
+      The live SARIF/coverage shared surface (ParsePackFindings, parseSarif,
+      lookupParser, sarifFingerprint, sarifSeverity, and the shared Violation/
+      CheckType/CommandRunner/ConfigError/CoverageRecord types) survives the
+      deletion untouched and still parses a minimal SARIF document.
+    tests:
+      - TestSARIFSurface_Preserved
+      - TestSharedTypes_Preserved
+  - id: CLM-004
+    requirement: REQ-004
+    text: >
+      The SPEC-041 CheckTypeConsumerCatalog no longer carries rows for the
+      deleted sites (C-4 code_check.go, C-6 check.go:passOrder, C-7
+      registry.go:Entries, C-8 manifest.go:parseCheckType), while the
+      surviving C-5 site (parsers.go:CheckTypeFindings) remains correctly
+      tagged, and the completeness guard passes.
+    tests:
+      - TestCatalog_SurvivingSitesNotMistaggedDeleted
+  - id: CLM-005
+    requirement: REQ-005
+    text: >
+      fileCategory's `.go`-suffix literal carries a scoped
+      no-language-literal-on-neutral-spine exemption marker (tracked onward
+      as ISSUE-033 for the language-neutral glob-sourced fix), with
+      classification behavior unchanged.
+    tests:
+      - TestPlan_FileCategory_NoStandardMd
+  - id: CLM-006
+    requirement: REQ-003
+    text: >
+      formatParsers carries only the `sarif` entry; resolving any retired
+      format name (eslint-json, tsc, regex-lines, golangci-json, go-build,
+      go-test) fails loud via lookupParser rather than silently succeeding.
+    tests:
+      - TestCodeCheck_Parsers_FormatRegistryResolution
+  - id: CLM-007
+    requirement: REQ-006
+    text: >
+      `go build ./...` and `go test ./...` are clean after the deletion, and
+      the existing cutover tests continue to prove the gate never wired the
+      deleted command / never called pkg/check.Run.
+    tests:
+      - TestCutover_GateNeverWiresStepCodeCheck
+      - TestCutover_GateNeverCallsCheckRun
+
+contracts:
+  - file: pkg/check/parsers.go
+    consumes:
+      - source: cmd/backstop/pack_gate.go
+        name: runFindingsEngine
+        kind: function
+  - file: cmd/backstop/checktype_catalog.go
+    provides:
+      - name: CheckTypeConsumerCatalog
+        kind: function
+        signature: "func CheckTypeConsumerCatalog() []CheckTypeConsumer"
 ---
 
 # Remove confirmed-dead / vestigial baked-in code surfaced by the eradication audit

@@ -6,13 +6,117 @@ issue:
   id: ISSUE-035
   title: "Gate Substantiveness Flags Testmain Absence Tests"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-05"
+  closed: "2026-07-06"
 
 complexity:
   scope: contained
-  uncertainty: exploratory
+  uncertainty: known
   risk: safe
+
+verification:
+  level: unit
+  coverage_threshold: 90
+  test_command: "go test ./pkg/gate/..."
+
+implementation:
+  summary: >
+    Fixed in two independently-landable tracks. Category 1 (TestMain flagged
+    hollow): added a name-based exclusion to the pack's hollow-test-go.yml
+    ast-grep rule (both tracked copies), then reinstalled the
+    backstop/substantiveness pack so the gate runs the fixed rule. Category 2
+    (absence/structural tests flagged "does not call package X"): added an
+    opt-in, default-off `kind: absence` field to the claims schema and to the
+    claims frontmatter parsed by ExtractMandatedTests, which sets
+    MandatedTest.IsAbsence per-claim; a new NoTargetViolationForTest wrapper in
+    substantiveness_join.go skips the noTarget set-join for IsAbsence tests
+    while leaving the underlying NoTargetViolation decision table (and its
+    caller) unchanged for every unannotated test. The 11 genuine
+    absence/structural claims in SPEC-030 (6) and SPEC-041 (5) were then
+    annotated `kind: absence` via the spec-author agent, clearing the original
+    Category-2 false positives. Delivered on main in the squash commit
+    d5efd5b ("feat: eradicate `backstop code check` + un-vacuum gate
+    dimensions").
+  package: pkg/gate
+
+requirements:
+  - id: REQ-001
+    text: >
+      TestMain (Go's test-harness entry point, `func TestMain(m *testing.M)`)
+      must be unconditionally exempt from the substantiveness pack's
+      hollow-test rule, while an ordinary genuinely-hollow `Test*` stub in the
+      same file must still be flagged. The exemption must be name-scoped, not
+      a blanket suppression.
+  - id: REQ-002
+    text: >
+      A spec claim may opt in to `kind: absence`, marking its mandated
+      test(s) as absence/structural. ExtractMandatedTests must set
+      MandatedTest.IsAbsence to true for a test mandated by such a claim, and
+      false for a test mandated by an ordinary claim in the same spec (the
+      flag is per-claim, not per-spec).
+  - id: REQ-003
+    text: >
+      When a mandated test's IsAbsence is true, the gate must skip the
+      noTarget substantiveness set-join for that test — it must raise no
+      violation even under inputs (non-empty target package, not
+      same-package, target absent from the referenced set) that would
+      otherwise be a noTarget violation.
+  - id: REQ-004
+    text: >
+      The absence annotation must be default-off: an UNannotated mandated
+      test (IsAbsence false) must still raise a noTarget violation under the
+      same not-in-set conditions, so the capability cannot silently blanket-
+      blind the check.
+
+claims:
+  - id: CLM-001
+    requirement: REQ-001
+    text: >
+      Running the substantiveness pack's hollow-test-go rule over a fixture
+      containing TestMain produces no hollow finding keyed to TestMain.
+    tests:
+      - TestQ1_Go_TestMain_ProducesNoHollowFinding
+  - id: CLM-002
+    requirement: REQ-001
+    text: >
+      In the same fixture pass that exempts TestMain, a genuinely hollow
+      `Test*` stub in the same file still produces a hollow finding keyed to
+      it (the exemption is name-scoped, not blanket).
+    tests:
+      - TestQ1_Go_TestMainExemption_StillFlagsGenuineHollow
+  - id: CLM-003
+    requirement: REQ-002
+    text: >
+      ExtractMandatedTests sets IsAbsence=true for a test mandated by a
+      `kind: absence` claim and IsAbsence=false for a test mandated by an
+      ordinary claim in the same spec.
+    tests:
+      - TestExtractMandatedTests_SetsIsAbsenceFromClaimKind
+  - id: CLM-004
+    requirement: REQ-003
+    text: >
+      NoTargetViolationForTest returns no violation for an IsAbsence=true
+      mandated test even when the target package is non-empty, the test is
+      not same-package, and the target is absent from the referenced set.
+    tests:
+      - TestNoTargetViolationForTest_SkipsAbsenceTest
+  - id: CLM-005
+    requirement: REQ-004
+    text: >
+      NoTargetViolationForTest still raises a noTarget violation for an
+      IsAbsence=false mandated test under the identical not-in-set inputs
+      that CLM-004 skips — the anti-blinding guard proving the annotation is
+      opt-in, not a blanket exemption.
+    tests:
+      - TestNoTargetViolationForTest_UnannotatedStillRaises
+
+contracts:
+  - file: pkg/gate/substantiveness_join.go
+    provides:
+      - name: NoTargetViolationForTest
+        kind: function
+        signature: "func NoTargetViolationForTest(mt MandatedTest, referenced ReferencedSymbolSet, samePackage bool) (Violation, bool)"
 ---
 
 # Gate Substantiveness Flags Testmain Absence Tests
@@ -132,36 +236,108 @@ one that must call its target package, which is true for ordinary "does the new
 code do X" claims but false for "prove X is now absent" claims. This is core logic,
 not a pack rule, though the pack's Q2 extraction feeds it.
 
-## Fix directions to evaluate (not committed — surface at plan time)
+## Fix directions evaluated
 
 1. **`TestMain` exemption (Category 1)** — straightforward: add a name-based
    exclusion to `hollow-test-go.yml` in `packs/substantiveness/`. Low uncertainty.
+   **CHOSEN** — shipped as-is.
 2. **Broaden the hollow heuristic** — treat a test as substantive if it makes ANY
    assertion OR references os/filesystem/exec/lock-style APIs (e.g. `os.Stat`,
    `filepath.Walk`, `exec.Command`), not only the fixed verb regex. Still a pack-YAML
    change, but changes the semantics of "hollow" more broadly than a single
-   exemption — needs care not to swallow genuinely empty stub tests.
+   exemption — needs care not to swallow genuinely empty stub tests. **REJECTED** —
+   a genuinely hollow stub that happens to touch `os.Stat` would be silently
+   excused, trading a false-positive problem for a worse false-negative one.
 3. **Absence-test annotation for the noTarget check (Category 2)** — allow a spec
    claim to mark a mandated test as an absence/structural claim (e.g. a `kind:
    absence` field alongside `tests` in the claims schema, or a claim-text
    convention the gate recognizes) so `NoTargetViolation` in
    `pkg/gate/substantiveness_join.go` skips the target-package join for tests so
-   marked. This is a core + schema change, not a pack change.
+   marked. This is a core + schema change, not a pack change. **CHOSEN** — shipped
+   as an opt-in, default-off `kind: absence` claim field (see Resolution).
 4. **Reframe the noTarget join around what's actually being proven** — e.g. treat a
    test whose target package no longer exists on disk (the deletion case) as
    automatically satisfying "does not call package X" without a claim annotation.
    Doesn't cover the `backstop.yml`/`backstop.lock`-reading structural tests
-   (dogfood_pack_test.go), which reference no deleted package at all.
+   (dogfood_pack_test.go), which reference no deleted package at all. **REJECTED as
+   primary** — covers only the deletion subset; the annotation subsumes it with
+   zero false negatives.
 
 **Core uncertainty, stated honestly:** distinguishing a genuine hollow/no-target
 stub from a legitimate absence or structural-invariant test is not mechanical from
 the test body alone — both "forgot to write real assertions" and "correctly proves
 absence" can look identical to an AST-only heuristic (no call to the target
-package, or no recognized assertion verb). Any fix for Category 2 in particular
-needs a signal from OUTSIDE the test body (a claim annotation, a "package no longer
-exists" fact, or similar) rather than a purely syntactic tweak. This should be
-treated as exploratory at plan time, not assumed solvable by a small heuristic
-patch.
+package, or no recognized assertion verb). The shipped fix resolves this by taking
+the signal from OUTSIDE the test body (the claim annotation), exactly as this
+section anticipated, rather than a purely syntactic tweak.
+
+## Resolution
+
+Delivered on `main` in the squash commit `d5efd5b` ("feat: eradicate `backstop
+code check` + un-vacuum gate dimensions").
+
+**Category 1 (`TestMain` hollow)** — added a name-based exclusion to
+`hollow-test-go.yml` so the match is "`Test`-named AND not `TestMain` AND has no
+assertion call." Applied to both tracked copies (`packs/substantiveness/ast-grep/
+rules/hollow-test-go.yml`, the durable source, and `pkg/gate/testdata/
+substantiveness-pack/ast-grep/hollow-test-go.yml`, the unit-harness copy the Go
+tests execute) so the source pack and the test harness agree. The
+`backstop/substantiveness` pack was reinstalled (`backstop pack remove
+backstop/substantiveness && backstop pack add ./packs/substantiveness`) so the
+gitignored installed copy the real gate executes carries the fix too, and
+`backstop.lock`'s content hash was recomputed.
+
+**Category 2 (noTarget false positives)** — added an opt-in, default-off `kind`
+field to the claims schema (`artifacts/spec/v1/schema.json`) and to the claims
+frontmatter parsed by `ExtractMandatedTests` (`pkg/gate/step_testverify.go`),
+which sets `MandatedTest.IsAbsence` per-claim (`claim.Kind == "absence"`). A new
+`NoTargetViolationForTest` wrapper in `pkg/gate/substantiveness_join.go` skips the
+noTarget set-join when `IsAbsence` is true; the original `NoTargetViolation`
+decision table and its caller are unchanged, so an unannotated claim keeps full
+enforcement (the anti-blinding guard, CLM-005). This keeps the mislabel risk
+explicit and review-visible rather than silent: an author can only excuse a test
+by visibly writing `kind: absence` into a reviewed spec claim.
+
+The 11 genuine absence/structural claims that motivated this issue were then
+annotated via the spec-author agent (not hand-edited):
+- **SPEC-030** (`specs/SPEC-030-packs-only-native-standards-removal.spec.md`) — 6
+  claims mandating `TestNoProductionImportOfCompile`,
+  `TestCompiledStandardsArtifactsAbsent`, `TestPkgCompileDirectoryAbsent`,
+  `TestStdGo001SourceAbsent`, `TestGate_SucceedsWithoutStandards`,
+  `TestDogfood_BackstopYmlDeclaresGoStandardsPack`,
+  `TestDogfood_GoStandardsLockVerifies`,
+  `TestDogfood_StaleSlotlyLockEntryRemoved`.
+- **SPEC-041** (`specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md`) — 5
+  claims mandating `TestCatalog_EnumeratesGateSemanticConsumersExcludesDisplaySites`,
+  `TestCatalog_SurvivingSitesNotMistaggedDeleted`,
+  `TestCatalog_GuardScansGateSemanticSurfaceOnly`,
+  `TestCatalog_GuardFailsOnUnlistedConsumer`, `TestCatalog_GuardFailsOnStaleEntry`.
+
+`TestStandardScaffolder_Untouched` (SPEC-039) needed no annotation — SPEC-039 is
+`status: replaced` (terminal), already excluded from enforcement.
+
+**Accepted residual (not forced green):**
+- Per-claim granularity is coarse: a claim mixing an absence test and a genuine
+  call-the-package test would blanket-skip both. Mitigation is convention (keep
+  absence claims single-purpose), not enforced.
+- Mislabel risk: an author could tag a real stub's claim `kind: absence` to dodge
+  the gate. Accepted because it is explicit and review-visible, not silent green.
+- Tracked follow-ups surfaced by this same commit but out of scope here:
+  ISSUE-036 (kind-aware contracts signature compiler), ISSUE-037 (iota-member
+  const contracts), ISSUE-038 (contract-drift ratchet), ISSUE-039
+  (`TestGate_SucceedsWithoutStandards` lost its behavioral assertion), ISSUE-040
+  (gate scans testdata fixtures).
+
+## Verification
+
+- `go test ./pkg/gate/...` — green, including CLM-001–CLM-005's mandated tests.
+- `./bin/backstop gate` — the `test_substantiveness` step no longer reports the
+  original 15 false positives (TestMain cleared via the rule exemption +
+  reinstall; the 11 SPEC-030/SPEC-041 tests cleared via the `kind: absence`
+  annotation; `TestStandardScaffolder_Untouched` cleared via SPEC-039's terminal
+  exclusion, not this fix).
+- `./bin/backstop artifact validate --all` — the evolved claims schema, the
+  annotated SPEC-030/SPEC-041, and this issue all validate.
 
 ## References
 
