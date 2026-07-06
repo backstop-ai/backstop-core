@@ -23,10 +23,31 @@ func TestExpectedLayout_PackYmlAlways(t *testing.T) {
 	}
 }
 
-func TestExpectedLayout_GoModAlways(t *testing.T) {
+func TestExpectedLayout_NoUniversalGoMod(t *testing.T) {
 	layout := pack.ExpectedLayout(makeMinimalManifest(), baseTestRegistry())
-	if !containsPath(layout, "go.mod") {
-		t.Fatalf("expected go.mod in %#v", layout)
+	if containsPath(layout, "go.mod") {
+		t.Fatalf("go.mod must NOT be in the default expected layout %#v", layout)
+	}
+}
+
+// TestExpectedLayout_NoBakedManifestToken guards against re-baking backstop's
+// implementation language (or any foreign language) into the universal pack
+// layout: no project-manifest / language token may appear as a default layout
+// entry. The token set mirrors the backstop/self no-baked-language-token rule.
+func TestExpectedLayout_NoBakedManifestToken(t *testing.T) {
+	layout := pack.ExpectedLayout(makeMinimalManifest(), baseTestRegistry())
+	bakedTokens := []string{
+		"go.mod",
+		"package.json",
+		"Cargo.toml",
+		"requirements.txt",
+		"pom.xml",
+		"build.gradle",
+	}
+	for _, token := range bakedTokens {
+		if containsPath(layout, token) {
+			t.Fatalf("baked manifest token %q must NOT appear in the default expected layout %#v", token, layout)
+		}
 	}
 }
 

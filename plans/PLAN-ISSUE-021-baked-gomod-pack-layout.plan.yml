@@ -1,0 +1,276 @@
+---
+plan_id: PLAN-ISSUE-021
+spec_id: ISSUE-021
+created: "2026-07-06"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/..."
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-021 — DIR-014's LAST open backstop/self finding. The
+  eradication target is a single baked-language literal:
+  pkg/pack/validate_manifest.go's ExpectedLayout(m, base) unconditionally calls
+  add("go.mod") (validate_manifest.go:60), declaring a Go-module file as part of
+  the "expected layout" for EVERY pack regardless of its declared engines. On a
+  language-neutral spine this bakes backstop's own implementation language into
+  pack-layout policy, and the backstop/self no-baked-language-token rule
+  (.backstop/packs/backstop/self/rules/no-baked.yml — its pattern-regex matches
+  the literal go\.mod alongside package.json / Cargo.toml / requirements.txt /
+  pom.xml / build.gradle) flags exactly this line.
+
+  CALLGRAPH — ExpectedLayout is ADVISORY, test-only (verified 2026-07-06). Grep
+  of `ExpectedLayout` across the tree returns: its definition + doc comment
+  (validate_manifest.go:45,48) and callers ONLY in test files —
+  validate_layout_test.go (lines 20,27,39,52,62,69) and
+  validate_manifest_test.go:92. There is NO production caller: ValidateManifest
+  (the function that actually gates a pack and returns []ValidationError) never
+  calls ExpectedLayout, and no CLI path (pack validate / pack add / pack new, the
+  gate's pack-load) reads its return value to accept or reject an installed
+  pack's directory against it. CONSEQUENCE: removing add("go.mod") changes ZERO
+  validation behavior for any existing pack — Go-toolchain packs and non-Go
+  (semgrep / ast-grep / shell-script) packs alike are unaffected, because the
+  returned layout was never enforced against a real pack directory. The only code
+  that must change alongside the deletion is the ONE test that asserts the baked
+  behavior.
+
+  THE ONE ASSERTING TEST — TestExpectedLayout_GoModAlways (validate_layout_test.go
+  :26-31) directly asserts containsPath(layout, "go.mod"). It is the sole test
+  that will break on the deletion. The other five ExpectedLayout callers in that
+  file assert pack.yml / rules/ / validators/ / scaffolds/ / fixtures/rules/ and
+  are indifferent to go.mod, so they need no change. validate_manifest_test.go's
+  ExpectedLayout caller (TestExpectedLayout_DerivedFromInputModeNotEngineName)
+  asserts rules/ + validators/ only and is likewise untouched.
+
+  THE FIX (pure deletion, no conditional):
+    1. Delete add("go.mod") at validate_manifest.go:60. Do NOT reintroduce it
+       behind a baked Language=="go" / Archetype check — that would merely relocate
+       the same baked-language literal and re-trip the self rule. If a future pack
+       genuinely ships its own go.mod (e.g. a pack bundling a Go sandbox-validator
+       binary), that expectation must be DERIVED from pack-declared engine-binding
+       data at the point the need is real — the same derive-from-binding pattern
+       already applied for rules/ vs validators/ (SPEC-035 REQ-006c/CLM-025). No
+       pack has this need today, so this issue only removes the universal
+       assumption; it does not build the conditional path preemptively.
+    2. Invert TestExpectedLayout_GoModAlways into a REGRESSION GUARD:
+       TestExpectedLayout_NoUniversalGoMod — assert go.mod is ABSENT from the
+       default layout — plus a broader guard asserting NO baked project-manifest /
+       language token (go.mod, package.json, Cargo.toml, requirements.txt,
+       pom.xml, build.gradle) appears in the default ExpectedLayout, so the
+       literal cannot silently regress back in.
+
+  OTHER ExpectedLayout ENTRIES — audited (per the issue's table); go.mod is the
+  SOLE baked entry. pack.yml is backstop's own artifact convention (neutral);
+  fixtures/rules/ and scaffolds/ are generic pack-content dirs (neutral); rules/
+  and validators/ are DERIVED from each rule's resolved binding InputMode/ScopeKind
+  (not an engine-name switch). Nothing else in the function needs changing.
+
+  TASK TYPING — the code change modifies existing code (removes one line from
+  ExpectedLayout), so it is a REFACTOR task, not implementation. It depends on the
+  test task (the inverted guard), preserving TDD red→green: the guard test fails
+  against current code (which still adds go.mod) and passes once the line is gone.
+
+  VERIFICATION — per the task brief, use `go test ./pkg/pack/...` for the inner
+  loop and `backstop gate` for the final kill chain (NOT `backstop code check`).
+  The final gate run must confirm the backstop/self no-baked-language-token finding
+  on pkg/pack/validate_manifest.go drops to 0, and — since this is DIR-014's last
+  self-finding — report whether the self-pack dimension is now fully GREEN across
+  the whole repo (alongside ISSUE-033's already-suppressed plan.go neutral-spine
+  exemption).
+
+  File scope is confined to pkg/pack/: validate_manifest.go (the deletion) and
+  validate_layout_test.go (the inverted guard). No other test, no doc, no scaffold
+  references a universal go.mod requirement (grep confirmed the literal lives only
+  in validate_manifest.go:60 and the one asserting test).
+
+  Claims (issues carry no CLM block; the planner enumerates them from the issue's
+  Acceptance so every task maps to at least one):
+    CLM-001 — the "go.mod" string literal is removed from ExpectedLayout in
+              validate_manifest.go, and NO baked language / project-manifest token
+              remains in the default expected layout (guarded by an inverted
+              regression test so it cannot silently return).
+    CLM-002 — the backstop/self no-baked-language-token finding on
+              pkg/pack/validate_manifest.go is cleared (0 findings on this file for
+              this rule) after the deletion.
+    CLM-003 — go test ./pkg/pack/... passes with the repurposed test; pack
+              validation behavior for Go-toolchain AND non-Go packs is UNCHANGED,
+              since ExpectedLayout's return value is advisory (test-only, no
+              production caller) and was never enforced against a real pack
+              directory.
+    CLM-004 — backlog closure: as DIR-014's last self-finding, the final gate run
+              confirms whether the backstop/self dimension is now fully GREEN
+              whole-repo (thin-executor eradication backlog closed).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — Invert the go.mod Assertion Into a Regression Guard
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — No-Universal-Go-Mod Regression Guard"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Invert TestExpectedLayout_GoModAlways into a no-baked-token guard"
+        description: |
+          Rewrite the ONE test that asserts the baked behavior in
+          pkg/pack/validate_layout_test.go so the suite pins the FIXED contract.
+          These changes make the suite RED against current code (ExpectedLayout
+          still calls add("go.mod") at validate_manifest.go:60) and GREEN only
+          after Phase 2 removes that line — the TDD red step.
+
+          Replace TestExpectedLayout_GoModAlways (currently lines 26-31, which
+          asserts containsPath(layout, "go.mod")) with:
+
+            - TestExpectedLayout_NoUniversalGoMod (CLM-001): call
+              pack.ExpectedLayout(makeMinimalManifest(), baseTestRegistry()) and
+              assert containsPath(layout, "go.mod") is FALSE — go.mod must NOT be
+              in the default expected layout. This is the direct inversion of the
+              deleted assertion.
+
+            - TestExpectedLayout_NoBakedManifestToken (CLM-001): a broader
+              regression guard so no sibling project-manifest / language literal can
+              creep back into the layout. Build the default layout the same way and
+              assert NONE of these tokens appear as an entry (iterate the layout and
+              fail on any match): "go.mod", "package.json", "Cargo.toml",
+              "requirements.txt", "pom.xml", "build.gradle". Reuse the existing
+              containsPath helper (or a small local loop) — do not add new helpers
+              beyond what is needed. Add a comment noting this guards against
+              re-baking backstop's implementation language (or any foreign language)
+              into the universal pack layout, mirroring the backstop/self
+              no-baked-language-token rule's token set.
+
+          Do NOT weaken or delete the sibling assertions in this file
+          (TestExpectedLayout_PackYmlAlways, _EnforcementWithLayer2, _WithLayer3,
+          _CodePack, _FixturesAlways) — they assert neutral, still-valid layout
+          entries and must remain green. Do NOT touch validate_manifest_test.go: its
+          ExpectedLayout caller asserts rules/ + validators/ only and is unaffected
+          by the go.mod removal.
+        files:
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — Remove the Baked go.mod Literal + Inner Verify
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — Delete add(\"go.mod\") From ExpectedLayout"
+    tasks:
+      - id: TASK-002
+        type: refactor
+        title: "Delete the baked add(\"go.mod\") call from ExpectedLayout"
+        description: |
+          Make the Phase 1 guard tests pass by removing the single baked-language
+          literal from pkg/pack/validate_manifest.go.
+
+          Delete the add("go.mod") call at validate_manifest.go:60 (the line
+          between add("pack.yml") and add("fixtures/rules/")). That is the entire
+          code change — a pure deletion. Because ExpectedLayout is advisory
+          (test-only, no production caller reads its return value to accept/reject
+          a pack — see this plan's notes), this deletion changes NO validation
+          behavior for any existing pack; only the return value's contents.
+
+          DO NOT reintroduce go.mod behind a conditional (e.g. keyed on
+          m.Language == "go" or an archetype/engine-name check). That would merely
+          relocate the same baked-language literal and re-trip the backstop/self
+          no-baked-language-token rule — the defect is the literal itself, not
+          where it sits. A genuine future need for a pack-owned go.mod must be
+          DERIVED from pack-declared engine-binding data (the rules/ vs validators/
+          derivation pattern already in this function, SPEC-035 REQ-006c), and no
+          pack needs it today — so add nothing back.
+
+          Leave the pack.yml and fixtures/rules/ add() calls and the
+          binding-derived rules/ / validators/ / scaffolds/ logic untouched — the
+          audit (issue table) confirms go.mod is the sole baked entry. No import
+          change is required (the deletion removes a line, adds nothing).
+
+          The implementer runs its own inner check per the implementer contract;
+          this plan verifies via the go-test task below rather than duplicating a
+          per-task check in this body.
+        files:
+          - pkg/pack/validate_manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Run go test ./pkg/pack/... — guard tests green, package unregressed"
+        description: |
+          Fast inner-loop verification of the deletion. Run:
+
+              go test ./pkg/pack/...
+
+          Confirm:
+            - The Phase 1 guard tests now PASS:
+              TestExpectedLayout_NoUniversalGoMod and
+              TestExpectedLayout_NoBakedManifestToken.
+            - The whole pkg/pack suite remains GREEN — in particular the sibling
+              ExpectedLayout tests (_PackYmlAlways, _EnforcementWithLayer2,
+              _WithLayer3, _CodePack, _FixturesAlways) and
+              TestExpectedLayout_DerivedFromInputModeNotEngineName in
+              validate_manifest_test.go, proving the go.mod removal did not perturb
+              any neutral or binding-derived layout entry and that pack validation
+              behavior is unchanged (CLM-003).
+
+          Per the task brief, verify via `go test` here (NOT `backstop code check`).
+        files:
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive Verification — Self-Finding Cleared, Backlog Closed
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — backstop/self Finding → 0"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run backstop gate — confirm the self finding cleared and check whole-repo green"
+        description: |
+          Final comprehensive verification via the full kill chain. The plan
+          touches only .go files (pkg/pack/validate_manifest.go,
+          pkg/pack/validate_layout_test.go) and no artifact files, so `backstop
+          gate` subsumes code verification and no separate `backstop artifact
+          validate` step is required. Per the task brief, use `backstop gate`
+          (NOT `backstop code check`):
+
+              backstop gate
+
+          Confirm (CLM-002): the backstop/self no-baked-language-token finding on
+          pkg/pack/validate_manifest.go is GONE — 0 findings on this file for that
+          rule (the go\.mod literal no longer exists in the file). Inspect the gate
+          output / self-pack dimension to verify no baked-language-token violation
+          references validate_manifest.go.
+
+          Confirm (CLM-004 — backlog closure): since ISSUE-021 is DIR-014's LAST
+          open self-finding, report whether the backstop/self dimension is now
+          fully GREEN across the WHOLE repo (i.e. no remaining
+          no-baked-language-token / no-baked-tool findings anywhere), accounting
+          for ISSUE-033's already-suppressed pkg/validate/plan.go neutral-spine
+          exemption. If any OTHER self-finding remains, enumerate it explicitly
+          (it would be out of this issue's scope but must be surfaced, not
+          silently absorbed).
+
+          The gate run also exercises artifact validation, test verification,
+          substantiveness, coverage, and contracts — confirming the one-line
+          deletion regressed no other dimension.
+        files:
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/validate_layout_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-002
+          - TASK-003

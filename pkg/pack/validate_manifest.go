@@ -57,7 +57,6 @@ func ExpectedLayout(m *Manifest, base engine.Registry) []string {
 	}
 
 	add("pack.yml")
-	add("go.mod")
 	add("fixtures/rules/")
 
 	hasRuleFiles := false

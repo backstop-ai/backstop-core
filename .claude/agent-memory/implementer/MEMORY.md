@@ -10,3 +10,4 @@
 - [Editing a file pulls it into gate scope](project_editing_file_pulls_it_into_gate_scope.md) — first edit to a tracked file surfaces latent per-file landmines (contract-absence prose grep FP; unfaithful on-disk test fixture); fix at source, do not revert
 - [DefaultRegistry eradication (ISSUE-027)](project_defaultregistry_eradication.md) — built-ins now from embedded base-engines pack + external go-toolchain pack; validateEngine defers unknown-engine to gate; separation stays non-vacuous
 - [Gate residual reds after ISSUE-027](project_gate_residual_reds_issue027.md) — self-pack GREEN (binding.go 6→0); residual contract_signature + coverage reds are pre-existing file-scope/struct-compiler/types-only/root-file quirks, not eradication failures
+- [Self-pack backlog closed (ISSUE-021)](project_self_pack_backlog_closed.md) — DIR-014 last self-finding cleared 2026-07-06; backstop/self whole-repo GREEN, 0 active; residual gate reds all non-self
