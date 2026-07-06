@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -14,16 +12,14 @@ import (
 // The named-format registry binds each format string to one of these.
 type Parser func(out []byte, target CheckType) ([]Violation, error)
 
-// formatParsers maps each named output format to its Parser. The Go toolchain's
-// build/test/lint output is normalized by the go-toolchain pack convert scripts
-// into SARIF (parsed via "sarif") after the SPEC-034 cutover — the bespoke
-// go-build/go-test/golangci-json named formats were removed with their parsers.
-// eslint-json/tsc/sarif/regex-lines are pure functions with no tool invocation.
+// formatParsers maps each named output format to its Parser. Only the neutral
+// "sarif" format survives: the in-process check engine that consumed the
+// eslint-json/tsc/regex-lines parsers (via the toolchain-executor registry) was
+// deleted by ISSUE-018. The gate's LIVE findings path (ParsePackFindings) and
+// the Go toolchain (normalized to SARIF by the go-toolchain pack convert scripts)
+// both parse through "sarif".
 var formatParsers map[string]Parser = map[string]Parser{ // nosemgrep: go.core.no-global-mutable-state — immutable parser registry, never reassigned
-	"eslint-json": parseESLintJSON,
-	"tsc":         parseTscOutput,
-	"sarif":       parseSarif,
-	"regex-lines": parseRegexLines,
+	"sarif": parseSarif,
 }
 
 // lookupParser resolves a named output format to a Parser, or returns an error
@@ -32,7 +28,7 @@ var formatParsers map[string]Parser = map[string]Parser{ // nosemgrep: go.core.n
 func lookupParser(format string) (Parser, error) {
 	parser, ok := formatParsers[format]
 	if !ok {
-		return nil, &ConfigError{Message: fmt.Sprintf("unknown output format %q: must be one of eslint-json, tsc, sarif, regex-lines", format)}
+		return nil, &ConfigError{Message: fmt.Sprintf("unknown output format %q: must be \"sarif\"", format)}
 	}
 	return parser, nil
 }
@@ -49,88 +45,6 @@ func ParsePackFindings(out []byte) ([]Violation, error) {
 		return nil, fmt.Errorf("resolving sarif parser for pack findings: %w", err)
 	}
 	return parser(out, CheckTypeFindings)
-}
-
-// eslintFile is one entry of eslint's JSON array output.
-type eslintFile struct {
-	FilePath string `json:"filePath"`
-	Messages []struct {
-		RuleID   string `json:"ruleId"`
-		Severity int    `json:"severity"`
-		Message  string `json:"message"`
-		Line     int    `json:"line"`
-	} `json:"messages"`
-}
-
-// parseESLintJSON parses eslint `--format json` output (an array of
-// {filePath, messages[{ruleId, severity 1|2, message, line}]}) into violations.
-// severity 2 maps to error, 1 to warning; File=filePath, Rule=ruleId.
-func parseESLintJSON(out []byte, target CheckType) ([]Violation, error) {
-	trimmed := bytes.TrimSpace(out)
-	if len(trimmed) == 0 {
-		return nil, nil
-	}
-	var files []eslintFile
-	if err := json.Unmarshal(trimmed, &files); err != nil {
-		return nil, fmt.Errorf("parsing eslint JSON output: %w", err)
-	}
-	var violations []Violation
-	for _, f := range files {
-		for _, m := range f.Messages {
-			violations = append(violations, Violation{
-				Pass:     target,
-				File:     f.FilePath,
-				Line:     m.Line,
-				Message:  m.Message,
-				Severity: eslintSeverity(m.Severity),
-				Rule:     m.RuleID,
-			})
-		}
-	}
-	return violations, nil
-}
-
-// eslintSeverity maps eslint's numeric severity (2=error, 1=warning) to the
-// check severity vocabulary. Unknown values default to error (fail-loud).
-func eslintSeverity(sev int) string {
-	if sev == 1 {
-		return "warning"
-	}
-	return "error"
-}
-
-// tscLineRe matches a tsc --noEmit diagnostic line:
-// `file(line,col): error TSxxxx: message` (severity keyword error|warning).
-var tscLineRe = regexp.MustCompile(`^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, idiomatic package global
-
-// parseTscOutput parses tsc --noEmit output lines into violations. Lines that
-// do not match the diagnostic shape (summary lines, blanks) are ignored.
-// Rule=TSxxxx, Severity from the error/warning keyword.
-func parseTscOutput(out []byte, target CheckType) ([]Violation, error) {
-	var violations []Violation
-	for _, raw := range strings.Split(string(out), "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		m := tscLineRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		lineNo, err := strconv.Atoi(m[2])
-		if err != nil {
-			continue
-		}
-		violations = append(violations, Violation{
-			Pass:     target,
-			File:     m[1],
-			Line:     lineNo,
-			Message:  m[6],
-			Severity: m[4],
-			Rule:     m[5],
-		})
-	}
-	return violations, nil
 }
 
 // sarifLog is the subset of a SARIF 2.1.0 log the sarif parser consumes.
@@ -245,56 +159,4 @@ func sarifSeverity(level string) string {
 		return "warning"
 	}
 	return "error"
-}
-
-// defaultRegexLinesPattern is the default regex-lines pattern with named groups
-// file/line/col/message. A declared toolchain may override this in a future
-// extension; today the generic format uses this default shape
-// (`file:line:col message`).
-var defaultRegexLinesPattern = regexp.MustCompile(`^(?P<file>[^:\s]+):(?P<line>\d+):(?P<col>\d+)\s+(?P<message>.+)$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, idiomatic package global
-
-// parseRegexLines parses generic tool output line-by-line using the default
-// named-group pattern (file/line/col/message), defaulting severity to error.
-// Non-matching lines yield nothing. The rule group is optional; when present it
-// populates Rule.
-func parseRegexLines(out []byte, target CheckType) ([]Violation, error) {
-	return parseRegexLinesWith(out, target, defaultRegexLinesPattern)
-}
-
-// parseRegexLinesWith is parseRegexLines with an explicit compiled pattern, so a
-// declared toolchain can supply a custom named-group pattern. Groups file/line/
-// col/message are recognized; an optional rule group populates Rule.
-func parseRegexLinesWith(out []byte, target CheckType, pattern *regexp.Regexp) ([]Violation, error) {
-	names := pattern.SubexpNames()
-	var violations []Violation
-	for _, raw := range strings.Split(string(out), "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		m := pattern.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		v := Violation{Pass: target, Severity: "error"}
-		for i, name := range names {
-			if i == 0 || name == "" || i >= len(m) {
-				continue
-			}
-			switch name {
-			case "file":
-				v.File = m[i]
-			case "line":
-				if n, err := strconv.Atoi(m[i]); err == nil {
-					v.Line = n
-				}
-			case "message":
-				v.Message = m[i]
-			case "rule":
-				v.Rule = m[i]
-			}
-		}
-		violations = append(violations, v)
-	}
-	return violations, nil
 }

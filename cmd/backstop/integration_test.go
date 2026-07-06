@@ -114,44 +114,9 @@ Test spec for integration testing.
 	}
 }
 
-// TestIntegration_CodeCheck_RealGoFile runs backstop code check --file against
-// a Go file and returns structured JSON. (CLM-048)
-func TestIntegration_CodeCheck_RealGoFile(t *testing.T) {
-	if binaryPath == "" {
-		t.Skip("binary not built")
-	}
-	dir := setupTestDir(t, minimalBackstopYML)
-
-	// Create .backstop/rules/ dir so code check doesn't fail
-	if err := os.MkdirAll(filepath.Join(dir, ".backstop", "rules"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a minimal Go file
-	goContent := `package main
-
-func main() {
-	println("hello")
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(goContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	out, exitCode := runBinary(t, dir, "code", "check", "--json", "--file", "main.go")
-	if exitCode != 0 && exitCode != 1 {
-		t.Fatalf("expected exit code 0 or 1, got %d\noutput: %s", exitCode, out)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &parsed); err != nil {
-		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
-	}
-
-	if _, ok := parsed["schema_version"]; !ok {
-		t.Error("JSON output missing schema_version field")
-	}
-}
+// TestIntegration_CodeCheck_RealGoFile was removed by ISSUE-018: it ran the
+// deleted `backstop code check` command. The gate integration test
+// (TestIntegration_Gate_EndToEnd) covers the surviving enforcement surface.
 
 // pack compile removed — standards live inside packs now (DD-18/DD-45).
 

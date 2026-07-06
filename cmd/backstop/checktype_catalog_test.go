@@ -33,21 +33,18 @@ func TestCatalog_EnumeratesGateSemanticConsumersExcludesDisplaySites(t *testing.
 	}
 }
 
-// TestCatalog_SurvivingSitesNotMistaggedDeleted proves the surviving pkg/check
-// CheckType sites (passOrder, Violation.Pass/PassResult.Pass, Executors/dispatch,
-// registry Entries, manifest enum+routing, parsers findings stamping — C-4..C-8)
-// are tagged SURVIVING with their real post-cutover role, NOT mis-tagged DELETED;
-// the genuinely-DELETED sites (C-2 orphaned gate.go:1173 exemption, C-3
-// shared-runner feeds) are ABSENT from the live catalog (SPEC-041 CLM-021).
+// TestCatalog_SurvivingSitesNotMistaggedDeleted proves the surviving CheckType
+// site (the findings stamping inside the LIVE ParsePackFindings — C-5) is tagged
+// with its real post-cutover role, and that the sites DELETED by ISSUE-018 with
+// the `backstop code check` command + in-process check engine (C-4
+// code_check.go, C-6 check.go:passOrder, C-7 registry.go:Entries, C-8
+// manifest.go:parseCheckType) — plus the earlier-deleted C-2/C-3 — are ABSENT
+// from the live catalog (SPEC-041 CLM-021).
 func TestCatalog_SurvivingSitesNotMistaggedDeleted(t *testing.T) {
 	catalog := CheckTypeConsumerCatalog()
 
 	survivors := []string{
-		"pkg/check/check.go:passOrder",
-		"pkg/check/registry.go:Entries",
-		"pkg/check/manifest.go:parseCheckType",
 		"pkg/check/parsers.go:CheckTypeFindings",
-		"cmd/backstop/code_check.go:CheckTypeFindings",
 	}
 	for _, site := range survivors {
 		entry, ok := catalogEntry(catalog, site)
@@ -55,17 +52,26 @@ func TestCatalog_SurvivingSitesNotMistaggedDeleted(t *testing.T) {
 			t.Errorf("surviving site %q must be cataloged (CLM-021)", site)
 			continue
 		}
-		switch entry.PostCutoverSource {
-		case SourceSurvivingCheckTypeDispatch, SourceFindingsPackEngine:
-			// correct surviving role
-		default:
+		if entry.PostCutoverSource != SourceFindingsPackEngine {
 			t.Errorf("surviving site %q mis-tagged %q — must be a surviving post-cutover role, NOT deleted (CLM-021)", site, entry.PostCutoverSource)
 		}
 	}
 
-	// No live catalog entry may be tagged with the deleted-site sources: the
-	// genuinely-deleted C-2/C-3 rows are ABSENT, not present-and-tagged-DELETED, so
-	// the stale-entry guard stays green.
+	// The sites deleted with the in-process check engine (ISSUE-018) must be ABSENT
+	// from the live catalog, alongside the earlier-deleted C-2/C-3 — DELETED rows
+	// are removed, not present-and-tagged-DELETED, so the stale-entry guard stays
+	// green.
+	deletedSites := []string{
+		"cmd/backstop/code_check.go:CheckTypeFindings",
+		"pkg/check/check.go:passOrder",
+		"pkg/check/registry.go:Entries",
+		"pkg/check/manifest.go:parseCheckType",
+	}
+	for _, site := range deletedSites {
+		if catalogHasSite(catalog, site) {
+			t.Errorf("DELETED site %q must be ABSENT from the live catalog after ISSUE-018 (CLM-021)", site)
+		}
+	}
 	for _, entry := range catalog {
 		if strings.Contains(entry.Site, "checkViolationsToGate") || strings.Contains(entry.Site, "sharedTestRunner") || strings.Contains(entry.Site, "newSharedTestRunner") {
 			t.Errorf("DELETED site %q must be ABSENT from the live catalog (CLM-021)", entry.Site)

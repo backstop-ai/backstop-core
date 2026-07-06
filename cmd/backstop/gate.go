@@ -928,7 +928,10 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 			referenced := gate.ReferencedSetForTest(extraction, mt)
 			samePackage := testFileColocatedWithTarget(mt.FilePath, mt.TargetPkg)
-			if v, raised := gate.NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage); raised {
+			// NoTargetViolationForTest applies the opt-in `kind: absence` pre-join skip
+			// at the same site as the FilePath=="" and scope skips above, then delegates
+			// to the UNCHANGED NoTargetViolation for ordinary tests.
+			if v, raised := gate.NoTargetViolationForTest(mt, referenced, samePackage); raised {
 				v.File = mt.FilePath
 				violations = append(violations, v)
 			}

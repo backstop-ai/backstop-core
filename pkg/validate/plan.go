@@ -707,7 +707,10 @@ func fileCategory(path string) string {
 			return "artifact"
 		}
 	}
-	if strings.HasSuffix(path, ".go") {
+	// fileCategory bakes a Go-specific file-suffix classification. Sourcing this
+	// language-neutrally from pack-declared classification globs (SPEC-043) requires
+	// pack context that validate.Plan does not have today — tracked as ISSUE-033.
+	if strings.HasSuffix(path, ".go") { // nosemgrep: no-language-literal-on-neutral-spine — de-Go tracked by ISSUE-033
 		return "code"
 	}
 	// Other extensions (e.g. .md for docs) don't map to a required category

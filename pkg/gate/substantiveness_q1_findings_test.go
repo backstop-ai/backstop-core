@@ -93,6 +93,51 @@ func TestQ1_Go_SubstantiveTest_ProducesNoFinding(t *testing.T) {
 	}
 }
 
+// TestQ1_Go_TestMain_ProducesNoHollowFinding (ISSUE-035 CLM-001) — TestMain(m *testing.M),
+// Go's harness entry point, is BY DESIGN never assertion-bearing and must NOT be flagged
+// hollow. Running the substantiveness Q1 rule over a fixture containing both TestMain and
+// a genuine hollow stub, the routed hollow findings must NOT key back to TestMain.
+func TestQ1_Go_TestMain_ProducesNoHollowFinding(t *testing.T) {
+	requireAstGrep(t)
+	packDir := substPackDir(t)
+	fixture := filepath.Join(packDir, "fixtures", "go", "testmain_fixture_test.go")
+
+	findings, err := dispatchAstGrepRule(packDir, "ast-grep/hollow-test-go.yml", "hollow-test-go", substPackName, fixture)
+	if err != nil {
+		t.Fatalf("dispatchAstGrepRule (TestMain fixture): %v", err)
+	}
+	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+
+	mtMain := MandatedTest{FuncName: "TestMain", FilePath: fixture}
+	if IsTestHollow(hollow, mtMain) {
+		t.Errorf("TestMain must be EXEMPT from the hollow-test rule (harness entry point, never asserts); got a hollow finding for it: %+v", hollow)
+	}
+}
+
+// TestQ1_Go_TestMainExemption_StillFlagsGenuineHollow (ISSUE-035 CLM-002) — the
+// over-correction guard: the TestMain exemption must NOT blanket-suppress the rule. In
+// the SAME fixture pass that exempts TestMain, a genuinely hollow stub in the same file
+// MUST still produce a hollow finding that keys back to it.
+func TestQ1_Go_TestMainExemption_StillFlagsGenuineHollow(t *testing.T) {
+	requireAstGrep(t)
+	packDir := substPackDir(t)
+	fixture := filepath.Join(packDir, "fixtures", "go", "testmain_fixture_test.go")
+
+	findings, err := dispatchAstGrepRule(packDir, "ast-grep/hollow-test-go.yml", "hollow-test-go", substPackName, fixture)
+	if err != nil {
+		t.Fatalf("dispatchAstGrepRule (TestMain fixture): %v", err)
+	}
+	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+
+	if len(hollow) == 0 {
+		t.Fatalf("the genuine hollow stub must still produce a hollow finding even with the TestMain exemption; got none")
+	}
+	mtStub := MandatedTest{FuncName: "TestGenuinelyHollowStub", FilePath: fixture}
+	if !IsTestHollow(hollow, mtStub) {
+		t.Errorf("TestGenuinelyHollowStub must STILL be flagged hollow (exemption is name-scoped to TestMain, not blanket)")
+	}
+}
+
 // TestTS_HollowTestTs_ProducesFinding_RealAstGrep (CLM-012) — the hollow .test.ts
 // fixture produces an ast-grep hollow-test SARIF finding via real ast-grep on the
 // shared TS proof pack.

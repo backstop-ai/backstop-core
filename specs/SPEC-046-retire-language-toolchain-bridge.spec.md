@@ -4,7 +4,7 @@ number: SPEC-046
 created: "2026-06-28"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.2.0
 
 implementation:
   summary: >
@@ -449,13 +449,6 @@ contracts:
         kind: function
         signature: "func PolarityStepResult(stepName string, dim TraceabilityDimension, class PolarityClass, cfg *config.Config, cap CapabilityState) StepResult"
         notes: "MODIFIED (REQ-004/CLM-021): renders the stack label from cap.Stack instead of stackLabel(cfg). Classification verdicts (the class switch) are unchanged (CLM-020)."
-    consumes: []
-  - file: cmd/backstop/code_check.go
-    provides:
-      - name: newCodeCheckCommand
-        kind: function
-        signature: "func newCodeCheckCommand(jsonFlag *bool) *cobra.Command"
-        notes: "MODIFIED (REQ-003/CLM-014): the `check.Options{ ... Language: cfg.Language ... }` assignment drops the config-sourced `Language` (the retired field). check.Options.Language is left at its empty-language default — a behavior-preserving change for the empty case (gateLanguage's old comment notes check.Options' empty-language default). check.Options.Language itself is out of scope."
     consumes: []
 ---
 
@@ -949,6 +942,12 @@ After this seed, NO `_test.go` in `cmd/backstop` may reference
 
 ## Version History
 
+- **1.2.0** (2026-07-05) — Retired the stale `cmd/backstop/code_check.go` provides
+  `newCodeCheckCommand`: ISSUE-018 (authorized thin-executor eradication) deleted the
+  `backstop code check` command and its file entirely, so the present-signature promise was a
+  stale red under `contract_signature`. The whole `code_check.go` contract block was removed
+  (deleted file). Contract-only realignment (align-predating-artifacts); no requirement, claim,
+  or design change.
 - **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 3 (Pillar B) code
   shipped and passed impl-review PASS; the `language:`-derived toolchain bridge is deleted,
   `Config.Language` is fully retired, and the traceability stack label is rehomed onto the

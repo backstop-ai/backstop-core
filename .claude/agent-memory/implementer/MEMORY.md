@@ -7,3 +7,4 @@
 - [Semgrep key-literal FP](feedback_semgrep_key_literal_fp.md) — secrets pack flags "Hardcoded credentials" on any key/secret/token/password identifier assigned a string literal; rename to clear
 - [Smoke dark-pack pre-failures](project_smoke_darkpack_prefailures.md) — tests/smoke has 4 PRE-EXISTING substantiveness/contracts/coverage failures; diff against a green base before claiming a regression
 - [Config strict loader / inert key](project_config_strict_loader_inert_key.md) — backstop.yml is STRICT (KnownFields+schema-required), NOT non-strict; retiring a config field needs schema required-drop + exported inline catch-all
+- [Editing a file pulls it into gate scope](project_editing_file_pulls_it_into_gate_scope.md) — first edit to a tracked file surfaces latent per-file landmines (contract-absence prose grep FP; unfaithful on-disk test fixture); fix at source, do not revert

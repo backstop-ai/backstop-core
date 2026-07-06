@@ -2,9 +2,10 @@
 title: "SPEC-008: Code Check — Implementation Validation with Lint, Build, Test, Semgrep"
 number: SPEC-008
 created: "2026-04-04"
-status: draft
+status: replaced
+replaced-by: BUNDLE-011
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 2.0.0
 
 implementation:
   summary: >
@@ -428,59 +429,13 @@ claims:
       - TestCodeCheck_Lint_OtherPassesContinueWithoutLint
 
 contracts:
-  - file: cmd/backstop/code_check.go
-    provides:
-      - name: codeCheckCmd
-        kind: variable
-        signature: "var codeCheckCmd *cobra.Command"
-        notes: "Cobra command for backstop code check, registered under the code namespace"
-    consumes:
-      - source: cmd/backstop
-        name: codeCmd
-        kind: variable
-      - source: pkg/check
-        name: Run
-        kind: function
-      - source: cmd/backstop
-        name: loadConfig
-        kind: function
-      - source: cmd/backstop
-        name: formatOutput
-        kind: function
-
   - file: pkg/check/check.go
     provides:
-      - name: Run
-        kind: function
-        signature: "func Run(ctx context.Context, opts Options) (*Result, error)"
-        notes: "Executes validation passes against the given scope and returns aggregated results"
-      - name: Options
-        kind: type
-        signature: "type Options struct"
-        notes: "Configuration for a check run: scope, file path, manifest path, timeout"
       - name: Result
         kind: type
         signature: "type Result struct"
         notes: "Aggregated results from all validation passes: violations, warnings, pass/fail"
-    consumes:
-      - source: pkg/check
-        name: Manifest
-        kind: type
-
-  - file: pkg/check/manifest.go
-    provides:
-      - name: LoadManifest
-        kind: function
-        signature: "func LoadManifest(dir string) (*Manifest, error)"
-        notes: "Loads compiled enforcement manifests from .backstop/rules/"
-      - name: Manifest
-        kind: type
-        signature: "type Manifest struct"
-        notes: "Compiled enforcement manifest mapping file patterns to check types"
-      - name: RouteFile
-        kind: method
-        signature: "func (m *Manifest) RouteFile(path string) []CheckType"
-        notes: "Returns applicable check types for a given file path"
+    consumes: []
 
   - file: pkg/check/scope.go
     provides:
@@ -750,3 +705,25 @@ positive and negative claims.
 - D-069: CLI as universal agent API
 - D-099: Embedded baseline rule pack
 - OQ-9 (resolved): Semgrep auto-install to .backstop/tools/
+
+## Version History
+
+- **2.0.0** (2026-07-05) — Status → `replaced` (terminal), `replaced-by: BUNDLE-011`. The entire
+  subject of this spec — the `backstop code check` command and its in-process
+  lint/build/test/semgrep engine — was deleted by ISSUE-018 (authorized thin-executor
+  eradication). Its enforcement role is superseded by the packs-only gate `pack_engines`
+  dispatch delivered under **BUNDLE-011** ("Collapse the Legacy `pkg/check` Engine into
+  Pack-Declared Toolchain Packs"; keystone SPEC-040) — no baked in-process engine remains. As a
+  terminal spec it is excluded from gate enforcement, which is the honest disposition for its now
+  fully-deleted requirements, claims (with their deleted `TestCodeCheck_*` mandated tests), and
+  remaining `type`/`const` contracts. Recorded openly per align-predating-artifacts.
+- **1.1.0** (2026-07-05) — Retired the stale contract promises for symbols deleted by ISSUE-018
+  (authorized thin-executor eradication of the `backstop code check` command + in-process check
+  engine): removed the `cmd/backstop/code_check.go` block (`codeCheckCmd`), the
+  `pkg/check/check.go` provides `Run` and `Options` plus the now-dangling `Manifest` consume, and
+  the entire `pkg/check/manifest.go` block (`LoadManifest`, `Manifest`, `RouteFile`). The live
+  `Result` (`pkg/check/check.go`), `ResolveScope`/`ScopeMode` (`pkg/check/scope.go`), and
+  `EnsureSemgrep` contracts are unchanged. Contract-only realignment (align-predating-artifacts);
+  no requirement, claim, or design change.
+- **1.0.0** — Initial spec: `backstop code check` — implementation validation with lint, build,
+  test, and semgrep passes.

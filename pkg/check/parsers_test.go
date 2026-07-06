@@ -66,83 +66,31 @@ func TestCodeCheck_Parsers_SarifFormat(t *testing.T) {
 	}
 }
 
-// TestCodeCheck_Parsers_RegexLinesFormat pins the regex-lines configurable
-// parser (CLM-005): a named-group pattern (file/line/col/message) against the
-// sample yields a violation with captured file/line/message and severity
-// defaulting to "error" for matching lines, and nothing for non-matching lines.
-func TestCodeCheck_Parsers_RegexLinesFormat(t *testing.T) {
-	parser, err := lookupParser("regex-lines")
-	if err != nil {
-		t.Fatalf("lookupParser(regex-lines): %v", err)
-	}
-
-	violations, parseErr := parser([]byte(regexLinesSampleTxt), CheckTypeBuild)
-	if parseErr != nil {
-		t.Fatalf("regex-lines parse: %v", parseErr)
-	}
-	// Two matching lines; the middle "no position" line must NOT match.
-	if len(violations) != 2 {
-		t.Fatalf("got %d violations, want 2 (non-matching line must be skipped)", len(violations))
-	}
-
-	first := violations[0]
-	if first.File != "src/lib.rs" {
-		t.Errorf("v[0].File = %q, want src/lib.rs", first.File)
-	}
-	if first.Line != 10 {
-		t.Errorf("v[0].Line = %d, want 10", first.Line)
-	}
-	if first.Message != "borrow of moved value" {
-		t.Errorf("v[0].Message = %q, want 'borrow of moved value'", first.Message)
-	}
-	if first.Severity != "error" {
-		t.Errorf("v[0].Severity = %q, want error (default)", first.Severity)
-	}
-	if first.Pass != CheckTypeBuild {
-		t.Errorf("v[0].Pass = %v, want build (target check type)", first.Pass)
-	}
-
-	second := violations[1]
-	if second.File != "src/main.rs" || second.Line != 3 || second.Message != "unused import" {
-		t.Errorf("v[1] = %q/%d/%q, want src/main.rs/3/'unused import'", second.File, second.Line, second.Message)
-	}
-}
-
 // TestCodeCheck_Parsers_FormatRegistryResolution asserts the named-format
-// registry resolves each documented format string to a parser, and that an
-// unknown format name fails loud with an error (feeds the config-error path in
-// Phase 4). CLM-005.
+// registry resolves the single surviving "sarif" format to a parser, and that
+// every other format name (including the retired eslint-json/tsc/regex-lines and
+// the bespoke go-build/go-test/golangci-json) fails loud with an error. After
+// ISSUE-018 deleted the in-process check engine, "sarif" is the only format the
+// registry carries. CLM-003/CLM-006.
 func TestCodeCheck_Parsers_FormatRegistryResolution(t *testing.T) {
-	// After the SPEC-034 cutover the bespoke go-build/go-test/golangci-json named
-	// formats were removed with their parsers — the Go toolchain output is
-	// normalized to SARIF by the go-toolchain pack convert scripts and parsed via
-	// "sarif". Only the surviving generic formats must resolve here.
-	known := []string{
-		"eslint-json",
-		"tsc",
-		"sarif",
-		"regex-lines",
+	parser, err := lookupParser("sarif")
+	if err != nil {
+		t.Errorf("lookupParser(\"sarif\") returned error %v, want a parser", err)
 	}
-	for _, name := range known {
-		parser, err := lookupParser(name)
-		if err != nil {
-			t.Errorf("lookupParser(%q) returned error %v, want a parser", name, err)
-			continue
-		}
-		if parser == nil {
-			t.Errorf("lookupParser(%q) returned nil parser", name)
-		}
+	if parser == nil {
+		t.Error("lookupParser(\"sarif\") returned nil parser")
 	}
 
 	if _, err := lookupParser("does-not-exist"); err == nil {
 		t.Error("lookupParser(unknown) returned nil error; want a fail-loud error for an unknown format name")
 	}
 
-	// The retired bespoke Go formats must now be unknown — resolving them is a
-	// fail-loud config error, not a silent wrap of a deleted parser.
-	for _, retired := range []string{"golangci-json", "go-build", "go-test"} {
+	// The parsers deleted with the in-process check engine must now be unknown —
+	// resolving them is a fail-loud config error, not a silent wrap of a deleted
+	// parser.
+	for _, retired := range []string{"eslint-json", "tsc", "regex-lines", "golangci-json", "go-build", "go-test"} {
 		if _, err := lookupParser(retired); err == nil {
-			t.Errorf("lookupParser(%q) must fail loud after the cutover; the bespoke format was removed", retired)
+			t.Errorf("lookupParser(%q) must fail loud; the format was removed with the in-process check engine", retired)
 		}
 	}
 }

@@ -14,12 +14,14 @@ import (
 func catalogRealFiles(t *testing.T) []string {
 	t.Helper()
 	root := repoRoot(t)
+	// After ISSUE-018 deleted the `backstop code check` command and its in-process
+	// check engine, cmd/backstop/code_check.go and pkg/check/registry.go no longer
+	// exist; the surviving gate-semantic CheckType surface is pack_gate.go (C-1),
+	// parsers.go (C-5), and the CheckType enum vocabulary in check.go/manifest.go.
 	rel := []string{
 		"cmd/backstop/pack_gate.go",
-		"cmd/backstop/code_check.go",
 		"pkg/check/parsers.go",
 		"pkg/check/check.go",
-		"pkg/check/registry.go",
 		"pkg/check/manifest.go",
 	}
 	out := make([]string, 0, len(rel))

@@ -2,9 +2,10 @@
 title: "Codecheck Deadcode Prelude"
 number: SPEC-039
 created: "2026-06-24"
-status: implemented
+status: replaced
+replaced-by: ISSUE-018
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 2.0.0
 
 implementation:
   summary: >
@@ -339,22 +340,10 @@ claims:
 contracts:
   - file: pkg/check/manifest.go
     provides:
-      - name: LoadManifest
-        kind: function
-        signature: "func LoadManifest(dir string) (*Manifest, error)"
-      - name: Manifest
-        kind: type
-        signature: "type Manifest struct"
-      - name: "(*Manifest).RouteFile"
-        kind: method
-        signature: "func (m *Manifest) RouteFile(path string) []CheckType"
       - name: CheckType
         kind: type
         signature: "type CheckType int"
     consumes:
-      - source: os
-        name: ReadDir
-        kind: function
       - source: path/filepath
         name: Ext
         kind: function
@@ -716,6 +705,25 @@ premise is false and the work STOPS (see Sharp Edges).
 
 ## Version History
 
+- **2.0.0** (2026-07-05) — Status → `replaced` (terminal), `replaced-by: ISSUE-018`. This spec's
+  entire subject — the behavior-preserving `.manifest.json` dead-code prelude that DELETED the
+  compiled-manifest reader while PRESERVING reduced `LoadManifest`/`Manifest`/`RouteFile` +
+  `CheckType` — was superseded outright by **ISSUE-018** (authorized thin-executor eradication),
+  which deleted `LoadManifest`/`Manifest`/`RouteFile` entirely along with the in-process check
+  engine. 18 of 19 claims (all of REQ-007, all substantive REQ-010 claims) now assert deleted
+  code; the lone survivor (CLM-018) is an unrelated scope-fence about the `.standard.md`
+  scaffolder. Rather than leave a one-claim husk, this spec is retired terminal — its
+  successor is the deletion itself (ISSUE-018), not its own parent bundle BUNDLE-011 (a child
+  cannot be replaced-by its parent). Terminal specs are excluded from gate enforcement, clearing
+  the stale mandated-test failures wholesale. Recorded openly per align-predating-artifacts.
+- **1.2.0** (2026-07-05) — Retired the stale `pkg/check/manifest.go` provides `LoadManifest`,
+  `Manifest`, and `(*Manifest).RouteFile`: ISSUE-018 (authorized thin-executor eradication)
+  deleted the in-process check engine, collapsing the manifest routing machinery — those three
+  symbols are gone from the tree, so their present-signature promises were stale reds under
+  `contract_signature`. The live `CheckType` enum (the gate's neutral pass-identity vocabulary,
+  deliberately preserved) is unchanged; the now-dangling `os.ReadDir` consume (only the deleted
+  `.manifest.json` reader used it) was dropped. Contract-only realignment
+  (align-predating-artifacts); no requirement, claim, or design change.
 - **1.1.0** (2026-07-03) — Status → `implemented`. BUNDLE-011 Seed 1 dead-code prelude
   (deleted the dead `.manifest.json` reader and the non-Go findings catch-all) shipped and
   committed; parent bundle BUNDLE-011 delivered. Status-only transition, no requirement,

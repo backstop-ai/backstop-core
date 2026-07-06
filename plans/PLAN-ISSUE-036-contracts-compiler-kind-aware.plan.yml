@@ -1,0 +1,391 @@
+---
+plan_id: PLAN-ISSUE-036
+spec_id: ISSUE-036
+created: "2026-07-05"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/engine/... -race"
+coverage_threshold: 90
+
+notes: |
+  Closes ISSUE-036: the contracts pack signature compiler
+  (packs/contracts/scripts/compile-signature.sh) is func-ONLY. Fed a
+  type/const/var/interface/method-with-receiver signature it emits a garbage
+  ast-grep pattern that can NEVER match real Go, so five of the schema's six
+  contract `kind` values are unverifiable and read as vacuous green (they only
+  "pass" because contract_signature is diff-scoped and their files aren't in the
+  diff). This plan makes the compiler DECLARATION-KIND-AWARE.
+
+  ── THREE COPIES OF THE COMPILER (load-bearing; two verification traps) ───────
+  The compiler exists in THREE places in this tree; edits to one do not
+  propagate to the others:
+    1. packs/contracts/scripts/compile-signature.sh — the DURABLE SOURCE
+       (source_type: local in backstop.lock). This is the fix target.
+    2. pkg/gate/testdata/traceability-pack/scripts/compile-signature.sh — a
+       byte-identical TRACKED copy that the Go rules test harness
+       (pkg/pack/engine/contracts_go_rules_test.go, tracePackRel) invokes by
+       path. If left stale it silently diverges from the source — the same class
+       of trap as #3, for the test harness. This plan SYNCS it.
+    3. .backstop/packs/backstop/contracts/scripts/compile-signature.sh — the
+       gitignored INSTALLED copy the GATE actually executes
+       (cmd/backstop/gate.go:1217 compileContractSignature shells this path).
+       Editing #1 alone leaves the gate running the OLD script. This plan
+       REINSTALLS (remove+add) so the gate picks up the fix. Verified reinstall
+       command (roundtrips cleanly, recomputes content_hash, restores installed
+       copy): `backstop pack remove backstop/contracts && backstop pack add
+       ./packs/contracts`. NOTE: `pack add` REFUSES an already-installed pack and
+       `pack install` VERIFIES the locked hash (so it rejects edited source) —
+       remove+add is the only correct reinstall path for an edited local pack.
+
+  ── KIND IS INFERRED FROM THE SIGNATURE TEXT (not passed) ─────────────────────
+  At runtime compileContractSignature passes ONLY the signature string to the
+  script (cmd/backstop/gate.go:1220 `exec.Command("/bin/sh", script, signature)`);
+  the contract's `kind` field is NOT passed. Wiring kind through the binary would
+  be a Go change outside the pack. Therefore the compiler MUST detect the kind
+  from the leading token of the signature text: `func (` → method,
+  `func ` → function, `type ` → type/interface, `const ` → constant,
+  `var ` → variable.
+
+  ── VERIFIED ast-grep Go PATTERNS (probed against real ast-grep 0.43.0) ───────
+  Each emitted string below was confirmed to MATCH the right decl and NOT match a
+  decoy. The implementer MUST re-verify at impl time before committing exact text:
+    - func     : `func $NAME($$$PARAMS) <ret>`            (existing — keep)
+    - method   : `func ($R <RecvType>) $NAME($$$PARAMS) <ret>` — PRESERVE the
+                 receiver TYPE (incl. a leading `*` for pointer receivers),
+                 metavar only the receiver NAME + params, keep the return clause.
+                 This matches the real method, and correctly does NOT match a
+                 same-named FREE function nor a same-named method on a DIFFERENT
+                 receiver type. (Current code drops the receiver entirely — the
+                 bug.)
+    - type     : `type $NAME $$$`  (matches `type CheckType int` AND
+                 `type Result struct {…}` by name)
+    - interface: `type $NAME interface { $$$ }` (or reuse the generic
+                 `type $NAME $$$`); confirm interface routes through THIS compiler.
+    - constant : `const $NAME = $$$`  (NB: `const $NAME $$$` without `=` produces
+                 an ast-grep ERROR node — preserve the `=`/RHS from the signature.)
+    - variable : `var $NAME = $$$` / `var $NAME <type>`.
+
+  ── THE CASCADE (KEY SHARP EDGE / OPEN RISK) ──────────────────────────────────
+  Once the compiler is fixed AND the pack reinstalled, every previously-latent
+  non-func contract across the repo (SPEC-008/013/014/025/035/039/041 …) STARTS
+  actually being evaluated the next time its file enters a diff. Expected effects:
+    * The two known reds SHOULD clear IF the declared symbols genuinely match on
+      disk: CheckTypeFindings (constant, SPEC-035, pkg/check/manifest.go:22) and
+      CheckTypeConsumer (type, SPEC-041, cmd/backstop/checktype_catalog.go:9) —
+      VERIFY, do not assume.
+    * NEW, genuine signature mismatches may surface — contracts whose declared
+      signature has silently drifted from real source, hidden all this time by
+      the same gap. This is the dimension becoming NON-VACUOUS doing its job, NOT
+      a regression this fix introduced. The true repo-wide blast radius is
+      EXPLORATORY (not a known small number). The final verification task MUST run
+      `backstop gate --json`, inspect contract_signature, and EXPLICITLY enumerate
+      any newly-lit mismatches as findings for TRIAGE — they may need their own
+      follow-up reconciliation (via the spec-author agent, per the
+      align-predating-artifacts rule). Do NOT silently absorb them, and do NOT
+      retire/rewrite the five already-correct live contracts to force green.
+
+  ── WHY A GO TEST IS THE TDD VEHICLE (not `backstop pack test`) ───────────────
+  `backstop pack test` runs each rule's STATIC `pattern` against fixtures via the
+  fixture executor (pkg/packval) — it never invokes the signature COMPILER. So
+  the compiler's kind-awareness can only be driven red→green by a Go test that
+  shells the compiler script + real ast-grep (the shape
+  contracts_go_rules_test.go already uses). The new test points at the DURABLE
+  source (#1) so it proves the real fix target. Additionally, per-kind rules are
+  added to pack.yml so `backstop pack test` DOES exercise non-func shapes — that
+  suite never having run a non-func signature is why the gap shipped silently.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Per-kind Go fixtures for the compiler tests"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add positive+negative Go fixtures for type/const/var/method/interface kinds"
+        description: |
+          Create the Go source fixtures the kind-aware compiler test compiles
+          against with real ast-grep. Place them in the pack's own fixtures dir
+          (packs/contracts/testdata/fixtures/) so the fixtures live WITH the pack
+          (ISSUE-036 solution #3):
+            - sig-kinds-present.go — one real package file DECLARING, at real
+              signatures mirroring the issue's live symbols:
+                type CheckType int
+                type Result struct { … }
+                const CheckTypeFindings = "findings"
+                var GlobalRegistry = …
+                func (ct CheckType) String() string { … }   // method w/ receiver
+                type Stringer interface { String() string } // interface
+              Each compiled kind pattern (bound to its NAME) must MATCH here.
+            - sig-kinds-mismatch.go — a real package file that DELIBERATELY holds
+              the DISCRIMINATION decoys and OMITS the present names:
+                func String() string { … }        // FREE func — the method
+                                                  // pattern MUST reject this
+                func (x Other) String() string {} // method on a DIFFERENT
+                                                  // receiver — MUST also reject
+                type SomethingElse int             // wrong-named type
+              and does NOT declare CheckType / CheckTypeFindings / GlobalRegistry /
+              Stringer, so each present-kind pattern finds ZERO matches here.
+          The existing func fixtures (sig-present.go / sig-mismatch.go) are reused
+          for the func no-regression case — do not duplicate them. No production
+          code and no compiler change in this task.
+        files:
+          - packs/contracts/testdata/fixtures/sig-kinds-present.go
+          - packs/contracts/testdata/fixtures/sig-kinds-mismatch.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Kind-aware compiler + pack-native coverage (TDD red→green)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing kind-aware compiler tests (compiler + real ast-grep, all kinds)"
+        description: |
+          New Go test file pkg/pack/engine/contracts_kind_signature_test.go that
+          shells the DURABLE compiler
+          (packs/contracts/scripts/compile-signature.sh) over each declared
+          signature and runs REAL ast-grep against the Phase-1 fixtures via the
+          pack's ast-grep convert (reuse the compileSignature / astGrepMatchCount
+          helpers' shape from contracts_go_rules_test.go; require real ast-grep, no
+          t.Skip). Red now because the compiler is func-only. Mandated test names:
+            - TestContractCompiler_FuncSignatureUnchanged (CLM-001): a func sig
+              still compiles to `func $NAME($$$PARAMS) …` and matches
+              sig-present.go / no-matches sig-mismatch.go (NO REGRESSION).
+            - TestContractCompiler_KindInferredFromSignatureText (CLM-007):
+              compiling "type CheckType int" yields a pattern that does NOT start
+              with `func ` (proves the compiler branches on kind inferred from
+              text, since runtime passes no kind field).
+            - TestContractCompiler_TypeSignatureMatchesTypeDecl (CLM-002): "type
+              CheckType int" compiles to a `type $NAME …` pattern matching
+              sig-kinds-present.go.
+            - TestContractCompiler_TypeSignatureNoMatchAbsent (CLM-002): same
+              pattern finds ZERO matches in sig-kinds-mismatch.go.
+            - TestContractCompiler_ConstSignatureMatches (CLM-003): "const
+              CheckTypeFindings = \"findings\"" matches present, not mismatch.
+            - TestContractCompiler_VarSignatureMatches (CLM-004): a var sig matches
+              present, not mismatch.
+            - TestContractCompiler_MethodPreservesReceiverType (CLM-005): "func (ct
+              CheckType) String() string" compiles to a pattern that PRESERVES the
+              receiver TYPE and MATCHES the real method in sig-kinds-present.go.
+            - TestContractCompiler_MethodRejectsFreeFunctionSameName (CLM-005): the
+              SAME compiled method pattern finds ZERO matches against the FREE func
+              `String()` AND the `(x Other) String()` method in
+              sig-kinds-mismatch.go (receiver no longer dropped).
+            - TestContractCompiler_InterfaceSignatureMatches (CLM-006): an
+              interface sig matches the interface decl in present, not mismatch.
+          Substantive: assert match COUNTS (>0 vs ==0) against real fixtures and
+          assert the emitted pattern shape — never canned plumbing.
+        files:
+          - pkg/pack/engine/contracts_kind_signature_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Rewrite compile-signature.sh to be declaration-kind-aware"
+        description: |
+          Make TASK-002 green. Rewrite packs/contracts/scripts/compile-signature.sh
+          so it INFERS the declaration kind from the leading token of the signature
+          text (kind is NOT passed at runtime) and emits the matching ast-grep Go
+          pattern per kind, RE-VERIFIED against real ast-grep before committing the
+          exact strings (ISSUE-036 solution #2). Behavior per kind:
+            - `func (` (method): parse the receiver clause; PRESERVE the receiver
+              TYPE including a leading `*` for pointer receivers, metavar the
+              receiver NAME and the params, keep the return clause →
+              `func ($R <RecvType>) $NAME($$$PARAMS) <ret>`. (Fixes the current
+              silent receiver drop.)
+            - `func ` (function): unchanged existing behavior →
+              `func $NAME($$$PARAMS) <ret>`.
+            - `type ` : `type $NAME $$$` (covers struct/alias/int-based types);
+              if the signature is an interface, `type $NAME interface { $$$ }`.
+            - `const `: `const $NAME = $$$` — preserve the `=`/RHS (a bare
+              `const $NAME $$$` is an ast-grep ERROR node).
+            - `var `  : `var $NAME = $$$` / `var $NAME <type>`.
+          Keep the header comment honest about the now-multi-kind scope. Touch ONLY
+          this script in this task. Confirm each branch's output with a real
+          ast-grep run over the Phase-1 fixtures while iterating.
+        files:
+          - packs/contracts/scripts/compile-signature.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: implementation
+        title: "Add per-kind rules+fixtures to pack.yml so `backstop pack test` exercises non-func kinds"
+        description: |
+          Make the pack's OWN validation exercise non-func shapes (ISSUE-036
+          solution #3 — the pack suite never having run a non-func signature is why
+          this shipped silently). In packs/contracts/pack.yml add rules under the
+          contracts ruleset (engine ast-grep-contracts, gate_type contracts), one
+          per non-func kind, each with a STATIC structural pattern equal to what
+          the fixed compiler emits for that kind and positive/negative fixtures
+          pointing at the Phase-1 files:
+            - type-signature      → pattern `type $NAME $$$`,
+              positive sig-kinds-present.go, negative sig-kinds-mismatch.go
+            - const-signature     → `const $NAME = $$$`
+            - var-signature       → `var $NAME = $$$`
+            - method-signature    → `func ($R $T) $NAME($$$PARAMS) $$$`
+            - interface-signature → `type $NAME interface { $$$ }`
+          These freeze the compiler's verified output as static rules so
+          `backstop pack test` goes RED if a pattern shape regresses. Depends on
+          TASK-002 (the test that proved those exact patterns match/reject the
+          fixtures). Touch ONLY pack.yml here. Keep the existing contract-signature
+          and contract-absence rules intact.
+        files:
+          - packs/contracts/pack.yml
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: refactor
+        title: "Sync the tracked test-harness compiler copy to the fixed source"
+        description: |
+          Keep the two TRACKED copies of the compiler byte-identical so the Go
+          rules test harness does not silently run a stale, func-only script.
+          Copy the fixed packs/contracts/scripts/compile-signature.sh over
+          pkg/gate/testdata/traceability-pack/scripts/compile-signature.sh
+          (the copy contracts_go_rules_test.go invokes via tracePackRel). This
+          closes the test-harness analogue of the installed-copy trap. Verify the
+          existing func-only rules tests in contracts_go_rules_test.go still pass
+          (func behavior is preserved) and that the two tracked scripts are now
+          identical. Touch ONLY the testdata copy here.
+        files:
+          - pkg/gate/testdata/traceability-pack/scripts/compile-signature.sh
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-003
+
+      - id: TASK-006
+        type: verification
+        title: "Code check + pack test over the kind-aware compiler and fixtures"
+        description: |
+          Inner-loop verification of Phase 2 (backstop CLI only — no raw go
+          test/ast-grep):
+            - `backstop code check` — confirm the new compiler test, the two
+              synced scripts, the pack.yml rule additions, and the fixtures build,
+              lint clean, and the full pkg/pack/engine contract suite (new
+              kind-aware tests + existing func-only rules tests) passes green.
+            - `backstop pack test` — confirm the contracts pack validates end to
+              end AND the newly added per-kind rules pass their positive fixtures
+              and REJECT their negative fixtures (proving the pack's own suite now
+              exercises every kind).
+        files:
+          - packs/contracts/scripts/compile-signature.sh
+          - packs/contracts/pack.yml
+          - pkg/pack/engine/contracts_kind_signature_test.go
+          - pkg/gate/testdata/traceability-pack/scripts/compile-signature.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Reinstall the pack + full gate cascade verification"
+    tasks:
+      - id: TASK-007
+        type: setup
+        title: "Reinstall the contracts pack so the GATE runs the fixed compiler"
+        description: |
+          The gate executes the INSTALLED copy at
+          .backstop/packs/backstop/contracts/, not the edited source — editing the
+          source WITHOUT reinstalling leaves the gate running the old script (the
+          verification trap this issue was hidden behind). Reinstall so the
+          installed copy AND the backstop.lock content_hash pick up the fix. Verified
+          command sequence (roundtrips cleanly; `pack add` refuses an
+          already-installed pack and `pack install` rejects edited source vs the
+          locked hash, so remove+add is the correct path for an edited local pack):
+            backstop pack remove backstop/contracts
+            backstop pack add ./packs/contracts
+          Confirm afterward that
+          .backstop/packs/backstop/contracts/scripts/compile-signature.sh matches
+          the fixed source and that backstop.lock's backstop/contracts content_hash
+          changed. Depends on the Phase-2 fixes being complete.
+        files:
+          - backstop.lock
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Full gate: confirm the 2 known reds clear + enumerate any newly-lit contract mismatches"
+        description: |
+          Final comprehensive verification and the plan's KEY SHARP EDGE. Run the
+          full kill chain and TRIAGE the cascade (backstop CLI only):
+            - `backstop gate --json` — the full gate (artifact validation, code
+              check, test verification, substantiveness, coverage, contracts) now
+              running the reinstalled, kind-aware compiler.
+            - Inspect the contract_signature dimension and CONFIRM the two known
+              reds clear IF their symbols genuinely match on disk:
+              CheckTypeFindings (constant, SPEC-035, pkg/check/manifest.go:22) and
+              CheckTypeConsumer (type, SPEC-041, cmd/backstop/checktype_catalog.go:9).
+              Verify by grep/read; do NOT assume.
+            - EXPLICITLY ENUMERATE any NEWLY-lit contract_signature mismatches the
+              now-non-vacuous dimension surfaces across the repo (contracts whose
+              declared signature has drifted from real source), and REPORT them as
+              findings for triage — they are the diff-scope cascade doing its job,
+              NOT a regression. Do NOT silently absorb them and do NOT
+              retire/rewrite the five already-correct live contracts to force
+              green; genuine drift is reconciled as separate follow-up work (via
+              the spec-author agent, per align-predating-artifacts). Report the
+              final contract_signature count and the newly-lit list.
+            - `backstop gate` covers artifact validation for the plan artifact
+              (the only artifact file this change set touches).
+        files:
+          - plans/PLAN-ISSUE-036-contracts-compiler-kind-aware.plan.yml
+          - packs/contracts/scripts/compile-signature.sh
+          - packs/contracts/pack.yml
+          - pkg/pack/engine/contracts_kind_signature_test.go
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-006
+          - TASK-007

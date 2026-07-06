@@ -147,49 +147,11 @@ func TestNoTestRequiresManifestDirOrStandardsConfig(t *testing.T) {
 	}
 }
 
-// TestNoFallback_PopulatedRulesDirNotASource is the SPEC-030 CLM-018 behavioral
-// check (consolidated with the former CLM-019 at spec_version 1.3.0): a
-// populated `.backstop/rules/` directory is NOT an implicit rule/route source. A
-// leftover STD-*.semgrep.yml planted there (with no *.manifest.json) is never
-// collected by the sole production reader of that directory — LoadManifest
-// returns the built-in default manifest, so the populated dir contributes zero
-// rules and zero routes. Behavioral over LoadManifest; it does NOT assert any
-// in-process semgrep invocation (none exists), and is distinct from the
-// CLM-002/003 production-source token scans.
-func TestNoFallback_PopulatedRulesDirNotASource(t *testing.T) {
-	dir := t.TempDir()
-	rulesDir := filepath.Join(dir, "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("mkdir rules: %v", err)
-	}
-	// A leftover compiled-standards file — NOT a *.manifest.json routing file.
-	if err := os.WriteFile(filepath.Join(rulesDir, "STD-GO-001.semgrep.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatalf("write leftover: %v", err)
-	}
-
-	m, err := LoadManifest(rulesDir)
-	if err != nil {
-		t.Fatalf("LoadManifest over a rules dir with only STD-*.semgrep.yml: %v", err)
-	}
-	// A dir with no *.manifest.json yields the built-in default manifest; the
-	// leftover compiled-standards file must not resurrect a second rule source.
-	// Post-SPEC-039 (the .manifest.json reader is deleted) this is asserted via
-	// LoadManifest's surviving contract: it returns the built-in default routing,
-	// so a .go file gets the full default pass set (lint/build/test/findings) and
-	// a non-Go file matched by no built-in rule routes to the catch-all default —
-	// the populated rules dir altered nothing. The leftover STD-*.semgrep.yml is
-	// never collected as a rule/route source.
-	goChecks := m.RouteFile("main.go")
-	wantGo := []CheckType{CheckTypeLint, CheckTypeBuild, CheckTypeTest, CheckTypeFindings}
-	if len(goChecks) != len(wantGo) {
-		t.Errorf("a .backstop/rules dir containing only STD-*.semgrep.yml (no *.manifest.json) must yield the built-in default manifest; .go routed to %v, want the full default pass set %v", goChecks, wantGo)
-	}
-	for _, ct := range wantGo {
-		if !containsCheckType(goChecks, ct) {
-			t.Errorf(".go default routing missing %v: got %v (populated rules dir must NOT become an implicit rule/route source)", ct, goChecks)
-		}
-	}
-}
+// TestNoFallback_PopulatedRulesDirNotASource was removed by ISSUE-018: it
+// exercised LoadManifest/RouteFile — the built-in file-extension routing manifest
+// — which is deleted in full with the in-process check engine. The invariant that
+// no populated .backstop/rules dir is an implicit rule source now holds a fortiori
+// (there is no manifest reader at all). CLM-002.
 
 // TestSemgrepEnsurer_Removed proves the bespoke ensurer/resolver/installer
 // wiring is gone from production source. CLM-007/008/009.

@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/config"
 )
 
 // SPEC-034 phase-3 CUTOVER deletion assertions (REQ-002/REQ-003/REQ-005/REQ-008).
@@ -26,37 +23,11 @@ func readCheckSource(t *testing.T, name string) string {
 	return string(b)
 }
 
-// TestCutover_GoShortCircuitRemoved (CLM-004) proves the `if language == "go"`
-// short-circuit and goBuiltinExecutors are deleted from registry.go/check.go —
-// the short-circuit BRANCH is gone, not merely bypassed.
-func TestCutover_GoShortCircuitRemoved(t *testing.T) {
-	registry := readCheckSource(t, "registry.go")
-	if strings.Contains(registry, `language == "go"`) {
-		t.Error("registry.go still contains the `language == \"go\"` short-circuit branch; it must be deleted")
-	}
-	if containsIdent(registry, "goBuiltinExecutors") {
-		t.Error("registry.go still references goBuiltinExecutors; the Go special-case construction must be deleted")
-	}
-	check := readCheckSource(t, "check.go")
-	if containsIdent(check, "goBuiltinExecutors") {
-		t.Error("check.go still defines goBuiltinExecutors; it must be deleted")
-	}
-}
-
-// TestCutover_BespokeExecutorTypesDeleted (CLM-006) proves the bespoke
-// lintExecutor, buildExecutor, and testExecutor types are deleted from pkg/check.
-func TestCutover_BespokeExecutorTypesDeleted(t *testing.T) {
-	for _, name := range []string{"check.go", "registry.go"} {
-		src := readCheckSource(t, name)
-		for _, typ := range []string{"lintExecutor", "buildExecutor", "testExecutor"} {
-			// Catch both the type decl (`type lintExecutor struct`) and any
-			// construction (`&lintExecutor{`).
-			if strings.Contains(src, "type "+typ+" ") || strings.Contains(src, "&"+typ+"{") || strings.Contains(src, typ+"{") {
-				t.Errorf("%s still declares/constructs bespoke executor %q; it must be deleted", name, typ)
-			}
-		}
-	}
-}
+// TestCutover_GoShortCircuitRemoved / TestCutover_BespokeExecutorTypesDeleted
+// were removed by ISSUE-018: they read pkg/check/registry.go, which is deleted
+// in full along with the whole in-process check engine. The bespoke Go-toolchain
+// symbols they guarded remain absent (asserted by the pkg/check
+// TestInProcessCheckEngine_Removed deletion-assertion and strangler_guard_test).
 
 // TestCutover_GoBuildTestFormatsRemoved (CLM-007) proves parseGoBuildErrors and
 // parseGoTestFailures are deleted AND their go-build / go-test named formats are
@@ -167,27 +138,8 @@ func TestCutover_BuiltinToolchainTypescriptStackDeleted(t *testing.T) {
 	}
 }
 
-// TestCutover_ResolveToolchainRetainedDeclaredOnly proves resolveToolchain /
-// commandExecutor / buildExecutorsForConfigErr are RETAINED (not deleted) and
-// resolveToolchain is REDUCED to resolving DECLARED enforcement.toolchain entries
-// only — a Go/TS project with NO declared toolchain yields an EMPTY executor set
-// from that path rather than a baked stack (CLM-007).
-func TestCutover_ResolveToolchainRetainedDeclaredOnly(t *testing.T) {
-	checkDir := filepath.Join(repoRoot(t), "pkg", "check")
-	for _, retained := range []string{"func resolveToolchain", "func buildExecutorsForConfigErr", "commandExecutor"} {
-		if !grepNonTestSource(t, checkDir, retained) {
-			t.Errorf("%s was deleted from pkg/check — it must be RETAINED for the surviving code check subcommand (CLM-007)", retained)
-		}
-	}
-
-	// REDUCED to declared-only (behavioral, via the exported pkg/check seam): a Go
-	// project with NO declared enforcement.toolchain yields an EMPTY lint/build/test
-	// executor set (no baked go stack overlay) and does NOT error.
-	execs, err := check.DeclaredToolchainExecutorsForTest("go", &config.Config{})
-	if err != nil {
-		t.Fatalf("a Go project with no declared toolchain must not error (declared-only resolve), got: %v", err)
-	}
-	if len(execs) != 0 {
-		t.Fatalf("a Go project with NO declared enforcement.toolchain must yield an EMPTY executor set after builtinToolchain's deletion, got %d executors (a baked stack survives)", len(execs))
-	}
-}
+// TestCutover_ResolveToolchainRetainedDeclaredOnly was removed by ISSUE-018:
+// resolveToolchain / commandExecutor / buildExecutorsForConfigErr /
+// DeclaredToolchainExecutorsForTest are DELETED along with the whole in-process
+// check engine (the `backstop code check` command they served is gone), so the
+// "retained for the surviving code check subcommand" premise no longer holds.

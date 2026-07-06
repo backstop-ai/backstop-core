@@ -69,6 +69,22 @@ func NoTargetViolation(funcName, targetPkg string, referenced ReferencedSymbolSe
 	}, true
 }
 
+// NoTargetViolationForTest is the thin PRE-JOIN skip wrapper that applies the opt-in
+// `kind: absence` annotation (ISSUE-035 Category 2) WITHOUT altering NoTargetViolation's
+// exhaustive decision table or its strangler-harness caller. When the mandated test's
+// claim declared `kind: absence` (mt.IsAbsence), the noTarget set-join is SKIPPED (the
+// test proves an ABSENCE, so by design it does not call its target package). Otherwise
+// it delegates unchanged to NoTargetViolation, so the full decision table — and the
+// false-negative guard (an UNannotated not-in-set test STILL raises) — stays intact and
+// unit-testable here in pkg/gate. The skip mirrors how terminal specs are pre-filtered
+// in ExtractMandatedTests and how the gate loop already `continue`s on unfound tests.
+func NoTargetViolationForTest(mt MandatedTest, referenced ReferencedSymbolSet, samePackage bool) (Violation, bool) {
+	if mt.IsAbsence {
+		return Violation{}, false
+	}
+	return NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage)
+}
+
 // RouteSubstantivenessFindings partitions the FLAT pack_engines []Violation stream
 // into the substantiveness hollow-findings and extraction-findings by matching the
 // pack's stable NAMESPACED rule IDs (pack.NamespacedRuleID form) on each violation's
