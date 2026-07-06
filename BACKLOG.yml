@@ -3,12 +3,15 @@
 # See artifacts/directive/v1/backlog-schema.json for format.
 
 directives:
+  - id: DIR-014
+    title: Complete Thin Executor Eradication
+  - id: DIR-015
+    title: Gate Checker Hardening
+  - id: DIR-001
+    title: Release Workflow
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002
     title: backstop init Command
-  - id: DIR-001
-    title: Release Workflow
   - id: DIR-008
-    title: "CLI Self-Update"
-  - id: DIR-012
+    title: CLI Self-Update

@@ -20,6 +20,11 @@ case "$AGENT_NAME" in
   adr-author) [[ "$FILE_PATH" == *.adr.md ]] && exit 0 || block ;;
   issue-author) [[ "$FILE_PATH" == *.issue.md ]] && exit 0 || block ;;
   planner) [[ "$FILE_PATH" == *.plan.yml ]] && exit 0 || block ;;
+  directive-author)
+    [[ "$FILE_PATH" == *.directive.md ]] && exit 0
+    [[ "$(basename "$FILE_PATH")" == "BACKLOG.yml" ]] && exit 0
+    block
+    ;;
   implementer)
     [[ "$FILE_PATH" == *.go ]] && exit 0
     basename="$(basename "$FILE_PATH")"
