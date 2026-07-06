@@ -1,0 +1,314 @@
+---
+plan_id: PLAN-ISSUE-034
+spec_id: ISSUE-034
+created: "2026-07-05"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/gate/... -run TestCoverage -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-034 — the gate coverage step flags git-DELETED files as
+  in-scope "measurable source needing coverage," emitting spurious
+  coverage_unmeasured violations for files that no longer exist. Surfaced
+  while landing ISSUE-018, which deleted cmd/backstop/code_check.go and
+  pkg/check/registry.go.
+
+  Root cause (verified against current code, 2026-07-05):
+    - resolveGateScopeDiff (pkg/gate/scope.go:104-131) builds the diff-scope
+      file list from `git diff --name-only <base>` with NO --diff-filter and no
+      per-file change-status captured; GateScope (scope.go:24-30) stores only a
+      flat Files []string, so the A/M/D status of each path is discarded before
+      any step consumes it.
+    - coveragePathsInScope (step_coverage.go:361-386) builds the
+      coverage-REQUIRED set by keeping every scope.Files path that
+      classifier.IsMeasurableSource matches — a pack-glob check ONLY, with no
+      on-disk existence / deletion check. A deleted .go file survives (matches
+      the source glob; has no coverage record) and lands in the same bucket as a
+      genuinely-unmeasured new file, firing the blocking coverage_unmeasured
+      emission at step_coverage.go:120-137.
+
+  CHOSEN FIX POINT — filter at the COVERAGE STEP (issue direction 2), NOT at
+  scope resolution (direction 1). In coveragePathsInScope, exclude any in-scope
+  path that does not exist on disk (os.Stat under scope.ProjectRoot) from the
+  coverage-required set. A git-deleted file does not exist on disk; an
+  added/modified file does — so on-disk existence is a precise proxy that drops
+  the false positive while preserving the genuine unmeasured-new-file check.
+
+  Justification for coverage-local over scope-wide (verified, not assumed):
+    1. Blast radius. coverage is the ONLY dimension that builds a POSITIVE
+       per-file OBLIGATION from scope.Files. A grep confirms step_coverage.go is
+       the sole non-test file iterating scope.Files
+       (coveragePathsInScope L368, scopeHasChangedFiles L393,
+       coverageSpecRelevantToCodeScope L512 — the last is threshold SELECTION,
+       harmless for a deleted path). Fixing coverage is therefore SUFFICIENT.
+    2. Direction 1 (drop D-status paths from GateScope.Files gate-wide) carries
+       a real regression risk the issue did not name: contract's Absent
+       (deletion-regression) entries are filtered by scope.Contains(entry.File)
+       in StepContractSignatureScopedFunc (step_contract.go:54). Dropping a
+       just-deleted file from scope gate-wide would SKIP a legitimately-scoped
+       contract-absence check whose declared File is that deleted path —
+       silently turning a deletion-regression guard into a no-op. The coverage-
+       local fix leaves scope semantics (and contract-absence) untouched.
+
+  LEAKAGE CONFIRMATION (issue acceptance requirement). Verified the deleted-file
+  leakage is coverage-specific and does NOT affect the other per-file dimensions:
+    - Contract (step_contract.go:54) only FILTERS already-produced findings down
+      to in-scope files (scope.Contains); it asserts no positive per-path
+      obligation, so a deleted file produces no contract finding and is not
+      flagged.
+    - Substantiveness is SARIF-finding-driven (grep of substantiveness_*.go shows
+      no scope.Files obligation iteration); a deleted file yields no finding.
+    - Only step_coverage.go asserts "this in-scope path MUST have a record"
+      from the diff-scope list. So the fix is correctly coverage-only.
+
+  SCOPE BOUNDARY — DO NOT ABSORB THE manifest.go GENUINE COVERAGE GAP. The
+  current coverage_threshold red has THREE violations. Exactly TWO are this bug
+  (deleted files cmd/backstop/code_check.go and pkg/check/registry.go, both
+  coverage_unmeasured). The THIRD —
+  "pkg/check/manifest.go coverage 4/6 (statement) below threshold" — is a
+  GENUINE below-threshold gap on a file ISSUE-018 gutted, NOT a deleted-file
+  false positive. ISSUE-034 fixes ONLY the deleted-file false positives. It MUST
+  NOT suppress, waive, or "fix" the manifest.go real gap (that is separate
+  residue handled elsewhere). Acceptance is explicit: after the fix the 2
+  deleted-file coverage_unmeasured violations are GONE and the manifest.go
+  coverage_threshold violation REMAINS. The implementer must not blind the check
+  to make the count zero.
+
+  File scope is confined to pkg/gate/: the impl touches step_coverage.go ONLY
+  (scope.go is intentionally left unchanged — the fix does not thread git
+  change-status through GateScope); the regression test is a new file
+  step_coverage_deletion_test.go.
+
+  Structure:
+    Phase 1: TDD red — two-sided non-stubbed regression test (deleted file NOT
+             flagged; added unmeasured file STILL flagged).
+    Phase 2: TDD green — os.Stat existence filter in coveragePathsInScope +
+             fast `backstop code check` inner-loop verification.
+    Phase 3: Comprehensive verification — `backstop gate --json`, confirming the
+             coverage_threshold count dropped by exactly the 2 deleted-file
+             violations while the manifest.go genuine gap persists.
+
+  Claims (derived from the issue's acceptance criteria — issues carry no CLM
+  block; the planner enumerates them so every task maps to at least one):
+    CLM-001 — a change that deletes a measurable-source .go file produces ZERO
+              coverage_unmeasured violations for that file.
+    CLM-002 — a change that adds/modifies a measurable-source .go file with no
+              coverage record STILL produces coverage_unmeasured (the fix does
+              not blind the check — regression guard against over-correction).
+    CLM-003 — the fix is coverage-local (existence filter in
+              coveragePathsInScope); contract & substantiveness confirmed NOT to
+              share the defect (only step_coverage.go builds a positive
+              obligation from scope.Files).
+    CLM-004 — scope boundary: the fix clears exactly the 2 deleted-file
+              coverage_unmeasured violations and does NOT suppress the genuine
+              pkg/check/manifest.go below-threshold coverage_threshold violation,
+              which correctly persists.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — Two-Sided Deleted-File Regression Test
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Deleted-File Coverage Regression Test"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing two-sided test: deleted file not flagged, added unmeasured file still flagged"
+        description: |
+          Add a new, REAL (non-stubbed) regression test file
+          pkg/gate/step_coverage_deletion_test.go exercising the actual
+          StepCoverageThresholdScopedFunc against a real GateScope and a real
+          SourceClassifier. No mocks of the classifier or the step. These tests
+          FAIL until Phase 2 lands, because coveragePathsInScope currently keeps
+          the deleted path (glob-match only) and emits coverage_unmeasured for it.
+
+          Fixture construction (both cases share it):
+            - t.TempDir() is the project root. Build a diff-mode GateScope via
+              ComputeGateScope is NOT required; construct the scope directly with
+              the two in-scope repo-relative paths and ProjectRoot set to the
+              temp dir (mirror how the existing coverage tests build a scope —
+              see step_coverage_classifier_test.go / step_coverage_test.go for
+              the newGateScope/GateScope construction pattern). Scope.Mode = diff.
+            - Classifier: NewSourceClassifier([]string{"**/*.go"},
+              []string{"**/*_test.go"}) so .go is measurable source.
+            - Coverage records: EMPTY ([]check.CoverageRecord{}) so no path has a
+              record — the pure no-record path that drives coverage_unmeasured.
+            - On disk under the temp root: CREATE the "added" file
+              (e.g. pkg/widget/added.go) with any non-empty Go content; do NOT
+              create the "deleted" file (e.g. pkg/widget/deleted.go) — its
+              absence on disk IS the deletion signal the fix keys on.
+
+          Mandated test names (exact):
+
+            - TestCoverage_DeletedInScopeFile_NoUnmeasuredViolation (CLM-001):
+              scope contains the DELETED measurable-source path (not on disk).
+              Assert the returned StepResult has NO coverage_unmeasured violation
+              whose File is the deleted path. (After the fix the deleted path is
+              excluded from the coverage-required set entirely.)
+
+            - TestCoverage_AddedUnmeasuredFile_StillFlagged (CLM-002): scope
+              contains the ADDED measurable-source path (present on disk) with no
+              coverage record. Assert the returned StepResult DOES contain a
+              coverage_unmeasured violation (Severity "error") whose File is the
+              added path. This is the regression guard proving the fix narrows to
+              deletions only and does not blind the genuine unmeasured-new-file
+              check.
+
+          Recommended: a single combined-scope case (both paths in one scope,
+          empty coverage) asserting EXACTLY ONE coverage_unmeasured violation and
+          that it names the added path, not the deleted one — this pins the
+          two-sided behavior in one assertion and mirrors the real ISSUE-018
+          shape (a delete + surviving genuine gap).
+
+          Do NOT assert anything about pkg/check/manifest.go here — that genuine
+          gap is out of scope for this fix (CLM-004) and is not reproducible in
+          this unit fixture.
+        files:
+          - pkg/gate/step_coverage_deletion_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — On-Disk Existence Filter in coveragePathsInScope
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — Exclude Deleted Files From the Coverage-Required Set"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Exclude non-existent (deleted) in-scope paths from the coverage-required set"
+        description: |
+          Make the Phase 1 tests pass with a COVERAGE-LOCAL fix in
+          pkg/gate/step_coverage.go. Do NOT modify scope.go and do NOT thread
+          git change-status through GateScope — the fix stays inside the coverage
+          step (issue direction 2), for the blast-radius and contract-absence
+          reasons recorded in this plan's notes.
+
+          In coveragePathsInScope (currently step_coverage.go:361-386), the
+          diff/file branch (the `else` iterating scope.Files, ~L367-378) already
+          skips any path that is not measurable source
+          (classifier.IsMeasurableSource). ADD a second guard: after the
+          measurable-source check, skip any path that does not exist on disk.
+            - Resolve the on-disk path as filepath.Join(scope.ProjectRoot, clean)
+              when scope.ProjectRoot != "", else clean (matches how the rest of
+              the package treats project-relative paths).
+            - Use os.Stat; on a non-nil error (os.IsNotExist covers the deletion
+              case) `continue` — the path is excluded from the coverage-required
+              set. A deleted file cannot be measured, so it carries no coverage
+              obligation.
+            - The all-mode / nil-scope branch (iterating coverage records) is
+              UNCHANGED: those paths come from records that a producer actually
+              emitted, so they exist by construction and need no existence check.
+
+          Add a focused comment explaining WHY (a git-deleted in-scope file has
+          no on-disk file to measure, so it must not carry a coverage_unmeasured
+          obligation; existence is the coverage-local proxy for "not deleted",
+          chosen over threading change-status through GateScope to avoid changing
+          scope semantics for other dimensions — notably contract-absence, which
+          filters by scope.Contains(entry.File)).
+
+          The `os` package must be imported in step_coverage.go (it is not
+          currently imported there — add it).
+
+          This fix must NOT touch pkg/check/manifest.go or its coverage: the
+          genuine below-threshold gap on manifest.go (statement 4/6) is a
+          separate concern and MUST still fire after this change (CLM-004). Do
+          not add exclusions, waivers, or suppression to make any real
+          below-threshold or genuine-unmeasured violation disappear.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check
+          inside the task body — it is covered by the verification task below.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Run backstop code check on the coverage-step fix"
+        description: |
+          Fast inner-loop verification of the implementation. Run:
+
+              backstop code check
+
+          to confirm the changed files (pkg/gate/step_coverage.go,
+          pkg/gate/step_coverage_deletion_test.go) pass lint, build, test, and
+          semgrep with no violations, and that the two mandated tests now pass:
+            - TestCoverage_DeletedInScopeFile_NoUnmeasuredViolation
+            - TestCoverage_AddedUnmeasuredFile_StillFlagged
+          Confirm the existing pkg/gate coverage tests
+          (step_coverage_test.go, step_coverage_classifier_test.go,
+          coverage_*_test.go) remain green — the existence guard must not perturb
+          the all-mode sweep or the has-records verdict paths.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_deletion_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive Verification — Full Gate Kill Chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — Full Gate + Scope-Boundary Check"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run backstop gate --json and confirm exactly the 2 deleted-file violations cleared"
+        description: |
+          Final comprehensive verification. The plan touches only .go files
+          (pkg/gate/step_coverage.go, pkg/gate/step_coverage_deletion_test.go),
+          so the full kill chain runs via:
+
+              backstop gate --json
+
+          Inspect the JSON coverage/coverage_threshold dimension and confirm the
+          SCOPE BOUNDARY holds (CLM-004):
+            - The 2 deleted-file coverage_unmeasured violations that ISSUE-018's
+              deletion produced (cmd/backstop/code_check.go, pkg/check/registry.go)
+              are GONE — no coverage_unmeasured entry names a non-existent file.
+            - The GENUINE gap REMAINS: the
+              "pkg/check/manifest.go coverage 4/6 (statement) below threshold"
+              coverage_threshold violation is STILL present. Its persistence is
+              the acceptance signal that the fix narrowed deletions only and did
+              NOT suppress the real below-threshold gap. Report the
+              coverage_threshold violation count and enumerate which violations
+              cleared vs persisted.
+            - If the gate's own current baseline differs from the ISSUE-018
+              reproduction, verify the equivalent invariant directly: zero
+              coverage_unmeasured violations reference a path absent from disk,
+              and any genuine below-threshold / genuinely-unmeasured-present-file
+              violation is untouched.
+
+          The gate run also covers artifact validation, code check, test
+          verification, substantiveness, and contract verification — confirming
+          the coverage-local change did not regress any other dimension and that
+          contract-absence scoping (which the rejected scope-wide fix would have
+          disturbed) is unaffected. No artifact files (.plan.yml / .spec.md /
+          etc.) are modified by the implementation work, so `backstop gate`
+          subsumes artifact validation and no separate
+          `backstop artifact validate` step is required.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/step_coverage_deletion_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+          - TASK-003

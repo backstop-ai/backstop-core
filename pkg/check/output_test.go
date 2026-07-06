@@ -1,7 +1,6 @@
 package check
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -245,7 +244,10 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 		t.Errorf("expected exit code 2 for config error, got %d", exitCode)
 	}
 
-	// Now verify that with a valid .backstop/ dir, passes DO execute
+	// A valid .backstop/ dir passes ValidateBackstopDir cleanly. The former
+	// RunWith invocation that proved "passes DO execute" was removed with the
+	// in-process check engine (ISSUE-018); ValidateBackstopDir remains the config
+	// gate the cmd layer switches on.
 	validDir := t.TempDir()
 	if mkErr := os.MkdirAll(filepath.Join(validDir, ".backstop", "rules"), 0o755); mkErr != nil {
 		t.Fatal(mkErr)
@@ -254,37 +256,6 @@ func TestCodeCheck_Config_LoadedBeforeChecks(t *testing.T) {
 	validErr := ValidateBackstopDir(validDir)
 	if validErr != nil {
 		t.Fatalf("expected no error for valid .backstop dir, got: %v", validErr)
-	}
-
-	// Add a Go file so scope resolution finds something
-	if err := os.WriteFile(filepath.Join(validDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	invoked := false
-	executors := map[CheckType]PassExecutor{
-		CheckTypeLint: &mockPassExecutor{fn: func(_ context.Context, _ []string) (*PassResult, error) {
-			invoked = true
-			return &PassResult{Pass: CheckTypeLint}, nil
-		}},
-	}
-
-	opts := RunOptions{
-		Options: Options{
-			Mode:       ScopeModeAll,
-			ProjectDir: validDir,
-		},
-		Git:       &mockGitExecutor{isGitRepo: false},
-		Executors: executors,
-	}
-
-	_, runErr := RunWith(context.Background(), opts)
-	if runErr != nil {
-		t.Fatalf("RunWith: %v", runErr)
-	}
-
-	if !invoked {
-		t.Error("expected pass executor to be invoked when config is valid")
 	}
 }
 

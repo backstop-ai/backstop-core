@@ -156,52 +156,14 @@ func TestEndState_NoTestReferencesDeletedBespokeSymbol(t *testing.T) {
 	}
 }
 
-// TestEndState_NewStackNeedsNoCoreChange (CLM-038) proves adding a new stack
-// requires no pkg/check change: a Go project with NO bespoke special-casing now
-// constructs executors purely from the data-driven toolchain/engine path. The
-// proof: buildExecutorsForConfigErr no longer special-cases Go (no
-// goBuiltinExecutors call), so the construction is the same generic path every
-// declared stack uses — adding a stack is a pack/declaration, not a core edit.
-func TestEndState_NewStackNeedsNoCoreChange(t *testing.T) {
-	regPath := filepath.Join(repoRoot(t), "pkg", "check", "registry.go")
-	src, err := os.ReadFile(regPath)
-	if err != nil {
-		t.Fatalf("reading registry.go: %v", err)
-	}
-	text := string(src)
-	if strings.Contains(text, "goBuiltinExecutors") {
-		t.Error("registry.go must not construct goBuiltinExecutors; stack support is data-driven, no core special-casing")
-	}
-	if strings.Contains(text, `language == "go"`) {
-		t.Error("registry.go must not special-case `language == \"go\"`; a new stack needs no core change")
-	}
-	// The generic data-driven path (resolveToolchain + commandExecutor) must remain
-	// the single construction route.
-	if !strings.Contains(text, "resolveToolchain") {
-		t.Error("registry.go must retain the generic resolveToolchain path that serves every stack")
-	}
-}
-
-// TestCutover_CheckRunNoLongerRunsToolchainPasses (CLM-005) proves the gate's
-// realCodeChecker -> check.Run step no longer constructs the native
-// lint/build/test passes for a Go project: buildExecutorsForConfigErr for Go
-// yields ONLY the shared semgrep executor (the lint/build/test passes now run
-// through the engine bridge). Asserted structurally: with the short-circuit and
-// goBuiltinExecutors deleted and the Go built-in toolchain carrying no
-// lint/build/test entries, no Go-specific native executor is constructed.
-func TestCutover_CheckRunNoLongerRunsToolchainPasses(t *testing.T) {
-	// Source-level: the construction path has no bespoke Go executor wiring.
-	regPath := filepath.Join(repoRoot(t), "pkg", "check", "registry.go")
-	src, err := os.ReadFile(regPath)
-	if err != nil {
-		t.Fatalf("reading registry.go: %v", err)
-	}
-	for _, banned := range []string{"goBuiltinExecutors", "lintExecutor{", "buildExecutor{", "testExecutor{"} {
-		if strings.Contains(string(src), banned) {
-			t.Errorf("registry.go still wires a native Go toolchain executor (%q); the engine bridge owns lint/build/test now", banned)
-		}
-	}
-}
+// TestEndState_NewStackNeedsNoCoreChange / TestCutover_CheckRunNoLongerRunsToolchainPasses
+// were removed by ISSUE-018: they read pkg/check/registry.go and asserted the
+// generic resolveToolchain construction path is RETAINED, but ISSUE-018 deletes
+// registry.go and the whole in-process check engine in full (the `backstop code
+// check` command they served is gone). The end-state invariant they protected —
+// no baked Go-toolchain knowledge in pkg/check — is still enforced by
+// TestEndState_NoBakedGoToolchainKnowledge and the pkg/check
+// TestInProcessCheckEngine_Removed deletion-assertion.
 
 // containsIdent reports whether text contains sym as a whole Go identifier
 // (word-bounded), so a substring inside a longer name does not false-positive.

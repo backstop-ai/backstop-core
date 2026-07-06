@@ -20,6 +20,12 @@ type MandatedTest struct {
 	TargetPkg string // last component of the spec's implementation.package
 	SpecID    string
 	ClaimID   string
+	// IsAbsence is the opt-in per-claim signal (ISSUE-035 Category 2): the mandating
+	// claim declared `kind: absence`, marking this an absence/structural test that by
+	// design does NOT call its target package. When true, the gate SKIPS the noTarget
+	// set-join for this test (see NoTargetViolationForTest). DEFAULT false — an
+	// unannotated claim keeps FULL noTarget enforcement.
+	IsAbsence bool
 }
 
 // specFrontmatter is a minimal representation of spec YAML frontmatter
@@ -46,7 +52,12 @@ type specFrontmatter struct {
 		CoverageMetricThresholds map[string]int `yaml:"coverage_metric_thresholds"`
 	} `yaml:"verification"`
 	Claims []struct {
-		ID    string   `yaml:"id"`
+		ID string `yaml:"id"`
+		// Kind is the OPTIONAL per-claim classification. `kind: absence` marks the
+		// claim's mandated test(s) as absence/structural (ISSUE-035 Category 2), which
+		// sets MandatedTest.IsAbsence and skips the noTarget join for those tests. An
+		// absent/other value leaves IsAbsence false (full enforcement).
+		Kind  string   `yaml:"kind"`
 		Tests []string `yaml:"tests"`
 	} `yaml:"claims"`
 	Contracts []struct {
@@ -91,6 +102,11 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 		targetPkg := TargetPackageName(fm.Implementation.Package)
 
 		for _, claim := range fm.Claims {
+			// Opt-in absence signal (ISSUE-035 Category 2), applied at the same
+			// extraction site as the terminal pre-filter above. DEFAULT-OFF: only a
+			// claim that EXPLICITLY declares `kind: absence` excuses its tests from the
+			// noTarget join; any other value keeps full enforcement.
+			isAbsence := claim.Kind == "absence"
 			for _, testName := range claim.Tests {
 				tests = append(tests, MandatedTest{
 					FuncName:  testName,
@@ -98,6 +114,7 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 					TargetPkg: targetPkg,
 					SpecID:    fm.Number,
 					ClaimID:   claim.ID,
+					IsAbsence: isAbsence,
 				})
 			}
 		}

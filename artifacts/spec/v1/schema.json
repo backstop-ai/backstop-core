@@ -61,7 +61,8 @@
     "claims": {
       "type": "array",
       "item_required_keys": ["id", "requirement", "text", "tests"],
-      "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ"
+      "item_optional_keys": ["kind"],
+      "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ. Optional 'kind: absence' marks the claim's mandated test(s) as absence/structural (they prove something is ABSENT and by design do not call the target package), which skips the noTarget substantiveness join for those tests."
     },
     "contracts": {
       "type": "array",

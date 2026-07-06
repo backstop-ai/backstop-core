@@ -4,7 +4,7 @@ number: SPEC-040
 created: "2026-06-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 2.0.0
 
 implementation:
   summary: >
@@ -121,20 +121,6 @@ requirements:
       shipping green. (RDQ-1, DD-1)
     supports: collapse-legacy-codecheck-into-packs:REQ-003
     follows: STD-GO-001:GO-010
-  - id: REQ-004
-    text: >
-      Each language's native lint/build/test must be delivered as ONE `<lang>-toolchain` pack
-      (`go-toolchain`, `typescript-toolchain`, …), per the toolchain-pack convention, each
-      bundling its native lint/build/test as Layer-0 engine passes dispatched through
-      `dispatchPackEngines`. The `go-toolchain` pack already exists and is leveraged, not
-      re-authored. Backstop must contain no opinion about which tools run, on which files, for
-      which language; every such opinion lives in a toolchain pack. The cutover machinery must
-      be LANGUAGE-AGNOSTIC: the resolution that bridges a `<lang>-toolchain` pack
-      (`loadBridgedToolchainPacks`, gate.go:411) must NOT hardcode `go` as the only bridgeable
-      language — it resolves the toolchain pack for the project's declared language generically.
-      (RDQ-2, DD-2)
-    supports: collapse-legacy-codecheck-into-packs:REQ-004
-    follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
       The no-toolchain-pack baseline must be WARN-ONLY: when the project declares no
@@ -217,26 +203,11 @@ claims:
     text: The builtinToolchain typescript stack (eslint/tsc/regex-lines) is deleted — no baked typescript lint/build/test stack remains in pkg/check non-test source
     tests:
       - TestCutover_BuiltinToolchainTypescriptStackDeleted
-  - id: CLM-007
-    requirement: REQ-002
-    text: resolveToolchain / commandExecutor / buildExecutorsForConfigErr are RETAINED (not deleted) because they have a surviving production caller (the code check subcommand); with builtinToolchain gone, resolveToolchain is REDUCED to resolving DECLARED enforcement.toolchain entries only, and a Go/TS project with no declared toolchain yields an empty executor set from that path rather than a baked stack
-    tests:
-      - TestCutover_ResolveToolchainRetainedDeclaredOnly
   - id: CLM-008
     requirement: REQ-002
     text: There is no standing dual-run window — after the cutover the gate's lint/build/test run exactly once (through dispatchPackEngines), not through both pkg/check.Run and the engine path
     tests:
       - TestCutover_NoDualRunOfLintBuildTest
-  - id: CLM-030
-    requirement: REQ-002
-    text: The deletion set is internally consistent — the standalone backstop code check subcommand SURVIVES the cutover and still works; an invocation over a project with a DECLARED toolchain still resolves and runs its lint/build/test passes through check.Run/buildExecutorsForConfigErr/resolveToolchain after builtinToolchain is deleted
-    tests:
-      - TestCutover_CodeCheckSubcommandSurvivesWithDeclaredToolchain
-  - id: CLM-031
-    requirement: REQ-002
-    text: No symbol deleted by the cutover has a surviving production caller — a guard asserts that every deleted symbol (realCodeChecker as a gate step, builtinToolchain) is absent AND that the retained-symbol callers (buildExecutorsForConfigErr -> resolveToolchain) compile and resolve, so the delete set cannot strand the code check subcommand
-    tests:
-      - TestCutover_NoDeletedSymbolHasSurvivingCaller
 
   # REQ-003 — deletion gated on a one-shot golden-equivalence assertion over the real, un-stubbed dispatch
   - id: CLM-009
@@ -259,23 +230,6 @@ claims:
     text: A deletion that outran the golden proof fails a guard test — the guard asserts the golden-equivalence test exists and is green and that the legacy Step-2 symbols are absent, so a premature deletion fails the gate rather than shipping green
     tests:
       - TestGoldenEquivalence_DeletionGatedOnProvenEquivalence
-
-  # REQ-004 — one <lang>-toolchain pack per language; cutover machinery language-agnostic
-  - id: CLM-013
-    requirement: REQ-004
-    text: A language's native lint/build/test is delivered as one <lang>-toolchain pack whose lint/build/test passes dispatch through dispatchPackEngines (the existing go-toolchain pack is leveraged, dispatched as Layer-0 engine passes)
-    tests:
-      - TestToolchainPack_LintBuildTestAsLayer0EnginePasses
-  - id: CLM-014
-    requirement: REQ-004
-    text: The toolchain-pack bridge resolution is language-agnostic — it resolves the <lang>-toolchain pack for the project's declared language and does not hardcode "go" as the only bridgeable language; a non-Go language resolves its own <lang>-toolchain pack
-    tests:
-      - TestToolchainPack_BridgeResolutionLanguageAgnostic
-  - id: CLM-015
-    requirement: REQ-004
-    text: Backstop bakes no opinion about which tools run for a language — adding a new language's toolchain requires only authoring a <lang>-toolchain pack, no cmd/backstop or pkg/check change
-    tests:
-      - TestToolchainPack_NewLanguageNeedsNoCoreChange
 
   # REQ-005 — no-toolchain-pack baseline is WARN-ONLY (no block, non-failing "warning" status)
   - id: CLM-016
@@ -346,11 +300,6 @@ claims:
       - TestNoRegress_ContractsStepStillRunsAndPasses
 
   # Test-runner ↔ coverage seam (Sharp Edge): deleting pkg/check.Run must NOT orphan the coverage step before SPEC-041
-  - id: CLM-028
-    requirement: REQ-001
-    text: Deleting the pkg/check.Run Step-2 path does NOT orphan the still-baked coverage step — the coverage step still receives its whole-module `go test ./...` feed (the shared test runner survives the Step-2 deletion as the transitional coverage feed) and the coverage step still runs and still passes after the cutover, in lockstep until SPEC-041 migrates coverage
-    tests:
-      - TestSeam_CoverageStepNotOrphanedByStep2Deletion
   - id: CLM-029
     requirement: REQ-001
     text: Deleting realCodeChecker/checkViolationsToGate (where the build-pass ProjectWide scope-filter exemption `cv.Pass == check.CheckTypeBuild` is set today, gate.go:1173) does NOT silently scope-filter engine-path build breaks — a build break in an UNCHANGED file still REDs a diff-scoped gate across the cutover window, because build-pass ProjectWide is preserved transitionally on the engine path (or SPEC-040 and SPEC-041 land in lockstep). Cross-references SPEC-041 REQ-004, which replaces this transitional seam with a declared exempt_from_scope_filter property
@@ -449,50 +398,6 @@ contracts:
           over the toolchain test pass. The toolchain test pass (through dispatchPackEngines)
           becomes the established test-runner seam SPEC-041 migrates coverage onto.
     consumes: []
-  - file: pkg/check/registry.go
-    provides:
-      - name: resolveToolchain
-        kind: function
-        signature: "func resolveToolchain(language string, cfg *config.Config) (Toolchain, error)"
-        notes: >
-          RETAINED (not deleted) and REDUCED (REQ-002/REQ-002-consistency/CLM-007). The
-          `builtinToolchain` function and its baked go/ts stacks are DELETED — the actual
-          zero-baked-checks violation. With the built-in overlay gone, resolveToolchain resolves
-          DECLARED enforcement.toolchain entries ONLY; a Go/TS project with no declared toolchain
-          yields an empty executor set rather than a baked stack. resolveToolchain,
-          commandExecutor, and buildExecutorsForConfigErr are RETAINED because they have a
-          SURVIVING production caller — the standalone `backstop code check` subcommand (NOT
-          retired by this spec). Deleting them would break that subcommand at implementation time
-          (the cross-seam SPEC-041's review surfaced); the delete set must be internally
-          consistent (CLM-030/CLM-031). This is the GATE Step-2 cutover, not a `pkg/check`
-          teardown.
-      - name: buildExecutorsForConfigErr
-        kind: function
-        signature: "func buildExecutorsForConfigErr(opts Options, runner CommandRunner) (map[CheckType]PassExecutor, error)"
-        notes: >
-          RETAINED. Still called by check.Run (pkg/check/check.go:293/329) on the surviving
-          `code check` subcommand path. After builtinToolchain's deletion it constructs
-          lint/build/test commandExecutors ONLY from DECLARED toolchain entries via the reduced
-          resolveToolchain; no baked go/ts stack is constructed.
-    consumes: []
-  - file: cmd/backstop/code_check.go
-    provides:
-      - name: codeCheckCmd
-        kind: variable
-        signature: "var codeCheckCmd *cobra.Command"
-        notes: >
-          SURVIVES this cutover (REQ-002 internal-consistency / CLM-030). The standalone
-          `backstop code check` subcommand is a DISTINCT product surface from the gate (with the
-          `--file` runtime-hook mode); this spec retires gate Step 2, NOT the subcommand. Its run
-          path (resolveCheckRun -> check.Run -> buildExecutorsForConfigErr -> resolveToolchain)
-          keeps working over a project with a DECLARED toolchain. It already dispatches pack rules
-          through dispatchPackEngines (Step 9) and is unchanged by this spec beyond inheriting the
-          reduced resolveToolchain (no baked stack). This contract pins the subcommand's survival
-          so the REQ-002 deletion set cannot strand it.
-    consumes:
-      - source: pkg/check/registry.go
-        name: buildExecutorsForConfigErr
-        kind: function
 ---
 
 # SPEC-040: Toolchain Pack Cutover
@@ -917,6 +822,27 @@ silently scope-filtered) — both tested through the production gate path, not a
 
 ## Version History
 
+- **2.0.0** (2026-07-05) — Retired the requirement + claims whose subject ISSUE-018 (authorized
+  thin-executor eradication) deleted outright. Removed REQ-004 (one `<lang>-toolchain` pack per
+  language / language-agnostic bridge machinery) with its 3 claims (CLM-013/014/015), and the
+  now-stale code-check-survival claims CLM-007/030/031 (REQ-002 — asserted `resolveToolchain` /
+  `buildExecutorsForConfigErr` / the `backstop code check` subcommand SURVIVE the cutover; ISSUE-018
+  later deleted them) and CLM-028 (REQ-001 seam — the coverage-orphan guard). Their mandated
+  `TestToolchainPack_*` / `TestCutover_ResolveToolchainRetainedDeclaredOnly` /
+  `TestCutover_CodeCheckSubcommandSurvives*` / `TestCutover_NoDeletedSymbolHasSurvivingCaller` /
+  `TestSeam_CoverageStepNotOrphaned*` functions were deleted with the code. REQ-001 and REQ-002
+  survive (they retain live claims — CLM-001/002/003/029 and CLM-004/005/006/008); all other
+  requirements/claims are unchanged. Requirements with all claims removed are deleted alongside
+  them to satisfy `spec/requirement-uncovered` (REQ-004 only); `spec/claim-tests-empty` forbids
+  leaving emptied claims. Recorded openly per align-predating-artifacts.
+- **1.3.0** (2026-07-05) — Retired the stale `pkg/check/registry.go` provides `resolveToolchain`
+  and `buildExecutorsForConfigErr` and the `cmd/backstop/code_check.go` provides `codeCheckCmd`.
+  These entries pinned the standalone `backstop code check` subcommand + its reduced toolchain
+  resolvers as SURVIVORS of this cutover, but ISSUE-018 (authorized thin-executor eradication)
+  subsequently deleted the subcommand and `registry.go` entirely — the symbols are gone from the
+  tree, so their present-signature promises were stale reds under `contract_signature`. The whole
+  `registry.go` and `code_check.go` contract blocks were removed (deleted files). Contract-only
+  realignment (align-predating-artifacts); no requirement, claim, or design change.
 - **1.2.0** (2026-07-03) — Status → `implemented`. BUNDLE-011 Seed 2 keystone toolchain-pack
   cutover shipped and committed; parent bundle BUNDLE-011 delivered. Status-only transition, no
   requirement, claim, contract, or prose change.

@@ -1,0 +1,369 @@
+---
+plan_id: PLAN-ISSUE-035
+spec_id: ISSUE-035
+created: "2026-07-05"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race"
+coverage_threshold: 90
+
+notes: |
+  Closes ISSUE-035: the gate's test_substantiveness step emits ~15 false positives
+  in two categories. This plan fixes them in TWO independently-landable tracks so
+  the safe Category-1 win is not held hostage to the exploratory Category-2 work.
+
+  ── CATEGORY 1 (safe, mechanical) — TestMain flagged "hollow" ────────────────
+  Root cause: the pack rule packs/substantiveness/ast-grep/rules/hollow-test-go.yml
+  matches any `func Test*` lacking an assertion-shaped call, with NO exemption for
+  `TestMain(m *testing.M)` — Go's harness entry point, which is BY DESIGN never
+  assertion-bearing. Fix = add a name-based `not: name ^TestMain$` exclusion.
+
+  ── THREE COPIES OF THE HOLLOW RULE (load-bearing; the ISSUE-036-class trap) ──
+  The hollow-test-go rule YAML exists in THREE places; editing one does NOT
+  propagate to the others (verified 2026-07-05):
+    1. packs/substantiveness/ast-grep/rules/hollow-test-go.yml — the DURABLE SOURCE
+       (source_type: local in backstop.lock). Primary fix target.
+    2. pkg/gate/testdata/substantiveness-pack/ast-grep/hollow-test-go.yml — a
+       byte-identical TRACKED copy the Go unit-test harness executes by path
+       (pkg/gate/substantiveness_q1_findings_test.go reads testdata/substantiveness-pack;
+       substantiveness_migration_test.go reads this rule YAML directly). Left stale,
+       the unit tests run the OLD rule. This plan SYNCS it (TASK-002).
+    3. .backstop/packs/backstop/substantiveness/ast-grep/rules/hollow-test-go.yml —
+       the gitignored INSTALLED copy the GATE actually executes. Editing #1 alone
+       leaves the real gate running the stale rule; this plan REINSTALLS (TASK-008).
+  Verified reinstall command (local pack; `pack add` refuses an already-installed
+  pack and `pack install` verifies the locked hash, so remove+add is the only
+  correct reinstall for an edited local pack):
+    backstop pack remove backstop/substantiveness && backstop pack add ./packs/substantiveness
+  Two fixture locations also exist and both get the TestMain fixture:
+    - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/{positive,negative}.go
+      (the pack's own rule fixtures; convention: positive = SHOULD flag, negative =
+      should NOT flag)
+    - pkg/gate/testdata/substantiveness-pack/fixtures/go/ (the unit-harness fixtures
+      the Go tests scan)
+
+  ── CATEGORY 2 (exploratory) — legit absence/structural tests flagged ─────────
+  "does not call package X" for ~13 tests that correctly do NOT call their target
+  (they prove a directory/symbol is ABSENT, a lock verifies, a filesystem scan is
+  clean, etc.). Root cause is CORE, not the pack: cmd/backstop/gate.go's noTarget
+  loop calls pkg/gate/substantiveness_join.go NoTargetViolation for every mandated
+  test whose spec-derived target package it doesn't reference. The pack's Q2
+  referenced-symbol rule only EXTRACTS references — it performs no join.
+
+  CHOSEN APPROACH — explicit OPT-IN per-claim `kind: absence` annotation (issue
+  fix-direction #3). A spec claim may mark its mandated test(s) as an
+  absence/structural claim; the gate then SKIPS the noTarget join for those tests.
+  WHY this over the alternatives:
+    - Broadening the heuristic to "references os/filesystem/exec/lock APIs"
+      (direction #2) is a BLUNT syntactic rule: a genuinely hollow stub that
+      happens to touch os.Stat would be silently excused → trades a false-positive
+      problem for a WORSE false-negative one (silent/vacuous green — the enemy per
+      CLAUDE.md "Loud ≠ blocking"). REJECTED.
+    - "Target package no longer exists on disk" auto-satisfy (direction #4) covers
+      only the deletion subset (SPEC-030's pkg/compile-absent tests); it does NOT
+      cover the backstop.yml/backstop.lock structural tests nor SPEC-041's catalog
+      guard tests whose target `gate` still exists. Partial + implicit. REJECTED as
+      primary (the annotation subsumes it with zero false-negatives).
+  FALSE-NEGATIVE RISK of the chosen approach: LOW. The annotation is OPT-IN and
+  DEFAULT-OFF — an unannotated claim keeps FULL noTarget enforcement (CLM-007
+  guards this). A genuine hollow no-target stub is only excused if an author
+  EXPLICITLY marks its claim `kind: absence`, which is a VISIBLE, REVIEWABLE edit
+  recorded in the spec (caught at spec review) — not a silent blanket blinding.
+  The signal comes from OUTSIDE the test body, exactly as the issue's stated core
+  uncertainty demands.
+
+  DESIGN (keeps the exhaustive decision table and callers stable): NoTargetViolation
+  itself is UNCHANGED (its "no fourth disposition" table and the strangler-harness
+  caller stay intact). Absence is handled as a PRE-JOIN skip — mirroring how
+  terminal specs are already pre-filtered in ExtractMandatedTests and how the gate
+  loop already `continue`s on unfound tests. A thin pkg/gate wrapper
+  (NoTargetViolationForTest) applies `if mt.IsAbsence { skip }` then delegates, so
+  CLM-006/CLM-007 stay unit-testable in pkg/gate rather than only in cmd/backstop.
+
+  ── APPLYING THE ANNOTATION TO REAL SPECS (via spec-author) ──────────────────
+  Owning ACTIVE specs (verified 2026-07-05): SPEC-030 (draft, 8 tests:
+  standards_removal + dogfood_pack) and SPEC-041 (implemented, 5 tests: checktype
+  catalog + guard). SPEC-039 (TestStandardScaffolder_Untouched) is status:replaced
+  = TERMINAL, already excluded from enforcement (isTerminalSpecStatus) — it needs
+  NO annotation; if it still surfaces it is a separate terminal-exclusion anomaly
+  OUT OF SCOPE here. Per the artifact-workflow rule these spec edits MUST be routed
+  through the spec-author agent — TASK-007 describes the target state and does NOT
+  authorize hand-editing .spec.md frontmatter.
+
+  ── RESIDUAL / SHARP EDGES (documented, not forced green) ────────────────────
+    - Per-claim granularity is COARSE: a claim mixing an absence test AND a
+      genuine call-the-package test would blanket-skip both. Mitigation: keep
+      absence claims single-purpose. Per-test annotation is deferred as a possible
+      follow-up if a mixed claim ever appears.
+    - Mislabel risk: an author could tag a real stub's claim `kind: absence` to
+      dodge the gate. Accepted because it is explicit and review-visible, not
+      silent green.
+    - SPEC-039's terminal-status test clears via terminal exclusion, not this plan;
+      any residual there is tracked separately.
+
+  ── PLAN-LOCAL CLAIMS (ISSUE-035 has no CLM-NNN; defined here for coverage) ───
+    CLM-001 TestMain is unconditionally exempt from the hollow-test rule.
+    CLM-002 A genuinely hollow test stub is STILL flagged (over-correction guard).
+    CLM-003 Both TRACKED copies of the hollow rule carry the exemption (no drift).
+    CLM-004 The substantiveness pack is reinstalled so the gate runs the fixed rule.
+    CLM-005 A spec claim may opt-in `kind: absence`; the spec schema accepts it.
+    CLM-006 A mandated test on a kind:absence claim SKIPS the noTarget join (core).
+    CLM-007 An UNannotated mandated test still raises noTarget when it does not call
+            its target package (false-negative guard).
+    CLM-008 SPEC-030 + SPEC-041 absence/structural claims are annotated via
+            spec-author, clearing their Category-2 reds.
+    CLM-009 The full gate run reports the residual test_substantiveness count and
+            the documented sharp edges.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Category 1 — TestMain hollow-exemption (isolated safe win)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TestMain Hollow-Exemption (Category 1)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Fixtures + Q1 test: TestMain not flagged hollow; a real stub still is"
+        description: |
+          RED phase for the TestMain exemption. Add a TestMain(m *testing.M) fixture
+          to BOTH fixture locations and extend the pkg/gate Q1-findings test to
+          assert the substantiveness pack rule (run against the tracked
+          testdata/substantiveness-pack) produces NO hollow finding for TestMain,
+          while STILL producing a hollow finding for a genuinely hollow Test stub
+          (the negative/over-correction guard — CLM-002). Keep the existing
+          TestHollowExample-style real stub in the pack's positive fixture so it
+          continues to flag. These tests fail until TASK-002 lands the rule change.
+        files:
+          - pkg/gate/substantiveness_q1_findings_test.go
+          - pkg/gate/testdata/substantiveness-pack/fixtures/go/testmain_fixture_test.go
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/negative.go
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/positive.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Exempt TestMain in BOTH tracked copies of hollow-test-go.yml"
+        description: |
+          GREEN phase. Add a name-based exclusion so `func TestMain` is never a
+          hollow finding, while every other `func Test*` still requires an
+          assertion-shaped call. The current rule already has one `not` (no
+          assertion call); compose it with the new name exclusion under an `all:`
+          (or add `not: {has: {field: name, regex: "^TestMain$"}}`) so the match is
+          "Test-named AND not-TestMain AND has no assertion call". Apply the SAME
+          edit to BOTH tracked copies so the source pack and the unit-test harness
+          agree (the ISSUE-036-class drift trap):
+            1. packs/substantiveness/ast-grep/rules/hollow-test-go.yml (durable source)
+            2. pkg/gate/testdata/substantiveness-pack/ast-grep/hollow-test-go.yml
+               (unit-harness copy)
+          The gitignored installed copy (#3) is refreshed by the TASK-008 reinstall,
+          not edited here.
+        files:
+          - packs/substantiveness/ast-grep/rules/hollow-test-go.yml
+          - pkg/gate/testdata/substantiveness-pack/ast-grep/hollow-test-go.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "code check — TestMain exemption green at unit level"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm the pkg/gate Q1
+          unit tests pass with the exemption in place and the real hollow stub is
+          still flagged. This is the fast inner loop; the full gate with the
+          reinstalled pack runs in Phase 3.
+        files:
+          - packs/substantiveness/ast-grep/rules/hollow-test-go.yml
+          - pkg/gate/testdata/substantiveness-pack/ast-grep/hollow-test-go.yml
+          - pkg/gate/substantiveness_q1_findings_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Category 2 — opt-in absence-annotation capability (core + schema)
+  #   (no dependency on Phase 1 — parallel-eligible, disjoint file sets)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Absence-Annotation Capability (Category 2)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Tests: absence-tagged test skips noTarget; unannotated still raises"
+        description: |
+          RED phase for the opt-in absence annotation. Add pkg/gate unit tests
+          driven by a fixture spec carrying one `kind: absence` claim and one
+          ordinary claim:
+            - ExtractMandatedTests sets MandatedTest.IsAbsence=true for the
+              absence-claim test and false for the ordinary one (CLM-005/CLM-006).
+            - The new NoTargetViolationForTest wrapper returns no violation for an
+              IsAbsence test even when the target pkg is non-empty, not same-package,
+              and absent from the referenced set (CLM-006).
+            - CRITICAL false-negative guard: an IsAbsence=false test with the same
+              not-in-set inputs STILL raises the noTarget violation (CLM-007) —
+              proving the annotation does not blanket-blind the check.
+          Fails until TASK-005 lands the schema field, the IsAbsence plumbing, and
+          the wrapper.
+        files:
+          - pkg/gate/absence_annotation_test.go
+          - pkg/gate/testdata/absence-annotation/SPEC-900-absence-fixture.spec.md
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Schema kind:absence + IsAbsence plumbing + pre-join skip wrapper"
+        description: |
+          GREEN phase. Wire the opt-in signal end to end WITHOUT changing
+          NoTargetViolation's exhaustive decision table or its strangler-harness
+          caller:
+            - artifacts/spec/v1/schema.json: add "kind" to the claims item optional
+              keys so a claim may declare `kind: absence` and still validate.
+            - pkg/gate/step_testverify.go: add `Kind` to the claims frontmatter
+              struct; add MandatedTest.IsAbsence; set it in ExtractMandatedTests
+              (IsAbsence = claim.Kind == "absence"), alongside the existing terminal
+              pre-filter.
+            - pkg/gate/substantiveness_join.go: add a thin exported wrapper
+              NoTargetViolationForTest(mt, referenced, samePackage) that returns
+              (skip) when mt.IsAbsence, else delegates to the UNCHANGED
+              NoTargetViolation. Keeps CLM-006/CLM-007 unit-testable in pkg/gate.
+            - cmd/backstop/gate.go: call NoTargetViolationForTest in the noTarget
+              loop (passing the mandated test) instead of NoTargetViolation, so
+              absence-tagged tests are skipped at the same site as the existing
+              FilePath=="" and scope skips.
+        files:
+          - artifacts/spec/v1/schema.json
+          - pkg/gate/step_testverify.go
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "code check — absence capability green, guard intact"
+        description: |
+          Run `backstop code check` (diff-scoped) to confirm the pkg/gate absence
+          tests pass: absence-tagged tests skip the noTarget join and the
+          unannotated guard case STILL raises. Fast inner loop before the full gate.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/absence_annotation_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Apply annotations (spec-author), reinstall pack, full gate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Annotate Specs, Reinstall Pack, Full Gate Verification"
+    tasks:
+      - id: TASK-007
+        type: refactor
+        title: "Annotate SPEC-030 + SPEC-041 absence/structural claims (via spec-author)"
+        description: |
+          Mark the claims whose mandated tests are absence/structural with
+          `kind: absence`, so the Category-2 noTarget false positives clear once the
+          pack is reinstalled and the gate re-run. ROUTING: these are artifact edits
+          and MUST go through the spec-author agent (never hand-edit .spec.md
+          frontmatter). This task describes the target state and proof only.
+            - SPEC-030 (specs/SPEC-030-packs-only-native-standards-removal.spec.md,
+              status draft): annotate the claims mandating TestNoProductionImportOfCompile,
+              TestCompiledStandardsArtifactsAbsent, TestPkgCompileDirectoryAbsent,
+              TestStdGo001SourceAbsent, TestGate_SucceedsWithoutStandards,
+              TestDogfood_BackstopYmlDeclaresGoStandardsPack,
+              TestDogfood_GoStandardsLockVerifies, TestDogfood_StaleSlotlyLockEntryRemoved.
+            - SPEC-041 (specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md,
+              status implemented): annotate the claims mandating
+              TestCatalog_EnumeratesGateSemanticConsumersExcludesDisplaySites,
+              TestCatalog_SurvivingSitesNotMistaggedDeleted,
+              TestCatalog_GuardScansGateSemanticSurfaceOnly,
+              TestCatalog_GuardFailsOnUnlistedConsumer, TestCatalog_GuardFailsOnStaleEntry.
+          SPEC-039 (TestStandardScaffolder_Untouched) is status:replaced = terminal
+          and already excluded — do NOT annotate it. Depends on TASK-005 so
+          `kind: absence` is schema-legal and the annotation is behaviorally live.
+        files:
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+          - specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: setup
+        title: "Reinstall the substantiveness pack so the gate runs the fixed rule"
+        description: |
+          The installed copy (.backstop/packs/backstop/substantiveness/, gitignored)
+          is what the gate executes; the TASK-002 source edit does not reach it until
+          reinstall. Run the verified remove+add (remove+add is required because
+          `pack add` refuses an already-installed pack and `pack install` verifies
+          the locked hash, rejecting edited source):
+            backstop pack remove backstop/substantiveness && backstop pack add ./packs/substantiveness
+          This recomputes the pack content_hash in backstop.lock (the tracked
+          durability record) and restores the installed copy from the fixed source.
+          Depends on TASK-002 (the source rule must carry the exemption first).
+        files:
+          - backstop.lock
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+      - id: TASK-009
+        type: verification
+        title: "Full gate + artifact validate; report cleared vs residual"
+        description: |
+          FINAL comprehensive verification (touches .go AND artifacts, so both
+          commands run):
+            - `backstop artifact validate` — the annotated SPEC-030/SPEC-041, the
+              evolved spec schema, and this plan all validate clean.
+            - `backstop gate --json` — read the test_substantiveness step count and
+              report which of the ~15 originals cleared vs any residual:
+                * TestMain (Category 1) cleared via the rule exemption + reinstall.
+                * The 13 SPEC-030/SPEC-041 Category-2 tests cleared via the
+                  kind:absence annotation + capability.
+                * TestStandardScaffolder_Untouched (SPEC-039) clears via terminal
+                  exclusion, not this plan.
+              Explicitly report the documented sharp edges (per-claim coarseness,
+              mislabel-to-dodge risk) as accepted residual rather than forcing a
+              blunt heuristic. Depends on the annotation (TASK-007), the reinstall
+              (TASK-008), and both capability tracks (TASK-002, TASK-005).
+        files:
+          - backstop.lock
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+          - specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md
+          - artifacts/spec/v1/schema.json
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-004
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-007
+          - TASK-008

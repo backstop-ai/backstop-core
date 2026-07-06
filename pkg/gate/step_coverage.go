@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -63,7 +64,8 @@ func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVeri
 //
 // The MEASURABLE-SOURCE set is derived from the SourceClassifier (the merged
 // union of pack-declared source/test globs), NOT a baked extension literal
-// (REQ-002): coverageMeasurablePath is DELETED. When the classifier declares no
+// (REQ-002): the former baked measurable-path helper is DELETED. When the
+// classifier declares no
 // source globs at all and in-scope changed files exist, the step surfaces a
 // DISTINCT non-blocking "classification capability absent" warning instead of a
 // silent pass (REQ-004). The no-record predicate is "any record for the path" so
@@ -373,6 +375,23 @@ func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope, cla
 			// declared test glob (test-wins-on-overlap).
 			if !classifier.IsMeasurableSource(clean) {
 				continue
+			}
+			// A git-DELETED in-scope file still matches the source glob but has no
+			// on-disk file to measure, so it must NOT carry a coverage_unmeasured
+			// obligation (ISSUE-034). On-disk existence is the coverage-local proxy for
+			// "not deleted": an added/modified file exists, a deleted one does not. This
+			// filter is deliberately kept inside the coverage step rather than threading
+			// git change-status through GateScope — a scope-wide deletion filter would
+			// change scope semantics for OTHER dimensions, notably contract-absence,
+			// which filters by scope.Contains(entry.File) to guard deletion regressions.
+			// Only apply when a ProjectRoot is known (production always sets it via
+			// ComputeGateScope); a rootless convenience scope cannot resolve on-disk
+			// state, so it retains the pre-fix behavior.
+			if scope.ProjectRoot != "" {
+				onDisk := filepath.Join(scope.ProjectRoot, filepath.FromSlash(clean))
+				if _, err := os.Stat(onDisk); err != nil {
+					continue
+				}
 			}
 			set[clean] = struct{}{}
 		}

@@ -156,6 +156,18 @@ func TestBunFixture_SeededUncoveredTsSourceRedsGateNotVacuousGreen(t *testing.T)
 	if err := os.WriteFile(filepath.Join(tmp, "coverage", "lcov.info"), seeded, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Materialize the changed source ON DISK: src/app.ts is a genuinely changed
+	// (present) source with no coverage record — NOT a deleted file. The coverage
+	// step's ISSUE-034 existence guard excludes only not-on-disk (deleted) paths, so
+	// a faithful "changed but unmeasured" fixture must put the file on disk exactly
+	// as the real working tree would; its absence-of-record (not absence-of-file) is
+	// what must RED the gate.
+	if err := os.MkdirAll(filepath.Join(tmp, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "src", "app.ts"), []byte("export const app = (n: number) => (n > 0 ? n : -n);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var convertStdin []byte
 	records := bunCoverageRecords(t, tmp, &fixtureRunner{}, &convertStdin)

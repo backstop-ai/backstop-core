@@ -243,6 +243,22 @@ func declaredPackNames(cfg *config.Config) []string {
 // check` and `gate --all` pass that sentinel. The project-wide toolchain branch
 // (go build/test ./..., golangci-lint run ./...) is unaffected by scope — it
 // stays project-wide so unchanged-file breakage still fails the gate.
+// dispatchPackEnginesFn is a test seam: nil in production (resolveDispatchPackEngines
+// falls back to the concrete dispatchPackEngines), overridden by tests to inject
+// a hermetic stub. It is declared WITHOUT an initializer so it holds no
+// package-level mutable default. It is the gate's dispatch seam (used by the
+// pack_engines / substantiveness / contracts steps in gate.go).
+var dispatchPackEnginesFn func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error)
+
+// resolveDispatchPackEngines returns the injected dispatch seam or the concrete
+// dispatchPackEngines.
+func resolveDispatchPackEngines() func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
+	if dispatchPackEnginesFn != nil {
+		return dispatchPackEnginesFn
+	}
+	return dispatchPackEngines
+}
+
 func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 	violations := []gate.Violation{}
 	for _, manifest := range packs {

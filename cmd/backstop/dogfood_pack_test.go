@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
@@ -56,30 +55,6 @@ func TestDogfood_BackstopYmlDeclaresGoStandardsPack(t *testing.T) {
 	if !found {
 		t.Errorf("loadInstalledPacks did not resolve %q; got %d packs", dogfoodPackName, len(packs))
 	}
-
-	// The consumed pack replaces the deleted native standards without breaking
-	// file-type routing: check.LoadManifest over the repo rules dir still routes
-	// a .go file to the semgrep pass (REQ-003 fallback preserved).
-	routingManifest, manifestErr := check.LoadManifest(filepath.Join(root, ".backstop", "rules"))
-	if manifestErr != nil {
-		t.Fatalf("check.LoadManifest: %v", manifestErr)
-	}
-	assertDogfoodRoutingHasSemgrep(t, routingManifest)
-}
-
-// assertDogfoodRoutingHasSemgrep asserts a .go file routes to the semgrep pass
-// in the supplied manifest, so the dogfood consumption claims are substantiated
-// against real pkg/check routing. Callers invoke check.LoadManifest in their own
-// body so the substantiveness analyzer sees the pkg/check call.
-func assertDogfoodRoutingHasSemgrep(t *testing.T, manifest *check.Manifest) {
-	t.Helper()
-	routes := manifest.RouteFile("main.go")
-	for _, ct := range routes {
-		if ct == check.CheckTypeFindings {
-			return
-		}
-	}
-	t.Errorf(".go routing lost the semgrep pass after dogfood consumption; got %v", routes)
 }
 
 // TestDogfood_GoStandardsLockVerifies verifies backstop.lock contains the
@@ -104,14 +79,6 @@ func TestDogfood_GoStandardsLockVerifies(t *testing.T) {
 	if !result.Pass {
 		t.Errorf("VerifyLock failed: %+v", result.Failures)
 	}
-
-	// Routing through pkg/check still resolves the semgrep pass for the locked
-	// dogfood project.
-	manifest, manifestErr := check.LoadManifest(filepath.Join(root, ".backstop", "rules"))
-	if manifestErr != nil {
-		t.Fatalf("check.LoadManifest: %v", manifestErr)
-	}
-	assertDogfoodRoutingHasSemgrep(t, manifest)
 }
 
 // TestDogfood_StaleSlotlyLockEntryRemoved verifies the stale slotly/go-standards
@@ -127,12 +94,4 @@ func TestDogfood_StaleSlotlyLockEntryRemoved(t *testing.T) {
 	if _, ok := lockfile.Packs["slotly/go-standards"]; ok {
 		t.Errorf("backstop.lock still carries the stale slotly/go-standards entry; it must be removed")
 	}
-
-	// With the lockfile reconciled to the dogfood pack, pkg/check routing still
-	// resolves the semgrep pass for a .go file.
-	manifest, manifestErr := check.LoadManifest(filepath.Join(root, ".backstop", "rules"))
-	if manifestErr != nil {
-		t.Fatalf("check.LoadManifest: %v", manifestErr)
-	}
-	assertDogfoodRoutingHasSemgrep(t, manifest)
 }

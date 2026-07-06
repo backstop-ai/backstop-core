@@ -4,7 +4,7 @@ number: SPEC-041
 created: "2026-06-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.2.0
 
 implementation:
   summary: >
@@ -366,27 +366,32 @@ claims:
   # REQ-005 — CheckType-consumer catalog (gate-semantics scope)
   - id: CLM-020
     requirement: REQ-005
+    kind: absence
     text: The spec produces a CheckType-consumer catalog scoped to GATE-SEMANTIC consumers (scope-filtering, engine dispatch, violation verdict) and EXCLUDES cosmetic .Pass.String() display/serialization sites (e.g. pkg/check/output.go's five render sites) — so the catalog does not red on every added log line
     tests:
       - TestCatalog_EnumeratesGateSemanticConsumersExcludesDisplaySites
   - id: CLM-021
     requirement: REQ-005
+    kind: absence
     text: Surviving pkg/check CheckType sites (passOrder, Violation.Pass/PassResult.Pass, Executors/applicableChecks dispatch, registry Entries, manifest enum+routing, parsers findings stamping) are tagged SURVIVING with their real post-cutover role — NOT mis-tagged DELETED — because no sibling spec deletes the CheckType type (SPEC-040 REQ-002 narrow; SPEC-039 narrow); only C-2 (orphaned gate.go:1173) and C-3 (shared-runner feeds) are DELETED
     tests:
       - TestCatalog_SurvivingSitesNotMistaggedDeleted
   # REQ-006 — catalog completeness is machine-enforced over a bounded scan scope
   - id: CLM-022
     requirement: REQ-006
+    kind: absence
     text: The completeness guard restricts discovery to GATE-SEMANTIC CheckType keying (identity comparisons + exemption/dispatch decisions in the gate path), EXCLUDING pure .Pass.String() display sites, so the discovered-set provably equals the cataloged-set and the guard neither reds on arrival nor is a tautology
     tests:
       - TestCatalog_GuardScansGateSemanticSurfaceOnly
   - id: CLM-023
     requirement: REQ-006
+    kind: absence
     text: The guard FAILS when a gate-semantic CheckType-keyed source site exists with no corresponding catalog entry — proven by an injected/fixture keying site that is absent from the catalog, which the guard must red on (not a tautology)
     tests:
       - TestCatalog_GuardFailsOnUnlistedConsumer
   - id: CLM-024
     requirement: REQ-006
+    kind: absence
     text: The guard FAILS on a stale catalog entry whose keying site no longer exists in code (e.g. a DELETED row that survives after its site is removed), preventing the catalog from drifting out of sync with the consumer surface
     tests:
       - TestCatalog_GuardFailsOnStaleEntry
@@ -868,6 +873,19 @@ These probe risks not fully pinned by claims; the impl-reviewer should verify ea
 
 ## Version History
 
+- **1.2.0** (2026-07-06) — Marked the CheckType-consumer catalog claims `kind: absence` (the
+  per-claim annotation added by ISSUE-035) to reflect their structural/catalog-scan nature and
+  clear the `test_substantiveness` gate's noTarget ("does not call package gate") false-flag on
+  their mandated tests. Annotated **CLM-020** and **CLM-021** (enumerate/verify the
+  `CheckTypeConsumerCatalog()` structure — catalog-content invariants), and **CLM-022**,
+  **CLM-023**, **CLM-024** (the completeness guard — repo-source keying-site scans reconciled
+  against the catalog: clean-on-arrival, fails-on-unlisted-site, fails-on-stale-entry). Every
+  mandated test scans the catalog/source surface for structural congruence and by design does
+  not exercise `pkg/gate` (the spec's coverage-re-impl package) — exactly the catalog-scan
+  guard case the annotation exists for. No coverage-re-implementation claim (REQ-001…REQ-004,
+  REQ-007) was annotated; those tests genuinely exercise the gate coverage/exemption logic.
+  Annotation-only change (align-predating-artifacts); no requirement, claim text, test, or
+  contract altered.
 - **1.1.0** (2026-07-03) — Status → `implemented`. BUNDLE-011 Seed 3 code (coverage consumer
   re-implementation + CheckType-consumer catalog) shipped and committed; parent bundle
   BUNDLE-011 delivered. Status-only transition, no requirement, claim, contract, or prose change.

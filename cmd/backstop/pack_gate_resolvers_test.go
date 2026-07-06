@@ -89,45 +89,6 @@ func TestResolveEngineRegistry_FallsBackToDefaultWhenSeamNil(t *testing.T) {
 	}
 }
 
-// TestResolveCheckRun_FallsBackToConcreteWhenSeamNil proves the check-run seam
-// resolves to check.Run when unset and to the override when set.
-func TestResolveCheckRun_FallsBackToConcreteWhenSeamNil(t *testing.T) {
-	orig := checkRunFn
-	t.Cleanup(func() { checkRunFn = orig })
-
-	checkRunFn = nil
-	if funcPtr(resolveCheckRun()) != funcPtr(check.Run) {
-		t.Fatalf("nil seam must resolve to check.Run")
-	}
-
-	called := false
-	stub := func(context.Context, check.Options) (*check.Result, error) { called = true; return &check.Result{}, nil }
-	checkRunFn = stub
-	if _, err := resolveCheckRun()(context.Background(), check.Options{}); err != nil || !called {
-		t.Fatalf("set seam must resolve to the override; err=%v called=%v", err, called)
-	}
-}
-
-// TestResolveLoadInstalledPacks_FallsBackToConcreteWhenSeamNil proves the pack
-// loader seam resolves to loadInstalledPacks when unset and to the override when
-// set.
-func TestResolveLoadInstalledPacks_FallsBackToConcreteWhenSeamNil(t *testing.T) {
-	orig := loadInstalledPacksFn
-	t.Cleanup(func() { loadInstalledPacksFn = orig })
-
-	loadInstalledPacksFn = nil
-	if funcPtr(resolveLoadInstalledPacks()) != funcPtr(loadInstalledPacks) {
-		t.Fatalf("nil seam must resolve to loadInstalledPacks")
-	}
-
-	called := false
-	stub := func(string) ([]*pack.Manifest, error) { called = true; return nil, nil }
-	loadInstalledPacksFn = stub
-	if _, err := resolveLoadInstalledPacks()("root"); err != nil || !called {
-		t.Fatalf("set seam must resolve to the override; err=%v called=%v", err, called)
-	}
-}
-
 // TestResolveDispatchPackEngines_FallsBackToConcreteWhenSeamNil proves the
 // dispatch seam (shared by code check and the gate) resolves to the concrete
 // dispatchPackEngines when unset and to the override when set.

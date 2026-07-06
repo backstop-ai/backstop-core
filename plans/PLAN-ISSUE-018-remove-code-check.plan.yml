@@ -1,0 +1,634 @@
+---
+plan_id: PLAN-ISSUE-018
+spec_id: ISSUE-018
+created: "2026-07-05"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/check/... ./pkg/validate/... ./cmd/backstop/... -race"
+coverage_threshold: 90
+
+notes: |
+  Implements the RE-SCOPED (2026-07-05) ISSUE-018 — a PURE-DELETION pass
+  (issue→plan reactive track) that removes the vestigial `backstop code check`
+  command and its baked-language in-process `pkg/check` engine machinery as part
+  of the thin-executor eradication backlog. No gate behavior change: the gate
+  runs lint/build/test/findings through `dispatchPackEngines`, never through
+  `pkg/check.Run` (proven by the existing `gate_cutover_step2_test.go`).
+
+  ─────────────────────────────────────────────────────────────────────────
+  ALREADY-LANDED (do NOT re-plan — verified against main at planning time)
+  ─────────────────────────────────────────────────────────────────────────
+  The issue's Solution section describes several deletions that ALREADY LANDED
+  on main (squash commit 64d6ecc "feat(ISSUE-018): remove vestigial baked-in
+  code + reconcile SPEC-030" + the SPEC-034/035 cutover). Verified absent /
+  already-done on main:
+    - pkg/validate/standard.go + standard_test.go — DELETED.
+    - pkg/config/config.go StandardsDirs + SemgrepVersion — REMOVED.
+    - pkg/validate/plan.go `.standard.md` fileCategory entry — REMOVED.
+    - pkg/check/semgrep.go (whole file) + the in-process semgrepExecutor body,
+      SemgrepEnsurer, EnsureSemgrep — DELETED.
+    - cmd/backstop/gate.go PinnedSemgrepVersion forwarding + ensurerForTest
+      seam — REMOVED.
+  This plan does NOT redo any of the above. The REMAINING, still-pending delta
+  is the WHOLESALE removal of the `backstop code check` command and the
+  in-process check ENGINE that only it drives, plus the parsers.go dead-format
+  trim, the SPEC-041 catalog reconciliation, and the fileCategory `.go`
+  de-baking.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DELETION-SAFETY / TDD MODEL (SPEC-034 style, mirrored from the existing
+  pkg/validate/deletion_assertion_test.go on main)
+  ─────────────────────────────────────────────────────────────────────────
+  The "test-first" artifact for a deletion is a SOURCE-SCAN deletion-assertion
+  test (reads the package's non-test .go sources as text, asserts the deleted
+  symbol/command names are ABSENT) plus a SURVIVAL assertion pinning the live
+  SARIF surface. These compile fine and fail at runtime while the symbols still
+  exist (the "red"), and go green only after the deletion (the "green"). Because
+  the deleted production symbols are referenced by in-package test doubles and
+  by entangled cmd/backstop tests, each deletion task removes BOTH the
+  production symbols AND the entangled test coupling in the SAME task, or the
+  package will not compile.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE 1 — SPEC-041 CheckType-consumer catalog goes stale (REQUIRED task)
+  ─────────────────────────────────────────────────────────────────────────
+  cmd/backstop/checktype_catalog.go CheckTypeConsumerCatalog() has rows keyed to
+  sites this deletion removes; cmd/backstop/checktype_catalog_guard.go verifies
+  every cataloged Site still exists in live source and goes RED when one
+  disappears unreconciled (precedent: C-2/C-3 were removed when their sites
+  died). Rows to REMOVE (their sites are deleted by this issue):
+    - C-4  cmd/backstop/code_check.go:CheckTypeFindings   (file deleted, TASK-003)
+    - C-6  pkg/check/check.go:passOrder                   (deleted, TASK-004)
+    - C-7  pkg/check/registry.go:Entries                  (deleted, TASK-004)
+    - C-8  pkg/check/manifest.go:parseCheckType           (deleted, TASK-004)
+  Rows to KEEP:
+    - C-1  cmd/backstop/pack_gate.go:runFindingsEngine    (live gate bridge)
+    - C-5  pkg/check/parsers.go:CheckTypeFindings         (LIVE, inside the
+           surviving ParsePackFindings — do NOT touch)
+  TASK-006 executes this reconciliation and TASK-007 confirms the guard passes.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE 2 — PRESERVE the live SARIF / coverage surface (callgraph-gated)
+  ─────────────────────────────────────────────────────────────────────────
+  pkg/check mixes the DEAD in-process engine with LIVE shared surface consumed
+  by the gate. Planning-time callgraph evidence (implementer MUST re-confirm in
+  TASK-001 against the tree, since line numbers shift):
+    LIVE — keep untouched (consumed by dispatchPackEngines / substantiveness /
+    coverage, NOT by code_check):
+      check.ParsePackFindings, parseSarif, lookupParser, sarifFingerprint,
+      sarifSeverity (parsers.go); check.ParsePackCoverage + CoverageRecord
+      (coverage.go); the shared types Violation (check.go), CheckType +
+      String() (manifest.go), ConfigError/DegradedError (errors.go),
+      CommandRunner (runner.go). Live callers confirmed: cmd/backstop/
+      pack_gate.go, pkg/gate/substantiveness_q1_dispatch.go, pkg/check/
+      coverage.go.
+    DEAD — reachable ONLY from cmd/backstop/code_check.go → check.Run/RunWith:
+      check.go Engine/RunPasses/Run/RunWith/Options/RunOptions/passOrder/
+      applicableChecks/buildDefaultExecutors*/firstOutputLine; registry.go
+      commandExecutor + buildExecutorsForConfig(Err) + resolveToolchain +
+      declaredEntries + validateToolchainKeys + DeclaredToolchainExecutorsForTest
+      + Toolchain/ToolchainEntry + ScopeKind/defaultScopeKind (pkg/check's OWN
+      ScopeKind — DISTINCT from the live pkg/pack/engine.ScopeKind); manifest.go
+      LoadManifest/Manifest/RouteFile/routeFileDefaults/defaultManifest +
+      parseCheckType (parseCheckType's only remaining callers are registry.go's
+      validateToolchainKeys/declaredEntries — both deleted, so it dies too).
+    NOTE — config field survives its pkg/check consumers: Enforcement.Toolchain
+    (pkg/config) stays LIVE via pkg/gate/traceability_polarity.go even though
+    registry.go's declaredEntries/validateToolchainKeys (its pkg/check readers)
+    are deleted. Do NOT remove the config field.
+  Verified: check.Run's SOLE production caller is cmd/backstop/code_check.go
+  (resolveCheckRun→check.Run, check.Options{} at code_check.go:133). No gate
+  path calls it. pkg/gate's StepCodeCheck/StepCodeCheckFunc/CodeChecker is a
+  SEPARATE surface (gate step vocabulary) and is OUT OF SCOPE — do NOT touch it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE 3 — fileCategory() `.go` de-baking: RESOLVED to Option B
+  ─────────────────────────────────────────────────────────────────────────
+  RESOLUTION (planner decision, grounded in code — surfaced to the user for
+  ratification): use OPTION B (narrow neutral-spine exemption), NOT Option A
+  (SPEC-043 pack-declared classification globs).
+  WHY: pkg/validate/plan.go's entry point is `func Plan(art *artifact.Parsed
+  Artifact, _ *schema.Schema)` — it receives ONLY the parsed artifact and a
+  schema; the schema arg is discarded (`_`). There is NO pack/project context
+  in scope at the point fileCategory runs. Option A (glob-sourced classification)
+  would require threading pack config through validate.Plan's signature and
+  EVERY caller — a cross-cutting change well beyond this deletion issue's blast
+  radius, and a behavior CHANGE (non-Go impl files would newly be classified
+  "code" and subjected to final-phase-coverage). Option B preserves current
+  validation behavior EXACTLY (non-Go files still fall through to "" as today),
+  clearing only the self-pack `no-language-literal-on-neutral-spine` finding by
+  moving the `.go` literal off the strict spine zone via the existing
+  exemption/allowlist mechanism (the same `// nosemgrep: ...` spine-exemption
+  convention already used across the codebase, e.g. pkg/check/parsers.go:22 and
+  pkg/pack/engine/binding.go). The language-neutral glob-sourcing (Option A) is
+  DEFERRED to a follow-on — the issue itself sanctions this deferral.
+  TASK-008 confirms the no-pack-context finding at implementation time (line
+  numbers shift) and ratifies Option B before TASK-010 applies it. If the user
+  prefers Option A, it must be re-scoped as its own item (signature change +
+  caller sweep) — do NOT silently adopt it here.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE 4 — `backstop code check` cannot verify its own deletion
+  ─────────────────────────────────────────────────────────────────────────
+  This issue DELETES the `backstop code check` subcommand — the very command the
+  planner's/implementer's fast inner-loop normally uses. Once TASK-003 lands,
+  `backstop code check` no longer exists. ALL verification in this plan (and the
+  implementer's per-task inner loop for tasks after TASK-003) therefore uses
+  `backstop gate` — the full pack-engine kill chain, which runs through
+  dispatchPackEngines and is UNAFFECTED by this deletion — rather than
+  `backstop code check`. This is a deliberate, called-out deviation from the
+  usual middle-phase `backstop code check` cadence, forced by the command being
+  the deletion target.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ACCEPTANCE
+  ─────────────────────────────────────────────────────────────────────────
+  `go build ./...` clean, `go test ./...` green, and the backstop/self dogfood
+  gate no longer REDs on the 6 findings: manifest.go `.go/.ts/.tsx` routing (×3),
+  parsers.go eslint/tsc format entries (×2), plan.go `.go` fileCategory (×1).
+  TASK-012 re-runs the backstop/self dimension explicitly to confirm all 6 are
+  gone, and confirms the gate (pack_engines dispatch) is unaffected via the
+  existing gate_cutover_step2_test.go.
+
+  ─────────────────────────────────────────────────────────────────────────
+  PLANNER FLAG (needs user action, NOT a code task)
+  ─────────────────────────────────────────────────────────────────────────
+  A STALE plan for the OLD (pre-2026-07-05) ISSUE-018 scope already exists:
+  plans/PLAN-ISSUE-018-remove-vestigial-baked-in-code.plan.yml, also carrying
+  plan_id PLAN-ISSUE-018 (issue→plan ids derive from the issue id, so any second
+  plan for ISSUE-018 collides). Its work already landed on main. It should be
+  retired (canceled/replaced) via the plan-authoring agent — this plan does NOT
+  hand-edit it. Surfaced so the duplicate plan_id is resolved deliberately.
+
+  STRUCTURE:
+    Phase 1: Callgraph verification (setup) — pin the DEAD vs LIVE pkg/check
+             split before any deletion.
+    Phase 2: Delete the `backstop code check` command + its dead in-process
+             engine machinery, trim parsers.go dead formats (preserving SARIF),
+             reconcile the SPEC-041 catalog rows, then verify via backstop gate.
+    Phase 3: De-bake the fileCategory `.go` literal (Option B). Independent of
+             Phase 2 (disjoint files: pkg/validate only) — parallel-eligible.
+    Phase 4: Comprehensive final verification — full backstop gate + artifact
+             validate + explicit backstop/self 6-findings-gone confirmation.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Callgraph verification (pin DEAD vs LIVE before deleting)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Callgraph Verification — Pin DEAD vs LIVE pkg/check Surface"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Callgraph pass: confirm code_check-only DEAD surface vs live SARIF/coverage surface"
+        description: |
+          BEFORE any deletion, re-run the callgraph analysis against the CURRENT
+          tree (line numbers in the issue have shifted) and record the exact
+          keep/delete map that the subsequent refactor tasks execute. This is a
+          non-mutating investigation task; it produces the authoritative symbol
+          partition, not a code change.
+
+          CONFIRM DEAD (reachable ONLY from cmd/backstop/code_check.go →
+          check.Run/RunWith): in pkg/check/check.go — Engine, RunPasses, Run,
+          RunWith, Options, RunOptions, passOrder, applicableChecks,
+          buildDefaultExecutors + buildDefaultExecutorsWithRunner,
+          firstOutputLine; in pkg/check/registry.go — commandExecutor,
+          buildExecutorsForConfig, buildExecutorsForConfigErr, resolveToolchain,
+          declaredEntries, validateToolchainKeys, DeclaredToolchainExecutorsForTest,
+          Toolchain, ToolchainEntry, ScopeKind + defaultScopeKind (pkg/check's OWN
+          ScopeKind — verify it is DISTINCT from and unrelated to the LIVE
+          pkg/pack/engine.ScopeKind used by pack_gate.go); in pkg/check/manifest.go
+          — LoadManifest, Manifest, RouteFile, routeFileDefaults, defaultManifest,
+          and parseCheckType (verify its only remaining callers are registry.go's
+          validateToolchainKeys/declaredEntries, both being deleted).
+
+          CONFIRM LIVE — MUST be preserved (consumed by dispatchPackEngines /
+          substantiveness / coverage, NOT by code_check): ParsePackFindings,
+          parseSarif, lookupParser, sarifFingerprint, sarifSeverity (parsers.go);
+          ParsePackCoverage + CoverageRecord (coverage.go); the shared types
+          Violation (check.go), CheckType + String() (manifest.go),
+          ConfigError/DegradedError (errors.go), CommandRunner (runner.go).
+
+          CONFIRM check.Run has NO production caller besides code_check.go, and
+          that pkg/gate's StepCodeCheck/CodeChecker surface is SEPARATE and out of
+          scope. CONFIRM the config field Enforcement.Toolchain stays live via
+          pkg/gate/traceability_polarity.go even though its pkg/check consumers
+          die. ENUMERATE the entangled test files that reference the DEAD symbols
+          and will need trimming in the same task as the production deletion
+          (candidates: pkg/check check_test.go, registry_test.go, manifest_test.go,
+          manifest_deadcode_test.go, engine_semantics_test.go, concurrent_test.go,
+          registry_coverage_test.go, ts_executor_test.go, ts_routing_test.go,
+          route_catchall_test.go; cmd/backstop code_check_test.go,
+          cutover_noregress_test.go, cutover_consistency_test.go,
+          exempt_test_helpers_test.go, manifest_configerror_test.go,
+          pack_gate_resolvers_test.go, strangler_guard_test.go — and the PRESERVE
+          test gate_cutover_step2_test.go which must keep compiling).
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+          - pkg/check/manifest.go
+          - pkg/check/parsers.go
+          - pkg/check/coverage.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Delete the command + dead engine machinery + catalog reconcile
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Delete `backstop code check` Command + Dead In-Process Engine"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Deletion-assertion + SARIF-survival tests for the command and engine removal"
+        description: |
+          Add SPEC-034-style SOURCE-SCAN deletion-assertion tests (the red phase)
+          pinning the ABSENCE of the deleted command + engine symbols, plus a
+          SURVIVAL assertion for the live SARIF surface. Mirror the existing
+          pkg/validate/deletion_assertion_test.go helper (nonTestGoSources reads
+          the package's non-test .go sources as text). Two NEW test files:
+
+          cmd/backstop/code_check_removal_test.go —
+            - TestCodeCheckCommand_Removed: assert `newCodeCheckCommand`,
+              `codeCheckCmd`, and `resolveCheckRun` do NOT appear in any non-test
+              cmd/backstop source; assert `check.Run`/`check.Options{` (the
+              in-process engine entry) is not invoked from cmd/backstop production
+              source; assert the `code` cobra namespace registration is gone from
+              root.go (no `codeCmd.AddCommand` / no `codeCmd` in the root
+              AddCommand list).
+            - TestCodeCheckSubcommand_AbsentFromCLI: build the root command and
+              assert `code check` (and the bare `code` namespace, unless it has
+              other surviving children — confirm at impl time) resolves to a
+              "no such command"/unknown-command outcome, proving the CLI surface
+              is actually gone (not merely the symbols).
+
+          pkg/check/code_check_engine_removal_test.go —
+            - TestInProcessCheckEngine_Removed: assert the DEAD identifiers are
+              absent from non-test pkg/check source: `func Run(`, `func RunWith(`,
+              `type Engine`, `func (e *Engine) RunPasses`, `passOrder`,
+              `buildExecutorsForConfig`, `resolveToolchain`, `validateToolchainKeys`,
+              `DeclaredToolchainExecutorsForTest`, `type Toolchain`, `LoadManifest`,
+              `func (m *Manifest) RouteFile`, `routeFileDefaults`, `defaultManifest`.
+            - TestSARIFSurface_Preserved: assert the LIVE surface SURVIVES —
+              `func ParsePackFindings(`, `func parseSarif(`, `func lookupParser(`,
+              `sarifFingerprint`, `sarifSeverity` are STILL present in pkg/check
+              source (guards against over-deletion), and that a minimal SARIF
+              document parses through check.ParsePackFindings stamping
+              CheckTypeFindings (behavioral proof the live parser is intact).
+            - TestSharedTypes_Preserved: assert Violation, CheckType, CommandRunner,
+              ConfigError, DegradedError, CoverageRecord remain constructible types.
+
+          Use the mandated test names above. The absence assertions MUST fail now
+          (symbols still exist) and pass only after TASK-003/004/005 land.
+        files:
+          - cmd/backstop/code_check_removal_test.go
+          - pkg/check/code_check_engine_removal_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: refactor
+        title: "Delete the `backstop code check` command + its CLI registration"
+        description: |
+          Turn TestCodeCheckCommand_Removed / TestCodeCheckSubcommand_AbsentFromCLI
+          green by removing the command surface. This lands FIRST so that
+          check.Run's sole production caller is gone before TASK-004 deletes the
+          engine (keeping cmd/backstop compiling).
+            1. Delete cmd/backstop/code_check.go in full (newCodeCheckCommand,
+               codeCheckCmd, resolveCheckRun, and the check.Options{}/check.Run
+               invocation).
+            2. Delete cmd/backstop/code_check_test.go (its subject is the deleted
+               command).
+            3. In cmd/backstop/root.go remove the codeCheckCmd construction and
+               `codeCmd.AddCommand(codeCheckCmd)` (lines ~64-72), and remove
+               `codeCmd` from the `rootCmd.AddCommand(...)` list (line ~151) —
+               confirm codeCmd has NO other children before deleting the whole
+               namespace (from the current tree it does not).
+            4. Trim the ENTANGLED cmd/backstop test files enumerated by TASK-001
+               that construct/reference the removed command or check.Run so the
+               package keeps compiling (e.g. cutover_noregress_test.go,
+               cutover_consistency_test.go, exempt_test_helpers_test.go,
+               manifest_configerror_test.go, pack_gate_resolvers_test.go,
+               strangler_guard_test.go). Where a test's SOLE purpose was the
+               removed command, delete it; where it asserts a still-live behavior,
+               drop only the removed-symbol coupling. PRESERVE
+               gate_cutover_step2_test.go's assertions that the gate never wires
+               StepCodeCheck / never calls check.Run (repoint from a symbol
+               reference to a source-scan if deleting check.Run would otherwise
+               break its compilation).
+          After this task `go build ./...` is clean (pkg/check.Run now has zero
+          callers — dead but still compiling).
+        files:
+          - cmd/backstop/code_check.go
+          - cmd/backstop/code_check_test.go
+          - cmd/backstop/root.go
+          - cmd/backstop/cutover_noregress_test.go
+          - cmd/backstop/cutover_consistency_test.go
+          - cmd/backstop/exempt_test_helpers_test.go
+          - cmd/backstop/manifest_configerror_test.go
+          - cmd/backstop/pack_gate_resolvers_test.go
+          - cmd/backstop/strangler_guard_test.go
+          - cmd/backstop/gate_cutover_step2_test.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: refactor
+        title: "Delete the dead in-process check engine (check.go / registry.go / manifest.go)"
+        description: |
+          Turn TestInProcessCheckEngine_Removed green by deleting the engine
+          machinery TASK-001 pinned as DEAD, while PRESERVING every LIVE shared
+          symbol (guarded by TestSARIFSurface_Preserved / TestSharedTypes_Preserved).
+          Each production deletion trims the entangled in-package test doubles in
+          the SAME task so pkg/check keeps compiling.
+
+          pkg/check/check.go — remove Engine, RunPasses, Run, RunWith, Options,
+            RunOptions, passOrder, applicableChecks, buildDefaultExecutors,
+            buildDefaultExecutorsWithRunner, firstOutputLine, and PassExecutor/
+            PassResult/Result ONLY if TASK-001 confirmed they have no surviving
+            live consumer. KEEP the Violation type (live — returned by
+            ParsePackFindings).
+          pkg/check/registry.go — delete the whole toolchain-executor registry:
+            commandExecutor (+ Execute/IsAvailable/assembleCommand),
+            buildExecutorsForConfig, buildExecutorsForConfigErr, resolveToolchain,
+            declaredEntries, validateToolchainKeys, DeclaredToolchainExecutorsForTest,
+            Toolchain, ToolchainEntry, ScopeKind, defaultScopeKind. (Do NOT touch
+            the LIVE pkg/pack/engine.ScopeKind — different package.)
+          pkg/check/manifest.go — delete LoadManifest, Manifest, RouteFile,
+            routeFileDefaults, defaultManifest, and parseCheckType (its only
+            callers were registry.go's now-deleted validateToolchainKeys/
+            declaredEntries — confirm zero remaining caller, then delete). KEEP the
+            CheckType type + String() (live gate pass-identity vocabulary).
+          Trim/delete the entangled pkg/check test files TASK-001 enumerated
+            (check_test.go, registry_test.go, manifest_test.go,
+            manifest_deadcode_test.go, engine_semantics_test.go, concurrent_test.go,
+            registry_coverage_test.go, ts_executor_test.go, ts_routing_test.go,
+            route_catchall_test.go): delete tests whose sole subject was the removed
+            engine; for tests asserting a still-live behavior, drop only the
+            removed-symbol coupling. Remove any now-unused imports.
+          Do NOT remove pkg/config Enforcement.Toolchain (live via
+          traceability_polarity.go). After this task `go build ./...` is clean and
+          the DEAD-symbol absence assertions from TASK-002 hold.
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+          - pkg/check/manifest.go
+          - pkg/check/check_test.go
+          - pkg/check/registry_test.go
+          - pkg/check/manifest_test.go
+          - pkg/check/manifest_deadcode_test.go
+          - pkg/check/engine_semantics_test.go
+          - pkg/check/concurrent_test.go
+          - pkg/check/registry_coverage_test.go
+          - pkg/check/ts_executor_test.go
+          - pkg/check/ts_routing_test.go
+          - pkg/check/route_catchall_test.go
+        claims:
+          - CLM-002
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: refactor
+        title: "Trim parsers.go dead format entries (eslint/tsc/regex-lines), preserve SARIF"
+        description: |
+          With the registry.go toolchain-executor construction deleted (TASK-004),
+          the non-SARIF parsers are now dead (their only callers were registry's
+          entry.Format lookups). Trim them, clearing 2 of the 6 self-pack findings
+          (parsers.go eslint/tsc), while keeping the LIVE SARIF path intact
+          (guarded by TestSARIFSurface_Preserved).
+            - Reduce the formatParsers map to `{"sarif": parseSarif}`.
+            - Delete parseESLintJSON, eslintSeverity, eslintFile, parseTscOutput,
+              tscLineRe, parseRegexLines, parseRegexLinesWith,
+              defaultRegexLinesPattern.
+            - Update lookupParser's error message to enumerate only "sarif" (drop
+              the "eslint-json, tsc, ... regex-lines" list).
+            - KEEP Parser, lookupParser, ParsePackFindings, parseSarif,
+              sarifFingerprint, sarifSeverity, and the CheckTypeFindings stamping
+              (C-5, live) untouched.
+            - Trim any parsers_test.go arms that exercise the deleted parsers;
+              keep the SARIF-path tests.
+          After this task `go build ./...` / the pkg/check suite are green and the
+          formatParsers map carries no baked-language token.
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_test.go
+        claims:
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: refactor
+        title: "Reconcile the SPEC-041 CheckType-consumer catalog (remove C-4/C-6/C-7/C-8)"
+        description: |
+          Reconcile cmd/backstop/checktype_catalog.go with the deleted sites so the
+          completeness guard (cmd/backstop/checktype_catalog_guard.go) stays green,
+          following the C-2/C-3 removal precedent. In CheckTypeConsumerCatalog():
+            - REMOVE row C-4 (cmd/backstop/code_check.go:CheckTypeFindings — file
+              deleted in TASK-003).
+            - REMOVE row C-6 (pkg/check/check.go:passOrder — deleted in TASK-004).
+            - REMOVE row C-7 (pkg/check/registry.go:Entries — deleted in TASK-004).
+            - REMOVE row C-8 (pkg/check/manifest.go:parseCheckType — deleted in
+              TASK-004).
+            - KEEP row C-1 (pack_gate.go:runFindingsEngine) and row C-5
+              (pkg/check/parsers.go:CheckTypeFindings — LIVE, survives).
+          Update the surrounding doc comments that reference the removed rows so
+          they describe the post-deletion catalog accurately. The guard test must
+          pass clean afterward (verified in TASK-007). This is disjoint from
+          TASK-005 (different file) and both depend only on TASK-004 — they are
+          parallel-eligible.
+        files:
+          - cmd/backstop/checktype_catalog.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-004
+
+      - id: TASK-007
+        type: verification
+        title: "Verify command+engine deletion via backstop gate (build/test/guard green)"
+        description: |
+          Run `backstop gate` at repo/--all scope to confirm the command + engine
+          deletion, the parsers.go trim, and the catalog reconciliation build,
+          lint, test, and pass the completeness guard with no dangling reference
+          and no coverage regression. NOTE: `backstop code check` is intentionally
+          NOT used here — it is the command this issue deletes (Sharp Edge 4);
+          `backstop gate` runs the real dispatchPackEngines path and is the correct
+          verification surface. Confirm: the TASK-002 absence + SARIF-survival
+          assertions pass; the checktype_catalog_guard test is green; the existing
+          gate_cutover_step2_test.go still proves the gate never wired the code
+          check path. Use the backstop CLI surface only — do NOT prescribe raw
+          `go test` / `go vet`.
+        files:
+          - pkg/check/check.go
+          - pkg/check/registry.go
+          - pkg/check/parsers.go
+          - cmd/backstop/checktype_catalog.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: De-bake the fileCategory `.go` literal (Option B) — parallel
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: De-bake fileCategory `.go` Literal (Option B, pkg/validate only)"
+    tasks:
+      - id: TASK-008
+        type: setup
+        title: "Confirm validate.Plan has no pack context; ratify Option B (neutral-spine exemption)"
+        description: |
+          Investigation + decision task for the fileCategory open design point.
+          Re-confirm against the current tree (line numbers shift) that
+          pkg/validate/plan.go's `func Plan(art *artifact.ParsedArtifact,
+          _ *schema.Schema)` receives NO pack/project context at the point
+          fileCategory runs (the schema arg is discarded). This makes Option A
+          (SPEC-043 pack-declared classification globs) out of scope — it would
+          require changing validate.Plan's signature and all callers and would
+          change validation behavior for non-Go files. RATIFY Option B: keep
+          fileCategory's `.go`→"code" classification behavior IDENTICAL, and clear
+          the self-pack `no-language-literal-on-neutral-spine` finding by moving
+          the literal off the strict spine zone using the existing exemption
+          convention (a scoped `// nosemgrep: no-language-literal-on-neutral-spine
+          — <justification>` marker, as already used at pkg/check/parsers.go:22 and
+          pkg/pack/engine/binding.go). Record the ratified approach so TASK-010
+          executes exactly it. If the re-confirmation SURPRISINGLY finds pack
+          context IS threadable cheaply, STOP and surface to the user rather than
+          silently switching to Option A (it changes non-Go behavior).
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-009
+        type: test
+        title: "Test: fileCategory keeps `.go`→code behavior AND carries no bare spine literal"
+        description: |
+          Add tests (red phase) pinning the Option B outcome. In pkg/validate:
+            - TestFileCategory_GoStillCode: fileCategory("x.go") == "code",
+              fileCategory("x.spec.md") == "artifact", fileCategory("x.ts") == ""
+              (behavior UNCHANGED — non-Go still uncategorized under Option B).
+            - TestFileCategory_NoBakedGoLiteralOnSpine: source-scan
+              pkg/validate/plan.go (mirroring the existing deletion_assertion_test
+              helper) asserting the `.go` suffix literal is either absent from the
+              strict spine or carries the scoped exemption marker, so the self-pack
+              `no-language-literal-on-neutral-spine` finding no longer fires.
+          The behavior test passes now; the spine-literal test fails until TASK-010
+          applies the exemption. Both live in pkg/validate test files (disjoint
+          from Phase 2's cmd/backstop + pkg/check scope).
+        files:
+          - pkg/validate/plan_filecategory_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: refactor
+        title: "Apply Option B exemption to fileCategory's `.go` literal in plan.go"
+        description: |
+          Execute the TASK-008-ratified Option B: move the `.go` suffix literal in
+          fileCategory (pkg/validate/plan.go) off the neutral-spine strict zone via
+          the scoped exemption marker, WITHOUT changing its classification behavior
+          (`.go`→"code" still holds; non-Go still returns ""). This clears the
+          6th self-pack finding (plan.go fileCategory `.go`). Turn
+          TestFileCategory_NoBakedGoLiteralOnSpine green while keeping
+          TestFileCategory_GoStillCode green. Do NOT alter fileCategory's
+          artifactExts handling or any other validation logic.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Verify fileCategory de-baking via backstop gate (pkg/validate green)"
+        description: |
+          Run `backstop gate` at the appropriate scope to confirm the
+          pkg/validate/plan.go change builds, lints, and passes tests with no
+          regression, and that the fileCategory tests from TASK-009 are green.
+          Confirm no validation behavior changed for non-Go plans (Option B
+          preserves the status quo). Use the backstop CLI surface only — do NOT
+          prescribe raw `go test` / `go vet`.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive final verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Final Verification"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Full kill chain — backstop gate GREEN + backstop/self 6-findings-gone + artifact validate"
+        description: |
+          Final-phase comprehensive verification of the complete pure-deletion
+          pass across BOTH workstreams (Phase 2 command/engine deletion + Phase 3
+          fileCategory de-baking).
+            1. Run `backstop gate` (full kill chain: pack-engine code check, test
+               verification, substantiveness, coverage, contracts) and confirm it
+               is GREEN at --all / repo scope — the issue's explicit acceptance bar
+               (`go build ./...` clean, `go test ./...` green). The gate's
+               dispatchPackEngines path must be unaffected (the existing
+               gate_cutover_step2_test.go already proves the gate never used the
+               deleted code check path).
+            2. Explicitly confirm the backstop/self dogfood dimension no longer
+               REDs on any of the 6 findings this issue targets: manifest.go
+               `.go/.ts/.tsx` routing (×3, removed in TASK-004), parsers.go
+               eslint/tsc format entries (×2, removed in TASK-005), plan.go `.go`
+               fileCategory (×1, exempted in TASK-010).
+            3. Run `backstop artifact validate` and confirm PLAN-ISSUE-018 (this
+               plan) validates and appears in no failure listing.
+          Depends on the refactor + verification tasks of both workstreams.
+        files:
+          - pkg/check/check.go
+          - pkg/check/parsers.go
+          - cmd/backstop/checktype_catalog.go
+          - pkg/validate/plan.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006
+          - TASK-007
+          - TASK-010
+          - TASK-011

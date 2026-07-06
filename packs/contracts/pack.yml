@@ -60,6 +60,73 @@ content:
                 - testdata/fixtures/sig-mismatch.go
               negative:
                 - testdata/fixtures/sig-present.go
+      # Per-kind signature rules (ISSUE-036): freeze the kind-aware compiler's
+      # verified output as STATIC structural patterns so the pack's own suite
+      # exercises every non-func kind — the pack never having run a non-func
+      # signature is why the func-only compiler shipped silently. Each pattern
+      # equals what scripts/compile-signature.sh emits for that kind (name-agnostic
+      # here for the self-test); positive fixtures DECLARE the kind, negatives OMIT
+      # the declared names.
+      - id: type-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "type $NAME $$$"
+        claims:
+          - id: type-signature-go
+            text: A type declaration matches the type structural pattern.
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-kinds-present.go
+              negative:
+                - testdata/fixtures/sig-kinds-mismatch.go
+      - id: const-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "const $NAME = $$$"
+        claims:
+          - id: const-signature-go
+            text: A constant declaration matches the const structural pattern (the '=' is required).
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-kinds-present.go
+              negative:
+                - testdata/fixtures/sig-kinds-mismatch.go
+      - id: var-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "var $NAME = $$$"
+        claims:
+          - id: var-signature-go
+            text: A variable declaration matches the var structural pattern.
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-kinds-present.go
+              negative:
+                - testdata/fixtures/sig-kinds-mismatch.go
+      - id: method-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "func ($R $T) $NAME($$$PARAMS) $$$"
+        claims:
+          - id: method-signature-go
+            text: A method with a receiver matches the method structural pattern (receiver preserved).
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-kinds-present.go
+              negative:
+                - testdata/fixtures/sig-kinds-mismatch.go
+      - id: interface-signature
+        engine: ast-grep-contracts
+        risk_class: correctness
+        pattern: "type $NAME interface { $$$ }"
+        claims:
+          - id: interface-signature-go
+            text: An interface declaration matches the interface structural pattern.
+            fixtures:
+              positive:
+                - testdata/fixtures/sig-kinds-present.go
+              negative:
+                - testdata/fixtures/sig-kinds-mismatch.go
       # Symbol absence: forbidden symbol probed via grep text-presence over the scope.
       - id: contract-absence
         engine: grep

@@ -6,57 +6,12 @@ import (
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
 
-func TestGateViolationsToCheck(t *testing.T) {
-	violations := []gate.Violation{
-		{Rule: "pack/rule-1", File: "main.go", Message: "bad", Severity: "error", SourcePack: "acme/go"},
-		{Rule: "pack/rule-2", File: "util.go", Message: "also bad", Severity: "warning"},
-	}
-	result := gateViolationsToCheck(violations)
-	if len(result) != 2 {
-		t.Fatalf("expected 2 violations, got %d", len(result))
-	}
-	if result[0].File != "main.go" || result[0].Message != "bad" {
-		t.Errorf("first violation mismatch: %+v", result[0])
-	}
-	if result[1].File != "util.go" {
-		t.Errorf("second violation mismatch: %+v", result[1])
-	}
-}
-
-func TestGateViolationsToCheck_Empty(t *testing.T) {
-	result := gateViolationsToCheck(nil)
-	if len(result) != 0 {
-		t.Errorf("expected 0 violations, got %d", len(result))
-	}
-}
-
-func TestPackNamesFromManifests(t *testing.T) {
-	packs := []*pack.Manifest{
-		{NormalizedName: "acme/go-standards"},
-		{NormalizedName: "internal/security"},
-	}
-	names := packNamesFromManifests(packs)
-	if len(names) != 2 {
-		t.Fatalf("expected 2 names, got %d", len(names))
-	}
-	if names[0] != "acme/go-standards" {
-		t.Errorf("first name: %q", names[0])
-	}
-	if names[1] != "internal/security" {
-		t.Errorf("second name: %q", names[1])
-	}
-}
-
-func TestPackNamesFromManifests_Empty(t *testing.T) {
-	names := packNamesFromManifests(nil)
-	if len(names) != 0 {
-		t.Errorf("expected 0 names, got %d", len(names))
-	}
-}
+// TestGateViolationsToCheck / TestPackNamesFromManifests were removed with the
+// `backstop code check` command (ISSUE-018): gateViolationsToCheck and
+// packNamesFromManifests were code_check.go-only helpers deleted along with it.
 
 func TestDeclaredPackNames_NilConfig(t *testing.T) {
 	names := declaredPackNames(nil)

@@ -117,3 +117,22 @@ func TestDownloadBaselineArtifact_GhFailurePropagates(t *testing.T) {
 		t.Fatalf("expected artifact download failed error, got %v", err)
 	}
 }
+
+// chdirTemp changes the working directory to dir and returns a restore func.
+// Relocated from the deleted code_check_test.go (ISSUE-018); baseline_more_test
+// is now its sole user.
+func chdirTemp(t *testing.T, dir string) func() {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	return func() {
+		if err := os.Chdir(wd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}
+}

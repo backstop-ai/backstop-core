@@ -60,17 +60,6 @@ backstop by shelling out to CLI commands.`,
 
 	artifactCmd.AddCommand(artifactValidateCmd, artifactNewCmd)
 
-	// --- Namespace: code ---
-	codeCmd := &cobra.Command{
-		Use:   "code",
-		Short: "Implementation validation commands",
-		Long:  "Commands for checking implementation code against security standards and enforcement rules.",
-	}
-
-	codeCheckCmd := newCodeCheckCommand(&jsonFlag)
-
-	codeCmd.AddCommand(codeCheckCmd)
-
 	// --- Namespace: pack ---
 	packCmd := &cobra.Command{
 		Use:   "pack",
@@ -148,7 +137,7 @@ backstop by shelling out to CLI commands.`,
 		},
 	}
 
-	rootCmd.AddCommand(artifactCmd, codeCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd)
+	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd)
 
 	return rootCmd
 }

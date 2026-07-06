@@ -51,17 +51,9 @@ func TestCLI_ArtifactNamespace_Exists(t *testing.T) {
 	}
 }
 
-// TestCLI_CodeNamespace_Exists verifies code subcommand exists. (CLM-003)
-func TestCLI_CodeNamespace_Exists(t *testing.T) {
-	root := NewRootCommand()
-	cmd, _, err := root.Find([]string{"code"})
-	if err != nil {
-		t.Fatalf("find code: %v", err)
-	}
-	if cmd.Name() != "code" {
-		t.Errorf("command name = %q, want %q", cmd.Name(), "code")
-	}
-}
+// TestCLI_CodeNamespace_Exists was removed by ISSUE-018: the `code` namespace and
+// its `check` subcommand were deleted. Its absence is now asserted by
+// TestCodeCheckSubcommand_AbsentFromCLI (code_check_removal_test.go).
 
 // TestCLI_PackNamespace_Exists verifies pack subcommand exists. (CLM-004)
 func TestCLI_PackNamespace_Exists(t *testing.T) {
@@ -208,15 +200,16 @@ func TestCLI_Commands_JSON_DescriptorFields(t *testing.T) {
 	}
 }
 
-// TestCLI_Commands_JSON_IncludesAllNamespaces verifies artifact, code, pack
-// namespaces appear in command tree. (CLM-026)
+// TestCLI_Commands_JSON_IncludesAllNamespaces verifies artifact, pack namespaces
+// appear in command tree. The `code` namespace was removed with the `backstop
+// code check` command (ISSUE-018). (CLM-026)
 func TestCLI_Commands_JSON_IncludesAllNamespaces(t *testing.T) {
 	root := NewRootCommand()
 	out, err := executeCommand(root, "commands", "--json")
 	if err != nil {
 		t.Fatalf("commands --json error: %v", err)
 	}
-	for _, ns := range []string{"artifact", "code", "pack"} {
+	for _, ns := range []string{"artifact", "pack"} {
 		if !strings.Contains(out, ns) {
 			t.Errorf("commands --json missing namespace %q", ns)
 		}
@@ -224,14 +217,15 @@ func TestCLI_Commands_JSON_IncludesAllNamespaces(t *testing.T) {
 }
 
 // TestCLI_Help_RootListsNamespaces verifies root help output lists
-// artifact, code, pack groups and gate, version, commands. (CLM-027)
+// artifact, pack groups and gate, version, commands. The `code` namespace was
+// removed with the `backstop code check` command (ISSUE-018). (CLM-027)
 func TestCLI_Help_RootListsNamespaces(t *testing.T) {
 	root := NewRootCommand()
 	out, err := executeCommand(root, "--help")
 	if err != nil {
 		t.Fatalf("root --help error: %v", err)
 	}
-	for _, name := range []string{"artifact", "code", "pack", "gate", "version", "commands"} {
+	for _, name := range []string{"artifact", "pack", "gate", "version", "commands"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("root help missing %q", name)
 		}
@@ -408,7 +402,6 @@ func TestCLI_EnforcementCommands_RunStubs(t *testing.T) {
 	}{
 		{name: "artifact validate", args: []string{"artifact", "validate", "sample.md", "--json"}, want: "\"pass\": true"},
 		{name: "artifact new", args: []string{"artifact", "new", "spec", "--slug", "test-stub", "--json"}, want: "\"artifact_type\""},
-		{name: "code check", args: []string{"code", "check", "--json"}, want: "\"pass\": true"},
 		{name: "gate", args: []string{"gate", "--json"}, want: "\"schema_version\""},
 	}
 	for _, tc := range tests {

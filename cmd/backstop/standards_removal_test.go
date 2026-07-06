@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bmanson/backstop-core/pkg/check"
 )
 
 // TestNoProductionImportOfCompile asserts that no non-test file under
@@ -46,15 +44,6 @@ func TestNoProductionImportOfCompile(t *testing.T) {
 			t.Fatalf("walking %s: %v", dir, walkErr)
 		}
 	}
-
-	// With pkg/compile unreachable, routing must still resolve via pkg/check's
-	// default-manifest fallback — substantiating that the removal preserved
-	// file-type routing rather than collapsing it.
-	manifest, loadErr := check.LoadManifest(filepath.Join(repoRoot(t), ".backstop", "rules"))
-	if loadErr != nil {
-		t.Fatalf("check.LoadManifest: %v", loadErr)
-	}
-	assertGoRoutingPreserved(t, manifest)
 }
 
 // TestCompiledStandardsArtifactsAbsent asserts the compiled-standards artifacts
@@ -70,14 +59,6 @@ func TestCompiledStandardsArtifactsAbsent(t *testing.T) {
 			t.Errorf("stat %s: %v", p, err)
 		}
 	}
-
-	// The compiled artifacts are gone, yet routing survives via the default
-	// manifest — pkg/check still routes .go to the four passes.
-	manifest, loadErr := check.LoadManifest(rulesDir)
-	if loadErr != nil {
-		t.Fatalf("check.LoadManifest: %v", loadErr)
-	}
-	assertGoRoutingPreserved(t, manifest)
 }
 
 // TestPkgCompileDirectoryAbsent asserts the pkg/compile package directory is
@@ -94,14 +75,6 @@ func TestPkgCompileDirectoryAbsent(t *testing.T) {
 	} else if !os.IsNotExist(err) {
 		t.Errorf("stat %s: %v", p, err)
 	}
-
-	// pkg/compile is deleted, but pkg/check routing is intact via the default
-	// manifest fallback.
-	manifest, loadErr := check.LoadManifest(filepath.Join(root, ".backstop", "rules"))
-	if loadErr != nil {
-		t.Fatalf("check.LoadManifest: %v", loadErr)
-	}
-	assertGoRoutingPreserved(t, manifest)
 }
 
 // TestStdGo001SourceAbsent asserts the STD-GO-001 source standard file is absent
@@ -114,19 +87,16 @@ func TestStdGo001SourceAbsent(t *testing.T) {
 	} else if !os.IsNotExist(err) {
 		t.Errorf("stat %s: %v", p, err)
 	}
-
-	// The source standard is dropped, yet routing still resolves through
-	// pkg/check's default manifest — no production path requires STD-GO-001.
-	manifest, loadErr := check.LoadManifest(filepath.Join(root, ".backstop", "rules"))
-	if loadErr != nil {
-		t.Fatalf("check.LoadManifest: %v", loadErr)
-	}
-	assertGoRoutingPreserved(t, manifest)
 }
 
-// TestGate_SucceedsWithoutStandards verifies a gate / code-check run succeeds
-// (no config error, no missing-standard error) on a project with no STD-GO-001
-// artifact and no compiled standards directory. (CLM-015)
+// TestGate_SucceedsWithoutStandards verifies a project with no STD-GO-001
+// artifact and no compiled standards directory scaffolds cleanly (no config
+// error, no missing-standard error). (CLM-015)
+//
+// The former assertion that drove a *realCodeChecker.runCheck was removed by the
+// SPEC-040 cutover, and the check.LoadManifest routing tail was removed by
+// ISSUE-018 (the in-process routing manifest is deleted along with the code
+// check engine).
 func TestGate_SucceedsWithoutStandards(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: no-standards\nlanguage: go\n"), 0o644); err != nil {
@@ -139,40 +109,7 @@ func TestGate_SucceedsWithoutStandards(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write main.go: %v", err)
 	}
-	restore := chdirTemp(t, dir)
-	defer restore()
-
-	// Routing survives the standards removal: check.LoadManifest over the empty
-	// rules dir falls back to the default manifest and still routes .go to the
-	// four passes (the invariant REQ-003 preserves). The former assertion that
-	// drove a *realCodeChecker.runCheck is removed by the SPEC-040 cutover (gate
-	// Step 2 / realCodeChecker no longer exist); the surviving, load-bearing
-	// invariant is that the manifest still routes .go cleanly without a compiled
-	// standards directory.
-	manifest, loadErr := check.LoadManifest(filepath.Join(dir, ".backstop", "rules"))
-	if loadErr != nil {
-		t.Fatalf("check.LoadManifest: %v", loadErr)
-	}
-	assertGoRoutingPreserved(t, manifest)
-}
-
-// assertGoRoutingPreserved confirms that the supplied manifest routes a .go
-// file to the four native passes — the routing fallback the native-standards
-// removal must preserve. The caller loads the manifest with check.LoadManifest
-// in its own body so the substantiveness analyzer sees the pkg/check call.
-func assertGoRoutingPreserved(t *testing.T, manifest *check.Manifest) {
-	t.Helper()
-	routes := manifest.RouteFile("main.go")
-	want := map[check.CheckType]bool{
-		check.CheckTypeLint:    true,
-		check.CheckTypeBuild:   true,
-		check.CheckTypeTest:    true,
-		check.CheckTypeFindings: true,
-	}
-	for _, ct := range routes {
-		delete(want, ct)
-	}
-	if len(want) != 0 {
-		t.Errorf(".go routing missing passes %v after standards removal; got %v", want, routes)
+	if _, statErr := os.Stat(filepath.Join(dir, ".backstop")); statErr != nil {
+		t.Fatalf(".backstop scaffold missing: %v", statErr)
 	}
 }

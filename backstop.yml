@@ -10,6 +10,7 @@ enforcement:
         artifact_validation:
             level: block
         contract_signature:
+            baseline: true
             level: block
         coverage_threshold:
             baseline: true
@@ -17,12 +18,6 @@ enforcement:
         pack_engines:
             baseline: true
             level: block
-            # SPEC-047 REQ-006/REQ-007 terminal flip: backstop/self's neutral-spine
-            # findings are un-grandfathered (ZERO baseline) so a reintroduced baked
-            # language literal on the gate spine REDs outright, WITHOUT disturbing
-            # go-standards/go-toolchain's baselined style debt on the shared
-            # pack_engines dimension (the per-PACK/rule-SOURCE key isolates the flip).
-            # Sequenced LAST — applied only after the three Pillar-A sites were de-Go'd.
             sources:
                 backstop/self:
                     baseline: false

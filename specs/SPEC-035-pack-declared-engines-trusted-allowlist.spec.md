@@ -4,7 +4,7 @@ number: SPEC-035
 created: "2026-06-20"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.1
+spec_version: 1.1.4
 
 implementation:
   summary: >
@@ -399,12 +399,14 @@ claims:
     requirement: REQ-005
     text: The tool-named CheckTypeSemgrep is renamed to the neutral CheckTypeFindings across all ~11 non-test sites in the five files; no gate-type IDENTIFIER names a tool and the build compiles with zero references to the old identifier
     tests:
-      - TestCheckType_SemgrepRenamedToNeutralFindings
+      - TestCheckTypeFindings_StillPresent
+      - TestSharedTypes_Preserved
   - id: CLM-032
     requirement: REQ-005
-    text: The gate-type STRING surface is neutralized too — CheckType.String() returns "findings" (not the literal "semgrep") and parseCheckType accepts "findings" (not "semgrep"), so no serialized/config gate-type value names a tool
+    text: The gate-type STRING surface is neutralized — CheckType.String() returns "findings" (not the literal "semgrep"), so no serialized/emitted gate-type value names a tool. The former parseCheckType deserialization surface was removed entirely by ISSUE-018 (it was the in-process check engine's gate-type config deserializer), so there is no parse-side value that could deserialize a gate-type string to name a tool; the neutral String() output is the sole surviving gate-type string surface.
     tests:
-      - TestCheckType_StringAndParseUseNeutralFindingsNotSemgrep
+      - TestCheckTypeFindings_StillPresent
+      - TestSharedTypes_Preserved
 
   # REQ-006 — three name special-cases retire into declared flags (declared vs name-sniff)
   - id: CLM-023
@@ -608,14 +610,6 @@ contracts:
       - source: pkg/pack/engine/binding.go
         name: FieldContract
         kind: type
-
-  - file: pkg/check/manifest.go
-    provides:
-      - name: CheckTypeFindings
-        kind: constant
-        signature: "const CheckTypeFindings CheckType = ..."
-        notes: "RENAME of the tool-named CheckTypeSemgrep to a neutral type (REQ-005/CLM-022). The ~11 non-test identifier sites across pkg/check (manifest.go: const decl, String() case, parseCheckType case, three []CheckType slices; check.go: passOrder, the delete(opts.Executors,...) site, two PassResult{Pass:...} sites; parsers.go: the stamp comment + parser(out,...) call; registry.go: the execs[...] assignment) and cmd/backstop/code_check.go (two Pass: check.CheckType... sites) all update. CRUCIALLY the gate-type STRING surface neutralizes too: String() returns \"findings\" (was the literal \"semgrep\", manifest.go) and parseCheckType accepts \"findings\" (was \"semgrep\") — no serialized/config value names a tool (CLM-032). The rename touches serialized/config surfaces + their tests, which migrate with it."
-    consumes: []
 ---
 
 # SPEC-035: Pack-Declared Engines + Trusted-Tool Allowlist
@@ -1259,6 +1253,52 @@ requirements and claims above are written to hold under EITHER resolution.
 
 ## Version History
 
+- **1.1.4** (2026-07-05) — Resolved the CLM-032 gap flagged in 1.1.3 by NARROWING the
+  claim to its surviving surface (not a paper-over). CLM-032 formerly asserted BOTH
+  `CheckType.String()` returning "findings" AND `parseCheckType` accepting "findings" not
+  "semgrep". ISSUE-018 DELETED the `parseCheckType` function entirely — it was the
+  in-process check engine's gate-type config DESERIALIZER, removed with that engine — so
+  there is no longer ANY parse-side surface that could deserialize a gate-type string to
+  name a tool. The claim's intent ("no serialized/config gate-type value names a tool") is
+  now fully carried by the sole surviving gate-type string surface: the neutral
+  `CheckType.String()` returning "findings". The parse-side half was not dropped-as-untested;
+  its SUBJECT was removed, so narrowing the claim to the `String()` surface is the accurate
+  post-ISSUE-018 statement. CLM-032's `tests` repointed to the verified String()-asserting
+  tests `TestCheckTypeFindings_StillPresent` (`pkg/check/semgrep_removal_test.go:195`) and
+  `TestSharedTypes_Preserved` (`pkg/check/code_check_engine_removal_test.go:101`). REQ-005
+  and all other claims unchanged.
+- **1.1.3** (2026-07-05) — Repointed CLM-022's mandated tests to their current names.
+  ISSUE-018 reorganized the `pkg/check` tests and renamed the functions SPEC-035 had
+  mandated; the behavioral coverage survives under new names. CLM-022 (the tool-named
+  `CheckTypeSemgrep` renamed to neutral `CheckTypeFindings`; no gate-type identifier names
+  a tool; build compiles with zero old-identifier references) now points to
+  `TestCheckTypeFindings_StillPresent` (`pkg/check/semgrep_removal_test.go:195`) and
+  `TestSharedTypes_Preserved` (`pkg/check/code_check_engine_removal_test.go:101`) — both
+  reference the neutral `CheckTypeFindings` identifier and assert `.String()=="findings"`,
+  and the package compiling proves the old `CheckTypeSemgrep` identifier is gone.
+  CLM-032's mandated test was NOT repointed: its claim mandates BOTH the `String()` surface
+  (covered by the two tests above) AND that `parseCheckType` accepts "findings" not
+  "semgrep" — but ISSUE-018 DELETED the `parseCheckType` function entirely (it was the
+  in-process check engine's config-string deserializer, removed with that engine), so the
+  parse-side half of CLM-032 has no surviving subject to test. This is a genuine
+  claim-vs-implementation staleness, not a test rename, and is left flagged for a
+  claim-text decision (narrow CLM-032 to the surviving `String()` surface, or retire the
+  parse-side half as moot post-ISSUE-018) rather than papered over by repointing to a
+  half-covering test. No requirement or other claim changed.
+- **1.1.2** (2026-07-05) — Retired the malformed `CheckTypeFindings` const `provides`
+  entry from the `pkg/check/manifest.go` contract block. Its declared value-signature
+  (`const CheckTypeFindings CheckType = ...`) was inaccurate — the real symbol is a bare
+  iota-block member with no `= value` and no per-line type, which is structurally
+  inexpressible via the contracts pack's ast-grep signature verification (a value-less
+  `const $NAME $$$` binds to an ast-grep ERROR node). The kind-aware contracts compiler
+  (ISSUE-036) correctly rendered this to a non-matching pattern, leaving it as the one
+  residual `contract_signature` red; the general "cannot name-bind a value-less iota
+  member" capability gap is tracked as ISSUE-037. Removing the entry loses NO coverage:
+  the symbol's real guarantee — the tool-named `CheckTypeSemgrep` was renamed to the
+  neutral `CheckTypeFindings` and `CheckTypeFindings.String()` returns "findings" — is
+  enforced BEHAVIORALLY by existing tests (`pkg/check/semgrep_removal_test.go:198`,
+  `pkg/check/code_check_engine_removal_test.go:108`) under CLM-022 and CLM-032, both left
+  intact. No requirement, claim, or other contract changed.
 - **1.1.1** (2026-06-22) — Contract file-path correction (Phase 7 verification). `GateType` and `ParseGateType` moved to their own `pkg/pack/engine/gatetype.go` contract entry, and `FieldContract` to a `pkg/pack/engine/fieldcontract.go` entry, matching the actual source layout; the file-scoped `contract_signature` extractor was reporting "symbol not found in binding.go" false-positives because these three symbols live in sibling files of the same package. No requirement, claim, or signature changed.
 - **1.1.0** (2026-06-21) — Corrective pass closing the re-review FAIL. (1) REQ-003
   extended to fold the engine FIELD-CONTRACT (`DefaultFieldContracts()` +
