@@ -15,6 +15,7 @@ directive:
     - "ISSUE-039"
     - "ISSUE-040"
     - "ISSUE-041"
+    - "ISSUE-033"
 ---
 
 ## Description
@@ -83,3 +84,8 @@ closed. This directive does not reopen them; it owns the *new* defects that
 the 2026-07-06 packs-only cutover and kind-aware compiler exposed. Genuinely
 new work gets a new directive rather than resurrecting a done one, per
 standing practice.
+
+ISSUE-033 (de-Go `plan.go`'s baked `.go` file-classification via
+pack-declared globs) re-homed here from DIR-014 (2026-07-06) — the
+thin-executor residual whose literal is currently suppressed; DIR-015 owns
+the real fix.

@@ -5,12 +5,12 @@ created: "2026-07-06"
 schema_version: directive/v1
 
 directive:
-  status: active
+  status: done
   source:
     - "ISSUE-027"
     - "ISSUE-019"
     - "ISSUE-021"
-    - "ISSUE-033"
+  completed: "2026-07-06"
 ---
 
 ## Description
@@ -41,8 +41,8 @@ work is already delivered:
   `.standard.md` validator) eradicated outright (2026-07-06); the gate never
   depended on that path.
 
-What remains is exactly the residue the `backstop/self` dogfood pack now
-names as findings — the last baked-language/tool literals on the spine:
+What remained was exactly the residue the `backstop/self` dogfood pack
+named as findings — the last baked-language/tool literals on the spine:
 
 - **ISSUE-027** — `DefaultRegistry()` / `DefaultFieldContracts()` in
   `pkg/pack/engine/binding.go` still ship 7 baked engine bindings (including
@@ -56,22 +56,23 @@ names as findings — the last baked-language/tool literals on the spine:
 - **ISSUE-021** — pack-layout validation (`validate_manifest.go`) hardcodes
   a `go.mod`-shaped layout requirement, baking an assumption about what a
   pack's toolchain looks like. 1 finding.
-- **ISSUE-033** — plan validation's `fileCategory()`
-  (`pkg/validate/plan.go`) classifies touched files into TDD-ordering /
-  coverage categories using a baked `.go` suffix check, instead of a
-  pack-declared classification.
 
-None of these four are net-new scope — they are the named remainder of the
-2026-06-20 eradication audit, carried forward once BUNDLE-009 through
+(A fourth literal, plan validation's `fileCategory()` baked `.go` suffix
+check, was also named by this audit as ISSUE-033 but is re-homed to DIR-015
+— see Notes.)
+
+None of ISSUE-027/019/021 were net-new scope — they were the named remainder
+of the 2026-06-20 eradication audit, carried forward once BUNDLE-009 through
 ISSUE-018 closed out everything ahead of them.
 
 ## Acceptance Criteria
 
 - The `backstop/self` dogfood pack goes GREEN: zero baked-language/tool
-  literals remain anywhere it currently flags (`pkg/pack/engine/binding.go`,
-  `pkg/packval/`, `validate_manifest.go`, `pkg/validate/plan.go`). Note that
-  `backstop/self` is `baseline: false` (all-code, by design) — its current RED
-  literally *is* this backlog, not an unrelated defect.
+  literals remain anywhere it flagged (`pkg/pack/engine/binding.go`,
+  `pkg/packval/`, `validate_manifest.go`). **MET 2026-07-06** — whole-repo
+  `backstop/self` findings = 0. Note that `backstop/self` is `baseline: false`
+  (all-code, by design) — its RED literally *was* this backlog, not an
+  unrelated defect.
 - Backstop gates a project in ANY language via packs only — no baked path,
   no vacuous green — for the full set of check categories the gate covers
   (lint/build/test/coverage/substantiveness/contracts), not just the four
@@ -86,14 +87,22 @@ ISSUE-018 closed out everything ahead of them.
   memory `project_eradication_backlog.md` and
   `project_native_toolchain_cutover.md`.
 - Do not re-litigate whether baked checks "stay" — CLAUDE.md's
-  zero-baked-checks invariant is standing law; the only open questions are
-  how/when each remaining literal migrates to a pack, which is what
-  ISSUE-027/019/021/033 individually scope.
-- If further baked-language findings surface while working these four
-  (e.g. from `backstop/self` catching something new), file them as issues
-  under this directive rather than expanding directive-level prose — issues
-  roll up under the directive via `source`, they don't need their own entry
-  here.
+  zero-baked-checks invariant is standing law; the only open questions were
+  how/when each remaining literal migrated to a pack, which is what
+  ISSUE-027/019/021 individually scoped.
+- **Completed 2026-07-06.** `backstop/self` findings across the whole repo
+  are 0. The substance shipped in three commits: ISSUE-027 (`0dabc82`,
+  `DefaultRegistry` → embedded base-engines pack + external go-toolchain
+  pack), ISSUE-019 (`e483d92`, the `packval` harness de-Go'd onto the engine
+  model), ISSUE-021 (`43c9dbd`, `go.mod` de-baked from `ExpectedLayout`).
+- **ISSUE-033 re-homed to DIR-015, not resolved here.** It was the one
+  residual literal this audit named (`fileCategory()` in `pkg/validate/plan.go`
+  baking a `.go` suffix check). It is currently suppressed with an interim
+  `// nosemgrep` (non-firing, not truly removed) rather than fixed. Its real
+  fix — deriving source-file classification from SPEC-043 pack-declared
+  globs, threaded through `validate.Plan`'s signature and ~90 test callers —
+  is disproportionate to a lone minor literal, so it was moved to DIR-015 as
+  a tracked follow-up rather than blocking this directive's completion.
 
 ## References
 
@@ -107,4 +116,5 @@ ISSUE-018 closed out everything ahead of them.
 - ISSUE-019 — `issues/ISSUE-019-de-go-packval-harness.issue.md`
 - ISSUE-021 — `issues/ISSUE-021-baked-gomod-pack-layout-requirement.md`
 - ISSUE-033 — `issues/ISSUE-033-de-go-plan-validation-file-classification.issue.md`
+  (re-homed to DIR-015; no longer part of this directive's `source`)
 - CLAUDE.md — zero-baked-checks first principle
