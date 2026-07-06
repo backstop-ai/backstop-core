@@ -11,8 +11,8 @@ import (
 // discovered as spec artifacts. (CLM-032)
 func TestArtifactValidate_Discover_Spec(t *testing.T) {
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"specs/SPEC-001-test.spec.md": validSpecContent("SPEC-001"),
-		"specs/SPEC-002-test.spec.md": validSpecContent("SPEC-002"),
+		"specs/SPEC-001-test.spec.md":  validSpecContent("SPEC-001"),
+		"specs/SPEC-002-test.spec.md":  validSpecContent("SPEC-002"),
 		"plans/PLAN-SPEC-001.plan.yml": validPlanContent("PLAN-SPEC-001", "SPEC-001"),
 	})
 

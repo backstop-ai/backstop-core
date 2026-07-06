@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // SPEC-034 phase-3 DELETION guard + end-state invariants (REQ-009/REQ-011).
@@ -81,7 +79,7 @@ func TestStrangler_DeletionGatedOnProvenEquivalence(t *testing.T) {
 	// (2) Engine path present-and-enforcing: the three native Go toolchain engine
 	// bindings replaced the bespoke executors and are registered + dispatchable.
 	// Absence here while the bespoke is gone would be the enforcement-lapse window.
-	reg := engine.DefaultRegistry()
+	reg := builtinTestRegistry(t)
 	for _, eng := range []string{"go-build", "go-test", "golangci"} {
 		b, err := reg.Lookup(eng)
 		if err != nil {

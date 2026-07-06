@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
@@ -20,10 +21,11 @@ import (
 
 // sandboxedRun / sandboxedRunStdout / engineRegistry are test seams: nil in
 // production (the resolveXxx helpers below fall back to the concrete
-// packval.SandboxedRun, packval.SandboxedRunStdout, and engine.DefaultRegistry),
-// and overridden by tests to substitute a stub sandbox or inject a custom engine
-// binding. They are declared WITHOUT initializers so they hold no package-level
-// mutable default; the real implementation is resolved lazily at the call site.
+// packval.SandboxedRun, packval.SandboxedRunStdout, and the embedded base-engines
+// pack via baseengines.Registry), and overridden by tests to substitute a stub
+// sandbox or inject a custom engine binding. They are declared WITHOUT initializers
+// so they hold no package-level mutable default; the real implementation is resolved
+// lazily at the call site.
 var (
 	sandboxedRun       func(cmd string, args []string, packDir string) ([]byte, error)
 	sandboxedRunStdout func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error)
@@ -67,18 +69,21 @@ func resolveSandboxedRunStdout() func(cmd string, args []string, packDir string,
 }
 
 // resolveEngineRegistry returns the registry a rule's engine resolves through:
-// the fallback registry (the injected engineRegistry seam or engine.DefaultRegistry)
-// MERGED with the manifest's pack-declared engines: block, with a pack-declared
-// binding OVERRIDING a same-named built-in (SPEC-035 REQ-001/CLM-002/CLM-004). The
-// merge is what makes a pack-declared command REACHABLE; it ships ATOMICALLY with
-// the dispatch trust gate (runFindingsEngine) so no pack-declared command is ever
-// runnable without the gate (Sharp Edge 1). A nil manifest yields just the fallback
-// registry (the callers that only inspect built-in bindings pass nil). The result
-// is a fresh map so a merge never mutates the seam or the DefaultRegistry.
+// the built-in registry (the injected engineRegistry seam or, in production, the
+// embedded base-engines pack via baseengines.Registry) MERGED with the manifest's
+// pack-declared engines: block, with a pack-declared binding OVERRIDING a same-named
+// built-in (SPEC-035 REQ-001/CLM-002/CLM-004). The merge is what makes a
+// pack-declared command REACHABLE; it ships ATOMICALLY with the dispatch trust gate
+// (runFindingsEngine) so no pack-declared command is ever runnable without the gate
+// (Sharp Edge 1). A nil manifest yields just the built-in registry (the callers that
+// only inspect built-in bindings pass nil). The result is a fresh map so a merge
+// never mutates the seam or the shared base table. There is NO baked
+// engine.DefaultRegistry fallback (ISSUE-027): the built-ins are pack DATA sourced
+// from the embedded base pack.
 func resolveEngineRegistry(manifest *pack.Manifest) engine.Registry {
 	base := engineRegistry
 	if base == nil {
-		base = engine.DefaultRegistry()
+		base = baseengines.Registry()
 	}
 	merged := make(engine.Registry, len(base))
 	for name, binding := range base {

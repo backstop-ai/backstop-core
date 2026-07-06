@@ -10,7 +10,7 @@ func TestValidateLayer3_SingleFileWithValidator(t *testing.T) {
 	m := makeLayer3Manifest()
 	m.Content.Ruleset.Rules[0].Category = "structural"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-019")
 }
@@ -20,7 +20,7 @@ func TestValidateLayer3_MultiFileWithValidator(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = "multi-file"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-020")
 }
@@ -30,9 +30,9 @@ func TestValidateLayer3_MissingInputScope(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = ""
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-021")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer3_MissingValidator(t *testing.T) {
@@ -40,9 +40,9 @@ func TestValidateLayer3_MissingValidator(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].Validator = ""
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-022")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer3_InvalidInputScope(t *testing.T) {
@@ -50,7 +50,7 @@ func TestValidateLayer3_InvalidInputScope(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "structural"
 	m.Content.Ruleset.Rules[0].InputScope = "repo"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-023")
 }
@@ -59,9 +59,9 @@ func TestValidateLayer1_WithInputScope(t *testing.T) {
 	m := makeMinimalManifest()
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-024")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer2_WithInputScope(t *testing.T) {
@@ -71,18 +71,18 @@ func TestValidateLayer2_WithInputScope(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-025")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer1_WithValidator(t *testing.T) {
 	m := makeMinimalManifest()
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-026")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer2_WithValidator(t *testing.T) {
@@ -92,7 +92,7 @@ func TestValidateLayer2_WithValidator(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-027")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }

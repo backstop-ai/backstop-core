@@ -128,7 +128,7 @@ func TestGateDispatch_NewEngineNeedsNoExecutorEdit(t *testing.T) {
 	orig := engineRegistry
 	t.Cleanup(func() { engineRegistry = orig })
 	// Clone and add a brand-new findings engine that is SARIF-native (no convert).
-	engineRegistry = engine.DefaultRegistry()
+	engineRegistry = builtinTestRegistry(t)
 	engineRegistry["customlint"] = engine.EngineBinding{
 		Command:   "customlint",
 		InputMode: engine.InputModeRuleFlags,

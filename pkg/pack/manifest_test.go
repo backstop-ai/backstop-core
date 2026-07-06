@@ -751,9 +751,9 @@ func TestValidateToolConfig_NeitherIdNorRequiredBy(t *testing.T) {
 
 func TestValidateToolConfig_StandaloneMissingRiskClass(t *testing.T) {
 	err := validateToolConfig(ToolConfigEntry{
-		ID:    "tc-1",
-		Tool:  "semgrep",
-		File:  "semgrep.yml",
+		ID:     "tc-1",
+		Tool:   "semgrep",
+		File:   "semgrep.yml",
 		Claims: []Claim{{ID: "c-1"}},
 	})
 	if err == nil {

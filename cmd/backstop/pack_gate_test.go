@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -471,7 +472,7 @@ func TestResolveRegistry_PackDeclaredBindingMerged(t *testing.T) {
 
 	// Precondition: the engine is genuinely absent from the fallback registry, so a
 	// hit can only come from the merge.
-	if _, err := engine.DefaultRegistry().Lookup("acme-findings"); err == nil {
+	if _, err := baseengines.Registry().Lookup("acme-findings"); err == nil {
 		t.Fatal("test precondition: acme-findings must NOT be a built-in engine")
 	}
 
@@ -505,7 +506,7 @@ func TestResolveRegistry_PackBindingResolutionIsDeterministic(t *testing.T) {
 		},
 	}
 
-	builtin := engine.DefaultRegistry()["semgrep"].Command
+	builtin := baseengines.Registry()["semgrep"].Command
 
 	// Resolve repeatedly: the result must be stable AND the pack-declared command,
 	// never the built-in (proving a decided override, not iteration order).

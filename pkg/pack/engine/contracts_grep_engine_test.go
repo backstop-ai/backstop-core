@@ -37,18 +37,13 @@ func repoRoot(t *testing.T) string {
 	return ""
 }
 
-// TestEngine_GrepPackDeclaredNotInDefaultRegistry asserts there is NO baked grep
-// entry in engine.DefaultRegistry AND that the traceability pack DECLARES grep in
-// its engines: block with the contract-required binding shape: pattern-arg input
-// mode, a non-empty input_flag, a grep->SARIF convert script, and gate_type
-// contracts (CLM-015). The engine exists ONLY because the pack declares it.
-func TestEngine_GrepPackDeclaredNotInDefaultRegistry(t *testing.T) {
-	// (a) No baked grep entry — backstop bakes no grep knowledge.
-	if _, baked := DefaultRegistry()["grep"]; baked {
-		t.Fatal("engine.DefaultRegistry must NOT contain a baked grep entry — grep is pack-declared (REQ-005/CLM-015)")
-	}
-
-	// (b) The traceability pack declares grep in its engines: block. Parse only the
+// TestEngine_GrepIsPackDeclared asserts the traceability pack DECLARES grep in its
+// engines: block with the contract-required binding shape: pattern-arg input mode, a
+// non-empty input_flag, a grep->SARIF convert script, and gate_type contracts
+// (CLM-015). The engine exists ONLY because the pack declares it — backstop bakes no
+// grep knowledge, and after ISSUE-027 there is no baked engine table at all.
+func TestEngine_GrepIsPackDeclared(t *testing.T) {
+	// The traceability pack declares grep in its engines: block. Parse only the
 	// engines block (the EngineBinding yaml surface) so this leaf-package test does
 	// not import pkg/pack (cycle).
 	root := repoRoot(t)

@@ -43,6 +43,38 @@ engines:
     project_target: "./..."
     category: mechanism
     gate_type: coverage
+  # Build/test/lint MECHANISM engines declared as pack DATA (ISSUE-027): faithfully
+  # mirrors the real go-toolchain pack so the engine-declaration tests read the same
+  # bindings the installed pack provides. The convert scripts ship under scripts/.
+  go-build:
+    command: go build
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    convert: scripts/build-to-sarif.sh
+    crash_guard: true
+    category: mechanism
+    gate_type: build
+    exempt_from_scope_filter: true
+  go-test:
+    command: go test
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    convert: scripts/test-to-sarif.sh
+    crash_guard: true
+    category: mechanism
+    gate_type: test
+    package_scoped: true
+  golangci:
+    command: golangci-lint run --output.sarif.path stdout --show-stats=false
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    strict_sarif: true
+    gate_type: lint
 content:
   ruleset:
     version: 1.0.0

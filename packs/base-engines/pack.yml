@@ -1,0 +1,88 @@
+name: backstop/base-engines
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Embedded BASE ENGINE substrate (ISSUE-027). This pack is the DATA home of the
+  four generic, language-neutral execution engines (semgrep, ast-grep, sandbox,
+  config-file) that the binary formerly baked into engine.DefaultRegistry() /
+  engine.DefaultFieldContracts(). It is NOT installed via backstop.lock like an
+  ordinary pack: the binary embeds it via //go:embed (root embed.go, BaseEnginesFS)
+  and pkg/baseengines loads it through the NORMAL pack.ParseManifest path, so the Go
+  code holds ZERO engine knowledge — every engine fact (command, input mode,
+  provision pin, category, field contract) is DATA in this file. Adding or changing
+  a base engine is a DATA edit HERE, never a binary edit. It declares no rules: the
+  engines: block is the entire payload, and each engine carries its field_contract
+  INLINE (eliminating the name-keyed DefaultFieldContracts map). The go-* toolchain
+  engines are deliberately NOT here — they belong to the external go-toolchain pack.
+engines:
+  # semgrep — generic OPINION engine. --sarif makes semgrep emit SARIF JSON on
+  # stdout (the engine output contract); --quiet suppresses the banner so stdout is
+  # pure SARIF. Provisioned + pinned (rides the backstop.lock trust gate).
+  semgrep:
+    command: semgrep --sarif --quiet
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+    category: opinion
+    provision:
+      tool: semgrep
+      version: 1.96.0
+    field_contract:
+      requires:
+        - rule_path
+        - standard
+      forbids:
+        - category
+        - input_scope
+        - validator
+  # ast-grep — generic OPINION engine. --json makes ast-grep emit its machine
+  # JSON array on stdout, normalized to SARIF by the pack-relative convert script.
+  ast-grep:
+    command: ast-grep scan --json
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+    convert: ast-grep/to-sarif.sh
+    category: opinion
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+    field_contract:
+      requires:
+        - rule_path
+      forbids:
+        - category
+        - input_scope
+        - validator
+  # sandbox — generic input_mode none engine: the executable IS the logic. It runs
+  # per scoped file (file-args) and ships its logic under validators/.
+  sandbox:
+    command: ""
+    input_mode: none
+    scope_kind: file-args
+    gate_type: lint
+    field_contract:
+      requires:
+        - validator
+        - input_scope
+        - category
+      forbids:
+        - rule_path
+  # config-file — generic native-linter shape: a single optional pack-supplied
+  # config file; the tool runs its own built-in rules project-wide.
+  config-file:
+    command: ""
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: project-wide
+    gate_type: lint
+    field_contract:
+      requires: []
+      forbids:
+        - rule_path
+        - category
+        - input_scope
+        - validator

@@ -4,7 +4,7 @@ number: SPEC-035
 created: "2026-06-20"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.4
+spec_version: 1.1.5
 
 implementation:
   summary: >
@@ -599,10 +599,6 @@ contracts:
         kind: function
         signature: "func ExpectedLayout(m *Manifest) []string"
         notes: "The engine-NAME switch on \"semgrep\"/\"ast-grep\" is DELETED; the expected rules/ vs validators/ layout is DERIVED from each rule's resolved binding InputMode/ScopeKind (rule-fed input modes => rules/; input_mode none => validators/) (REQ-006c/CLM-025)."
-      - name: claimFor
-        kind: function
-        signature: "func claimFor(engineName, field, kind string) string"
-        notes: "Resolves the field-contract CLM-id via the engineFieldClaim map keyed on engine name (\"semgrep|rule_path|requires\" => CLM-007, etc.). Under REQ-003/CLM-037 this name-keyed map folds onto the pack-declared binding's FieldContract under the SAME OQ-1 fallback-vs-eradicate disposition as DefaultRegistry — it is NOT an independent baked map. A pack-declared engine's field-contract drives validation from the binding, not this name-keyed lookup."
     consumes:
       - source: pkg/pack/engine/binding.go
         name: InputMode
@@ -1253,6 +1249,21 @@ requirements and claims above are written to hold under EITHER resolution.
 
 ## Version History
 
+- **1.1.5** (2026-07-06) — Retired the stale `claimFor` `provides` contract entry on the
+  `pkg/pack/validate_manifest.go` contract (formerly `func claimFor(engineName, field, kind
+  string) string`). ISSUE-018/ISSUE-027 intentionally DELETED `claimFor` along with the
+  `engineFieldClaim` map, `DefaultRegistry`, and `DefaultFieldContracts` as part of the
+  thin-executor eradication — those baked engine defaults and their field-contract CLM-id
+  indirection now come from the embedded base-engines pack, so field-contract validation
+  drives off each pack-declared binding's FieldContract, not a name-keyed baked lookup. The
+  symbol's deletion is asserted by `cmd/backstop/baked_defaults_deletion_test.go`. This is
+  align-predating-artifacts (the spec's contract outlived the symbol its own thin-executor
+  intent removed), not a defect. `contract_signature` was reporting 1 NEW violation ("symbol
+  claimFor signature not found or mismatched") solely for this removed symbol. The sibling
+  `ExpectedLayout` provides entry and the file's `consumes` (InputMode, FieldContract — both
+  still present in binding.go) are unchanged. No requirement, claim, or mandated test target
+  referenced `claimFor` (it was contract-only, never a claim's check target), so none were
+  touched.
 - **1.1.4** (2026-07-05) — Resolved the CLM-032 gap flagged in 1.1.3 by NARROWING the
   claim to its surviving surface (not a paper-over). CLM-032 formerly asserted BOTH
   `CheckType.String()` returning "findings" AND `parseCheckType` accepting "findings" not

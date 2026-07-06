@@ -15,6 +15,16 @@ import (
 //go:embed all:artifacts
 var SchemaFS embed.FS
 
+// BaseEnginesFS embeds the backstop-owned BASE ENGINE pack source
+// (packs/base-engines) into the binary (ISSUE-027). It is declared at the module
+// root — exactly like SchemaFS — because //go:embed cannot reference a directory
+// above its own package. pkg/baseengines reads the embedded pack.yml from this FS
+// and loads it through the normal pack.ParseManifest path, so the binary holds the
+// four generic engine bindings as embedded DATA, never as baked Go literals.
+//
+//go:embed all:packs/base-engines
+var BaseEnginesFS embed.FS
+
 // ListSchemas walks the embedded SchemaFS and returns sorted paths for
 // all schema files matching artifacts/*/v*/schema.json and
 // artifacts/base/schema.json.

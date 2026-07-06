@@ -35,7 +35,7 @@ func installExemptRegistry(t *testing.T, bindings map[string]engine.EngineBindin
 	t.Helper()
 	orig := engineRegistry
 	t.Cleanup(func() { engineRegistry = orig })
-	reg := engine.DefaultRegistry()
+	reg := builtinTestRegistry(t)
 	for name, b := range bindings {
 		reg[name] = b
 	}

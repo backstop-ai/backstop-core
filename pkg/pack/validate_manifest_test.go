@@ -89,7 +89,7 @@ func TestExpectedLayout_DerivedFromInputModeNotEngineName(t *testing.T) {
 		{ID: "validator-rule", Engine: "acme-validator", Validator: "validators/v.sh", InputScope: "single-file", Category: "structural"},
 	}
 
-	layout := pack.ExpectedLayout(m)
+	layout := pack.ExpectedLayout(m, baseTestRegistry())
 	if !containsPath(layout, "rules/") {
 		t.Errorf("rule-fed (rule-flags) engine must yield rules/, got %#v", layout)
 	}
@@ -127,7 +127,7 @@ func TestFieldContract_DeclaredOnBindingNotNameKeyed(t *testing.T) {
 		{ID: "demo-rule", Engine: "acme-strict", RiskClass: "security",
 			Claims: missing.Content.Ruleset.Rules[0].Claims},
 	}
-	errs := pack.ValidateManifest(missing)
+	errs := pack.ValidateManifest(missing, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "acme-strict") {
 		t.Fatalf("declared requires:[rule_path] must fire for a missing rule_path naming field+engine, got %#v", errs)
 	}
@@ -140,7 +140,7 @@ func TestFieldContract_DeclaredOnBindingNotNameKeyed(t *testing.T) {
 		{ID: "demo-rule", Engine: "acme-strict", RiskClass: "security", RulePath: "rules/a.yml",
 			Claims: ok.Content.Ruleset.Rules[0].Claims},
 	}
-	errs = pack.ValidateManifest(ok)
+	errs = pack.ValidateManifest(ok, baseTestRegistry())
 	if hasFieldEngineError(errs, "rule_path", "acme-strict") {
 		t.Fatalf("a rule satisfying the declared contract must not error on rule_path, got %#v", errs)
 	}
@@ -152,8 +152,17 @@ func TestValidateManifest_AccumulatesErrors(t *testing.T) {
 	m.Content.Ruleset.Rules[0].RulePath = ""
 	m.Content.Ruleset.Rules[0].Standard = ""
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-007")
-	requireError(t, errs, "CLM-008")
+	// Both the missing rule_path and the missing standard trip semgrep's inline
+	// requires-contract; each reports the single generic engine-field-contract code,
+	// so the accumulation shows up as TWO violations (distinct fields) under it.
+	requireError(t, errs, "CLM-020-engine-field-contract")
+	fields := map[string]bool{}
+	for _, e := range errs {
+		fields[e.Field] = true
+	}
+	if !fields["content.ruleset.rules[0].rule_path"] || !fields["content.ruleset.rules[0].standard"] {
+		t.Fatalf("expected accumulated violations for both rule_path and standard, got %#v", errs)
+	}
 }

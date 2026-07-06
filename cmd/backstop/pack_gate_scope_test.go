@@ -302,7 +302,7 @@ func astGrepLikeScopeManifest(t *testing.T) ([]*pack.Manifest, string) {
 	t.Helper()
 	orig := engineRegistry
 	t.Cleanup(func() { engineRegistry = orig })
-	engineRegistry = engine.DefaultRegistry()
+	engineRegistry = builtinTestRegistry(t)
 	engineRegistry["configfile-lint"] = engine.EngineBinding{
 		Command:   "configfile-lint scan",
 		InputMode: engine.InputModeConfigFile,

@@ -23,9 +23,9 @@ type minimalCoverageConsumer struct {
 // coverageReportLine is one surfaced consumer line: the metric label is carried
 // onto the report so a statement-% is never silently compared against a branch-%.
 type coverageReportLine struct {
-	Path    string
-	Metric  string
-	NA      bool
+	Path      string
+	Metric    string
+	NA        bool
 	Shortfall bool
 }
 

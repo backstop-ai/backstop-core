@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
@@ -21,7 +22,7 @@ import (
 // pack convert script and NO CrashGuard — its non-zero-with-findings contract is
 // the SARIF on stdout, exactly as SPEC-031 built it.
 func TestSemgrep_UnchangedSharedEngine(t *testing.T) {
-	bind, err := engine.DefaultRegistry().Lookup("semgrep")
+	bind, err := baseengines.Registry().Lookup("semgrep")
 	if err != nil {
 		t.Fatalf("semgrep must remain a registered shared engine: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestSemgrep_UnchangedSharedEngine(t *testing.T) {
 // passes provisionEngines even with nothing on PATH (it is provisioned, not
 // assume-present).
 func TestSemgrep_OnlyProvisioningChanges(t *testing.T) {
-	bind, err := engine.DefaultRegistry().Lookup("semgrep")
+	bind, err := baseengines.Registry().Lookup("semgrep")
 	if err != nil {
 		t.Fatalf("semgrep lookup: %v", err)
 	}

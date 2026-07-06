@@ -84,18 +84,31 @@ func TestValidateEngine_BuiltinEngineKnown(t *testing.T) {
 	}
 }
 
-// TestValidateEngine_UnknownEngineRejected asserts validateEngine rejects (a
-// blocking config error) a rule whose engine is unknown to BOTH the pack-declared
-// engines: block and the fallback registry. CLM-012.
+// TestValidateEngine_UnknownEngineRejected asserts a rule whose engine is unknown to
+// BOTH the pack-declared engines: block and the injected base registry is rejected as
+// a blocking validation error (CLM-012). After ISSUE-027 deleted the baked fallback,
+// parse-time validateEngine no longer resolves built-ins (it has no base): it accepts
+// an undeclared name and DEFERS the unknown-engine fail-loud to the validation/gate
+// layer where the base pack is merged. ValidateManifest — given the injected base —
+// reports the unknown-engine violation; the gate's dispatch Lookup fail-louds
+// identically at runtime.
 func TestValidateEngine_UnknownEngineRejected(t *testing.T) {
 	body := packWithEngineRule("", "totally-unknown-engine")
 
-	_, err := pack.ParseManifestFile(writePackYAML(t, body))
-	if err == nil {
-		t.Fatal("an engine unknown to both pack-declared and fallback must be rejected, got nil error")
+	m, err := pack.ParseManifestFile(writePackYAML(t, body))
+	if err != nil {
+		t.Fatalf("parse defers unknown-engine detection to the gate; ParseManifest must accept the undeclared name, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "totally-unknown-engine") {
-		t.Errorf("error must name the unknown engine, got: %v", err)
+
+	errs := pack.ValidateManifest(m, baseTestRegistry())
+	found := false
+	for _, e := range errs {
+		if e.Rule == "CLM-020-unknown-engine" && strings.Contains(e.Message, "totally-unknown-engine") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an engine unknown to both pack-declared and the injected base must be rejected at validation, got %#v", errs)
 	}
 }
 

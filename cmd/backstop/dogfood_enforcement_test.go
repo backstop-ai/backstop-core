@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -52,7 +53,7 @@ func goStandardsRuleConfigs(t *testing.T, root string) []string {
 	}
 	// Guard: the registry must classify these as the semgrep rule-flags engine,
 	// matching the dispatch path's gathering.
-	if b, lookErr := engine.DefaultRegistry().Lookup("semgrep"); lookErr != nil || b.InputMode != engine.InputModeRuleFlags {
+	if b, lookErr := baseengines.Registry().Lookup("semgrep"); lookErr != nil || b.InputMode != engine.InputModeRuleFlags {
 		t.Fatalf("semgrep engine binding missing or not rule-flags: %v", lookErr)
 	}
 	return configs

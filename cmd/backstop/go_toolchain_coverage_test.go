@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
@@ -24,10 +25,10 @@ func TestGoToolchain_CoverageEngineDeclaredWithCoverageGateType(t *testing.T) {
 		t.Fatalf("go-toolchain must declare a go-coverage engine in its engines: block (declared substrate), got engines %v", engineKeysOf(m.Engines))
 	}
 
-	// The engine must NOT be a baked DefaultRegistry binding — the baked registry has
-	// no go-coverage engine.
-	if _, err := engine.DefaultRegistry().Lookup("go-coverage"); err == nil {
-		t.Errorf("go-coverage must be a PACK-declared engine, not a baked DefaultRegistry binding")
+	// The engine must NOT be a built-in from the embedded base pack — the base pack
+	// declares only the four generic engines (ISSUE-027), never a Go coverage engine.
+	if _, baked := baseengines.Registry()["go-coverage"]; baked {
+		t.Errorf("go-coverage must be a PACK-declared engine, not a base-pack built-in")
 	}
 
 	b := spec.Binding

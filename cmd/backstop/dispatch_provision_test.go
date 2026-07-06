@@ -116,6 +116,16 @@ func TestProvision_IntroducedEngineAutoProvisioned(t *testing.T) {
 // while a nil-Provision sibling engine in the SAME pack IS probed. That contrast
 // proves the split is what governs provisioning, not EnsureSemgrep.
 func TestProvision_EnsureSemgrepRetired(t *testing.T) {
+	// The rules below bind the built-in semgrep (pinned Provision) and golangci
+	// (nil-Provision assume-present native) engines WITHOUT declaring them. After
+	// ISSUE-027 golangci is pack DATA (the go-toolchain pack), not a baked binding, so
+	// install the full built-in set on the seam — the same union production's
+	// resolveEngineRegistry sees with the base + go-toolchain packs installed — so
+	// golangci resolves to its nil-Provision, golangci-lint-command binding.
+	origReg := engineRegistry
+	t.Cleanup(func() { engineRegistry = origReg })
+	engineRegistry = builtinTestRegistry(t)
+
 	// golangci-lint present so the assume-present sibling passes; semgrep absent on
 	// PATH. If EnsureSemgrep (the bespoke ladder) were on the provision path, it
 	// would probe/install semgrep; the declared model must NOT.

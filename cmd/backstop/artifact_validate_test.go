@@ -15,9 +15,9 @@ import (
 // validates all spec artifacts. (CLM-009)
 func TestArtifactValidate_Scope_SpecAll(t *testing.T) {
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"specs/SPEC-001-a.spec.md":          validSpecContent("SPEC-001"),
-		"specs/SPEC-002-b.spec.md":          validSpecContent("SPEC-002"),
-		"plans/PLAN-SPEC-001-a.plan.yml":    validPlanContent("PLAN-SPEC-001", "SPEC-001"),
+		"specs/SPEC-001-a.spec.md":       validSpecContent("SPEC-001"),
+		"specs/SPEC-002-b.spec.md":       validSpecContent("SPEC-002"),
+		"plans/PLAN-SPEC-001-a.plan.yml": validPlanContent("PLAN-SPEC-001", "SPEC-001"),
 		"bundles/cli.bundle.md": `---
 title: Test Bundle
 schema_version: bundle/v1

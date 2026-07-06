@@ -1,0 +1,652 @@
+---
+plan_id: PLAN-ISSUE-027
+spec_id: ISSUE-027
+created: "2026-07-06"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... -race"
+coverage_threshold: 90
+
+notes: |
+  KEYSTONE of the thin-executor eradication finish (DIR-014). Deletes the baked
+  engine.DefaultRegistry() / engine.DefaultFieldContracts() / engineFieldClaim
+  map + claimFor() so the binary holds ZERO baked engine or language knowledge —
+  every engine binding + field-contract resolves from PACK DATA. Accounts for 6
+  of the 10 backstop/self findings (all on pkg/pack/engine/binding.go); expected
+  to go 6 -> 0.
+
+  ── ISSUE-TEXT STALENESS RECONCILED (for the user) ────────────────────────────
+  The issue (2026-06-22) frames the work as "cannot be planned or implemented
+  independently of BUNDLE-011 … MUST be sequenced after BUNDLE-011 resolves the
+  go-toolchain ownership question." That precondition is RESOLVED: BUNDLE-011 +
+  BUNDLE-012 are DELIVERED on main (the native-toolchain cutover, squash 824530e).
+  The go-toolchain pack EXISTS as an external installed pack (backstop.lock,
+  source_type: local, sibling repo ~/src/projects/backstop-go-toolchain-pack). So
+  BUNDLE-011 is NO LONGER A BLOCKER — this plan proceeds and OWNS authoring the
+  three Go engine bindings into that already-existing external pack. Treat the
+  issue's "blocked on / sequence after BUNDLE-011" language as stale.
+
+  ── SCOPING-FORK ANSWER: the external go-toolchain pack does NOT yet declare its
+     go engines ──────────────────────────────────────────────────────────────
+  VERIFIED against ~/src/projects/backstop-go-toolchain-pack/pack.yml AND the
+  installed copy .backstop/packs/backstop/go-toolchain/pack.yml: the engines:
+  block declares ONLY `go-coverage`. `go-build`, `go-test`, and `golangci` appear
+  ONLY as RULE `engine:` references (content.ruleset.rules) — they currently
+  resolve through the baked DefaultRegistry fallback. Therefore the three Go
+  bindings (commands `go build` / `go test` / `golangci-lint run …`, the Convert
+  scripts scripts/build-to-sarif.sh + scripts/test-to-sarif.sh, crash_guard,
+  project_target, gate_type, strict_sarif, package_scoped, exempt_from_scope_filter)
+  MUST be authored into the EXTERNAL pack's engines: block FIRST, and the pack
+  reinstalled, BEFORE DefaultRegistry can be deleted — otherwise every go-* rule
+  becomes an unknown-engine fail-loud. This is the load-bearing sequencing of the
+  plan: Phase 3 (external authoring + reinstall) precedes Phase 4 (deletion).
+
+  ── DURABILITY CONSTRAINT (load-bearing) ──────────────────────────────────────
+  The go-toolchain pack is EXTERNAL. Editing the installed copy under
+  .backstop/packs/ is NON-DURABLE. The engine authoring (Phase 3) MUST land in the
+  external repo ~/src/projects/backstop-go-toolchain-pack (its own commit), then be
+  reinstalled here via remove+add so the in-repo backstop.lock content_hash and the
+  installed copy pick it up. `pack add` refuses an already-installed pack and
+  `pack install` verifies the locked hash (rejecting edited source), so remove+add
+  is the only correct reinstall path for an edited local pack. backstop.lock (the
+  tracked durability boundary) is the in-repo artifact that captures the reinstall.
+
+  ── THE EMBEDDED BASE-ENGINES PACK (central architectural decision) ────────────
+  The 4 generic engines (semgrep, ast-grep, sandbox, config-file) move to a
+  backstop-owned base ENGINE pack, source at packs/base-engines/pack.yml, that is
+  EMBEDDED in the binary via //go:embed and always-loaded — NOT installed via the
+  lock like ordinary packs. This is the deliberate exception: the binary ships the
+  base engine DATA as an embedded pack.yml and loads it through the normal pack
+  PARSE path, so the Go code holds zero engine knowledge (all engine facts are
+  DATA in the embedded pack). Prior art: root embed.go + cmd/backstop/embed.go
+  (//go:embed of artifacts/). Each base engine declares its FieldContract INLINE
+  via the already-parseable engines:.field_contract surface (EngineSpec.FieldContract,
+  pkg/pack/manifest.go) — which eliminates DefaultFieldContracts entirely.
+
+  ── KEY OPEN QUESTION FOR THE USER (surface, do not silently pick) ─────────────
+  How the base registry reaches the VALIDATION path is the one genuinely open
+  layering call. resolveEngineRegistry (the GATE path, cmd/backstop/pack_gate.go)
+  trivially swaps engine.DefaultRegistry() -> baseengines.Registry() because
+  cmd/backstop owns the embed. But resolveEngineRegistryForValidation +
+  validateEngine + ExpectedLayout live in the LOWER pkg/pack layer, which cannot
+  import the embed loader (baseengines imports pkg/pack to parse the pack.yml — the
+  reverse import is a cycle). Discovery that shapes the choice: ValidateManifest
+  has ZERO non-test production callers today (only *_test.go + ExpectedLayout call
+  it), so the base-into-validation ripple is almost entirely test-facing.
+  Options:
+    (a) INJECT an `base engine.Registry` PARAM into ValidateManifest /
+        resolveEngineRegistryForValidation / validateEngine / ExpectedLayout;
+        the CLI passes baseengines.Registry(); pkg/pack tests construct a base in a
+        _test.go helper (self-pack no-baked scan excludes *_test.go, so a test-only
+        Go literal is compliant). Cleanest layering, no hidden global, self-pack
+        safe. COST: mechanical signature ripple across ~12 pkg/pack test files.
+        ** RECOMMENDED — this plan is authored around (a). **
+    (b) A lazy package-level SEAM in pkg/pack (var without initializer, set by the
+        CLI at init) — mirrors the existing cmd/backstop seams but risks tripping
+        go-standards' no-global-mutable-state rule and hides the dependency.
+    (c) A shared low-level packbase package owning embed+parse, imported by both —
+        blocked by the parse cycle (parsing needs pkg/pack).
+  If the user prefers (b) or a different mechanism, Phase 4 TASK-011 + the two
+  test-migration tasks change; flag before implementing. Additionally: the "no
+  production ValidateManifest caller" finding suggests CLI pack validation may be
+  partly dark — NOTED as out-of-scope here (this plan eradicates the bake, it does
+  not wire a new production validation caller), raise separately if wanted.
+
+  ── engineFieldClaim / claimFor DISPOSITION ───────────────────────────────────
+  Once base bindings carry inline FieldContracts, contractForEngine reads the
+  binding's FieldContract only and the DefaultFieldContracts fallback dies. The
+  16-entry engineFieldClaim map + claimFor() (per-(engine|field|kind) CLM codes)
+  are baked data with no home on the FieldContract struct (Requires/Forbids only);
+  per the issue's blessed option they are DELETED and the field-contract
+  ValidationError.Rule uses a single generic code (e.g. "CLM-020-engine-field-contract").
+  Granular per-field claim traceability is intentionally dropped (the issue
+  explicitly permits this) rather than growing FieldContract to carry codes.
+
+  ── CASCADE RISK (KEY SHARP EDGE) ─────────────────────────────────────────────
+  Deleting DefaultRegistry breaks EVERY path that silently relied on the baked
+  fallback. Enumerated + handled by this plan:
+    * cmd/backstop test seam `engineRegistry = engine.DefaultRegistry()` (dispatch_*
+      / dogfood_enforcement / exempt_test_helpers / migration tests) — migrated to
+      baseengines.Registry() (Phase 4 TASK-014). migration_test.go asserts the OQ-1
+      FALLBACK behavior being deleted — those tests are removed/rewritten, not
+      seam-swapped (the issue: "delete tests that assert on the baked defaults").
+    * pkg/pack validation resolving semgrep/sandbox/etc. contracts — rewired to the
+      injected base (Phase 4 TASK-011); pkg/pack tests get the base param (TASK-012/013).
+    * go-* rules resolving their engine — pre-handled by Phase 3 (external authoring
+      + reinstall) so they resolve from pack DATA, not the deleted fallback.
+    * The 6 backstop/self findings on binding.go MUST clear 6 -> 0; the final gate
+      (Phase 5) confirms that AND enumerates any NEWLY-lit gate reds as triage
+      (a genuinely new red is the eradication doing its job, not silently absorbed).
+
+  ── VERIFICATION VEHICLE ──────────────────────────────────────────────────────
+  `backstop code check` was DELETED (ISSUE-018 codecheck collapse). Middle-phase
+  verification uses scoped `go test … -race`; the FINAL phase uses `backstop gate`
+  (full kill chain incl. artifact validation for the plan file + the self-pack
+  no-baked dimension over binding.go).
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Author the embedded base-engines pack DATA"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author packs/base-engines/pack.yml declaring the 4 generic engines with inline field_contract"
+        description: |
+          Create the backstop-owned base ENGINE pack SOURCE (pure DATA, no Go) at
+          packs/base-engines/pack.yml, alongside the other in-repo dogfood pack
+          sources (packs/contracts, packs/substantiveness). Declare an engines:
+          block with the 4 generic engines, each faithfully re-keyed from the
+          current engine.DefaultRegistry() literals AND carrying its FieldContract
+          INLINE via engines:.<name>.field_contract (the already-parseable
+          EngineSpec.FieldContract surface):
+            - semgrep: command "semgrep --sarif --quiet", input_mode rule-flags,
+              input_flag "--config", scope_kind file-args,
+              provision {tool: semgrep, version: 1.96.0}, category opinion;
+              field_contract requires [rule_path, standard], forbids
+              [category, input_scope, validator].
+            - ast-grep: command "ast-grep scan --json", input_mode config-file,
+              input_flag "--config", scope_kind file-args,
+              convert "ast-grep/to-sarif.sh",
+              provision {tool: ast-grep, version: 0.43.0}, category opinion;
+              field_contract requires [rule_path], forbids
+              [category, input_scope, validator].
+            - sandbox: command "", input_mode none, scope_kind file-args;
+              field_contract requires [validator, input_scope, category],
+              forbids [rule_path].
+            - config-file: command "", input_mode config-file, input_flag "--config",
+              scope_kind project-wide; field_contract requires [], forbids
+              [rule_path, category, input_scope, validator].
+          This is DATA only — no rules, no Go. The base pack is parsed for its
+          engines: block by the Phase-2 loader; it is NOT dispatched as an ordinary
+          pack and is NOT subject to the rule/fixture ValidateManifest checks (it
+          has no rules). Do NOT add it to backstop.yml packs: — it is embedded and
+          always-loaded, not lock-installed. Keep a header comment stating the pack
+          is the embedded base engine substrate and that adding an engine here is a
+          DATA edit, never a binary edit.
+        files:
+          - packs/base-engines/pack.yml
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Embed + load the base-engines pack through the normal parse path (TDD)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing base-engines loader tests (embedded pack -> engine.Registry with inline contracts)"
+        description: |
+          New Go test pkg/baseengines/base_engines_test.go proving the loader reads
+          the EMBEDDED base pack and yields the 4 built-in bindings with their
+          contracts — RED until the loader + embed land. Mandated test names:
+            - TestBaseRegistry_ContainsFourGenericEngines (CLM-002): Registry()
+              returns exactly semgrep, ast-grep, sandbox, config-file (no go-*
+              engine — those are the toolchain pack's, not the base pack's).
+            - TestBaseRegistry_SemgrepBindingFromPackData (CLM-002): semgrep's
+              binding carries Command "semgrep --sarif --quiet", InputModeRuleFlags,
+              Provision{semgrep,1.96.0}, EngineCategoryOpinion — proving the values
+              come from the embedded pack.yml, not a Go literal.
+            - TestBaseRegistry_AstGrepCarriesConvert (CLM-002): ast-grep binding has
+              Convert "ast-grep/to-sarif.sh" and InputModeConfigFile.
+            - TestBaseRegistry_InlineFieldContractsPresent (CLM-001): each engine's
+              binding.FieldContract matches the DefaultFieldContracts values it
+              replaces (semgrep requires rule_path+standard/forbids the three;
+              sandbox requires validator+input_scope+category/forbids rule_path;
+              config-file forbids the four; ast-grep requires rule_path).
+            - TestBaseRegistry_SourcedFromEmbeddedFS (CLM-002): the loader parses the
+              embedded FS (not a disk path), so it works with no working-directory
+              dependency (parse the embedded bytes, assert non-empty engines).
+          Substantive assertions on real parsed values — no canned plumbing.
+        files:
+          - pkg/baseengines/base_engines_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Embed the base pack via //go:embed and implement baseengines.Registry()"
+        description: |
+          Make TASK-002 green. Two pieces:
+            1. Extend the root embed.go with a BaseEnginesFS //go:embed of
+               packs/base-engines (mirroring the existing SchemaFS artifacts embed —
+               //go:embed cannot reference above the module-root package, so the FS
+               is declared at the module root exactly like the schemas).
+            2. New package pkg/baseengines with Registry() engine.Registry: read the
+               embedded base pack.yml bytes from BaseEnginesFS, parse via
+               pack.ParseManifest (the NORMAL pack parse path — no bespoke YAML), and
+               project the parsed manifest's Engines map into an engine.Registry
+               (name -> EngineBinding, contracts inline). Parse ONCE (guard against
+               re-parse cost) and return a fresh copy so callers cannot mutate the
+               shared table. baseengines imports pkg/pack + pkg/pack/engine; NOTHING
+               imports baseengines except cmd/backstop (no cycle: pkg/pack does not
+               import baseengines).
+          The loader is engine-BLIND: it enumerates whatever the embedded pack.yml
+          declares. It must fail loud (not silently return empty) if the embedded
+          pack is missing or unparseable.
+        files:
+          - embed.go
+          - pkg/baseengines/base_engines.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "go test the base-engines loader"
+        description: |
+          Inner-loop verification (backstop code check is deleted — use go test):
+          run `go test ./pkg/baseengines/... -race` and confirm the loader tests
+          (TASK-002) pass green: the embedded base pack parses through the normal
+          pack path and yields the 4 engines with inline FieldContracts. Confirm the
+          root embed.go builds with the new BaseEnginesFS directive.
+        files:
+          - pkg/baseengines/base_engines.go
+          - pkg/baseengines/base_engines_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Author the 3 Go engines into the EXTERNAL go-toolchain pack + reinstall (TDD)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing test: go-build/go-test/golangci resolve from go-toolchain PACK DATA, not the baked fallback"
+        description: |
+          New Go test cmd/backstop/go_toolchain_engines_test.go that parses the
+          INSTALLED go-toolchain manifest
+          (.backstop/packs/backstop/go-toolchain/pack.yml) via pack.ParseManifestFile
+          and asserts its m.Engines map DECLARES the three Go engines from pack data
+          — RED now because the pack's engines: block declares only go-coverage.
+          Mandated test names:
+            - TestGoToolchain_DeclaresBuildTestLintEngines (CLM-009): m.Engines
+              contains "go-build", "go-test", "golangci" (in addition to the existing
+              "go-coverage").
+            - TestGoToolchain_GoBuildBindingFromPackData (CLM-009): go-build binding
+              has Command "go build", InputModeNone, ScopeKindProjectWide,
+              ProjectTarget "./...", Convert "scripts/build-to-sarif.sh",
+              CrashGuard true, GateTypeBuild, ExemptFromScopeFilter true, nil Provision.
+            - TestGoToolchain_GoTestBindingFromPackData (CLM-009): go-test binding has
+              Command "go test", Convert "scripts/test-to-sarif.sh", CrashGuard true,
+              GateTypeTest, PackageScoped true, nil Provision.
+            - TestGoToolchain_GolangciBindingFromPackData (CLM-009): golangci binding
+              has the golangci-lint run command, InputModeConfigFile,
+              ScopeKindProjectWide, ProjectTarget "./...", StrictSarif true,
+              category mechanism, nil Provision.
+          These assert the bindings come from the MANIFEST (pack data), which is the
+          exact property that makes the Phase-4 DefaultRegistry deletion safe.
+        files:
+          - cmd/backstop/go_toolchain_engines_test.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Author go-build/go-test/golangci engine bindings into the EXTERNAL go-toolchain pack repo"
+        description: |
+          Make TASK-005 green by authoring the three Go engine bindings into the
+          engines: block of the EXTERNAL pack source
+          ~/src/projects/backstop-go-toolchain-pack/pack.yml (a SEPARATE repo — this
+          edit is committed THERE, per the durability constraint; editing the
+          installed copy is non-durable). Faithfully relocate the three literals from
+          the current engine.DefaultRegistry() go-build/go-test/golangci entries into
+          declared engines:, alongside the existing go-coverage:
+            - go-build: command "go build", input_mode none, scope_kind project-wide,
+              project_target "./...", convert scripts/build-to-sarif.sh,
+              crash_guard true, category mechanism, gate_type build,
+              exempt_from_scope_filter true.
+            - go-test: command "go test", input_mode none, scope_kind project-wide,
+              project_target "./...", convert scripts/test-to-sarif.sh,
+              crash_guard true, category mechanism, gate_type test,
+              package_scoped true.
+            - golangci: command "golangci-lint run --output.sarif.path stdout
+              --show-stats=false", input_mode config-file, input_flag "--config",
+              scope_kind project-wide, project_target "./...", category mechanism,
+              strict_sarif true.
+          The Convert scripts (scripts/build-to-sarif.sh, scripts/test-to-sarif.sh)
+          already ship in the pack. Do NOT change the existing go-* RULES — they
+          already reference these engine names; this task makes those references
+          resolve from the pack's OWN engines: block instead of the baked fallback.
+          File path is the sibling repo; the edit + its commit live outside this
+          repo's tree (the in-repo durable record is backstop.lock, updated in TASK-007).
+        files:
+          - ../backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: setup
+        title: "Reinstall the go-toolchain pack so the installed copy + backstop.lock pick up the new engines"
+        description: |
+          Reinstall the edited external pack so the gate/tests read the new engines:
+          block and the durable in-repo record updates. remove+add is the correct
+          path for an edited LOCAL pack (`pack add` refuses an already-installed
+          pack; `pack install` verifies the locked hash and rejects edited source):
+            backstop pack remove backstop/go-toolchain
+            backstop pack add ~/src/projects/backstop-go-toolchain-pack
+          Afterward confirm .backstop/packs/backstop/go-toolchain/pack.yml now
+          declares go-build/go-test/golangci in engines: and that backstop.lock's
+          backstop/go-toolchain content_hash changed. backstop.lock is the tracked
+          in-repo artifact this task mutates.
+        files:
+          - backstop.lock
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "go test + confirm the go-toolchain pack now gates via its own declared engines"
+        description: |
+          Verify the external authoring + reinstall (backstop CLI / go test only):
+            - `go test ./cmd/backstop/ -run GoToolchain -race` — TASK-005's tests now
+              green (the installed manifest declares the three Go engines from pack data).
+            - Confirm the go-toolchain pack still validates and dispatches: build a
+              small check that resolveEngineRegistry over the installed go-toolchain
+              manifest resolves go-build/go-test/golangci to the pack-declared bindings
+              (they now WIN via the merge even while DefaultRegistry still exists, so
+              this is a clean pre-deletion checkpoint proving the pack-data path works).
+          This is the go-half checkpoint that de-risks the Phase-4 deletion: the Go
+          engines resolve from pack data BEFORE the baked fallback is removed.
+        files:
+          - cmd/backstop/go_toolchain_engines_test.go
+          - backstop.lock
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+  - id: phase-4
+    name: "Phase 4: Rewire both call sites, delete the baked defaults, migrate dependent tests (TDD)"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Write failing deletion-assertion + base-sourced-resolution + base-injected-validation tests"
+        description: |
+          New tests capturing the end state — RED until the Phase-4 rewire+deletion
+          lands. Two files (package-disjoint):
+          cmd/backstop/baked_defaults_deletion_test.go (SPEC-034 deletion-assertion
+          style — source-grep the leaf files):
+            - TestDeletion_DefaultRegistryGone (CLM-007): read
+              pkg/pack/engine/binding.go and assert it no longer defines
+              "DefaultRegistry" (containsIdent == false); the file contains only
+              types, ParseInputMode, and Registry.Lookup.
+            - TestDeletion_DefaultFieldContractsGone (CLM-008): read
+              pkg/pack/engine/fieldcontract.go and assert "DefaultFieldContracts" is
+              absent (only the FieldContract type + field-name consts remain).
+            - TestDeletion_EngineFieldClaimGone (CLM-006): read
+              pkg/pack/validate_manifest.go and assert both "engineFieldClaim" and
+              "claimFor" are absent.
+            - TestResolveEngineRegistry_BuiltinsFromBasePack (CLM-003): with the
+              engineRegistry seam nil, resolveEngineRegistry(nil) returns semgrep /
+              ast-grep / sandbox / config-file sourced from baseengines.Registry()
+              (assert semgrep.Command == the base pack value), proving the gate path
+              resolves built-ins from the embedded pack, not a baked table.
+          pkg/pack/base_registry_injection_test.go:
+            - TestValidateManifest_SemgrepContractFromInjectedBase (CLM-004): a
+              manifest whose rule uses engine "semgrep" WITHOUT declaring it,
+              validated with the injected base registry, is checked against semgrep's
+              inline FieldContract (missing rule_path -> the generic engine-field
+              ValidationError code); proving validation resolves the base by injection.
+            - TestValidateManifest_GenericFieldContractClaimCode (CLM-006): a
+              field-contract violation reports the single generic Rule code
+              (e.g. "CLM-020-engine-field-contract"), not a per-field baked code.
+        files:
+          - cmd/backstop/baked_defaults_deletion_test.go
+          - pkg/pack/base_registry_injection_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Rewire the GATE resolveEngineRegistry to seed built-ins from baseengines.Registry()"
+        description: |
+          Make the base-sourced-resolution half of TASK-009 green. In
+          cmd/backstop/pack_gate.go, change resolveEngineRegistry so the fallback
+          seed is baseengines.Registry() instead of engine.DefaultRegistry() (keep
+          the engineRegistry test-seam override and the manifest-engines merge
+          semantics unchanged — a pack-declared binding still WINS over a same-named
+          base binding). Update the comment that names engine.DefaultRegistry as the
+          fallback. Touch ONLY pack_gate.go in this task; the engine.DefaultRegistry
+          symbol is not yet deleted (TASK-012 removes it once BOTH call sites are
+          migrated), so this compiles standalone.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "Inject base registry into pkg/pack validation; delete engineFieldClaim/claimFor; inline-only contractForEngine"
+        description: |
+          Make the base-injected-validation + generic-claim halves of TASK-009 green.
+          In pkg/pack (validate_manifest.go + manifest.go):
+            - Add a `base engine.Registry` parameter to ValidateManifest,
+              resolveEngineRegistryForValidation, validateEngine, ExpectedLayout, and
+              their internal helpers (validateEngineFields, declaredEngineBindings
+              path). resolveEngineRegistryForValidation seeds from the injected base
+              instead of engine.DefaultRegistry(); a pack-declared engine still
+              overrides a same-named base binding.
+            - contractForEngine reads binding.FieldContract ONLY (the base bindings
+              carry inline contracts) and the engine.DefaultFieldContracts() fallback
+              branch is removed.
+            - DELETE the engineFieldClaim map and claimFor(); replace the two
+              claimFor(...) call sites in validateEngineFields with a single generic
+              claim code constant (e.g. "CLM-020-engine-field-contract") for the
+              requires/forbids ValidationErrors.
+          The injection resolves the layering OQ via option (a). Do NOT touch the
+          leaf engine package here (TASK-012 deletes the leaf symbols). Do NOT import
+          baseengines from pkg/pack (that is the cycle the injection avoids). This
+          task changes ValidateManifest's signature — the pkg/pack test callers are
+          migrated in TASK-012/TASK-013 (package-disjoint from this file set).
+        files:
+          - pkg/pack/validate_manifest.go
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-009
+
+      - id: TASK-012
+        type: refactor
+        title: "Delete DefaultRegistry + DefaultFieldContracts from the leaf engine package"
+        description: |
+          With both production call sites migrated (gate TASK-010, validation
+          TASK-011), delete the baked tables so the leaf engine package holds NO
+          runtime engine data:
+            - Remove DefaultRegistry() (the 7 baked EngineBinding literals) from
+              pkg/pack/engine/binding.go — leaving only the types, ParseInputMode,
+              and Registry.Lookup. Update the package doc + the DefaultRegistry
+              OQ-1-disposition comment (now realized: the fallback is gone).
+            - Remove DefaultFieldContracts() from pkg/pack/engine/fieldcontract.go —
+              leaving only the FieldContract type + field-name consts.
+          This is the deletion that clears the 6 backstop/self findings on binding.go.
+          Depends on the two rewire impls + the deletion-assertion tests.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/fieldcontract.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-009
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-013
+        type: refactor
+        title: "Migrate pkg/pack engine-contract tests to the injected base registry; add the test-only base helper"
+        description: |
+          Keep pkg/pack compiling + meaningful after the ValidateManifest signature
+          change. Add a package-private test helper (new file
+          pkg/pack/base_registry_testhelper_test.go) constructing the 4 base bindings
+          as a test-only engine.Registry (self-pack no-baked scan EXCLUDES *_test.go,
+          so a Go literal here is compliant — the production bake is gone). Thread
+          that helper into the engine-resolving ValidateManifest callers:
+          validate_engine_fields_test.go, manifest_engine_test.go,
+          validate_layer2_test.go, validate_layer3_fields_test.go,
+          validate_layer3_cat_test.go. Update any assertion that expected a per-field
+          baked claim code to expect the generic engine-field-contract code. Do NOT
+          touch the content/security/toolconfig/proof/cooccurrence/layout test files
+          here (TASK-014 group) — this task and TASK-014 are file-disjoint.
+        files:
+          - pkg/pack/base_registry_testhelper_test.go
+          - pkg/pack/validate_engine_fields_test.go
+          - pkg/pack/manifest_engine_test.go
+          - pkg/pack/validate_layer2_test.go
+          - pkg/pack/validate_layer3_fields_test.go
+          - pkg/pack/validate_layer3_cat_test.go
+        claims:
+          - CLM-011
+        depends_on:
+          - TASK-009
+          - TASK-011
+
+      - id: TASK-014
+        type: refactor
+        title: "Migrate remaining ValidateManifest callers + cmd/backstop DefaultRegistry-seam tests off the baked defaults"
+        description: |
+          Complete the test cascade (file-disjoint from TASK-013):
+            - pkg/pack callers that need the new base param but do NOT exercise engine
+              contracts pass the test helper's base (or an empty base where the
+              manifest declares its own engine): validate_content_test.go,
+              validate_cooccurrence_test.go, validate_security_test.go,
+              validate_toolconfig_test.go, validate_proof_test.go,
+              validate_manifest_test.go, validate_layout_test.go.
+            - cmd/backstop tests that inject `engineRegistry = engine.DefaultRegistry()`
+              switch to `engineRegistry = baseengines.Registry()`
+              (dispatch_configfile_test.go, dispatch_engines_test.go,
+              dogfood_enforcement_test.go, exempt_test_helpers_test.go,
+              go_toolchain_coverage_test.go). migration_test.go asserts the OQ-1
+              DefaultRegistry FALLBACK that no longer exists — DELETE or rewrite those
+              cases to assert base-pack + go-toolchain-pack resolution instead (per
+              the issue: delete tests that assert on the baked defaults). Any test
+              needing go-* engines builds/loads the go-toolchain manifest rather than
+              relying on a baked binding.
+          NOTE: this task spans two packages' test files; the pkg/pack subset and the
+          cmd/backstop subset are independent but grouped here as one mechanical
+          seam-swap. If the reviewer prefers tighter scope, split by package.
+        files:
+          - pkg/pack/validate_content_test.go
+          - pkg/pack/validate_cooccurrence_test.go
+          - pkg/pack/validate_security_test.go
+          - pkg/pack/validate_toolconfig_test.go
+          - pkg/pack/validate_proof_test.go
+          - pkg/pack/validate_manifest_test.go
+          - pkg/pack/validate_layout_test.go
+          - cmd/backstop/dispatch_configfile_test.go
+          - cmd/backstop/dispatch_engines_test.go
+          - cmd/backstop/dogfood_enforcement_test.go
+          - cmd/backstop/exempt_test_helpers_test.go
+          - cmd/backstop/migration_test.go
+          - cmd/backstop/go_toolchain_coverage_test.go
+        claims:
+          - CLM-011
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+      - id: TASK-015
+        type: verification
+        title: "Full go test suite: build green, deletions asserted, no baked-default references remain"
+        description: |
+          Comprehensive inner-loop verification after the rewire+deletion+migration
+          (go test — backstop code check is deleted):
+            - `go test ./... -race` — the whole module builds and passes: the leaf
+              engine package (DefaultRegistry/DefaultFieldContracts gone), pkg/pack
+              (injected base, engineFieldClaim/claimFor gone), pkg/baseengines
+              (loader), and every migrated cmd/backstop + pkg/pack test.
+            - Confirm the deletion-assertion tests (TASK-009) are GREEN — the four
+              baked symbols are actually absent, not merely bypassed.
+            - Grep-confirm zero residual production references to DefaultRegistry /
+              DefaultFieldContracts / engineFieldClaim / claimFor outside *_test.go.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/fieldcontract.go
+          - pkg/pack/validate_manifest.go
+          - cmd/backstop/pack_gate.go
+          - pkg/baseengines/base_engines.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-010
+          - TASK-011
+          - TASK-012
+          - TASK-013
+          - TASK-014
+
+  - id: phase-5
+    name: "Phase 5: Full gate — self-findings 6->0, cascade triage, artifact validation"
+    tasks:
+      - id: TASK-016
+        type: verification
+        title: "backstop gate: confirm binding.go self-findings cleared 6->0, enumerate any newly-lit reds, validate the plan artifact"
+        description: |
+          Final comprehensive verification — the full kill chain (backstop gate) and
+          the plan's KEY SHARP EDGE (cascade triage):
+            - `backstop gate --json` — the full gate (artifact validation, test
+              verification, substantiveness, coverage, contracts, and the backstop/self
+              no-baked dimension) now running against the eradicated binary.
+            - CONFIRM the backstop/self findings on pkg/pack/engine/binding.go drop
+              from 6 to 0 (the DefaultRegistry baked-command + language-literal +
+              no-language-literal-on-neutral-spine findings are cleared by the
+              deletion). Report the before/after self-finding count for binding.go.
+            - EXPLICITLY ENUMERATE any NEWLY-lit gate reds anywhere (a new
+              unknown-engine failure, a validation red, a contract/coverage shift) and
+              REPORT them for triage — a genuine new red is the eradication doing its
+              job (an engine that silently relied on the baked fallback now failing
+              loud), NOT a regression to paper over. Do NOT force green by
+              re-baking or by re-adding a fallback branch.
+            - `backstop gate` covers artifact validation for the plan artifact (the
+              only artifact file this change set touches).
+            - Confirm the total self-pack finding count moved toward 10->4 (the 6
+              binding.go findings cleared; the remaining ~4 belong to other files in
+              the eradication backlog and are out of scope here).
+        files:
+          - plans/PLAN-ISSUE-027-eradicate-default-registry.plan.yml
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/fieldcontract.go
+          - backstop.lock
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-012
+        depends_on:
+          - TASK-012
+          - TASK-015

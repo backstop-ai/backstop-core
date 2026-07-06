@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // TestEndState_NoToolNameUsedAsDispatchDiscriminator is the SPEC-035 REQ-006 /
@@ -92,7 +92,7 @@ func TestConvert_ScriptIsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 	// The ast-grep binding gates its MAIN tool (ast-grep) through the allowlist;
 	// the convert script is NOT a second allowlisted tool. checkEngineToolAllowed
 	// keys solely off Provision.Tool.
-	bind := engine.DefaultRegistry()["ast-grep"]
+	bind := baseengines.Registry()["ast-grep"]
 	if bind.Convert == "" {
 		t.Fatal("fixture invariant: the ast-grep built-in must declare a Convert script")
 	}
@@ -129,7 +129,7 @@ func TestConvert_ScriptIsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 func TestValidator_IsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 	// The sandbox built-in declares no Provision, so the allowlist gate is a
 	// no-op — the validator is trusted via the sandbox, not the tool-allowlist.
-	sandboxBind := engine.DefaultRegistry()["sandbox"]
+	sandboxBind := baseengines.Registry()["sandbox"]
 	if sandboxBind.Provision != nil {
 		t.Fatal("fixture invariant: the sandbox built-in must carry no Provision (its validator is sandbox-trusted, not allowlisted)")
 	}

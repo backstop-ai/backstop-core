@@ -24,6 +24,14 @@ func sarifOneFinding() string {
 // shape of the invocation (config-only, no per-rule inputs) and the namespaced
 // violation.
 func TestGateDispatch_ConfigFileEngineRunsOwnRules(t *testing.T) {
+	// The manifest binds the built-in golangci engine without declaring it; after
+	// ISSUE-027 golangci is pack DATA (the go-toolchain pack), so install the full
+	// built-in set on the seam to resolve it — the union production sees with the
+	// go-toolchain pack installed.
+	origReg := engineRegistry
+	t.Cleanup(func() { engineRegistry = origReg })
+	engineRegistry = builtinTestRegistry(t)
+
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "lint-pack")
 	mkDirAll(t, filepath.Join(packRoot, "golangci"))
@@ -86,7 +94,7 @@ func TestGateDispatch_ConfigFileEngineNeedsNoGo(t *testing.T) {
 	t.Cleanup(func() { engineRegistry = orig })
 	// A second, brand-new config-file engine — added purely as data (no Go in the
 	// dispatch switch). It is SARIF-native (no convert) like golangci v2.
-	engineRegistry = engine.DefaultRegistry()
+	engineRegistry = builtinTestRegistry(t)
 	engineRegistry["customlint"] = engine.EngineBinding{
 		Command:       "customlint check",
 		InputMode:     engine.InputModeConfigFile,

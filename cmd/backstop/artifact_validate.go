@@ -191,7 +191,7 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 // NewArtifactValidateCommand creates the Cobra command for backstop artifact validate.
 func NewArtifactValidateCommand() *cobra.Command {
 	var (
-		specFlag     string
+		specFlag      string
 		planFlag      string
 		adrFlag       string
 		bundleFlag    string

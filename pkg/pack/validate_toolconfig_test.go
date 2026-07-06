@@ -12,7 +12,7 @@ func TestValidateToolConfigTrace_Standalone(t *testing.T) {
 		{ID: "golangci", Tool: "golangci-lint", File: ".golangci.yml"},
 	}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-031")
 }
@@ -23,7 +23,7 @@ func TestValidateToolConfigTrace_Supporting(t *testing.T) {
 		{RequiredBy: "demo-rule", Tool: "rego", File: "policy.rego"},
 	}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-032")
 }
@@ -34,7 +34,7 @@ func TestValidateToolConfigTrace_NeitherIdNorRequiredBy(t *testing.T) {
 		{Tool: "rego", File: "policy.rego"},
 	}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-033")
 }

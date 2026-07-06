@@ -142,107 +142,16 @@ func TestParseInputMode_UnknownStillFailsLoud(t *testing.T) {
 	}
 }
 
-// TestRegistry_SeedsBuiltins asserts the default registry seeds the built-in
-// engines (semgrep, ast-grep, sandbox, config-file) with their declared shapes.
-func TestRegistry_SeedsBuiltins(t *testing.T) {
-	reg := DefaultRegistry()
-	for _, name := range []string{"semgrep", "ast-grep", "sandbox", "config-file"} {
-		b, err := reg.Lookup(name)
-		if err != nil {
-			t.Errorf("Lookup(%q): %v", name, err)
-			continue
-		}
-		if b.Command == "" && name != "sandbox" && name != "config-file" {
-			t.Errorf("engine %q has empty command", name)
-		}
-	}
-
-	semgrep := mustLookup(t, reg, "semgrep")
-	if semgrep.InputMode != InputModeRuleFlags {
-		t.Errorf("semgrep input_mode = %q, want rule-flags", semgrep.InputMode)
-	}
-	if semgrep.Convert != "" {
-		t.Errorf("semgrep is SARIF-native via --sarif; it must not declare a pack convert script, got Convert = %q", semgrep.Convert)
-	}
-
-	astgrep := mustLookup(t, reg, "ast-grep")
-	if astgrep.InputMode != InputModeConfigFile {
-		t.Errorf("ast-grep input_mode = %q, want config-file", astgrep.InputMode)
-	}
-	if astgrep.InputFlag != "--config" {
-		t.Errorf("ast-grep input_flag = %q, want --config", astgrep.InputFlag)
-	}
-	if astgrep.Convert == "" {
-		t.Error("ast-grep must declare a stdin->SARIF convert script")
-	}
-	if astgrep.Provision == nil {
-		t.Error("ast-grep must declare a pinned provision (backstop-introduced engine)")
-	}
-
-	sandbox := mustLookup(t, reg, "sandbox")
-	if sandbox.InputMode != InputModeNone {
-		t.Errorf("sandbox input_mode = %q, want none", sandbox.InputMode)
-	}
-
-	configFile := mustLookup(t, reg, "config-file")
-	if configFile.InputMode != InputModeConfigFile {
-		t.Errorf("config-file input_mode = %q, want config-file", configFile.InputMode)
-	}
-}
-
-// TestDefaultRegistry_AstGrepUsesConfigFileMode pins the corrected ast-grep
-// dispatch shape (ISSUE-028 / CLM-001): the ast-grep built-in resolves its
-// multi-rule input through the EXISTING config-file mode (a single pack-shipped
-// sgconfig.yml via --config), NOT the retired rule-dir/"--rule" shape that
-// emitted `--rule <DIR>` and ran zero rules. The flip changes ONLY input
-// mode/flag: the engine name stays "ast-grep" and it retains its Convert script
-// (ast-grep/to-sarif.sh), pinned Provision, and EngineCategoryOpinion.
-func TestDefaultRegistry_AstGrepUsesConfigFileMode(t *testing.T) {
-	reg := DefaultRegistry()
-	astgrep := mustLookup(t, reg, "ast-grep")
-
-	if astgrep.InputMode != InputModeConfigFile {
-		t.Errorf("ast-grep input_mode = %q, want config-file (the multi-rule sgconfig.yml mechanism)", astgrep.InputMode)
-	}
-	if astgrep.InputFlag != "--config" {
-		t.Errorf("ast-grep input_flag = %q, want --config", astgrep.InputFlag)
-	}
-	// The flip keeps the engine's identity (still the "ast-grep scan" invocation,
-	// now with --json so the real binary emits the JSON the convert script reads).
-	if astgrep.Command != "ast-grep scan --json" {
-		t.Errorf("ast-grep command must stay the ast-grep scan invocation, got %q", astgrep.Command)
-	}
-	if astgrep.Convert != "ast-grep/to-sarif.sh" {
-		t.Errorf("ast-grep must keep its stdin->SARIF convert script, got %q", astgrep.Convert)
-	}
-	if astgrep.Provision == nil || astgrep.Provision.Tool != "ast-grep" {
-		t.Errorf("ast-grep must keep its pinned provision, got %+v", astgrep.Provision)
-	}
-	if astgrep.Category != EngineCategoryOpinion {
-		t.Errorf("ast-grep must stay an OPINION engine, got category %d", astgrep.Category)
-	}
-	// The engine is still registered under the name "ast-grep" (not renamed to
-	// "config-file", which forbids rule_path — CLM-009).
-	if _, ok := reg["ast-grep"]; !ok {
-		t.Error("ast-grep must remain registered under the name \"ast-grep\"")
-	}
-}
-
-// mustLookup resolves an engine binding or fails the test, so callers can assert
-// on the binding without ignoring Lookup's error.
-func mustLookup(t *testing.T, reg Registry, name string) EngineBinding {
-	t.Helper()
-	b, err := reg.Lookup(name)
-	if err != nil {
-		t.Fatalf("Lookup(%q): %v", name, err)
-	}
-	return b
-}
-
 // TestRegistry_UnknownEngineFailsLoud asserts Registry.Lookup fail-louds on an
-// engine name it does not know — never a silent skip. CLM-020.
+// engine name it does not know — never a silent skip (CLM-020). It builds the
+// registry as a literal rather than a baked table: after ISSUE-027 the built-in
+// bindings are pack DATA (the embedded base-engines pack), and this leaf package
+// holds only the type + Lookup, so the test exercises Lookup's fail-loud contract
+// directly.
 func TestRegistry_UnknownEngineFailsLoud(t *testing.T) {
-	reg := DefaultRegistry()
+	reg := Registry{
+		"semgrep": {Command: "semgrep --sarif --quiet", InputMode: InputModeRuleFlags},
+	}
 	_, err := reg.Lookup("clj-kondo-typo")
 	if err == nil {
 		t.Fatal("expected error for unknown engine, got nil")
@@ -252,21 +161,19 @@ func TestRegistry_UnknownEngineFailsLoud(t *testing.T) {
 	}
 }
 
-// TestProvision_EmptyVsPinned asserts the Provision descriptor distinguishes an
-// assumed-present (nil) engine from a pinned/introduced one.
-func TestProvision_EmptyVsPinned(t *testing.T) {
-	reg := DefaultRegistry()
-	sandbox := mustLookup(t, reg, "sandbox")
-	if sandbox.Provision != nil {
-		t.Errorf("sandbox (logic-is-the-executable) must be assumed-present (nil provision), got %+v", sandbox.Provision)
+// TestRegistry_LookupKnownEngineReturnsBinding asserts Registry.Lookup resolves a
+// KNOWN engine name to its binding with no error — the success path complementing
+// the fail-loud unknown-engine path.
+func TestRegistry_LookupKnownEngineReturnsBinding(t *testing.T) {
+	want := EngineBinding{Command: "semgrep --sarif --quiet", InputMode: InputModeRuleFlags, InputFlag: "--config"}
+	reg := Registry{"semgrep": want}
+
+	got, err := reg.Lookup("semgrep")
+	if err != nil {
+		t.Fatalf("Lookup of a known engine must not error, got: %v", err)
 	}
-	configFile := mustLookup(t, reg, "config-file")
-	if configFile.Provision != nil {
-		t.Errorf("config-file (Layer-0 native linter) must be assumed-present (nil provision), got %+v", configFile.Provision)
-	}
-	astgrep := mustLookup(t, reg, "ast-grep")
-	if astgrep.Provision == nil || astgrep.Provision.Version == "" {
-		t.Errorf("ast-grep must carry a pinned provision with a version, got %+v", astgrep.Provision)
+	if got.Command != want.Command || got.InputMode != want.InputMode {
+		t.Errorf("Lookup returned %+v, want %+v", got, want)
 	}
 }
 
@@ -317,58 +224,29 @@ func TestEngine_NoForbiddenImports(t *testing.T) {
 	}
 }
 
-// TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind proves
-// EngineBinding carries an ExemptFromScopeFilter bool DECOUPLED from ScopeKind:
-// the DefaultRegistry go-build engine declares it true, golangci and go-test
-// declare it false/unset — asserted against the declared binding records
-// (SPEC-041 CLM-011).
-func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t *testing.T) {
-	reg := DefaultRegistry()
+// TestExemption_BindingCarriesExemptFromScopeFilterDecoupledFromScopeKind proves
+// EngineBinding carries an ExemptFromScopeFilter bool DECOUPLED from ScopeKind: a
+// binding can be ScopeKindProjectWide with the exemption either set or unset
+// (SPEC-041 CLM-011/CLM-017). After ISSUE-027 the go-build/go-test/golangci bindings
+// are pack DATA (the external go-toolchain pack asserts their concrete values in
+// cmd/backstop/go_toolchain_engines_test.go); this leaf-package test proves the
+// STRUCT decouples the two fields, built as literals.
+func TestExemption_BindingCarriesExemptFromScopeFilterDecoupledFromScopeKind(t *testing.T) {
+	exempt := EngineBinding{ScopeKind: ScopeKindProjectWide, ProjectTarget: "./...", ExemptFromScopeFilter: true}
+	notExempt := EngineBinding{ScopeKind: ScopeKindProjectWide, ProjectTarget: "./...", ExemptFromScopeFilter: false}
 
-	build, err := reg.Lookup("go-build")
-	if err != nil {
-		t.Fatalf("go-build binding must exist: %v", err)
+	if !exempt.ExemptFromScopeFilter {
+		t.Error("a binding declaring exempt_from_scope_filter:true must carry it")
 	}
-	if !build.ExemptFromScopeFilter {
-		t.Error("go-build must declare exempt_from_scope_filter:true — it is the build-pass exemption (CLM-011)")
+	if notExempt.ExemptFromScopeFilter {
+		t.Error("a binding leaving exempt_from_scope_filter unset must be false")
 	}
-
-	for _, name := range []string{"golangci", "go-test"} {
-		b, err := reg.Lookup(name)
-		if err != nil {
-			t.Fatalf("%s binding must exist: %v", name, err)
-		}
-		if b.ExemptFromScopeFilter {
-			t.Errorf("%s must NOT declare exempt_from_scope_filter — only go-build is exempt (CLM-011)", name)
-		}
+	// Same ScopeKind, divergent exempt values: ScopeKind does not drive the exempt
+	// decision (CLM-017).
+	if exempt.ScopeKind != notExempt.ScopeKind {
+		t.Fatal("both bindings must share ScopeKindProjectWide for the decoupling to be observable")
 	}
-}
-
-// TestExemption_ScopeKindDecoupledFromExemptDecision proves ScopeKind and
-// ExemptFromScopeFilter are independent: golangci/go-build/go-test all remain
-// ScopeKindProjectWide (each still appends its ./... ProjectTarget) while ONLY
-// go-build is exempt_from_scope_filter — ScopeKind is NOT consulted for the
-// exempt/ProjectWide decision (SPEC-041 CLM-017).
-func TestExemption_ScopeKindDecoupledFromExemptDecision(t *testing.T) {
-	reg := DefaultRegistry()
-	for _, name := range []string{"golangci", "go-build", "go-test"} {
-		b, err := reg.Lookup(name)
-		if err != nil {
-			t.Fatalf("%s binding must exist: %v", name, err)
-		}
-		if b.ScopeKind != ScopeKindProjectWide {
-			t.Errorf("%s must stay ScopeKindProjectWide (arg-shaping), got %v (CLM-017)", name, b.ScopeKind)
-		}
-		if b.ProjectTarget != "./..." {
-			t.Errorf("%s must keep its ./... ProjectTarget (arg-shaping), got %q (CLM-017)", name, b.ProjectTarget)
-		}
-	}
-	// Decoupling: all three share ScopeKindProjectWide, yet ONLY go-build is exempt.
-	// If ScopeKind drove the exempt decision, golangci/go-test would be exempt too.
-	golangci, _ := reg.Lookup("golangci")
-	build, _ := reg.Lookup("go-build")
-	gotest, _ := reg.Lookup("go-test")
-	if !(build.ExemptFromScopeFilter && !golangci.ExemptFromScopeFilter && !gotest.ExemptFromScopeFilter) {
-		t.Error("exempt decision must be DECOUPLED from ScopeKind: same ScopeKindProjectWide, divergent exempt values (CLM-017)")
+	if exempt.ExemptFromScopeFilter == notExempt.ExemptFromScopeFilter {
+		t.Error("exempt decision must be DECOUPLED from ScopeKind: same ScopeKind, divergent exempt values (CLM-017)")
 	}
 }

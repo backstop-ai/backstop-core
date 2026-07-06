@@ -16,8 +16,8 @@ import (
 // (declared in the packs map, value "local" — the dogfood local install).
 func goCfgWithSubstPack() *config.Config {
 	return &config.Config{
-		Project:  "rt",
-		Packs:    config.Packs{"backstop/substantiveness": "local"},
+		Project: "rt",
+		Packs:   config.Packs{"backstop/substantiveness": "local"},
 	}
 }
 

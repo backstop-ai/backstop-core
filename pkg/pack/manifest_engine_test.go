@@ -67,7 +67,7 @@ func TestManifest_EngineSetNoLayerPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("engine-set/no-layer rule must parse cleanly, got: %v", err)
 	}
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	for _, e := range errs {
 		if strings.Contains(e.Message, "semgrep") {
 			t.Fatalf("engine-set rule must validate cleanly, got %#v", errs)

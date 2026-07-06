@@ -45,7 +45,7 @@ func TestEngineFit_SemgrepValidFields(t *testing.T) {
 	m := makeEngineManifest("semgrep")
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
 	m.Content.Ruleset.Rules[0].Standard = "No eval"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if hasFieldEngineError(errs, "rule_path", "semgrep") || hasFieldEngineError(errs, "standard", "semgrep") {
 		t.Fatalf("valid semgrep rule must pass field-contract, got %#v", errs)
 	}
@@ -54,7 +54,7 @@ func TestEngineFit_SemgrepValidFields(t *testing.T) {
 func TestEngineFit_SemgrepMissingRulePathFails(t *testing.T) {
 	m := makeEngineManifest("semgrep")
 	m.Content.Ruleset.Rules[0].Standard = "No eval"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "semgrep") {
 		t.Fatalf("semgrep missing rule_path must fail naming field+engine, got %#v", errs)
 	}
@@ -65,7 +65,7 @@ func TestEngineFit_SemgrepForbidsInputScope(t *testing.T) {
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
 	m.Content.Ruleset.Rules[0].Standard = "No eval"
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "input_scope", "semgrep") {
 		t.Fatalf("semgrep must forbid input_scope, got %#v", errs)
 	}
@@ -76,7 +76,7 @@ func TestEngineFit_SemgrepForbidsCategory(t *testing.T) {
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
 	m.Content.Ruleset.Rules[0].Standard = "No eval"
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "category", "semgrep") {
 		t.Fatalf("semgrep must forbid category, got %#v", errs)
 	}
@@ -87,7 +87,7 @@ func TestEngineFit_SemgrepForbidsValidator(t *testing.T) {
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
 	m.Content.Ruleset.Rules[0].Standard = "No eval"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "validator", "semgrep") {
 		t.Fatalf("semgrep must forbid validator, got %#v", errs)
 	}
@@ -98,7 +98,7 @@ func TestEngineFit_SemgrepForbidsValidator(t *testing.T) {
 func TestEngineFit_AstGrepValidFields(t *testing.T) {
 	m := makeEngineManifest("ast-grep")
 	m.Content.Ruleset.Rules[0].RulePath = "ast-grep/demo.yml"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if hasFieldEngineError(errs, "rule_path", "ast-grep") || hasFieldEngineError(errs, "standard", "ast-grep") {
 		t.Fatalf("valid ast-grep rule (no standard required) must pass, got %#v", errs)
 	}
@@ -106,7 +106,7 @@ func TestEngineFit_AstGrepValidFields(t *testing.T) {
 
 func TestEngineFit_AstGrepMissingRulePathFails(t *testing.T) {
 	m := makeEngineManifest("ast-grep")
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "ast-grep") {
 		t.Fatalf("ast-grep missing rule_path must fail, got %#v", errs)
 	}
@@ -116,7 +116,7 @@ func TestEngineFit_AstGrepForbidsInputScope(t *testing.T) {
 	m := makeEngineManifest("ast-grep")
 	m.Content.Ruleset.Rules[0].RulePath = "ast-grep/demo.yml"
 	m.Content.Ruleset.Rules[0].InputScope = "multi-file"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "input_scope", "ast-grep") {
 		t.Fatalf("ast-grep must forbid input_scope, got %#v", errs)
 	}
@@ -126,7 +126,7 @@ func TestEngineFit_AstGrepForbidsCategory(t *testing.T) {
 	m := makeEngineManifest("ast-grep")
 	m.Content.Ruleset.Rules[0].RulePath = "ast-grep/demo.yml"
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "category", "ast-grep") {
 		t.Fatalf("ast-grep must forbid category, got %#v", errs)
 	}
@@ -136,7 +136,7 @@ func TestEngineFit_AstGrepForbidsValidator(t *testing.T) {
 	m := makeEngineManifest("ast-grep")
 	m.Content.Ruleset.Rules[0].RulePath = "ast-grep/demo.yml"
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "validator", "ast-grep") {
 		t.Fatalf("ast-grep must forbid validator, got %#v", errs)
 	}
@@ -153,7 +153,7 @@ func makeSandboxManifest() *pack.Manifest {
 }
 
 func TestEngineFit_SandboxValidFields(t *testing.T) {
-	errs := pack.ValidateManifest(makeSandboxManifest())
+	errs := pack.ValidateManifest(makeSandboxManifest(), baseTestRegistry())
 	if hasFieldEngineError(errs, "validator", "sandbox") || hasFieldEngineError(errs, "category", "sandbox") || hasFieldEngineError(errs, "input_scope", "sandbox") {
 		t.Fatalf("valid sandbox rule must pass field-contract, got %#v", errs)
 	}
@@ -162,7 +162,7 @@ func TestEngineFit_SandboxValidFields(t *testing.T) {
 func TestEngineFit_SandboxMissingInputScopeFails(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].InputScope = ""
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "input_scope", "sandbox") {
 		t.Fatalf("sandbox missing input_scope must fail, got %#v", errs)
 	}
@@ -171,7 +171,7 @@ func TestEngineFit_SandboxMissingInputScopeFails(t *testing.T) {
 func TestEngineFit_SandboxForbidsRulePath(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "sandbox") {
 		t.Fatalf("sandbox must forbid rule_path, got %#v", errs)
 	}
@@ -180,7 +180,7 @@ func TestEngineFit_SandboxForbidsRulePath(t *testing.T) {
 func TestEngineFit_SandboxMissingValidatorFails(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].Validator = ""
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "validator", "sandbox") {
 		t.Fatalf("sandbox missing validator must fail, got %#v", errs)
 	}
@@ -189,7 +189,7 @@ func TestEngineFit_SandboxMissingValidatorFails(t *testing.T) {
 func TestEngineFit_SandboxMissingCategoryFails(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].Category = ""
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "category", "sandbox") {
 		t.Fatalf("sandbox missing category must fail, got %#v", errs)
 	}
@@ -198,7 +198,7 @@ func TestEngineFit_SandboxMissingCategoryFails(t *testing.T) {
 func TestEngineFit_SandboxCategoryEnumEnforced(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].Category = "business"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "category", "sandbox") {
 		t.Fatalf("sandbox out-of-enum category must fail, got %#v", errs)
 	}
@@ -208,7 +208,7 @@ func TestEngineFit_SandboxOtherCategoryRequiresJustification(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].Category = "other"
 	m.Content.Ruleset.Rules[0].Justification = "  "
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "justification", "sandbox") {
 		t.Fatalf("sandbox category other with empty justification must fail, got %#v", errs)
 	}
@@ -217,7 +217,7 @@ func TestEngineFit_SandboxOtherCategoryRequiresJustification(t *testing.T) {
 func TestEngineFit_SandboxInputScopeEnumEnforced(t *testing.T) {
 	m := makeSandboxManifest()
 	m.Content.Ruleset.Rules[0].InputScope = "repo"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "input_scope", "sandbox") {
 		t.Fatalf("sandbox out-of-enum input_scope must fail, got %#v", errs)
 	}
@@ -228,7 +228,7 @@ func TestEngineFit_SandboxInputScopeEnumEnforced(t *testing.T) {
 func TestEngineFit_ConfigFileForbidsRulePath(t *testing.T) {
 	m := makeEngineManifest("config-file")
 	m.Content.Ruleset.Rules[0].RulePath = "rules/demo.yml"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "config-file") {
 		t.Fatalf("config-file must forbid rule_path, got %#v", errs)
 	}
@@ -237,7 +237,7 @@ func TestEngineFit_ConfigFileForbidsRulePath(t *testing.T) {
 func TestEngineFit_ConfigFileForbidsCategory(t *testing.T) {
 	m := makeEngineManifest("config-file")
 	m.Content.Ruleset.Rules[0].Category = "structural"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "category", "config-file") {
 		t.Fatalf("config-file must forbid category, got %#v", errs)
 	}
@@ -246,7 +246,7 @@ func TestEngineFit_ConfigFileForbidsCategory(t *testing.T) {
 func TestEngineFit_ConfigFileForbidsInputScope(t *testing.T) {
 	m := makeEngineManifest("config-file")
 	m.Content.Ruleset.Rules[0].InputScope = "single-file"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "input_scope", "config-file") {
 		t.Fatalf("config-file must forbid input_scope, got %#v", errs)
 	}
@@ -255,7 +255,7 @@ func TestEngineFit_ConfigFileForbidsInputScope(t *testing.T) {
 func TestEngineFit_ConfigFileForbidsValidator(t *testing.T) {
 	m := makeEngineManifest("config-file")
 	m.Content.Ruleset.Rules[0].Validator = "validators/demo.sh"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "validator", "config-file") {
 		t.Fatalf("config-file must forbid validator, got %#v", errs)
 	}
@@ -270,7 +270,7 @@ func TestEngineFit_VerifiesDoesNotGuide(t *testing.T) {
 	// content.
 	m := makeEngineManifest("ast-grep")
 	m.Content.Ruleset.Rules[0].RulePath = "ast-grep/looks-like-semgrep.yml"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if anyError(filterEngineErrors(errs)) {
 		t.Fatalf("engine-fit must accept the declared engine without inspecting content, got %#v", errs)
 	}
@@ -282,7 +282,7 @@ func TestEngineFit_NeverReclassifies(t *testing.T) {
 	// contract it would satisfy (e.g. config-file, which requires nothing).
 	m := makeEngineManifest("semgrep")
 	m.Content.Ruleset.Rules[0].Standard = "x"
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 	if !hasFieldEngineError(errs, "rule_path", "semgrep") {
 		t.Fatalf("a semgrep rule missing rule_path must fail as semgrep, not be reclassified, got %#v", errs)
 	}

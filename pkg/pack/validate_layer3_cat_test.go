@@ -18,7 +18,7 @@ func TestValidateLayer3Category_Presence(t *testing.T) {
 	m := makeLayer3Manifest()
 	m.Content.Ruleset.Rules[0].Category = "presence"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-011")
 }
@@ -27,7 +27,7 @@ func TestValidateLayer3Category_Structural(t *testing.T) {
 	m := makeLayer3Manifest()
 	m.Content.Ruleset.Rules[0].Category = "structural"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-012")
 }
@@ -37,7 +37,7 @@ func TestValidateLayer3Category_OtherWithJustification(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "other"
 	m.Content.Ruleset.Rules[0].Justification = "Legacy ecosystem gap."
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-013")
 }
@@ -47,7 +47,7 @@ func TestValidateLayer3Category_OtherMissingJustification(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Category = "other"
 	m.Content.Ruleset.Rules[0].Justification = "  "
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-014")
 }
@@ -55,16 +55,16 @@ func TestValidateLayer3Category_OtherMissingJustification(t *testing.T) {
 func TestValidateLayer3Category_Missing(t *testing.T) {
 	m := makeLayer3Manifest()
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-015")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer3Category_Invalid(t *testing.T) {
 	m := makeLayer3Manifest()
 	m.Content.Ruleset.Rules[0].Category = "business"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-016")
 }
@@ -74,9 +74,9 @@ func TestValidateLayer1_WithCategory(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Engine = "config-file"
 	m.Content.Ruleset.Rules[0].Category = "structural"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-017")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }
 
 func TestValidateLayer2_WithCategory(t *testing.T) {
@@ -86,7 +86,7 @@ func TestValidateLayer2_WithCategory(t *testing.T) {
 	m.Content.Ruleset.Rules[0].Standard = "STD-GO-001"
 	m.Content.Ruleset.Rules[0].Category = "structural"
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
-	requireError(t, errs, "CLM-018")
+	requireError(t, errs, "CLM-020-engine-field-contract")
 }

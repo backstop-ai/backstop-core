@@ -5,20 +5,6 @@ import (
 	"testing"
 )
 
-// TestInputModeRuleDir_Retired pins the end state of the ISSUE-028 mode
-// retirement (CLM-008): NO EngineBinding in DefaultRegistry declares the
-// retired "rule-dir" input mode. ast-grep was the sole user; after its flip to
-// config-file the mode has zero remaining users and is deleted. This re-reds if
-// a future binding reintroduces the dead mode.
-func TestInputModeRuleDir_Retired(t *testing.T) {
-	for name, binding := range DefaultRegistry() {
-		if binding.InputMode == InputMode("rule-dir") {
-			t.Errorf("engine %q still declares the retired rule-dir input mode; "+
-				"ast-grep was its sole user and now uses config-file (ISSUE-028)", name)
-		}
-	}
-}
-
 // TestParseInputMode_RejectsRuleDir proves the rule-dir value is GONE, not merely
 // unused (CLM-008): ParseInputMode("rule-dir") fail-louds as an unknown value
 // after retirement, and the accepted-values list no longer advertises it.

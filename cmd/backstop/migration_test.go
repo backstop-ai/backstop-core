@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // SPEC-035 Phase 6 / TASK-032 — DefaultRegistry OQ-1 disposition, dispatch-level
@@ -62,7 +62,7 @@ func builtinSemgrepManifest(t *testing.T, packsDir string) *pack.Manifest {
 // stubbed to PIN semgrep at its built-in version so the trust gate passes and the
 // command runs (proving availability, not the negative path).
 func TestMigration_BuiltinBindingsDispatchThroughFallback(t *testing.T) {
-	builtin := engine.DefaultRegistry()["semgrep"]
+	builtin := baseengines.Registry()["semgrep"]
 	if builtin.Provision == nil {
 		t.Fatal("fixture invariant: the built-in semgrep binding must carry a Provision")
 	}

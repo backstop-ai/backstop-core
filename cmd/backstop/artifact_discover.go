@@ -16,11 +16,11 @@ type DiscoveredArtifact struct {
 // artifactPatterns maps artifact types to their filename matching functions.
 // Each function returns true if the filename matches the pattern for that type.
 var artifactPatterns = map[string]func(string) bool{
-	"spec":     func(name string) bool { return strings.HasSuffix(name, ".spec.md") },
-	"plan":     func(name string) bool { return strings.HasSuffix(name, ".plan.yml") },
-	"adr":      func(name string) bool { return strings.HasPrefix(name, "ADR-") && strings.HasSuffix(name, ".adr.md") },
-	"bundle":   func(name string) bool { return strings.HasSuffix(name, ".bundle.md") },
-	"issue":    func(name string) bool { return strings.HasSuffix(name, ".issue.md") },
+	"spec":       func(name string) bool { return strings.HasSuffix(name, ".spec.md") },
+	"plan":       func(name string) bool { return strings.HasSuffix(name, ".plan.yml") },
+	"adr":        func(name string) bool { return strings.HasPrefix(name, "ADR-") && strings.HasSuffix(name, ".adr.md") },
+	"bundle":     func(name string) bool { return strings.HasSuffix(name, ".bundle.md") },
+	"issue":      func(name string) bool { return strings.HasSuffix(name, ".issue.md") },
 	"directive":  func(name string) bool { return strings.HasSuffix(name, ".directive.md") },
 	"capability": func(name string) bool { return strings.HasSuffix(name, ".capability.yml") },
 }

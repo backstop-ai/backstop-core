@@ -32,10 +32,11 @@ func cmdTerminalFixtureDir(t *testing.T) string {
 // TestGateTerminalExclusion_PrintsCountAndStaysGreen asserts that, for a fixture
 // tree whose only spec is a terminal (deprecated) spec with a broken mandated
 // test + dead contract:
-//   (a) the gate emits the informational excluded-count line,
-//   (b) the excluded spec produces NO test_verification / contract_signature
-//       failure (its tests/contracts are not extracted),
-//   (c) the count line is purely informational (CLM-017).
+//
+//	(a) the gate emits the informational excluded-count line,
+//	(b) the excluded spec produces NO test_verification / contract_signature
+//	    failure (its tests/contracts are not extracted),
+//	(c) the count line is purely informational (CLM-017).
 func TestGateTerminalExclusion_PrintsCountAndStaysGreen(t *testing.T) {
 	specDir := cmdTerminalFixtureDir(t)
 

@@ -17,7 +17,7 @@ func TestValidateCoOccurrence_CodePackValid(t *testing.T) {
 	}
 	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{Scaffolds: []string{"svc"}}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireNoError(t, errs, "CLM-044")
 }
@@ -33,7 +33,7 @@ func TestValidateCoOccurrence_ScaffoldNoPairedRule(t *testing.T) {
 	}
 	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{Scaffolds: []string{"svc"}}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-045")
 }
@@ -49,7 +49,7 @@ func TestValidateCoOccurrence_RuleNoPairedContent(t *testing.T) {
 	}
 	m.Content.Ruleset.Rules[0].PairsWith = pack.PairsWith{}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-046")
 }
@@ -59,7 +59,7 @@ func TestValidateCoOccurrence_EnforcementWithScaffolds(t *testing.T) {
 	m.Archetype = "enforcement"
 	m.Content.Scaffolds = []pack.Scaffold{{ID: "svc"}}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-047")
 }
@@ -69,7 +69,7 @@ func TestValidateCoOccurrence_EnforcementWithSDK(t *testing.T) {
 	m.Archetype = "enforcement"
 	m.Content.SDK = &pack.SDK{Module: "example.com/sdk", Version: "1.0.0", Provides: []string{"x"}}
 
-	errs := pack.ValidateManifest(m)
+	errs := pack.ValidateManifest(m, baseTestRegistry())
 
 	requireError(t, errs, "CLM-048")
 }

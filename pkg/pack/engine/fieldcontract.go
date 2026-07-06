@@ -23,42 +23,9 @@ const (
 	FieldValidator  = "validator"
 )
 
-// DefaultFieldContracts returns the built-in engine field-contracts keyed by
-// engine name. These travel under the SAME OQ-1 disposition as DefaultRegistry
-// (SPEC-035 REQ-003/CLM-037, resolved to OPTION i): this name-keyed map is the
-// FALLBACK a pack-declared field-contract OVERRIDES for the same engine name (the
-// resolution lives in contractForEngine — a binding's declared FieldContract wins,
-// this map is the default when the binding declares none). It is NOT an
-// independent unscoped baked map immune to pack override; it is the overridable
-// default for the built-ins, mirroring DefaultRegistry's fallback role.
-//
-// Re-keyed from the live per-layer requirements:
-//   - semgrep (ex-layer-2): requires rule_path+standard; forbids
-//     category/input_scope/validator.
-//   - ast-grep: requires rule_path; forbids category/input_scope/validator
-//     (rule-fed like semgrep, minus the standard requirement).
-//   - sandbox (ex-layer-3): requires validator/input_scope/category; forbids
-//     rule_path. (Value-enum + justification checks are applied in addition to
-//     this presence contract by the validator.)
-//   - config-file (ex-layer-1 native linter): requires nothing; forbids
-//     rule_path/category/input_scope/validator.
-func DefaultFieldContracts() map[string]FieldContract {
-	return map[string]FieldContract{
-		"semgrep": {
-			Requires: []string{FieldRulePath, FieldStandard},
-			Forbids:  []string{FieldCategory, FieldInputScope, FieldValidator},
-		},
-		"ast-grep": {
-			Requires: []string{FieldRulePath},
-			Forbids:  []string{FieldCategory, FieldInputScope, FieldValidator},
-		},
-		"sandbox": {
-			Requires: []string{FieldValidator, FieldInputScope, FieldCategory},
-			Forbids:  []string{FieldRulePath},
-		},
-		"config-file": {
-			Requires: nil,
-			Forbids:  []string{FieldRulePath, FieldCategory, FieldInputScope, FieldValidator},
-		},
-	}
-}
+// The name-keyed baked built-in field-contract map that once lived here is DELETED
+// (ISSUE-027). Each engine's FieldContract now travels INLINE on its binding: the
+// four generic engines carry it in the embedded base-engines pack
+// (packs/base-engines/pack.yml, via engines:.<name>.field_contract), and
+// pack-declared engines carry it in their own engines: block. The validator reads
+// binding.FieldContract directly — there is no baked name-keyed fallback map.

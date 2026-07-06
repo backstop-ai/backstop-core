@@ -13,7 +13,7 @@ import (
 func TestArtifactValidate_ZeroArtifacts_Exit0_EmptyViolations(t *testing.T) {
 	// Directory with backstop.yml but no artifact files
 	dir := setupArtifactTestDir(t, artifactTestBackstopYML, map[string]string{
-		"README.md": "# Project",
+		"README.md":   "# Project",
 		"src/main.go": "package main",
 	})
 

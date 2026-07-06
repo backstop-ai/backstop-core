@@ -58,10 +58,10 @@ func (n *noopGitExecutor) ListTags(string) ([]string, error) { return nil, nil }
 func (n *noopGitExecutor) CreateAnnotatedTag(string, string) error {
 	return nil
 }
-func (n *noopGitExecutor) PushTag(string) error   { return nil }
-func (n *noopGitExecutor) FetchTags() error        { return nil }
-func (n *noopGitExecutor) IsGitRepo() bool         { return false }
-func (n *noopGitExecutor) IsGitAvailable() bool    { return false }
+func (n *noopGitExecutor) PushTag(string) error { return nil }
+func (n *noopGitExecutor) FetchTags() error     { return nil }
+func (n *noopGitExecutor) IsGitRepo() bool      { return false }
+func (n *noopGitExecutor) IsGitAvailable() bool { return false }
 
 // --- Type validation tests ---
 
@@ -431,10 +431,10 @@ func (f *fixedIDGitExecutor) ListTags(string) ([]string, error) { return f.tags,
 func (f *fixedIDGitExecutor) CreateAnnotatedTag(string, string) error {
 	return nil
 }
-func (f *fixedIDGitExecutor) PushTag(string) error   { return nil }
-func (f *fixedIDGitExecutor) FetchTags() error        { return nil }
-func (f *fixedIDGitExecutor) IsGitRepo() bool         { return true }
-func (f *fixedIDGitExecutor) IsGitAvailable() bool    { return true }
+func (f *fixedIDGitExecutor) PushTag(string) error { return nil }
+func (f *fixedIDGitExecutor) FetchTags() error     { return nil }
+func (f *fixedIDGitExecutor) IsGitRepo() bool      { return true }
+func (f *fixedIDGitExecutor) IsGitAvailable() bool { return true }
 
 // conflictGitExecutor simulates an executor where git is available but
 // tag push always fails with a tag conflict.
@@ -448,8 +448,8 @@ func (c *conflictGitExecutor) PushTag(string) error {
 	return &scaffold.TagConflictError{Tag: "test"}
 }
 func (c *conflictGitExecutor) FetchTags() error     { return nil }
-func (c *conflictGitExecutor) IsGitRepo() bool       { return true }
-func (c *conflictGitExecutor) IsGitAvailable() bool  { return true }
+func (c *conflictGitExecutor) IsGitRepo() bool      { return true }
+func (c *conflictGitExecutor) IsGitAvailable() bool { return true }
 
 // networkFailGitExecutor simulates an executor where git is available
 // but push fails with a non-conflict network error (should trigger fallback).
@@ -463,5 +463,5 @@ func (n *networkFailGitExecutor) PushTag(string) error {
 	return fmt.Errorf("network error: connection refused")
 }
 func (n *networkFailGitExecutor) FetchTags() error     { return nil }
-func (n *networkFailGitExecutor) IsGitRepo() bool       { return true }
-func (n *networkFailGitExecutor) IsGitAvailable() bool  { return true }
+func (n *networkFailGitExecutor) IsGitRepo() bool      { return true }
+func (n *networkFailGitExecutor) IsGitAvailable() bool { return true }

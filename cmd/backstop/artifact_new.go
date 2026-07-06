@@ -37,9 +37,9 @@ func newArtifactNewCommandWithDeps(deps scaffold.ArtifactNewDeps) *cobra.Command
 	var jsonFlag bool
 
 	cmd := &cobra.Command{
-		Use:   "new [type]",
-		Short: "Scaffold a new artifact",
-		Long:  "Creates a new backstop artifact from a template with an auto-assigned ID.",
+		Use:           "new [type]",
+		Short:         "Scaffold a new artifact",
+		Long:          "Creates a new backstop artifact from a template with an auto-assigned ID.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

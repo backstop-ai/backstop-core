@@ -72,19 +72,28 @@ type Classification struct {
 // (parseEngineSpec); the resolved engine.EngineBinding is stored on Binding so
 // every consumer reads ONE converted binding, never the raw spec.
 type EngineSpec struct {
-	Command        string                `yaml:"command"`
-	InputMode      string                `yaml:"input_mode"`
-	InputFlag      string                `yaml:"input_flag"`
-	Convert        string                `yaml:"convert"`
-	StdoutArtifact string                `yaml:"stdout_artifact"`
-	ScopeKind      string                `yaml:"scope_kind"`
-	Category       string                `yaml:"category"`
-	GateType       string                `yaml:"gate_type"`
-	StrictSarif    bool                  `yaml:"strict_sarif"`
-	PackageScoped  bool                  `yaml:"package_scoped"`
-	ProjectTarget  string                `yaml:"project_target"`
-	Provision      *engine.Provision     `yaml:"provision"`
-	FieldContract  *engine.FieldContract `yaml:"field_contract"`
+	Command        string `yaml:"command"`
+	InputMode      string `yaml:"input_mode"`
+	InputFlag      string `yaml:"input_flag"`
+	Convert        string `yaml:"convert"`
+	StdoutArtifact string `yaml:"stdout_artifact"`
+	ScopeKind      string `yaml:"scope_kind"`
+	Category       string `yaml:"category"`
+	GateType       string `yaml:"gate_type"`
+	StrictSarif    bool   `yaml:"strict_sarif"`
+	PackageScoped  bool   `yaml:"package_scoped"`
+	ProjectTarget  string `yaml:"project_target"`
+	// CrashGuard marks a findings engine whose non-zero exit with no parseable
+	// findings is a CRASH, not a finding-free green (the go build/test passes set
+	// it). It is DATA the go-toolchain pack declares so the toolchain's crash
+	// semantics live in the pack, not a baked binding (ISSUE-027).
+	CrashGuard bool `yaml:"crash_guard"`
+	// ExemptFromScopeFilter marks an engine whose violations bypass diff-scope
+	// filtering (the go-build declared build-exemption, SPEC-041 CLM-011). Declared
+	// as pack DATA so the exemption travels with the pack, not a baked binding.
+	ExemptFromScopeFilter bool                  `yaml:"exempt_from_scope_filter"`
+	Provision             *engine.Provision     `yaml:"provision"`
+	FieldContract         *engine.FieldContract `yaml:"field_contract"`
 	// Binding is the engine.EngineBinding the spec converts to at load. It is
 	// populated by parseEngineSpec during ParseManifest, not parsed directly from
 	// yaml, so the string-enum spellings resolve through the fail-loud parsers.
@@ -242,9 +251,14 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		return nil, fmt.Errorf("description is required")
 	}
 
+	// An engine-only pack (declares engines: but no content) is a first-class pack
+	// kind: the embedded base ENGINE pack (ISSUE-027) is pure engine DATA with no
+	// rules, scaffolds, or sdk. Content is required ONLY when the pack also declares
+	// no engines — a pack that declares neither content nor engines is empty.
 	if len(manifest.Content.Ruleset.Rules) == 0 &&
 		len(manifest.Content.Scaffolds) == 0 &&
-		manifest.Content.SDK == nil {
+		manifest.Content.SDK == nil &&
+		len(manifest.Engines) == 0 {
 		return nil, fmt.Errorf("content is required")
 	}
 
@@ -428,23 +442,27 @@ func declaredEngineBindings(m *Manifest) map[string]engine.EngineBinding {
 }
 
 // validateEngine fail-louds on a rule whose engine is empty (a layer-only rule
-// under the migrated reader) or unknown to BOTH the pack-declared engines: block
-// (declared) and the fallback registry (SPEC-035 REQ-003/CLM-010..012). When the
-// engine IS known, its tool must additionally pass the trusted-tool allowlist:
-// the validation-time half of the trust gate (Sharp Edge 1). A pack-declared
-// binding overrides a same-named built-in (the deterministic merge, CLM-004), so
-// the declared map is consulted FIRST. There is no layer:2 -> engine:semgrep
+// under the migrated reader) and, for an engine the pack DECLARES in its own
+// engines: block, enforces the validation-time half of the trusted-tool trust gate
+// (Sharp Edge 1). It resolves ONLY the pack's own declarations: there is no baked
+// engine.DefaultRegistry fallback (ISSUE-027 — the baked table is deleted).
+//
+// An UNDECLARED engine name (e.g. a built-in like "semgrep" a pack uses without
+// re-declaring it) is accepted here and its resolution is DEFERRED to gate time:
+// the gate's resolveEngineRegistry merges the embedded base-engines pack over the
+// pack's declared block, registry.Lookup fail-louds on a genuinely unknown engine
+// (pack_gate.go), and runFindingsEngine runs the SAME CheckToolAllowed trust gate
+// on the resolved binding. Parse therefore validates the pack's OWN declarations;
+// cross-pack/built-in resolution + the unknown-engine fail-loud are runtime (gate)
+// concerns where the base pack is present. There is no layer:2 -> engine:semgrep
 // aliasing: a layer-only rule is a blocking config error (REQ-002/REQ-015).
 //
-// The allowlist trust gate only applies to a binding with a non-nil Provision —
-// the backstop-introduced tools that ride the backstop.lock pin (semgrep,
-// ast-grep, or any pack-declared provisioned tool). A nil-Provision binding is an
-// assume-present Layer-0 toolchain engine (go build/test, golangci) or the
-// sandbox/config-file shape: it carries no provisioned tool, so it is governed by
-// the assume-present-on-PATH provisioning model, not the allowlist+lock-pin
-// (CLM-011 still accepts it as a known engine). The lockedVersion passed to
-// CheckToolAllowed is the binding's Provision.Version (the lock-resolved pin),
-// NOT a second literal (CLM-029).
+// The allowlist trust gate only applies to a DECLARED binding with a non-nil
+// Provision — the backstop-introduced tools that ride the backstop.lock pin. A
+// nil-Provision declared binding is an assume-present Layer-0 toolchain engine or
+// the sandbox/config-file shape: it carries no provisioned tool. The lockedVersion
+// passed to CheckToolAllowed is the binding's Provision.Version (the lock-resolved
+// pin), NOT a second literal (CLM-029).
 func validateEngine(name string, declared map[string]engine.EngineBinding) error {
 	if name == "" {
 		return fmt.Errorf("engine is required (the retired layer field is no longer read; declare engine explicitly)")
@@ -452,11 +470,10 @@ func validateEngine(name string, declared map[string]engine.EngineBinding) error
 
 	binding, ok := declared[name]
 	if !ok {
-		var err error
-		binding, err = engine.DefaultRegistry().Lookup(name)
-		if err != nil {
-			return err
-		}
+		// Undeclared engine: a built-in resolved from the embedded base pack at gate
+		// time, or unknown. Both are handled at the gate (fail-loud Lookup + dispatch
+		// allowlist); parse does not consult a baked registry (ISSUE-027).
+		return nil
 	}
 
 	if binding.Provision != nil {
@@ -478,14 +495,16 @@ func validateEngine(name string, declared map[string]engine.EngineBinding) error
 // config error — no silent default (CLM-021 for gate_type).
 func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 	binding := engine.EngineBinding{
-		Command:        spec.Command,
-		InputFlag:      spec.InputFlag,
-		Convert:        spec.Convert,
-		StdoutArtifact: spec.StdoutArtifact,
-		StrictSarif:    spec.StrictSarif,
-		PackageScoped:  spec.PackageScoped,
-		ProjectTarget:  spec.ProjectTarget,
-		Provision:      spec.Provision,
+		Command:               spec.Command,
+		InputFlag:             spec.InputFlag,
+		Convert:               spec.Convert,
+		StdoutArtifact:        spec.StdoutArtifact,
+		StrictSarif:           spec.StrictSarif,
+		PackageScoped:         spec.PackageScoped,
+		ProjectTarget:         spec.ProjectTarget,
+		CrashGuard:            spec.CrashGuard,
+		ExemptFromScopeFilter: spec.ExemptFromScopeFilter,
+		Provision:             spec.Provision,
 	}
 
 	inputMode, err := engine.ParseInputMode(spec.InputMode)

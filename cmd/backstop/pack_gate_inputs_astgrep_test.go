@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/baseengines"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
@@ -14,7 +15,7 @@ import (
 // (flipped) binding rather than an ad-hoc shape.
 func astGrepConfigBinding(t *testing.T) engine.EngineBinding {
 	t.Helper()
-	b, err := engine.DefaultRegistry().Lookup("ast-grep")
+	b, err := baseengines.Registry().Lookup("ast-grep")
 	if err != nil {
 		t.Fatalf("ast-grep must be a built-in engine: %v", err)
 	}

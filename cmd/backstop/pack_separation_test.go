@@ -184,6 +184,20 @@ func TestGoToolchainPack_LandsInLockstepWithBridge(t *testing.T) {
 // mechanism engine) is REJECTED with violations. Without this adversarial case the
 // no-bleed assertions above could pass on any input.
 func TestPackSeparation_RejectsBleed(t *testing.T) {
+	// The synthetic packs below reference the built-in engine NAMES (go-build,
+	// golangci, semgrep) WITHOUT declaring them in their own engines: block, so the
+	// classification must resolve them from the built-in registry. After ISSUE-027
+	// the built-ins are pack DATA (the generic engines from the embedded base pack +
+	// the Go toolchain engines from the go-toolchain pack); install the full built-in
+	// set on the seam so go-build/golangci classify as mechanism and semgrep as
+	// opinion — exactly the union production's resolveEngineRegistry sees once those
+	// packs are installed. (A real pack declares its own engines and resolves them via
+	// the m.Engines merge — proven non-vacuous by TestGoToolchainPack_MechanismOnlyNoStandards
+	// running the check over the REAL go-toolchain manifest.)
+	orig := engineRegistry
+	t.Cleanup(func() { engineRegistry = orig })
+	engineRegistry = builtinTestRegistry(t)
+
 	// A pack mixing mechanism (go-build) and opinion (semgrep) rules.
 	mixed := &pack.Manifest{
 		Name: "backstop/bad-mixed",
@@ -249,7 +263,7 @@ func TestPackSeparation_RejectsBleed(t *testing.T) {
 func TestPackSeparation_CategoryDrivesClassification(t *testing.T) {
 	orig := engineRegistry
 	t.Cleanup(func() { engineRegistry = orig })
-	engineRegistry = engine.DefaultRegistry()
+	engineRegistry = builtinTestRegistry(t)
 
 	// Three brand-new engines added as DATA ONLY (no edit to pack_separation.go):
 	// classified by their declared Category.
