@@ -1,8 +1,227 @@
 ---
 plan_id: PLAN-ISSUE-040
-issue_id: ISSUE-040
+spec_id: ISSUE-040
 created: "2026-07-07"
 status: draft
----
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... -race"
+coverage_threshold: 90
 
-phases: []
+notes: |
+  Closes ISSUE-040: the dogfood gate's rule-fed findings scan (test_substantiveness
+  and any semgrep/ast-grep-backed engine) walks `testdata/` directories as ordinary
+  source, flagging INTENTIONAL fixtures — deliberately-hollow negative fixtures and
+  planted rule-violations — as real findings (e.g. TestGenuinelyHollowStub added by
+  ISSUE-035, and the pre-existing TestHollowExample fixtures under pkg/gate/testdata).
+
+  ── ROOT CAUSE (verified 2026-07-07) ─────────────────────────────────────────
+  cmd/backstop/pack_gate.go `runFindingsEngine`, the rule-fed (non-ScopeKindProjectWide)
+  branch, appends the raw diff scope verbatim to the engine target list:
+
+      } else {                              // pack_gate.go ~:634-636
+          cmdArgs = append(cmdArgs, scope.Files...)
+      }
+
+  `scope.Files` (pkg/gate/scope.go GateScope.Files) is diff-membership-filtered ONLY —
+  no path-category filter. Any changed path, including one under a `testdata/`
+  directory, is handed verbatim to semgrep/ast-grep. Standard Go tooling convention
+  (`go help packages`) treats any directory named `testdata` as inert data, never
+  compiled or vetted; the findings engines do not yet honor that convention.
+
+  ── FIX ──────────────────────────────────────────────────────────────────────
+  Introduce a path-string-only helper that drops any path with a `testdata` path
+  SEGMENT (split on "/", exact segment match — not a substring, so `testdata_util.go`
+  is NOT excluded), and apply it to scope.Files INSIDE the existing else branch,
+  BEFORE the append. This is a diff-scope-preserving narrowing.
+
+  ── LOAD-BEARING GUARDRAIL (ISSUE-010 CLM-001/002/003/007 anti-fallback) ──────
+  The filter lives INSIDE the else branch only. It must NEVER cause a fall-through to
+  the `scope == nil || scope.Mode == GateScopeModeAll` whole-repo (projectRoot) branch.
+  A diff touching ONLY testdata paths filters to an EMPTY list, appends NOTHING, and
+  the engine scans NOTHING — exactly as an empty diff intersection already does
+  (CLM-003). The whole-repo projectRoot escape hatch stays reachable ONLY via nil
+  scope / --all, and is NOT testdata-filtered (that path is the deliberate full sweep).
+
+  ── GENERALIZATION (confirmed at plan time) ──────────────────────────────────
+  runFindingsEngine's else branch is the SINGLE chokepoint for ALL rule-fed findings
+  engines (semgrep AND the config-file/ast-grep shape), regardless of which dogfood
+  pack declares them — substantiveness, backstop/self, and go-standards findings all
+  flow through it. So the ONE filter here fixes every findings-based dogfood dimension
+  at once; no per-pack edit is needed and none is possible from core (self/go-standards
+  are external installed packs, gitignored — the fix must be language/pack-blind and
+  in core). The OTHER source-walking dimensions do NOT need this change:
+    - Project-wide toolchain passes (go build ./..., go test ./..., golangci-lint
+      run ./...) self-target via ProjectTarget and never receive scope.Files; go
+      tooling ALREADY skips testdata by convention. Untouched.
+    - Coverage (pkg/gate/step_coverage.go coveragePathsInScope) already funnels
+      scope.Files through the pack-declared SourceClassifier globs (source-glob AND
+      NOT test-glob) plus on-disk existence — a pack expresses testdata exclusion via
+      its own globs there. No core change required; noted as a considered dimension,
+      not a code target for this plan.
+
+  ── PRECISION NOTE (no conflict with ISSUE-046) ──────────────────────────────
+  ISSUE-046 recently touched pack_gate.go at the findings bridge (gate.NormalizePath
+  of the SARIF-echoed OUTPUT path, ~:734). That is a DIFFERENT function region from
+  the scope-building else branch (~:634-636). This plan changes only the INPUT target
+  construction; it leaves the OUTPUT-path normalization untouched. No overlap.
+
+  ── PLAN-LOCAL CLAIMS (ISSUE-040 has no CLM-NNN; defined here for coverage) ───
+    CLM-001 A changed path with a `testdata` segment is excluded from the rule-fed
+            findings-engine scan target set (no finding is produced for it).
+    CLM-002 A changed real (non-testdata) source file in the SAME diff still reaches
+            the engine and still yields its expected findings — the filter narrows,
+            it does not widen or disable scanning (over-correction guard).
+    CLM-003 A diff of ONLY testdata paths filters to an EMPTY target list that scans
+            NOTHING — it must NOT fall back to the projectRoot whole-repo branch
+            (the ISSUE-010 CLM-003 anti-fallback contract, preserved).
+    CLM-004 The exclusion is applied at the single runFindingsEngine chokepoint and
+            therefore holds for BOTH the semgrep and config-file/ast-grep findings
+            engine classes (and thus for substantiveness/self/go-standards findings).
+    CLM-005 The nil-scope / GateScopeModeAll whole-repo escape hatch is unchanged
+            (still scans projectRoot; NOT testdata-filtered), and the exact-segment
+            match does not exclude look-alike paths (e.g. `testdata_util.go`).
+    CLM-006 A full `backstop gate` run confirms the testdata-fixture false positives
+            (TestGenuinelyHollowStub / TestHollowExample under pkg/gate/testdata)
+            clear while real-source findings still fire.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Exclude testdata paths from the rule-fed findings-engine targets
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Testdata Exclusion in Findings-Engine Target Building (TDD)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Scope tests: testdata excluded, real source kept, testdata-only scans nothing"
+        description: |
+          RED phase. Extend the existing scope-targeting harness in
+          cmd/backstop/pack_gate_scope_test.go (scopeTargetRunner + diffScope +
+          semgrepScopeManifest + astGrepLikeScopeManifest already present) with tests
+          that pin the testdata exclusion and its anti-fallback guardrail:
+            - CLM-001: a diff scope containing a testdata path (mirroring the real
+              fixture shape, e.g. "pkg/gate/testdata/substantiveness-pack/fixtures/go/
+              testmain_fixture_test.go" — the TestGenuinelyHollowStub file — alongside
+              "pkg/foo/hollow_test.go" as a testdata sibling) must NOT pass the
+              testdata path as a scan target, and no violation for it may be produced.
+            - CLM-002 (over-correction guard): a diff scope mixing a testdata path AND
+              a real non-testdata source file must STILL point the engine at the real
+              file and STILL yield its finding (use sarifByTarget keyed on the real
+              file to prove the engine was actually pointed at it).
+            - CLM-003 (ANTI-FALLBACK guard — the load-bearing test): a diff scope whose
+              files are ALL under testdata filters to an EMPTY target list; assert zero
+              scan targets AND that projectRoot is NOT among them (it must not trip the
+              whole-repo branch) AND zero findings. This is the ISSUE-010 CLM-003
+              contract re-proven under the new filter.
+            - CLM-004: prove the exclusion holds for BOTH engine classes — add the
+              testdata-excluded assertion for the semgrep manifest AND for the
+              config-file/ast-grep-shaped manifest (astGrepLikeScopeManifest), since
+              both flow through the same runFindingsEngine else branch.
+            - CLM-005: an exact-segment guard — a path like "pkg/foo/testdata_util.go"
+              (NOT under a testdata directory) is NOT excluded and still reaches the
+              engine; and re-assert the existing nil/--all whole-repo behavior is
+              unaffected (projectRoot still scanned, not testdata-filtered).
+          These fail until TASK-002 lands the filter.
+        files:
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Filter testdata-segment paths from findings-engine targets (else branch only)"
+        description: |
+          GREEN phase. In cmd/backstop/pack_gate.go add a small path-string-only
+          helper (e.g. excludeTestdataPaths(files []string) []string) that returns the
+          input paths minus any whose slash-split segments contain an EXACT "testdata"
+          segment (filepath.ToSlash + strings.Split on "/"; exact segment equality, so
+          "testdata_util.go" and "mytestdata/x" are NOT excluded). No language/tool
+          nouns, no extension literals — it is a pure path-category filter, honoring
+          Go's `testdata` convention generically.
+
+          Apply it INSIDE the existing rule-fed else branch of runFindingsEngine
+          (~:634-636), replacing `cmdArgs = append(cmdArgs, scope.Files...)` with
+          `cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)`. Leave the
+          `if scope == nil || scope.Mode == GateScopeModeAll { append(projectRoot) }`
+          branch and the ScopeKindProjectWide branch untouched — the filter must NOT
+          be reachable from the whole-repo escape hatch, and filtering to empty must
+          append nothing (scan nothing), NEVER fall through to projectRoot (the
+          ISSUE-010 CLM-003 anti-fallback contract). Do NOT touch the ISSUE-046
+          OUTPUT-path NormalizePath region (~:734) — this change is INPUT-side only.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Unit tests green for the findings-engine testdata exclusion"
+        description: |
+          Fast inner loop. Run `go test ./cmd/backstop/... ./pkg/gate/... -race`
+          (backstop code check is deleted per ISSUE-018) and confirm the new scope
+          tests pass: testdata paths are excluded from both engine classes, a real
+          source file in the same diff still yields its finding, and the testdata-only
+          diff scans nothing without any projectRoot fallback. Also confirm the
+          pre-existing pack_gate_scope diff-scope tests (CLM-001..007) still pass —
+          the narrowing must not regress the ISSUE-010 contract.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Full-gate confirmation — fixtures clear, real findings still fire
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Full Gate Verification"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full gate: testdata-fixture false positives clear, real findings fire"
+        description: |
+          FINAL comprehensive verification. Run `backstop gate` (the full kill chain)
+          and confirm on the test_substantiveness / findings dimension:
+            - The testdata-fixture false positives clear: a diff touching
+              pkg/gate/testdata/substantiveness-pack/fixtures/go/testmain_fixture_test.go
+              (TestGenuinelyHollowStub) or the TestHollowExample fixtures
+              (pkg/gate/testdata/hollow-test.go,
+              pkg/gate/testdata/substantiveness-pack/fixtures/go/hollow_test.go) no
+              longer surfaces those planted/hollow fixtures as live findings (CLM-006).
+            - Real-source findings STILL fire: a genuine non-testdata violation under
+              gate is unaffected (CLM-002 at the full-gate level — the filter narrows,
+              it does not disable the dimension).
+            - The whole-repo `backstop gate --all` sweep is unchanged (CLM-005).
+          The plan touches only .go files (no .spec.md/.plan.yml artifact edits in any
+          task), so `backstop gate` is the comprehensive gate; no `backstop artifact
+          validate` step is required. Depends on the implementation (TASK-002) to
+          satisfy the verification-depends-on-impl rule, and on TASK-003 to serialize
+          after the unit-level green.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-002
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003

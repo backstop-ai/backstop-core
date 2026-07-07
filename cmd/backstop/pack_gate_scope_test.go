@@ -376,6 +376,171 @@ func TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot(t *testing.T
 	}
 }
 
+// TestPackEngines_DiffScope_ExcludesTestdataPaths (ISSUE-040 CLM-001): a diff
+// scope containing a path with a `testdata` directory segment — mirroring the real
+// TestGenuinelyHollowStub fixture shape — must NOT pass that testdata path as a
+// scan target, so no finding can be produced for the intentional fixture.
+func TestPackEngines_DiffScope_ExcludesTestdataPaths(t *testing.T) {
+	manifests, packsDir := semgrepScopeManifest(t)
+	projectRoot := t.TempDir()
+
+	rec := &scopeTargetRunner{}
+	// The testdata path mirrors the TestGenuinelyHollowStub fixture; the sibling is
+	// a hollow_test.go under a testdata directory too — both are intentional and
+	// must be excluded from the engine target set.
+	scope := diffScope(projectRoot,
+		"pkg/gate/testdata/substantiveness-pack/fixtures/go/testmain_fixture_test.go",
+		"pkg/foo/testdata/hollow_test.go",
+	)
+
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, scope, rec)
+	if err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+
+	targets := rec.scanTargets(t)
+	if len(targets) != 0 {
+		t.Fatalf("testdata paths must be excluded from scan targets, got %v", targets)
+	}
+	if len(violations) != 0 {
+		t.Errorf("no finding may be produced for an excluded testdata path, got %d: %#v", len(violations), violations)
+	}
+}
+
+// TestPackEngines_DiffScope_TestdataExclusionKeepsRealSourceFindings (ISSUE-040
+// CLM-002, over-correction guard): a diff scope mixing a testdata path AND a real
+// non-testdata source file must STILL point the engine at the real file and STILL
+// yield its finding. The filter narrows, it does not widen or disable scanning.
+func TestPackEngines_DiffScope_TestdataExclusionKeepsRealSourceFindings(t *testing.T) {
+	manifests, packsDir := semgrepScopeManifest(t)
+	projectRoot := t.TempDir()
+
+	realSarif := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"semgrep","rules":[{"id":"no-foo"}]}},"results":[{"ruleId":"no-foo","message":{"text":"foo on real source"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"pkg/foo/real.go"}}}]}]}]}`)
+	rec := &scopeTargetRunner{sarifByTarget: map[string][]byte{
+		"pkg/foo/real.go": realSarif,
+	}}
+	scope := diffScope(projectRoot,
+		"pkg/foo/testdata/hollow_test.go",
+		"pkg/foo/real.go",
+	)
+
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, scope, rec)
+	if err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+
+	targets := rec.scanTargets(t)
+	if len(targets) != 1 || targets[0] != "pkg/foo/real.go" {
+		t.Fatalf("real source file must remain the sole scan target after testdata exclusion, got %v", targets)
+	}
+	found := false
+	for _, v := range violations {
+		if v.File == "pkg/foo/real.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the real (non-testdata) source finding must still fire, got %#v", violations)
+	}
+}
+
+// TestPackEngines_DiffScope_TestdataOnlyScansNothing (ISSUE-040 CLM-003,
+// LOAD-BEARING anti-fallback guard): a diff scope whose files are ALL under
+// testdata filters to an EMPTY target list. It must scan NOTHING and must NOT fall
+// back to the projectRoot whole-repo branch. This re-proves the ISSUE-010 CLM-003
+// anti-fallback contract under the new testdata filter.
+func TestPackEngines_DiffScope_TestdataOnlyScansNothing(t *testing.T) {
+	manifests, packsDir := semgrepScopeManifest(t)
+	projectRoot := t.TempDir()
+
+	rec := &scopeTargetRunner{}
+	scope := diffScope(projectRoot,
+		"pkg/gate/testdata/hollow-test.go",
+		"pkg/gate/testdata/substantiveness-pack/fixtures/go/hollow_test.go",
+	)
+
+	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, scope, rec)
+	if err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+
+	targets := rec.scanTargets(t)
+	if len(targets) != 0 {
+		t.Fatalf("a testdata-only diff must yield zero scan targets, got %v", targets)
+	}
+	for _, tgt := range targets {
+		if tgt == projectRoot {
+			t.Fatalf("a testdata-only diff must NOT fall back to projectRoot; targets=%v", targets)
+		}
+	}
+	if len(violations) != 0 {
+		t.Errorf("a testdata-only diff must yield zero findings, got %d: %#v", len(violations), violations)
+	}
+}
+
+// TestPackEngines_DiffScope_RuleDirEngineExcludesTestdataPaths (ISSUE-040 CLM-004):
+// the testdata exclusion holds for the config-file/ast-grep findings engine class
+// too, since both engine shapes flow through the same runFindingsEngine else
+// branch. A diff scope mixing a testdata path and a real source file points the
+// config-file engine at ONLY the real file.
+func TestPackEngines_DiffScope_RuleDirEngineExcludesTestdataPaths(t *testing.T) {
+	manifests, packsDir := astGrepLikeScopeManifest(t)
+	projectRoot := t.TempDir()
+
+	rec := &scopeTargetRunner{}
+	scope := diffScope(projectRoot,
+		"pkg/foo/testdata/planted_fixture.go",
+		"pkg/foo/real.go",
+	)
+
+	if _, err := dispatchPackEngines(manifests, packsDir, projectRoot, scope, rec); err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected one engine invocation, got %d", len(rec.calls))
+	}
+	args := rec.calls[0].args
+	last := args[len(args)-1]
+	if last != "pkg/foo/real.go" {
+		t.Errorf("config-file engine scan target must be the real file after testdata exclusion, got %q (args=%v)", last, args)
+	}
+	for _, a := range args {
+		if strings.Contains(a, "testdata") && a != "pkg/foo/real.go" {
+			t.Errorf("no testdata path may be a scan target; args=%v", args)
+		}
+	}
+}
+
+// TestPackEngines_DiffScope_TestdataExactSegmentMatchOnly (ISSUE-040 CLM-005): the
+// exclusion is an EXACT path-segment match. A look-alike path that merely contains
+// the substring "testdata" but is NOT under a testdata directory (e.g.
+// "pkg/foo/testdata_util.go") is NOT excluded and still reaches the engine. This
+// guards against over-matching the filter into a substring match.
+func TestPackEngines_DiffScope_TestdataExactSegmentMatchOnly(t *testing.T) {
+	manifests, packsDir := semgrepScopeManifest(t)
+	projectRoot := t.TempDir()
+
+	rec := &scopeTargetRunner{}
+	scope := diffScope(projectRoot,
+		"pkg/foo/testdata_util.go",
+		"pkg/mytestdata/keep.go",
+	)
+
+	if _, err := dispatchPackEngines(manifests, packsDir, projectRoot, scope, rec); err != nil {
+		t.Fatalf("dispatchPackEngines: %v", err)
+	}
+	targets := rec.scanTargets(t)
+	want := map[string]bool{"pkg/foo/testdata_util.go": true, "pkg/mytestdata/keep.go": true}
+	if len(targets) != len(want) {
+		t.Fatalf("look-alike (non-directory) testdata paths must NOT be excluded, got %v", targets)
+	}
+	for _, tgt := range targets {
+		if !want[tgt] {
+			t.Errorf("unexpected scan target %q; look-alike paths must survive the exact-segment filter", tgt)
+		}
+	}
+}
+
 // containsArg reports whether args contains target.
 func containsArg(args []string, target string) bool {
 	for _, a := range args {

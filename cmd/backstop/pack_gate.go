@@ -632,7 +632,16 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		if scope == nil || scope.Mode == gate.GateScopeModeAll {
 			cmdArgs = append(cmdArgs, projectRoot)
 		} else {
-			cmdArgs = append(cmdArgs, scope.Files...)
+			// Drop any changed path under a `testdata` directory before it becomes
+			// an engine scan target (ISSUE-040). Standard tooling convention treats a
+			// `testdata` directory as inert data — deliberately-hollow negative
+			// fixtures and planted rule-violations live there and are NOT real
+			// findings. This narrows the diff-scoped target list; it does NOT widen
+			// it. If the result is empty (a testdata-only diff), NOTHING is appended
+			// and the engine scans nothing — it must NEVER fall through to the
+			// projectRoot whole-repo branch above (the ISSUE-010 CLM-003
+			// anti-fallback contract, preserved).
+			cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)
 		}
 	}
 
@@ -740,6 +749,37 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		})
 	}
 	return out, nil
+}
+
+// excludeTestdataPaths returns files minus any path that has a `testdata`
+// directory SEGMENT (ISSUE-040). It is a pure path-string filter — no language,
+// tool, or extension nouns — honoring the universal `testdata` convention
+// (`go help packages`: a directory named testdata is inert data, never compiled or
+// vetted) generically for ANY pack's rule-fed findings engine. Matching is on
+// slash-split segment equality, so a look-alike file whose name merely contains
+// the substring (e.g. "testdata_util.go", or a "mytestdata/" directory) is NOT
+// excluded. Applied only INSIDE runFindingsEngine's diff-scope else branch; a
+// testdata-only diff filters to an empty slice and the caller appends nothing.
+func excludeTestdataPaths(files []string) []string {
+	kept := make([]string, 0, len(files))
+	for _, f := range files {
+		if hasTestdataSegment(f) {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept
+}
+
+// hasTestdataSegment reports whether path has a slash-separated segment exactly
+// equal to "testdata" (an exact directory-segment match, not a substring).
+func hasTestdataSegment(path string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if seg == "testdata" {
+			return true
+		}
+	}
+	return false
 }
 
 // checkEngineToolAllowed is the dispatch-time trust gate (SPEC-035 REQ-002): it

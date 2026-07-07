@@ -1,0 +1,193 @@
+---
+plan_id: PLAN-ISSUE-039
+spec_id: ISSUE-039
+created: "2026-07-07"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... -run TestGate_SucceedsWithoutStandards"
+coverage_threshold: 90
+
+notes: |
+  Closes ISSUE-039 (DIR-015 gate-hardening). Restores the LOST behavioral
+  assertion in cmd/backstop/standards_removal_test.go's
+  TestGate_SucceedsWithoutStandards — the mandated test for SPEC-030 CLM-015
+  ("a gate run SUCCEEDS — no config error, no missing-standard error — on a
+  project with no STD-GO-001 artifact / no compiled standards dir"). Two cutovers
+  each removed one half of the original assertion (SPEC-040 removed the
+  *realCodeChecker.runCheck half; ISSUE-018 removed the check.LoadManifest routing
+  tail), leaving a hollow scaffold that only os.Stat(.backstop) — correctly flagged
+  by the substantiveness dimension. This plan makes the test drive a REAL gate run
+  over a no-standards project and assert it succeeds.
+
+  ── CHOSEN GATE-RUN PATTERN: assembled buildGateSteps + gate.New().Run() ──────
+  The restored test drives the ASSEMBLED gate steps directly —
+  gate.New(gate.WithSteps(buildGateSteps(projectRoot, scope))).Run(ctx) — over a
+  no-standards temp project, and asserts on the returned (GateResult, exitCode).
+  This is the TestGateIntegration_ReadOnlyExecution / gate_discovery_e2e_test.go
+  pattern, NOT the full runGate-via-Cobra pattern. Rationale:
+    1. SANDBOX-SAFE + DETERMINISTIC. The assembled path bypasses runGate's baseline
+       REMOTE resolution (resolveBaselineCache -> refreshBaselineFromRemote ->
+       runBaselinePull -> `gh`/network), which is flaky/unavailable in the test
+       sandbox. This directly heeds the sandbox lesson the issue flags.
+    2. NO EXTERNAL TOOLS. With NO packs declared in the temp project, buildGateSteps
+       hits its `len(packs) == 0` early return and skips pack-engine dispatch — so
+       no golangci-lint / semgrep / go toolchain is invoked. This is the "lighter
+       path suffices for CLM-015's intent" the issue points to.
+    3. CLEAN ASSERTION SURFACE. gate.New(...).Run() returns (GateResult, exitCode)
+       directly, giving a precise "gate succeeds" predicate (exitCode == 0) PLUS
+       per-step inspection (StepResult.ConfigErr, step violations) for the discrete
+       "no config error" / "no missing-standard error" sub-assertions CLM-015 names
+       — faithful to the claim's wording without the full Cobra/config/baseline
+       stack the runGate pattern drags in.
+
+  On a no-standards temp project (backstop.yml declaring NO packs, a main.go, no
+  specs dir, absent/empty .backstop/rules) the assembled steps resolve to: artifact
+  validation pass (no artifacts), test verification pass (no specs -> no mandated
+  tests), the three traceability dims -> capability-absent + UNDECLARED -> class-2
+  WARN (non-blocking, exit 0) via the SPEC-036 polarity classifier, deferred
+  baseline/waiver/ledger, and the 0-toolchain-pack WARN-ONLY step (non-failing).
+  Net: exitCode 0 — the gate SUCCEEDS on a no-standards project.
+
+  ── MEANINGFULNESS (non-negotiable per the issue) ────────────────────────────
+  The assertion MUST fail if the gate errors on a no-standards project — NOT a
+  vacuous "no panic" / "dir exists" check (the original hollow test's exact sin was
+  that NOTHING ran, so its "no error" was vacuously true). The restored test
+  therefore asserts a POSITIVE run signal too: the GateResult actually enumerates
+  steps (the gate ran), AND exitCode == 0, AND no StepResult carries ConfigErr==true
+  (no config error), AND no step violation message matches a missing-standard
+  pattern (STD-GO-001 / "missing standard" / "manifest"). If config loading or a
+  missing-standard routing regressed, a step would carry ConfigErr / such a
+  violation and exitCode would be non-zero — so the assertion is red-if-broken. The
+  TASK-002 verification empirically confirms meaningfulness (the assertion trips
+  under an injected config/missing-standard error) before declaring done.
+
+  Should an UNRELATED deferred dimension (e.g. the nil-baseline comparison step) keep
+  the assembled harness from a clean exit 0, the implementer either injects a
+  permissive baseline (gate.WithBaseline of an empty baseline) so the run is
+  genuinely green, or scopes the success predicate to CLM-015's discrete conditions
+  (steps ran + no ConfigErr + no missing-standard violation + no gate FAIL
+  attributable to standards). Either keeps the assertion MEANINGFUL without coupling
+  it to dimensions outside CLM-015's guarantee.
+
+  ── SCOPE FENCE ──────────────────────────────────────────────────────────────
+    - ONLY TestGate_SucceedsWithoutStandards changes. The four sibling absence
+      tests in the same file (TestNoProductionImportOfCompile,
+      TestCompiledStandardsArtifactsAbsent, TestPkgCompileDirectoryAbsent,
+      TestStdGo001SourceAbsent) are correctly kind:absence and MUST be left
+      untouched.
+    - NO backstop.yml edit. The issue's "test_substantiveness: baseline: true"
+      description is stale — the live backstop.yml grandfathers via
+      `test_substantiveness: {applies-to: new-code, level: block}`, i.e. the hollow
+      finding is non-blocking only because standards_removal_test.go is not in the
+      current diff. EDITING the file to restore the assertion pulls it INTO diff
+      scope, so the substantiveness dimension now evaluates it and it MUST be
+      substantive for the gate to stay green. That is the ratchet — no enforcement-
+      policy edit is needed or in scope.
+    - NO production-code change. Post-cutover the gate ALREADY succeeds on a
+      no-standards project; this plan restores the TEST that proves it, nothing more.
+
+  ── TASK-TYPE NOTE ───────────────────────────────────────────────────────────
+  The restoration is typed `refactor` (it MODIFIES existing code — the hollow test
+  body in an existing file) rather than `test`. This is the honest structural
+  mapping: there is no production change and nothing to write from scratch, and a
+  verification task must depend on an implementation or refactor task (plan REQ-006),
+  which a bare `test` task cannot satisfy. The refactor's substance is nonetheless
+  test authoring, held to the full meaningfulness bar above.
+
+  ── PLAN-LOCAL CLAIMS (ISSUE-039 has no CLM-NNN; defined here for coverage) ────
+    CLM-001 TestGate_SucceedsWithoutStandards drives a REAL assembled-gate run over
+            a no-standards project and asserts it SUCCEEDS (exitCode 0 / no config
+            error / no missing-standard error) — restoring SPEC-030 CLM-015's lost
+            behavioral guarantee.
+    CLM-002 The restored assertion is MEANINGFUL: it fails if the gate errors on a
+            no-standards project (asserts a positive run signal + exit 0 + no
+            ConfigErr + no missing-standard violation), not a vacuous no-panic /
+            dir-exists check.
+    CLM-003 The test is SUBSTANTIVE: with the file now in diff scope, the gate's
+            test_substantiveness dimension no longer flags it as hollow and the full
+            `backstop gate` passes.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Restore the behavioral assertion + full-gate verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Restore CLM-015 Assertion and Verify via Gate"
+    tasks:
+      - id: TASK-001
+        type: refactor
+        title: "Restore real gate-success assertion in TestGate_SucceedsWithoutStandards"
+        description: |
+          Replace the hollow scaffold body of TestGate_SucceedsWithoutStandards
+          (currently writes backstop.yml + main.go, MkdirAll/os.Stat(.backstop) and
+          asserts only that .backstop exists) with a REAL assertion that a gate run
+          SUCCEEDS on a no-standards project — restoring SPEC-030 CLM-015.
+
+          CHOSEN PATTERN (assembled steps, sandbox-safe — see notes):
+            - Build a no-standards temp project: a backstop.yml declaring NO packs
+              (e.g. "project: no-standards\n"), a main.go, NO specs/ dir, and an
+              absent/empty .backstop/rules (no STD-GO-001 artifact, no compiled
+              standards dir). Add a small local fixture helper in THIS file if it
+              keeps the test readable.
+            - Compute a scope (gate.ComputeGateScope with GateScopeModeAll, or the
+              existing helper style) and drive the ASSEMBLED gate:
+                g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, scope)))
+                result, exitCode := g.Run(context.Background())
+              This mirrors TestGateIntegration_ReadOnlyExecution /
+              gate_discovery_e2e_test.go — NOT full runGate (which drags in baseline
+              remote pull + external toolchain the sandbox can't provide).
+            - ASSERT (meaningful, red-if-broken):
+                * the gate actually RAN — result enumerates steps (len(result.Steps)
+                  > 0); this is the anti-vacuous guard the original test lacked.
+                * exitCode == 0 (the gate SUCCEEDS on a no-standards project).
+                * NO StepResult carries ConfigErr == true (no config error).
+                * NO step violation message matches a missing-standard pattern
+                  (STD-GO-001 / "missing standard" / "manifest") (no missing-standard
+                  error).
+              If an unrelated deferred dimension (e.g. nil-baseline comparison) blocks
+              a clean exit 0, inject a permissive empty baseline via gate.WithBaseline
+              OR scope the predicate to the discrete CLM-015 conditions above — keep
+              it MEANINGFUL, never coupled to dimensions outside CLM-015.
+
+          FENCE: modify ONLY TestGate_SucceedsWithoutStandards (and add a local
+          helper if needed). Leave the four sibling kind:absence tests in this file
+          untouched. No production-code and no backstop.yml change.
+
+          Typed `refactor` because it modifies existing code (see notes/TASK-TYPE);
+          its substance is test authoring held to the meaningfulness bar.
+        files:
+          - cmd/backstop/standards_removal_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+      - id: TASK-002
+        type: verification
+        title: "Full gate: test passes, is meaningful, and substantiveness clears"
+        description: |
+          FINAL comprehensive verification. The change touches only a _test.go file
+          (no artifacts modified), so the full gate is the comprehensive check:
+            - `go test ./cmd/backstop/... -run TestGate_SucceedsWithoutStandards` —
+              the restored test PASSES (the gate genuinely succeeds on a no-standards
+              project).
+            - MEANINGFULNESS PROOF: temporarily perturb the fixture/gate so a config
+              error or a missing-standard error would surface (e.g. inject a step that
+              returns ConfigErr, or a malformed backstop.yml) and confirm the restored
+              assertion FAILS — then revert. This proves the assertion is red-if-
+              broken, not vacuous (the whole point of the issue).
+            - `backstop gate` — the full kill chain passes AND the
+              test_substantiveness finding on TestGate_SucceedsWithoutStandards
+              clears: with the file now in diff scope the substantiveness dimension
+              evaluates it and no longer reports it hollow. Confirm no new red is
+              introduced.
+          Report the cleared substantiveness finding and confirm the gate stays green.
+        files:
+          - cmd/backstop/standards_removal_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
