@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/gate"
 )
 
 // TestNoProductionImportOfCompile asserts that no non-test file under
@@ -98,18 +101,98 @@ func TestStdGo001SourceAbsent(t *testing.T) {
 // ISSUE-018 (the in-process routing manifest is deleted along with the code
 // check engine).
 func TestGate_SucceedsWithoutStandards(t *testing.T) {
+	dir := newNoStandardsProject(t)
+
+	// Drive the ASSEMBLED gate steps directly over the no-standards project and
+	// assert on the returned (GateResult, exitCode). This mirrors
+	// TestGateIntegration_ReadOnlyExecution — the sandbox-safe in-process path that
+	// bypasses runGate's baseline remote pull and (with NO packs declared) skips
+	// pack-engine dispatch, so no external toolchain is invoked.
+	scope, err := gate.ComputeGateScope(dir, gate.GateScopeModeAll, nil)
+	if err != nil {
+		t.Fatalf("compute gate scope: %v", err)
+	}
+	g := gate.New(gate.WithSteps(buildGateSteps(dir, scope)))
+	result, exitCode := g.Run(context.Background())
+
+	// Anti-vacuous guard: the gate must actually have RUN. The original hollow
+	// test's sin was that NOTHING ran, so its "no error" was vacuously true.
+	if len(result.Steps) == 0 {
+		t.Fatalf("gate produced no steps — the gate did not run over the no-standards project")
+	}
+
+	// The gate SUCCEEDS on a no-standards project (SPEC-030 CLM-015).
+	if exitCode != 0 {
+		t.Fatalf("expected gate to succeed on no-standards project (exit 0), got exit=%d; steps=%s", exitCode, summarizeFailedSteps(result))
+	}
+
+	// No config error: config loading / pack loading must not fault on a project
+	// with no STD-GO-001 artifact and no compiled standards dir.
+	for _, step := range result.Steps {
+		if step.ConfigErr {
+			t.Fatalf("step %q reported a config error on no-standards project: %s", step.StepName, step.Reason)
+		}
+	}
+
+	// No missing-standard error: no step violation may reference STD-GO-001, a
+	// missing standard, or a compiled manifest — the routing tail that once faulted
+	// when the standard was absent is gone, so its absence must be silent-success,
+	// not a violation.
+	for _, step := range result.Steps {
+		for _, v := range step.Violations {
+			if isMissingStandardViolation(v.Message) {
+				t.Fatalf("step %q emitted a missing-standard violation on no-standards project: %q", step.StepName, v.Message)
+			}
+		}
+	}
+}
+
+// newNoStandardsProject builds a temp project with NO packs declared, a main.go,
+// an empty specs/ dir (no specs → no mandated tests), and an absent
+// compiled-standards dir (no STD-GO-001 artifact) — the fixture CLM-015 names.
+func newNoStandardsProject(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: no-standards\nlanguage: go\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: no-standards\n"), 0o644); err != nil {
 		t.Fatalf("write backstop.yml: %v", err)
 	}
 	// .backstop exists but rules/ is empty (no compiled standards dir contents).
 	if err := os.MkdirAll(filepath.Join(dir, ".backstop"), 0o755); err != nil {
 		t.Fatalf("mkdir .backstop: %v", err)
 	}
+	// An empty specs/ dir: mandated-test extraction finds zero specs and passes,
+	// rather than faulting on a missing directory. This keeps the run about the
+	// no-standards condition, not an incidental missing-specs error.
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatalf("mkdir specs: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write main.go: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, ".backstop")); statErr != nil {
-		t.Fatalf(".backstop scaffold missing: %v", statErr)
+	return dir
+}
+
+// isMissingStandardViolation reports whether a violation message signals a
+// missing-standard / missing-manifest routing fault (the failure mode CLM-015
+// guards against).
+func isMissingStandardViolation(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "std-go-001") ||
+		strings.Contains(lower, "missing standard") ||
+		strings.Contains(lower, "manifest")
+}
+
+// summarizeFailedSteps renders the failing/config-error steps for a legible
+// assertion message.
+func summarizeFailedSteps(result gate.GateResult) string {
+	var parts []string
+	for _, step := range result.Steps {
+		if step.Status == "fail" || step.ConfigErr {
+			parts = append(parts, step.StepName+"="+step.Status+"("+step.Reason+")")
+		}
 	}
+	if len(parts) == 0 {
+		return "(no failed steps)"
+	}
+	return strings.Join(parts, ", ")
 }
