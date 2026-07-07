@@ -10,16 +10,16 @@ func vioSrc(rule, file, region, sourcePack string) Violation {
 }
 
 // selfScopedPolicy is the shared-dimension policy the REQ-006 flip is expressed
-// through: pack_engines defaults to block + baseline true (grandfathering
+// through: pack_engines defaults to block + applies-to new-code (grandfathering
 // go-standards/go-toolchain style debt), with a per-SOURCE override flipping
-// backstop/self to block + ZERO baseline.
+// backstop/self to block + applies-to all-code (ZERO baseline).
 func selfScopedPolicy() map[string]DimensionPolicy {
 	return map[string]DimensionPolicy{
 		"pack_engines": {
-			Level:    PolicyBlock,
-			Baseline: true,
+			Level:     PolicyBlock,
+			AppliesTo: AppliesToNewCode,
 			Sources: map[string]DimensionPolicy{
-				"backstop/self": {Level: PolicyBlock, Baseline: false},
+				"backstop/self": {Level: PolicyBlock, AppliesTo: AppliesToAllCode},
 			},
 		},
 	}
@@ -129,7 +129,7 @@ func TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen(t *testing.T) {
 // TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline is the DENYLIST: the
 // flip is delivered via the per-pack/source key (filtering on
 // gate.Violation.SourcePack), NOT a whole-dimension pack_engines:{block,
-// baseline:false} entry (which would wrongly block go-standards/go-toolchain
+// applies-to:all-code} entry (which would wrongly block go-standards/go-toolchain
 // baselined debt). Proven ABSENT by contrast (CLM-040).
 func TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline(t *testing.T) {
 	self := vioSrc(selfNeutralRule, "pkg/gate/foo.go", "freshneutralspine", "backstop/self")
@@ -162,14 +162,14 @@ func TestPolicy_FlipUsesPerPackKeyNotWholeDimensionZeroBaseline(t *testing.T) {
 	}
 
 	// WHOLE-DIMENSION zero-baseline (the PROHIBITED alternative): a
-	// pack_engines:{block, baseline:false} entry with NO per-source scoping WOULD
+	// pack_engines:{block, applies-to:all-code} entry with NO per-source scoping WOULD
 	// wrongly block the baselined go-standards debt — proving why the per-pack key is
 	// required and why the whole-dimension form must be ABSENT.
-	wholeDim := map[string]DimensionPolicy{"pack_engines": {Level: PolicyBlock, Baseline: false}}
+	wholeDim := map[string]DimensionPolicy{"pack_engines": {Level: PolicyBlock, AppliesTo: AppliesToAllCode}}
 	gostdOnly := StepResult{StepName: "pack_engines", Status: "fail", Violations: []Violation{gostd}}
 	wrong := ApplyPolicy([]StepResult{gostdOnly}, &BaselineArtifact{Violations: []Violation{gostd}}, wholeDim, nil)[0]
 	if wrong.Status != "fail" {
-		t.Error("a whole-dimension pack_engines:{block, baseline:false} MUST (wrongly) block baselined go-standards debt — that is exactly why it is prohibited and the per-pack key is used instead")
+		t.Error("a whole-dimension pack_engines:{block, applies-to:all-code} MUST (wrongly) block baselined go-standards debt — that is exactly why it is prohibited and the per-pack key is used instead")
 	}
 	// And the scoped policy must NOT do that to go-standards (contrast, already
 	// asserted above via the combined-step grandfathering).

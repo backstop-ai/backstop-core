@@ -12,22 +12,34 @@ const (
 	PolicyBlock = "block" // fail the gate on findings (the default)
 )
 
-// DimensionPolicy is the resolved policy for one gate dimension: the enforcement
-// level and whether the baseline grandfathers pre-existing findings (so only net-new
-// findings count). Empty Level defaults to block.
+const (
+	// AppliesToNewCode grandfathers pre-existing findings against the baseline, so only
+	// net-new findings count (the ratchet).
+	AppliesToNewCode = "new-code"
+	// AppliesToAllCode blocks on the TOTAL — every finding counts regardless of the
+	// baseline (zero tolerance). An ABSENT/empty AppliesTo defaults to this (the strict
+	// floor): a bare dimension is never silently grandfathered.
+	AppliesToAllCode = "all-code"
+)
+
+// DimensionPolicy is the resolved policy for one gate dimension: the enforcement level
+// and which violations count (AppliesTo). AppliesTo == "new-code" grandfathers
+// pre-existing findings against the baseline (only net-new counts); "all-code" — and
+// an ABSENT/empty AppliesTo — counts every finding (block on total). Empty Level
+// defaults to block. Level and applies-to are orthogonal knobs.
 //
 // Sources is the OPTIONAL per-PACK / per-rule-SOURCE scoping (SPEC-047 REQ-007),
-// keyed by gate.Violation.SourcePack. A source-scoped override's level+baseline apply
+// keyed by gate.Violation.SourcePack. A source-scoped override's level+applies-to apply
 // ONLY to findings from that pack within the dimension; every OTHER pack's findings
 // keep the dimension default (or their own scoped override). This is the mechanism
-// the REQ-006 flip is expressed through — `backstop/self` flips to block + zero
-// baseline on the shared `pack_engines` dimension while go-standards/go-toolchain
-// keep their grandfathered style debt. Absent Sources ⇒ the dimension-only path runs
-// unchanged (backward compatible).
+// the REQ-006 flip is expressed through — `backstop/self` flips to block + all-code
+// (zero baseline) on the shared `pack_engines` dimension while go-standards/go-toolchain
+// keep their new-code-grandfathered style debt. Absent Sources ⇒ the dimension-only path
+// runs unchanged (backward compatible).
 type DimensionPolicy struct {
-	Level    string
-	Baseline bool
-	Sources  map[string]DimensionPolicy
+	Level     string
+	AppliesTo string
+	Sources   map[string]DimensionPolicy
 }
 
 // policyMetaStep reports whether a step is a meta/deferred step that the policy table
@@ -43,10 +55,12 @@ func policyMetaStep(name string) bool {
 // ApplyPolicy rewrites step results per the per-dimension enforcement policy. For each
 // step with a policy entry: level off -> skipped; level warn -> warning (never fails);
 // level block -> fail only when findings remain after baseline grandfathering. When
-// baseline is true the step's pre-existing findings are subtracted (per-dimension), so
-// the step acts only on net-new. A step with NO policy entry is left unchanged, so the
-// feature is opt-in and backward compatible. When any policy is configured the aggregate
-// baseline_comparison step is neutralized — per-dimension baseline supersedes it.
+// AppliesTo is "new-code" the step's pre-existing findings are subtracted (per-dimension),
+// so the step acts only on net-new; "all-code" (and an absent/empty AppliesTo) counts
+// every finding (block on total — the strict default). A step with NO policy entry is
+// left unchanged, so the feature is opt-in and backward compatible. When any policy is
+// configured the aggregate baseline_comparison step is neutralized — per-dimension
+// applies-to supersedes it.
 //
 // Config errors and capability-absent skips are preserved untouched: policy sets how
 // strictly real findings gate, it never masks a config error or fabricates a capability.
@@ -95,7 +109,7 @@ func ApplyPolicy(steps []StepResult, baseline *BaselineArtifact, policy map[stri
 
 		// Findings that still count after baseline grandfathering.
 		counted := s.Violations
-		if p.Baseline && baseline != nil {
+		if p.AppliesTo == AppliesToNewCode && baseline != nil {
 			cmp := CompareBaseline(s.Violations, baseline, BaselineCompareOptions{Scope: scope})
 			counted = cmp.NewViolations
 			s.NewViolations = cmp.NewViolations
@@ -123,17 +137,17 @@ func ApplyPolicy(steps []StepResult, baseline *BaselineArtifact, policy map[stri
 
 // applyScopedPolicy resolves a step's verdict when the dimension policy carries
 // per-PACK/per-rule-SOURCE overrides (SPEC-047 REQ-007). Each violation's effective
-// level+baseline is chosen by its SourcePack — p.Sources[SourcePack] when present,
-// else the dimension default {p.Level, p.Baseline}. A baseline:true source counts a
-// violation only when it is net-new (grandfathering preserved); a baseline:false
-// source counts EVERY one of its findings (zero baseline). The step fails on any
-// counted block-level violation, warns on counted warn-level violations, else passes.
-// s.NewViolations is set to the blocking counted set so the report attributes the
-// verdict. The net-new set is computed ONCE over the whole step; a source that
-// grandfathers reads it, a zero-baseline source ignores it.
+// level+applies-to is chosen by its SourcePack — p.Sources[SourcePack] when present,
+// else the dimension default {p.Level, p.AppliesTo}. An applies-to:new-code source
+// counts a violation only when it is net-new (grandfathering preserved); an
+// applies-to:all-code source (or an absent/empty applies-to) counts EVERY one of its
+// findings (block on total). The step fails on any counted block-level violation, warns
+// on counted warn-level violations, else passes. s.NewViolations is set to the blocking
+// counted set so the report attributes the verdict. The net-new set is computed ONCE
+// over the whole step; a new-code source reads it, an all-code source ignores it.
 //
 // NIL-BASELINE FAIL-LOUD: with NO baseline (a fresh checkout before the CI-pulled
-// baseline is present), a baseline:true source CANNOT grandfather — every finding
+// baseline is present), an applies-to:new-code source CANNOT grandfather — every finding
 // counts, exactly MIRRORING the unscoped path (which also counts all findings when
 // baseline is nil). This is the anti-vacuous-green invariant: a missing baseline must
 // never SILENTLY grandfather a whole dimension to green — the degraded case blocks,
@@ -164,7 +178,7 @@ func applyScopedPolicy(s StepResult, p DimensionPolicy, baseline *BaselineArtifa
 		}
 
 		counts := true
-		if eff.Baseline && baseline != nil {
+		if eff.AppliesTo == AppliesToNewCode && baseline != nil {
 			// Grandfathering preserved for this source: only net-new counts. Gated on a
 			// PRESENT baseline — with no baseline (baseline == nil) grandfathering is
 			// impossible, so counts stays true and the finding blocks (fail-loud),

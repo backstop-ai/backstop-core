@@ -180,6 +180,60 @@
               }
             }
           }
+        },
+        "policy": {
+          "type": "object",
+          "description": "Per-dimension enforcement policy, keyed by gate dimension (the step/gate_type name, e.g. pack_engines, coverage_threshold). Each entry sets the enforcement level and which violations count (applies-to). The keys are backstop's universal dimension vocabulary — never a tool or language name.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "block"
+                ],
+                "description": "Enforcement level: off (don't enforce), warn (surface, never fail), block (fail the gate on findings). Empty defaults to block."
+              },
+              "applies-to": {
+                "type": "string",
+                "enum": [
+                  "new-code",
+                  "all-code"
+                ],
+                "description": "Which violations count: new-code grandfathers pre-existing findings against the baseline (block only net-new — the ratchet); all-code blocks on the TOTAL (zero tolerance). An ABSENT applies-to defaults to all-code (the strict floor — a bare dimension is never silently grandfathered)."
+              },
+              "sources": {
+                "type": "object",
+                "description": "OPTIONAL per-PACK / per-rule-SOURCE override (SPEC-047 REQ-007), keyed by the pack/rule-source name. A source-scoped override applies its level+applies-to ONLY to that pack's findings within the dimension; every other pack keeps the dimension default.",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "warn",
+                        "block"
+                      ],
+                      "description": "Enforcement level for this source's findings within the dimension."
+                    },
+                    "applies-to": {
+                      "type": "string",
+                      "enum": [
+                        "new-code",
+                        "all-code"
+                      ],
+                      "description": "Which of this source's findings count: new-code grandfathers pre-existing, all-code blocks on total (zero tolerance)."
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

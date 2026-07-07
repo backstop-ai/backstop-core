@@ -10,20 +10,20 @@ enforcement:
         artifact_validation:
             level: block
         contract_signature:
-            baseline: true
+            applies-to: new-code
             level: block
         coverage_threshold:
-            baseline: true
+            applies-to: new-code
             level: block
         pack_engines:
-            baseline: true
+            applies-to: new-code
             level: block
             sources:
                 backstop/self:
-                    baseline: false
+                    applies-to: all-code
                     level: block
         test_substantiveness:
-            baseline: true
+            applies-to: new-code
             level: block
         test_verification:
             level: block

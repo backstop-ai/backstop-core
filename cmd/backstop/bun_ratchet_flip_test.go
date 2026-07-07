@@ -111,8 +111,8 @@ func TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean(t 
 	if self.Level != gate.PolicyBlock {
 		t.Errorf("backstop/self must be flipped to level block, got %q", self.Level)
 	}
-	if self.Baseline != false {
-		t.Errorf("backstop/self must be flipped to a ZERO baseline (baseline:false, no grandfathering), got baseline=%v", self.Baseline)
+	if self.AppliesTo != gate.AppliesToAllCode {
+		t.Errorf("backstop/self must be flipped to a ZERO baseline (applies-to:all-code, no grandfathering), got applies-to=%q", self.AppliesTo)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright(t *testing.T) {
 
 	// PRE-FLIP (the old whole-dimension grandfathering): the finding is baselined ⇒
 	// grandfathered ⇒ passes. This is the wall the flip removes.
-	preFlip := map[string]gate.DimensionPolicy{"pack_engines": {Level: gate.PolicyBlock, Baseline: true}}
+	preFlip := map[string]gate.DimensionPolicy{"pack_engines": {Level: gate.PolicyBlock, AppliesTo: gate.AppliesToNewCode}}
 	if got := gate.ApplyPolicy([]gate.StepResult{step}, baseline, preFlip, nil)[0]; got.Status == "fail" {
 		t.Fatalf("sanity: under the OLD grandfathering policy a baselined finding must be excused (pass), got %s — the wall test would not be discriminating", got.Status)
 	}
@@ -213,5 +213,5 @@ func flipPresentInDogfoodConfig(t *testing.T) bool {
 		return false
 	}
 	self, ok := pe.Sources["backstop/self"]
-	return ok && self.Level == gate.PolicyBlock && self.Baseline == false
+	return ok && self.Level == gate.PolicyBlock && self.AppliesTo == gate.AppliesToAllCode
 }

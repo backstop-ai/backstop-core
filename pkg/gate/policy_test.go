@@ -30,8 +30,8 @@ func TestApplyPolicy_LevelsAndBaseline(t *testing.T) {
 	}
 
 	policy := map[string]DimensionPolicy{
-		StepContractSignature:   {Level: PolicyBlock, Baseline: true},
-		"pack_engines":          {Level: PolicyBlock, Baseline: true},
+		StepContractSignature:   {Level: PolicyBlock, AppliesTo: AppliesToNewCode},
+		"pack_engines":          {Level: PolicyBlock, AppliesTo: AppliesToNewCode},
 		StepCoverageThreshold:   {Level: PolicyWarn},
 		StepTestVerification:    {Level: PolicyOff},
 		StepTestSubstantiveness: {Level: PolicyBlock},

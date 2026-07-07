@@ -1,0 +1,544 @@
+---
+plan_id: PLAN-ISSUE-041
+spec_id: ISSUE-041
+created: "2026-07-07"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS IS — a pure key rename, semantics-preserving
+  ─────────────────────────────────────────────────────────────────────────
+  Rename the ambiguous per-dimension enforcement key
+  `enforcement.policy.<dim>.baseline: true/false` to an explicit
+  `applies-to: new-code | all-code` enum (SonarQube New-Code/Overall-Code
+  framing). The mechanism is UNCHANGED — only the field name and its value
+  vocabulary change, and the schema is taught to describe the block it has
+  silently carried since SPEC-047.
+
+    baseline: true         -> applies-to: new-code  (grandfather pre-existing;
+                                                     block only net-new — the ratchet)
+    baseline: false/absent -> applies-to: all-code  (block on TOTAL; zero tolerance)
+
+  `level` (off|warn|block) stays a SEPARATE orthogonal key: applies-to decides
+  WHICH violations count, level decides WHAT happens once they do. They must
+  not be merged (applies-to:new-code + level:warn is a valid combination).
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE COUPLING THAT DRIVES PHASE SHAPE (verified in tree 2026-07-07)
+  ─────────────────────────────────────────────────────────────────────────
+  The field lives on TWO structs plus a bridge, and the go-toolchain pack
+  builds/tests the WHOLE module (pack.yml: `project_target: "./..."`), so the
+  module must COMPILE at every verification point — the rename cannot be
+  verified one package at a time:
+    - pkg/config/config.go:71-75 — `DimensionPolicy` (the parser struct), field
+      `Baseline bool` with yaml/json tag `baseline`, plus its nested
+      `Sources map[string]DimensionPolicy` self-reference (SPEC-047 REQ-007).
+    - pkg/gate/policy.go:27-31 — a SECOND `DimensionPolicy` (the consumer
+      struct; pkg/gate does NOT import pkg/config's type). Same `Baseline bool`
+      + nested Sources. Grandfathering decision sites: `ApplyPolicy` line 98
+      (`if p.Baseline && baseline != nil`, unscoped) and `applyScopedPolicy`
+      line 167 (`if eff.Baseline && baseline != nil`, per-pack sources path).
+    - cmd/backstop/gate.go:311-315 — the BRIDGE that copies
+      config.DimensionPolicy -> gate.DimensionPolicy, reading `.Baseline` on
+      BOTH sides (top-level and per-source). Renaming either struct alone
+      breaks this line, so the module won't build until config + gate + bridge
+      all land together — this is why the Go rename is ONE coordinated
+      implementation task, not one-per-package.
+    - Existing tests already assert `.Baseline` / `Baseline:` and must be
+      updated to `AppliesTo` in the SAME wave or the module won't compile:
+      pkg/config/config_perpack_test.go (48,49,56,57,69,70),
+      pkg/gate/policy_test.go (33,34),
+      pkg/gate/policy_perpack_test.go (20,22,168),
+      cmd/backstop/bun_ratchet_flip_test.go (114,115,144,216). Per
+      feedback_align_predating_artifacts these are UPDATED to the new key
+      openly (in the Phase-1 test tasks), not worked around.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SCHEMA GAP — fixed in the same change (issue Solution step 4)
+  ─────────────────────────────────────────────────────────────────────────
+  artifacts/backstop-yml/v1/schema.json has NO `policy` property under
+  `enforcement` at all (verified: zero `polic` matches), despite `enforcement`
+  declaring additionalProperties:false — the whole policy block is currently
+  unvalidated. Phase 2 adds `enforcement.policy` describing: a per-dimension
+  object with `applies-to` (enum new-code|all-code), `level` (enum
+  off|warn|block), and a nested `sources` map whose values are that same
+  object shape (the per-pack override). Both the top-level policy AND the
+  nested sources override are in scope. Adding it with additionalProperties
+  false makes the schema REJECT the legacy `baseline:` key and an unknown key,
+  and ACCEPT the new `applies-to` form.
+
+  ─────────────────────────────────────────────────────────────────────────
+  MIGRATION — clean one-time cutover, no back-compat alias (Solution step 5)
+  ─────────────────────────────────────────────────────────────────────────
+  This repo is the only consumer of enforcement.policy today (pre-public,
+  project_pack_distribution / project_launch_plan), so a dual-accepting
+  `baseline:` shim is rejected: it would buy migration safety nobody needs and
+  leave a dead alias + double-parse branch. The 5 committed backstop.yml
+  entries are rewritten in the same change:
+    contract_signature   baseline:true  -> applies-to:new-code
+    coverage_threshold   baseline:true  -> applies-to:new-code
+    pack_engines         baseline:true  -> applies-to:new-code
+      sources.backstop/self baseline:false -> applies-to:all-code  (the
+        zero-baked-checks non-negotiable — feedback_zero_baked_checks; the
+        one entry easiest to miss in a mechanical find/replace)
+    test_substantiveness baseline:true  -> applies-to:new-code
+  (artifact_validation and test_verification carry no baseline key today —
+  already all-code-equivalent — and only gain the schema-legal explicit form
+  if touched; leaving them bare stays valid since applies-to is optional and
+  defaults to all-code.)
+
+  ─────────────────────────────────────────────────────────────────────────
+  DEFAULT SEMANTICS — the safety invariant that must NOT drift (step 2)
+  ─────────────────────────────────────────────────────────────────────────
+  An absent `applies-to` key (or an absent policy entry entirely) MUST resolve
+  to all-code (block on total), matching today's key-absent = block-on-total
+  strict default. The rename must not silently turn a bare dimension into a
+  grandfathered one. new-code is opt-in; all-code is the floor.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMANDS
+  ─────────────────────────────────────────────────────────────────────────
+  Middle-phase verification runs `backstop code check` — with go-toolchain's
+  `project_target: "./..."` this builds+tests the whole module, so it both
+  proves the coordinated rename compiles module-wide and runs the touched
+  pkg/config, pkg/gate, and cmd/backstop unit tests (the issue's
+  `go test ./pkg/config/... ./pkg/gate/... -run Policy` is subsumed). The
+  change touches BOTH .go files AND artifact/config files (schema.json,
+  backstop.yml), so the FINAL phase runs the full `backstop gate` kill chain
+  PLUS `backstop artifact validate`. The acceptance bar is a PURE RENAME:
+  `backstop gate`'s pass/fail verdict on the current tree — every
+  policy-governed dimension (contract_signature, coverage_threshold,
+  pack_engines including the backstop/self scoped override,
+  test_substantiveness) — must be byte-for-byte the same grandfathering
+  behavior as before the rename.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (enumerated from the issue's Solution steps + Verification; issue has
+  no formal CLM frontmatter — status-gated. Every task maps >=1; every claim
+  mapped by >=1 task.)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — Both DimensionPolicy structs (pkg/config/config.go:73 parser,
+            pkg/gate/policy.go:29 consumer) AND the cmd/backstop/gate.go bridge
+            rename `Baseline bool` -> `AppliesTo string` with yaml/json tag
+            `applies-to` and enum values "new-code"/"all-code", covering the
+            nested Sources.<pack> entries on both structs (not just the
+            top-level field).
+  CLM-002 — An absent `applies-to` key (or an absent policy entry) resolves to
+            all-code (block on total) — today's key-absent strict default is
+            preserved and does NOT silently change; `applies-to: new-code`
+            grandfathers pre-existing findings (net-new only).
+  CLM-003 — ApplyPolicy (unscoped, line 98) and applyScopedPolicy (per-pack
+            sources, line 167) branch on `AppliesTo == "new-code"` in place of
+            `Baseline == true`, producing byte-identical grandfathering
+            behavior — including the nil-baseline fail-loud path.
+  CLM-004 — `level` stays a SEPARATE orthogonal key: a dimension can be
+            applies-to:new-code + level:warn (surface net-new without failing)
+            just as validly as applies-to:all-code + level:block; the two are
+            never merged or conflated.
+  CLM-005 — enforcement.policy is ADDED to backstop-yml/v1/schema.json (closing
+            the pre-existing gap): per-dimension object with `applies-to` enum
+            (new-code|all-code), `level` enum (off|warn|block), and a nested
+            `sources` map of the same shape; the schema now REJECTS an unknown
+            / legacy `baseline:` policy key and ACCEPTS the new `applies-to`
+            form.
+  CLM-006 — The 5 committed backstop.yml policy entries are migrated
+            baseline -> applies-to in a clean one-time cutover (no back-compat
+            alias, no dead double-parse branch remains);
+            pack_engines.sources.backstop/self maps to applies-to:all-code,
+            preserving backstop/self's zero-tolerance on its own dogfood
+            dimension.
+  CLM-007 — The full `backstop gate` verdict on the current tree is UNCHANGED
+            after the rename (pure rename, same semantics): contract_signature,
+            coverage_threshold, pack_engines (+ the backstop/self override),
+            and test_substantiveness resolve to the same grandfathering
+            outcome as before; no dimension's pass/fail flips.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Coordinated Go rename — Baseline -> AppliesTo across both structs
+  #          + the bridge (the module must compile as one wave)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Rename Baseline to applies-to Across Parser, Consumer, and Bridge"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing parser tests: applies-to parses to new-code/all-code, absent defaults to all-code, nested sources override parses"
+        description: |
+          Update pkg/config/config_perpack_test.go to the new key and add the
+          default-behavior assertions. This is the pkg/config half of the RED
+          wave — it will not compile until TASK-004 renames the struct field,
+          which is the intended TDD-red state.
+
+          Rewrite the existing Baseline-referencing assertions (lines 48,49,56,
+          57,69,70) to read `AppliesTo`:
+            - pack_engines dimension default: AppliesTo == "new-code"
+              (was baseline true), Level == "block".
+            - the backstop/self-scoped override: AppliesTo == "all-code"
+              (was baseline false — the zero-tolerance flip), Level == "block".
+            - the unscoped coverage_threshold entry: AppliesTo == "new-code"
+              (was baseline true), Level == "block".
+          The fixture backstop.yml the test loads must use the new
+          `applies-to:` key (new-code / all-code) so parsing is exercised
+          end-to-end.
+
+          Add these mandated tests (exact names) for the default + nested-shape
+          coverage the issue calls out:
+            - TestDimensionPolicy_AbsentAppliesTo_DefaultsAllCode (CLM-002): a
+              policy entry with NO applies-to key parses to a DimensionPolicy
+              whose AppliesTo resolves to the all-code (block-on-total) default
+              — assert the parsed value is "" or "all-code" AND document that
+              the consumer treats it as all-code (the strict default is
+              preserved, not silently new-code).
+            - TestDimensionPolicy_NestedSourcesOverride_Parses (CLM-001): a
+              dimension carrying `sources: { backstop/self: { applies-to:
+              all-code, level: block } }` parses so the nested entry's AppliesTo
+              == "all-code" and Level == "block", proving the rename covers the
+              self-referential Sources map, not just the top-level field.
+          Reuse the existing config-load helpers; do not re-declare a loader.
+          Do NOT edit config.go here.
+        files:
+          - pkg/config/config_perpack_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Failing consumer + bridge tests: new-code grandfathers, all-code blocks total, absent defaults all-code, sources override, level orthogonal"
+        description: |
+          The pkg/gate + cmd/backstop half of the RED wave — the grandfathering
+          semantics and the config->gate bridge. Will not compile until TASK-004
+          renames the consumer struct + bridge; that is the intended red state.
+
+          Update existing assertions to the new field:
+            - pkg/gate/policy_test.go (lines 33,34): the StepContractSignature
+              and pack_engines entries move from `Baseline: true` to
+              `AppliesTo: "new-code"`.
+            - pkg/gate/policy_perpack_test.go (lines 20,22,168): the pack_engines
+              dimension `Baseline: true` -> `AppliesTo: "new-code"`; the
+              backstop/self source `Baseline: false` -> `AppliesTo: "all-code"`;
+              the wholeDim `Baseline: false` -> `AppliesTo: "all-code"`.
+            - cmd/backstop/bun_ratchet_flip_test.go (lines 114,115,144,216): the
+              backstop/self flip assertions and the preFlip fixture move from
+              baseline false/true to AppliesTo "all-code"/"new-code"; the helper
+              at 216 checks `self.AppliesTo == "all-code"`.
+
+          Add pkg/gate/policy_appliesto_test.go with these mandated tests
+          (exact names) driving the REAL ApplyPolicy / applyScopedPolicy:
+            - TestApplyPolicy_NewCode_GrandfathersPreexisting (CLM-002,CLM-003):
+              a dimension with AppliesTo:"new-code" + level:block and a baseline
+              containing the step's existing findings yields ZERO net-new ->
+              status pass (pre-existing grandfathered, only net-new would fail).
+            - TestApplyPolicy_AllCode_BlocksOnTotal (CLM-002,CLM-003): the same
+              findings under AppliesTo:"all-code" (or an entry with the key
+              absent) count EVERY violation regardless of baseline -> status
+              fail. Assert the absent-key case behaves identically to explicit
+              all-code (the default invariant).
+            - TestApplyScopedPolicy_SourceOverride_AllCodeZeroTolerance
+              (CLM-003): a pack_engines dimension AppliesTo:"new-code" with a
+              nested sources[backstop/self] AppliesTo:"all-code" blocks EVERY
+              backstop/self finding (baselined or not) while other packs'
+              pre-existing findings still grandfather — the SPEC-047 REQ-007
+              per-source path, byte-identical to the old baseline:false override.
+            - TestApplyScopedPolicy_NewCode_NilBaseline_FailsLoud (CLM-003): an
+              AppliesTo:"new-code" source with a NIL baseline cannot grandfather
+              -> every finding counts and blocks (the anti-vacuous-green
+              invariant preserved through the rename).
+            - TestApplyPolicy_LevelOrthogonalToAppliesTo (CLM-004): a dimension
+              AppliesTo:"new-code" + level:"warn" surfaces net-new findings as
+              status "warning" (never fail), proving level and applies-to are
+              independent knobs.
+          Reuse existing gate test helpers / fixture builders; do not
+          re-declare Violation or baseline constructors. Do NOT edit policy.go
+          or gate.go here.
+        files:
+          - pkg/gate/policy_test.go
+          - pkg/gate/policy_perpack_test.go
+          - pkg/gate/policy_appliesto_test.go
+          - cmd/backstop/bun_ratchet_flip_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-003
+        type: implementation
+        title: "Rename Baseline -> AppliesTo on both DimensionPolicy structs, the bridge, and the two grandfathering decision sites"
+        description: |
+          Land the coordinated Go rename in one wave so the module compiles
+          (go-toolchain builds ./... — a half-renamed module will not build).
+
+          pkg/config/config.go — on `DimensionPolicy` (line 73) replace
+          `Baseline bool \`yaml:"baseline,omitempty" json:"baseline,omitempty"\``
+          with `AppliesTo string \`yaml:"applies-to,omitempty"
+          json:"applies-to,omitempty"\``. The nested `Sources
+          map[string]DimensionPolicy` is self-referential, so the rename covers
+          the nested key automatically. Update the struct doc comment (lines
+          58-70) to describe applies-to (new-code|all-code) instead of the
+          baseline boolean; note the absent-key default is all-code.
+
+          pkg/gate/policy.go — on `DimensionPolicy` (line 29) replace
+          `Baseline bool` with `AppliesTo string`. Introduce the enum constants
+          alongside the existing PolicyOff/Warn/Block block (lines 9-13), e.g.
+          `AppliesToNewCode = "new-code"` and `AppliesToAllCode = "all-code"`.
+          Change the two grandfathering decision sites to branch on new-code:
+            - ApplyPolicy line 98: `if p.Baseline && baseline != nil` ->
+              `if p.AppliesTo == AppliesToNewCode && baseline != nil`.
+            - applyScopedPolicy line 167: `if eff.Baseline && baseline != nil`
+              -> `if eff.AppliesTo == AppliesToNewCode && baseline != nil`.
+          Absent/empty AppliesTo therefore falls through to counting ALL
+          violations (all-code) — preserving the key-absent strict default
+          (CLM-002). Update the doc comments at lines 15-31 and 124-133 to speak
+          in applies-to terms (new-code grandfathers, all-code / absent blocks
+          on total) rather than the baseline boolean.
+
+          cmd/backstop/gate.go — the bridge at lines 311-315 that copies
+          config.DimensionPolicy into gate.DimensionPolicy: replace
+          `Baseline: p.Baseline` and the per-source `Baseline: sp.Baseline` with
+          `AppliesTo: p.AppliesTo` / `AppliesTo: sp.AppliesTo` so the parser
+          value flows through unchanged.
+
+          This is a pure rename: NO change to grandfathering math, to
+          CompareBaseline, to nil-baseline fail-loud, or to the Sources
+          resolution — only the field name/type and the two conditionals.
+          After this task the four Phase-1 test tasks (TASK-001, TASK-002)
+          go green and the module compiles module-wide.
+        files:
+          - pkg/config/config.go
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "backstop code check — module builds and pkg/config + pkg/gate + cmd/backstop policy tests pass under the new key"
+        description: |
+          Inner-loop verification via `backstop code check`. With go-toolchain's
+          `project_target: "./..."` this builds and tests the WHOLE module,
+          which is exactly the coherence check the coupled rename needs (config
+          struct + gate struct + bridge must all agree or the build fails).
+
+          Confirm:
+            - the module builds module-wide (no dangling `.Baseline` reference,
+              proving the bridge and both structs are consistent);
+            - the Phase-1 mandated tests pass:
+              TestDimensionPolicy_AbsentAppliesTo_DefaultsAllCode,
+              TestDimensionPolicy_NestedSourcesOverride_Parses,
+              TestApplyPolicy_NewCode_GrandfathersPreexisting,
+              TestApplyPolicy_AllCode_BlocksOnTotal,
+              TestApplyScopedPolicy_SourceOverride_AllCodeZeroTolerance,
+              TestApplyScopedPolicy_NewCode_NilBaseline_FailsLoud,
+              TestApplyPolicy_LevelOrthogonalToAppliesTo;
+            - the updated existing suites (config_perpack, policy_test,
+              policy_perpack, bun_ratchet_flip) stay green with UNCHANGED verdict
+              counts (only the key name changed).
+          Report pass/fail per mandated test and any build or verdict drift.
+          This task does NOT touch the schema or backstop.yml yet — those are
+          Phase 2.
+        files:
+          - pkg/config/config.go
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Schema + committed-config cutover — teach the schema the policy
+  #          block and migrate backstop.yml (runs after Phase 1 so the parser
+  #          already reads applies-to before the committed file switches)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Schema-Describe enforcement.policy and Migrate backstop.yml"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Failing schema tests: applies-to form accepted, legacy baseline / unknown policy key rejected, nested sources override validated"
+        description: |
+          Add pkg/config/policy_schema_test.go asserting the backstop-yml/v1
+          schema now describes and constrains enforcement.policy. Depends on
+          Phase-1 verification so the module (and the config-load/validate path
+          the test drives) is already coherent under the new field. These fail
+          until TASK-006 adds the policy block to the schema.
+
+          Mandated tests (exact names), driving the real config
+          load/schema-validate path (reuse the existing validate helper — the
+          same path that already validates the rest of backstop.yml):
+            - TestSchema_AppliesToForm_Accepted (CLM-005): a backstop.yml whose
+              enforcement.policy uses `applies-to: new-code` / `all-code` and
+              `level: block` (including a nested
+              sources.backstop/self.applies-to: all-code) validates with NO
+              schema error.
+            - TestSchema_LegacyBaselineKey_Rejected (CLM-005): a backstop.yml
+              whose policy entry still uses the old `baseline: true` key is
+              REJECTED by schema validation (additionalProperties:false on the
+              dimension object now forbids the retired key) — proving the clean
+              cutover leaves no schema-legal path back to `baseline:`.
+            - TestSchema_UnknownPolicyKey_Rejected (CLM-005): a policy entry with
+              an invented key (e.g. `applies_to: new-code` underscore typo, or
+              `mode: strict`) is rejected — the schema is now a real fence, not
+              an open object.
+            - TestSchema_AppliesToEnum_Rejected (CLM-005): `applies-to:
+              sometimes` (not in the new-code|all-code enum) is rejected.
+          Use small inline/testdata backstop.yml fixtures; do not mutate the
+          repo-root backstop.yml from a test.
+        files:
+          - pkg/config/policy_schema_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Add enforcement.policy (applies-to/level/sources) to the schema and migrate the 5 committed backstop.yml entries"
+        description: |
+          Close the schema gap AND perform the one-time committed-config cutover.
+
+          artifacts/backstop-yml/v1/schema.json — under
+          properties.enforcement.properties, ADD a `policy` property:
+            - type object, additionalProperties is a per-DIMENSION object;
+            - each dimension object: additionalProperties:false with
+              properties:
+                * `applies-to`: string, enum [new-code, all-code],
+                  description making clear new-code grandfathers pre-existing
+                  (block net-new only) and all-code / absent blocks on total;
+                * `level`: string, enum [off, warn, block];
+                * `sources`: object whose additionalProperties is the SAME
+                  per-dimension object shape (applies-to + level), the per-pack
+                  override (SPEC-047 REQ-007). Reference the dimension object via
+                  a local $ref/$defs if the existing schema uses that idiom,
+                  else inline the shape on both the top level and the sources
+                  values.
+          Do not otherwise disturb the enforcement block (security, toolchain,
+          waiver_warning_days, etc.). `applies-to` and `level` are both optional
+          — a bare `{ level: block }` entry must still validate (all-code is the
+          absent default), matching artifact_validation / test_verification which
+          carry no applies-to today.
+
+          backstop.yml — migrate the 5 entries (mapping in notes), same change:
+            contract_signature   baseline:true  -> applies-to: new-code
+            coverage_threshold   baseline:true  -> applies-to: new-code
+            pack_engines         baseline:true  -> applies-to: new-code
+              sources.backstop/self baseline:false -> applies-to: all-code
+            test_substantiveness baseline:true  -> applies-to: new-code
+          Remove every `baseline:` line from the policy block (no alias left
+          behind). Leave artifact_validation / test_verification as-is (bare
+          `level: block`) — they are already all-code-equivalent and stay
+          schema-legal. Double-check the nested
+          pack_engines.sources.backstop/self line lands as applies-to: all-code
+          (the zero-baked-checks non-negotiable — the entry easiest to miss).
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+          - backstop.yml
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "backstop code check — schema tests green, module + committed backstop.yml load clean under the migrated key"
+        description: |
+          Inner-loop verification via `backstop code check`. Confirm:
+            - the Phase-2 mandated schema tests pass
+              (TestSchema_AppliesToForm_Accepted,
+              TestSchema_LegacyBaselineKey_Rejected,
+              TestSchema_UnknownPolicyKey_Rejected,
+              TestSchema_AppliesToEnum_Rejected);
+            - the whole module still builds+tests green (no regression from the
+              Phase-1 rename);
+            - the repo-root backstop.yml — now carrying `applies-to:` — loads
+              and validates against the updated schema without error (no leftover
+              `baseline:` key anywhere in the policy block).
+          Report pass/fail per mandated test and any schema-validation error on
+          the committed backstop.yml.
+        files:
+          - artifacts/backstop-yml/v1/schema.json
+          - backstop.yml
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive verification — pure-rename acceptance via the full
+  #          gate kill chain + artifact validation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — backstop gate verdict unchanged + artifact validate"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "backstop artifact validate + backstop gate — grandfathering behavior byte-for-byte unchanged after the rename"
+        description: |
+          Final comprehensive verification. The change touches BOTH .go files
+          (pkg/config, pkg/gate, cmd/backstop) AND artifact/config files
+          (artifacts/backstop-yml/v1/schema.json, backstop.yml), so run BOTH:
+
+            1. backstop artifact validate   (schema/artifact integrity — the
+               schema.json edit and this plan validate)
+            2. backstop gate                (the full kill chain: artifact
+               validation, code check, test verification, substantiveness,
+               coverage, contracts — with the migrated backstop.yml policy)
+
+          Confirm the PURE-RENAME acceptance bar (CLM-007, and the whole
+          change):
+            - `backstop gate`'s pass/fail verdict on the current tree is
+              UNCHANGED versus before the rename — every policy-governed
+              dimension resolves to the same grandfathering outcome:
+                * contract_signature  (applies-to:new-code) still grandfathers
+                  its pre-existing contract drift;
+                * coverage_threshold  (applies-to:new-code) still grandfathers;
+                * pack_engines        (applies-to:new-code) grandfathers other
+                  packs' style debt WHILE the backstop/self source override
+                  (applies-to:all-code) still blocks EVERY backstop/self finding
+                  (zero-tolerance preserved);
+                * test_substantiveness (applies-to:new-code) still grandfathers.
+              No dimension's verdict flips; enumerate any delta if one does (that
+              would be a rename defect, not an acceptable change).
+            - the migrated backstop.yml validates against the new schema and no
+              `baseline:` key remains (clean cutover, CLM-006);
+            - `level` still functions as the independent enforcement knob
+              (CLM-004) — the gate honors block/warn/off exactly as before.
+          Report the final gate status, per-dimension verdicts, and confirm zero
+          verdict drift attributable to the rename.
+        files:
+          - backstop.yml
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-007
+          - TASK-006
+          - TASK-003

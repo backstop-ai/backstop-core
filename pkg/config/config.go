@@ -49,29 +49,35 @@ type Enforcement struct {
 	// Policy is the per-dimension enforcement policy, keyed by gate dimension
 	// (the step/gate_type name, e.g. "pack_engines", "coverage_threshold"). Each
 	// entry sets the enforcement level and whether pre-existing findings are
-	// grandfathered against the baseline. A dimension with no entry keeps the
-	// default behavior (block, no baseline). The keys are backstop's universal
-	// dimension vocabulary — never a tool or language name.
+	// grandfathered (applies-to: new-code) or the total is blocked (applies-to:
+	// all-code, the absent default). A dimension with no entry keeps the default
+	// behavior (block, all-code). The keys are backstop's universal dimension
+	// vocabulary — never a tool or language name.
 	Policy map[string]DimensionPolicy `yaml:"policy,omitempty" json:"policy,omitempty"`
 }
 
 // DimensionPolicy is one row of the enforcement policy table: how strictly a gate
-// dimension is enforced (level) and whether its pre-existing findings are
-// grandfathered (baseline). Level is "off" (don't enforce), "warn" (surface,
-// non-blocking), or "block" (fail the gate); empty defaults to "block".
+// dimension is enforced (level) and WHICH violations count (applies-to). Level is
+// "off" (don't enforce), "warn" (surface, non-blocking), or "block" (fail the gate);
+// empty defaults to "block". AppliesTo is "new-code" (grandfather pre-existing
+// findings against the baseline — block only net-new, the ratchet) or "all-code"
+// (block on the TOTAL, zero tolerance); an ABSENT/empty applies-to defaults to
+// all-code (the strict floor — a bare dimension is never silently grandfathered).
+// Level and applies-to are orthogonal: applies-to decides which violations count,
+// level decides what happens once they do.
 //
 // Sources is the OPTIONAL per-PACK / per-rule-SOURCE scoping (SPEC-047 REQ-007),
 // keyed by the pack/rule-source name (matched against gate.Violation.SourcePack). A
-// source-scoped override applies its level+baseline ONLY to that pack's findings
+// source-scoped override applies its level+applies-to ONLY to that pack's findings
 // within the dimension; every OTHER pack's findings keep the dimension default (or
-// their own scoped override). This lets `backstop/self` flip to block + zero
-// baseline on the shared `pack_engines` dimension WITHOUT disturbing
-// go-standards/go-toolchain's baselined style debt. Absent Sources ⇒ the entry is
-// dimension-only and behaves exactly as before (backward compatible, CLM-036).
+// their own scoped override). This lets `backstop/self` flip to block + all-code
+// (zero baseline) on the shared `pack_engines` dimension WITHOUT disturbing
+// go-standards/go-toolchain's new-code-grandfathered style debt. Absent Sources ⇒ the
+// entry is dimension-only and behaves exactly as before (backward compatible, CLM-036).
 type DimensionPolicy struct {
-	Level    string                     `yaml:"level,omitempty" json:"level,omitempty"`
-	Baseline bool                       `yaml:"baseline,omitempty" json:"baseline,omitempty"`
-	Sources  map[string]DimensionPolicy `yaml:"sources,omitempty" json:"sources,omitempty"`
+	Level     string                     `yaml:"level,omitempty" json:"level,omitempty"`
+	AppliesTo string                     `yaml:"applies-to,omitempty" json:"applies-to,omitempty"`
+	Sources   map[string]DimensionPolicy `yaml:"sources,omitempty" json:"sources,omitempty"`
 }
 
 // ToolchainPass is a single declared pass binding in enforcement.toolchain: the
@@ -313,9 +319,49 @@ func validateAgainstSchema(yamlData []byte) error {
 					}
 				}
 			}
+			// Validate the per-dimension enforcement.policy block (applies-to / level
+			// enums + the nested per-source overrides). The top-level strict YAML decode
+			// already rejects unknown dimension keys (e.g. the retired `baseline:`); this
+			// closes the enum gap the hand-rolled schema walk otherwise leaves open.
+			if polMap, ok := enfMap["policy"].(map[string]interface{}); ok {
+				for dim, entry := range polMap {
+					entryMap, _ := entry.(map[string]interface{})
+					if err := validatePolicyEntry(fmt.Sprintf("enforcement.policy.%s", dim), entryMap); err != nil {
+						return err
+					}
+					srcMap, _ := entryMap["sources"].(map[string]interface{})
+					for src, sEntry := range srcMap {
+						sEntryMap, _ := sEntry.(map[string]interface{})
+						if err := validatePolicyEntry(fmt.Sprintf("enforcement.policy.%s.sources.%s", dim, src), sEntryMap); err != nil {
+							return err
+						}
+					}
+				}
+			}
 		}
 	}
 
+	return nil
+}
+
+// validatePolicyEntry enforces the applies-to / level ENUM constraints on one
+// enforcement.policy dimension entry (or one per-source override). The strict YAML
+// decode already rejects unknown/retired keys (e.g. `baseline:`) and the wrong value
+// TYPE; this closes the one gap it leaves — a syntactically-valid string that is not a
+// member of the level (off|warn|block) or applies-to (new-code|all-code) enum.
+func validatePolicyEntry(path string, entry map[string]interface{}) error {
+	if lvlVal, ok := entry["level"]; ok {
+		lvl, _ := lvlVal.(string)
+		if lvl != "off" && lvl != "warn" && lvl != "block" {
+			return fmt.Errorf("%s.level %q is not valid; must be one of: off, warn, block", path, lvl)
+		}
+	}
+	if atVal, ok := entry["applies-to"]; ok {
+		at, _ := atVal.(string)
+		if at != "new-code" && at != "all-code" {
+			return fmt.Errorf("%s.applies-to %q is not valid; must be one of: new-code, all-code", path, at)
+		}
+	}
 	return nil
 }
 

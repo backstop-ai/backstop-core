@@ -290,7 +290,7 @@ func bunAcceptanceEnabled() bool {
 
 // gatePolicyFromConfig converts the declared enforcement.policy table into the gate's
 // per-dimension policy map. Returns nil when none is declared, leaving every dimension
-// at the default (block, no baseline).
+// at the default (block, all-code).
 func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
 	if cfg == nil || len(cfg.Enforcement.Policy) == 0 {
 		return nil
@@ -305,14 +305,14 @@ func gatePolicyFromConfig(cfg *config.Config) map[string]gate.DimensionPolicy {
 // dimensionPolicyFromConfig maps one config.DimensionPolicy row (including its
 // OPTIONAL per-PACK/per-rule-SOURCE overrides) into the gate's gate.DimensionPolicy
 // (SPEC-047 REQ-007). The per-source scope carries through verbatim so a scoped entry
-// (e.g. backstop/self → block + zero baseline) reaches gate.ApplyPolicy's per-source
+// (e.g. backstop/self → block + all-code) reaches gate.ApplyPolicy's per-source
 // filtering. An entry with no sources maps to the dimension-only shape (unchanged).
 func dimensionPolicyFromConfig(p config.DimensionPolicy) gate.DimensionPolicy {
-	out := gate.DimensionPolicy{Level: p.Level, Baseline: p.Baseline}
+	out := gate.DimensionPolicy{Level: p.Level, AppliesTo: p.AppliesTo}
 	if len(p.Sources) > 0 {
 		out.Sources = make(map[string]gate.DimensionPolicy, len(p.Sources))
 		for src, sp := range p.Sources {
-			out.Sources[src] = gate.DimensionPolicy{Level: sp.Level, Baseline: sp.Baseline}
+			out.Sources[src] = gate.DimensionPolicy{Level: sp.Level, AppliesTo: sp.AppliesTo}
 		}
 	}
 	return out
