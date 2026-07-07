@@ -289,15 +289,31 @@ func indexCoverageByPathMetric(coverage []check.CoverageRecord) (map[string]map[
 }
 
 // resolveCoverageRecordsForPath returns ALL metric records for a repo-relative scope
-// path (REQ-001). It first tries an exact match, then falls back to the UNIQUE
-// record-path whose normalized path ENDS WITH "/"+path — the same separator-anchored,
-// unique-match-required reconciliation resolveCoverageRecord used for module/namespace-
-// qualified producer paths, now returning the whole per-metric map. An ambiguous suffix
-// (two qualified paths ending the same way) is treated as no-match so the loud guards
-// fire rather than silently picking one. REPLACES resolveCoverageRecord.
+// path (REQ-001). It first tries an exact match, then — ONLY for a path that carries a
+// directory separator — falls back to the UNIQUE record-path whose normalized path
+// ENDS WITH "/"+path — the same separator-anchored, unique-match-required reconciliation
+// resolveCoverageRecord used for module/namespace-qualified producer paths, now
+// returning the whole per-metric map. An ambiguous suffix (two qualified paths ending
+// the same way) is treated as no-match so the loud guards fire rather than silently
+// picking one. REPLACES resolveCoverageRecord.
+//
+// The suffix fallback is DISABLED for a bare-basename scope path (one with no "/", i.e.
+// a root-package file). For such a path the suffix degenerates to "/<basename>", a
+// basename-only match that ambiguously collides with ANY same-basename file elsewhere
+// in the module — the embed.go / cmd/backstop/embed.go case, where the degenerate scan
+// finds two candidates and either discards the real record (found>1) or, worse, silently
+// borrows a nested sibling's record (found==1). Once producer paths are repo-relative a
+// root file resolves by EXACT match, so the fallback is both unnecessary and unsafe for
+// bare basenames: exact match is the sole resolver, and a miss returns (nil,false) so the
+// loud unmeasured guard fires rather than a root file borrowing a nested record.
 func resolveCoverageRecordsForPath(byPathMetric map[string]map[string]check.CoverageRecord, path string) (map[string]check.CoverageRecord, bool) {
 	if m, ok := byPathMetric[path]; ok {
 		return m, true
+	}
+	// Bare-basename (root-package) paths use exact match only — never the degenerate
+	// basename scan that collides with same-basename files elsewhere in the module.
+	if !strings.Contains(path, "/") {
+		return nil, false
 	}
 	suffix := "/" + path
 	var match map[string]check.CoverageRecord

@@ -14,9 +14,9 @@ packs:
         source_type: local
         version: null
     backstop/go-toolchain:
-        content_hash: f97b0e14436b2569cbc522172e0dc85933bdefbb09506d2405e2dca1d9b44ef2
+        content_hash: be64300ee7f3b40de993f9cb49b0b003cebd1989ab2ae55c2e42c8747e0194e3
         git_ref: null
-        install_date: 2026-07-06T18:38:10Z
+        install_date: 2026-07-07T01:20:31Z
         name: backstop/go-toolchain
         source_type: local
         version: null

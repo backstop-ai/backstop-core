@@ -76,6 +76,13 @@ type EngineSpec struct {
 	InputMode      string `yaml:"input_mode"`
 	InputFlag      string `yaml:"input_flag"`
 	Convert        string `yaml:"convert"`
+	// Producer is the optional pack-relative un-sandboxed producer script (symmetric
+	// with Convert) the dispatch runs to produce the engine's payload instead of the
+	// plain Command (ISSUE-045 option (ii)). Declared as pack DATA and converted to
+	// engine.EngineBinding.Producer at load; a missing key leaves it empty (the plain
+	// Command produces the payload). Wired through parseEngineSpec so a pack.yml
+	// producer: key is not silently dropped by the non-strict YAML decode.
+	Producer       string `yaml:"producer"`
 	StdoutArtifact string `yaml:"stdout_artifact"`
 	ScopeKind      string `yaml:"scope_kind"`
 	Category       string `yaml:"category"`
@@ -498,6 +505,7 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 		Command:               spec.Command,
 		InputFlag:             spec.InputFlag,
 		Convert:               spec.Convert,
+		Producer:              spec.Producer,
 		StdoutArtifact:        spec.StdoutArtifact,
 		StrictSarif:           spec.StrictSarif,
 		PackageScoped:         spec.PackageScoped,

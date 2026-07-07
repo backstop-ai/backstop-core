@@ -407,20 +407,43 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 		return nil, configErrorPassthrough(gateErr)
 	}
 
-	cmdName, cmdArgs := splitCommand(binding.Command)
-	cmdArgs = append(cmdArgs, inputs...)
-	// A coverage engine is a project-wide toolchain pass: it shapes its OWN target
-	// (ProjectTarget) and the project root is never bolted on, exactly as the
-	// project-wide branch of runFindingsEngine does.
-	if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
-		cmdArgs = append(cmdArgs, binding.ProjectTarget)
+	// PRODUCER vs plain-command split (ISSUE-045 option (ii)). The producer runs
+	// UN-SANDBOXED (via the runner, full toolchain — it resolves the module + gofile
+	// list and folds them into the payload); the convert below runs SANDBOXED (parse
+	// only). This split is what keeps BOTH the executor language-blind AND the convert
+	// toolchain-free: the producer path is pack DATA (binding.Producer), never a
+	// language/tool literal in the dispatch.
+	var stdout []byte
+	if binding.Producer != "" {
+		// A pack-declared producer resolved under packRoot (the SAME
+		// filepath.Join(packRoot, …)+os.Stat pattern Convert uses) and run
+		// UN-SANDBOXED via the runner (cwd = projectRoot, so its `go test`/`go list`
+		// see the project). It shapes its OWN invocation — no inputs/ProjectTarget
+		// bolted on. A declared-but-missing producer is a fail-loud broken-pack error
+		// naming pack + path, mirroring the convert-missing error.
+		producerPath := filepath.Join(packRoot, filepath.FromSlash(binding.Producer))
+		if info, statErr := os.Stat(producerPath); statErr != nil || info.IsDir() {
+			return nil, fmt.Errorf("broken pack %s: missing coverage producer script %s", manifest.NormalizedName, producerPath)
+		}
+		out, runErr := runner.RunStdout(context.Background(), producerPath)
+		// A coverage producer may exit non-zero when tests fail yet still emit a usable
+		// profile, so runErr is not fatal on its own — the convert+parser contract is
+		// what matters. A convert failure below fails loud.
+		_ = runErr
+		stdout = out
+	} else {
+		cmdName, cmdArgs := splitCommand(binding.Command)
+		cmdArgs = append(cmdArgs, inputs...)
+		// A coverage engine is a project-wide toolchain pass: it shapes its OWN target
+		// (ProjectTarget) and the project root is never bolted on, exactly as the
+		// project-wide branch of runFindingsEngine does.
+		if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+			cmdArgs = append(cmdArgs, binding.ProjectTarget)
+		}
+		out, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
+		_ = runErr
+		stdout = out
 	}
-
-	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-	// The engine's payload is its raw output; a coverage tool may exit non-zero when
-	// tests fail yet still emit a usable profile, so runErr is not fatal on its own —
-	// the convert+parser contract is what matters. A convert failure below fails loud.
-	_ = runErr
 
 	// Select the bytes to feed the convert. By default the engine's payload IS its
 	// stdout. When the binding declares a stdout_artifact, the engine instead writes

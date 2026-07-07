@@ -1,0 +1,3 @@
+version: 1
+packs:
+  - backstop/go-toolchain

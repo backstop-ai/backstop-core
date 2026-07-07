@@ -114,6 +114,18 @@ type EngineBinding struct {
 	// for a SARIF-native engine; non-empty for a tool whose native output is not
 	// SARIF (e.g. ast-grep). REQ-007/REQ-008.
 	Convert string `yaml:"convert"`
+	// Producer is an OPTIONAL pack-relative script (symmetric with Convert) that,
+	// when set, the dispatch runs UN-SANDBOXED to produce this engine's payload
+	// INSTEAD of the plain Command (ISSUE-045 option (ii)). It exists for a payload
+	// that requires full toolchain/project access to produce — e.g. a coverage
+	// producer that folds the module path + package file list into the profile the
+	// SANDBOXED convert then parses. The dispatch resolves it under packRoot
+	// (filepath.Join(packRoot, Producer) + os.Stat, the SAME pattern Convert uses)
+	// and runs it via the runner (cwd = projectRoot) so its `go test`/`go list` see
+	// the project. It is pack DATA — the binary stays tool/language-blind: it knows
+	// only "run this pack-relative producer to get the output", never what the output
+	// means. Empty => the plain Command produces the payload (every other engine).
+	Producer string `yaml:"producer"`
 	// StdoutArtifact, when non-empty, names a FILE (relative to the run's working
 	// dir) that the engine writes its real output to INSTEAD of stdout. The
 	// dispatch then feeds THAT file's contents — not the command's stdout — into

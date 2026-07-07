@@ -1,5 +1,5 @@
 name: backstop/go-toolchain
-version: 1.0.0
+version: 1.1.0
 language: go
 archetype: enforcement
 description: >
@@ -20,9 +20,11 @@ classification:
   test:
     - "**/*_test.go"
     - "**/testdata/**"
-# Test-name extraction DATA (SPEC-045 REQ-002): the Go test-name regex AS DATA;
-# capture group 1 is the test name. Mirrors the dogfood go-toolchain pack so the
-# e2e discovery path finds `func Test...` without a baked literal.
+# Test-name extraction DATA (SPEC-045 REQ-002): the pack-declared regex whose
+# capture group 1 is the Go test name. The language-neutral gate deletes its baked
+# `funcPattern`; a consumer discovers `func Test...` tests ONLY because this block
+# declares the pattern. The gate merges this across declared packs into a
+# TestNameMatcher; the binary holds no baked Go test-name literal.
 test_name_patterns:
   - "^\\s*func\\s+(Test\\w+)\\s*\\("
 engines:
@@ -37,15 +39,28 @@ engines:
   # dispatch stays tool/language-blind.
   go-coverage:
     command: go test -coverprofile=cover.out ./...
+    # The UN-SANDBOXED producer (ISSUE-045 option (ii)): the dispatch runs THIS
+    # packRoot-resolved script via the runner IN PLACE of the plain command, so its
+    # `go test`/`go list` run with full toolchain access and fold the module path +
+    # gofile list into cover.out for the sandboxed parse-only convert.
+    producer: scripts/coverage-produce.sh
+    # The Go coverage profile lands in the FILE cover.out (the -coverprofile
+    # target), while go test's stdout is only the test SUMMARY (and failure
+    # lines). Declare that file as the engine's real-output artifact so the
+    # dispatch feeds the PROFILE — not the summary stdout — into the convert.
+    stdout_artifact: cover.out
     input_mode: none
     convert: scripts/coverage-to-records.sh
     scope_kind: project-wide
     project_target: "./..."
     category: mechanism
     gate_type: coverage
-  # Build/test/lint MECHANISM engines declared as pack DATA (ISSUE-027): faithfully
-  # mirrors the real go-toolchain pack so the engine-declaration tests read the same
-  # bindings the installed pack provides. The convert scripts ship under scripts/.
+  # Build: findings engine (SPEC-034 / ISSUE-027). `go build ./...` stdout is
+  # normalized to SARIF by the pack-relative convert script (parseGoBuildErrors
+  # relocated OUTSIDE the binary, DD-2). CrashGuard distinguishes a compiler crash
+  # from a finding-free green; ExemptFromScopeFilter stamps build violations
+  # project-wide so an unchanged-file build break still REDs a diff-scoped gate
+  # (SPEC-041 CLM-011). Declared HERE, not in the deleted baked DefaultRegistry.
   go-build:
     command: go build
     input_mode: none
@@ -56,6 +71,9 @@ engines:
     category: mechanism
     gate_type: build
     exempt_from_scope_filter: true
+  # Test: findings engine. `go test ./...` stdout normalized to SARIF by the pack
+  # convert script (parseGoTestFailures relocated, DD-2). PackageScoped runs it per
+  # Go package. Declared as pack DATA, not a baked binding (ISSUE-027).
   go-test:
     command: go test
     input_mode: none
@@ -66,6 +84,10 @@ engines:
     category: mechanism
     gate_type: test
     package_scoped: true
+  # Lint: golangci-lint v2 as a config-file engine on native SARIF (no converter;
+  # v2 emits SARIF on stdout). The pack-owned .golangci.yml is the optional config.
+  # strict_sarif keys the strict-SARIF shape guard off THIS flag, not a name sniff.
+  # Declared as pack DATA, not a baked binding (ISSUE-027).
   golangci:
     command: golangci-lint run --output.sarif.path stdout --show-stats=false
     input_mode: config-file

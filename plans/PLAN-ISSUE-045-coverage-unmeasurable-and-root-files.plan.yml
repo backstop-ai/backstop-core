@@ -1,0 +1,752 @@
+---
+plan_id: PLAN-ISSUE-045
+spec_id: ISSUE-045
+created: "2026-07-06"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  RE-AUTHORED 2026-07-06 against the reframed ISSUE-045. The prior draft was
+  built around a convert-side `go list`/`go.mod` approach that was DISPROVEN
+  during implementation: the coverage convert runs under
+  packval.SandboxedRunStdout (a macOS sandbox-exec deny-all profile) and cannot
+  run `go list -m` or read go.mod — so neither the module-prefix strip (case 2)
+  nor the zero-statement N/A emission (case 1) can live in the convert. This
+  plan implements the correct architecture: language-specific coverage
+  enrichment is produced by the UN-SANDBOXED engine/producer command (full
+  toolchain + project access) as PLAIN TEXT that the SANDBOXED convert then
+  PARSES (no toolchain in the convert). It is the DIR-015 prerequisite: it also
+  closes the sandboxed-dispatch integration gap that let a unit-green run hide a
+  broken real path.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE FOUR MOVING PARTS
+  ─────────────────────────────────────────────────────────────────────────
+  1. ENGINE/PRODUCER ENRICHMENT (external go-toolchain pack, un-sandboxed):
+     the coverage producer additionally captures `go list -m` (module path) and
+     the packages' `.go` files (`go list -f '{{.GoFiles}}'`) and folds them into
+     the artifact the convert reads — appended `#backstop-module <M>` and
+     `#backstop-gofile <import-path>` comment lines on cover.out. This runs with
+     full toolchain/project access (it is NOT sandboxed), so `go list` works.
+  2. CONVERT PARSES, DOES NOT EXECUTE (external pack coverage-to-records.sh,
+     sandboxed, TEXT ONLY, NO `go`): (a) parse `#backstop-module` → strip the
+     `<M>/` module prefix → repo-relative record paths [case 2]; (b) parse
+     `#backstop-gofile` → for a package file ABSENT from the profile whose
+     package HAS >=1 profile entry (measured), emit a `total:0` N/A record
+     [case 1] — CRITICALLY distinguishing zero-statement (→ N/A) from
+     untested-with-statements (Go's profile already emits total>0/covered=0 for
+     the latter, so it stays flagged). The gate's EXISTING `Total==0 ⇒ N/A`
+     guard (step_coverage.go:188) then clears case 1 with NO gate change.
+  3. ★ THE THIN-EXECUTOR DISPATCH CHANGE (Phase 2 — the CENTRAL RATIFICATION
+     ITEM; see DISPATCH DECISION below). The current dispatch cannot run such an
+     enriched command: splitCommand (cmd/backstop/pack_gate.go:805) is a naive
+     strings.Fields split with no quote handling and the first token is exec'd
+     as-is with NO packRoot resolution, so a compound `sh -c '…'` or a
+     pack-provided producer script is not runnable. This plan encodes the
+     RECOMMENDED option; it must be ratified before Phase 2 implementation
+     because it touches the thin executor.
+  4. ★ INTEGRATION-GAP CLOSER (Phase 4 — acceptance-critical). A REAL
+     sandboxed-dispatch e2e that runs the coverage path through the actual
+     installed pack + real sandbox + real `go test`/`go list` (NOT direct
+     []check.CoverageRecord injection), asserting both false positives clear AND
+     an untested-with-statements file still fires.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DISPATCH DECISION — options for part 3 (RATIFY BEFORE PHASE 2)
+  ─────────────────────────────────────────────────────────────────────────
+  Constraint: a pack must be able to declare an ENRICHED / PRODUCER coverage
+  command that runs UN-SANDBOXED (needs `go test` + `go list`) and whose output
+  the sandboxed convert then parses — WITHOUT baking any language/tool knowledge
+  into cmd/backstop/pack_gate.go, and keeping the trusted-tool allowlist gate
+  (checkEngineToolAllowed) intact.
+
+  (i) QUOTE-AWARE COMMAND SPLITTING — teach splitCommand to honor shell quoting
+      so a pack can declare `command: sh -c '<inline producer script>'`.
+      + Smallest binding-surface change (no new field).
+      - Introduces a shell-word parsing heuristic in the executor (quotes,
+        escapes, nesting) that is easy to get subtly wrong; encourages an
+        arbitrary multi-line `sh -c` BLOB inside pack.yml that is hard to review
+        and versionless; does NOT give packRoot resolution for a pack-shipped
+        script (the producer logic can't live in a reviewable pack file).
+
+  (ii) ★ RECOMMENDED — PACK-DECLARED, packRoot-RESOLVED PRODUCER SCRIPT. Add a
+       `producer:` field to the coverage EngineBinding (a pack-relative script,
+       exactly like the existing `convert:` field). When set, runCoverageEngine
+       resolves it under packRoot (filepath.Join(packRoot, producer) + os.Stat,
+       the SAME pattern `convert` already uses), runs it UN-SANDBOXED via
+       runner.RunStdout (cwd = projectRoot, so `go test`/`go list` see the
+       project) IN PLACE of splitCommand(binding.Command), then reads the
+       existing declared stdout_artifact (cover.out) and feeds it to the
+       sandboxed convert unchanged.
+       + Cleanest producer(un-sandboxed) / convert(sandboxed) separation; the
+         producer is a first-class, reviewable, version-controlled pack FILE,
+         symmetric with `convert`; reuses the existing packRoot-resolve+stat+run
+         substrate (near-zero new dispatch concept); NO shell-parsing heuristic;
+         NO inline blob. The dispatch gains only a language-BLIND capability
+         ("resolve this engine's producer relative to packRoot and run it"); all
+         Go/toolchain knowledge stays in the pack's producer script.
+         checkEngineToolAllowed stays exactly where it is — the producer's tool
+         (`sh`/`go`, nil-Provision assume-present Layer-0) passes the gate as a
+         no-op, and any provisioned tool still trips it.
+       - One new binding field + one dispatch branch in runCoverageEngine.
+       This is what the issue's Solution step 3 already leans toward
+       ("packRoot-resolved pack-provided producer/command").
+
+  (iii) ARGV-LIST COMMAND — allow `command:` to be a YAML list
+        (`["sh","-c","…"]`) so the dispatch uses element[0] as the exe and the
+        rest verbatim, no quote parsing.
+        + No shell-word heuristic; trivially unambiguous.
+        - Still forces the producer to be an inline `sh -c` blob in pack.yml
+          (same reviewability/versioning problem as (i)); a two-form `command`
+          (string OR list) adds parse branching everywhere command is read.
+
+  RECOMMENDATION: (ii). It is the most reviewable and least-magic, keeps the
+  executor language-blind, and reuses the existing convert-resolution pattern.
+  The task descriptions below encode option (ii); if a different option is
+  ratified, Phase 2/4 pack + binding tasks adjust accordingly (the surrounding
+  phases are option-independent).
+
+  ─────────────────────────────────────────────────────────────────────────
+  NON-NEGOTIABLES (encoded across tasks)
+  ─────────────────────────────────────────────────────────────────────────
+  - Do NOT relax the ISSUE-029 convert sandbox (rejected). The convert stays a
+    pure stdin→stdout text transformer with NO `go`.
+  - Do NOT bake Go/language knowledge into pkg/gate OR into the dispatch
+    (cmd/backstop/pack_gate.go). Language knowledge lives ONLY in the
+    go-toolchain pack's producer/convert scripts.
+  - Do NOT re-attempt a gate-side record-only "directory proxy" for case 1: it
+    was implemented, found to defeat
+    TestBunFixture_SeededUncoveredTsSourceRedsGateNotVacuousGreen (a
+    zero-statement Go file and an untested-but-real bun file are structurally
+    identical in record-only data), and reverted. Case 1 is producer-side.
+  - The anti-vacuous-green guards MUST still fire: an untested-with-statements
+    file in ANY language (the bun seeded-defect src/app.ts) still REDs
+    coverage_unmeasured.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CURRENT-TREE STARTING STATE (uncommitted, verified 2026-07-06)
+  ─────────────────────────────────────────────────────────────────────────
+  - pkg/gate/step_coverage.go has the SOUND consumer-side case-2 narrowing
+    (resolveCoverageRecordsForPath disables the bare-basename HasSuffix
+    fallback). KEEP it — Phase 1 lands it with its tests. The unsound gate-side
+    case-1 directory proxy has already been reverted; do NOT reintroduce it.
+  - pkg/gate/coverage_rootpath_test.go and coverage_unmeasurable_test.go exist
+    locally (direct-record-injection only). Phase 1 keeps/aligns the rootpath
+    tests; the unmeasurable direct-injection test is superseded by the
+    producer-side + e2e approach (case-1 is no longer a gate-side change).
+  - The go-toolchain pack (sibling repo + tracked testdata copy) has the INERT
+    `go list`-in-convert changes; Phases 3+4 REPLACE them with the
+    producer-enrichment + parse-only-convert version.
+
+  DURABILITY (pack edits, same shape as ISSUE-027 phase 3): packs live OUTSIDE
+  core. The DURABLE edit lands in the sibling repo
+  /Users/bmanson/src/projects/backstop-go-toolchain-pack/ (verified checked
+  out); then reinstall into gitignored .backstop/packs/ + update the tracked
+  backstop.lock; AND mirror into the tracked testdata copy under
+  cmd/backstop/testdata/go-toolchain/... that the unit/e2e tests drive. The
+  agent-guard blocks editing under .backstop/packs/ directly → make the edit in
+  the sibling repo via Bash. If the sibling repo were NOT checked out, STOP and
+  report rather than editing the gitignored installed copy.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (enumerated from the issue's acceptance criteria; every task maps ≥1)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — A zero-statement file (fieldcontract.go-shaped) in a MEASURED
+            package produces ZERO coverage_unmeasured: the producer folds the
+            package's .go file list in, the sandboxed convert emits a total:0
+            N/A record for a gofile absent from the profile whose package was
+            measured, and the gate's EXISTING Total==0⇒N/A guard clears it (no
+            gate change).
+  CLM-002 — Case-1 over-correction guard: a file that HAS statements but is
+            genuinely unmeasured (package has no profile entries) STILL fires
+            coverage_unmeasured; an untested-WITH-statements file (Go emits
+            total>0/covered=0) stays flagged — the convert must NOT N/A it; the
+            bun TestBunFixture_SeededUncoveredTsSourceRedsGateNotVacuousGreen
+            still fires (no gate-side record-only proxy).
+  CLM-003 — A MEASURED root-package file resolves to its OWN record
+            (repo-relative after module-prefix strip) and produces ZERO
+            coverage_unmeasured even under the embed.go / cmd/backstop/embed.go
+            same-basename collision.
+  CLM-004 — Case-2 over-correction guard: a genuinely-unmeasured root file (no
+            own record) STILL fires even when a same-basename NESTED file IS
+            measured — the bare-basename suffix fallback is disabled (exact
+            match only), so a root file never borrows a nested sibling's record.
+  CLM-005 — Coverage records are normalized to repo-relative form by stripping
+            the Go module import-path prefix in the SANDBOXED convert, PARSING
+            the producer-provided `#backstop-module` line (NOT `go list` in the
+            convert, NOT in the gate). Durable in the external go-toolchain repo.
+  CLM-006 — Engine/producer enrichment: the UN-SANDBOXED coverage producer
+            captures the module path (`go list -m`) and the packages' .go files
+            (`go list -f '{{.GoFiles}}'`) and folds them into the artifact the
+            sandboxed convert reads as PLAIN TEXT (`#backstop-module` /
+            `#backstop-gofile` lines) — toolchain access lives in the producer,
+            never the convert. Durable in the external go-toolchain repo.
+  CLM-007 — THE dispatch change: the thin-executor dispatch (pack_gate.go +
+            EngineBinding) lets a pack declare a packRoot-resolved coverage
+            PRODUCER run UN-SANDBOXED to produce the payload, WITHOUT baking any
+            language/tool knowledge into the dispatch; the trusted-tool
+            allowlist gate stays intact (RATIFICATION ITEM — option (ii)).
+  CLM-008 — Integration-gap closer: a REAL sandboxed-dispatch e2e runs the
+            coverage path through the actual installed pack + real sandbox +
+            real `go test`/`go list` (NOT direct record injection), asserting
+            both false positives clear AND an untested-with-statements file
+            still fires — proving the fix holds through the real path.
+  CLM-009 — Full `backstop gate` acceptance: fieldcontract.go (zero-statement)
+            and embed.go (root collision) produce zero coverage_unmeasured;
+            genuine gaps (below-threshold, genuinely-unmeasured) still fire; the
+            bun anti-vacuous-green guard is unaffected; no other gate dimension
+            regresses; and the pack edits landed DURABLY (external repo +
+            reinstall + backstop.lock updated).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Gate consumer-side case-2 narrowing (language-neutral, standalone)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Language-Neutral Root-Path Resolution Narrowing (case 2 consumer half)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing root-path tests: measured root file resolves under basename collision; unmeasured root file still flagged"
+        description: |
+          Land pkg/gate/coverage_rootpath_test.go exercising the REAL (non-stubbed)
+          StepCoverageThresholdScopedFunc against a real GateScope, real
+          SourceClassifier, and real []check.CoverageRecord values fed
+          REPO-RELATIVE (the contract the producer+convert guarantee downstream;
+          this unit test injects records directly and does NOT run the producer).
+          Reuse the package's existing helpers (newGateScope, coverageSpecs,
+          goSourceClassifier/goClassifier, writeSourceFile from
+          step_coverage_deletion_test.go) — do not re-declare them. Files that
+          must appear "present, not deleted" are written to disk so they survive
+          ISSUE-034's os.Stat guard.
+
+          Mandated test names (exact):
+            - TestCoverage_MeasuredRootFile_UnderBasenameCollision_NoUnmeasured
+              (CLM-003): Scope.Files = ["embed.go"] (root file, on disk). Records
+              (repo-relative, reproducing the collision directly): TWO —
+              {"embed.go", covered 9, total 10, measured true, metric
+              "statement"} AND {"cmd/backstop/embed.go", covered 8, total 10,
+              measured true, metric "statement"}. Also write cmd/backstop/embed.go
+              on disk. Assert NO coverage_unmeasured for File "embed.go" AND that
+              the ROOT record (9/10) governs (no coverage_threshold violation for
+              "embed.go" either — 9/10 ≥ 90), proving it resolved to its OWN
+              record under the exact same-basename ambiguity.
+            - TestCoverage_UnmeasuredRootFile_UnderBasenameCollision_StillFlagged
+              (CLM-004): Scope.Files = ["embed.go"] (present) but feed records
+              ONLY for the NESTED file {"cmd/backstop/embed.go", 8/10, measured
+              true, "statement"} and NONE for root "embed.go". Assert the
+              StepResult DOES contain a coverage_unmeasured violation (Severity
+              "error") for File "embed.go" — the root file must NOT borrow the
+              nested sibling's record via a degenerate basename scan.
+
+          These FAIL against an unmodified resolver (bare-basename suffix
+          mis-resolves) and pass once TASK-002 lands. Do NOT touch
+          step_coverage.go here.
+        files:
+          - pkg/gate/coverage_rootpath_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Disable resolveCoverageRecordsForPath suffix fallback for bare-basename (root-package) scope paths"
+        description: |
+          Land the LANGUAGE-NEUTRAL case-2 consumer narrowing in
+          pkg/gate/step_coverage.go (this is the sound change already present in
+          the working tree — commit it with its Phase-1 tests). In
+          resolveCoverageRecordsForPath, keep the exact-match first branch and
+          keep the "/"+path HasSuffix fallback for paths that CONTAIN a separator
+          (so the existing nested module-qualified reconciliation —
+          TestCoverage_MatchesModuleQualifiedRecordToRepoRelativeScope — keeps
+          passing), but DISABLE the fallback for a bare-basename path (no "/"):
+          for such a path use exact match ONLY and return (nil,false) on a miss.
+          Rationale (in a code comment): a bare-basename suffix degenerates to
+          "/<basename>", a basename-only match that ambiguously collides with any
+          same-basename file elsewhere in the module (embed.go /
+          cmd/backstop/embed.go); once producer paths are repo-relative a root
+          file resolves by exact match, so the fallback is both unnecessary and
+          unsafe for bare basenames.
+
+          Bake NO language noun (no extension literal, no go.mod / module-path
+          knowledge, no Go parse). Do NOT edit scope.go. Do NOT add any gate-side
+          case-1 directory proxy (rejected — see notes). Do NOT suppress or waive
+          any genuine below-threshold / genuinely-unmeasured violation.
+        files:
+          - pkg/gate/step_coverage.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "backstop code check — root-path tests pass, existing pkg/gate coverage suite green"
+        description: |
+          Fast inner-loop verification of the case-2 consumer narrowing. Run:
+
+              backstop code check
+
+          (which runs the go-test engine over the changed pkg/gate package,
+          exercising the new unit tests). Confirm both mandated root-path tests
+          pass:
+            - TestCoverage_MeasuredRootFile_UnderBasenameCollision_NoUnmeasured
+            - TestCoverage_UnmeasuredRootFile_UnderBasenameCollision_StillFlagged
+          and that the existing pkg/gate coverage suite stays green — especially
+          TestCoverage_MatchesModuleQualifiedRecordToRepoRelativeScope (nested
+          module-qualified suffix reconciliation must be UNAFFECTED by the
+          bare-basename narrowing) and the ISSUE-034 deletion tests
+          (step_coverage_deletion_test.go). Report pass/fail per mandated test
+          and any perturbation to the existing suite.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/coverage_rootpath_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Thin-executor dispatch change — packRoot-resolved coverage producer
+  #          (THE RATIFICATION ITEM; isolated + reviewable; option (ii))
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — packRoot-Resolved Un-Sandboxed Coverage Producer (dispatch change, RATIFY FIRST)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing dispatch test: a pack-declared producer script runs un-sandboxed, packRoot-resolved, allowlist gate intact"
+        description: |
+          Add cmd/backstop/coverage_producer_dispatch_test.go exercising the REAL
+          runCoverageEngine/dispatchPackCoverage path with a hermetic in-test
+          go-toolchain-shaped manifest whose go-coverage binding declares the NEW
+          `producer:` field (option (ii)) pointing at a pack-relative producer
+          script, plus stdout_artifact + convert as today. Reuse the existing
+          coverage dispatch helpers/seams (fixtureRunner, stubSandboxedRunStdout,
+          onlyRules, goToolchainPacksDir patterns) — do not re-declare them.
+
+          Assert the CONTRACT of the dispatch change (all FAIL before TASK-005):
+            - When the binding declares `producer:`, the dispatch resolves it
+              relative to packRoot (filepath.Join(packRoot, producer)) and runs
+              THAT script (spy the runner's exec'd command == the resolved
+              producer path), NOT splitCommand(binding.Command) — a
+              missing/dir producer is a fail-loud broken-pack error naming the
+              pack + path (mirror the existing convert-missing error).
+            - The producer runs UN-SANDBOXED via the runner (not
+              resolveSandboxedRunStdout — that seam stays reserved for the
+              convert); the sandboxed convert still runs on the producer's
+              stdout_artifact payload afterward (spy convert stdin non-empty).
+            - The trusted-tool allowlist gate (checkEngineToolAllowed) still runs
+              BEFORE the producer executes: a binding whose Provision is non-nil
+              and un-allowlisted returns a *check.ConfigError and the producer is
+              NEVER run (drive via the trustedToolAllowlist seam, NOT a
+              stub-open allowlist — Sharp Edge 3).
+            - NO language/tool literal is introduced in the dispatch: the test
+              asserts the producer path/command is pack DATA (the manifest
+              supplies it), the dispatch contains no "go"/"cover"/profile noun.
+        files:
+          - cmd/backstop/coverage_producer_dispatch_test.go
+        claims:
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Add EngineBinding.Producer + runCoverageEngine un-sandboxed producer branch (language-blind)"
+        description: |
+          Implement the RATIFIED dispatch change (option (ii) unless overridden).
+
+          pkg/pack/engine/binding.go — add a `Producer string \`yaml:"producer"\``
+          field to EngineBinding: an OPTIONAL pack-relative script (symmetric with
+          the existing Convert field) that, when set, the dispatch runs
+          UN-SANDBOXED to produce the engine's payload instead of the plain
+          Command. Document it as pack DATA — the binary stays tool/language-blind
+          (it knows only "run this pack-relative producer to get the output",
+          never what the output means).
+
+          cmd/backstop/pack_gate.go — in runCoverageEngine, BEFORE the current
+          splitCommand(binding.Command) → runner.RunStdout path, branch on
+          binding.Producer:
+            * Keep the existing checkEngineToolAllowed trust gate exactly where it
+              is (BEFORE any exec), returned UNWRAPPED via configErrorPassthrough
+              so the exit-2 ConfigError type survives.
+            * When Producer != "": resolve producerPath := filepath.Join(packRoot,
+              filepath.FromSlash(binding.Producer)); os.Stat it (fail-loud
+              broken-pack error naming pack + path if missing/dir, mirroring the
+              convert-missing error); run it UN-SANDBOXED via
+              runner.RunStdout(ctx, producerPath) with cwd = projectRoot (the same
+              working dir the plain engine command uses, so the producer's
+              `go test`/`go list` see the project). Do NOT append inputs/
+              ProjectTarget — the producer shapes its own invocation.
+            * When Producer == "": UNCHANGED (splitCommand(binding.Command) +
+              inputs + ProjectTarget), so every other engine is untouched.
+            * The existing stdout_artifact read and the existing sandboxed convert
+              step run on the producer's output UNCHANGED — the producer writes
+              cover.out (enriched) and the convert parses it.
+          Introduce NO language/tool literal in pack_gate.go. Add a focused
+          comment: producer = un-sandboxed (full toolchain, resolves module +
+          gofiles), convert = sandboxed (parse only); this is the split that keeps
+          both the executor language-blind AND the convert toolchain-free.
+        files:
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/engine/binding.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "backstop code check — producer dispatch branch green, no other engine path perturbed"
+        description: |
+          Fast inner-loop verification of the dispatch change. Run:
+
+              backstop code check
+
+          Confirm coverage_producer_dispatch_test.go passes and, critically, that
+          the EXISTING coverage/findings dispatch tests remain green (the
+          Producer=="" branch must be behaviorally identical to today) —
+          coverage_dispatch_channel_test.go, coverage_dispatch_routing_test.go,
+          coverage_dispatch_verdict_test.go, dispatch_coverage_e2e_test.go,
+          coverage_producer_stdout_artifact_test.go, and the findings-artifact
+          tests. Report pass/fail and any regression in the untouched engine
+          paths.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/coverage_producer_dispatch_test.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Pack convert rework — sandboxed, PARSE-ONLY (module strip + N/A)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Parse-Only Convert (strip module prefix + emit zero-statement N/A)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Failing convert test: enriched cover.out → repo-relative paths + total:0 N/A for zero-statement, untested-with-statements stays flagged"
+        description: |
+          Add cmd/backstop/coverage_convert_enriched_test.go that EXECUTES the
+          real coverage-to-records.sh convert script (the tracked testdata copy)
+          over a hand-authored ENRICHED cover.out fixture — the plain-text
+          artifact the producer will emit — proving the convert PARSES it (no `go`
+          in the convert). Reuse readCoverageProfileFixture / the existing
+          convert-run helpers where possible; add a fixture with:
+            * a `mode:` header,
+            * profile blocks for a MEASURED nested file
+              (github.com/bmanson/backstop-core/pkg/pack/engine/registry.go, some
+              covered),
+            * a profile block for a MEASURED ROOT file
+              (github.com/bmanson/backstop-core/embed.go, covered),
+            * a profile block for an UNTESTED-WITH-STATEMENTS file
+              (…/pkg/foo/untested.go with total>0/covered=0),
+            * a `#backstop-module github.com/bmanson/backstop-core` line,
+            * `#backstop-gofile …/pkg/pack/engine/fieldcontract.go` (a
+              zero-statement file ABSENT from the profile, its package measured
+              via registry.go),
+            * `#backstop-gofile …/pkg/foo/untested.go` (present in profile),
+            * `#backstop-gofile …/pkg/lonely/only.go` in an UNMEASURED package (no
+              profile entries) — must get NO N/A record.
+
+          Assert on the parsed []check.CoverageRecord (via check.ParsePackCoverage
+          over the convert stdout):
+            - PATHS are REPO-RELATIVE (CLM-005): "embed.go",
+              "pkg/pack/engine/registry.go" — the "<module>/" prefix stripped;
+              no record path contains the module prefix.
+            - fieldcontract.go gets a record with Total==0 (N/A, CLM-001) — absent
+              from profile but its package was measured.
+            - untested.go stays with Total>0/Covered==0 (CLM-002) — it is NOT
+              converted to a total:0 N/A record; it must remain a below-threshold
+              gap.
+            - pkg/lonely/only.go gets NO record at all (CLM-002) — an unmeasured
+              package's absent file is a GENUINE gap, not N/A.
+
+          These FAIL against the current (inert `go list`) convert and pass once
+          TASK-008 lands the parse-only rework.
+        files:
+          - cmd/backstop/coverage_convert_enriched_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-008
+        type: implementation
+        title: "Rework coverage-to-records.sh to PARSE #backstop-module / #backstop-gofile (no go list)"
+        description: |
+          Replace the inert `go list`-based convert with a PARSE-ONLY convert that
+          reads the producer's plain-text enrichment. DURABLE edit lives in the
+          sibling repo /Users/bmanson/src/projects/backstop-go-toolchain-pack/
+          scripts/coverage-to-records.sh (verified checked out); then reinstall
+          into gitignored .backstop/packs/ + update tracked backstop.lock, AND
+          mirror into the tracked testdata copy this task lists (the copy the unit
+          tests drive). Edit the sibling via Bash (agent-guard blocks editing
+          under .backstop/packs/ directly). If the sibling were not checked out,
+          STOP and report — do not edit the gitignored installed copy and call it
+          done.
+
+          The convert stays sandboxed, POSIX sh/awk (macOS system awk), NO `go`,
+          NO go.mod read. Behavior:
+            * Parse a `#backstop-module <M>` comment line; strip the "<M>/" prefix
+              from every profile path → repo-relative record path. A path lacking
+              the prefix passes through unchanged. (CLM-005)
+            * Aggregate profile blocks per file as today (total = Σ numStmt,
+              covered = Σ numStmt where count>0), stamping metric "statement",
+              measured true.
+            * Parse `#backstop-gofile <import-path>` lines. For each gofile that is
+              (a) ABSENT from the profile AND (b) whose package (import-path dir)
+              HAS ≥1 profile entry (measured), emit a total:0 covered:0 N/A record
+              (repo-relative). This is the ONLY N/A emission — a gofile in an
+              UNMEASURED package (no profile entries) gets NO record. (CLM-001)
+            * An untested-WITH-statements file is already IN the profile
+              (total>0/covered=0) and is emitted as-is — never coerced to N/A.
+              (CLM-002)
+            * Keep the stderr converter banner (clean-stdout capture) and the
+              existing JSON array output shape.
+          Delete the `go list -m` / `go list -f` invocations entirely — the module
+          path and gofile list now arrive as parsed comment lines.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "backstop code check — parse-only convert green over the enriched fixture"
+        description: |
+          Fast inner-loop verification of the convert rework. Run:
+
+              backstop code check
+
+          Confirm coverage_convert_enriched_test.go passes (repo-relative strip,
+          total:0 N/A for the zero-statement file, untested-with-statements stays
+          flagged, unmeasured-package file gets no record) and that the EXISTING
+          convert tests remain green — go_toolchain_coverage_test.go
+          (TestGoToolchain_ConvertProfileToPerFileStatementRecords) and
+          dispatch_coverage_e2e_test.go
+          (TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack), adjusting
+          any fixtures those depend on if the enrichment lines are now expected on
+          input. Confirm the durable sibling edit + reinstall + backstop.lock
+          update landed (the testdata copy and the installed copy match). Report
+          pass/fail and any convert-fixture drift.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+          - cmd/backstop/coverage_convert_enriched_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Producer enrichment + REAL sandboxed-dispatch e2e (integration gap)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: TDD — Un-Sandboxed Producer Enrichment + Real-Dispatch E2E (integration-gap closer)"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Failing REAL sandboxed-dispatch e2e: both false positives clear + untested-with-statements still fires through the real path"
+        description: |
+          Add cmd/backstop/coverage_real_dispatch_e2e_test.go — the acceptance-
+          critical integration-gap closer (CLM-008). It drives the coverage path
+          through the ACTUAL installed go-toolchain pack + the REAL sandbox-exec
+          convert + a REAL runner running real `go test`/`go list` against a
+          fixture Go MODULE (NOT direct []check.CoverageRecord injection, NOT a
+          fixtureRunner supplying a canned profile). Guard that the production
+          seams are NOT stubbed (dispatchPackEnginesFn nil; the convert is the
+          real script; the runner is real) — mirror the guards in
+          dispatch_coverage_e2e_test.go.
+
+          Add a fixture Go module under cmd/backstop/testdata/go-coverage-e2e/
+          containing, at minimum:
+            * go.mod (its own module path),
+            * a ROOT-package file embed.go (measured, with a test) AND a nested
+              cmd/x/embed.go (same basename, measured) — reproducing the
+              collision,
+            * a zero-statement file (types/consts only) in a MEASURED package,
+            * an untested-WITH-statements file in a measured package,
+            * backstop.yml declaring the go-toolchain pack.
+          The module points at the shared testdata go-toolchain pack (this task
+          does NOT own the pack files — TASK-011 does).
+
+          Run the coverage step over this fixture through dispatchPackCoverage
+          with the real runner + real convert, feed the resulting records into
+          StepCoverageThresholdScopedFunc with a diff scope covering the fixture
+          files, and assert (all FAIL until the producer TASK-011 lands):
+            - the zero-statement file produces ZERO coverage_unmeasured (CLM-001),
+            - the ROOT embed.go resolves to its own record → ZERO
+              coverage_unmeasured (CLM-003),
+            - the nested cmd/x/embed.go is unaffected,
+            - the untested-with-statements file STILL fires (below-threshold or
+              unmeasured, per its profile shape) (CLM-002),
+            - a genuinely-unmeasured root/file still fires (CLM-004).
+          Assert the records are REPO-RELATIVE (proving the producer emitted
+          #backstop-module and the convert stripped it through the REAL path).
+        files:
+          - cmd/backstop/coverage_real_dispatch_e2e_test.go
+          - cmd/backstop/testdata/go-coverage-e2e/go.mod
+          - cmd/backstop/testdata/go-coverage-e2e/embed.go
+          - cmd/backstop/testdata/go-coverage-e2e/backstop.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-006
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "Add the un-sandboxed coverage producer (go list -m / go list -f enrichment) to the go-toolchain pack"
+        description: |
+          Make the go-coverage engine PRODUCE the enriched cover.out the convert
+          parses (CLM-006). DURABLE edits live in the sibling repo
+          /Users/bmanson/src/projects/backstop-go-toolchain-pack/ (verified
+          checked out); then reinstall into gitignored .backstop/packs/ + update
+          tracked backstop.lock, AND mirror into the tracked testdata copies this
+          task lists. Edit the sibling via Bash (agent-guard blocks .backstop/
+          packs/ edits). If the sibling were not checked out, STOP and report.
+
+          Two pack artifacts (option (ii)):
+            1. NEW scripts/coverage-produce.sh — the UN-SANDBOXED producer the
+               dispatch runs (cwd = project root, full toolchain). It:
+                 * runs `go test -coverprofile=cover.out ./...` (the existing
+                   coverage command),
+                 * captures the module path via `go list -m` and appends a
+                   `#backstop-module <M>` comment line to cover.out,
+                 * enumerates package .go files via
+                   `go list -f '{{range .GoFiles}}{{$.ImportPath}}/{{.}}{{"\n"}}{{end}}' ./...`
+                   and appends one `#backstop-gofile <import-path>` line each,
+                 * leaves cover.out (with appended comment lines) as the declared
+                   stdout_artifact for the dispatch to read and pipe to the
+                   sandboxed convert. POSIX sh; tolerate `go test` non-zero exit
+                   (a failing suite still yields a usable profile) — the convert +
+                   gate decide the verdict.
+            2. pack.yml — on the go-coverage engine, declare
+               `producer: scripts/coverage-produce.sh` (the new binding field),
+               keep `stdout_artifact: cover.out` and
+               `convert: scripts/coverage-to-records.sh`. The plain `command`
+               becomes unused for coverage (the producer subsumes it); remove or
+               retain per the ratified option — the producer is now the source of
+               the payload.
+          All Go/toolchain knowledge stays in these pack scripts; the dispatch and
+          pkg/gate remain language-blind.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "backstop code check — real-dispatch e2e green through the installed pack + real producer/convert"
+        description: |
+          Fast inner-loop verification of the producer + e2e. Run:
+
+              backstop code check
+
+          Confirm coverage_real_dispatch_e2e_test.go passes end-to-end through the
+          REAL path (real runner, real `go test`/`go list` producer, real
+          sandbox-exec convert, installed pack): both false positives clear, the
+          untested-with-statements and genuinely-unmeasured guards still fire, and
+          records are repo-relative. Confirm the durable sibling edits + reinstall
+          + backstop.lock update landed (testdata + installed copies match) and no
+          existing coverage dispatch/convert test regressed. Report pass/fail and
+          the e2e coverage-record breakdown.
+        files:
+          - cmd/backstop/coverage_real_dispatch_e2e_test.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+        claims:
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive verification — full gate kill chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification — Full backstop gate + durable pack landing"
+    tasks:
+      - id: TASK-013
+        type: verification
+        title: "backstop gate — fieldcontract.go + embed.go clear, genuine gaps + bun guard still fire, no dimension regresses"
+        description: |
+          Final comprehensive verification via the full kill chain. The change
+          touches .go files (pkg/gate, cmd/backstop, pkg/pack/engine) and the
+          go-toolchain pack scripts/pack.yml; NO backstop artifact files
+          (.spec.md / .plan.yml / .issue.md) are modified by the implementation,
+          so `backstop gate` subsumes verification and no separate `backstop
+          artifact validate` is needed. Run:
+
+              backstop gate
+
+          in a scope that includes the two offending real files (a diff/all run
+          that touches pkg/pack/engine/fieldcontract.go and the repo-root embed.go)
+          so the coverage dimension evaluates them through the REAL installed pack
+          producer + convert. Confirm the ACCEPTANCE invariants (CLM-009):
+            - pkg/pack/engine/fieldcontract.go (zero-statement, measured package)
+              → ZERO coverage_unmeasured (CLM-001).
+            - repo-root embed.go (measured, colliding with cmd/backstop/embed.go)
+              → ZERO coverage_unmeasured, resolves to its own record (CLM-003).
+            - GENUINE gaps still fire: any real below-threshold file and any
+              genuinely-unmeasured file (functions, no record, unmeasured package)
+              remain flagged (CLM-002/CLM-004); enumerate which coverage
+              violations cleared vs persisted — the fix must NOT have blinded the
+              check to zero the count.
+            - the bun anti-vacuous-green guard is unaffected:
+              TestBunFixture_SeededUncoveredTsSourceRedsGateNotVacuousGreen still
+              reds its seeded src/app.ts (CLM-002).
+            - the DURABLE pack landing is confirmed: the sibling go-toolchain repo
+              holds the producer + parse-only convert, .backstop/packs/ was
+              reinstalled, and backstop.lock reflects it (a green gate off a
+              non-durable installed-copy edit is NOT acceptance — if the sibling
+              could not be landed, report that explicitly).
+          The gate run also covers code check, test verification, substantiveness,
+          and contracts — confirming the language-neutral gate change, the
+          dispatch change, and the pack change regressed no other dimension.
+          Report the final gate status and the coverage-dimension violation
+          breakdown.
+        files:
+          - pkg/gate/step_coverage.go
+          - cmd/backstop/pack_gate.go
+          - pkg/pack/engine/binding.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-009
+          - TASK-011
+          - TASK-012

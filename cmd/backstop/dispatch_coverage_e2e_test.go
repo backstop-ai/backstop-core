@@ -21,11 +21,13 @@ func goToolchainCoverageManifest(t *testing.T) *pack.Manifest {
 // go-toolchain pack's coverage engine runs through the UN-STUBBED sandboxed dispatch
 // — the real dispatchPackCoverage executes the pack's REAL
 // scripts/coverage-to-records.sh via resolveSandboxedRunStdout (convert NOT stubbed,
-// NO parallel raw-exec; a fake runner supplies the Go profile stdout from the Phase-1
-// fixtures, but the CONVERT is the real script on disk) and produces real per-file
-// CoverageRecords. A stubbed convert returning canned records would NOT satisfy this
-// — the test asserts the real script actually ran by checking its real per-file
-// aggregation (CLM-024).
+// NO parallel raw-exec) and produces real per-file CoverageRecords. The pack now
+// declares a producer (ISSUE-045), so the engine's payload is its declared
+// stdout_artifact (cover.out) — the producer would write it un-sandboxed; here the
+// Phase-1 profile fixture is placed at cover.out to stand in for the producer's
+// output while the CONVERT stays the real script on disk. A stubbed convert returning
+// canned records would NOT satisfy this — the test asserts the real script actually
+// ran by checking its real per-file aggregation (CLM-024).
 func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 	// Guard: the production dispatch seam must NOT be stubbed — a stubbed dispatcher
 	// would game the only safety net (mirrors the golden-equivalence guard).
@@ -44,12 +46,18 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 	var convertStdin []byte
 	stubSandboxedRunStdout(t, &convertStdin)
 
-	// The fake runner supplies the Go coverage PROFILE as the engine's stdout (the
-	// `go test -coverprofile` command's output); the real convert then aggregates it.
+	// The engine now sources its payload from the declared stdout_artifact the producer
+	// writes; place the Phase-1 profile fixture at cover.out to stand in for the
+	// producer's output. The fake runner intercepts the producer exec (returns nothing
+	// and writes nothing), so the pre-placed cover.out is what the real convert reads.
 	profile := readCoverageProfileFixture(t, "cover-combined.out")
-	runner := &fixtureRunner{byCmd: map[string][]byte{"go": profile}}
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "cover.out"), profile, 0o644); err != nil {
+		t.Fatalf("seed cover.out artifact: %v", err)
+	}
+	runner := &fixtureRunner{}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner)
 	if err != nil {
 		t.Fatalf("real un-stubbed coverage dispatch over installed pack: %v", err)
 	}
@@ -87,10 +95,17 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 // SPEC-041's step.
 func TestGoToolchain_RealEndToEndRecordsDriveCorrectGateVerdict(t *testing.T) {
 	stubSandboxedRunStdout(t, nil) // shells the real convert script
+	// The engine sources its payload from the declared stdout_artifact the producer
+	// writes (ISSUE-045); seed cover.out with the Phase-1 profile fixture as the
+	// producer's stand-in output. The fake runner intercepts the producer exec.
 	profile := readCoverageProfileFixture(t, "cover-combined.out")
-	runner := &fixtureRunner{byCmd: map[string][]byte{"go": profile}}
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "cover.out"), profile, 0o644); err != nil {
+		t.Fatalf("seed cover.out artifact: %v", err)
+	}
+	runner := &fixtureRunner{}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner)
 	if err != nil {
 		t.Fatalf("real un-stubbed coverage dispatch: %v", err)
 	}
