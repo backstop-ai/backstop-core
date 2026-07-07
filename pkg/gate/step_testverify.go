@@ -300,8 +300,21 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, c
 				}
 			}
 			if _, ok := found[mt.FuncName]; !ok {
+				// Attribute the finding to the mandated test's file (falling back to the
+				// spec that declared it) in the ONE canonical repo-relative form
+				// (ISSUE-046), so its identity is scope-stable. scope may be nil
+				// (all-mode entry), so ProjectRoot is read defensively.
+				projectRoot := ""
+				if scope != nil {
+					projectRoot = scope.ProjectRoot
+				}
+				file := mt.FilePath
+				if file == "" {
+					file = mt.SpecFile
+				}
 				violations = append(violations, Violation{
 					Rule:     "test_verification",
+					File:     NormalizePath(projectRoot, file),
 					Message:  "mandated test function " + mt.FuncName + " not found (spec " + mt.SpecID + ", claim " + mt.ClaimID + ")",
 					Severity: "error",
 				})

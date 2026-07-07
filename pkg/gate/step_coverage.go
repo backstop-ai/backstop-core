@@ -114,7 +114,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 			violations = append(violations, Violation{
 				Rule:     "coverage_metric_collision",
 				Message:  fmt.Sprintf("duplicate coverage measurement for file %s under metric %q — a producer emitted two records for the same (path, metric); refusing to silently keep one", dupPath, dupMetric),
-				File:     dupPath,
+				File:     NormalizePath(scope.ProjectRoot, dupPath),
 				Severity: "error",
 			})
 		}
@@ -133,7 +133,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 				violations = append(violations, Violation{
 					Rule:     "coverage_unmeasured",
 					Message:  fmt.Sprintf("no coverage measurement for in-scope changed measurable-source file %s (any metric) and it is not pack-declared excluded — refusing to pass with nothing measured", path),
-					File:     path,
+					File:     NormalizePath(scope.ProjectRoot, path),
 					Severity: "error",
 				})
 				continue
@@ -153,7 +153,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 						violations = append(violations, Violation{
 							Rule:     "coverage_metric_missing",
 							Message:  fmt.Sprintf("in-scope changed file %s has coverage records but is missing the explicitly-declared %q metric — refusing to pass with a declared metric silently unmeasured", path, metric),
-							File:     path,
+							File:     NormalizePath(scope.ProjectRoot, path),
 							Severity: "error",
 						})
 					}
@@ -176,7 +176,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 						violations = append(violations, Violation{
 							Rule:     "coverage_exclusion",
 							Message:  fmt.Sprintf("coverage requirement for changed file %s (metric %s) is suppressed by a pack-declared exclusion%s", path, coverageMetricLabel(record), coverageExclusionReason(record)),
-							File:     path,
+							File:     NormalizePath(scope.ProjectRoot, path),
 							Severity: "warning",
 						})
 					}
@@ -204,7 +204,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 					violations = append(violations, Violation{
 						Rule:     "coverage_threshold",
 						Message:  fmt.Sprintf("file %s coverage %d/%d (%s) below threshold %d%%", path, record.Covered, record.Total, coverageMetricLabel(record), threshold),
-						File:     path,
+						File:     NormalizePath(scope.ProjectRoot, path),
 						Severity: "error",
 					})
 				}
@@ -259,7 +259,7 @@ func coverageExclusionReason(r check.CoverageRecord) string {
 const coverageDupPairSep = "\t"
 
 // indexCoverageByPathMetric builds a (path, metric)-keyed index over the canonical
-// records (REQ-001): the outer key is the normalizeScopePath project-relative path
+// records (REQ-001): the outer key is the NormalizePath project-relative path
 // (so it matches scope paths regardless of the producer's path style, exactly as the
 // old path-keyed index did), the inner key is the Metric label, and the value is the
 // canonical record. A file carrying line AND branch retains BOTH — neither overwrites
@@ -271,7 +271,7 @@ func indexCoverageByPathMetric(coverage []check.CoverageRecord) (map[string]map[
 	byPathMetric := make(map[string]map[string]check.CoverageRecord, len(coverage))
 	var dupKeys []string
 	for _, r := range coverage {
-		path := normalizeScopePath("", r.Path)
+		path := NormalizePath("", r.Path)
 		inner, ok := byPathMetric[path]
 		if !ok {
 			inner = make(map[string]check.CoverageRecord)
@@ -380,11 +380,11 @@ func coveragePathsInScope(coverage []check.CoverageRecord, scope *GateScope, cla
 	set := map[string]struct{}{}
 	if scope == nil || scope.Mode == GateScopeModeAll {
 		for _, r := range coverage {
-			set[normalizeScopePath("", r.Path)] = struct{}{}
+			set[NormalizePath("", r.Path)] = struct{}{}
 		}
 	} else {
 		for _, f := range scope.Files {
-			clean := normalizeScopePath(scope.ProjectRoot, f)
+			clean := NormalizePath(scope.ProjectRoot, f)
 			// The MEASURABLE-SOURCE decision comes from the pack-declared globs
 			// (SourceClassifier), never a baked extension literal (REQ-002): a path
 			// is in-scope-to-measure iff it matches a declared source glob and no
@@ -545,7 +545,7 @@ func coverageSpecRelevantToCodeScope(spec SpecVerification, scope *GateScope, in
 		return false
 	}
 	for _, file := range scope.Files {
-		if coverageSpecRelevantToFile(spec, normalizeScopePath("", file), includeRootCommand) {
+		if coverageSpecRelevantToFile(spec, NormalizePath("", file), includeRootCommand) {
 			return true
 		}
 	}

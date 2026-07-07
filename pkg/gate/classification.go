@@ -41,14 +41,14 @@ func NewSourceClassifier(source, test []string) SourceClassifier {
 // baked extension survives (CLM-009). Matching is on the project-relative slash
 // path, normalized to the same form the scope and record index use.
 func (c SourceClassifier) IsMeasurableSource(path string) bool {
-	norm := normalizeScopePath("", path)
+	norm := NormalizePath("", path)
 	return matchesAnyGlob(c.source, norm) && !matchesAnyGlob(c.test, norm)
 }
 
 // IsTestFile reports whether path matches at least one declared TEST glob. It
 // reads exactly the test set retained by NewSourceClassifier (the Seed 2 seam).
 func (c SourceClassifier) IsTestFile(path string) bool {
-	norm := normalizeScopePath("", path)
+	norm := NormalizePath("", path)
 	return matchesAnyGlob(c.test, norm)
 }
 

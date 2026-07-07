@@ -1,0 +1,572 @@
+---
+plan_id: PLAN-ISSUE-046
+spec_id: ISSUE-046
+created: "2026-07-06"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ROOT CAUSE (verified in tree 2026-07-06):
+  EnrichViolationIdentity (pkg/gate/baseline.go:174-183) builds the baseline key
+  as `Rule | File | RegionHash` and folds `File` in RAW. `File` originates from
+  the SARIF `artifactLocation.uri` (pkg/check/parsers.go:112-116, parseSarif) and
+  reaches the identity through the findings bridge gate.Violation{File: v.File,…}
+  (cmd/backstop/pack_gate.go:722-733) with NO normalization anywhere on the path.
+  runFindingsEngine (pack_gate.go:573-637) legitimately hands the engine two
+  structurally different targets by scope — full scope appends the project-root
+  DIRECTORY arg (`projectRoot`, :632-634), diff scope appends the explicit
+  repo-relative changed-file LIST (`scope.Files`, :634-636) — so semgrep echoes
+  the SAME file's path in a different textual form (e.g. `./pkg/x.go` from the
+  directory walk vs `pkg/x.go` from an explicit arg). That textual difference
+  flows unnormalized into Identity, so IdentityHash differs purely by invocation
+  shape. RegionHash (the content half, pkg/check/parsers.go:133-152) cannot
+  rescue the match because File participates in Identity independently.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE FIX — ONE canonical repo-relative path form for every violation identity
+  ─────────────────────────────────────────────────────────────────────────
+  normalizeScopePath (pkg/gate/scope.go:91-102: filepath.Clean + filepath.ToSlash
+  + abs→rel-against-projectRoot) ALREADY exists and ALREADY no-ops the abs→rel
+  step when projectRoot=="" (scope.go:96). It is wired ONLY into the scope FILTER
+  (GateScope.Contains, scope.go:64-70), never into identity. Promote it to a
+  single EXPORTED helper (`gate.NormalizePath(projectRoot, file)`) — the SAME one
+  implementation, not two that can drift — and apply it at BOTH:
+    (a) the point File is SET (the findings bridge, pack_gate.go:722-733, which
+        has projectRoot in scope) so every gate.Violation carries a canonical
+        repo-relative File everywhere it is consumed — identity AND the raw-path
+        consumers isExistingCodeViolation (baseline.go:170, keys v.File against
+        changedFiles) and CompareBaseline's scope.Contains(old.File);
+    (b) the identity chokepoint EnrichViolationIdentity itself — call
+        NormalizePath("", v.File) (projectRoot empty → the idempotent
+        Clean+ToSlash+strip-`./` subset, NOT a second implementation) before
+        folding File into Identity, so a canonical identity is guaranteed even for
+        a producer that skips (a). Every identity flows through this one function
+        (baseline write baseline.go:99-101, baseline load :79-81, current-run
+        compare :122/:129), so canonicalizing here fixes ALL dimensions at once.
+  DO NOT change runFindingsEngine's scope-branch invocation shape (:632-636) — the
+  directory-vs-explicit-file difference is legitimate and load-bearing (ISSUE-010
+  diff-scoping keeps rule-fed engines off the whole repo). Normalize the OUTPUT
+  path, never force identical engine INPUTS.
+
+  ─────────────────────────────────────────────────────────────────────────
+  OTHER-DIMENSIONS AUDIT (planned in Phase 2 — CLM-008)
+  ─────────────────────────────────────────────────────────────────────────
+  The three non-pack_engines traceability dimensions build Violation.File through
+  their OWN paths, not runFindingsEngine's scope-branch, so they are lower risk
+  but not verified clean:
+    - coverage (pkg/gate/step_coverage.go:117/136/156/179/207) — File = a coverage
+      record `path`. Records were made repo-relative in ISSUE-045; the FILTER
+      already calls normalizeScopePath(scope.ProjectRoot,…) (:387) but the
+      VIOLATION construction does not.
+    - contract (pkg/gate/contract_verdict.go:65/73/89) — File = r.Entry.File (a
+      spec-declared contract path).
+    - test_verification (pkg/gate/step_testverify.go:449/497) — File = a
+      spec-declared test/spec path.
+    - substantiveness (pkg/gate/substantiveness_join.go:158,
+      substantiveness_q1_dispatch.go:64) — File = v.File carried from an engine
+      finding.
+  Because EnrichViolationIdentity's chokepoint canonicalization (fix (b)) applies
+  to EVERY violation, the identity-STABILITY property is covered for these
+  dimensions by Phase 1 alone. Phase 2 additionally routes each dimension's
+  Violation.File through NormalizePath(scope.ProjectRoot,…) at construction so a
+  dimension that ever emits an absolute path (which the projectRoot-free chokepoint
+  cannot rel-ify) also carries a canonical repo-relative File — one path form
+  across the whole gate. The audit confirms which dimensions actually need it and
+  normalizes defensively; it must not weaken any dimension's existing behavior.
+
+  ─────────────────────────────────────────────────────────────────────────
+  RegionHash — VERIFY, DO NOT REWRITE (issue constraint)
+  ─────────────────────────────────────────────────────────────────────────
+  The issue flags RegionHash/sarifFingerprint stability as an ASSUMPTION to
+  check empirically, and constrains the fix to the File component "unless
+  investigation shows sarifFingerprint itself is also unstable in practice."
+  Phase 3's real-dispatch e2e (CLM-007) asserts semgrep's partialFingerprints (or
+  the snippet fallback) are BYTE-IDENTICAL across a full-scope and a diff-scope
+  invocation of the same rule against the same file. sarifFingerprint is by design
+  content-based/position-independent (parsers.go:133-152), so the default plan
+  VERIFIES it stable and does not touch it. If — and only if — the empirical
+  assertion FAILS, that is a distinct RegionHash-instability defect beyond this
+  plan's File-normalization scope: STOP and report it for a follow-up issue rather
+  than silently expanding scope into a fingerprint-scheme rewrite here.
+
+  ─────────────────────────────────────────────────────────────────────────
+  INTEGRATION-GAP CLOSER (Phase 3 — ISSUE-045 lesson)
+  ─────────────────────────────────────────────────────────────────────────
+  A pure unit test that feeds pre-shaped gate.Violation records straight into
+  EnrichViolationIdentity can pass while the REAL SARIF dispatch path stays broken
+  (the ISSUE-045 lesson: unit tests fed records directly hid a dispatch-shaped
+  bug). Phase 3 adds a REAL-dispatch e2e that runs the actual findings dispatch
+  under BOTH scope shapes (full-scope directory arg vs diff-scope explicit-file
+  list) against the same fixture and asserts the resulting IdentityHash is
+  byte-identical — proving the fix holds through the real semgrep path, not just
+  the identity math.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMANDS — deliberate deviation
+  ─────────────────────────────────────────────────────────────────────────
+  Inner-loop verification tasks run `go test` (scoped to the touched packages),
+  NOT `backstop code check`, because `code check` is itself DIFF-SCOPED — the very
+  invocation-shape confound this bug is about — and running the fix's regression
+  suite under a diff-scoped harness could mask or perturb exactly what we are
+  pinning. The final phase runs the full `backstop gate` kill chain plus a real
+  `backstop baseline generate` → `backstop gate` cycle. The change touches only
+  .go files (pkg/gate, pkg/check, cmd/backstop) and NO backstop artifact files
+  (.spec.md / .plan.yml / .issue.md), so `backstop gate` subsumes final
+  verification and no separate `backstop artifact validate` is required.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (enumerated from the issue's Solution steps + Tests-to-add; every task
+  maps ≥1; every claim mapped by ≥1 task)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — ONE exported path-normalization helper (promoted normalizeScopePath →
+            gate.NormalizePath, single implementation) is applied so every
+            violation's File is a canonical repo-relative form before it enters
+            identity: at the findings-bridge construction site (with projectRoot)
+            AND at the EnrichViolationIdentity chokepoint (projectRoot-free
+            idempotent subset). No second normalization implementation.
+  CLM-002 — A finding's Identity/IdentityHash computed via the full-scope path
+            form and via the diff-scope path form for the IDENTICAL violation
+            (same rule, same file, same content) is BYTE-IDENTICAL — the crux.
+  CLM-003 — A `baseline generate` (full scope) immediately followed by a `gate`
+            (diff scope) against the SAME tree produces ZERO new_violations for
+            content present in the just-generated baseline (direct regression
+            guard for the ISSUE-045 16-finding repro).
+  CLM-004 — A finding whose surrounding file shifts (unrelated edit changes line
+            numbers / file-list ordering) but whose own rule+file+content is
+            unchanged KEEPS its identity (grandfathers) — the fix must not
+            over-block on incidental position change.
+  CLM-005 — A finding whose rule+file+content genuinely changed gets a NEW,
+            distinct identity (still blocks) — the anti-false-grandfather /
+            silent-green guard; normalization must NOT collapse distinct findings
+            into one stale baseline entry.
+  CLM-006 — runFindingsEngine's scope-dependent invocation shape (directory arg
+            vs explicit-file list) is UNCHANGED; the fix normalizes the OUTPUT
+            path only, never forces identical engine inputs (ISSUE-010 preserved).
+  CLM-007 — RegionHash/sarifFingerprint is EMPIRICALLY verified byte-identical
+            across a full-scope and a diff-scope invocation of the same rule
+            against the same file — verified, not rewritten (issue constraint).
+  CLM-008 — Every non-pack_engines dimension's Violation.File construction
+            (coverage / contract / test_verification / substantiveness) is audited
+            and routed through the same NormalizePath at construction, so ALL
+            violation identities use one canonical repo-relative path form; no
+            dimension's existing behavior is weakened.
+  CLM-009 — A REAL findings-dispatch e2e runs the actual SARIF path under BOTH
+            scope shapes (full-scope directory walk vs diff-scope explicit files)
+            against the same fixture and asserts byte-identical IdentityHash —
+            proving the fix through the real path, not just the identity math.
+  CLM-010 — Language-neutral / thin-executor: normalization is path-string-only
+            (no baked language noun, no extension literal, no toolchain), AND the
+            full `backstop gate` + `baseline generate`→`gate` cycle passes with
+            pre-existing findings grandfathering cleanly and no dimension
+            regressing.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Core chokepoint — canonical-path identity (the load-bearing fix)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Canonical Repo-Relative Path in Violation Identity"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing identity tests: byte-identical across scope path forms; shifted-unchanged grandfathers; changed-content gets new identity"
+        description: |
+          Add pkg/gate/baseline_identity_test.go exercising the REAL
+          EnrichViolationIdentity (and CompareBaseline where a cycle is clearer)
+          with hand-built gate.Violation values that differ ONLY in the textual
+          form of File / in Line — reproducing the scope-shape difference directly
+          (no engine run in this unit test). Reuse existing package helpers; do not
+          re-declare hashing or Violation constructors.
+
+          Mandated test names (exact):
+            - TestEnrichViolationIdentity_ScopePathForms_ByteIdenticalIdentity
+              (CLM-002): build two Violations identical in Rule ("backstop/
+              go-standards/error-wrapping"), RegionHash, Severity, SourcePack, and
+              differing ONLY in File — the diff-scope form "pkg/pack/manifest.go"
+              vs the full-scope directory-walk form "./pkg/pack/manifest.go" (also
+              cover a "pkg/pack/./manifest.go" and a trailing-form variant). Assert
+              EnrichViolationIdentity yields IDENTICAL .Identity AND identical
+              .IdentityHash for every form. THIS is the crux regression test — it
+              FAILS today because raw File differs and passes once TASK-002 lands.
+            - TestEnrichViolationIdentity_ShiftedUnchangedFinding_KeepsIdentity
+              (CLM-004): two Violations with the SAME Rule, File, RegionHash,
+              Severity, SourcePack but DIFFERENT Line (an unrelated edit shifted the
+              finding). Assert identical IdentityHash — Line must NOT participate in
+              identity, so a shifted-but-unchanged finding grandfathers.
+            - TestEnrichViolationIdentity_ChangedContent_GetsNewIdentity (CLM-005):
+              (a) same Rule+File but DIFFERENT RegionHash → DIFFERENT IdentityHash;
+              (b) same Rule+RegionHash but a genuinely DIFFERENT File
+              ("pkg/pack/manifest.go" vs "pkg/pack/loader.go") → DIFFERENT
+              IdentityHash. The anti-false-grandfather guard: normalization must not
+              collapse genuinely distinct findings — assert the two hashes are NOT
+              equal.
+            - TestCompareBaseline_GenerateThenDiffScope_PreexistingGrandfathers
+              (CLM-003): construct a baseline (via NewBaselineArtifactFromSteps or
+              a direct BaselineArtifact) whose single violation carries the
+              full-scope File form, then run CompareBaseline over a current slice
+              carrying the SAME violation in the diff-scope File form under a
+              GateScope{Mode: diff} that Contains the file. Assert
+              len(NewViolations)==0 (grandfathered) and it is not mis-counted Fixed.
+              FAILS today (identity mismatch → false "new"); passes after TASK-002.
+
+          Do NOT touch baseline.go / scope.go in this task.
+        files:
+          - pkg/gate/baseline_identity_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Promote normalizeScopePath to exported gate.NormalizePath; canonicalize File at the findings bridge and the identity chokepoint"
+        description: |
+          Land the ONE-canonical-path fix (issue Solution steps 1 & 2).
+
+          pkg/gate/scope.go — promote the existing normalizeScopePath to an
+          EXPORTED single helper `func NormalizePath(projectRoot, file string)
+          string` with the identical body (filepath.Clean + filepath.ToSlash +
+          abs→rel-against-projectRoot; already no-ops abs→rel when projectRoot==""
+          at :96). Keep GateScope.Contains and newGateScope calling it (rename the
+          call sites, or make normalizeScopePath a thin alias) so there remains
+          EXACTLY ONE normalization implementation — no drift.
+
+          pkg/gate/baseline.go — in EnrichViolationIdentity, canonicalize File
+          BEFORE folding it into Identity: `file := NormalizePath("", v.File)` and
+          use `file` in the `Rule|File|RegionHash` string AND write it back to
+          v.File. projectRoot-empty applies only the idempotent Clean+ToSlash+
+          strip-`./` subset (the SAME function, not a second impl), so `./pkg/x.go`
+          and `pkg/x.go` collapse to one identity. This chokepoint runs on baseline
+          write (:99-101), baseline load (:79-81), and every current violation in
+          CompareBaseline (:122/:129), so all dimensions get a canonical identity.
+
+          cmd/backstop/pack_gate.go — in runFindingsEngine's bridge (the
+          gate.Violation{…} construction at :722-733, which has projectRoot in
+          scope), set File via gate.NormalizePath(projectRoot, v.File) so every
+          bridged violation carries a canonical repo-relative File everywhere it is
+          consumed — including the raw-path consumers isExistingCodeViolation
+          (baseline.go:170) and CompareBaseline's scope.Contains(old.File). DO NOT
+          alter the scope-branch invocation shape at :632-636 (directory arg vs
+          explicit-file list stays exactly as-is — CLM-006, ISSUE-010).
+
+          Bake NO language noun: NormalizePath is path-string-only (no extension
+          literal, no module/go.mod knowledge, no toolchain) — CLM-010. Do NOT
+          touch pkg/check/parsers.go's sarifFingerprint in this task (RegionHash is
+          verified, not rewritten — see notes / Phase 3).
+        files:
+          - pkg/gate/scope.go
+          - pkg/gate/baseline.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "go test pkg/gate + cmd/backstop findings dispatch — identity tests green, no scope-branch or baseline regression"
+        description: |
+          Inner-loop verification (go test, NOT backstop code check — code check is
+          diff-scoped, the very confound under test; see notes). Run:
+
+              go test ./pkg/gate/... ./cmd/backstop/...
+
+          Confirm the four TASK-001 mandated tests pass
+          (TestEnrichViolationIdentity_ScopePathForms_ByteIdenticalIdentity,
+          _ShiftedUnchangedFinding_KeepsIdentity, _ChangedContent_GetsNewIdentity,
+          TestCompareBaseline_GenerateThenDiffScope_PreexistingGrandfathers) and
+          that the EXISTING gate suite stays green — especially the scope-filter
+          tests (GateScope.Contains / filterViolations), the findings-dispatch
+          tests exercising runFindingsEngine's :632-636 scope branch (that arg
+          shaping must be byte-unchanged), and any baseline compare/load/write
+          tests. Report pass/fail per mandated test and any perturbation.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/scope.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Other-dimensions audit — one canonical path form gate-wide
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Normalize Violation.File Across Coverage / Contract / Test-Verification / Substantiveness"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing dimension tests: coverage/contract/testverify/substantiveness violations carry canonical repo-relative File"
+        description: |
+          Add pkg/gate/dimension_pathnorm_test.go asserting each non-pack_engines
+          dimension emits a canonical repo-relative Violation.File and yields a
+          scope-stable identity. Drive the REAL scoped step funcs
+          (StepCoverageThresholdScopedFunc, StepContractSignatureScopedFunc,
+          StepTestVerification*, the substantiveness join) with a GateScope whose
+          ProjectRoot is set, feeding each an input that carries a non-canonical
+          path form (a `./`-prefixed and/or an absolute path under ProjectRoot) for
+          a file that is genuinely in scope. Reuse existing per-dimension test
+          helpers; do not re-declare them.
+
+          Mandated test names (exact):
+            - TestCoverageViolation_FileIsCanonicalRepoRelative (CLM-008): a
+              coverage record whose path arrives as "./pkg/x.go" (or an absolute
+              ProjectRoot-joined form) produces a Violation whose File is
+              "pkg/x.go".
+            - TestContractViolation_FileIsCanonicalRepoRelative (CLM-008): a
+              contract entry whose File is "./pkg/x.go" produces a Violation.File
+              of "pkg/x.go".
+            - TestTestVerifyViolation_FileIsCanonicalRepoRelative (CLM-008): a
+              mandated-test/spec path in non-canonical form produces a canonical
+              repo-relative Violation.File.
+            - TestSubstantivenessViolation_FileIsCanonicalRepoRelative (CLM-008): a
+              carried engine finding with a "./"-prefixed File produces a canonical
+              Violation.File.
+            - TestAllDimensions_SameFileDifferentForm_ByteIdenticalIdentity
+              (CLM-008): for each dimension, two inputs differing only in File
+              textual form yield an IDENTICAL EnrichViolationIdentity IdentityHash
+              (belt-and-suspenders on the Phase-1 chokepoint through the real
+              construction paths).
+
+          These FAIL wherever a dimension emits File verbatim; pass after TASK-005.
+        files:
+          - pkg/gate/dimension_pathnorm_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: refactor
+        title: "Route each dimension's Violation.File through NormalizePath(scope.ProjectRoot, …) at construction"
+        description: |
+          Audit and normalize the four non-pack_engines dimensions so their
+          Violation.File is set via NormalizePath(scope.ProjectRoot, path) at the
+          construction site (the same exported helper from TASK-002 — still exactly
+          one implementation). This is defense + correctness for any dimension that
+          can emit an absolute path (which the projectRoot-free chokepoint cannot
+          rel-ify); the identity-STABILITY property is already covered by Phase 1,
+          so this must NOT change any dimension's existing pass/fail behavior — only
+          canonicalize the File string.
+
+          Touch points confirmed in the audit:
+            - pkg/gate/step_coverage.go — the Violation constructions at :117/:136/
+              :156/:179/:207 (File: dupPath / path). Normalize `path`/`dupPath`
+              against scope.ProjectRoot at construction. (coveragePathsInScope
+              already normalizes on the FILTER path at :387 — reuse the same helper
+              here for the VIOLATION path.)
+            - pkg/gate/contract_verdict.go — :65/:73/:89 (File: r.Entry.File /
+              locationFile(...)). Normalize against the contract step's ProjectRoot.
+            - pkg/gate/step_testverify.go — :449/:497 (File: path / filePath).
+              Normalize against ProjectRoot.
+            - pkg/gate/substantiveness_join.go:158 and
+              pkg/gate/substantiveness_q1_dispatch.go:64 (File: v.File). Normalize
+              the carried finding's File against ProjectRoot.
+          If the audit finds a dimension is ALREADY guaranteed repo-relative and a
+          ProjectRoot is unavailable at its site, document that in a comment and
+          rely on the Phase-1 chokepoint rather than plumbing ProjectRoot invasively
+          — but prefer normalizing where ProjectRoot is already threaded (all four
+          scoped step funcs receive *GateScope). Introduce NO language noun.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/contract_verdict.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/substantiveness_q1_dispatch.go
+        claims:
+          - CLM-008
+          - CLM-010
+        depends_on:
+          - TASK-004
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "go test pkg/gate — dimension normalization green, no dimension behavior regressed"
+        description: |
+          Inner-loop verification (go test, not code check). Run:
+
+              go test ./pkg/gate/...
+
+          Confirm the five TASK-004 mandated tests pass and that EVERY existing
+          per-dimension suite stays green with UNCHANGED verdicts — coverage
+          (step_coverage*_test.go incl. the ISSUE-045 rootpath / ISSUE-034 deletion
+          tests), contract (step_contract / contract_verdict tests), test
+          verification, and substantiveness. Any change in a dimension's
+          pass/fail COUNT (not just File string) is a regression to investigate —
+          this task only canonicalizes paths. Report pass/fail and any verdict
+          drift.
+        files:
+          - pkg/gate/step_coverage.go
+          - pkg/gate/contract_verdict.go
+          - pkg/gate/step_testverify.go
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/substantiveness_q1_dispatch.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Real-dispatch e2e — byte-identical identity + RegionHash stability
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Real SARIF-Dispatch E2E (integration-gap closer + RegionHash verification)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Failing real-dispatch e2e: same file under full-scope vs diff-scope yields byte-identical identity; partialFingerprints stable"
+        description: |
+          Add cmd/backstop/baseline_identity_dispatch_e2e_test.go — the acceptance-
+          critical integration-gap closer (CLM-009, ISSUE-045 lesson: records fed
+          directly can hide a dispatch-shaped bug). It drives the REAL findings
+          dispatch (dispatchPackEngines → runFindingsEngine, real convert/parse, a
+          real or faithfully path-shaping runner) over the SAME fixture file under
+          BOTH scope shapes and asserts one identity. Guard the production seams are
+          not stubbed away (mirror the guards in dispatch_coverage_e2e_test.go /
+          the existing findings dispatch e2e).
+
+          Add a fixture (under cmd/backstop/testdata/) with a semgrep-engine pack
+          and one source file that trips exactly one rule, so both invocations
+          report the identical finding.
+
+          Mandated test names (exact):
+            - TestBaselineIdentity_RealDispatch_FullScopeVsDiffScope_ByteIdentical
+              (CLM-009, CLM-002): invoke the dispatch once with scope=nil/ModeAll
+              (semgrep gets the directory arg — the `./`-form path) and once with a
+              diff GateScope whose Files is the explicit repo-relative file (semgrep
+              gets the explicit arg). EnrichViolationIdentity the resulting
+              violations from each run and assert the two IdentityHash values are
+              BYTE-IDENTICAL. FAILS through the real path before Phase 1; passes
+              after.
+            - TestSarifFingerprint_StableAcrossScopeInvocations (CLM-007): from the
+              same two real invocations, assert the finding's RegionHash
+              (sarifFingerprint over partialFingerprints, else snippet) is
+              byte-identical across full-scope and diff-scope — the empirical
+              verification the issue demands. If this assertion FAILS, RegionHash is
+              itself scope-unstable: STOP and report it as a distinct follow-up
+              (out of this plan's File-normalization scope — see notes), do NOT
+              expand into a fingerprint-scheme rewrite.
+            - TestBaselineCycle_GenerateThenGate_ZeroNew (CLM-003): generate a
+              baseline artifact from a full-scope run, then CompareBaseline a
+              diff-scope run of the same tree against it; assert zero NewViolations
+              for the pre-existing finding — the real-path analogue of the
+              ISSUE-045 16-finding grandfather repro.
+        files:
+          - cmd/backstop/baseline_identity_dispatch_e2e_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "go test cmd/backstop — real-dispatch e2e green through both scope shapes"
+        description: |
+          Inner-loop verification (go test, not code check). Run:
+
+              go test ./cmd/backstop/...
+
+          Confirm the three TASK-007 mandated tests pass end-to-end through the REAL
+          findings-dispatch path
+          (TestBaselineIdentity_RealDispatch_FullScopeVsDiffScope_ByteIdentical,
+          TestSarifFingerprint_StableAcrossScopeInvocations,
+          TestBaselineCycle_GenerateThenGate_ZeroNew) and that no existing
+          cmd/backstop findings-dispatch or baseline test regressed. If
+          TestSarifFingerprint_StableAcrossScopeInvocations fails, report the
+          RegionHash-instability finding explicitly (do not paper over it). Report
+          pass/fail per mandated test.
+        files:
+          - cmd/backstop/baseline_identity_dispatch_e2e_test.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-007
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification — full gate + real baseline cycle
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — backstop gate + baseline generate→gate cycle"
+    tasks:
+      - id: TASK-009
+        type: verification
+        title: "backstop gate + baseline generate→gate cycle — pre-existing findings grandfather, no dimension regresses"
+        description: |
+          Final comprehensive verification via the full kill chain. The change
+          touches only .go files (pkg/gate, pkg/check consumers, cmd/backstop) and
+          NO backstop artifact files, so `backstop gate` subsumes verification and
+          no separate `backstop artifact validate` is needed.
+
+          Run, in order:
+            1. backstop baseline generate      (full-scope capture)
+            2. backstop gate                    (diff-scope compare)
+
+          Confirm the ACCEPTANCE invariants (CLM-010, and the whole fix):
+            - The `generate`→`gate` cycle grandfathers cleanly: pre-existing
+              findings captured by `baseline generate` produce ZERO new_violations
+              under the immediately-following diff-scope `gate` — including the
+              ISSUE-045 repro class (the 13 error-wrapping + 2 idiomatic-global + 1
+              pack_gate.go go-standards findings that surfaced as false "new"),
+              once the baseline is regenerated with the normalized identities
+              (CLM-003).
+            - `backstop gate` passes its full kill chain: code check, test
+              verification, substantiveness, coverage, and contracts — confirming
+              the Phase-1 chokepoint change and the Phase-2 dimension normalization
+              regressed NO other dimension (no dimension's violation COUNT changed
+              except the intended grandfathering; enumerate any coverage/contract/
+              substantiveness delta).
+            - The fix stayed language-neutral: no baked language noun entered
+              pkg/gate or cmd/backstop dispatch — NormalizePath is path-only
+              (CLM-010).
+            - runFindingsEngine's scope-branch arg shaping is unchanged (CLM-006).
+          Report the final gate status, the baseline-cycle new_violations count
+          (must be 0 for pre-existing content), and any dimension-count delta.
+        files:
+          - pkg/gate/baseline.go
+          - pkg/gate/scope.go
+          - pkg/gate/step_coverage.go
+          - pkg/gate/contract_verdict.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-008
+          - TASK-002
+          - TASK-005

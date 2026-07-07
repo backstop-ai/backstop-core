@@ -60,8 +60,13 @@ func dispatchAstGrepRule(packDir, rulePath, ruleID, packName, scanTarget string)
 			rid = ruleID
 		}
 		out = append(out, Violation{
-			Rule:       pack.NamespacedRuleID(packName, rid),
-			File:       v.File,
+			Rule: pack.NamespacedRuleID(packName, rid),
+			// Canonical repo-relative File (ISSUE-046). No ProjectRoot is threaded into
+			// this ast-grep dispatch; ast-grep reports repo-relative paths, so
+			// NormalizePath("", …) — the idempotent Clean+ToSlash+strip-"./" subset of
+			// the SINGLE helper — canonicalizes them. Any absolute path is handled by
+			// the Phase-1 identity chokepoint.
+			File:       NormalizePath("", v.File),
 			Message:    v.Message,
 			Severity:   nonEmptySeverity(v.Severity),
 			SourcePack: packName,

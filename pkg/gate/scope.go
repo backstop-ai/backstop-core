@@ -65,7 +65,7 @@ func (s *GateScope) Contains(path string) bool {
 	if s == nil || s.Mode == GateScopeModeAll {
 		return true
 	}
-	_, ok := s.fileSet[normalizeScopePath(s.ProjectRoot, path)]
+	_, ok := s.fileSet[NormalizePath(s.ProjectRoot, path)]
 	return ok
 }
 
@@ -76,7 +76,7 @@ func (s *GateScope) Empty() bool {
 func newGateScope(projectRoot string, mode GateScopeMode, files []string, warnings []string) *GateScope {
 	set := make(map[string]struct{})
 	for _, file := range files {
-		if normalized := normalizeScopePath(projectRoot, file); normalized != "" {
+		if normalized := NormalizePath(projectRoot, file); normalized != "" {
 			set[normalized] = struct{}{}
 		}
 	}
@@ -88,7 +88,15 @@ func newGateScope(projectRoot string, mode GateScopeMode, files []string, warnin
 	return &GateScope{Mode: mode, Files: stable, Warnings: warnings, ProjectRoot: projectRoot, fileSet: set}
 }
 
-func normalizeScopePath(projectRoot, file string) string {
+// NormalizePath canonicalizes a file path into the ONE repo-relative form every
+// violation identity and scope decision uses. It is path-string-only — no
+// language noun, no extension literal, no toolchain knowledge (CLM-010): it
+// applies filepath.Clean + filepath.ToSlash and, when projectRoot is non-empty,
+// rel-ifies an absolute path against it. With projectRoot=="" the abs→rel step is
+// a no-op, so it degrades to the idempotent Clean+ToSlash+strip-"./" subset — the
+// SAME function used at the projectRoot-free identity chokepoint (baseline.go), so
+// there is exactly ONE normalization implementation with no drift.
+func NormalizePath(projectRoot, file string) string {
 	if strings.TrimSpace(file) == "" {
 		return ""
 	}

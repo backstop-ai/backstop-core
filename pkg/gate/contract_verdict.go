@@ -55,6 +55,16 @@ type ContractEngineResult struct {
 // SCANNED non-Go scope gets a normal verdict (CLM-034). No language imports
 // (CLM-014).
 func VerifyContractVerdict(r ContractEngineResult) (Violation, bool) {
+	// Canonical repo-relative contract File, computed ONCE (ISSUE-046).
+	// VerifyContractVerdict is a pure function with no ProjectRoot in scope; a
+	// spec-declared contract path is authored repo-relative, so NormalizePath("", …)
+	// — the idempotent Clean+ToSlash+strip-"./" subset of the SINGLE helper —
+	// canonicalizes it. It feeds BOTH the Violation.File AND the report Message: a
+	// contract violation carries no RegionHash, so baseline identity falls back to
+	// the Message, and a non-canonical path leaking into the Message would make the
+	// identity scope-unstable even with a canonical File field. An absolute spec
+	// path is not expected here; the Phase-1 identity chokepoint is the backstop.
+	file := NormalizePath("", r.Entry.File)
 	if r.Entry.Absent {
 		// Absence contract. The file-scanned guard fires FIRST: a scope that was
 		// not scanned (missing file / no scan record) is a loud config error, not a
@@ -62,7 +72,7 @@ func VerifyContractVerdict(r ContractEngineResult) (Violation, bool) {
 		if !r.Scanned {
 			return Violation{
 				Rule:     StepContractSignature,
-				File:     r.Entry.File,
+				File:     file,
 				Message:  fmt.Sprintf("absence assertion for symbol %s: declared scope %s was not scanned (missing or unscanned) — cannot confirm absence, refusing to pass silently", r.Entry.Name, contractScope(r.Entry)),
 				Severity: "error",
 			}, true
@@ -70,7 +80,7 @@ func VerifyContractVerdict(r ContractEngineResult) (Violation, bool) {
 		if r.Matched {
 			return Violation{
 				Rule:     StepContractSignature,
-				File:     locationFile(r, r.Entry.File),
+				File:     NormalizePath("", locationFile(r, r.Entry.File)),
 				Message:  fmt.Sprintf("symbol %s expected absent but present%s (forbidden symbol regression)", r.Entry.Name, locationSuffix(r)),
 				Severity: "error",
 			}, true
@@ -86,8 +96,8 @@ func VerifyContractVerdict(r ContractEngineResult) (Violation, bool) {
 	}
 	return Violation{
 		Rule:     StepContractSignature,
-		File:     r.Entry.File,
-		Message:  fmt.Sprintf("symbol %s signature not found or mismatched in %s: expected %q", r.Entry.Name, r.Entry.File, r.Entry.Signature),
+		File:     file,
+		Message:  fmt.Sprintf("symbol %s signature not found or mismatched in %s: expected %q", r.Entry.Name, file, r.Entry.Signature),
 		Severity: "error",
 	}, true
 }

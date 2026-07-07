@@ -722,8 +722,16 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	out := make([]gate.Violation, 0, len(checkViolations))
 	for _, v := range checkViolations {
 		out = append(out, gate.Violation{
-			Rule:        pack.NamespacedRuleID(manifest.NormalizedName, v.Rule),
-			File:        v.File,
+			Rule: pack.NamespacedRuleID(manifest.NormalizedName, v.Rule),
+			// Canonicalize the SARIF-echoed path to ONE repo-relative form (ISSUE-046)
+			// so every bridged violation carries a stable File everywhere it is
+			// consumed — identity AND the raw-path consumers isExistingCodeViolation /
+			// CompareBaseline's scope.Contains(old.File). projectRoot rel-ifies an
+			// absolute artifactLocation.uri; a "./"-prefixed walk form collapses to the
+			// explicit-arg form. The scope-branch invocation shape (:632-636) is
+			// untouched — we normalize the OUTPUT path, never the engine INPUTS
+			// (CLM-006, ISSUE-010 preserved).
+			File:        gate.NormalizePath(projectRoot, v.File),
 			Message:     v.Message,
 			Severity:    nonEmpty(v.Severity, "error"),
 			SourcePack:  manifest.NormalizedName,

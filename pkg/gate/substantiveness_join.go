@@ -154,8 +154,13 @@ func HollowFindingsToViolations(hollow []Violation) []Violation {
 	out := make([]Violation, 0, len(hollow))
 	for _, v := range hollow {
 		out = append(out, Violation{
-			Rule:     StepTestSubstantiveness,
-			File:     v.File,
+			Rule: StepTestSubstantiveness,
+			// Canonical repo-relative File (ISSUE-046). This join has no ProjectRoot
+			// threaded; the carried finding's File is a pack-reported repo-relative
+			// path, so NormalizePath("", …) — the idempotent Clean+ToSlash+strip-"./"
+			// subset of the SINGLE helper — canonicalizes it. Any absolute path is
+			// handled by the Phase-1 identity chokepoint.
+			File:     NormalizePath("", v.File),
 			Message:  stripFuncToken(v.Message),
 			Severity: "error",
 		})

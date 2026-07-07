@@ -172,6 +172,17 @@ func isExistingCodeViolation(v Violation, changedFiles map[string]struct{}) bool
 }
 
 func EnrichViolationIdentity(v Violation) Violation {
+	// Canonicalize File BEFORE it enters identity so a finding has ONE identity
+	// regardless of the textual path form the SARIF engine emitted by invocation
+	// scope (full-scope directory-walk "./pkg/x.go" vs diff-scope explicit
+	// "pkg/x.go"). projectRoot=="" applies only the idempotent
+	// Clean+ToSlash+strip-"./" subset of the SINGLE NormalizePath helper (never a
+	// second implementation). This chokepoint runs on baseline write/load and every
+	// current violation in CompareBaseline, so all dimensions get one canonical
+	// identity (ISSUE-046). Write it back to File too, so the raw-path consumers
+	// (isExistingCodeViolation, CompareBaseline's scope.Contains(old.File)) key on
+	// the same canonical form.
+	v.File = NormalizePath("", v.File)
 	identity := strings.TrimSpace(v.Rule) + "|" + strings.TrimSpace(v.File)
 	region := strings.TrimSpace(v.RegionHash)
 	if region == "" {
