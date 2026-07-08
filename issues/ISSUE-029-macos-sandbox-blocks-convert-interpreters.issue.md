@@ -6,13 +6,16 @@ issue:
   id: ISSUE-029
   title: "macOS sandbox profile denies dyld reads — every convert script using a dynamically-linked interpreter SIGABRTs"
   type: bug
-  status: ready
+  status: closed
   created: "2026-06-23"
+  closed: "2026-07-08"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-029
 
 verification:
   level: security
@@ -115,6 +118,10 @@ contracts:
 ---
 
 # ISSUE-029: macOS sandbox profile denies dyld reads — every convert script using a dynamically-linked interpreter SIGABRTs
+
+## Resolution
+
+Relaxed the macOS sandbox profile to grant scoped dyld/library reads so convert scripts with dynamically-linked interpreters run, while keeping deny-default/deny-network/deny-write.
 
 ## Problem
 

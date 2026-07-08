@@ -7,16 +7,23 @@ issue:
   id: ISSUE-031
   title: "Artifact schemas lack terminal / end-of-life status states across all artifact types"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-24"
+  closed: "2026-07-08"
 
 complexity:
   scope: cross-cutting
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-031
 ---
 
 # Artifact schemas lack terminal / end-of-life status states across all artifact types
+
+## Resolution
+
+Added terminal/end-of-life status states (replaced/canceled/deprecated; bundle delivered) across all artifact schemas, with validation and gate exclusion of retired artifacts.
 
 ## Problem
 

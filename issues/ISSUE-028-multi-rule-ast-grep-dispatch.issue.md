@@ -6,16 +6,23 @@ issue:
   id: ISSUE-028
   title: "Multi-rule ast-grep packs silently produce vacuous green: `--rule <DIR>` is rejected by ast-grep 0.43.0"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-23"
+  closed: "2026-07-08"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-028
 ---
 
 # ISSUE-028: Multi-rule ast-grep packs silently produce vacuous green: `--rule <DIR>` is rejected by ast-grep 0.43.0
+
+## Resolution
+
+Retired the broken rule-dir input mode; multi-rule ast-grep now dispatches via config-file/--config with a pack-shipped sgconfig.yml, proven by a real un-stubbed multi-rule end-to-end test.
 
 ## Problem
 

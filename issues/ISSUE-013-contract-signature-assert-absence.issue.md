@@ -6,16 +6,23 @@ issue:
   id: ISSUE-013
   title: "contract_signature gate step can only verify a symbol EXISTS, not that it is ABSENT — deletions can't be enforced via contracts"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-013
 ---
 
 # contract_signature gate step can only verify a symbol EXISTS, not that it is ABSENT — deletions can't be enforced via contracts
+
+## Resolution
+
+contract_signature can now assert a symbol is ABSENT via an explicit `absent:` flag — a deletion regression guard that fails if the symbol reappears.
 
 ## Problem
 

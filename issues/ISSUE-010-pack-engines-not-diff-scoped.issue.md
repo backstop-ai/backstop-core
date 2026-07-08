@@ -6,16 +6,23 @@ issue:
   id: ISSUE-010
   title: "pack_engines gate step is not diff-scoped — rule-fed findings engines scan the whole repository"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-010
 ---
 
 # pack_engines gate step is not diff-scoped — rule-fed findings engines scan the whole repository
+
+## Resolution
+
+Diff-scoped the pack_engines rule-fed findings engines to scope.Files (was scanning the whole repo); the project-wide toolchain pass stays whole-repo.
 
 ## Problem
 
