@@ -6,8 +6,11 @@ issue:
   id: ISSUE-015
   title: "Mechanism/opinion classification hardcodes engine sets in two places — add EngineBinding.Category as single source of truth"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
+
+resolved-by: 51d30f8
 
 complexity:
   scope: contained
@@ -69,3 +72,7 @@ Adding a future engine (e.g. `eslint`, `ruff`) requires one declaration in `Defa
 - `cmd/backstop/pack_separation.go` — `isToolchainMechanismEngine` (lines 29–36), `isStandardsOpinionEngine` (lines 41–48), `classifyPack` (lines 58–72), `packSeparationViolations` (lines 81–116)
 - `pkg/pack/engine/binding.go` — `EngineBinding` struct (lines 76–108), `DefaultRegistry` (lines 141–216)
 - SPEC-034 REQ-007 — the mechanism/opinion boundary requirement that `pack_separation.go` implements
+
+## Resolution
+
+Added EngineBinding.Category (mechanism/opinion) as the single source of truth; the packs-only refactor removed the duplicated hardcoded engine sets.

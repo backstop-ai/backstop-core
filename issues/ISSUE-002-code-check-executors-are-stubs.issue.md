@@ -6,9 +6,11 @@ issue:
   id: ISSUE-002
   title: "code-check pass executors are stubs — lint/build/test/semgrep never execute"
   type: technical-debt
-  status: closed
+  status: obsoleted
   created: "2026-06-11"
   closed: "2026-06-11"
+
+obsoleted-by: ISSUE-018
 
 complexity:
   scope: contained

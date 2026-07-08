@@ -6,9 +6,11 @@ issue:
   id: ISSUE-003
   title: "Data-driven toolchain registry — native enforcement for all stacks"
   type: enhancement
-  status: closed
+  status: obsoleted
   created: "2026-06-11"
   closed: "2026-06-11"
+
+obsoleted-by: ISSUE-018
 
 complexity:
   scope: cross-cutting

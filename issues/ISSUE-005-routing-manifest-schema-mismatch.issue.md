@@ -6,9 +6,11 @@ issue:
   id: ISSUE-005
   title: "routing manifest schema mismatch — compiled standards disable all check passes"
   type: bug
-  status: closed
+  status: obsoleted
   created: "2026-06-11"
   closed: "2026-06-11"
+
+obsoleted-by: ISSUE-018
 
 complexity:
   scope: contained

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-016
   title: "SPEC-007 contracts pin ResolveID/IDOptions to pkg/scaffold/scaffold.go, but they live in pkg/scaffold/idresolver.go — contract_signature fails whenever scaffold.go is in diff scope"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
+
+resolved-by: 133c153
 
 complexity:
   scope: isolated
@@ -62,3 +65,7 @@ This is a false negative — the symbols exist and are correctly implemented; on
 - `pkg/gate/step_contract.go` — `StepContractSignatureScopedFunc`, the gate step that performs file-scoped symbol lookup and produces the false-negative failure
 - ISSUE-011 — the one-line `scaffold.go` edit whose diff scope activated the latent failure; the gate failure is pre-existing and unrelated to the ISSUE-011 fix itself
 - ISSUE-012 — the diff-scoped `test_verification` debt pattern; relevant when editing SPEC-007 to fix this issue, as the edit will pull SPEC-007 into test_verification scope
+
+## Resolution
+
+Moved the ResolveID/IDOptions contract entries to the pkg/scaffold/idresolver.go block, matching actual symbol locations.

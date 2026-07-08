@@ -6,8 +6,11 @@ issue:
   id: ISSUE-017
   title: "// nosemgrep suppressions are silently ignored in the engine/SARIF path — ParsePackFindings counts suppressed findings as violations"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
+
+resolved-by: 276652b
 
 complexity:
   scope: isolated
@@ -91,3 +94,7 @@ Suggested test name: `TestParsePackFindings_SuppressedResultsDropped`.
 - SARIF 2.1.0 spec §3.27.23 — `result.suppressions` property; non-empty array = inactive/suppressed finding
 - ISSUE-015 — the `EngineCategory` iota const block that surfaced this bug; fix here unblocks that work
 - ISSUE-010 — sibling gate correctness bug (diff-scope leak); same `pack_engines` step
+
+## Resolution
+
+parseSarif now decodes the SARIF `suppressions` field and skips suppressed results, so `// nosemgrep` works in the engine/SARIF path.

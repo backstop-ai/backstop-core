@@ -6,8 +6,11 @@ issue:
   id: ISSUE-014
   title: "plan-reviewer misses when a plan deletes a test whose claim still mandates it — leaving a dangling claim→test mapping that fails test_verification later"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
+
+resolved-by: 4ea9a3d
 
 complexity:
   scope: contained
@@ -81,3 +84,7 @@ This is a tooling/process check on the plan-reviewer agent's prompting and/or th
 - PLAN-SPEC-034 — the strangler plan whose Phase 4/Phase 5 structure created the gap; no task existed to repoint/retire the six claims when Phase 5 deleted the tests
 - ISSUE-012 — the diff-scoped `test_verification` blind spot that allowed the gap to stay invisible; this issue is a *pre-execution* counterpart; both must be addressed for full coverage
 - `pkg/gate/step_testverify.go` lines 158–164 — the diff-scope guard in `StepTestVerificationScopedFunc`
+
+## Resolution
+
+Added a plan-reviewer prompt check for deleted-test claim drift (dangling claim→test mappings). Prompt-only fix, no code test.

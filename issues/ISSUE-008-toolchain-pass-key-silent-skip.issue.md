@@ -6,9 +6,11 @@ issue:
   id: ISSUE-008
   title: "typo'd enforcement.toolchain pass keys are silently skipped"
   type: bug
-  status: closed
+  status: obsoleted
   created: "2026-06-11"
   closed: "2026-06-12"
+
+obsoleted-by: ISSUE-018
 
 complexity:
   scope: isolated

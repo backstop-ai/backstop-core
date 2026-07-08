@@ -6,9 +6,11 @@ issue:
   id: ISSUE-006
   title: "lint and semgrep executors fail on real tool output — invocation robustness"
   type: bug
-  status: closed
+  status: obsoleted
   created: "2026-06-11"
   closed: "2026-06-12"
+
+obsoleted-by: ISSUE-018
 
 complexity:
   scope: contained

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-011
   title: "backstop artifact new issue scaffolds the wrong file extension (.md instead of .issue.md)"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-20"
+  closed: "2026-07-08"
+
+resolved-by: c59c951
 
 complexity:
   scope: isolated
@@ -68,3 +71,7 @@ are `artifact new` scaffold correctness defects.
 - `artifacts/issue/v1/schema.json` — `filename_pattern` rule (`\.issue\.md$`)
 - ISSUE-001 through ISSUE-010 in `issues/` — all use `.issue.md`; the scaffold is the sole non-conforming producer
 - ISSUE-009 — sibling `artifact new` scaffold bug (wrong frontmatter key)
+
+## Resolution
+
+Fixed `artifact new issue` to scaffold `.issue.md` (FileExtension corrected from `.md`).
