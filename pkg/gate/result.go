@@ -17,6 +17,22 @@ const (
 	StepBaselineComparison  = "baseline_comparison"
 	StepWaiverResolution    = "waiver_resolution"
 	StepLedgerIntegrity     = "ledger_integrity"
+
+	// StepArtifactStatusDrift is the canonical name of the ISSUE-042 native
+	// status/reality drift dimension (CLM-009). Like pack_engines /
+	// pack_lock_verification / toolchain_enforcement, it is a dynamically-WIRED gate
+	// step, NOT one of the nine fixed contract dimensions, so it is registered as a
+	// canonical StepName here but intentionally NOT added to the [9]string AllStepNames
+	// contract array (which the JSON output schema pins at nine). It carries the BLOCK
+	// direction (success-terminal artifact with an absent mandated test) and is the
+	// dimension the backstop.yml enforcement.policy entry targets.
+	StepArtifactStatusDrift = "artifact_status_drift"
+	// StepArtifactStatusDriftAdvisory is the NON-policied advisory surface for the drift
+	// dimension's intrinsic WARN direction (delivered-but-open: a non-terminal artifact
+	// whose mandated tests are all present). It is a SEPARATE step name specifically so
+	// no enforcement.policy entry (which targets StepArtifactStatusDrift) can ever upgrade
+	// the WARN to a block — the heuristic-not-proof asymmetry is structural (CLM-006).
+	StepArtifactStatusDriftAdvisory = "artifact_status_drift_advisory"
 )
 
 // AllStepNames is the ordered list of nine canonical step names for iteration.

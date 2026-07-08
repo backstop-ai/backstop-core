@@ -7,6 +7,9 @@ packs:
     backstop/substantiveness: local
 enforcement:
     policy:
+        artifact_status_drift:
+            applies-to: new-code
+            level: block
         artifact_validation:
             level: block
         contract_signature:

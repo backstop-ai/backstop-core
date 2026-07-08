@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bmanson/backstop-core/pkg/check"
@@ -659,6 +660,16 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
 
+	// ISSUE-042: the native status/reality drift dimension (CLM-007/008/009). It runs a
+	// FULL-SWEEP existence check — resolving EVERY artifact under projectRoot and checking
+	// each mandated test name against the whole-repo found-test set — so a stale-status
+	// artifact whose file is out of the diff is still caught. It threads NO pass/fail and
+	// re-runs NO suite (a present-but-failing mandated test is pack_engines' job, CLM-005).
+	// The wiring emits TWO surfaces: the policied BLOCK step (StepArtifactStatusDrift) and
+	// the non-policied WARN advisory (StepArtifactStatusDriftAdvisory), so the WARN
+	// direction is structurally non-blocking (no policy can upgrade it).
+	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, classifier, matcher)
+
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
 	// CapabilityState from installed-pack presence (no pack, no engine), classifies
@@ -690,6 +701,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		testSubstantivenessStep,
 		coverageStep,
 		contractStep,
+		driftBlockStep,
+		driftAdvisoryStep,
 		// Steps 7-9: deferred
 		gate.StepBaselineComparisonScopedFunc(activeScope),
 		gate.StepWaiverResolutionScopedFunc(activeScope),
@@ -795,6 +808,81 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	packed = append(packed, steps[0], packValidatorStep)
 	packed = append(packed, steps[1:]...)
 	return packed
+}
+
+// buildStatusDriftSteps wires the ISSUE-042 native status/reality drift dimension into
+// the gate (CLM-007/008/009). It returns two StepFuncs sharing ONE lazy resolution:
+//
+//   - block (StepArtifactStatusDrift): the error-severity broken-promise surface
+//     (success-terminal artifact + absent mandated test). This is the POLICIED dimension
+//     (backstop.yml level: block, applies-to: new-code) — pre-existing findings
+//     grandfather against the baseline, net-new ones block.
+//   - advisory (StepArtifactStatusDriftAdvisory): the warning-severity delivered-but-open
+//     surface. It carries NO policy entry, so its "warning" status is structurally
+//     non-blocking (CLM-006).
+//
+// EXISTENCE is the ONLY signal and it runs FULL-SWEEP: ResolveMandatedTestPaths resolves
+// each mandated test name against the whole-repo found-test set (collectTestFuncNames
+// walks all of projectRoot, NOT activeScope), so a stale-status artifact whose file is out
+// of the diff is still caught (CLM-007). No pass/fail is threaded and no suite is re-run
+// (CLM-005/008) — a present-but-failing mandated test is caught by the pack_engines step.
+func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) (gate.StepFunc, gate.StepFunc) {
+	var (
+		once           sync.Once
+		blockResult    gate.StepResult
+		advisoryResult gate.StepResult
+	)
+	compute := func() {
+		res, err := gate.ResolveArtifactStatus(projectRoot)
+		if err != nil {
+			// A resolve failure is a config error under the BLOCK name (it halts the gate);
+			// the advisory surface stays a clean pass so it never invents a false warning.
+			blockResult = gate.StepResult{
+				StepName:   gate.StepArtifactStatusDrift,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: gate.StepArtifactStatusDrift, Message: "resolving artifact status: " + err.Error(), Severity: "error"}},
+			}
+			advisoryResult = gate.StepResult{StepName: gate.StepArtifactStatusDriftAdvisory, Status: "pass", Violations: []gate.Violation{}}
+		} else {
+			blockResult, advisoryResult = computeDriftSurfaces(projectRoot, res, classifier, matcher)
+		}
+	}
+	block := func(context.Context) gate.StepResult {
+		once.Do(compute)
+		return blockResult
+	}
+	advisory := func(context.Context) gate.StepResult {
+		once.Do(compute)
+		return advisoryResult
+	}
+	return block, advisory
+}
+
+// computeDriftSurfaces runs the FULL-SWEEP existence resolution over the resolved artifact
+// records and returns the split block/advisory surfaces. EXISTENCE is the only signal:
+// ResolveMandatedTestPaths resolves each mandated test name against the whole-repo
+// found-test set (NOT activeScope), so an out-of-diff stale artifact is still caught. No
+// pass/fail is threaded (CLM-005/008).
+func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) (gate.StepResult, gate.StepResult) {
+	var all []gate.MandatedTest
+	for _, rec := range res.Records {
+		all = append(all, rec.MandatedTests...)
+	}
+	all = gate.ResolveMandatedTestPaths(all, projectRoot, classifier, matcher)
+	present := make(map[string]bool, len(all))
+	for _, mt := range all {
+		if mt.FilePath != "" {
+			present[mt.FuncName] = true
+		}
+	}
+	combined := gate.ClassifyStatusDrift(res.Records, present)
+	// Normalize each violation's File to the ONE canonical repo-relative form so its
+	// baseline identity is scope-stable (ISSUE-046), matching test_verification.
+	for i := range combined.Violations {
+		combined.Violations[i].File = gate.NormalizePath(projectRoot, combined.Violations[i].File)
+	}
+	return gate.SplitDriftResult(combined)
 }
 
 // substantivenessPackName is the stable normalized name of the substantiveness pack

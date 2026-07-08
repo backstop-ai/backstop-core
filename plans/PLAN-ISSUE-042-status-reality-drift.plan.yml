@@ -1,0 +1,790 @@
+---
+plan_id: PLAN-ISSUE-042
+spec_id: ISSUE-042
+created: "2026-07-07"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS DELIVERS (ISSUE-042, parent DIR-016 — issue/plan lifecycle hardening)
+  ─────────────────────────────────────────────────────────────────────────
+  A NEW NATIVE gate dimension that cross-checks each artifact's declared `status`
+  against the observable reality of its mandated tests, making status↔reality
+  drift LOUD. This is the ENFORCEMENT half; ISSUE-043 (the cheap-close half)
+  FOLLOWS and reuses this plan's resolver substrate — build the resolver clean
+  and reusable (CLM-001, CLM-013).
+
+  ─────────────────────────────────────────────────────────────────────────
+  POLARITY (PINNED — mirrors pkg/gate/traceability_polarity.go's broken-promise
+  model; reuse its vocabulary, do NOT invent new classes)
+  ─────────────────────────────────────────────────────────────────────────
+  - Delivered-but-not-terminal (issue open/ready/in-progress/blocked; spec
+    draft/ready-for-implementation; directive queued/active/specced; plan
+    draft/ready/implementing) + ALL mandated tests PRESENT → WARN (non-blocking,
+    exit 0, guidance-only; loudness on the report surface).
+  - Success-terminal (issue `closed`; spec `implemented`; directive `done`; plan
+    `completed`) + any mandated test ABSENT → BLOCK (exit 2), reusing
+    ClassDeclaredIntentUnmet's treatment. This is the broken-promise direction.
+  HARD CONSTRAINT (do NOT silently upgrade): "delivered" is a HEURISTIC not a
+  proof — present named tests suggest their claims are covered, not the whole
+  intent. That asymmetry is WHY WARN≠BLOCK. Keep the delivered-but-open direction
+  WARN, non-blocking, forever; never make it exit-2.
+
+  ─────────────────────────────────────────────────────────────────────────
+  PASS/FAIL IS NOT INDEPENDENTLY SOURCEABLE — the drift dim checks EXISTENCE only
+  (review blocker #1 — the "gate already computes a per-test verdict" premise was
+  FACTUALLY FALSE and is corrected here)
+  ─────────────────────────────────────────────────────────────────────────
+  Traced against the real gate: it yields only (a) the PRESENT test-name set via
+  collectTestFuncNames (existence, full-sweep, real); (b) a WHOLE-SUITE pass/fail
+  from pack_engines (`go test ./...` → SARIF — NO per-test-name outcome map); and
+  (c) per-FILE coverage. There is NO per-test pass/fail verdict type anywhere in
+  the gate. So the drift dimension CANNOT independently attribute a failing test
+  to an artifact, and MUST NOT pretend to.
+  Lean on the whole-suite invariant instead: because pack_engines runs the WHOLE
+  suite, if the test step is GREEN then every present test (mandated included)
+  passed; if any mandated test FAILS, pack_engines is ALREADY red (exit 2). So
+  "success-terminal + FAILING mandated test → BLOCK" is SUBSUMED by the existing
+  pack_engines/test step — the drift dimension does not re-derive it. The drift
+  dimension's sourceable, novel, sound contributions are exactly TWO:
+    (i)  success-terminal + ABSENT mandated test → BLOCK (full-sweep existence —
+         real, cheap, sound; the existing test_verification step only checks
+         existence for NON-terminal specs, and skips ALL terminal artifacts, so
+         success-terminal existence is genuinely un-covered today), and
+    (ii) delivered-but-open (present tests) → WARN.
+  Do NOT add a per-test-verdict field, do NOT thread a fictional failing-test set,
+  do NOT re-run the suite in this step.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ISSUE-031 NEEDLE (critical — do NOT break retired-exclusion)
+  ─────────────────────────────────────────────────────────────────────────
+  Today ALL terminal artifacts are EXCLUDED from gate enforcement
+  (isTerminalSpecStatus at pkg/gate/step_testverify.go:123/166/482/526 folds
+  replaced/canceled/deprecated together and skips them). This dimension must
+  distinguish:
+    - TERMINAL-RETIRED (replaced/canceled/deprecated) — legitimately excluded,
+      no delivery obligation, STAYS excluded, emits NO violation.
+    - TERMINAL-SUCCESS (issue closed / spec implemented / directive done / plan
+      completed) — carved back IN: its mandated tests MUST be PRESENT (existence),
+      else BLOCK. (Failing-but-present is already caught by pack_engines — see the
+      premise-correction note; the drift dim contributes the ABSENCE check only.)
+  Do NOT weaken the existing retired-exclusion used by test_verification /
+  coverage / contracts; introduce a SEPARATE status classifier that names the
+  three classes (non-terminal / success-terminal / retired-terminal) per
+  artifact TYPE, and leave isTerminalSpecStatus untouched.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SCOPE — FULL-SWEEP for the cheap static checks (PINNED, not diff-scope only)
+  ─────────────────────────────────────────────────────────────────────────
+  Motivating case: ISSUE-018/034/035/036 shipped in d5efd5b while still
+  `status: open`, their issue FILES not in the diff — diff-scope alone provably
+  misses this. So:
+    - Status parse + mandated-test EXISTENCE resolution runs FULL-SWEEP over ALL
+      artifacts (issues/ specs/ directives/ plans/) every gate run. This is
+      cheap: a frontmatter read plus test-name presence against the SAME
+      found-test set collectTestFuncNames already builds (a whole-repo test-file
+      walk that is already full-sweep). Existence does NOT consult activeScope.
+      EXISTENCE is the ONLY signal this dimension computes.
+    - PASS/FAIL is NOT this dimension's job (see the premise-correction note
+      above): a failing mandated test is already caught by the whole-suite
+      pack_engines/test step (exit 2), so the drift dim does not re-derive it and
+      threads no failing-test set. The only sweepable-cheap signal here is
+      EXISTENCE.
+
+  ─────────────────────────────────────────────────────────────────────────
+  BLAST RADIUS + BASELINE (review blocker #2 — wiring the full-sweep BLOCK naively
+  turns the REAL gate RED; un-vacuum→baseline pattern, see MEMORY
+  project_unvacuum_baseline_ratchet)
+  ─────────────────────────────────────────────────────────────────────────
+  Measured real-tree drift is NOT "maybe one stale artifact" — it is ~84 stranded
+  mandated tests on success-terminal artifacts from DELIBERATE prior eradications:
+    - 5 closed issues (ISSUE-002/003/005/006/008) mandating deleted TestCodeCheck_*
+      (~30 absent, from the `backstop code check` eradication), and
+    - completed PLAN-SPEC-001 with 54/54 mandated tests absent (the standards-
+      compiler, eradicated in the packs-only cutover).
+  Under a naive CLM-004 (success-terminal + absent → BLOCK, full-sweep) that is
+  ~84 NEW blocking violations on the CLEAN tree — directly contradicting CLM-012
+  ("gate stays green"). Blast radius is ONLY closed-issues + the completed-plan:
+  implemented SPECS already flow through test_verification and are green (not a
+  new risk); done DIRECTIVES carry tests:0 (won't block).
+  RESOLUTION (the blessed un-vacuum→baseline ratchet, NOT masking):
+    1. Pin THIS dimension's backstop.yml policy to `applies-to: new-code` (+ level
+       block), so pre-existing success-terminal broken promises grandfather
+       against the baseline and only GOING-FORWARD closes-with-absent-tests block.
+    2. Refresh the baseline (`backstop baseline generate`, full scope) so the ~84
+       historical stranded promises are captured as the floor.
+    3. Do NOT reconcile the 84 inline. File a FOLLOW-UP ISSUE (via issue-author)
+       capturing the stranded-lineage reconciliation — retire/repoint the
+       closed-issue + completed-plan mandated tests deliberately deleted by the
+       code-check / standards eradications. FLAG the retirement-vocab GAP: a
+       delivered-THEN-obsoleted artifact fits none of replaced/canceled/deprecated
+       cleanly (this is deletion-strands-lineage). That drain is a separate track.
+  TRADEOFF, stated explicitly: historical eradication-stranded promises are
+  grandfathered (not fixed now); every NEW success-terminal-with-absent-test
+  blocks. This is the ratchet, not amnesty.
+
+  ─────────────────────────────────────────────────────────────────────────
+  NATIVE GATE STEP, NOT A PACK (PINNED)
+  ─────────────────────────────────────────────────────────────────────────
+  This enforces backstop's OWN artifact lifecycle (status vs mandated tests) —
+  backstop-domain like test_verification / traceability_polarity, all native.
+  The "dogfood rules as packs" rule targets LANGUAGE/tool knowledge, which this
+  is NOT. Do NOT force this into a semgrep/ast-grep pack. It carries no baked
+  language noun (it reads artifact frontmatter + reuses the pack-declared
+  discovery already merged into the gate), so it stays thin-executor clean.
+
+  ─────────────────────────────────────────────────────────────────────────
+  REUSE / WHERE IT LIVES
+  ─────────────────────────────────────────────────────────────────────────
+  New resolver + step alongside pkg/gate/step_testverify.go and
+  pkg/gate/traceability_polarity.go, consuming ExtractMandatedTests /
+  MandatedTest / ResolveMandatedTestPaths / collectTestFuncNames — do NOT
+  reimplement mandated-test discovery. Wired into buildGateSteps
+  (cmd/backstop/gate.go). The dimension gets a canonical StepName (result.go)
+  and a backstop.yml enforcement.policy entry (level: block, applies-to:
+  new-code, per the ISSUE-041 applies-to model). The intrinsic WARN direction is
+  NOT a policy knob — it is the step's own non-blocking status; the policy entry
+  governs the BLOCK direction the way every other dimension's does.
+
+  ISSUE→PLAN LINKAGE (review fix #4): the Phase-1 resolver additionally builds the
+  cross-artifact issue→plan linkage — which plan delivers which issue — by indexing
+  plans by their `spec_id` field (a plan for ISSUE-NNN carries `spec_id: ISSUE-NNN`;
+  confirmed the convention across the existing PLAN-ISSUE-* files). This is a REAL
+  resolver OUTPUT (not just a claim of reusability): ISSUE-043's delivered_by /
+  close-friction validator reuses it directly, and it is useful HERE too (resolving
+  a closed issue's backing plan). Cheap — one pass indexing plans by spec_id.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMANDS
+  ─────────────────────────────────────────────────────────────────────────
+  Inner-loop verification tasks run `go test` scoped to the touched packages
+  (`backstop code check` is REMOVED — do not prescribe it). The final phase runs
+  `backstop baseline generate` (to grandfather the ~84 historical stranded
+  promises) THEN the full `backstop gate` kill chain AND `backstop artifact
+  validate` (this change touches backstop artifact/config surface — this plan
+  file and backstop.yml — in addition to .go files, so both are required). The
+  new full-sweep dimension WILL surface the ~84 real historical broken promises
+  on this repo's own artifacts; under applies-to:new-code + a refreshed baseline
+  they grandfather (green), and the stranded-lineage drain is tracked in the
+  follow-up issue (CLM-016) — NOT reconciled inline, NOT masked.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (enumerated from the issue Solution + the pinned decisions + the
+  acceptance list; every task maps ≥1; every claim mapped by ≥1 task)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — A unified artifact RESOLVER extends the currently spec-shaped
+            frontmatter parsing to also parse issues/ plans/ directives/ (plus
+            specs/) for `status` + mandated tests, REUSING ExtractMandatedTests /
+            MandatedTest machinery (not reimplementing mandated-test discovery).
+            It is exported and reusable so ISSUE-043's delivered_by/close-friction
+            validator can lean on the same issue→plan resolution.
+  CLM-002 — A per-artifact-TYPE status classifier maps each declared status to
+            exactly one of {non-terminal, success-terminal, retired-terminal}:
+            issue open/ready/in-progress/blocked→non-terminal, closed→success,
+            replaced/canceled→retired; spec draft/ready-for-implementation→
+            non-terminal, implemented→success, replaced/canceled/deprecated→
+            retired (NB: there is NO spec `active` — that is a DIRECTIVE status);
+            directive queued/active/specced→non-terminal, done→success,
+            replaced/canceled→retired; plan draft/ready/implementing→non-terminal,
+            completed→success, replaced/canceled→retired.
+  CLM-003 — TERMINAL-RETIRED artifacts (replaced/canceled/deprecated) STAY
+            excluded — no delivery obligation, no violation — preserving
+            ISSUE-031's retired-exclusion; isTerminalSpecStatus and the
+            test_verification/coverage/contracts exclusions are left untouched.
+  CLM-004 — success-terminal + any mandated test ABSENT (existence, full-sweep) →
+            BLOCK, reusing the ClassDeclaredIntentUnmet broken-promise treatment.
+            This carves the success-terminal case back IN from today's blanket
+            terminal exclusion. It is the drift dimension's ONE independent,
+            sound, novel BLOCK contribution. Under the applies-to:new-code policy
+            + refreshed baseline (CLM-015) pre-existing absences grandfather; only
+            NEW success-terminal-with-absent-test blocks.
+  CLM-005 — A FAILING (but present) mandated test on a success-terminal artifact
+            is NOT independently attributed by the drift dimension — the gate
+            exposes only a WHOLE-SUITE pass/fail (pack_engines `go test ./...`),
+            no per-test-name verdict. A failing mandated test is ALREADY caught by
+            the existing pack_engines/test step (gate red, exit 2), which subsumes
+            this direction. The drift dimension computes EXISTENCE only and threads
+            no failing-test set and re-runs no suite.
+  CLM-006 — non-terminal status + ALL mandated tests PRESENT → WARN (non-blocking,
+            exit 0), guidance to advance/close. Never upgraded to exit-2 — the
+            delivered-heuristic-not-proof asymmetry is preserved.
+  CLM-007 — FULL-SWEEP: status parse + mandated-test EXISTENCE resolution runs
+            over ALL artifacts every gate run (not diff-scope only), so a stale
+            status on an artifact whose FILE is not in the diff is still caught
+            (the ISSUE-018 scenario). Existence does not consult activeScope.
+  CLM-008 — EXISTENCE is the ONLY signal this dimension computes: it is sweepable-
+            cheap (a frontmatter read + test-name presence against the full-repo
+            found-test set) and runs full-sweep regardless of scope. Pass/fail is
+            explicitly OUT of this dimension's scope (subsumed by pack_engines,
+            CLM-005) — there is no test-run-dependent branch, no fictional
+            failing-test set.
+  CLM-009 — A NEW NATIVE gate step (canonical StepName in result.go) is wired
+            into buildGateSteps (cmd/backstop/gate.go) alongside
+            test_verification / the traceability dimensions — native, not a pack;
+            it carries no baked language noun.
+  CLM-010 — The dimension flows through the aggregate gate result/exit and gains
+            a backstop.yml enforcement.policy entry (level: block, applies-to:
+            new-code, per the ISSUE-041 applies-to model). The intrinsic WARN
+            direction is the step's own non-blocking status (not a policy off);
+            the policy entry governs the BLOCK direction like every other
+            dimension.
+  CLM-011 — Acceptance fixtures prove every direction end-to-end: delivered-but-
+            open issue with PRESENT tests → WARN + exit 0; success-terminal
+            (closed) issue/spec with an ABSENT mandated test → BLOCK + exit 2;
+            a success-terminal artifact whose PRESENT mandated test FAILS leaves
+            the gate RED via the EXISTING pack_engines/test step (NOT via drift
+            attribution — the drift step does not fire for present-but-failing);
+            retired terminal (replaced/canceled) → excluded, no violation; and
+            the FULL-SWEEP proof — an artifact whose file is NOT in the diff but
+            whose status is stale is still caught (diff-scope wouldn't have).
+  CLM-012 — gate stays green on the current clean tree BECAUSE the dimension is
+            applies-to:new-code with a REFRESHED baseline (CLM-015): the ~84
+            historical eradication-stranded success-terminal broken promises
+            (closed ISSUE-002/003/005/006/008 + completed PLAN-SPEC-001)
+            grandfather as the floor, and NEW success-terminal-with-absent-test
+            blocks. The tradeoff is explicit (historical grandfathered, going-
+            forward enforced) — never masked, never waived to force green.
+  CLM-013 — The resolver's status+mandated-test resolution is built as a clean,
+            exported, independently-tested unit so ISSUE-043 reuses it directly
+            (no re-implementation, no private-to-the-step coupling).
+  CLM-014 — The Phase-1 resolver ALSO builds the cross-artifact issue→plan linkage
+            (which plan delivers which issue) by indexing plans on `spec_id ==
+            ISSUE-NNN`, exposed as a REAL resolver output (not just a claim) so
+            ISSUE-043's delivered_by/close-friction validator reuses it and this
+            plan can resolve a closed issue's backing plan.
+  CLM-015 — The dimension is pinned to `applies-to: new-code` in backstop.yml and
+            a `backstop baseline generate` refresh grandfathers the ~84 pre-
+            existing success-terminal broken promises — the blessed un-vacuum→
+            baseline ratchet — so un-vacuuming this dimension does not hard-block
+            the clean tree on historical debt.
+  CLM-016 — A FOLLOW-UP ISSUE is filed (via issue-author) capturing the stranded-
+            lineage reconciliation of the ~84 eradication-deleted mandated tests
+            on closed issues + the completed plan, and FLAGGING the retirement-
+            vocab GAP (a delivered-then-obsoleted artifact fits none of
+            replaced/canceled/deprecated). The 84 are NOT reconciled inline.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Shared resolver substrate — status + mandated tests across ALL
+  # artifact types (reused by ISSUE-043)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Unified Artifact Status + Mandated-Test Resolver"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing resolver tests: parse status + mandated tests across issues/specs/directives/plans; classify status into three classes"
+        description: |
+          Add pkg/gate/artifact_status_test.go plus fixtures under
+          pkg/gate/testdata/artifact_status/ (a tiny issues/ specs/ directives/
+          plans/ tree) exercising the REAL resolver and status classifier the
+          drift dimension will consume. This is the substrate ISSUE-043 also
+          reuses (CLM-001, CLM-013), so test it as a first-class exported unit,
+          NOT only through the eventual step.
+
+          The resolver MUST reuse ExtractMandatedTests / MandatedTest for
+          spec-shaped mandated-test discovery and must NOT reimplement test-name
+          extraction; the new code only ADDS status classification and the
+          issues/plans/directives frontmatter parsing the spec path lacks.
+
+          Mandated test names (exact):
+            - TestResolveArtifactStatus_ParsesAllArtifactKinds (CLM-001): the
+              resolver walks issues/ specs/ directives/ plans/ under a fixture
+              root and returns one record per artifact carrying (id, kind,
+              declared status, mandated test names). Assert an issue's
+              claims→tests and a spec's claims→tests are both surfaced via the
+              reused ExtractMandatedTests machinery, and that a directive/plan
+              record carries its declared status even when it declares no own
+              tests.
+            - TestClassifyArtifactStatus_ThreeClassesPerType (CLM-002): table
+              over every status enum value for each type — issue
+              (open/ready/in-progress/blocked/closed/replaced/canceled), spec
+              (draft/ready-for-implementation/implemented/replaced/canceled/
+              deprecated — NB there is NO spec `active`), directive
+              (queued/active/specced/done/replaced/canceled), plan
+              (draft/ready/implementing/completed/replaced/canceled) — asserting
+              each maps to the correct {non-terminal, success-terminal,
+              retired-terminal} class. Include an explicit negative assertion that
+              spec `implemented` → success-terminal (not the phantom `active`).
+            - TestResolveArtifactStatus_RetiredStaysExcludable (CLM-003): a
+              replaced/canceled/deprecated artifact is classified retired-terminal
+              so the drift step can exclude it; assert the classifier reports
+              retired WITHOUT reusing/altering isTerminalSpecStatus's folded
+              behavior (the new classifier is separate and TYPE-aware).
+            - TestResolveArtifactStatus_ExportedForReuse (CLM-013): the resolver
+              entrypoint and record type are exported (assert by calling them as
+              package consumers would), proving ISSUE-043 can reuse the
+              status+mandated-test resolution without touching step internals.
+            - TestResolveArtifactStatus_IssueToPlanLinkage (CLM-014): the resolver
+              indexes plans by `spec_id` and exposes, for an issue ISSUE-NNN, the
+              backing plan whose spec_id == ISSUE-NNN as a REAL output. Assert the
+              fixture's PLAN-ISSUE-NNN is resolved as the delivering plan for
+              ISSUE-NNN, and that an issue with no backing plan resolves to empty
+              (no panic). This is the linkage ISSUE-043's delivered_by validator
+              reuses.
+
+          Do NOT create the drift step or touch cmd/backstop in this task.
+        files:
+          - pkg/gate/artifact_status_test.go
+          - pkg/gate/testdata/artifact_status/README.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-013
+          - CLM-014
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Implement the exported artifact-status resolver + type-aware three-class status classifier"
+        description: |
+          Add pkg/gate/artifact_status.go: an EXPORTED resolver that walks a
+          project root's issues/ specs/ directives/ plans/ directories and
+          returns per-artifact records of (id, kind, declared status, mandated
+          tests). Extend the currently spec-shaped frontmatter parsing
+          (parseSpecFrontmatter reads only specs) to also parse issue / plan /
+          directive frontmatter for `status` + mandated tests. REUSE
+          ExtractMandatedTests / MandatedTest for the claim→tests discovery on
+          issues and specs (both carry claims→tests per their schemas); do NOT
+          reimplement mandated-test extraction (CLM-001).
+
+          Add a TYPE-AWARE status classifier returning one of
+          {non-terminal, success-terminal, retired-terminal} per the CLM-002
+          table. Use the ACTUAL schema enums: spec non-terminal is
+          draft/ready-for-implementation (there is NO spec `active`),
+          success-terminal is `implemented`. Keep it SEPARATE from
+          isTerminalSpecStatus — do NOT modify isTerminalSpecStatus or the
+          test_verification/coverage/contracts retired-exclusion (CLM-003).
+          retired-terminal here means the SAME replaced/canceled/deprecated set
+          stays excludable; success-terminal (closed/implemented/done/completed)
+          is a NEW, distinct class this classifier introduces.
+
+          Also build the issue→plan linkage (CLM-014): index the resolved plan
+          records by `spec_id` and expose, per issue, the backing plan whose
+          spec_id == the issue id (the PLAN-ISSUE-NNN convention). Expose it as a
+          real resolver output field/accessor — ISSUE-043's delivered_by /
+          close-friction validator reuses it, and it is useful here to resolve a
+          closed issue's backing plan.
+
+          Export the resolver entrypoint + record type so ISSUE-043 reuses the
+          status resolution (CLM-013). Introduce NO baked language noun — the
+          resolver reads artifact frontmatter only.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "go test pkg/gate — resolver + classifier green, existing spec-path parsing unregressed"
+        description: |
+          Inner-loop verification (go test, not the removed code check). Run:
+
+              go test ./pkg/gate/...
+
+          Confirm the five TASK-001 mandated tests pass
+          (TestResolveArtifactStatus_ParsesAllArtifactKinds,
+          TestClassifyArtifactStatus_ThreeClassesPerType,
+          TestResolveArtifactStatus_RetiredStaysExcludable,
+          TestResolveArtifactStatus_ExportedForReuse,
+          TestResolveArtifactStatus_IssueToPlanLinkage) and that the EXISTING
+          pkg/gate suite stays green — especially the ExtractMandatedTests /
+          parseSpecFrontmatter / isTerminalSpecStatus tests (the resolver reuses
+          them and must not perturb the spec path). Report pass/fail per mandated
+          test.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/artifact_status_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-014
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Drift classifier + StepResult — the WARN/BLOCK/excluded polarity
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — Status/Reality Drift Classifier & StepResult Polarity"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing drift-classifier tests: success-terminal+absent→BLOCK; non-terminal+present→WARN; retired→excluded; WARN never exit-2; EXISTENCE-only (no pass/fail input)"
+        description: |
+          Add pkg/gate/status_drift_test.go driving the drift classifier + its
+          StepResult builder over hand-built resolver records + a supplied PRESENT
+          test-name set (the ONLY signal the classifier consumes — EXISTENCE). The
+          classifier takes NO pass/fail set: a failing-but-present test is out of
+          this dimension's scope (subsumed by pack_engines, CLM-005). No live gate
+          here — feed the classifier records directly so the polarity is proven in
+          isolation.
+
+          Mandated test names (exact):
+            - TestStatusDrift_SuccessTerminalAbsentTest_Blocks (CLM-004): a
+              success-terminal artifact (issue closed / spec implemented) with a
+              mandated test NOT in the present set yields a fail StepResult with
+              ConfigErr semantics matching the ClassDeclaredIntentUnmet broken-
+              promise treatment (blocks, exit 2). Assert status=="fail" and the
+              violation reads as a broken promise ("claimed done, isn't").
+            - TestStatusDrift_SuccessTerminalPresentTest_NoDriftViolation (CLM-005):
+              a success-terminal artifact whose mandated test IS present yields NO
+              drift violation from this classifier — proving the drift dimension
+              does NOT attribute pass/fail (a present-but-failing test is caught by
+              pack_engines, not here). Assert the classifier consumes only the
+              present set and exposes no failing-test parameter.
+            - TestStatusDrift_DeliveredButOpen_WarnsNonBlocking (CLM-006): a
+              non-terminal artifact (issue open/ready/in-progress) with ALL
+              mandated tests PRESENT yields a WARNING StepResult — Status==
+              "warning", ConfigErr==false, a guidance violation tagged Severity
+              "warning" ("looks delivered — advance status"). Assert it does NOT
+              fail.
+            - TestStatusDrift_WarnNeverBlocks_HeuristicAsymmetry (CLM-006): even
+              across many delivered-but-open artifacts, the WARN direction never
+              produces a failing/ConfigErr result — the heuristic-not-proof
+              asymmetry is structural, never upgraded to exit-2.
+            - TestStatusDrift_RetiredTerminal_Excluded (CLM-003): a
+              replaced/canceled/deprecated artifact produces NO violation
+              regardless of test presence — retired-exclusion preserved.
+            - TestStatusDrift_ExistenceIsTheOnlySignal (CLM-008): the classifier
+              signature/behavior computes its verdict from the resolver records +
+              the present-test set ALONE — there is no test-run/pass-fail input,
+              no fictional failing-test set. Assert a success-terminal absent test
+              BLOCKS with only the present set supplied.
+        files:
+          - pkg/gate/status_drift_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement the drift classifier + StepResult builder (WARN/BLOCK/excluded) and register the canonical StepName"
+        description: |
+          Add pkg/gate/status_drift.go: consume the Phase-1 resolver records plus
+          ONE supplied signal — the PRESENT test-name set (from
+          collectTestFuncNames, full-sweep) — and emit a StepResult per the pinned
+          polarity. The classifier takes NO pass/fail set (there is no per-test
+          verdict in the gate; a present-but-failing mandated test is caught by
+          pack_engines, CLM-005):
+            - retired-terminal → excluded, no violation (CLM-003).
+            - success-terminal + any mandated test ABSENT (not in the present set)
+              → fail / ConfigErr-style BLOCK, REUSING the ClassDeclaredIntentUnmet
+              broken-promise message shape from traceability_polarity.go (do not
+              invent new vocabulary) (CLM-004).
+            - non-terminal + all mandated tests PRESENT → non-failing "warning"
+              StepResult with a Severity "warning" guidance violation; NEVER a
+              fail/ConfigErr (CLM-006). The WARN direction is intrinsic and
+              structurally non-blocking — no code path upgrades it to exit-2.
+          EXISTENCE is the only computed signal (CLM-008): the classifier
+          signature must NOT accept a pass/fail parameter, and no branch re-runs
+          or re-derives per-test outcomes. A present-but-failing test is out of
+          scope here by design (pack_engines subsumes it).
+
+          Register the canonical StepName (e.g. StepArtifactStatusDrift =
+          "artifact_status_drift") in pkg/gate/result.go and extend AllStepNames
+          accordingly (contract surface). Reuse PolarityStepResult's treatment
+          where it fits rather than duplicating fail-loud plumbing. No baked
+          language noun.
+        files:
+          - pkg/gate/status_drift.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "go test pkg/gate — drift classifier polarity green, no result-contract regression"
+        description: |
+          Inner-loop verification (go test). Run:
+
+              go test ./pkg/gate/...
+
+          Confirm the six TASK-004 mandated tests pass
+          (TestStatusDrift_SuccessTerminalAbsentTest_Blocks,
+          _SuccessTerminalPresentTest_NoDriftViolation,
+          _DeliveredButOpen_WarnsNonBlocking, _WarnNeverBlocks_HeuristicAsymmetry,
+          _RetiredTerminal_Excluded, _ExistenceIsTheOnlySignal) and that the
+          existing result / policy / traceability-polarity suites stay green
+          (AllStepNames grew, so confirm any length-sensitive result tests still
+          pass). Report pass/fail per mandated test.
+        files:
+          - pkg/gate/status_drift.go
+          - pkg/gate/status_drift_test.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Gate wiring — full-sweep, pass/fail sourcing, policy entry, exit
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD — Wire the Native Dimension Into buildGateSteps (full-sweep + policy + exit codes)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Failing wiring/e2e tests: step in buildGateSteps; full-sweep catches out-of-diff stale status; WARN exit 0, BLOCK exit 2; policy entry parses"
+        description: |
+          Add cmd/backstop/status_drift_gate_test.go plus a fixture project under
+          cmd/backstop/testdata/status_drift/ (issues/ specs/ etc. with known
+          status/test states) driving the step THROUGH buildGateSteps and the
+          real gate exit path — the integration-gap closer proving the resolver +
+          classifier reach the live gate and the FULL-SWEEP scope actually holds.
+
+          Mandated test names (exact):
+            - TestGate_StatusDriftStep_WiredIntoBuildGateSteps (CLM-009): assert a
+              step with the canonical StepArtifactStatusDrift name is present in
+              the steps buildGateSteps returns (native, not a pack step).
+            - TestGate_StatusDrift_FullSweep_CatchesOutOfDiffStaleStatus (CLM-007,
+              CLM-011): a success-terminal artifact whose FILE is NOT in the diff
+              scope, with an ABSENT mandated test, still produces a blocking
+              violation — proving existence resolution ignores activeScope and
+              diff-scope alone would have missed it (the ISSUE-018 repro).
+            - TestGate_StatusDrift_DeliveredOpen_ExitZeroWithWarning (CLM-006,
+              CLM-011): a delivered-but-open fixture yields a warning on the report
+              surface and the gate exit stays 0.
+            - TestGate_StatusDrift_SuccessTerminalAbsent_ExitTwo (CLM-004,
+              CLM-011): a closed issue / implemented spec with an absent mandated
+              test drives a blocking gate (exit 2) via the drift dimension — under
+              an applies-to:all-code policy (or an empty baseline) so the block is
+              observable in the test without a baseline confound.
+            - TestGate_StatusDrift_PresentButFailingTest_CaughtByPackEngines_NotDrift
+              (CLM-005, CLM-011): a success-terminal fixture whose mandated test is
+              PRESENT but FAILING leaves the gate RED via the EXISTING pack_engines
+              /test step — assert the drift dimension itself emits NO violation for
+              it (it is present), and that the red comes from the whole-suite test
+              step. This proves the drift dim does not (and need not) attribute
+              failing tests.
+            - TestGate_StatusDrift_RetiredTerminal_NoViolation (CLM-003, CLM-011):
+              a replaced/canceled fixture produces no violation.
+            - TestGate_StatusDriftPolicyEntry_ParsesNewCode (CLM-010, CLM-015): the
+              backstop.yml enforcement.policy entry for the new dimension parses
+              with level: block + applies-to: new-code and flows to ApplyPolicy for
+              this StepName; assert a pre-existing (baselined) absent-test finding
+              grandfathers while a NEW absent-test finding blocks.
+        files:
+          - cmd/backstop/status_drift_gate_test.go
+          - cmd/backstop/testdata/status_drift/README.md
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-015
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Wire the drift step into buildGateSteps (full-sweep existence only) + pin backstop.yml policy to applies-to:new-code"
+        description: |
+          Wire the native dimension into cmd/backstop/gate.go's buildGateSteps
+          alongside test_verification / the traceability dimensions (CLM-009):
+            - EXISTENCE runs FULL-SWEEP and is the ONLY signal: the step resolves
+              every artifact under the project root and checks each mandated test
+              name against the full-repo found-test set (collectTestFuncNames —
+              already a whole-repo walk). It does NOT consult activeScope for
+              existence, so a stale-status artifact whose file is out of the diff
+              is still caught (CLM-007). Reuse collectTestFuncNames /
+              ResolveMandatedTestPaths and the merged classifier+matcher already
+              built in buildGateSteps.
+            - Do NOT thread any pass/fail verdict and do NOT re-run the suite: a
+              present-but-failing mandated test is already caught by the existing
+              pack_engines/test step (CLM-005). The drift step computes existence
+              only (CLM-008).
+            - The step flows through the aggregate gate result + exit path so WARN
+              stays exit 0 and a BLOCK (net-new after baseline) is exit 2 (CLM-011).
+          Add the backstop.yml enforcement.policy entry for the new StepName pinned
+          to `level: block` + `applies-to: new-code` (per the ISSUE-041 applies-to
+          model), so the dimension is a first-class policy citizen AND the ~84
+          pre-existing eradication-stranded success-terminal broken promises
+          grandfather against the refreshed baseline while NEW ones block (CLM-010,
+          CLM-012, CLM-015). The intrinsic WARN direction is the step's own
+          non-blocking status, NOT a policy off. Introduce NO baked language noun
+          in the wiring.
+        files:
+          - cmd/backstop/gate.go
+          - backstop.yml
+        claims:
+          - CLM-005
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-007
+          - TASK-005
+
+      - id: TASK-009
+        type: verification
+        title: "go test cmd/backstop + pkg/gate — wiring/e2e green through the real gate path"
+        description: |
+          Inner-loop verification (go test). Run:
+
+              go test ./cmd/backstop/... ./pkg/gate/...
+
+          Confirm the seven TASK-007 mandated tests pass end-to-end through the
+          real buildGateSteps + exit path
+          (TestGate_StatusDriftStep_WiredIntoBuildGateSteps,
+          TestGate_StatusDrift_FullSweep_CatchesOutOfDiffStaleStatus,
+          _DeliveredOpen_ExitZeroWithWarning, _SuccessTerminalAbsent_ExitTwo,
+          TestGate_StatusDrift_PresentButFailingTest_CaughtByPackEngines_NotDrift,
+          _RetiredTerminal_NoViolation, TestGate_StatusDriftPolicyEntry_ParsesNewCode)
+          and that no existing cmd/backstop gate-wiring or policy test regressed
+          (the step list grew; confirm step-count/order-sensitive tests updated
+          cleanly). Report pass/fail per mandated test.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/status_drift_gate_test.go
+          - backstop.yml
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-015
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification — full gate kill chain + artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — baseline refresh + backstop gate + artifact validate + follow-up issue"
+    tasks:
+      - id: TASK-010
+        type: verification
+        title: "baseline generate (grandfather the ~84) → backstop gate (full kill chain) + artifact validate — gate green on clean tree, ratchet not amnesty"
+        description: |
+          Final comprehensive verification via the full kill chain. This change
+          touches .go files (pkg/gate, cmd/backstop) AND backstop artifact/config
+          surface (this plan file, backstop.yml), so BOTH commands are required.
+          The new full-sweep dimension WILL surface the ~84 real historical
+          eradication-stranded success-terminal broken promises (closed
+          ISSUE-002/003/005/006/008 + completed PLAN-SPEC-001); the dimension is
+          pinned applies-to:new-code so a REFRESHED baseline grandfathers them.
+
+          Run, in order:
+            1. backstop baseline generate      (full scope — captures the ~84
+                                                pre-existing broken promises as the
+                                                floor, the un-vacuum→baseline
+                                                ratchet, CLM-015)
+            2. backstop artifact validate      (validates this plan + config surface)
+            3. backstop gate                   (the full reconciliation kill chain,
+                                                now including the new
+                                                artifact_status_drift dimension)
+
+          Confirm the ACCEPTANCE invariants (the whole fix):
+            - The new dimension runs and the gate stays GREEN on the current clean
+              tree BECAUSE it is applies-to:new-code against the refreshed baseline:
+              the ~84 historical stranded promises grandfather (net-new == 0), and
+              NO new blocking violation is introduced against real repo state
+              (CLM-012, CLM-015). Verify the artifact_status_drift step reports the
+              historical absences as baselined/grandfathered, NOT as net-new fails,
+              and that they were NOT waived or masked to force green.
+            - Exit-code polarity holds against the real gate: the WARN direction
+              (delivered-but-open) leaves exit 0; a NEW success-terminal broken
+              promise (absent mandated test) would be exit 2 (CLM-011).
+            - A present-but-failing mandated test is NOT attributed by the drift
+              dimension — it is caught by pack_engines if present in the real tree
+              (CLM-005).
+            - retired-terminal artifacts in the real tree contribute NO violation
+              (CLM-003) and the existing test_verification/coverage/contracts
+              retired-exclusion is unregressed.
+            - The dimension is native + language-neutral: no baked language noun
+              entered pkg/gate or the cmd/backstop wiring (CLM-009).
+          Report the final gate status, the artifact_status_drift step's
+          grandfathered vs net-new counts, and confirm the ~84 historical stranded
+          promises are captured in the baseline (deferred to CLM-016's follow-up).
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/status_drift.go
+          - cmd/backstop/gate.go
+          - backstop.yml
+          - plans/PLAN-ISSUE-042-status-reality-drift.plan.yml
+        claims:
+          - CLM-003
+          - CLM-005
+          - CLM-009
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-008
+          - TASK-009
+
+      - id: TASK-011
+        type: documentation
+        title: "File a follow-up issue: reconcile the ~84 eradication-stranded mandated tests + flag the retirement-vocab gap"
+        description: |
+          Using the issue-author agent (the /issue path — do NOT hand-write the
+          artifact), FILE A FOLLOW-UP ISSUE capturing the stranded-lineage
+          reconciliation that this dimension made visible (CLM-016). This is the
+          deliberate drain track — the ~84 are NOT reconciled inline in this plan;
+          they are grandfathered by the baseline (TASK-010) and worked separately.
+
+          The follow-up issue must capture:
+            - The concrete stranded set: closed ISSUE-002/003/005/006/008 mandating
+              the deleted TestCodeCheck_* (~30 absent, from the `backstop code
+              check` eradication) and completed PLAN-SPEC-001 with 54/54 mandated
+              tests absent (the standards-compiler eradicated in the packs-only
+              cutover) — the artifacts the new artifact_status_drift dimension
+              flags as success-terminal-with-absent-tests.
+            - The required reconciliation: retire or repoint those mandated tests
+              deliberately deleted by the eradications, so the baseline can ratchet
+              DOWN over time rather than grandfather them forever.
+            - The RETIREMENT-VOCAB GAP to raise explicitly: a delivered-THEN-
+              obsoleted artifact (work genuinely shipped, then its tests removed by
+              a later eradication) fits NONE of replaced/canceled/deprecated
+              cleanly — the terminal vocab has no state for "delivered, later
+              made obsolete." This is deletion-strands-lineage; the gap likely
+              needs its own vocab/schema decision.
+          This task PRODUCES a new issue artifact via the agent; it writes NO code
+          and NO summary/report file into the repo. The issue-author scaffolds the
+          real ID via `backstop artifact new issue` (the path below is the
+          representative creatable target — use the scaffold-assigned filename).
+          Verify the issue file landed before reporting done.
+        files:
+          - issues/ISSUE-048-stranded-mandated-test-lineage.issue.md
+        claims:
+          - CLM-016
+        depends_on:
+          - TASK-008

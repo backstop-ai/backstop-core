@@ -12,3 +12,4 @@
 - [Gate residual reds after ISSUE-027](project_gate_residual_reds_issue027.md) — self-pack GREEN (binding.go 6→0); residual contract_signature + coverage reds are pre-existing file-scope/struct-compiler/types-only/root-file quirks, not eradication failures
 - [Self-pack backlog closed (ISSUE-021)](project_self_pack_backlog_closed.md) — DIR-014 last self-finding cleared 2026-07-06; backstop/self whole-repo GREEN, 0 active; residual gate reds all non-self
 - [Coverage zero-stmt proxy unsound (ISSUE-045 case-1)](project_coverage_zerostmt_proxy_unsound.md) — gate-side directory proxy for zero-statement N/A defeats bun anti-vacuous-green guard; fix belongs producer-side (emit total=0 N/A records), not in pkg/gate
+- [ISSUE-042 drift blast radius](project_issue042_drift_blast_radius.md) — measured 39 block + 10 warn (not ~84); plans carry no mandated tests, so the estimate double-counted PLAN-SPEC-001
