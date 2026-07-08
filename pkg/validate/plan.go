@@ -10,13 +10,14 @@ import (
 )
 
 var (
-	planIDRe     = regexp.MustCompile(`^PLAN-(SPEC|ISSUE)-\d{3}$`)
-	planFileRe   = regexp.MustCompile(`^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\.plan\.yml$`)
-	specIDRe     = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)
-	planStatuses = map[string]bool{
+	planIDRe     = regexp.MustCompile(`^PLAN-(SPEC|ISSUE)-\d{3}$`)                                   // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	planFileRe   = regexp.MustCompile(`^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\.plan\.yml$`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	specIDRe     = regexp.MustCompile(`^(SPEC|ISSUE)-\d{3}$`)                                        // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	planStatuses = map[string]bool{                                                                  // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"draft": true, "ready": true, "implementing": true, "completed": true,
-		// Terminal/end-of-life states (ISSUE-031). No "deprecated" for plans.
-		"replaced": true, "canceled": true,
+		// Terminal/end-of-life states: replaced, canceled (ISSUE-031); obsoleted
+		// (ISSUE-048, delivered-then-removed). No "deprecated" for plans.
+		"replaced": true, "canceled": true, "obsoleted": true,
 	}
 	validTaskTypes = map[string]bool{
 		"setup": true, "test": true, "implementation": true,
@@ -95,14 +96,14 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		violations = append(violations, Violation{
 			Rule:     "plan/status-required",
 			File:     art.Filename,
-			Message:  "status is required (draft, ready, implementing, completed, replaced, canceled)",
+			Message:  "status is required (draft, ready, implementing, completed, replaced, canceled, obsoleted)",
 			Severity: "error",
 		})
 	} else if !planStatuses[status] {
 		violations = append(violations, Violation{
 			Rule:     "plan/invalid-status",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("status '%s' is not valid (draft, ready, implementing, completed, replaced, canceled)", status),
+			Message:  fmt.Sprintf("status '%s' is not valid (draft, ready, implementing, completed, replaced, canceled, obsoleted)", status),
 			Severity: "error",
 		})
 	}

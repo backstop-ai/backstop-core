@@ -8,7 +8,7 @@
   "filename_pattern": "^PLAN-[A-Z]+-[0-9]+-[a-z][a-z0-9]*(-[a-z0-9]+)*\\.plan\\.yml$",
   "metadata": {
     "required": ["plan_id", "spec_id", "created", "status"],
-    "optional": ["spec_version", "target_repo", "target_module", "test_command", "coverage_threshold", "notes"],
+    "optional": ["spec_version", "target_repo", "target_module", "test_command", "coverage_threshold", "notes", "obsoleted-by"],
     "properties": {
       "plan_id": {
         "pattern": "^PLAN-(SPEC|ISSUE)-[0-9]{3}$",
@@ -19,8 +19,12 @@
         "description": "The spec or issue this plan implements"
       },
       "status": {
-        "enum": ["draft", "ready", "implementing", "completed", "replaced", "canceled"],
-        "description": "Lifecycle status. Live: draft, ready, implementing, completed. Terminal/end-of-life: replaced (superseded by a named successor — requires replaced-by), canceled (work abandoned). No deprecated state for plans."
+        "enum": ["draft", "ready", "implementing", "completed", "replaced", "canceled", "obsoleted"],
+        "description": "Lifecycle status. Live: draft, ready, implementing, completed. Terminal/end-of-life: replaced (superseded by a named successor — requires replaced-by), canceled (work abandoned), obsoleted (delivered then removed with no 1:1 successor — requires obsoleted-by). No deprecated state for plans."
+      },
+      "obsoleted-by": {
+        "pattern": "^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$",
+        "description": "Required when status is `obsoleted`. A typed artifact id naming the work that removed this delivered-then-removed capability with no 1:1 successor. Documentary only; enforced in pkg/validate/terminal.go."
       },
       "created": {
         "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -37,7 +41,9 @@
     "description": "Ordered execution phases containing agent-bounded tasks",
     "item_required_keys": ["id", "name", "tasks"],
     "task_required_keys": ["id", "type", "title", "description", "files", "claims", "depends_on"],
-    "task_type_enum": ["setup", "test", "implementation", "verification", "refactor", "documentation"]
+    "task_optional_keys": ["test_names"],
+    "task_type_enum": ["setup", "test", "implementation", "verification", "refactor", "documentation"],
+    "task_test_names_description": "Optional per-task list of the mandated test function names this task delivers. The artifact_status_drift dimension reads it: for a `completed` plan, every declared test_name must EXIST or the plan blocks as a broken promise."
   },
   "enforcement": {
     "D-080": "Every task must be agent-bounded: non-empty files, description, claims, and explicit depends_on",

@@ -69,18 +69,20 @@ func (c StatusClass) String() string {
 // ClassifyArtifactStatus maps a declared status to exactly one of {non-terminal,
 // success-terminal, retired-terminal} PER artifact TYPE (CLM-002). The success-terminal
 // status differs by type (issue closed / spec implemented / directive done / plan
-// completed); the retired set (replaced/canceled, plus spec-only deprecated) is uniform.
-// An UNRECOGNIZED status defaults to non-terminal — the safe direction, since the WARN
-// direction never blocks; a typo can never manufacture a spurious success-terminal BLOCK.
+// completed); the retired set (replaced/canceled/obsoleted, plus spec-only deprecated) is
+// uniform. An UNRECOGNIZED status defaults to non-terminal — the safe direction, since the
+// WARN direction never blocks; a typo can never manufacture a spurious success-terminal
+// BLOCK.
 //
 // NB: there is NO spec `active` — `active` is a DIRECTIVE status. The spec success-terminal
 // is `implemented`.
 func ClassifyArtifactStatus(kind ArtifactKind, status string) StatusClass {
-	// Retired terminals are uniform across types (deprecated exists only for specs, but
-	// classifying it retired for any type is harmless — the enum simply never occurs
-	// elsewhere).
+	// Retired terminals are uniform across types (deprecated exists only for specs, and
+	// obsoleted (ISSUE-048) is a delivered-then-removed retired terminal for issue/spec/
+	// plan — classifying either retired for any type is harmless; the enum simply never
+	// occurs elsewhere). Retired MUST return here, BEFORE the success-terminal switch.
 	switch status {
-	case "replaced", "canceled", "deprecated":
+	case "replaced", "canceled", "deprecated", "obsoleted":
 		return ClassRetiredTerminal
 	}
 	// Success terminals are TYPE-specific.
@@ -205,16 +207,18 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 		return nil, fmt.Errorf("resolving directives: %w", err)
 	}
 
-	// Plans: whole-file YAML (.plan.yml). status + plan_id + spec_id; no mandated tests.
-	// Index each plan by its spec_id for the issue->plan linkage.
+	// Plans: whole-file YAML (.plan.yml). status + plan_id + spec_id, plus task test_names
+	// as MandatedTests (ISSUE-048). Index each plan by its spec_id for the issue->plan
+	// linkage.
 	if err := walkPlanDir(filepath.Join(projectRoot, "plans"), func(path string, fm *planFrontmatter) {
 		rec := ArtifactStatusRecord{
-			ID:     fm.PlanID,
-			Kind:   KindPlan,
-			Status: fm.Status,
-			Class:  ClassifyArtifactStatus(KindPlan, fm.Status),
-			Path:   path,
-			SpecID: fm.SpecID,
+			ID:            fm.PlanID,
+			Kind:          KindPlan,
+			Status:        fm.Status,
+			Class:         ClassifyArtifactStatus(KindPlan, fm.Status),
+			Path:          path,
+			SpecID:        fm.SpecID,
+			MandatedTests: planTaskMandatedTests(fm, path),
 		}
 		res.Records = append(res.Records, rec)
 		if fm.SpecID != "" {
@@ -269,11 +273,47 @@ type claimBlock struct {
 }
 
 // planFrontmatter is the whole-file plan YAML shape the resolver reads (plans are pure
-// .plan.yml, not fenced markdown).
+// .plan.yml, not fenced markdown). It also reads phases[].tasks[].test_names (ISSUE-048):
+// the mandated test names a completed plan delivered, so a `completed` plan is held to the
+// SAME success-terminal absent-test BLOCK as issues/specs. yaml ignores tasks that carry
+// no test_names, so plans authored before this field carry no MandatedTests (unchanged).
 type planFrontmatter struct {
-	PlanID string `yaml:"plan_id"`
-	SpecID string `yaml:"spec_id"`
-	Status string `yaml:"status"`
+	PlanID string          `yaml:"plan_id"`
+	SpecID string          `yaml:"spec_id"`
+	Status string          `yaml:"status"`
+	Phases []planPhaseNode `yaml:"phases"`
+}
+
+// planPhaseNode / planTaskNode are the minimal phase/task shape the resolver reads to
+// surface task test_names. They deliberately read ONLY id + test_names — validate.Plan
+// owns full plan-structure validation.
+type planPhaseNode struct {
+	Tasks []planTaskNode `yaml:"tasks"`
+}
+
+type planTaskNode struct {
+	ID        string   `yaml:"id"`
+	TestNames []string `yaml:"test_names"`
+}
+
+// planTaskMandatedTests flattens a plan's phases[].tasks[].test_names into MandatedTest
+// records (reusing the shared type). SpecFile carries the plan path and SpecID the plan id
+// so a drift violation attributes back to the plan; ClaimID carries the delivering task id.
+func planTaskMandatedTests(fm *planFrontmatter, path string) []MandatedTest {
+	var out []MandatedTest
+	for _, phase := range fm.Phases {
+		for _, task := range phase.Tasks {
+			for _, name := range task.TestNames {
+				out = append(out, MandatedTest{
+					FuncName: name,
+					SpecFile: path,
+					SpecID:   fm.PlanID,
+					ClaimID:  task.ID,
+				})
+			}
+		}
+	}
+	return out
 }
 
 // walkArtifactDir reads every fenced-frontmatter artifact file with the given suffix in

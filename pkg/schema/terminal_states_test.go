@@ -123,6 +123,23 @@ func TestSchema_IssueV1_HasRetirementStatesKeepsClosed(t *testing.T) {
 	assertLacks(t, enum, "issue/v1 status", "deprecated")
 }
 
+// TestSchema_TerminalStates_IncludeObsoleted (CLM-010): the `obsoleted` retirement
+// terminal is documented in the issue/v1, spec/v1, and plan/v1 status enums. Pins the
+// schema-documentation claim directly rather than only transitively via the validator.
+func TestSchema_TerminalStates_IncludeObsoleted(t *testing.T) {
+	iss := schemaJSON(t, "artifacts", "issue", "v1", "schema.json")
+	assertHas(t, enumAt(t, iss, "nested_blocks", "issue", "properties", "status", "enum"),
+		"issue/v1 status", "obsoleted")
+
+	spec := schemaJSON(t, "artifacts", "spec", "v1", "schema.json")
+	assertHas(t, enumAt(t, spec, "metadata", "properties", "status", "enum"),
+		"spec/v1 status", "obsoleted")
+
+	plan := schemaJSON(t, "artifacts", "plan", "v1", "schema.json")
+	assertHas(t, enumAt(t, plan, "metadata", "properties", "status", "enum"),
+		"plan/v1 status", "obsoleted")
+}
+
 func TestSchema_AdrStandardCapability_Unchanged(t *testing.T) {
 	// adr/v2 status enum is unchanged.
 	adr := schemaJSON(t, "artifacts", "adr", "v2", "schema.json")

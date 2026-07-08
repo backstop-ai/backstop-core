@@ -1,0 +1,780 @@
+---
+plan_id: PLAN-ISSUE-048
+spec_id: ISSUE-048
+created: "2026-07-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... ./pkg/gate/... -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-048 (DIR-016 keystone follow-up to ISSUE-042). This plan builds
+  the CODE MECHANISM ONLY — three coexisting terminal/close paths and the drift-
+  dimension extension. It does NOT apply the vocabulary to the 39 stranded artifacts
+  (ISSUE-002/003/005/006/008/018/036 + SPEC-041) nor resolved-by-close the 5 fixed-
+  directly issues (011/014/015/016/017); that reconciliation is a DOWNSTREAM author-
+  agent effort orchestrated after this ships. All tasks build+test against fixtures.
+
+  PINNED DECISIONS (settled with the user — constraints, NOT open questions):
+
+    1. NEW TERMINAL STATE `obsoleted` + `obsoleted-by: <artifact-id>` pointer, for
+       artifacts DELIVERED + verified then had their capability (and tests) REMOVED
+       by later superseding work with NO 1:1 successor (e.g. ISSUE-002 obsoleted-by
+       ISSUE-018). Mirrors the EXISTING replaced/replaced-by rule (ISSUE-031,
+       pkg/validate/terminal.go validateRetirementFields): `obsoleted` REQUIRES a
+       non-empty, typed `obsoleted-by` (BUNDLE|SPEC|ISSUE|PLAN|DIR-NNN). Distinct
+       from `replaced` (no successor equivalent — removed, not replaced) and
+       `canceled` (obsoleted DID ship). Applied to issue/spec/plan.
+
+    2. NEW `resolved-by: <structured-ref>` close path, for issues fixed DIRECTLY
+       (a real commit) with NO issue->plan track, so `delivered_by` (ISSUE-043,
+       requires a `completed` backing plan) cannot apply. A `status: closed` issue
+       carrying `resolved-by` satisfies closed-requires-traceability by pointing at
+       the resolving work WITHOUT own requirements/claims and WITHOUT a mandated test
+       or a completed plan — critically it works for a fix with NO test (e.g.
+       ISSUE-014 is a prompt-only plan-reviewer change: it points at its fix COMMIT
+       SHA). Still requires a `## Resolution` section (standalone-readable), same as
+       delivered_by. Static / trust-based (no test execution), consistent with
+       delivered_by.
+
+       resolved-by must be a STRUCTURED ref — NOT free-text — so it cannot become a
+       vacuous-close hatch (a bare `resolved-by: done` + a Resolution heading would
+       otherwise bypass ALL REQ->CLM->test rigor AND be invisible to the drift
+       dimension, since a resolved-by close carries no claims). Accepted shapes:
+         (a) a TYPED artifact ref `^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$`; OR
+         (b) a COMMIT/PR ref — a hex SHA `^[0-9a-f]{7,40}$` OR a PR URL.
+       Anything else (arbitrary prose) is a fail-loud issue/resolved-by-malformed
+       error. ADDITIONALLY, when resolved-by is a TYPED artifact ref, statically
+       verify the referenced artifact FILE EXISTS (sibling-file check, exactly the
+       layering-consistent static read delivered_by already does — os.Stat/Glob/
+       artifact.ParseFile, NO os/exec). Existence is SKIPPED for commit/PR refs — a
+       static validator cannot confirm a SHA — those stay shape-only / trust. This
+       keeps resolved-by no looser than the rest of the pointer family (delivered_by
+       resolves to a real completed plan; replaced-by/obsoleted-by are typed refs).
+       NOTE the asymmetry vs obsoleted-by/replaced-by, which stay SHAPE-ONLY (no
+       existence check — the existing retirement-field trust level; do NOT expand
+       existence checking to them).
+
+    3. EXTEND the ISSUE-042 drift dimension (facet 3):
+       (a) `obsoleted` joins the RETIRED-terminal set the drift dimension EXCLUDES
+           (ClassifyArtifactStatus in pkg/gate/artifact_status.go, alongside
+           replaced/canceled/deprecated -> ClassRetiredTerminal). An obsoleted
+           artifact's absent mandated tests therefore no longer flag as a broken
+           promise — self-documenting via obsoleted-by, replacing the permanent
+           baseline grandfather.
+       (b) EXTEND the resolver to parse completed-plan `phases[].tasks[].test_names`
+           (plans currently carry status only) and populate the plan record's
+           MandatedTests, so a `completed` plan is subject to the SAME success-
+           terminal absent-test BLOCK already applied to issues/specs. No change to
+           ClassifyStatusDrift is needed — KindPlan+completed already resolves to
+           ClassSuccessTerminal, whose absent-test branch blocks.
+
+  THREE CLOSE/RETIRE PATHS COEXIST COHERENTLY (no double-counting, no silent green):
+    - delivered_by (ISSUE-043): closed issue -> its own `completed` backing plan.
+    - resolved-by (this plan): closed issue fixed elsewhere, no plan, maybe no test.
+    - obsoleted + obsoleted-by (this plan): delivered then removed; a RETIRED
+      terminal, exempt from the drift broken-promise check.
+    delivered_by and resolved-by are BOTH honored ONLY at `closed`; a closed issue
+    with NEITHER still runs the full REQ->CLM->tests rigor (no regression).
+
+  FAIL-LOUD (mirroring delivered_by / replaced-by): `obsoleted` without a typed
+  `obsoleted-by` is an ERROR; a malformed `obsoleted-by` is an ERROR; an empty /
+  blank `resolved-by` is an ERROR; a resolved-by close missing its Resolution
+  section is an ERROR. No defect silently satisfies a close/retire.
+
+  ENFORCEMENT-SURFACE NOTES (verified against current source, do NOT trust memory):
+    - `isTerminalStatus` (pkg/validate/terminal.go) and the shared
+      `validateRetirementFields` are TYPE-AGNOSTIC and called by issue.go, spec.go,
+      plan.go. Adding `obsoleted` there covers all three types' terminal-exemption
+      AND the obsoleted-by-required rule in one place.
+    - Issue + plan status enums are HARDCODED maps in code (issueStatuses in
+      issue.go, planStatuses in plan.go) -> `obsoleted` must be added there (load-
+      bearing impl). The SPEC status enum is SCHEMA-DRIVEN (spec.go reads
+      sch.StatusEnum, populated from artifacts/spec/v1/schema.json status.enum) ->
+      the spec enum edit in the schema task is LOAD-BEARING, not documentary. Spec
+      needs NO spec.go edit — validateRetirementFields + isTerminalStatus cover it.
+    - The drift dimension is native, wired in cmd/backstop/gate.go
+      (buildStatusDriftSteps -> computeDriftSurfaces) over pkg/gate primitives
+      ResolveArtifactStatus + ClassifyStatusDrift + SplitDriftResult. The mechanism
+      edits live in pkg/gate/artifact_status.go; the wiring already sweeps all
+      records, so a plan gaining MandatedTests flows through unchanged.
+
+  ARCHITECTURE CONSTRAINT (unchanged from ISSUE-043): the resolved-by helper lives
+  in pkg/validate, is STATIC (no os/exec; pure filesystem reads at most), and MUST
+  NOT import pkg/gate (pkg/gate consumes validators). resolved-by needs no plan
+  lookup at all (no backing-plan requirement), so it is even lighter than
+  delivered_by — it reuses the delivered_by close-branch plumbing in
+  validateIssueTraceability but requires neither a plan nor a test.
+
+  CLAIMS (this plan's own; ISSUE-048 is `open` and carries none yet):
+    CLM-001 The new terminal status `obsoleted` is ACCEPTED by the issue, spec, and
+            plan validators (no longer rejected as invalid-status).
+    CLM-002 status `obsoleted` REQUIRES a non-empty, TYPED `obsoleted-by`
+            (BUNDLE|SPEC|ISSUE|PLAN|DIR-NNN); absent -> fail-loud
+            <type>/obsoleted-by-required error; malformed/non-typed -> fail-loud
+            <type>/obsoleted-by-malformed error. Mirrors replaced-by, for
+            issue/spec/plan.
+    CLM-003 `obsoleted` is a TERMINAL status (isTerminalStatus true): an obsoleted
+            artifact is exempt from the live-work REQ->CLM->tests / completeness
+            rigor, exactly as replaced/canceled/deprecated are.
+    CLM-004 A `closed` issue carrying a valid `resolved-by` + a `## Resolution`
+            section validates CLEAN WITHOUT its own requirements/claims/verification/
+            implementation/contracts arrays, WITHOUT a mandated test, and WITHOUT a
+            completed backing plan.
+    CLM-005 A `resolved-by` must be a STRUCTURED ref: a typed artifact ref
+            (BUNDLE|SPEC|ISSUE|PLAN|DIR-NNN) OR a commit/PR ref (hex SHA
+            ^[0-9a-f]{7,40}$ or a PR URL). Empty / blank / non-string / arbitrary
+            prose is a fail-loud issue/resolved-by-malformed error. When it is a
+            TYPED artifact ref, the referenced artifact FILE must EXIST (static
+            sibling-file check) else issue/resolved-by-artifact-not-found; commit/PR
+            refs are shape-only (existence not statically checkable).
+    CLM-006 A `resolved-by`-closed issue lacking a `## Resolution` section is a
+            validation error (issue/resolved-by-resolution-required) — minimum
+            standalone content.
+    CLM-007 `resolved-by` is honored ONLY at `closed`; a closed issue with NEITHER
+            resolved-by NOR delivered_by still requires the full traceability chain
+            (no regression); and a closed issue carrying BOTH delivered_by AND
+            resolved-by is a fail-loud issue/close-pointer-conflict error (at most
+            one close pointer) — no silent precedence, no double-counting.
+    CLM-008 The drift classifier ClassifyArtifactStatus maps `obsoleted` to
+            ClassRetiredTerminal for every artifact type, so the drift dimension
+            EXCLUDES obsoleted artifacts — an obsoleted artifact's absent mandated
+            tests do NOT flag as a broken promise.
+    CLM-009 ResolveArtifactStatus parses completed-plan `phases[].tasks[].test_names`
+            and populates the plan record's MandatedTests, so a `completed` plan
+            with an ABSENT task test_name blocks under the success-terminal drift
+            check, while one whose task test_names are all PRESENT does not.
+    CLM-010 The new vocabulary is documented in the schemas: `obsoleted` +
+            `obsoleted-by` in the issue/spec/plan schemas, `resolved-by` in the
+            issue schema, and `test_names` as an optional plan-task field.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures + schema documentation (all parallel, disjoint)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixtures & Schema Documentation"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold obsoleted terminal-state fixtures (issue/spec/plan)"
+        description: |
+          Create real, parseable fixtures under
+          pkg/validate/testdata/terminal_vocab/ that drive the `obsoleted` +
+          `obsoleted-by` validator behavior. Each is a real artifact whose
+          frontmatter matches its schema so the ONLY variable under test is the
+          obsoleted/obsoleted-by shape.
+
+            - issues/ISSUE-820-obsoleted-valid.issue.md — status: obsoleted,
+              obsoleted-by: ISSUE-018 (a typed ref), issue.closed set, NO
+              requirements/claims. The happy-path terminal that must validate CLEAN
+              once impl lands (CLM-001, CLM-003).
+            - issues/ISSUE-821-obsoleted-no-by.issue.md — status: obsoleted, NO
+              obsoleted-by. Must FAIL fail-loud on obsoleted-by-required (CLM-002).
+            - issues/ISSUE-822-obsoleted-malformed-by.issue.md — status: obsoleted,
+              obsoleted-by: "garbage" (not a typed ref). Must FAIL on
+              obsoleted-by-malformed (CLM-002).
+            - specs/SPEC-820-obsoleted-valid.spec.md — status: obsoleted,
+              obsoleted-by: ISSUE-018, otherwise minimal. Must validate CLEAN once
+              the spec status enum + terminal handling land (CLM-001, CLM-003).
+            - specs/SPEC-821-obsoleted-no-by.spec.md — status: obsoleted, NO
+              obsoleted-by. Must FAIL on spec/obsoleted-by-required (CLM-002).
+            - plans/PLAN-ISSUE-820-obsoleted.plan.yml — status: obsoleted,
+              obsoleted-by: ISSUE-018, spec_id: ISSUE-820, minimal phases. Must
+              validate CLEAN once planStatuses accepts obsoleted (CLM-001, CLM-003).
+            - plans/PLAN-ISSUE-821-obsoleted-no-by.plan.yml — status: obsoleted, NO
+              obsoleted-by. Must FAIL on plan/obsoleted-by-required (CLM-002).
+
+          These are real fixtures, not stubs — verify by construction that each
+          intended-clean fixture is otherwise schema-valid and each intended-fail
+          fixture fails ONLY on the obsoleted-by rule under test.
+        files:
+          - pkg/validate/testdata/terminal_vocab/issues/ISSUE-820-obsoleted-valid.issue.md
+          - pkg/validate/testdata/terminal_vocab/issues/ISSUE-821-obsoleted-no-by.issue.md
+          - pkg/validate/testdata/terminal_vocab/issues/ISSUE-822-obsoleted-malformed-by.issue.md
+          - pkg/validate/testdata/terminal_vocab/specs/SPEC-820-obsoleted-valid.spec.md
+          - pkg/validate/testdata/terminal_vocab/specs/SPEC-821-obsoleted-no-by.spec.md
+          - pkg/validate/testdata/terminal_vocab/plans/PLAN-ISSUE-820-obsoleted.plan.yml
+          - pkg/validate/testdata/terminal_vocab/plans/PLAN-ISSUE-821-obsoleted-no-by.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold resolved-by close-path closing-issue fixtures (structured-ref boundary)"
+        description: |
+          Create real .issue.md fixtures under
+          pkg/validate/testdata/resolved_by/issues/ that drive the resolved-by
+          close path, the structured-ref accept-boundary, the typed-ref existence
+          check, the no-regression guard, and the both-pointers conflict. Each is
+          status: closed with issue.closed set.
+
+            - ISSUE-830-resolved-commit.issue.md — resolved-by: a hex commit SHA
+              (e.g. "a1b2c3d4e5"), a `## Resolution` section, NO requirements/claims/
+              verification/implementation/contracts and NO delivered_by. The thin
+              COMMIT-ref accept case (the ISSUE-014 no-test/no-plan shape) — must
+              validate CLEAN, and its SHA must NOT trigger the typed-ref existence
+              check (CLM-004; commit-ref accept, existence skipped, CLM-005).
+            - ISSUE-831-resolved-typedref.issue.md — resolved-by: ISSUE-838 (a TYPED
+              ref to the EXISTING sibling fixture below), Resolution, no REQ/CLM, no
+              delivered_by. The typed-ref-EXISTS accept case — must validate CLEAN
+              (CLM-004; typed-ref accept + existence-satisfied, CLM-005).
+            - ISSUE-838-referenced.issue.md — a minimal, schema-valid issue (any
+              non-terminal status) that EXISTS as the sibling target ISSUE-831's
+              typed resolved-by resolves to. Support fixture only.
+            - ISSUE-832-resolved-prose.issue.md — resolved-by: "just fixed it"
+              (arbitrary prose, matches neither the typed-ref nor the commit/PR
+              shape), with a Resolution section. Must FAIL fail-loud on
+              issue/resolved-by-malformed — the vacuous-close hatch is closed
+              (CLM-005). (The empty-string "" case is exercised in the same
+              malformed test via a table entry.)
+            - ISSUE-833-resolved-missing-ref.issue.md — resolved-by: SPEC-999 (a
+              well-shaped TYPED ref pointing at an artifact with NO such file /
+              sibling dir), Resolution section, no REQ/CLM. Must FAIL on
+              issue/resolved-by-artifact-not-found — a typed ref must resolve to a
+              real artifact file (CLM-005, existence half).
+            - ISSUE-834-resolved-no-resolution.issue.md — resolved-by: a valid
+              commit SHA, no REQ/CLM, and DELIBERATELY NO `## Resolution` section.
+              Must FAIL on issue/resolved-by-resolution-required (CLM-006).
+            - ISSUE-835-bare-close.issue.md — status: closed, NO resolved-by, NO
+              delivered_by, NO requirements/claims. Must FAIL (full traceability
+              still required) — the no-regression negative half (CLM-007).
+            - ISSUE-836-both-pointers.issue.md — status: closed carrying BOTH
+              delivered_by: PLAN-ISSUE-830 AND resolved-by: a valid commit SHA, plus
+              a Resolution section. Must FAIL fail-loud on
+              issue/close-pointer-conflict — at most one close pointer (CLM-007,
+              mutual-exclusivity half).
+
+          Distinct issue ids per file so filenames satisfy the ISSUE-NNN prefix rule
+          and ids do not collide. The typed-ref existence check resolves the
+          referenced artifact relative to the issue's OWN path (the same static
+          sibling-resolution delivered_by uses, e.g. an ISSUE-NNN ref -> the sibling
+          issues/ dir), so the ISSUE-838 support fixture must live alongside the
+          consuming fixtures.
+        files:
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-830-resolved-commit.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-831-resolved-typedref.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-838-referenced.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-832-resolved-prose.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-833-resolved-missing-ref.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-834-resolved-no-resolution.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-835-bare-close.issue.md
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-836-both-pointers.issue.md
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Scaffold drift-dimension fixture project root (obsoleted + plan test_names)"
+        description: |
+          Create a self-contained fixture project root under
+          pkg/gate/testdata/status_drift_vocab/root/ that ResolveArtifactStatus can
+          walk, for the facet-3 resolver + classifier tests.
+
+            - issues/ISSUE-840-obsoleted.issue.md — status: obsoleted, obsoleted-by:
+              ISSUE-018. Proves the resolver classifies obsoleted as retired-terminal
+              so ClassifyStatusDrift EXCLUDES it (CLM-008).
+            - plans/PLAN-SPEC-840-plantests.plan.yml — status: completed,
+              spec_id: SPEC-840, with phases[].tasks[].test_names declaring at least
+              two names, e.g. [TestDriftVocab_Present, TestDriftVocab_Absent]. Drives
+              the completed-plan absent-test BLOCK: with a present-set containing only
+              TestDriftVocab_Present, the resolver+classifier must block on
+              TestDriftVocab_Absent (CLM-009).
+            - plans/PLAN-SPEC-841-allpresent.plan.yml — status: completed,
+              spec_id: SPEC-841, tasks[].test_names all in the present-set. Must
+              produce NO drift block (CLM-009, negative half).
+
+          The plan fixtures are otherwise valid .plan.yml (they need not pass
+          validate.Plan for the resolver, which reads frontmatter + phases only, but
+          keep them well-formed). test_names is a NEW optional plan-task field
+          (documented in TASK-004); include it here so the resolver has something to
+          parse.
+        files:
+          - pkg/gate/testdata/status_drift_vocab/root/issues/ISSUE-840-obsoleted.issue.md
+          - pkg/gate/testdata/status_drift_vocab/root/plans/PLAN-SPEC-840-plantests.plan.yml
+          - pkg/gate/testdata/status_drift_vocab/root/plans/PLAN-SPEC-841-allpresent.plan.yml
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on: []
+
+      - id: TASK-004
+        type: documentation
+        title: "Document obsoleted / obsoleted-by / resolved-by / test_names in the schemas"
+        description: |
+          Record the new vocabulary in the artifact schemas. NOTE: the SPEC status
+          enum is LOAD-BEARING (spec.go reads sch.StatusEnum from this file), so the
+          spec enum edit here is what makes the spec `obsoleted` fixture validate;
+          the issue/plan status enums are enforced in code (TASK-006). The
+          obsoleted-by / resolved-by / test_names descriptions are documentary; their
+          enforcement is the validator/resolver.
+
+            - artifacts/issue/v1/schema.json:
+                * add `obsoleted` to the issue.status enum + its description (a
+                  retired terminal: delivered then removed with no 1:1 successor,
+                  requires obsoleted-by);
+                * add an optional top-level `obsoleted-by` property (pattern
+                  ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$, description mirroring
+                  replaced-by but for removal-without-successor);
+                * add an optional top-level `resolved-by` property (description: a
+                  closed issue fixed directly with no plan; a valid resolved-by +
+                  Resolution section satisfies close-requires-traceability without
+                  own REQ/CLM or a mandated test — lighter than delivered_by, needs
+                  no completed plan);
+                * update the closed-requires-traceability enforcement note to name
+                  resolved-by as a second relaxation alongside delivered_by.
+            - artifacts/spec/v1/schema.json: add `obsoleted` to the status enum
+              (LOAD-BEARING) + description; add an optional `obsoleted-by` property.
+            - artifacts/plan/v1/schema.json: add `obsoleted` to the metadata.status
+              enum + description; add `obsoleted-by` to metadata.optional with its
+              property; add `test_names` to the plan-task shape as an optional task
+              key (documentary — the drift resolver reads it), with a description
+              (the mandated test names a task delivers; the drift dimension checks
+              their existence for completed plans).
+
+          Keep every file well-formed JSON (parsed at build time). Do NOT change
+          validator/resolver behavior here — that is TASK-006 / TASK-009.
+        files:
+          - artifacts/issue/v1/schema.json
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+        claims:
+          - CLM-010
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Red — obsoleted vocabulary + resolved-by validator tests
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Terminal Vocab & resolved-by Validator Tests"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing obsoleted + resolved-by validator tests"
+        description: |
+          Add tests exercising the REAL validate.Issue / validate.Spec / validate.Plan
+          paths against the Phase 1 fixtures. No mocks — real parsing via
+          artifact.ParseFile + the schema-backed validators. These FAIL until
+          TASK-006 lands (obsoleted-by rule not enforced; obsoleted not terminal;
+          resolved-by branch absent).
+
+          File pkg/validate/obsoleted_test.go — mandated test names (exact):
+            - TestObsoleted_RequiresObsoletedBy (CLM-002): table-driven over
+              ISSUE-821, SPEC-821, PLAN-ISSUE-821 (all obsoleted, no obsoleted-by);
+              each yields an error violation on <type>/obsoleted-by-required. Also
+              cover ISSUE-822 (malformed obsoleted-by) -> <type>/obsoleted-by-malformed.
+            - TestObsoleted_ValidTerminalValidatesClean (CLM-001, CLM-003):
+              ISSUE-820, SPEC-820, PLAN-ISSUE-820 (obsoleted + typed obsoleted-by)
+              each validate with ZERO violations — assert specifically that no
+              requirements-required / claims-required / invalid-status violation is
+              present (proves obsoleted is both accepted AND terminal-exempt).
+
+          File pkg/validate/resolved_by_test.go — mandated test names (exact):
+            - TestResolvedBy_ValidCloseWithoutOwnClaimsOrPlan (CLM-004): ISSUE-830
+              (commit-SHA ref) AND ISSUE-831 (typed ref to the existing ISSUE-838),
+              each with Resolution + no REQ/CLM + no delivered_by, validate with ZERO
+              violations; assert no issue/requirements-required or
+              issue/claims-required is present. Proves a fix with NO test and NO
+              backing plan can honestly close via a STRUCTURED ref.
+            - TestResolvedBy_MalformedShape_Errors (CLM-005): table over ISSUE-832
+              (arbitrary prose "just fixed it") AND an empty-string "" value; each
+              yields an issue/resolved-by-malformed error. Pins the accept-boundary —
+              free text is NOT a valid close pointer (the vacuous-close hatch is shut).
+            - TestResolvedBy_TypedRefMustExist (CLM-005): ISSUE-833 (resolved-by:
+              SPEC-999, a well-shaped typed ref with no such artifact file) yields an
+              issue/resolved-by-artifact-not-found error; AND assert that ISSUE-830's
+              commit-SHA ref does NOT trigger the existence check (it validates
+              clean) — existence is enforced for typed refs only.
+            - TestResolvedBy_MissingResolutionSection_Errors (CLM-006): ISSUE-834
+              yields an issue/resolved-by-resolution-required error.
+            - TestResolvedBy_ConditionalNoRegression (CLM-007): ISSUE-835 (bare
+              close, neither resolved-by nor delivered_by) still reports the full
+              requirements/claims-required violations — the relaxation is conditional.
+            - TestResolvedBy_BothPointersConflict (CLM-007): ISSUE-836 (closed with
+              BOTH delivered_by AND resolved-by) yields a fail-loud
+              issue/close-pointer-conflict error — at most one close pointer, no
+              silent precedence.
+
+          File pkg/schema/terminal_states_test.go (fix 3 — direct documentary
+          assertion, alongside the existing assertHas-per-enum tests):
+            - TestSchema_TerminalStates_IncludeObsoleted (CLM-010): assertHas that
+              `obsoleted` is present in the issue/v1, spec/v1, and plan/v1 status
+              enums, pinning the schema-documentation claim directly rather than only
+              transitively. (This assertion depends on TASK-004's schema edits, which
+              land in Phase 1 before this test phase; it does not add a
+              test->documentation depends_on, which the plan schema forbids.)
+
+          Assert on rule NAME + error severity, not just count, so the tests pin the
+          intended failure and cannot pass vacuously.
+        files:
+          - pkg/validate/obsoleted_test.go
+          - pkg/validate/resolved_by_test.go
+          - pkg/schema/terminal_states_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD Green — obsoleted vocabulary + resolved-by validator
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — Terminal Vocab & resolved-by Validator"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "Implement obsoleted terminal rule + resolved-by close path"
+        description: |
+          Make the Phase 2 tests pass. Cohesive edits across the shared terminal
+          machinery, the per-type status enums, and the issue close branch:
+
+          1. pkg/validate/terminal.go:
+             - isTerminalStatus: add `obsoleted` to the terminal set (alongside
+               replaced/canceled/deprecated) so every type's terminal-exemption
+               covers obsoleted (CLM-003).
+             - validateRetirementFields: handle status == "obsoleted" symmetrically
+               to "replaced" — require a non-empty, TYPED obsoleted-by (reuse the
+               replacedByRefPattern typed-ref regex), emitting
+               <prefix>/obsoleted-by-required (absent) and
+               <prefix>/obsoleted-by-malformed (bad ref) at error severity (CLM-002).
+               Add an extractObsoletedBy helper mirroring extractReplacedBy (string
+               or []string). Keep the replaced path unchanged.
+
+          2. Per-type status enums (accept `obsoleted`, CLM-001):
+             - pkg/validate/issue.go: add "obsoleted" to the issueStatuses map (and
+               to the status-enum error message text).
+             - pkg/validate/plan.go: add "obsoleted" to the planStatuses map (and the
+               status error message text).
+             - (Spec: NO code edit — the spec enum is schema-driven via sch.StatusEnum;
+               TASK-004 added `obsoleted` to artifacts/spec/v1/schema.json. spec.go's
+               existing validateRetirementFields + isTerminalStatus calls already
+               cover the spec obsoleted-by rule and terminal exemption.)
+
+          3. resolved-by close path — new file pkg/validate/resolved_by.go + wiring
+             in issue.go validateIssueTraceability:
+             - two compiled-regex singletons (package idiom, like deliveredByRe):
+               resolvedByTypedRefRe = ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$ and
+               resolvedByCommitRe = ^[0-9a-f]{7,40}$ (a PR-URL shape is also
+               accepted — a simple https://.../pull/ or /pulls/ prefix check).
+             - a static helper validateResolvedBy(art, resolvedBy) []Violation:
+                 * empty/blank/non-typed-non-commit-non-PR (arbitrary prose) ->
+                   issue/resolved-by-malformed (CLM-005). This is the accept-boundary
+                   that closes the vacuous-close hatch.
+                 * if resolvedBy matches the TYPED-ref shape: statically verify the
+                   referenced artifact FILE EXISTS via the SAME sibling-resolution
+                   delivered_by already uses (resolve the artifact's own SourcePath
+                   dir, glob the sibling type-dir for <REF>-*.<ext> — issues/,
+                   specs/, plans/, bundles/, directives/ keyed by the ref prefix);
+                   zero matches (or an unresolvable sibling dir) ->
+                   issue/resolved-by-artifact-not-found (CLM-005, existence half).
+                   Static reads only (filepath.Dir/Join, os.Stat, filepath.Glob) —
+                   NO os/exec, NO pkg/gate import (parity with delivered_by layering).
+                 * if resolvedBy matches the COMMIT/PR shape: shape-only, existence is
+                   SKIPPED (a static validator cannot confirm a SHA) — accept.
+             - in validateIssueTraceability, AFTER the existing delivered_by branch
+               and BEFORE the ready-onward REQ/CLM block:
+                 * MUTUAL EXCLUSIVITY (CLM-007): if status == "closed" AND BOTH a
+                   top-level delivered_by AND a top-level resolved-by are present,
+                   emit issue/close-pointer-conflict (error) and RETURN — a closed
+                   issue may carry AT MOST ONE close pointer; no silent precedence.
+                   (Structure this so it is checked before dispatching either branch —
+                   e.g. detect both-present up front; delivered_by's own branch stays
+                   as-is for the delivered_by-only case.)
+                 * else if status == "closed" AND resolved-by is present:
+                   - append validateResolvedBy's violations;
+                   - require a `Resolution` section (hasSection(art,"Resolution")) ->
+                     else issue/resolved-by-resolution-required (CLM-006);
+                   - RETURN — skip the own REQ/CLM/verification/implementation/
+                     contracts requirements (CLM-004). resolved-by requires NO plan
+                     and NO test.
+               When status != "closed" or neither pointer is present, fall through to
+               the existing unchanged path (CLM-007, no regression). delivered_by and
+               resolved-by are independent, mutually-exclusive close branches.
+
+          Add focused comments: the static-trust rationale (liveness is the gate's
+          job), the structured-ref accept-boundary (why free text is rejected — the
+          vacuous-close/drift-invisibility hazard), the typed-ref-existence /
+          commit-ref-trust asymmetry, the no-plan/no-test asymmetry vs delivered_by,
+          and the obsoleted = delivered-then-removed semantics distinct from
+          replaced/canceled.
+        files:
+          - pkg/validate/terminal.go
+          - pkg/validate/issue.go
+          - pkg/validate/plan.go
+          - pkg/validate/resolved_by.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-005
+          - TASK-004
+
+      - id: TASK-007
+        type: verification
+        title: "Run the validator unit tests (fast inner loop)"
+        description: |
+          Fast inner-loop verification of the validator change. Run:
+
+              go test ./pkg/validate/... ./pkg/schema/... -race
+
+          Confirm ALL mandated tests pass:
+            - TestObsoleted_RequiresObsoletedBy
+            - TestObsoleted_ValidTerminalValidatesClean
+            - TestResolvedBy_ValidCloseWithoutOwnClaimsOrPlan
+            - TestResolvedBy_MalformedShape_Errors
+            - TestResolvedBy_TypedRefMustExist
+            - TestResolvedBy_MissingResolutionSection_Errors
+            - TestResolvedBy_ConditionalNoRegression
+            - TestResolvedBy_BothPointersConflict
+            - TestSchema_TerminalStates_IncludeObsoleted
+          and that the WHOLE pkg/validate + pkg/schema suites stay green — the new
+          obsoleted terminal + resolved-by branch must not perturb the existing
+          ISSUE-031 replaced/canceled tests or the ISSUE-043 delivered_by tests, and
+          the additive `obsoleted` enum entry must not perturb the existing
+          assertHas-per-enum schema tests. Also confirm (grep) that
+          pkg/validate/resolved_by.go imports neither pkg/gate nor os/exec (static
+          filesystem reads only, parity with delivered_by).
+        files:
+          - pkg/validate/terminal.go
+          - pkg/validate/issue.go
+          - pkg/validate/plan.go
+          - pkg/validate/resolved_by.go
+          - pkg/validate/obsoleted_test.go
+          - pkg/validate/resolved_by_test.go
+          - pkg/schema/terminal_states_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: TDD Red — drift-dimension extension tests (facet 3)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: TDD Red — Drift Dimension Extension Tests"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write failing drift-dimension obsoleted-exclusion + plan-task-test tests"
+        description: |
+          Add pkg/gate tests over the REAL ResolveArtifactStatus + ClassifyArtifactStatus
+          + ClassifyStatusDrift against the TASK-003 fixture root. These FAIL until
+          TASK-009 lands (obsoleted not yet retired; planFrontmatter does not parse
+          test_names, so plans carry no MandatedTests).
+
+          File pkg/gate/artifact_status_obsoleted_test.go — mandated names (exact):
+            - TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal (CLM-008):
+              table-driven over KindIssue/KindSpec/KindPlan with status "obsoleted";
+              ClassifyArtifactStatus returns ClassRetiredTerminal for each.
+            - TestStatusDrift_ExcludesObsoletedArtifact (CLM-008): resolve the fixture
+              root, run ClassifyStatusDrift over the records; assert the obsoleted
+              ISSUE-840 produces NO broken-promise (error) violation even though it
+              declares no present tests — it is excluded as retired.
+
+          File pkg/gate/status_drift_plantests_test.go — mandated names (exact):
+            - TestResolveArtifactStatus_ParsesPlanTaskTestNames (CLM-009):
+              ResolveArtifactStatus on the fixture root yields a PLAN-SPEC-840 record
+              whose MandatedTests include TestDriftVocab_Present and
+              TestDriftVocab_Absent (parsed from phases[].tasks[].test_names).
+            - TestStatusDrift_CompletedPlanAbsentTaskTest_Blocks (CLM-009): with a
+              present-set of {TestDriftVocab_Present:true}, ClassifyStatusDrift emits
+              an error-severity broken-promise violation attributed to PLAN-SPEC-840
+              for the ABSENT TestDriftVocab_Absent; and PLAN-SPEC-841 (all test_names
+              present) emits NO violation.
+
+          Assert on class value / rule name + severity, not just counts.
+        files:
+          - pkg/gate/artifact_status_obsoleted_test.go
+          - pkg/gate/status_drift_plantests_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: TDD Green — drift-dimension extension (facet 3)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: TDD Green — Drift Dimension Extension"
+    tasks:
+      - id: TASK-009
+        type: implementation
+        title: "Classify obsoleted retired + resolve completed-plan task test_names"
+        description: |
+          Make the Phase 4 tests pass. Both edits are in
+          pkg/gate/artifact_status.go:
+
+          1. ClassifyArtifactStatus (CLM-008): add "obsoleted" to the uniform
+             retired-terminal switch (case "replaced", "canceled", "deprecated") so
+             every artifact type resolves obsoleted -> ClassRetiredTerminal. Update
+             the doc comment to name obsoleted alongside the other retired terminals.
+             No change to status_drift.go is required — ClassifyStatusDrift already
+             EXCLUDES ClassRetiredTerminal.
+
+          2. Plan task test_names (CLM-009): extend planFrontmatter to parse
+             `phases: [ { tasks: [ { id, test_names } ] } ]`, and in
+             ResolveArtifactStatus's plan visitor build the plan record's
+             MandatedTests from every task's test_names (MandatedTest{FuncName: name,
+             SpecFile/Path: plan path, SpecID: plan id, ClaimID: task id}). Reuse the
+             MandatedTest type — do NOT invent a new one. A completed plan
+             (ClassSuccessTerminal) now carries mandated tests, so the existing
+             success-terminal absent-test BLOCK in ClassifyStatusDrift applies
+             unchanged; a plan whose task test_names are all present produces no
+             violation. Plans with no test_names carry no MandatedTests (unchanged
+             behavior — no false positives).
+
+          Introduce NO baked language noun — read artifact/plan frontmatter only.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Run the drift-dimension unit tests (fast inner loop)"
+        description: |
+          Fast inner-loop verification of the drift extension. Run:
+
+              go test ./pkg/gate/... -race
+
+          Confirm the mandated tests pass:
+            - TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal
+            - TestStatusDrift_ExcludesObsoletedArtifact
+            - TestResolveArtifactStatus_ParsesPlanTaskTestNames
+            - TestStatusDrift_CompletedPlanAbsentTaskTest_Blocks
+          and that the WHOLE pkg/gate suite stays green — the additive planFrontmatter
+          fields and the obsoleted retired-class must not perturb the existing
+          ISSUE-042 drift tests (success-terminal BLOCK / non-terminal WARN /
+          retired-exclusion) or the resolver's issue/spec/directive records.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/artifact_status_obsoleted_test.go
+          - pkg/gate/status_drift_plantests_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Comprehensive Verification — full gate + artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Comprehensive Verification — Gate + Artifact Validate"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Run the full gate kill chain on the code change"
+        description: |
+          Final comprehensive verification of the code (.go) surface. The change
+          touches pkg/validate (terminal.go, issue.go, plan.go, resolved_by.go) and
+          pkg/gate (artifact_status.go), so run the full kill chain:
+
+              backstop gate --json
+
+          Confirm GREEN across the gate dimensions (artifact validation, code
+          verification, test verification, substantiveness, coverage, contracts).
+          Verify specifically:
+            - pkg/validate and pkg/gate meet the coverage_threshold (90) — the new
+              obsoleted / resolved-by / plan-test_names paths are exercised by the
+              Phase 2 + Phase 4 tests;
+            - the artifact_status_drift dimension itself stays GREEN over the REAL
+              repo — extending the resolver to parse plan task test_names must not
+              surface NEW net broken promises beyond the baseline (no real plan
+              carries test_names yet, so this is additive; if any pre-existing plan
+              did, confirm it grandfathers against the baseline, not a net-new block);
+            - the self-pack (backstop/self) flags no new baked language/tool literal
+              in the changed files — both edits read frontmatter only.
+          Report the dimension verdicts. `backstop gate` subsumes code checking (the
+          legacy `backstop code check` was removed and MUST NOT be invoked).
+        files:
+          - pkg/validate/terminal.go
+          - pkg/validate/issue.go
+          - pkg/validate/plan.go
+          - pkg/validate/resolved_by.go
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-009
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Validate the schema + artifact surface with backstop artifact validate"
+        description: |
+          Final verification of the artifact-category surface (the schema edits and
+          the fixture artifacts this plan adds). Because the plan touches artifact
+          schemas + fixtures, run:
+
+              backstop artifact validate
+
+          Confirm:
+            - every REAL repo artifact still validates clean under the updated
+              schemas (adding the obsoleted enum value + obsoleted-by / resolved-by /
+              test_names optional fields is purely additive — no existing artifact
+              regresses);
+            - the updated issue/spec/plan schema.json files remain well-formed and
+              load (the spec status enum now includes obsoleted; spec.go reads it via
+              sch.StatusEnum);
+            - the intended-clean fixtures (ISSUE-820 / SPEC-820 / PLAN-ISSUE-820
+              obsoleted-valid, ISSUE-830 resolved-valid) validate clean and the
+              intended-fail fixtures fail for exactly their designed reason, via the
+              Phase 2 test suite (fixtures under testdata/ are consumed as test
+              inputs, not repo-discovered artifacts — record that if discovery does
+              not descend into testdata/). This task covers the artifact work
+              category for the final phase, paired with TASK-011's code coverage.
+        files:
+          - artifacts/issue/v1/schema.json
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+          - pkg/validate/testdata/terminal_vocab/issues/ISSUE-820-obsoleted-valid.issue.md
+          - pkg/validate/testdata/terminal_vocab/specs/SPEC-820-obsoleted-valid.spec.md
+          - pkg/validate/testdata/terminal_vocab/plans/PLAN-ISSUE-820-obsoleted.plan.yml
+          - pkg/validate/testdata/resolved_by/issues/ISSUE-830-resolved-valid.issue.md
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-004
+          - TASK-006
+          - TASK-009

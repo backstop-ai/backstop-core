@@ -1,0 +1,39 @@
+---
+plan_id: PLAN-ISSUE-821
+spec_id: ISSUE-821
+created: "2026-07-08"
+status: obsoleted
+phases:
+  - id: phase-1
+    name: "Phase 1: Deliver"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing tests"
+        description: "Author the failing unit tests for the delivered behavior."
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+      - id: TASK-002
+        type: implementation
+        title: "Implement the behavior"
+        description: "Implement the behavior so the failing tests pass."
+        files:
+          - pkg/example/example.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: verification
+        title: "Run the full gate"
+        description: "Run the full gate to verify the code work category is clean."
+        files:
+          - pkg/example/example.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-002
+---

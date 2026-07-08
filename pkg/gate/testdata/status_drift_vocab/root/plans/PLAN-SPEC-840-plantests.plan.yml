@@ -1,0 +1,32 @@
+---
+plan_id: PLAN-SPEC-840
+spec_id: SPEC-840
+created: "2026-07-08"
+status: completed
+phases:
+  - id: phase-1
+    name: "Phase 1: Deliver"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the drift-vocab tests"
+        description: "Author the mandated drift-vocab tests."
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+        test_names:
+          - TestDriftVocab_Present
+          - TestDriftVocab_Absent
+      - id: TASK-002
+        type: verification
+        title: "Run the gate"
+        description: "Verify the code work category is clean."
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-001
+---

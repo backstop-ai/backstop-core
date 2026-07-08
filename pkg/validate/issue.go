@@ -10,16 +10,17 @@ import (
 )
 
 var (
-	issueNumberRe = regexp.MustCompile(`^(ISSUE-\d{3})-`)
-	issueIDRe     = regexp.MustCompile(`^ISSUE-\d{3}$`)
+	issueNumberRe = regexp.MustCompile(`^(ISSUE-\d{3})-`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	issueIDRe     = regexp.MustCompile(`^ISSUE-\d{3}$`)   // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
 	issueTypes    = map[string]bool{
 		"bug": true, "technical-debt": true, "enhancement": true,
 		"question": true, "policy-violation": true,
 	}
-	issueStatuses = map[string]bool{
+	issueStatuses = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"open": true, "ready": true, "in-progress": true, "blocked": true, "closed": true,
-		// Retirement terminal states (ISSUE-031): replaced, canceled. No "deprecated".
-		"replaced": true, "canceled": true,
+		// Retirement terminal states: replaced, canceled (ISSUE-031); obsoleted
+		// (ISSUE-048, delivered-then-removed). No "deprecated" for issues.
+		"replaced": true, "canceled": true, "obsoleted": true,
 	}
 	// Statuses that require full traceability (REQ → CLM → tests)
 	traceabilityRequired = map[string]bool{
@@ -180,7 +181,7 @@ func validateIssueBlock(art *artifact.ParsedArtifact, statusOut *string) []Viola
 		violations = append(violations, Violation{
 			Rule:     "issue/status-enum",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, ready, in-progress, blocked, closed, replaced, canceled)", s),
+			Message:  fmt.Sprintf("issue.status '%s' is not valid (allowed: open, ready, in-progress, blocked, closed, replaced, canceled, obsoleted)", s),
 			Severity: "error",
 		})
 	} else {
@@ -353,15 +354,33 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 		return violations
 	}
 
-	// ISSUE-043: a `closed` issue may satisfy traceability by TRACING to its
-	// delivered backing plan via a top-level `delivered_by` pointer, instead of
-	// re-authoring the plan's requirements/claims onto the issue. The traced plan
-	// is the record of delivered claims. This relaxation is CONDITIONAL — it fires
-	// ONLY at `closed` AND only when a delivered_by value is present; a closed
-	// issue WITHOUT delivered_by, and every pre-close status, falls through to the
-	// full REQ→CLM→verification→implementation→contracts rigor below (CLM-007).
+	// A `closed` issue may satisfy traceability by TRACING to the resolving work
+	// via ONE of two mutually-exclusive close pointers, instead of re-authoring
+	// requirements/claims onto the issue:
+	//   - delivered_by (ISSUE-043): a completed backing plan (PLAN-ISSUE-NNN).
+	//   - resolved-by (ISSUE-048): a structured ref to a DIRECT fix (a commit/PR
+	//     or a typed artifact ref), requiring NEITHER a backing plan NOR a test.
+	// Both relaxations fire ONLY at `closed`. A closed issue with NEITHER pointer,
+	// and every pre-close status, falls through to the full
+	// REQ→CLM→verification→implementation→contracts rigor below (CLM-007).
 	if status == "closed" {
-		if deliveredBy := getFrontmatterString(art, "delivered_by"); deliveredBy != "" {
+		deliveredBy := getFrontmatterString(art, "delivered_by")
+		_, deliveredPresent := art.Frontmatter["delivered_by"]
+		_, resolvedPresent := art.Frontmatter["resolved-by"]
+
+		// Mutual exclusivity (CLM-007): at most ONE close pointer. Carrying both is
+		// ambiguous — fail loud, no silent precedence, no double-counting.
+		if deliveredPresent && resolvedPresent {
+			violations = append(violations, Violation{
+				Rule:     "issue/close-pointer-conflict",
+				File:     art.Filename,
+				Message:  "a closed issue may carry at most one close pointer, not both delivered_by and resolved-by",
+				Severity: "error",
+			})
+			return violations
+		}
+
+		if deliveredBy != "" {
 			violations = append(violations, validateDeliveredBy(art, deliveredBy, getIssueID(art))...)
 			// Minimum standalone content: a delivered_by close must still carry a
 			// Resolution section so the issue is independently readable (CLM-008).
@@ -375,6 +394,24 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 			}
 			// Skip the own-REQ/CLM/verification/implementation/contracts chain —
 			// the completed backing plan carries the delivered claims (CLM-001).
+			return violations
+		}
+
+		if resolvedPresent {
+			// resolved-by close (ISSUE-048): the structured ref must be valid, and
+			// the close must still carry a Resolution section for standalone
+			// readability. It requires NO backing plan and NO mandated test.
+			violations = append(violations, validateResolvedBy(art, getFrontmatterString(art, "resolved-by"))...)
+			if !hasSection(art, "Resolution") {
+				violations = append(violations, Violation{
+					Rule:     "issue/resolved-by-resolution-required",
+					File:     art.Filename,
+					Message:  "a resolved-by close must still include a '## Resolution' section (minimum standalone content)",
+					Severity: "error",
+				})
+			}
+			// Skip the own-REQ/CLM/verification/implementation/contracts chain — the
+			// resolving work named by resolved-by is the record (CLM-004).
 			return violations
 		}
 	}
