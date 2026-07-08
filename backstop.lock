@@ -21,9 +21,9 @@ packs:
         source_type: local
         version: null
     backstop/self:
-        content_hash: 3a00308609a78fedc73df0463a3c1f8a058a041ddcac795e689cadea2f20770b
+        content_hash: 6004af602c123a34174d1958f07199325adc157585e9d04334f98ca419f0a543
         git_ref: null
-        install_date: 2026-06-26T12:22:04Z
+        install_date: 2026-07-08T01:54:38Z
         name: backstop/self
         source_type: local
         version: null
