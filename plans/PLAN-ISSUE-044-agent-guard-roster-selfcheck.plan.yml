@@ -1,0 +1,289 @@
+---
+plan_id: PLAN-ISSUE-044
+spec_id: ISSUE-044
+created: "2026-07-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... -run TestAgentGuard -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-044 (DIR-016's third config-self-consistency symptom; siblings
+  ISSUE-042 and ISSUE-043 already shipped). A newly-added sub-agent under
+  .claude/agents/*.md whose agent_type has no matching `case` branch in
+  .claude/hooks/backstop-agent-guard.sh falls through to the default `*) block`
+  and is SILENTLY denied all writes (a hard PreToolUse deny that reads like a
+  policy decision, not a missing-config bug). This plan adds a mechanical
+  self-consistency check that fails LOUDLY, naming the drifting agent(s), when the
+  roster and the guard drift apart — so the next drift is caught by a test, not by
+  a confused human mid-session.
+
+  PINNED DECISIONS (settled from the issue + pre-plan analysis — constraints, NOT
+  open questions):
+
+    1. MECHANISM = a Go test, NOT a pack, NOT a hook-time lint. The issue endorses
+       a Go test as "the lightest first cut, needs no new machinery"; a dogfood
+       pack is an explicitly poor fit for a config-file pairing check that has
+       nothing to do with source code, and a hook-time lint is the least visible
+       (fires only AFTER an agent is already blocked). The test lives in
+       pkg/validate as `package validate_test`, alongside the existing
+       spec_agent_test.go / spec_hook_test.go, which already read
+       ../../.claude/agents/*.md — established precedent, zero new machinery.
+
+    2. BOTH DIRECTIONS:
+         (a) roster ⊆ explicitly-handled: every agent defined in
+             .claude/agents/*.md MUST be explicitly named in the guard's
+             `case "$AGENT_NAME"` — a dedicated `name)` branch OR a member of a
+             combined `a|b|c)` branch. Falling through to the default `*) block`
+             is NOT acceptable for a KNOWN roster agent.
+         (b) handled ⊆ roster ∪ {general-purpose}: no guard case may name an agent
+             that has no .claude/agents/*.md file, EXCEPT the intentional
+             `general-purpose` (which has no .md by design) — allowlisted
+             explicitly in the test.
+
+    3. RESOLVE THE bundle-reviewer AMBIGUITY AS PART OF THE FIX. bundle-reviewer is
+       currently the ONE roster agent with no explicit case — it falls to
+       `*) block`, indistinguishable by inspection or at runtime from a
+       genuinely-unregistered agent. The green-phase edit adds it to the reviewers'
+       explicit block branch:
+         `spec-reviewer|plan-reviewer|impl-reviewer|bundle-reviewer) block ;;`
+       so "deliberately denied" becomes explicit and distinct from "never wired
+       up." This one-line guard edit is exactly what turns the RED test GREEN
+       (TDD: the test is RED first because bundle-reviewer is not explicitly
+       handled → add the case → GREEN).
+
+    4. OUT OF SCOPE — the Bash-bypass gap. The guard's PreToolUse matcher covers
+       only Write/Edit, not Bash, so an agent can defeat the guard via a Bash
+       heredoc. The issue EXPLICITLY says that is a separate hole for its own
+       issue, not this one. This plan does not touch the matcher or the Bash path.
+
+  CURRENT STATE (verified 2026-07-06/07 against the live repo):
+    - Roster (11 .md files): adr-author, bundle-author, bundle-reviewer,
+      directive-author, impl-reviewer, implementer, issue-author, plan-reviewer,
+      planner, spec-author, spec-reviewer.
+    - Guard case labels: bundle-author, spec-author, adr-author, issue-author,
+      planner, directive-author, implementer (dedicated branches);
+      `spec-reviewer|plan-reviewer|impl-reviewer) block` (combined);
+      `general-purpose) ...` (no .md, intentional); `*) block` (default).
+      bundle-reviewer falls through the default — the drift this plan closes.
+
+  META-IRONY / IMPLEMENTER BLOCK RISK (flag for the implementer + orchestrator):
+    The guard's own `implementer` case allows writing only *.go, go.mod/go.sum/
+    Makefile, and *.json/*.yml under .backstop/ or artifacts/. It does NOT allow
+    *.sh under .claude/hooks/. So an `implementer` agent attempting to Write/Edit
+    .claude/hooks/backstop-agent-guard.sh will itself be BLOCKED by the very guard
+    it is trying to fix (fall-through to `*) block` on the file_path check). If the
+    implementer is blocked on TASK-002, the guard edit must be applied by the
+    human/orchestrator (or via a path the guard does not intercept). The Go test
+    (TASK-001, a *.go file) is writable by the implementer normally; only the
+    one-line .sh edit carries this risk.
+
+  PATH ANCHORING: anchor on the repo root robustly, NOT an arbitrary launch CWD.
+    Under `go test`, the process working directory is the package directory
+    (pkg/validate), so the sibling convention `../../.claude/...` used by
+    spec_agent_test.go resolves deterministically to the repo root — matching that
+    convention is acceptable. Equivalently, the test may walk up from its own
+    location to the nearest ancestor containing `.claude/`. Either is fine; what is
+    NOT acceptable is depending on an ambient/launch CWD that is not the go-test
+    package dir.
+
+  CLAIMS (this plan's own; ISSUE-044 is `open` and carries none yet):
+    CLM-001 The Go test FAILS LOUDLY, naming the specific drifting agent(s), when a
+            roster agent (.claude/agents/*.md basename, .md stripped) has no
+            explicit case branch in backstop-agent-guard.sh and would fall through
+            to the default `*) block`. On the current repo it is RED for
+            bundle-reviewer until the guard fix lands, and GREEN after.
+    CLM-002 The Go test FAILS when a guard case names an agent that has no
+            .claude/agents/*.md file, EXCEPT the explicitly allowlisted
+            `general-purpose` (roster ∪ {general-purpose} superset check).
+    CLM-003 The test parses the guard case-branch agent labels directly from
+            .claude/hooks/backstop-agent-guard.sh — extracting the labels from each
+            `name)` / `a|b|c)` branch and excluding the `*)` default — via a
+            static line/regex parse of the case block, WITHOUT executing the shell.
+    CLM-004 Repo-root file paths (.claude/agents/, .claude/hooks/
+            backstop-agent-guard.sh) are anchored robustly on the repo root
+            (go-test package-relative or by walking to the `.claude` dir), NOT on
+            an arbitrary ambient CWD.
+    CLM-005 backstop-agent-guard.sh adds bundle-reviewer to the reviewers' explicit
+            block branch (spec-reviewer|plan-reviewer|impl-reviewer|bundle-reviewer)
+            so it is explicitly denied (distinct from unregistered), which turns the
+            CLM-001 roster-subset test GREEN on the current repo.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — the roster/guard self-consistency test
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Roster/Guard Self-Consistency Test"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing roster⇄guard self-consistency test (both directions)"
+        description: |
+          Add pkg/validate/agent_guard_roster_test.go as `package validate_test`,
+          alongside the existing spec_agent_test.go / spec_hook_test.go (which
+          already read ../../.claude/agents/*.md — reuse that anchoring
+          convention). The test reads the REAL repo config (no fixtures, no mocks):
+          the actual .claude/agents/*.md roster and the actual
+          .claude/hooks/backstop-agent-guard.sh. It is RED on the current repo
+          because bundle-reviewer is a roster agent with no explicit case, and goes
+          GREEN once TASK-002 adds bundle-reviewer to the reviewers' block branch.
+
+          Helpers (pure, static — no shell execution, CLM-003):
+            - rosterAgents(): list .claude/agents/*.md, return basenames with the
+              `.md` suffix stripped (the 11 agent names).
+            - guardCaseLabels(): read .claude/hooks/backstop-agent-guard.sh, scan
+              the `case "$AGENT_NAME" in` block, and for each branch line extract
+              the label(s) before the `)` — splitting combined `a|b|c)` branches on
+              `|` — while EXCLUDING the `*)` default branch. A simple line/regex
+              parse is sufficient and REQUIRED: do NOT invoke bash. Return the set
+              of explicitly-handled agent names.
+            - Path anchoring (CLM-004): resolve both paths relative to the repo root
+              robustly — either the `../../.claude/...` package-relative form the
+              sibling agent tests use (deterministic under `go test`, whose CWD is
+              the package dir) OR by walking up from the test's own location to the
+              nearest ancestor containing `.claude/`. Do NOT depend on an arbitrary
+              ambient launch CWD.
+
+          Mandated test names (exact):
+            - TestAgentGuard_EveryRosterAgentExplicitlyHandled (CLM-001): assert
+              rosterAgents() ⊆ guardCaseLabels(). On failure, the message MUST NAME
+              the specific unhandled agent(s) (e.g. "roster agent 'bundle-reviewer'
+              has no explicit case in backstop-agent-guard.sh — it falls through to
+              the default *) block, silently denying all writes") so the failure
+              points at the real cause, unlike the silent runtime block the issue
+              describes. This subtest is RED now (bundle-reviewer) and GREEN after
+              TASK-002.
+            - TestAgentGuard_NoOrphanGuardCase (CLM-002): assert guardCaseLabels() ⊆
+              rosterAgents() ∪ {"general-purpose"}. `general-purpose` is the ONE
+              intentional exception (no .md by design) and is allowlisted
+              explicitly in the test. On failure, name the orphan case label. This
+              subtest is GREEN on the current repo (every non-general-purpose label
+              maps to a roster agent) and guards the reverse-drift direction.
+
+          Assert on the concrete drifting NAME(s), not just a boolean/count, so the
+          test pins the intended failure and cannot pass vacuously. This task
+          creates ONLY the test file; the guard is untouched here so the roster
+          subset assertion is genuinely RED.
+        files:
+          - pkg/validate/agent_guard_roster_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — make bundle-reviewer's denial explicit
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — Explicit bundle-reviewer Case + Inner-Loop Verify"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add bundle-reviewer to the reviewers' explicit block branch"
+        description: |
+          Make TestAgentGuard_EveryRosterAgentExplicitlyHandled pass. Single edit to
+          .claude/hooks/backstop-agent-guard.sh: change the combined reviewers
+          branch from
+            spec-reviewer|plan-reviewer|impl-reviewer) block ;;
+          to
+            spec-reviewer|plan-reviewer|impl-reviewer|bundle-reviewer) block ;;
+          so bundle-reviewer is EXPLICITLY denied (its long-standing effective
+          behavior) and is now distinguishable from a genuinely-unregistered agent
+          that hits the default `*) block`. This closes the drift the test detects
+          and preserves the guard's runtime behavior exactly (reviewers still
+          blocked from writing) — it only makes the denial explicit.
+
+          Do NOT touch the PreToolUse matcher / the Bash-bypass path (out of scope,
+          pinned decision 4). Do NOT alter any other case branch.
+
+          IMPLEMENTER-BLOCK RISK (see plan notes): the guard's own `implementer`
+          case does NOT permit writing *.sh under .claude/hooks/, so an
+          `implementer` agent's Write/Edit of this file may be denied by the guard
+          itself. If blocked, this one-line edit must be applied by the
+          human/orchestrator; report the block rather than working around it via an
+          unaudited path.
+        files:
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-005
+          - CLM-001
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Run the roster/guard self-consistency test (fast inner loop)"
+        description: |
+          Fast inner-loop verification of the guard fix. Run:
+
+              go test ./pkg/validate/... -run TestAgentGuard -race
+
+          (`backstop code check` was removed in ISSUE-018 — use `go test` for the
+          inner loop.) Confirm BOTH mandated subtests pass:
+            - TestAgentGuard_EveryRosterAgentExplicitlyHandled (now GREEN — every
+              one of the 11 roster agents, including bundle-reviewer, is explicitly
+              handled);
+            - TestAgentGuard_NoOrphanGuardCase (GREEN — no guard label outside
+              roster ∪ {general-purpose}).
+          Also confirm the whole pkg/validate suite stays green (the sibling
+          spec_agent_test.go / spec_hook_test.go and the rest of the package are
+          unaffected). Spot-check that the test parses the guard statically (no bash
+          invocation) and that its paths are repo-root-anchored, not ambient-CWD
+          (CLM-003, CLM-004).
+        files:
+          - pkg/validate/agent_guard_roster_test.go
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive Verification — full gate kill chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — Full Gate"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run the full gate kill chain on the change"
+        description: |
+          Final comprehensive verification. The change touches a .go file
+          (pkg/validate/agent_guard_roster_test.go) and a config .sh file
+          (.claude/hooks/backstop-agent-guard.sh); it adds NO artifact-category
+          files (.spec.md / .plan.yml / .issue.md), so the full gate is the right
+          and sufficient final check — run:
+
+              backstop gate --json
+
+          Confirm GREEN across the gate dimensions. Verify specifically:
+            - the new TestAgentGuard_* tests run and pass under the gate's test
+              verification step (they are part of pkg/validate);
+            - no substantiveness / coverage regression — the change is a test file
+              plus a one-line shell edit and introduces no new production Go paths
+              needing coverage;
+            - the self-pack (backstop/self) does not flag a new baked language/tool
+              literal — the test reads config-file names/labels only and introduces
+              no language noun.
+          Report the dimension verdicts. `backstop gate` subsumes code checking;
+          `backstop code check` is not used (removed in ISSUE-018). No
+          `backstop artifact validate` step is required here because the change adds
+          no artifact-category files.
+        files:
+          - pkg/validate/agent_guard_roster_test.go
+          - .claude/hooks/backstop-agent-guard.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
