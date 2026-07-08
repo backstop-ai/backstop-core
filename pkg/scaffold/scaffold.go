@@ -159,7 +159,11 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 		} else if strings.HasPrefix(sourceID, "ISSUE-") {
 			parts := strings.SplitN(sourceID, "-", 2)
 			sb.WriteString(fmt.Sprintf("plan_id: PLAN-ISSUE-%s\n", parts[1]))
-			sb.WriteString(fmt.Sprintf("issue_id: %s\n", sourceID))
+			// spec_id is the plan schema's backing-artifact field for BOTH SPEC- and
+			// ISSUE-sourced plans (the validator requires spec_id matching SPEC-NNN OR
+			// ISSUE-NNN; every existing issue-plan uses spec_id). The scaffold formerly
+			// emitted issue_id here, which the validator rejected (ISSUE-009).
+			sb.WriteString(fmt.Sprintf("spec_id: %s\n", sourceID))
 		}
 		sb.WriteString(fmt.Sprintf("created: %q\n", date))
 		sb.WriteString("status: draft\n")

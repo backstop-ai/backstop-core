@@ -52,12 +52,14 @@ func TestArtifactNew_Frontmatter_PlanIssue(t *testing.T) {
 	if !strings.Contains(s, "plan_id: PLAN-ISSUE-005") {
 		t.Error("plan frontmatter missing plan_id PLAN-ISSUE-005")
 	}
-	if !strings.Contains(s, "issue_id: ISSUE-005") {
-		t.Error("plan frontmatter missing issue_id ISSUE-005")
+	// Issue-backed plans use spec_id (the validator's backing-artifact field accepts
+	// SPEC-NNN OR ISSUE-NNN); the scaffold must NOT emit the validator-rejected issue_id
+	// (ISSUE-009).
+	if !strings.Contains(s, "spec_id: ISSUE-005") {
+		t.Error("issue-backed plan frontmatter missing spec_id ISSUE-005")
 	}
-	// Must NOT contain spec_id
-	if strings.Contains(s, "spec_id:") {
-		t.Error("issue-backed plan should not contain spec_id")
+	if strings.Contains(s, "issue_id:") {
+		t.Error("issue-backed plan must not contain the validator-rejected issue_id (ISSUE-009)")
 	}
 }
 
