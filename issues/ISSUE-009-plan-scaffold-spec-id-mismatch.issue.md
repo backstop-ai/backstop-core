@@ -6,8 +6,11 @@ issue:
   id: ISSUE-009
   title: "plan scaffold emits issue_id but the schema requires spec_id"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-12"
+  closed: "2026-07-08"
+
+resolved-by: fb5d2ac
 
 complexity:
   scope: isolated
@@ -48,3 +51,10 @@ issue-sourced plans on disk).
 - cmd/backstop artifact scaffolding (artifact new plan)
 - plans/PLAN-ISSUE-00{2,4,5,6,8}-*.plan.yml — all hand-corrected to spec_id
 - Reported independently by four planner agents, 2026-06-11/12
+
+## Resolution
+
+The plan scaffold (pkg/scaffold/scaffold.go) emitted issue_id for issue-sourced
+plans, which the validator rejected (it requires spec_id, accepting SPEC-NNN or
+ISSUE-NNN). Unified the scaffold on spec_id so a fresh `artifact new plan
+--source ISSUE-NNN` validates like a spec-plan. Fixed in fb5d2ac.
