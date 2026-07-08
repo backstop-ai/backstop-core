@@ -15,6 +15,10 @@
     "properties": {
       "schema_version": {
         "const": "issue/v1"
+      },
+      "delivered_by": {
+        "pattern": "^PLAN-ISSUE-[0-9]{3}$",
+        "description": "When an issue reaches `closed`, an optional pointer to the PLAN-ISSUE-NNN that delivered it. A valid delivered_by lets the close satisfy traceability by tracing to the completed backing plan instead of re-authoring requirements/claims onto the issue. The close still requires a Resolution section. Documentary only; enforced in pkg/validate/delivered_by.go."
       }
     }
   },
@@ -119,7 +123,7 @@
   "enforcement": {
     "blocked-requires-blocked-by": "Issues with status 'blocked' must have non-empty context.blocked_by array",
     "closed-requires-date": "Issues with status 'closed' must have issue.closed date",
-    "closed-requires-traceability": "Requirements and claims arrays required and fully validated from 'ready' onward — every REQ must have ≥1 CLM, every CLM must reference a valid REQ",
+    "closed-requires-traceability": "Requirements and claims arrays required and fully validated from 'ready' onward — every REQ must have ≥1 CLM, every CLM must reference a valid REQ. CONDITIONAL RELAXATION: when status is 'closed' and a valid `delivered_by` traces to a completed backing plan (PLAN-ISSUE-NNN whose spec_id matches this issue), the issue's own requirements/claims/verification/implementation/contracts are NOT required — a Resolution section plus the delivered_by pointer suffice.",
     "id-filename-consistency": "issue.id must match the ISSUE-NNN prefix in the filename",
     "supports-traceability": "Optional 'supports' field on requirements traces back to bundle-name:REQ-NNN"
   }

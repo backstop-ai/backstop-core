@@ -163,6 +163,46 @@ func TestParse_StripsDirectory(t *testing.T) {
 	}
 }
 
+// TestParse_PopulatesSourcePath pins that Parse/ParseFile record the FULL path
+// they were handed on SourcePath, while Filename stays the base name. This is
+// the enabling change for source-path-anchored plan resolution (ISSUE-043
+// CLM-012): the delivered_by trace resolves the plans/ dir relative to the
+// issue's own SourcePath, never from the ambient CWD.
+func TestParse_PopulatesSourcePath(t *testing.T) {
+	// Parse: SourcePath is the exact filename argument, Filename is its base.
+	art, err := artifact.Parse("---\nstatus: draft\n---\n# Title\n", "a/b/c/ISSUE-901-x.issue.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.SourcePath != "a/b/c/ISSUE-901-x.issue.md" {
+		t.Errorf("SourcePath = %q, want %q", art.SourcePath, "a/b/c/ISSUE-901-x.issue.md")
+	}
+	if art.Filename != "ISSUE-901-x.issue.md" {
+		t.Errorf("Filename = %q, want %q (base must be unchanged)", art.Filename, "ISSUE-901-x.issue.md")
+	}
+
+	// ParseFile: SourcePath is the full disk path.
+	dir := t.TempDir()
+	deep := filepath.Join(dir, "issues")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(deep, "ISSUE-042-fix.issue.md")
+	if err := os.WriteFile(path, []byte("---\nstatus: draft\n---\n# Title\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fromFile, err := artifact.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromFile.SourcePath != path {
+		t.Errorf("SourcePath = %q, want %q", fromFile.SourcePath, path)
+	}
+	if fromFile.Filename != "ISSUE-042-fix.issue.md" {
+		t.Errorf("Filename = %q, want base name", fromFile.Filename)
+	}
+}
+
 func TestParse_NoSections(t *testing.T) {
 	art, err := artifact.Parse("---\nkey: val\n---\n# Title\n", "test.md")
 	if err != nil {

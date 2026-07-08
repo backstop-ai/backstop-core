@@ -1,0 +1,654 @@
+---
+plan_id: PLAN-ISSUE-043
+spec_id: ISSUE-043
+created: "2026-07-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... -run TestIssueDeliveredBy -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-043 (DIR-016 cheap-close half). Closing a plan-backed issue
+  currently forces re-authoring the plan's requirements/claims/verification onto
+  the issue — the schema's `closed-requires-traceability` rule requires REQ+CLM
+  from `ready` onward, and validateIssueTraceability (pkg/validate/issue.go:342)
+  runs the full REQ→CLM→tests + verification + implementation + contracts chain
+  for every status in traceabilityRequired, including `closed`. This plan removes
+  that re-authoring tax by letting a CLOSED issue satisfy the obligation by
+  TRACING to its delivered backing plan via an explicit `delivered_by` pointer.
+
+  PINNED DECISIONS (settled in discussion — constraints, NOT open questions):
+
+    1. Explicit top-level `delivered_by: PLAN-ISSUE-NNN` frontmatter field on the
+       issue (mirrors the existing top-level `replaced-by` convention from
+       ISSUE-031 — greppable, self-describing). NOT schema-side plan
+       auto-discovery.
+
+    2. Conditional relaxation: when status == "closed" AND a valid `delivered_by`
+       is present, the issue's own requirements/claims/verification/implementation/
+       contracts arrays are NOT required — the traced plan carries the delivered
+       claims of record. Static conditions the validator checks (all fail-loud
+       ERRORs; a delivered_by pointing at a missing/non-completed/invalid/wrong
+       plan does NOT silently pass the close):
+         - `delivered_by` matches PLAN-ISSUE-NNN format;
+         - the named plan FILE exists under the resolved plans/ directory;
+         - the plan's `status` is `completed` (the plan success-terminal; the enum
+           is draft/ready/implementing/completed/replaced/canceled — `replaced`
+           and `canceled` are RETIRED and must NOT satisfy a delivered trace);
+         - the plan itself validates clean (reuse pkg/validate's existing Plan
+           validator — do NOT reimplement plan validation);
+         - the plan actually backs THIS issue: plan.spec_id == the closing issue's
+           id (re-derives the ISSUE-042 issue→plan linkage pattern by spec_id).
+
+    3. Validator stays STATIC — do NOT run the plan's tests. Trust the plan's
+       terminal state; liveness (do the plan's task-tests still pass) is the
+       GATE's job, already shipped by ISSUE-042's drift dimension. pkg/validate
+       has NO os/exec today and MUST keep it that way. The delivered_by helper may
+       read the filesystem (os.Stat / os.ReadDir / filepath.Glob — pure static
+       reads) but MUST NOT shell out. This static-trust is sound BECAUSE 042 now
+       enforces terminal-success ⟹ mandated-tests-exist at the gate.
+
+    4. Conditional, not general: an issue that reaches `closed` WITHOUT a
+       `delivered_by` still requires the full requirements/claims/verification
+       chain (no regression). Statuses before `closed` (ready/in-progress/blocked)
+       are unchanged — `delivered_by` is honored ONLY at `closed`.
+
+    5. Minimum standalone content: a `delivered_by`-closed issue must still be
+       independently readable — it must carry a `Resolution` prose section (an
+       already-optional schema section) in addition to the `delivered_by` pointer.
+       A pure-pointer issue with no Resolution is an ERROR. (The existing
+       closed-requires-date rule still applies unchanged.)
+
+  ARCHITECTURE CONSTRAINT (verified against the import graph):
+    The issue→plan linkage is RE-DERIVED inside pkg/validate, NOT imported from
+    pkg/gate. pkg/gate consumes validators (it calls validate.Plan-shaped logic),
+    so importing pkg/gate into pkg/validate would invert the layering and block
+    gate from ever importing validate. The delivered_by helper reuses the PATTERN
+    from ISSUE-042's BackingPlan resolver (scan plans, index by spec_id ==
+    issue-id) re-implemented on top of pkg/validate's OWN plan parsing
+    (artifact.ParseFile + validate.Plan). Do NOT add a pkg/gate import.
+
+  PLANS-DIRECTORY RESOLUTION (design note for the implementer — SOURCE-PATH
+  ANCHORED, CWD-INDEPENDENT):
+    The delivered_by check must READ the backing plan file, so pkg/validate
+    gaining STATIC filesystem reads is unavoidable for this feature (fine — just
+    no os/exec). Resolve the plan RELATIVE TO THE ISSUE FILE, never from the
+    ambient CWD (CWD diverges from projectRoot under BACKSTOP_CONFIG, producing
+    false RED/GREEN on a rule every closed issue hits).
+
+    Enabling change: artifact.Parse ALREADY receives the full path in its
+    `filename` argument and today discards the directory at
+    pkg/artifact/parse.go:25 (`Filename: filepath.Base(filename)`). Add a
+    `SourcePath` field to ParsedArtifact (pkg/artifact/artifact.go) and populate
+    it from that same `filename` in artifact.Parse. This does NOT change the
+    ValidatorFunc(art, sch) signature — `art` already flows through — so there is
+    no blast radius across the other five validators / the route table.
+
+    The helper then resolves the plans/ directory as the issue file's sibling:
+    `filepath.Join(filepath.Dir(art.SourcePath), "..", "plans")`, then globs
+    `plans/PLAN-ISSUE-NNN-*.plan.yml`. Production: issue at
+    `<root>/issues/ISSUE-NNN.issue.md` → `<root>/plans`. Tests: fixture issue at
+    `.../root/issues/ISSUE-NNN.issue.md` → `.../root/plans`, resolved from the
+    artifact's own path regardless of the test's working directory. Parse may be
+    called with a synthetic/base-only filename in some contexts, so an empty or
+    directory-less SourcePath, or a non-existent plans/ sibling, must be handled
+    fail-loud (see CLM-011), NEVER a silent trace-satisfied pass. Static reads
+    only (filepath.Dir/Join, os.Stat, filepath.Glob, artifact.ParseFile); no
+    os/exec.
+
+  KNOWN INTERACTION (note, not a blocker): a `delivered_by` issue carries no own
+    claims, so it is invisible to ISSUE-042's issue-claim drift check, and its
+    plan's task-tests are not gate-checked until ISSUE-048 Problem 3 (plan-task-
+    test coverage) lands. Acceptable — the plan reaching `completed` meant its
+    gate passed at delivery (static trust); ongoing liveness is deferred to
+    ISSUE-048 P3.
+
+  CLAIMS (this plan's own; the issue is `open` and carries none yet):
+    CLM-001 A closed issue with a valid delivered_by pointer + a Resolution
+            section validates clean WITHOUT its own requirements/claims/
+            verification/implementation/contracts arrays.
+    CLM-002 A delivered_by value that does not match PLAN-ISSUE-NNN is a
+            validation error (fail-loud), before any plan lookup.
+    CLM-003 A delivered_by naming a plan file that does not exist under the
+            resolved plans/ dir is a validation error.
+    CLM-004 A delivered_by plan whose status is not `completed` (draft/
+            implementing, or a RETIRED replaced/canceled) is a validation error.
+    CLM-005 A delivered_by plan that itself fails plan validation is a validation
+            error (the trace reuses validate.Plan, not a reimplementation).
+    CLM-006 A delivered_by plan whose spec_id != the closing issue's id (backs a
+            different issue) is a validation error.
+    CLM-007 A closed issue WITHOUT delivered_by still requires the full
+            requirements/claims/verification chain — a bare close fails; a fully
+            traced close still passes (no regression).
+    CLM-008 A delivered_by-closed issue lacking a Resolution section is a
+            validation error (minimum standalone content).
+    CLM-009 The trace logic lives in pkg/validate, re-derives the issue→plan
+            linkage, does NOT import pkg/gate, and introduces NO os/exec (static
+            file reads only).
+    CLM-010 The optional `delivered_by` field is documented in the issue schema.
+    CLM-011 A delivered_by present on a closed issue whose plans/ directory is
+            unresolvable (no sibling plans/ dir, or an empty/directory-less
+            SourcePath) is a fail-loud validation ERROR (plans-unresolvable),
+            NEVER a silent trace-satisfied pass.
+    CLM-012 The backing plan is resolved relative to the issue's OWN source path
+            (via a SourcePath field on ParsedArtifact populated by
+            artifact.Parse), CWD-INDEPENDENT — the trace resolves correctly when
+            the validator runs from a working directory other than the plans
+            parent.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — fixtures + schema documentation (all parallel, disjoint)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixtures & Schema Documentation"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold backing-plan fixtures under a shared testdata root"
+        description: |
+          Create the REAL backing-plan fixtures the delivered_by trace resolves
+          against. All fixtures live under a single shared root
+          pkg/validate/testdata/delivered_by/root/plans/ so the plans-dir
+          resolver (walk up from CWD → nearest ancestor with a plans/ dir) finds
+          them when the Phase 2 test t.Chdir's into
+          pkg/validate/testdata/delivered_by/root/.
+
+          Each plan is a real, parseable .plan.yml (frontmatter + phases) that the
+          existing validate.Plan validator evaluates. Fixtures to create:
+
+            - plans/PLAN-ISSUE-901-backing.plan.yml — status: completed,
+              spec_id: ISSUE-901, one valid phase/task set that passes
+              validate.Plan clean. The happy-path backing plan (CLM-001).
+            - plans/PLAN-ISSUE-907-backing.plan.yml — status: completed,
+              spec_id: ISSUE-907, valid. Backs the no-Resolution case (CLM-008).
+            - plans/PLAN-ISSUE-904-draft.plan.yml — status: draft, spec_id:
+              ISSUE-904, otherwise valid. Non-completed → must NOT satisfy a
+              delivered trace (CLM-004).
+            - plans/PLAN-ISSUE-910-replaced.plan.yml — status: replaced with a
+              valid replaced-by (e.g. PLAN-ISSUE-901) so it passes validate.Plan,
+              spec_id: ISSUE-910. RETIRED terminal → must NOT satisfy a delivered
+              trace (CLM-004, replaced subcase).
+            - plans/PLAN-ISSUE-912-canceled.plan.yml — status: canceled, spec_id:
+              ISSUE-912, otherwise valid (canceled needs no replaced-by, so it
+              passes validate.Plan). RETIRED terminal → must NOT satisfy a
+              delivered trace (CLM-004, canceled subcase — pins that BOTH retired
+              terminals are rejected).
+            - plans/PLAN-ISSUE-905-broken.plan.yml — spec_id: ISSUE-905,
+              deliberately INVALID for validate.Plan (e.g. empty `phases: []` or a
+              bad status) so the trace's plan-validates-clean check fails
+              (CLM-005).
+            - plans/PLAN-ISSUE-906-mismatch.plan.yml — status: completed, but
+              spec_id: ISSUE-999 (NOT ISSUE-906). Drives the spec_id back-match
+              guard (CLM-006).
+
+          These are real fixtures, not stubs. Verify each intended-valid plan
+          actually passes validate.Plan and each intended-invalid plan actually
+          fails, by construction.
+        files:
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-901-backing.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-907-backing.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-904-draft.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-910-replaced.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-912-canceled.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-905-broken.plan.yml
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-906-mismatch.plan.yml
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Scaffold trace-accept and no-regression closing-issue fixtures"
+        description: |
+          Create the closing-issue fixtures that prove the ACCEPT path and the
+          no-regression path, under
+          pkg/validate/testdata/delivered_by/root/issues/. Each is a real
+          .issue.md whose frontmatter matches the issue schema.
+
+            - issues/ISSUE-901-thin-close.issue.md — status: closed, issue.closed
+              set, delivered_by: PLAN-ISSUE-901, a `## Resolution` prose section,
+              and NO requirements/claims/verification/implementation/contracts
+              arrays. This is the thin trace-accept case that must validate CLEAN
+              (CLM-001).
+            - issues/ISSUE-909-full-close.issue.md — status: closed, NO
+              delivered_by, carrying the FULL requirements + claims + verification
+              + implementation chain (a normal non-plan-backed close). Must still
+              validate CLEAN — proves the relaxation did not loosen the
+              unconditional path (CLM-007, positive half).
+            - issues/ISSUE-908-bare-close.issue.md — status: closed, NO
+              delivered_by, and NO requirements/claims/verification. Must FAIL
+              (full traceability still required) — the no-regression negative half
+              (CLM-007).
+            - issues/ISSUE-907-no-resolution.issue.md — status: closed,
+              delivered_by: PLAN-ISSUE-907 (a valid completed plan), issue.closed
+              set, NO requirements/claims, and DELIBERATELY NO `## Resolution`
+              section. Must FAIL on the minimum-standalone-content rule (CLM-008).
+
+          Distinct issue ids per file (901/907/908/909) so filenames satisfy the
+          ISSUE-NNN prefix rule and ids do not collide.
+        files:
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-901-thin-close.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-909-full-close.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-908-bare-close.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-907-no-resolution.issue.md
+        claims:
+          - CLM-001
+          - CLM-007
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Scaffold delivered_by failure-mode closing-issue fixtures"
+        description: |
+          Create the closing-issue fixtures that drive each fail-loud rejection
+          path, under pkg/validate/testdata/delivered_by/root/issues/. Each is a
+          real .issue.md with status: closed, issue.closed set, and a
+          `## Resolution` section (so the ONLY reason each fails is the
+          delivered_by defect under test, not a missing Resolution).
+
+            - issues/ISSUE-902-malformed-pointer.issue.md — delivered_by:
+              "garbage" (does not match PLAN-ISSUE-NNN). Must FAIL on the format
+              check before any plan lookup (CLM-002).
+            - issues/ISSUE-903-missing-plan.issue.md — delivered_by:
+              PLAN-ISSUE-903, but NO PLAN-ISSUE-903-*.plan.yml exists in the
+              fixture plans/ dir. Must FAIL on plan-not-found (CLM-003).
+            - issues/ISSUE-904-draft-plan.issue.md — delivered_by:
+              PLAN-ISSUE-904 (status draft). Must FAIL on plan-not-completed
+              (CLM-004).
+            - issues/ISSUE-910-replaced-plan.issue.md — delivered_by:
+              PLAN-ISSUE-910 (status replaced, a RETIRED terminal). Must FAIL on
+              plan-not-completed (CLM-004, replaced subcase — replaced is NOT a
+              delivered success).
+            - issues/ISSUE-912-canceled-plan.issue.md — delivered_by:
+              PLAN-ISSUE-912 (status canceled, a RETIRED terminal). Must FAIL on
+              plan-not-completed (CLM-004, canceled subcase).
+            - issues/ISSUE-905-invalid-plan.issue.md — delivered_by:
+              PLAN-ISSUE-905 (a plan that fails validate.Plan). Must FAIL on
+              plan-not-valid (CLM-005).
+            - issues/ISSUE-906-wrong-backing.issue.md — delivered_by:
+              PLAN-ISSUE-906 (a completed plan whose spec_id is ISSUE-999, not
+              ISSUE-906). Must FAIL on spec_id back-match (CLM-006).
+
+          PLUS one fixture in a SEPARATE subtree that has NO sibling plans/ dir,
+          to drive the plans-unresolvable fail-loud path (CLM-011):
+            - no-plans-dir/issues/ISSUE-911-orphan-close.issue.md — status:
+              closed, delivered_by: PLAN-ISSUE-911, a Resolution section, no
+              REQ/CLM. It lives under
+              pkg/validate/testdata/delivered_by/no-plans-dir/issues/ with NO
+              `no-plans-dir/plans/` sibling, so resolving the plan directory from
+              the issue's own path fails. Must FAIL fail-loud on
+              plans-unresolvable — never a silent trace-satisfied pass.
+        files:
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-902-malformed-pointer.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-903-missing-plan.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-904-draft-plan.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-910-replaced-plan.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-912-canceled-plan.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-905-invalid-plan.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-906-wrong-backing.issue.md
+          - pkg/validate/testdata/delivered_by/no-plans-dir/issues/ISSUE-911-orphan-close.issue.md
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-004
+        type: documentation
+        title: "Document the optional delivered_by field in the issue schema"
+        description: |
+          Add the optional top-level `delivered_by` field to the issue schema
+          (artifacts/issue/v1/schema.json). This is DOCUMENTARY — schema.json
+          keys are documentary-only in this repo; the enforcement lives in
+          pkg/validate/issue.go. Record:
+
+            - a `delivered_by` property under metadata.optional (or the
+              schema's top-level optional-field surface, matching how `replaced-by`
+              is represented) with pattern ^PLAN-ISSUE-[0-9]{3}$ and a
+              description: "When an issue reaches `closed`, an optional pointer to
+              the PLAN-ISSUE-NNN that delivered it. A valid delivered_by lets the
+              close satisfy traceability by tracing to the completed backing plan
+              instead of re-authoring requirements/claims onto the issue. The
+              close still requires a Resolution section."
+            - update the `closed-requires-traceability` enforcement note to state
+              the conditional relaxation: requirements/claims are required at close
+              UNLESS a valid `delivered_by` traces to a completed backing plan, in
+              which case a Resolution section + the pointer suffice.
+
+          Do NOT change validator behavior here — that is TASK-006. Keep the JSON
+          well-formed (this file is parsed as JSON at build time).
+        files:
+          - artifacts/issue/v1/schema.json
+        claims:
+          - CLM-010
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Red — the delivered_by trace behavior test
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — delivered_by Trace Validation Tests"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Write failing delivered_by trace tests (path-anchored, cross-context)"
+        description: |
+          Add pkg/validate/issue_delivered_by_test.go exercising the REAL
+          validate.Issue path against the Phase 1 fixtures, and extend
+          pkg/artifact/parse_test.go to pin the SourcePath field. No mocks — real
+          parsing, real Plan validation of the backing plan.
+
+          RESOLUTION IS SOURCE-PATH ANCHORED, NOT CWD: each validate.Issue subtest
+          parses the target issue via artifact.ParseFile(<full fixture path>) and
+          runs validate.Issue. The backing plan resolves relative to the issue's
+          own SourcePath, so the tests do NOT rely on t.Chdir into the fixture
+          root. These FAIL until TASK-006 lands: the parse test fails because
+          ParsedArtifact has no SourcePath yet (package will not compile — an
+          acceptable red), and the thin ISSUE-901 case reports missing
+          requirements/claims because validateIssueTraceability today requires the
+          full REQ/CLM chain for every closed issue.
+
+          Mandated test names (exact):
+
+            - TestParse_PopulatesSourcePath (CLM-012): artifact.Parse /
+              artifact.ParseFile populate art.SourcePath with the full path passed
+              in (Filename stays the base name — no regression to existing Filename
+              assertions).
+            - TestIssueDeliveredBy_ValidTraceClosesWithoutOwnClaims (CLM-001):
+              ISSUE-901 (thin: delivered_by + Resolution, no REQ/CLM) validates
+              with ZERO violations. Assert specifically that no
+              issue/requirements-required or issue/claims-required violation is
+              present.
+            - TestIssueDeliveredBy_ResolvesFromArtifactPath_NotCWD (CLM-012,
+              integration): validate ISSUE-901 while the process working directory
+              is an UNRELATED dir (e.g. t.Chdir(t.TempDir()) — deliberately NOT
+              the fixture root/plans parent). The trace must STILL resolve the
+              backing plan via the artifact's own SourcePath and validate clean.
+              This proves the production wiring (path anchoring), not a
+              happy-aligned CWD; it is the guard against the integration-gap of a
+              fixture whose CWD coincidentally equals the plans parent.
+            - TestIssueDeliveredBy_MalformedPointer_Errors (CLM-002): ISSUE-902
+              (delivered_by "garbage") yields an error violation on the
+              delivered_by format rule, before any filesystem lookup.
+            - TestIssueDeliveredBy_MissingPlanFile_Errors (CLM-003): ISSUE-903
+              (delivered_by names a plan with no file, but plans/ resolves) yields
+              a plan-not-found error.
+            - TestIssueDeliveredBy_PlansDirUnresolvable_Errors (CLM-011):
+              ISSUE-911 (under no-plans-dir/, with NO sibling plans/) yields a
+              fail-loud plans-unresolvable error — NOT a silent trace-satisfied
+              pass. Also cover the empty/directory-less SourcePath case (parse a
+              base-only synthetic filename) and assert the same fail-loud error
+              rather than a spurious clean pass.
+            - TestIssueDeliveredBy_PlanNotCompleted_Errors (CLM-004):
+              table-driven over ISSUE-904 (draft), ISSUE-910 (replaced), AND
+              ISSUE-912 (canceled); each yields a plan-not-completed error. Pins
+              that BOTH retired terminals (replaced AND canceled) as well as a
+              live non-terminal (draft) do NOT satisfy a delivered trace.
+            - TestIssueDeliveredBy_InvalidPlan_Errors (CLM-005): ISSUE-905
+              (delivered_by names a plan that fails validate.Plan) yields a
+              plan-not-valid error.
+            - TestIssueDeliveredBy_PlanBacksDifferentIssue_Errors (CLM-006):
+              ISSUE-906 (plan.spec_id == ISSUE-999) yields a spec_id-mismatch
+              error.
+            - TestIssueDeliveredBy_MissingResolutionSection_Errors (CLM-008):
+              ISSUE-907 (valid completed plan, but no Resolution section) yields a
+              resolution-required error.
+            - TestIssueClosed_NoDeliveredBy_StillRequiresTraceability (CLM-007):
+              ISSUE-908 (bare close, no delivered_by) still reports the full
+              requirements/claims-required violations; ISSUE-909 (full close, no
+              delivered_by) validates clean. Proves the relaxation is conditional,
+              not a general loosening.
+
+          Assert on rule NAME + severity error where practical, not just count, so
+          the tests pin the intended failure and cannot pass vacuously.
+        files:
+          - pkg/validate/issue_delivered_by_test.go
+          - pkg/artifact/parse_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD Green — implement the delivered_by trace relaxation
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — delivered_by Trace Logic"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "Add ParsedArtifact.SourcePath, then the path-anchored delivered_by trace"
+        description: |
+          Make the Phase 2 tests pass. Three cohesive edits:
+
+          1. Source-path plumbing (pkg/artifact):
+             - Add a `SourcePath string` field to ParsedArtifact
+               (pkg/artifact/artifact.go).
+             - In artifact.Parse (pkg/artifact/parse.go), set
+               `art.SourcePath = filename` from the same `filename` argument that
+               already feeds `Filename: filepath.Base(filename)` at line 25.
+               Filename stays the base name (no regression). This is additive and
+               does NOT touch the ValidatorFunc(art, sch) signature.
+
+          2. New file pkg/validate/delivered_by.go — a static, exec-free helper:
+             - `deliveredByRe` = ^PLAN-ISSUE-[0-9]{3}$.
+             - resolvePlansDir(art): anchor on the ISSUE's own path, NOT CWD.
+               Compute `dir := filepath.Dir(art.SourcePath)`; the plans dir is its
+               sibling `filepath.Join(dir, "..", "plans")`. If art.SourcePath is
+               empty or directory-less (filepath.Dir == "." for a base-only
+               synthetic filename), OR the resolved plans/ dir does not exist
+               (os.Stat), return a fail-loud "unresolvable" signal — NEVER treat
+               unresolvable as trace-satisfied. Pure filesystem: filepath.Dir/Join
+               + os.Stat only.
+             - a helper that, given the parsed issue art, the delivered_by id, and
+               the closing issue's id, returns a []Violation (empty == trace
+               satisfied):
+                 * format check → issue/delivered-by-malformed (CLM-002);
+                 * plans dir unresolvable (per resolvePlansDir) →
+                   issue/delivered-by-plans-unresolvable (CLM-011), fail-loud;
+                 * filepath.Glob(<plansDir>/PLAN-ISSUE-NNN-*.plan.yml); zero
+                   matches → issue/delivered-by-plan-not-found (CLM-003);
+                 * artifact.ParseFile + validate.Plan on the matched plan; any
+                   plan violation → issue/delivered-by-plan-invalid (CLM-005) —
+                   REUSE validate.Plan, do not reimplement;
+                 * plan status != "completed" (read status/spec_id from the parsed
+                   plan frontmatter) → issue/delivered-by-plan-not-completed
+                   (CLM-004) — draft/implementing AND retired replaced/canceled all
+                   reject (only `completed` is a delivered success);
+                 * plan spec_id != closing issue id →
+                   issue/delivered-by-spec-mismatch (CLM-006).
+             - This file MUST NOT import pkg/gate and MUST NOT import os/exec
+               (CLM-009). It re-derives the issue→plan linkage locally, resolved
+               from the artifact's SourcePath (CLM-012) so it is a pure function of
+               its inputs, independent of ambient CWD / BACKSTOP_CONFIG.
+
+          3. Wire into pkg/validate/issue.go validateIssueTraceability (~line 342):
+             BEFORE the existing ready-onward REQ/CLM/verification/implementation/
+             contracts block, add a branch: if status == "closed" AND a top-level
+             `delivered_by` frontmatter value is present:
+                 - run the delivered_by helper (passing art for path anchoring);
+                   append its violations;
+                 - require a `Resolution` section (art.Sections contains
+                   "Resolution") → else issue/delivered-by-resolution-required
+                   (CLM-008);
+                 - RETURN (skip the own-REQ/CLM/verification/implementation/
+                   contracts requirements) — the traced plan is the record of
+                   delivered claims (CLM-001).
+             When status != "closed", or `delivered_by` is absent, fall through to
+             the EXISTING unchanged path (CLM-007 — non-plan-backed closes and
+             pre-close statuses keep full rigor). The existing closed-requires-date
+             rule (validateIssueStatusRules) is untouched and still applies.
+
+          Add focused comments explaining the static-trust rationale (liveness is
+          ISSUE-042's gate job; the validator trusts the plan's `completed`
+          terminal), the source-path (not CWD) anchoring rationale, and the
+          no-pkg/gate-import layering constraint.
+        files:
+          - pkg/artifact/artifact.go
+          - pkg/artifact/parse.go
+          - pkg/validate/delivered_by.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Run the delivered_by unit tests (fast inner loop)"
+        description: |
+          Fast inner-loop verification of the implementation. Run:
+
+              go test ./pkg/validate/... ./pkg/artifact/... -race
+
+          (`backstop code check` was removed in ISSUE-018 — use `go test` for the
+          inner loop.) Confirm ALL mandated tests pass:
+            - TestParse_PopulatesSourcePath
+            - TestIssueDeliveredBy_ValidTraceClosesWithoutOwnClaims
+            - TestIssueDeliveredBy_ResolvesFromArtifactPath_NotCWD
+            - TestIssueDeliveredBy_MalformedPointer_Errors
+            - TestIssueDeliveredBy_MissingPlanFile_Errors
+            - TestIssueDeliveredBy_PlansDirUnresolvable_Errors
+            - TestIssueDeliveredBy_PlanNotCompleted_Errors (draft/replaced/canceled)
+            - TestIssueDeliveredBy_InvalidPlan_Errors
+            - TestIssueDeliveredBy_PlanBacksDifferentIssue_Errors
+            - TestIssueDeliveredBy_MissingResolutionSection_Errors
+            - TestIssueClosed_NoDeliveredBy_StillRequiresTraceability
+          and that the WHOLE pkg/validate AND pkg/artifact suites stay green — the
+          additive SourcePath field must not perturb existing Filename/section
+          assertions, and the new close-time branch must not perturb the existing
+          ready/in-progress/blocked traceability tests or the non-plan-backed
+          closed-issue tests. Also confirm (grep) that pkg/validate/delivered_by.go
+          imports neither pkg/gate nor os/exec (CLM-009), and that plan resolution
+          is anchored on art.SourcePath, not os.Getwd (CLM-012).
+        files:
+          - pkg/artifact/artifact.go
+          - pkg/artifact/parse.go
+          - pkg/artifact/parse_test.go
+          - pkg/validate/delivered_by.go
+          - pkg/validate/issue.go
+          - pkg/validate/issue_delivered_by_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive Verification — full gate + artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Gate + Artifact Validate"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Run the full gate kill chain on the code change"
+        description: |
+          Final comprehensive verification of the code (.go) surface. The change
+          touches pkg/validate (delivered_by.go, issue.go) and pkg/artifact
+          (artifact.go, parse.go — the additive SourcePath field), so run the full
+          kill chain:
+
+              backstop gate --json
+
+          Confirm GREEN across the gate dimensions (artifact validation, code
+          verification, test verification, substantiveness, coverage, contracts).
+          Verify specifically:
+            - the pkg/validate and pkg/artifact packages meet the
+              coverage_threshold (90) — the new delivered_by.go paths and the
+              SourcePath plumbing are exercised by the Phase 2 tests;
+            - no substantiveness / contract regression from the new helper or the
+              new exported ParsedArtifact.SourcePath field (contract dimension
+              sees a new struct field — confirm it does not fire a broken-promise);
+            - the self-pack (backstop/self) does not flag a new baked
+              language/tool literal in delivered_by.go — the helper reads artifact
+              frontmatter only and introduces no language noun.
+          Report the dimension verdicts. `backstop gate` subsumes code checking;
+          `backstop code check` is not used (removed in ISSUE-018).
+        files:
+          - pkg/artifact/artifact.go
+          - pkg/artifact/parse.go
+          - pkg/validate/delivered_by.go
+          - pkg/validate/issue.go
+          - pkg/validate/issue_delivered_by_test.go
+        claims:
+          - CLM-001
+          - CLM-007
+          - CLM-009
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Validate the fixture artifacts with backstop artifact validate"
+        description: |
+          Final verification of the artifact-category surface (the fixture
+          .issue.md / .plan.yml files this plan adds). Because the plan touches
+          artifact files, run:
+
+              backstop artifact validate
+
+          Confirm the fixtures parse and behave as designed via the validator
+          under test — the intended-valid fixtures (ISSUE-901 thin close, its
+          PLAN-ISSUE-901 backing plan, ISSUE-909 full close, and the completed
+          backing plans) validate clean, and the intended-invalid fixtures fail
+          for exactly their designed reason (malformed pointer, missing plan,
+          non-completed plan, invalid plan, spec mismatch, missing Resolution,
+          bare close). If discovery does not descend into testdata/, confirm the
+          equivalent invariant directly through the Phase 2 test suite instead and
+          record that the fixtures are consumed as test inputs rather than
+          repo-discovered artifacts. This task covers the artifact work category
+          for the final phase (paired with TASK-008's code coverage).
+        files:
+          - pkg/validate/testdata/delivered_by/root/plans/PLAN-ISSUE-901-backing.plan.yml
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-901-thin-close.issue.md
+          - pkg/validate/testdata/delivered_by/root/issues/ISSUE-909-full-close.issue.md
+        claims:
+          - CLM-001
+          - CLM-010
+        depends_on:
+          - TASK-006
+          - TASK-007

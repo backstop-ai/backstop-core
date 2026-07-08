@@ -23,6 +23,7 @@ func ParseFile(path string) (*ParsedArtifact, error) {
 func Parse(content, filename string) (*ParsedArtifact, error) {
 	art := &ParsedArtifact{
 		Filename:    filepath.Base(filename),
+		SourcePath:  filename,
 		Metadata:    make(map[string]string),
 		Frontmatter: make(map[string]interface{}),
 		Sections:    []string{},

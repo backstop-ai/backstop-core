@@ -353,6 +353,32 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 		return violations
 	}
 
+	// ISSUE-043: a `closed` issue may satisfy traceability by TRACING to its
+	// delivered backing plan via a top-level `delivered_by` pointer, instead of
+	// re-authoring the plan's requirements/claims onto the issue. The traced plan
+	// is the record of delivered claims. This relaxation is CONDITIONAL — it fires
+	// ONLY at `closed` AND only when a delivered_by value is present; a closed
+	// issue WITHOUT delivered_by, and every pre-close status, falls through to the
+	// full REQ→CLM→verification→implementation→contracts rigor below (CLM-007).
+	if status == "closed" {
+		if deliveredBy := getFrontmatterString(art, "delivered_by"); deliveredBy != "" {
+			violations = append(violations, validateDeliveredBy(art, deliveredBy, getIssueID(art))...)
+			// Minimum standalone content: a delivered_by close must still carry a
+			// Resolution section so the issue is independently readable (CLM-008).
+			if !hasSection(art, "Resolution") {
+				violations = append(violations, Violation{
+					Rule:     "issue/delivered-by-resolution-required",
+					File:     art.Filename,
+					Message:  "a delivered_by close must still include a '## Resolution' section (minimum standalone content)",
+					Severity: "error",
+				})
+			}
+			// Skip the own-REQ/CLM/verification/implementation/contracts chain —
+			// the completed backing plan carries the delivered claims (CLM-001).
+			return violations
+		}
+	}
+
 	// Verification block — level, threshold, test_command (required from ready onward)
 	violations = append(violations, validateVerification(art, "issue")...)
 
@@ -370,6 +396,34 @@ func validateIssueTraceability(art *artifact.ParsedArtifact, status string) []Vi
 	violations = append(violations, validateContracts(art.Frontmatter, art.Filename, "issue")...)
 
 	return violations
+}
+
+// getIssueID returns the issue.id from frontmatter, or "" when absent. Used by
+// the delivered_by trace to back-match the plan's spec_id against this issue.
+func getIssueID(art *artifact.ParsedArtifact) string {
+	issueVal, ok := art.Frontmatter["issue"]
+	if !ok {
+		return ""
+	}
+	issue, ok := issueVal.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	id, ok := getStringField(issue, "id")
+	if !ok {
+		return ""
+	}
+	return id
+}
+
+// hasSection reports whether the artifact declares the given H2 section.
+func hasSection(art *artifact.ParsedArtifact, name string) bool {
+	for _, s := range art.Sections {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 // validateIssueRequirements checks the requirements array — REQ-NNN pattern,
