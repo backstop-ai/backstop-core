@@ -421,12 +421,12 @@ func TestSpec_MissingImplementationPackage(t *testing.T) {
 	result := validate.Spec(art, specSchema())
 	found := false
 	for _, v := range result.Violations {
-		if v.Rule == "spec/implementation-package-required" {
+		if v.Rule == "spec/implementation-subject-required" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected 'spec/implementation-package-required' violation, got: %v", result.Violations)
+		t.Errorf("expected 'spec/implementation-subject-required' violation, got: %v", result.Violations)
 	}
 }
 

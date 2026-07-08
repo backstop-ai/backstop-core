@@ -4,7 +4,7 @@ number: SPEC-019
 created: "2026-05-25"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.0.1
 
 source:
   directive: DIR-012
@@ -289,6 +289,7 @@ claims:
       - TestGate_Waiver_SkippedWhenNotImplemented
   - id: CLM-013
     requirement: REQ-016
+    kind: absence
     text: .backstop/baseline.json remains untracked via gitignore policy and is treated as cache/artifact-only state.
     tests:
       - TestBaselinePathPresentInGitignore
@@ -304,6 +305,7 @@ claims:
       - TestGate_BaselineRatchet_FailsNewAndAllowsReductions_Contract
   - id: CLM-016
     requirement: REQ-015
+    kind: absence
     text: SPEC-010 baseline placeholder is superseded by JSON path and stable identity matching.
     tests:
       - TestSpec010BaselinePlaceholderSuperseded
@@ -486,3 +488,15 @@ changed-code regressions.
   robust content hash. Those steps may need incremental best-effort identities,
   but the implementation must avoid reintroducing rule+file/count matching as
   the baseline model.
+
+## Version History
+
+- **1.0.1** (2026-07-07) — Marked CLM-013 and CLM-016 `kind: absence`. Both mandated
+  tests are structural assertions over non-code files —
+  `TestBaselinePathPresentInGitignore` reads the repo `.gitignore` and asserts the
+  baseline path is present; `TestSpec010BaselinePlaceholderSuperseded` reads the
+  SPEC-010 and SPEC-019 markdown files and asserts supersession — that by design
+  reference no target package. This is the honest model, previously hidden only by
+  the vacuous `cmd/`-path skip in the substantiveness `noTarget` guard that ISSUE-047
+  removed. `kind: absence` exempts them from the `noTarget` substantiveness join per
+  the claims schema.

@@ -4,7 +4,7 @@ number: SPEC-030
 created: "2026-06-16"
 status: draft
 schema_version: spec/v1
-spec_version: 2.1.0
+spec_version: 2.1.1
 
 implementation:
   summary: >
@@ -30,7 +30,7 @@ implementation:
     those rules belongs to SPEC-031 (REQ-015), not this spec. This is
     semgrep-only and independent of ast-grep; it is the single-source
     foundation the engine-dispatch work (SPEC-031) builds on.
-  package: pkg/check
+  subject: pkg/check
 
 verification:
   level: integration
@@ -230,6 +230,7 @@ claims:
       - TestStdGo001SourceAbsent
   - id: CLM-015
     requirement: REQ-006
+    subject: pkg/gate
     text: >
       A gate / code-check run succeeds (no config error, no missing-standard
       error) on a project with no STD-GO-001 artifact and no compiled
@@ -870,6 +871,21 @@ distinguish "rules enforced" from "rules vanished".
 
 ## Version History
 
+- **2.1.1** (2026-07-07) — Migrated the spec-level target key from
+  `implementation.package: pkg/check` to `implementation.subject: pkg/check`
+  (ISSUE-047: the `test_substantiveness` noTarget guard is now language-neutral —
+  a single Go-centric `implementation.package` becomes a language-neutral
+  `subject` with optional per-claim overrides). The spec-level subject stays
+  `pkg/check` because this spec's removal-proof `TestPkgCheck_*` tests
+  (CLM-002/003/023) correctly target `pkg/check`. Added a per-claim
+  `subject: pkg/gate` override to **CLM-015** ONLY: its mandated test
+  `TestGate_SucceedsWithoutStandards` now lives in `cmd/backstop` and
+  legitimately exercises `pkg/gate` (a gate run SUCCEEDS), not `pkg/check`, so the
+  noTarget guard resolves it against `pkg/gate` while the removal-proof claims keep
+  inheriting the spec-level `pkg/check`. CLM-015 remains a POSITIVE behavioral
+  claim (not `kind: absence`). Key-rename + one per-claim override only
+  (align-predating-artifacts); no requirement, claim text, contract, or other
+  claim's subject altered.
 - **2.1.0** (2026-07-06) — Marked the genuine structural/absence claims `kind: absence`
   (the per-claim annotation added by ISSUE-035) to reflect their structural nature and clear
   the `test_substantiveness` gate's noTarget ("does not call package check") false-flag on

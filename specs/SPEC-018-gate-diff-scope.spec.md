@@ -4,7 +4,7 @@ number: SPEC-018
 created: "2026-05-20"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.0.1
 
 source:
   directive: DIR-011
@@ -150,6 +150,7 @@ claims:
       - TestGateOutput_ScopeSummary
   - id: CLM-008
     requirement: REQ-008
+    kind: absence
     text: SPEC-010 REQ-012 is superseded by the new scope flags.
     tests:
       - TestSpec010Req012Superseded
@@ -281,3 +282,14 @@ by this spec.
 - Spec-level implementation verification ("is this plan complete?")
 - Waiver/suppression mechanisms
 - CI environment auto-detection for mode selection
+
+## Version History
+
+- **1.0.1** (2026-07-07) — Marked CLM-008 `kind: absence`.
+  `TestSpec010Req012Superseded` is a structural supersession assertion over
+  the SPEC-010 and SPEC-018 artifact files that calls no code package by
+  design; `kind: absence` exempts it from the noTarget substantiveness join
+  per the claims schema. Surfaced and corrected by ISSUE-047's de-baking of
+  the substantiveness noTarget guard (removal of the vacuous `cmd/`-path
+  skip that had previously hidden this structural claim). No change to the
+  claim text, requirement mapping, or test name.

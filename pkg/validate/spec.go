@@ -320,18 +320,45 @@ func validateImplementation(art *artifact.ParsedArtifact, rulePrefix string) []V
 		return violations
 	}
 
-	for _, key := range []string{"summary", "package"} {
-		if v, ok := impl[key]; !ok || fmt.Sprintf("%v", v) == "" {
-			violations = append(violations, Violation{
-				Rule:     rulePrefix + "/implementation-" + key + "-required",
-				File:     art.Filename,
-				Message:  fmt.Sprintf("implementation.%s is missing or empty", key),
-				Severity: "error",
-			})
-		}
+	// summary stays unconditionally required.
+	if v, ok := impl["summary"]; !ok || fmt.Sprintf("%v", v) == "" {
+		violations = append(violations, Violation{
+			Rule:     rulePrefix + "/implementation-summary-required",
+			File:     art.Filename,
+			Message:  "implementation.summary is missing or empty",
+			Severity: "error",
+		})
+	}
+
+	// The target unit is the language-neutral `subject` (ISSUE-047 CLM-001). The
+	// legacy `package` key is accepted as a DEPRECATED ALIAS — at least one of the
+	// two must be present and non-empty — so the ~40 unmigrated specs keep
+	// validating without a bulk migration. Only when BOTH are absent/empty do we
+	// raise implementation-subject-required (the canonical neutral rule name). This
+	// function is SHARED by the issue validator (issue.go), so issues inherit the
+	// same alias with no separate edit.
+	if implPresentNonEmpty(impl, "subject") == "" && implPresentNonEmpty(impl, "package") == "" {
+		violations = append(violations, Violation{
+			Rule:     rulePrefix + "/implementation-subject-required",
+			File:     art.Filename,
+			Message:  "implementation.subject is missing or empty (the legacy 'package' key is accepted as a deprecated alias)",
+			Severity: "error",
+		})
 	}
 
 	return violations
+}
+
+// implPresentNonEmpty returns the trimmed string value of key in the
+// implementation block, or "" when the key is absent or its value is empty. It
+// backs the subject-or-package presence guard (ISSUE-047): the caller treats a
+// "" result as "not declared" for that key.
+func implPresentNonEmpty(impl map[string]interface{}, key string) string {
+	v, ok := impl[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
 }
 
 // reqResult holds both violations and the set of valid REQ IDs for cross-referencing.

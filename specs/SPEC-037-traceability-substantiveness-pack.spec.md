@@ -2,10 +2,10 @@
 title: "Traceability Substantiveness Pack"
 number: SPEC-037
 created: "2026-06-22"
-updated: "2026-06-23"
+updated: "2026-07-07"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.2
+spec_version: 1.2.3
 
 implementation:
   summary: >
@@ -26,8 +26,8 @@ implementation:
     Go analyzer is REPLACED by a pack, not preserved as a native tier). Q2 becomes a
     pack EXTRACTION (a positive ast-grep query emitting which packages/symbols a test
     references — no spec awareness in the pack) PLUS a thin, language-agnostic GATE
-    SET-MEMBERSHIP test: is the spec's declared implementation.package among the
-    extracted referenced symbols? The noTarget SEMANTICS stay in the gate as a set
+    SET-MEMBERSHIP test: is the spec's declared implementation.subject (reduced to an
+    opaque last-segment token) among the extracted referenced symbols? The noTarget SEMANTICS stay in the gate as a set
     test (gate logic consuming pack data, NOT a baked analyzer); only the EXTRACTION
     moves to the pack. The backstop BINARY learns zero language/tool specifics: the
     pack declares ast-grep and the assertion/extraction rules, and the gate consumes
@@ -44,7 +44,7 @@ implementation:
     FAILS the test. End state for substantiveness: zero baked-in analyzer; the only
     gate-side logic that remains is the noTarget set-join + SARIF consumption, both
     language-agnostic.
-  package: pkg/gate
+  subject: pkg/gate
 
 verification:
   level: integration
@@ -91,16 +91,20 @@ requirements:
       language-specific EXTRACTION: a positive ast-grep query emitting the set of
       packages/symbols a test references (the pack is spec-UNAWARE — it only reports
       what the test references). The GATE does a trivial, language-agnostic
-      SET-MEMBERSHIP test: the spec's declared implementation.package (its last path
-      component, the target package) MUST be a member of the pack-extracted referenced-
-      symbol set, else the gate raises a test_substantiveness noTarget violation ("test
+      SET-MEMBERSHIP test: the spec's declared implementation.subject (reduced to its
+      last path segment, an OPAQUE token — the gate bakes in NO cmd//pkg/ layout
+      knowledge) MUST be a member of the pack-extracted referenced-symbol set, else the
+      gate raises a test_substantiveness noTarget violation ("test
       X does not call package P"). The noTarget SEMANTICS MUST live in the gate as a SET
       TEST consuming pack data — NOT as a baked language analyzer; the gate MUST NOT
       re-introduce go/parser or any per-language reference resolution. The gate set-join
-      MUST preserve the existing acceptable-coarseness behavior: (a) when the spec's
-      implementation.package yields an EMPTY target package (e.g. a cmd/ package or a
-      non-pkg/ path, where targetPackageName returns ""), the noTarget check is SKIPPED
-      (no violation — a test with no qualifiable target cannot fail the join); (b) when
+      MUST preserve the existing acceptable-coarseness behavior: (a) when the spec/claim
+      declares an EMPTY subject (no callable subject to qualify against, so
+      TargetPackageName returns ""), the noTarget check is SKIPPED (no violation — a test
+      with no qualifiable target cannot fail the join); the empty-target skip is keyed on
+      an EMPTY subject, NOT on any cmd//pkg/ layout classification (TargetPackageName
+      reduces a non-empty subject to its last path segment with no layout special-case
+      per ISSUE-047); (b) when
       the test resides in the target package itself (same-package), the join is
       satisfied without requiring a package-qualified reference, mirroring the deleted
       analyzer's same-package short-circuit. The disambiguation between (a)/(b) and a
@@ -364,9 +368,10 @@ claims:
   - id: CLM-009
     requirement: REQ-003
     text: >
-      When the spec's implementation.package yields an EMPTY target package (cmd/ or
-      non-pkg/ path), the gate set-join SKIPS the noTarget check and raises no violation
-      regardless of the extracted set.
+      When the spec/claim declares an EMPTY subject (TargetPackageName reduces it to the
+      empty-target "" token), the gate set-join SKIPS the noTarget check and raises no
+      violation regardless of the extracted set — the skip is keyed on an EMPTY subject,
+      not on any cmd//pkg/ layout classification.
     tests:
       - TestQ2_SetJoin_EmptyTargetPackage_Skipped
   - id: CLM-010
@@ -533,8 +538,11 @@ claims:
     requirement: REQ-008
     text: >
       TargetPackageName coverage previously in TestGate_TargetPackageName is MIGRATED to
-      the relocated pkg/gate.TargetPackageName with behavior preserved: pkg/... yields the
-      last path component, cmd/... and non-pkg/ paths yield "" (the empty-target case).
+      the relocated pkg/gate.TargetPackageName, which reduces an OPAQUE subject to its
+      last path segment with NO cmd//pkg/ layout knowledge (e.g. cmd/backstop→backstop,
+      pkg/gate→gate, internal/foo→foo, a bare token passes through unchanged); ONLY an
+      EMPTY subject yields the empty-target "" case (ISSUE-047 removed the cmd//pkg/
+      layout special-casing).
     tests:
       - TestTargetPackageName_MigratedBehaviorPreserved
   - id: CLM-029
@@ -747,11 +755,13 @@ gate_type), and local REQ-008 pins delete-or-migrate of the existing analyzer-co
 (preserving the changed-file scope behavior through the pack path).
 
 The Q2 noTarget set-join is an exhaustive, language-agnostic allowlist over the
-pack-extracted referenced-symbol set and the spec's declared target package: the join is
-SATISFIED (no violation) iff the target package is a member of the extracted set, OR the
-target package is empty (cmd/ or non-pkg/ path — skipped), OR the test is same-package;
+pack-extracted referenced-symbol set and the spec's declared target subject: the join is
+SATISFIED (no violation) iff the target token is a member of the extracted set, OR the
+target token is empty (the subject was empty — skipped), OR the test is same-package;
 otherwise it is a noTarget violation. No fourth disposition exists, and the verdict is a
-set/string test, never a re-baked AST analysis.
+set/string test, never a re-baked AST analysis. TargetPackageName reduces the declared
+subject to its last path segment as an OPAQUE token (no cmd//pkg/ layout knowledge —
+ISSUE-047); only an empty subject yields the empty-target skip.
 
 ## Implementation
 
@@ -841,16 +851,20 @@ test references (the pack is spec-UNAWARE — it reports what the test reference
 about the spec). The gate then performs the language-agnostic SET-MEMBERSHIP test in a
 new `pkg/gate/substantiveness_join.go`:
 
-- `TargetPackageName(implementationPackage)` derives the target package (last path
-  component for `pkg/...`; empty for `cmd/...` and non-`pkg/` paths) — carried forward
-  from the deleted analyzer's `targetPackageName`, now as language-agnostic string logic.
+- `TargetPackageName(subject)` reduces the declared subject to an OPAQUE target token —
+  its last `/`-segment (`filepath.Base`), with NO cmd//pkg/ layout knowledge (ISSUE-047
+  removed the layout special-casing): `cmd/backstop`→`backstop`, `pkg/gate`→`gate`,
+  `internal/foo`→`foo`, and a bare token passes through unchanged. The ONLY special case
+  is the EMPTY subject, which returns `""` (the empty-target token the set-join SKIPS).
+  Carried forward from the deleted analyzer's `targetPackageName`, now as a pure
+  language-agnostic last-segment reduction.
 - `NoTargetViolation(funcName, targetPkg, referenced, samePackage)` returns a violation
   iff `targetPkg` is non-empty AND `!samePackage` AND `targetPkg` is NOT a member of the
   `referenced` set. The complete decision table:
 
 | targetPkg | samePackage | target ∈ referenced set | → noTarget? |
 |-----------|-------------|-------------------------|-------------|
-| "" (cmd/ or non-pkg/) | n/a | n/a | NO — skipped |
+| "" (empty subject) | n/a | n/a | NO — skipped |
 | non-empty | yes | n/a | NO — same-package satisfied |
 | non-empty | no | yes | NO — references target |
 | non-empty | no | no | YES — noTarget violation |
@@ -1089,11 +1103,19 @@ or by the seam spy alone.
   stack-locked pack; the planner must coordinate with SPEC-038's pack on a shared
   manifest.
 
-- **`TargetPackageName` relocation must not change behavior.** The deleted analyzer's
-  `targetPackageName` (empty for cmd/ and non-pkg/, last component for pkg/...) becomes
-  `TargetPackageName` in the set-join file. A subtle change here (e.g. returning a
-  non-empty target for a cmd/ path) flips the empty-target SKIP into a spurious noTarget
-  violation. The relocation is behavior-preserving; CLM-009 pins the empty-target skip.
+- **`TargetPackageName` is a pure opaque-token reduction — the cmd//pkg/ layout
+  derivation was DELIBERATELY removed (ISSUE-047), not a regression.** The deleted
+  analyzer's `targetPackageName` baked this-repo layout knowledge (empty `""` for `cmd/`
+  and non-`pkg/` paths, last component only for `pkg/...`). That layout special-casing
+  was a baked-repo-layout assumption and was REMOVED: `TargetPackageName` now reduces an
+  OPAQUE subject to its last `/`-segment (`filepath.Base`) with no layout branching, so a
+  `cmd/...` subject now yields a REAL leaf token (`cmd/backstop`→`backstop`), NOT `""`.
+  This is an INTENDED behavior change — a `cmd/` path producing a non-empty target is now
+  CORRECT, not a regression. The empty-target SKIP is preserved but keyed on an EMPTY
+  SUBJECT (a spec/claim that declares no callable subject), never on a cmd//pkg/ layout
+  classification. CLM-009 pins the empty-subject skip; CLM-028 pins the opaque last-segment
+  reduction. A reviewer must NOT "restore" the cmd//pkg/ empty-target derivation — that
+  would re-bake the repo-layout assumption ISSUE-047 eradicated.
 
 - **The testdata-as-production trap (the recurring pack-provisioning integration gap).**
   Every prior pack-migration impl in this codebase passed its tests by pointing at a
@@ -1150,9 +1172,12 @@ or by the seam spy alone.
 - Does the strangler-equivalence pass run BEFORE the analyzer deletion, over REAL Go
   fixtures with REAL ast-grep, asserting concrete pack findings equal the analyzer's
   verdict on each of hollow / substantive / no-target / calls-target / same-package?
-- Is the empty-target (cmd/ or non-pkg/) case SKIPPED (no violation) and the same-package
-  case SATISFIED, matching the deleted analyzer's short-circuits — so the eradication
-  preserves behavior, not just removes code?
+- Is the empty-target case (keyed on an EMPTY subject, NOT a cmd//pkg/ layout
+  classification) SKIPPED (no violation) and the same-package case SATISFIED, matching the
+  deleted analyzer's short-circuits — and does `TargetPackageName` reduce a non-empty
+  subject to its last path segment as an opaque token (no cmd//pkg/ layout special-case
+  per ISSUE-047), so the eradication de-bakes the repo-layout assumption without dropping
+  the empty-subject skip?
 - Are the TS hollow-test claims satisfied by REAL ast-grep over REAL `.test.ts` fixtures
   riding the shared dispatch path, unsatisfiable by a stubbed pack output, and authored
   into the SAME TS proof pack SPEC-038 shares?
@@ -1226,6 +1251,24 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.3** (2026-07-07) — Prose reconciliation to the shipped ISSUE-047 de-baking of
+  `pkg/gate.TargetPackageName` (per the align-predating-artifacts rule this spec's REQ-008
+  itself cites — a LIVE `draft` spec's text must not contradict shipped behavior). ISSUE-047
+  removed the baked this-repo layout knowledge from `TargetPackageName`: it previously
+  returned the last path component only for `pkg/...` and `""` for `cmd/...` and non-`pkg/`
+  paths. It NOW reduces an OPAQUE subject token to its last `/`-segment (`filepath.Base`)
+  with NO cmd//pkg/ layout branching (`cmd/backstop`→`backstop`, `pkg/gate`→`gate`,
+  `internal/foo`→`foo`, bare token unchanged), and the empty-target SKIP is triggered ONLY
+  by an EMPTY subject — never by a cmd//pkg/ path classification. Reworded to match: REQ-003
+  (empty-target skip keyed on an empty subject, cmd//pkg/ framing removed), CLM-009, CLM-028
+  (opaque last-segment reduction; only empty subject yields `""`), the `TargetPackageName`
+  Sharp Edge (now flags the layout-derivation removal as an INTENDED change, not a
+  regression), and the design-body Q2 description / decision table / Requirements summary /
+  Review Questions. Migrated the spec-level target key `implementation.package` →
+  `implementation.subject` (canonical schema key; value unchanged, `pkg/gate`). NO
+  requirement, claim, or mandated-test NAME renamed or removed — text-only reconciliation of
+  the behavior ISSUE-047 shipped in code (test bodies updated there; names preserved for
+  lineage).
 - **1.2.1** (2026-06-23) — Spec-review corrective pass on the SPEC-036 capability re-keying
   coupling (3 blocking fixes; SPEC-036 NOT revised — aligned via implementation per
   align-predating-artifacts). (1) NAMED THE LIVE LOCUS: REQ-009, CLM-035, the Implementation

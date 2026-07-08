@@ -45,8 +45,8 @@
   ],
   "nested_blocks": {
     "implementation": {
-      "required_keys": ["summary", "package"],
-      "description": "Implementation target details"
+      "required_keys": ["summary", "subject"],
+      "description": "Implementation target details. 'subject' names the language-neutral unit under test (the substantiveness noTarget guard checks that each mandated test references it). 'package' is accepted as a deprecated alias for 'subject' on legacy specs."
     },
     "verification": {
       "required_keys": ["level", "test_command"],
@@ -61,8 +61,8 @@
     "claims": {
       "type": "array",
       "item_required_keys": ["id", "requirement", "text", "tests"],
-      "item_optional_keys": ["kind"],
-      "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ. Optional 'kind: absence' marks the claim's mandated test(s) as absence/structural (they prove something is ABSENT and by design do not call the target package), which skips the noTarget substantiveness join for those tests."
+      "item_optional_keys": ["kind", "subject"],
+      "description": "CLM-NNN claims — atomic verification units mapping to test functions, each tracing to a REQ. Optional 'subject' overrides the spec-level implementation.subject for this claim's mandated test(s), so a spec whose claims span multiple units can declare each claim's own target (claims without it inherit the spec default). Optional 'kind: absence' marks the claim's mandated test(s) as absence/structural (they prove something is ABSENT and by design do not reference the target subject), which skips the noTarget substantiveness join for those tests."
     },
     "contracts": {
       "type": "array",

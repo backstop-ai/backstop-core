@@ -17,7 +17,7 @@ type MandatedTest struct {
 	FuncName  string
 	FilePath  string // path to the file containing the test (set during verification)
 	SpecFile  string // path to the spec that mandates the test
-	TargetPkg string // last component of the spec's implementation.package
+	TargetPkg string // reduced opaque subject token (per-claim subject override, else spec default)
 	SpecID    string
 	ClaimID   string
 	// IsAbsence is the opt-in per-claim signal (ISSUE-035 Category 2): the mandating
@@ -37,7 +37,14 @@ type specFrontmatter struct {
 	// enforcement: its mandated tests, verifications, and contracts are not
 	// extracted, because a retired spec's promises are deliberately no longer held.
 	Status         string `yaml:"status"`
+	// Implementation carries the spec-level target unit. `subject` is the canonical
+	// language-neutral key (ISSUE-047); `package` is a DEPRECATED ALIAS retained so the
+	// ~40 unmigrated specs keep resolving. yaml.v3 struct tags cannot alias two keys
+	// onto one field, so BOTH are read into distinct fields and coalesced at read time
+	// (subject wins, else package) via implementationSubject — a naive single `subject`
+	// tag would SILENTLY DROP `package` and zero the target for every unmigrated spec.
 	Implementation struct {
+		Subject string `yaml:"subject"`
 		Package string `yaml:"package"`
 	} `yaml:"implementation"`
 	Verification struct {
@@ -57,8 +64,13 @@ type specFrontmatter struct {
 		// claim's mandated test(s) as absence/structural (ISSUE-035 Category 2), which
 		// sets MandatedTest.IsAbsence and skips the noTarget join for those tests. An
 		// absent/other value leaves IsAbsence false (full enforcement).
-		Kind  string   `yaml:"kind"`
-		Tests []string `yaml:"tests"`
+		Kind string `yaml:"kind"`
+		// Subject is the OPTIONAL per-claim target override (ISSUE-047 multi-target
+		// specs): when non-empty it overrides the spec-level implementation subject for
+		// THIS claim's mandated tests, reduced to an opaque token by TargetPackageName.
+		// Absent leaves the claim inheriting the spec default.
+		Subject string   `yaml:"subject"`
+		Tests   []string `yaml:"tests"`
 	} `yaml:"claims"`
 	Contracts []struct {
 		File     string `yaml:"file"`
@@ -74,6 +86,19 @@ type specFrontmatter struct {
 			Scope string `yaml:"scope"`
 		} `yaml:"provides"`
 	} `yaml:"contracts"`
+}
+
+// implementationSubject resolves the spec-level target unit, coalescing the
+// canonical `subject` with the deprecated `package` alias (subject wins, else
+// package). It returns the FULL declared value (path or bare token) — coverage's
+// path-form directory matching legitimately needs the path form, so only the
+// noTarget join reduces it to a leaf via TargetPackageName. yaml cannot alias two
+// keys onto one field, so this coalesce is where the alias is honored (ISSUE-047).
+func (fm *specFrontmatter) implementationSubject() string {
+	if s := strings.TrimSpace(fm.Implementation.Subject); s != "" {
+		return s
+	}
+	return strings.TrimSpace(fm.Implementation.Package)
 }
 
 // ExtractMandatedTests parses all spec files in specDir and extracts
@@ -99,7 +124,9 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 			continue // terminal specs are excluded from enforcement (ISSUE-031)
 		}
 
-		targetPkg := TargetPackageName(fm.Implementation.Package)
+		// Spec-level default subject (subject wins, else the deprecated package alias),
+		// reduced once to its opaque token. A per-claim subject overrides it below.
+		specDefaultSubject := fm.implementationSubject()
 
 		for _, claim := range fm.Claims {
 			// Opt-in absence signal (ISSUE-035 Category 2), applied at the same
@@ -107,6 +134,15 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 			// claim that EXPLICITLY declares `kind: absence` excuses its tests from the
 			// noTarget join; any other value keeps full enforcement.
 			isAbsence := claim.Kind == "absence"
+			// Per-claim subject override (ISSUE-047 multi-target specs): when the claim
+			// declares its own subject use it, else inherit the spec default. The chosen
+			// subject is reduced to its opaque token by TargetPackageName — the absence
+			// signal is orthogonal and does not affect target derivation.
+			claimSubject := specDefaultSubject
+			if s := strings.TrimSpace(claim.Subject); s != "" {
+				claimSubject = s
+			}
+			targetPkg := TargetPackageName(claimSubject)
 			for _, testName := range claim.Tests {
 				tests = append(tests, MandatedTest{
 					FuncName:  testName,
@@ -411,9 +447,9 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier Sou
 }
 
 // SPEC-037 (BUNDLE-009 Seed 3): the baked go/parser substantiveness ANALYZER —
-// StepTestSubstantivenessFunc / StepTestSubstantivenessScopedFunc, checkSubstantiveness,
-// hasAssertions, the assertionSelectors vocabulary, callsTargetPackage, and the
-// lowercase targetPackageName helper — was DELETED here. Substantiveness is now an
+// StepTestSubstantivenessFunc / StepTestSubstantivenessScopedFunc, its go/ast
+// assertion-checking predicate, hasAssertions, the assertionSelectors vocabulary,
+// callsTargetPackage, and the lowercase targetPackageName helper — was DELETED here. Substantiveness is now an
 // INSTALLED ast-grep pack (Q1 hollow-test findings + Q2 referenced-symbol extraction)
 // consumed gate-side by the language-agnostic set-join in substantiveness_join.go and
 // wired through the real dispatch seam in cmd/backstop/gate.go. The relocation of the
@@ -460,7 +496,7 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 				CoverageThreshold:     fm.Verification.CoverageThreshold,
 				MetricThresholds:      fm.Verification.CoverageMetricThresholds,
 				File:                  path,
-				ImplementationPackage: fm.Implementation.Package,
+				ImplementationPackage: fm.implementationSubject(),
 			})
 		}
 	}

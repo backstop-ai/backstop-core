@@ -14,10 +14,14 @@ const (
 	testExtractionRuleID = "backstop/substantiveness/referenced-symbol-go"
 )
 
-// TestTargetPackageName_MigratedBehaviorPreserved (CLM-028) — the relocated
-// TargetPackageName reproduces the deleted analyzer's targetPackageName: pkg/...
-// yields the last path component; cmd/... and non-pkg/ paths yield "" (the
-// empty-target input the set-join SKIPS, feeding CLM-009).
+// TestTargetPackageName_MigratedBehaviorPreserved (SPEC-037 CLM-028, repurposed by
+// ISSUE-047) — TargetPackageName holds an OPAQUE subject token and reduces a PATH
+// subject to its LAST `/`-segment via the same language-neutral last-segment op used
+// by testFileColocatedWithTarget. NO "cmd/"→"" special-case and NO "pkg/"-required
+// guard remain: a bare token passes through unchanged, a `cmd/...` subject now yields
+// a REAL leaf token (not ""), and only the EMPTY subject yields "" (the empty-target
+// input the set-join SKIPS). The mandated test NAME is preserved for SPEC-037 lineage;
+// its body asserts the de-baked opaque-token behavior.
 func TestTargetPackageName_MigratedBehaviorPreserved(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -25,15 +29,31 @@ func TestTargetPackageName_MigratedBehaviorPreserved(t *testing.T) {
 	}{
 		{"pkg/gate", "gate"},
 		{"pkg/pack/distribution", "distribution"},
-		{"cmd/backstop", ""},
-		{"cmd/foo/bar", ""},
-		{"internal/foo", ""},
+		// De-baked: cmd/... is no longer special-cased to "" — it reduces to its leaf
+		// like any other path subject. This is the exact behavior change ISSUE-047 makes.
+		{"cmd/backstop", "backstop"},
+		{"cmd/foo/bar", "bar"},
+		{"internal/foo", "foo"},
+		// A bare token (no separator) passes through unchanged.
+		{"gate", "gate"},
+		// Only the empty subject yields the empty-target skip sentinel.
 		{"", ""},
 	}
 	for _, c := range cases {
 		if got := TargetPackageName(c.in); got != c.want {
 			t.Errorf("TargetPackageName(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+
+	// Explicit anti-regression: no "cmd/"→"" special-case survives. A cmd/ subject
+	// must yield a real leaf token, never the empty-target sentinel.
+	if got := TargetPackageName("cmd/backstop"); got == "" {
+		t.Errorf(`cmd/ subject must NOT reduce to "" (no baked layout special-case); got empty`)
+	}
+	// Explicit anti-regression: no "pkg/"-required guard survives. A non-pkg/ path
+	// subject must still reduce to its leaf, not be zeroed.
+	if got := TargetPackageName("internal/foo"); got != "foo" {
+		t.Errorf(`non-pkg/ path subject must reduce to its leaf (no "pkg/"-required guard); got %q`, got)
 	}
 }
 

@@ -1,0 +1,692 @@
+---
+plan_id: PLAN-ISSUE-047
+spec_id: ISSUE-047
+created: "2026-07-07"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN DOES (ISSUE-047 pinned scope — decided, not open)
+  ─────────────────────────────────────────────────────────────────────────
+  The substantiveness "noTarget" guard derives its per-test target from the
+  spec-level `implementation.package` and stamps that ONE target onto every
+  claim. Two compounding thin-executor defects:
+    (1) pkg/gate/substantiveness_join.go TargetPackageName bakes the this-repo
+        LAYOUT into core via the string literals "cmd/" and "pkg/" (return "" for
+        cmd/, require pkg/) — a baked-language/layout defect (DIR-015 /
+        [[feedback_zero_baked_checks]]).
+    (2) `package` is a language-ish noun and a spec can declare only ONE target
+        for ALL its claims, so a spec whose claims legitimately exercise different
+        units cannot be expressed.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFIED MECHANICS (read from the tree 2026-07-07 — the fix hinges on these)
+  ─────────────────────────────────────────────────────────────────────────
+  • The substantiveness pack's Q2 rule
+    (packs/substantiveness/ast-grep/rules/referenced-symbol-go.yml) emits BARE
+    package identifiers: `referenced-symbol func=<FN> symbol=<pkg>` where <pkg> is
+    the selector operand (e.g. `gate.New(...)` → `symbol=gate`). So the token core
+    joins against is the BARE unit identifier, never a path.
+  • cmd/backstop/gate.go testFileColocatedWithTarget(filePath, targetPkg) computes
+    samePackage as `filepath.Base(filepath.Dir(filePath)) == targetPkg` — it too
+    compares the BARE directory-LEAF against TargetPkg. SPEC-045 already declares
+    this leaf comparison LANGUAGE-NEUTRAL and it STAYS. Both live consumers of
+    TargetPkg require the bare leaf token.
+  • Therefore TargetPackageName's ONLY defensible job is reducing a declared
+    subject to its trailing segment (`pkg/gate` → `gate`). The BAKED part is the
+    `"cmd/"`/`"pkg/"` PREFIX literals + the cmd/→"" layout special-case, NOT the
+    neutral last-segment normalization (which is symmetric with the already-blessed
+    testFileColocatedWithTarget leaf op). This plan REMOVES the prefix literals and
+    the cmd/ special-case; core then holds/compares OPAQUE tokens, reducing a
+    subject to its last `/`-segment via the SAME neutral op used on the test-file
+    side — no "cmd/"/"pkg/" literal survives anywhere on the gate spine.
+
+  • CLM-015's test `TestGate_SucceedsWithoutStandards` lives in cmd/backstop/
+    (standards_removal_test.go) — NOT pkg/gate — and CALLS gate.ComputeGateScope /
+    gate.New / gate.WithSteps / gate.GateScopeModeAll, so the Q2 extraction emits
+    `symbol=gate` for it. Its current baselined finding "does not call package
+    check" (identity bd6936ade…) arises because the spec-level target is `check`
+    (from `pkg/check`) and the test is cross-package (leaf `backstop` ≠ `check`)
+    AND does not reference `check`. THE FIX: give CLM-015 a per-claim
+    `subject: pkg/gate` (→ leaf `gate`); the set-join then finds `gate` in the
+    referenced set → SATISFIED. It clears LEGITIMATELY via referenced-set
+    membership — NOT by kind:absence, NOT by a blind spec-level retarget. The 3
+    TestPkgCheck_* tests (CLM-002/003/023) live in pkg/check (leaf `check`), keep
+    inheriting the spec default `pkg/check` → `check`, are colocated (samePackage)
+    → stay satisfied, introducing ZERO new violations. Both wrong fixes named in
+    the issue are ruled out.
+
+  ─────────────────────────────────────────────────────────────────────────
+  NON-BREAKING SCHEMA MIGRATION (issue Solution item 1 — alias path chosen)
+  ─────────────────────────────────────────────────────────────────────────
+  Rename `implementation.package` → language-neutral `subject`, and add an
+  OPTIONAL per-claim `subject`. To stay NON-BREAKING for the ~40 existing specs
+  (26 declare `package: cmd/backstop`, plus pkg/gate ×7, etc.) WITHOUT migrating
+  all of them, the legacy `package` key is accepted as a DEPRECATED ALIAS for
+  `subject` in BOTH the schema and every hand-rolled reader:
+    - artifacts/spec/v1/schema.json — implementation.required_keys becomes
+      ["summary","subject"]; `subject` added to claims.item_optional_keys; the
+      description notes `package` is a deprecated alias still accepted.
+    - pkg/validate/spec.go validateImplementation — accept `subject` OR `package`
+      (at least one non-empty). This function is SHARED by the issue validator
+      (pkg/validate/issue.go), so the alias covers issues too.
+    - pkg/gate/step_testverify.go specFrontmatter — read spec-level `subject`
+      (yaml alias `package`) into the existing Implementation field, AND read a
+      NEW per-claim `subject`. The FULL declared value is retained (coverage's
+      packagePathMatches in step_coverage.go legitimately needs the path form
+      `pkg/gate` to match directories — only the noTarget join reduces to a leaf).
+  Only SPEC-030 is migrated to the NEW `subject` key in this change (item 4);
+  every other spec keeps validating via the `package` alias.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC-037 LINEAGE — preserve the mandated test name (do NOT strand)
+  ─────────────────────────────────────────────────────────────────────────
+  TestTargetPackageName_MigratedBehaviorPreserved (pkg/gate/
+  substantiveness_join_test.go) is SPEC-037 CLM-028's mandated test. Changing
+  TargetPackageName MUST NOT delete that test function by name, or the gate's
+  mandated-test step goes red ("mandated test … not found") and SPEC-037's claim
+  is stranded ([[project_deletion_strands_spec_lineage]]). The test is REPURPOSED
+  in place (same name) to assert the NEW opaque/neutral behavior — bare tokens
+  pass through, path tokens reduce to the last segment, and NO "cmd/"/"pkg/"
+  special-case remains.
+
+  BUT the name-only gate check does NOT see that CLM-028's PROSE ("pkg/... yields
+  the last path component; cmd/... and non-pkg/ paths yield '' (empty-target)") and
+  REQ-008/REQ-003's "behavior is preserved" phrasing become FALSE after the de-bake
+  — a live claim (SPEC-037 is status: draft, spec_version 1.2.2) whose text
+  contradicts its own repurposed test, invisible to the gate. That violates the
+  standing [[feedback_align_predating_artifacts]] rule SPEC-037's own REQ-008 cites.
+  So SPEC-037 IS edited — via the spec-author agent (TASK-013), NOT a hand-edit —
+  to reword CLM-028 + the REQ-008/REQ-003 "behavior preserved" language to the
+  opaque-token last-segment reduction (no cmd//pkg/ layout knowledge), bump
+  spec_version, and add a Version History entry. Sequenced in Phase 3 alongside the
+  SPEC-030 migration (both are spec-author artifact edits).
+
+  ─────────────────────────────────────────────────────────────────────────
+  SELF-PACK COVERAGE GAP (issue item 4 — external repo, per packs-always-external)
+  ─────────────────────────────────────────────────────────────────────────
+  The backstop/self dogfood pack lives in its OWN repo
+  (/Users/bmanson/src/projects/backstop-self-pack — installed, gitignored, NOT
+  vendored into core per [[feedback_packs_always_external]]). Today it hunts
+  tool/extension literals but has NO rule for the baked subject-noun / layout-prefix
+  pattern — a genuine COVERAGE GAP. This plan adds a rule (Family C) catching baked
+  subject-derivation literals ("cmd/"/"pkg/" path-prefix conventions used to derive
+  a target/import unit) with positive+negative fixtures, so this exact defect class
+  cannot regress. It is authored and installed in the external pack repo; core is
+  not vendored.
+
+  ─────────────────────────────────────────────────────────────────────────
+  GATE STAYS GREEN — baseline reconciliation for newly-surfaced pre-existing drift
+  ─────────────────────────────────────────────────────────────────────────
+  Removing the cmd/→"" skip means cmd/-declared specs stop being universally
+  exempt from noTarget: a cmd/backstop spec whose test is colocated (leaf
+  `backstop`) still samePackage-skips, but a genuinely cross-package cmd/ test may
+  now surface a noTarget finding it was silently exempt from before. Per the
+  blessed un-vacuum → baseline+ratchet pattern
+  ([[project_unvacuum_baseline_ratchet]]), any such PRE-EXISTING drift newly made
+  visible is GRANDFATHERED once via `backstop baseline generate` — it is honest
+  historical debt, not caused by this change. The CLM-015 fix is verified to clear
+  via the per-claim override (the substantive change), NOT via the baseline; the
+  final task asserts CLM-015 is satisfied on its own merits and the 3 TestPkgCheck_*
+  introduce zero new violations.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMANDS — real tooling only
+  ─────────────────────────────────────────────────────────────────────────
+  Inner-loop verification tasks run `go test` scoped to the touched packages (the
+  removed `backstop code check` command is NOT referenced). The final phase runs
+  the full `backstop gate` kill chain PLUS `backstop artifact validate` (this
+  change touches BOTH .go files AND artifact files: schema.json + SPEC-030), plus a
+  `backstop baseline generate` reconciliation.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SYNTHESIZED CLAIMS (issue has no CLM-NNN; enumerated from Solution + Acceptance;
+  every task maps ≥1; every claim mapped by ≥1 task)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — Schema neutralized non-breaking: artifacts/spec/v1/schema.json renames
+            implementation.package → subject (required_keys ["summary","subject"]),
+            adds OPTIONAL per-claim `subject` to claims.item_optional_keys, and
+            documents `package` as a still-accepted deprecated alias. The
+            hand-rolled spec/issue validator (validateImplementation) accepts
+            `subject` OR `package` (≥1 non-empty), so every existing spec keeps
+            validating.
+  CLM-002 — Parser reads multi-target subjects: pkg/gate specFrontmatter reads the
+            spec-level subject (yaml `subject`, alias `package`) AND a NEW
+            per-claim `subject`, retaining the FULL declared value so coverage's
+            path-form directory matching is unaffected.
+  CLM-003 — De-baked derivation: the "cmd/"/"pkg/" PREFIX literals and the cmd/→""
+            layout special-case are REMOVED from TargetPackageName; core holds and
+            compares OPAQUE subject tokens, reducing a path subject to its last
+            `/`-segment via the neutral op symmetric with testFileColocatedWithTarget.
+            The empty-target skip and single-package (colocated / referenced-in-set)
+            matching are PRESERVED. No "cmd/"/"pkg/" literal remains on the gate
+            spine. SPEC-037's mandated test NAME is preserved (repurposed body) AND
+            SPEC-037 CLM-028 + REQ-008/REQ-003 "behavior preserved" PROSE is
+            reconciled via spec-author to describe the opaque-token last-segment
+            reduction — so no live SPEC-037 claim text contradicts its own test
+            ([[feedback_align_predating_artifacts]]).
+  CLM-004 — Per-claim resolution: ExtractMandatedTests stamps each MandatedTest's
+            TargetPkg from the claim-level `subject` when present, else the spec
+            default; the kind:absence pre-join skip is preserved.
+  CLM-005 — SPEC-030 migrated via spec-author: `package`→`subject` key; CLM-015
+            gains a per-claim `subject: pkg/gate` override; CLM-002/003/023 inherit
+            the spec default `pkg/check`. CLM-015's noTarget clears LEGITIMATELY
+            (referenced-set membership on `gate`) — not kind:absence, not a blind
+            retarget — and the 3 TestPkgCheck_* stay satisfied (zero new violations).
+  CLM-006 — Sharp guard stays NON-VACUOUS in both directions: a POSITIVE control (a
+            test that references its declared subject → satisfied) AND a NEGATIVE
+            control (a test that references the WRONG subject → noTarget fires loud).
+  CLM-007 — Self-pack coverage gap closed: a new backstop/self rule (in the external
+            backstop-self-pack repo, installed not vendored) catches the baked
+            subject-derivation / "cmd/"/"pkg/" layout-prefix pattern, with
+            positive+negative fixtures; the self-pack run (incl. the new rule) is
+            green against the de-baked core.
+  CLM-008 — Acceptance: `backstop gate` exits 0 on this repo's own tree (pre-existing
+            drift newly surfaced by removing the vacuous cmd/-skip grandfathered once
+            via baseline generate; CLM-015 clears on its own merits) AND `backstop
+            artifact validate` passes for the migrated schema and SPEC-030.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Neutralize the schema + hand-rolled validator (non-breaking)
+  #   Independent of the gate-logic (pkg/validate + schema.json only) → runs
+  #   in parallel with Phase 2 (disjoint file sets).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Schema + Validator Neutralization (package → subject, non-breaking alias)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing validator tests: subject accepted, legacy package accepted as alias, missing-both rejected, per-claim subject allowed"
+        description: |
+          Add pkg/validate/spec_subject_test.go exercising the REAL
+          validateImplementation (via the spec and issue validate entry points)
+          and the claim handling. Reuse existing validate test helpers / fixture
+          builders; do not re-declare artifact parsing.
+
+          NOTE ON ENFORCEMENT LOCUS: schema.json required_keys / item_optional_keys
+          are DOCUMENTARY only — pkg/schema/load.go does not parse them; the real
+          enforcement is the hand-rolled validateImplementation (spec.go) and
+          validateClaims. So the RED driver is the VALIDATOR change (TASK-002's
+          spec.go edit), not the schema.json edit. Two of the four tests below are
+          genuinely RED today; the other two ALREADY PASS (unknown claim keys are
+          not rejected, and a `package`-only block already validates) — they are
+          REGRESSION GUARDS pinning the non-breaking behavior, deliberately included
+          so a future validator tightening cannot silently break them.
+
+          Mandated test names (exact):
+            - TestValidateImplementation_SubjectAccepted (CLM-001) — GENUINELY RED
+              today: an implementation block declaring `subject: pkg/gate` (no
+              `package`) currently RAISES implementation-package-required; after
+              TASK-002 it validates with NO implementation-* violation.
+            - TestValidateImplementation_MissingSubjectAndPackageRejected (CLM-001) —
+              GENUINELY RED today: a block with `summary` but NEITHER `subject` NOR
+              `package` must raise implementation-subject-required. Today the loop
+              keys on the literal "package", so this asserts the NEW subject-or-package
+              guard is non-vacuous (one of the two must be present and non-empty).
+            - TestValidateImplementation_LegacyPackageAliasAccepted (CLM-001) —
+              REGRESSION GUARD (passes today AND after): a block declaring only the
+              legacy `package: pkg/check` STILL validates, pinning the deprecated
+              alias so every unmigrated spec stays green (non-breaking).
+            - TestValidateClaims_PerClaimSubjectOptionalAccepted (CLM-002) —
+              REGRESSION GUARD (passes today AND after): a claim carrying an optional
+              `subject: pkg/gate` validates and a claim WITHOUT subject validates,
+              pinning that subject is optional on claims and never required.
+        files:
+          - pkg/validate/spec_subject_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Schema: package → subject (required_keys + optional per-claim subject); validator accepts subject-or-package alias"
+        description: |
+          Land the non-breaking schema neutralization (issue Solution item 1). The
+          load-bearing ENFORCEMENT change is the validator (spec.go); the schema.json
+          edit is DOCUMENTARY (required_keys / item_optional_keys are not parsed by
+          pkg/schema/load.go) but is kept canonical and truthful.
+
+          artifacts/spec/v1/schema.json:
+            - implementation.required_keys: ["summary","package"] →
+              ["summary","subject"]; update the block description to note that the
+              legacy `package` key is still accepted as a DEPRECATED ALIAS for
+              `subject` (do NOT leave two first-class names — `subject` is
+              canonical, `package` is the migration alias).
+            - claims.item_optional_keys: add "subject" (per-claim target override);
+              extend the claims description to explain claim-level subject overrides
+              the spec-level default.
+
+          pkg/validate/spec.go validateImplementation:
+            - Replace the hard-coded `for _, key := range []string{"summary",
+              "package"}` loop so that: `summary` stays required; the TARGET key is
+              satisfied by EITHER `subject` OR `package` (≥1 present and non-empty),
+              emitting rulePrefix+"/implementation-subject-required" only when BOTH
+              are absent/empty. Keep the function SHARED — pkg/validate/issue.go
+              calls it, so issues inherit the same alias (no separate issue edit).
+
+          Introduce NO new baked layout noun; this is schema + presence-check data
+          only. Do NOT touch gate logic here (Phase 2 owns pkg/gate).
+        files:
+          - artifacts/spec/v1/schema.json
+          - pkg/validate/spec.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "go test ./pkg/validate/... — subject/alias validator green, no existing spec-validation regression"
+        description: |
+          Inner-loop verification (go test, not the removed code-check command):
+
+              go test ./pkg/validate/...
+
+          Confirm the four TASK-001 mandated tests pass and that the EXISTING
+          validate suite stays green — especially any spec_test.go / issue_test.go
+          cases that construct implementation blocks with `package`, proving the
+          alias kept them valid. Report pass/fail per mandated test and any
+          regression.
+        files:
+          - pkg/validate/spec.go
+          - artifacts/spec/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: De-bake the derivation + per-claim subject resolution (gate core)
+  #   Touches only pkg/gate → disjoint from Phase 1 (parallel-eligible).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD — De-bake TargetPackageName + Per-Claim Subject Resolution (opaque tokens)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing gate tests: opaque token compare (no cmd//pkg/ literal), per-claim subject resolution, positive + negative sharp controls"
+        description: |
+          Add pkg/gate/subject_multitarget_test.go AND repurpose the existing
+          TargetPackageName test in place (do NOT delete the function name — SPEC-037
+          CLM-028 mandates it; see notes). Reuse existing package test helpers
+          (MandatedTest builders, ReferencedSymbolSet literals); do not re-declare
+          the set-join or parser.
+
+          Mandated / updated test names (exact):
+            - pkg/gate/substantiveness_join_test.go →
+              TestTargetPackageName_MigratedBehaviorPreserved (CLM-003): REPURPOSE in
+              place (keep the name — SPEC-037 lineage). Assert the NEW opaque/neutral
+              behavior: a BARE token ("gate") passes through unchanged; a PATH token
+              ("pkg/gate", "cmd/backstop", "pkg/pack/distribution") reduces to its
+              LAST `/`-segment ("gate","backstop","distribution"); an empty subject
+              yields the empty-target-skip sentinel. It MUST assert (comment + code)
+              that no "cmd/"→"" special-case and no "pkg/"-required guard remains —
+              e.g. a cmd/ subject now yields a real leaf token, not "".
+            - pkg/gate/subject_multitarget_test.go →
+              TestExtractMandatedTests_PerClaimSubjectOverridesDefault (CLM-004):
+              over a temp spec dir with a spec whose implementation subject is
+              `pkg/check` and one claim carrying `subject: pkg/gate`, assert the
+              MandatedTests for that claim carry TargetPkg reduced from the OVERRIDE
+              (`gate`) while the other claims carry the reduced DEFAULT (`check`).
+            - TestExtractMandatedTests_LegacyPackageAliasStillResolves (CLM-002): a
+              spec declaring only the legacy `package: pkg/gate` (no `subject`)
+              yields TargetPkg `gate` — the parser alias keeps existing specs working.
+            - TestExtractMandatedTests_AbsenceStillSkips (CLM-004): a claim with
+              `kind: absence` still sets IsAbsence (pre-join skip preserved) even
+              with a per-claim subject present.
+            - TestNoTarget_PositiveControl_ReferencedSubjectSatisfied (CLM-006): a
+              cross-package test whose referenced set CONTAINS its declared subject
+              leaf ("gate") is SATISFIED (no violation) — the positive control.
+            - TestNoTarget_NegativeControl_WrongSubjectFiresLoud (CLM-006): a
+              cross-package test whose referenced set does NOT contain its declared
+              subject leaf (declares "gate", references only "other") FIRES noTarget
+              loudly — the anti-vacuous negative control proving the guard stays sharp
+              after de-baking.
+
+          These FAIL today (TargetPackageName still branches on cmd//pkg/; no
+          per-claim subject; positive/negative controls exercise the new resolution).
+        files:
+          - pkg/gate/subject_multitarget_test.go
+          - pkg/gate/substantiveness_join_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Remove cmd//pkg/ prefix literals from TargetPackageName; stamp per-claim subject onto MandatedTest.TargetPkg; parse subject + alias"
+        description: |
+          Land the de-bake + per-claim resolution (issue Solution items 2 & 3).
+
+          pkg/gate/substantiveness_join.go — TargetPackageName:
+            - DELETE the `strings.HasPrefix(implementationPackage, "cmd/") → ""`
+              special-case AND the `!strings.HasPrefix(..., "pkg/") → ""` guard (the
+              baked this-repo LAYOUT literals). Core now holds OPAQUE tokens: reduce a
+              declared subject to its trailing `/`-segment via the SAME neutral
+              last-segment op used by testFileColocatedWithTarget. A bare token is
+              returned unchanged; an empty subject must return "" → the preserved
+              empty-target skip. CAUTION: `filepath.Base("")` returns "." (NOT ""),
+              which would defeat the empty-target skip — SPECIAL-CASE the empty
+              subject to return "" BEFORE calling Base (this is the sentinel
+              TASK-004's tests guard). No "cmd/"/"pkg/" string literal may remain in
+              this file or anywhere on the gate spine. Update the doc comment to
+              describe opaque-token comparison, not layout derivation. Consider
+              renaming the helper to a subject-neutral name (e.g. subjectToken) IF and
+              only if the rename does not disturb SPEC-037's mandated test name (the
+              TEST keeps its name regardless — see notes); prefer minimal churn.
+
+          pkg/gate/step_testverify.go:
+            - specFrontmatter.Implementation: read BOTH `subject` and legacy `package`
+              and COALESCE (subject wins, else package). yaml.v3 struct tags CANNOT
+              alias two keys onto one field — a naive `yaml:"subject"` would SILENTLY
+              DROP `package` and zero ImplementationPackage for the ~40 unmigrated
+              specs (breaking coverage's path matching). Use EITHER two struct fields
+              (Subject + Package) coalesced at read time (subject wins, else package),
+              OR a custom UnmarshalYAML on the Implementation block. Do NOT rely on a
+              single-tag alias. Add a per-claim `Subject` field to the Claims struct
+              (yaml: "subject").
+            - MandatedTest: retarget the TargetPkg doc comment away from "last
+              component of implementation.package" to "reduced opaque subject token
+              (per-claim override, else spec default)".
+            - ExtractMandatedTests: compute the spec-default subject token once; for
+              each claim, if claim.Subject != "" use it, else the spec default; run it
+              through the reduction and stamp MandatedTest.TargetPkg. Preserve the
+              kind:absence → IsAbsence path unchanged.
+
+          Do NOT alter cmd/backstop/gate.go testFileColocatedWithTarget (already
+          neutral) or the pack's Q2 emission. Introduce NO baked language/layout noun.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "go test ./pkg/gate/... ./cmd/backstop/... — opaque compare + per-claim + controls green, no substantiveness regression"
+        description: |
+          Inner-loop verification (go test):
+
+              go test ./pkg/gate/... ./cmd/backstop/...
+
+          Confirm the TASK-004 mandated/updated tests pass
+          (TestTargetPackageName_MigratedBehaviorPreserved repurposed,
+          TestExtractMandatedTests_PerClaimSubjectOverridesDefault,
+          _LegacyPackageAliasStillResolves, _AbsenceStillSkips,
+          TestNoTarget_PositiveControl_ReferencedSubjectSatisfied,
+          _NegativeControl_WrongSubjectFiresLoud) and that the EXISTING gate
+          substantiveness suite stays green — the NoTargetViolation decision table,
+          the absence-annotation tests, the strangler harness, and the cmd/backstop
+          substantiveness wiring/dispatch tests (testFileColocatedWithTarget must
+          still resolve samePackage correctly against the reduced token). Any change
+          in a non-target verdict is a regression to investigate. Report pass/fail
+          per mandated test.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Migrate SPEC-030 (artifact edit — routed through spec-author)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Artifact Migrations via spec-author — SPEC-030 per-claim subject + SPEC-037 prose reconciliation"
+    tasks:
+      - id: TASK-007
+        type: documentation
+        title: "Invoke spec-author to migrate SPEC-030: package→subject key + CLM-015 per-claim subject: pkg/gate override"
+        description: |
+          This is an ARTIFACT edit — it MUST be routed through the spec-author agent
+          (do NOT hand-edit the spec frontmatter; [[feedback_artifact_tracks]] /
+          agent-guard). Instruct spec-author to migrate
+          specs/SPEC-030-packs-only-native-standards-removal.spec.md:
+            - Rename the `implementation.package: pkg/check` key to
+              `implementation.subject: pkg/check` (adopt the canonical neutral key;
+              the alias remains for other specs but the migrated spec uses `subject`).
+            - Add a per-claim `subject: pkg/gate` override to CLM-015 ONLY (the
+              positive behavioral claim whose test TestGate_SucceedsWithoutStandards
+              references the `gate` package). Leave CLM-002 / CLM-003 / CLM-023 (and
+              all others) WITHOUT a per-claim subject so they inherit the spec default
+              `pkg/check`.
+            - Do NOT relabel CLM-015 as kind:absence and do NOT retarget the whole
+              spec to pkg/gate (both explicitly ruled out — the first is dishonest,
+              the second strands the 3 TestPkgCheck_* as new violations).
+            - Bump spec_version and add a Version History entry recording the
+              subject-neutralization + per-claim override rationale.
+          The clearing is verified structurally in Phase 5 (backstop gate): with
+          `subject: pkg/gate` → reduced `gate`, the set-join finds `gate` in
+          TestGate_SucceedsWithoutStandards' referenced set → the noTarget finding
+          clears legitimately. Depends on the schema + code support landing first.
+        files:
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-013
+        type: documentation
+        title: "Invoke spec-author to reconcile SPEC-037 CLM-028 + REQ-008/REQ-003 'behavior preserved' prose to the opaque-token last-segment reduction"
+        description: |
+          This is an ARTIFACT edit — route it through the spec-author agent (do NOT
+          hand-edit the frontmatter; [[feedback_artifact_tracks]] / agent-guard).
+          After the Phase-2 de-bake, SPEC-037's CLM-028 text ("pkg/... yields the
+          last path component; cmd/... and non-pkg/ paths yield '' (empty-target)")
+          and its REQ-008/REQ-003 "behavior is preserved" phrasing are FALSE — a
+          live (status: draft) claim whose prose contradicts its own repurposed
+          mandated test TestTargetPackageName_MigratedBehaviorPreserved. Per the
+          standing align-predating-artifacts rule SPEC-037 itself cites in REQ-008,
+          the prose MUST be updated to match the code, not worked around.
+
+          Instruct spec-author to edit
+          specs/SPEC-037-traceability-substantiveness-pack.spec.md:
+            - Reword CLM-028's text to describe the NEW behavior: TargetPackageName
+              (or its renamed successor) holds an OPAQUE subject token and reduces a
+              path subject to its LAST `/`-segment via a language-neutral op, with NO
+              "cmd/"/"pkg/" layout special-case; an empty subject yields the
+              empty-target skip. Keep the mandated test NAME
+              TestTargetPackageName_MigratedBehaviorPreserved (the test still exists,
+              repurposed — do not rename or drop it from the claim).
+            - Update REQ-008 / REQ-003 language that asserts the derivation's
+              "behavior is preserved" so it no longer claims cmd//pkg/ layout
+              behavior is retained; describe the de-baked opaque-token reduction
+              (ISSUE-047) as the current behavior.
+            - Bump spec_version and add a Version History entry recording the
+              ISSUE-047 subject-neutralization reconciliation.
+          Keep the edit MINIMAL and surgical — reconcile only the stranded
+          derivation prose; do not restate unrelated claims. Depends on the de-bake
+          landing so the prose matches the shipped code.
+        files:
+          - specs/SPEC-037-traceability-substantiveness-pack.spec.md
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "backstop artifact validate — migrated SPEC-030 + reconciled SPEC-037 validate; no spec regressed via the alias"
+        description: |
+          Validate the migrated artifacts against the Phase-1 schema/validator:
+
+              backstop artifact validate
+
+          Confirm BOTH migrated specs validate: SPEC-030's `implementation.subject`
+          key satisfies the subject-or-package guard, its CLM-015 per-claim `subject`
+          is accepted, and SPEC-037's reconciled CLM-028 / REQ-008 prose still
+          validates structurally. Confirm no other spec regressed — every non-migrated
+          spec still validates via the `package` alias. Report validation status and
+          any violation.
+        files:
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+          - specs/SPEC-037-traceability-substantiveness-pack.spec.md
+        claims:
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-007
+          - TASK-013
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Close the self-pack coverage gap (external backstop-self-pack repo)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Self-Pack Rule — catch the baked subject-derivation / layout-prefix pattern"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "Self-pack fixtures: positive (clean opaque token) + negative (baked cmd//pkg/ subject-derivation) proving the new rule's polarity"
+        description: |
+          In the EXTERNAL backstop-self-pack repo (installed, not vendored into core
+          — [[feedback_packs_always_external]]), add the fixture pair the new Family-C
+          rule keys its claim on. The NEGATIVE fixture reproduces the eradicated
+          defect (a subject/target derived by branching on the "cmd/"/"pkg/" path
+          prefix, e.g. `strings.HasPrefix(subject, "pkg/")` / a `"cmd/"` layout
+          literal used to derive an import unit); the POSITIVE fixture derives a
+          target from an opaque token with no layout-prefix literal. These fixtures
+          are the pack's own regression harness (positive → no finding, negative →
+          finding), mirroring the existing fixtures/rules/{valid,invalid} pattern.
+        files:
+          - /Users/bmanson/src/projects/backstop-self-pack/fixtures/rules/valid/subject-token-clean.go
+          - /Users/bmanson/src/projects/backstop-self-pack/fixtures/rules/invalid/baked-subject-prefix.go
+        claims:
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-010
+        type: implementation
+        title: "Author the Family-C backstop/self rule catching baked subject-derivation / cmd//pkg/ layout-prefix literals"
+        description: |
+          In the EXTERNAL backstop-self-pack repo, add a new semgrep rule to
+          rules/no-baked.yml and register it in pack.yml (new ruleset entry with a
+          claim binding the TASK-009 positive/negative fixtures). The rule catches a
+          "cmd/"/"pkg/" path-prefix STRING LITERAL used to derive a subject / target /
+          import unit (e.g. `HasPrefix($X, "pkg/")`, `HasPrefix($X, "cmd/")`, or a
+          bare `"pkg/"`/`"cmd/"` literal on the gate spine) — the exact species this
+          issue eradicates from TargetPackageName, closing the coverage gap so it
+          cannot regress. Reuse the pack's existing location-scoped (Family B3
+          neutral-spine) mechanism where appropriate so the rule targets the gate
+          spine. This is an external-repo edit; core is NOT vendored.
+        files:
+          - /Users/bmanson/src/projects/backstop-self-pack/rules/no-baked.yml
+          - /Users/bmanson/src/projects/backstop-self-pack/pack.yml
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Run the self-pack against fixtures + de-baked core — new rule polarity holds, backstop/self green on core"
+        description: |
+          Verify the new rule end-to-end through the REAL engine path (not a stub):
+            1. Run the self-pack over its own fixtures and confirm polarity — the
+               negative fixture (baked cmd//pkg/ subject-derivation) is FLAGGED and
+               the positive fixture (opaque token) is CLEAN.
+            2. Run the backstop/self pack over the DE-BAKED core tree (via the gate's
+               self dimension / pack run) and confirm it is GREEN — proving the
+               "cmd/"/"pkg/" literals were actually removed from TargetPackageName /
+               the gate spine (grep-clean AND self-pack-clean), and that the existing
+               Family A/B rules did not regress.
+          Requires the Phase-2 de-bake (TASK-005) to have landed, or the self dimension
+          would legitimately stay RED on the un-removed literals. Report the rule's
+          fixture polarity and the self-pack status on core.
+        files:
+          - /Users/bmanson/src/projects/backstop-self-pack/rules/no-baked.yml
+          - /Users/bmanson/src/projects/backstop-self-pack/pack.yml
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-010
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive verification — full gate kill chain + artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification — backstop gate (exit 0) + baseline reconcile + artifact validate"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "backstop gate exit 0 (CLM-015 clears via override, TestPkgCheck_* stay satisfied) + baseline reconcile + backstop artifact validate"
+        description: |
+          Final comprehensive verification via the full kill chain. This change
+          touches BOTH .go files (pkg/gate, pkg/validate) AND artifact files
+          (schema.json, SPEC-030), so BOTH gates run.
+
+          Run, in order:
+            1. backstop artifact validate      (schema + all specs incl. the migrated
+                                                SPEC-030 and reconciled SPEC-037)
+            2. backstop baseline generate       (grandfather PRE-EXISTING drift newly
+                                                 surfaced by removing the vacuous
+                                                 cmd/→"" skip — honest historical debt
+                                                 per [[project_unvacuum_baseline_ratchet]])
+            3. backstop gate                     (full kill chain, diff scope)
+
+          Confirm the ACCEPTANCE invariants:
+            - SPEC-030 CLM-015's noTarget finding CLEARS LEGITIMATELY via the per-claim
+              `subject: pkg/gate` override (referenced-set membership on `gate`) — NOT
+              by kind:absence, NOT by a blind spec-level retarget, and NOT merely by
+              being baselined. Verify by inspecting that the substantiveness step no
+              longer emits "does not call package check" for
+              TestGate_SucceedsWithoutStandards, independent of the baseline.
+            - The 3 TestPkgCheck_* claims (CLM-002/003/023) stay satisfied — the
+              migration introduces ZERO new noTarget violations for them.
+            - The guard is still SHARP — the Phase-2 negative control proves a
+              wrong-subject test fires loud.
+            - No baked "cmd/"/"pkg/" path-prefix or layout literal remains on the gate
+              spine (grep pkg/gate for the literals returns clean) and the backstop/self
+              pack (incl. the new Family-C rule) is GREEN.
+            - `backstop gate` exits 0 and `backstop artifact validate` passes.
+          Report the final gate exit code, artifact-validate status, the CLM-015
+          disposition, and any new-violation count from the baseline cycle (must be 0
+          for the migrated SPEC-030 target changes; any cmd/-skip drift explicitly
+          grandfathered).
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/step_testverify.go
+          - pkg/validate/spec.go
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+          - specs/SPEC-037-traceability-substantiveness-pack.spec.md
+          - .backstop/baseline.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-008
+          - TASK-011
+          - TASK-005
+          - TASK-002

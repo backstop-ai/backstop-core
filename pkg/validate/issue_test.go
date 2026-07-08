@@ -856,7 +856,7 @@ func TestIssue_Ready_MissingPackage(t *testing.T) {
 		"summary": "Fix the thing",
 	}
 	result := validate.Issue(art, issueSchema())
-	assertHasViolation(t, result, "issue/implementation-package-required")
+	assertHasViolation(t, result, "issue/implementation-subject-required")
 }
 
 func TestIssue_Open_ImplementationNotRequired(t *testing.T) {

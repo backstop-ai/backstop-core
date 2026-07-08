@@ -25,21 +25,21 @@ import (
 // assembled from the Q2 extraction findings keyed to that test.
 type ReferencedSymbolSet map[string]bool
 
-// TargetPackageName derives the target package the noTarget set-join checks
-// membership against from the spec's declared implementation.package. It is the
-// behavior-preserving relocation of the deleted analyzer's targetPackageName:
-// pkg/... yields the last path component; cmd/... and non-pkg/ paths yield ""
-// (the empty-target case the set-join SKIPS — CLM-009/CLM-028). A subtle change
-// here (returning a non-empty target for a cmd/ path) would flip the empty-target
-// SKIP into a spurious noTarget, so the relocation must not change behavior.
-func TargetPackageName(implementationPackage string) string {
-	if strings.HasPrefix(implementationPackage, "cmd/") {
+// TargetPackageName reduces a declared subject to the OPAQUE token the noTarget
+// set-join checks membership against. Core bakes in NO layout knowledge (ISSUE-047):
+// there is no "cmd/"/"pkg/" prefix literal and no layout special-case. A subject is
+// an opaque path-or-bare token; this reduces it to its trailing `/`-segment via the
+// SAME language-neutral last-segment op testFileColocatedWithTarget uses on the
+// test-file side (filepath.Base of the directory leaf) — a bare token passes through
+// unchanged, and `cmd/foo`/`internal/foo`/`pkg/foo` all reduce symmetrically to
+// `foo`. The ONLY special case is the EMPTY subject, which returns "" (the
+// empty-target input the set-join SKIPS — CLM-009): filepath.Base("") returns "."
+// (not ""), so the empty subject is intercepted BEFORE Base to preserve that skip.
+func TargetPackageName(subject string) string {
+	if subject == "" {
 		return ""
 	}
-	if !strings.HasPrefix(implementationPackage, "pkg/") {
-		return ""
-	}
-	return filepath.Base(implementationPackage)
+	return filepath.Base(subject)
 }
 
 // NoTargetViolation is the exhaustive, language-agnostic noTarget set-join decision
