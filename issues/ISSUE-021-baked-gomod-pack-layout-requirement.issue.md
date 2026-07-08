@@ -6,8 +6,11 @@ issue:
   id: ISSUE-021
   title: "Baked Gomod Pack Layout Requirement"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-21"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-021
 
 complexity:
   scope: contained
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # ISSUE-021: Baked Gomod Pack Layout Requirement
+
+## Resolution
+
+De-baked the go.mod requirement from pack ExpectedLayout, greening the backstop/self
+pack.
 
 ## Problem
 

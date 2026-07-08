@@ -6,8 +6,11 @@ issue:
   id: ISSUE-046
   title: "Baseline Fingerprint Scope Dependent Unstable"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-046
 
 complexity:
   scope: cross-cutting
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # ISSUE-046: Baseline Fingerprint Scope Dependent Unstable
+
+## Resolution
+
+Made violation identity scope-stable via exported NormalizePath at the identity
+chokepoint, so the baseline/ratchet reliably grandfathers pre-existing findings.
 
 ## Problem
 

@@ -5,8 +5,6 @@
 directives:
   - id: DIR-015
     title: Gate Checker Hardening
-  - id: DIR-016
-    title: Directive / Issue / Plan Lifecycle Hardening
   - id: DIR-001
     title: Release Workflow
   - id: DIR-003

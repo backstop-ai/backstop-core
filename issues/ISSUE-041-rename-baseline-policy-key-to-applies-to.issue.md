@@ -6,8 +6,11 @@ issue:
   id: ISSUE-041
   title: "Rename Baseline Policy Key To Applies To"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-041
 
 complexity:
   scope: contained
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # ISSUE-041: Rename Baseline Policy Key To Applies To
+
+## Resolution
+
+Renamed the enforcement policy key baseline: to applies-to: new-code|all-code across
+schema, config validator, and gate.
 
 ## Problem
 

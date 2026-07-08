@@ -6,8 +6,11 @@ issue:
   id: ISSUE-039
   title: "Testgate Succeeds Without Standards Lost Assertion"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-039
 
 complexity:
   scope: contained
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # Testgate Succeeds Without Standards Lost Assertion
+
+## Resolution
+
+Restored a real assembled-gate assertion in TestGate_SucceedsWithoutStandards (had
+decayed to a hollow os.Stat scaffold).
 
 ## Problem
 

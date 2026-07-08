@@ -6,8 +6,11 @@ issue:
   id: ISSUE-042
   title: "Gate Flags Artifact Status Reality Drift"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-042
 
 complexity:
   scope: cross-cutting
@@ -16,6 +19,12 @@ complexity:
 ---
 
 # Gate Flags Artifact Status Reality Drift
+
+## Resolution
+
+Added the status↔reality drift gate dimension: delivered-but-open artifacts WARN,
+success-terminal artifacts with an absent mandated test BLOCK; full-sweep,
+applies-to:new-code.
 
 ## Problem
 

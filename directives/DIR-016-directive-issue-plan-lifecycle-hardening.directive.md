@@ -5,11 +5,12 @@ created: "2026-07-06"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
   source:
     - "ISSUE-042"
     - "ISSUE-043"
     - "ISSUE-044"
+  completed: "2026-07-08"
 ---
 
 ## Description

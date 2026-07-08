@@ -7,8 +7,11 @@ issue:
   id: ISSUE-027
   title: "Eradicate baked engine defaults: move DefaultRegistry + DefaultFieldContracts into pack data"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-22"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-027
 
 complexity:
   scope: cross-cutting
@@ -17,6 +20,11 @@ complexity:
 ---
 
 # Eradicate baked engine defaults: move `DefaultRegistry` + `DefaultFieldContracts` into pack data
+
+## Resolution
+
+Eradicated DefaultRegistry's baked go build/test/golangci commands; engine defaults now
+come from pack engines: blocks via an embedded base-engines pack.
 
 ## Problem
 

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-019
   title: "De-Go the packval pack-validation harness (cluster E)"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-21"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-019
 
 complexity:
   scope: contained
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # De-Go the packval pack-validation harness (cluster E)
+
+## Resolution
+
+De-Go'd the packval harness so engine dispatch is derived from pack manifest data, not
+baked semgrep/golangci/go-mod-tidy commands.
 
 ## Problem
 

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-044
   title: "Agent Guard Missing Role Self Check"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-044
 
 complexity:
   scope: contained
@@ -16,6 +19,12 @@ complexity:
 ---
 
 # ISSUE-044: Agent Guard Missing Role Self Check
+
+## Resolution
+
+Added a Go test asserting every `.claude/agents/*.md` agent has an explicit case in
+`backstop-agent-guard.sh` (roster↔guard drift caught loudly); gave `bundle-reviewer` an
+explicit block case.
 
 ## Problem
 

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-047
   title: "Neutralize Subject Noun Multitarget"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-07"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-047
 
 complexity:
   scope: cross-cutting
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # ISSUE-047: Neutralize Subject Noun Multitarget
+
+## Resolution
+
+Neutralized the Go-centric implementation.package noun to a language-neutral per-claim
+subject; de-baked the cmd//pkg/ layout logic; added the backstop/self B4 repo-layout rule.
 
 ## Problem
 

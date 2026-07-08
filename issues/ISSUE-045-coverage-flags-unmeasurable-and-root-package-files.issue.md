@@ -6,8 +6,11 @@ issue:
   id: ISSUE-045
   title: "Coverage Flags Unmeasurable And Root Package Files"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-045
 
 complexity:
   scope: cross-cutting
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # ISSUE-045: Coverage Flags Unmeasurable And Root Package Files
+
+## Resolution
+
+Fixed coverage record-normalization for unmeasurable/root files and closed the real
+sandboxed-dispatch integration gap via the producer-field engine path.
 
 ## Problem
 

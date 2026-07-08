@@ -6,8 +6,11 @@ issue:
   id: ISSUE-043
   title: "Reduce Issue-Close Friction — Trace Claims to the Backing Plan Instead of Re-Authoring Them"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-043
 
 complexity:
   scope: contained
@@ -16,6 +19,11 @@ complexity:
 ---
 
 # Reduce Issue-Close Friction — Trace Claims to the Backing Plan Instead of Re-Authoring Them
+
+## Resolution
+
+Added delivered_by cheap-close: a closed issue satisfies traceability by tracing to a
+completed backing plan (path-anchored, fail-loud) instead of re-authoring claims.
 
 ## Problem
 

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-040
   title: "Gate Substantiveness Scans Testdata Fixtures"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-06"
+  closed: "2026-07-08"
+
+delivered_by: PLAN-ISSUE-040
 
 complexity:
   scope: contained
@@ -16,6 +19,12 @@ complexity:
 ---
 
 # ISSUE-040: Gate Substantiveness Scans Testdata Fixtures
+
+## Resolution
+
+Excluded testdata/ from the rule-fed findings scan (single chokepoint, exact-segment
+filter) with an anti-fallback guard so a testdata-only diff scans nothing rather than
+the whole repo.
 
 ## Problem
 
