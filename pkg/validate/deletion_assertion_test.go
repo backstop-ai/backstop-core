@@ -63,20 +63,20 @@ func TestConfig_StandardsDirs_Removed(t *testing.T) {
 	}
 }
 
-// TestPlan_FileCategory_NoStandardMd proves the fileCategory artifactExts list
-// in pkg/validate/plan.go no longer contains ".standard.md" while the
-// fileCategory function itself is preserved. CLM-003 / CLM-011.
+// TestPlan_FileCategory_NoStandardMd proves pkg/validate/plan.go carries no
+// ".standard.md" native-standards classification. CLM-003 / CLM-011. This originally
+// guarded that the ".standard.md" ext was dropped from fileCategory's artifactExts while
+// keeping the function; ISSUE-033 has since deleted fileCategory and the whole
+// touched-file category-coverage check outright — a strictly stronger guarantee, since
+// there is no plan-file classification left for ".standard.md" to be reintroduced into.
 func TestPlan_FileCategory_NoStandardMd(t *testing.T) {
 	srcs := nonTestGoSources(t)
 	planSrc, ok := srcs["plan.go"]
 	if !ok {
-		t.Fatal("pkg/validate/plan.go not found; fileCategory must remain in this file")
-	}
-	if !strings.Contains(planSrc, "func fileCategory(") {
-		t.Error("fileCategory function was removed; only the .standard.md ext entry should be dropped, not the function")
+		t.Fatal("pkg/validate/plan.go not found")
 	}
 	if strings.Contains(planSrc, `".standard.md"`) {
-		t.Error("plan.go fileCategory artifactExts still lists \".standard.md\"; that entry must be removed")
+		t.Error("plan.go still references \".standard.md\"; the native-standards classification path must not return")
 	}
 }
 

@@ -502,7 +502,7 @@ func validatePhases(art *artifact.ParsedArtifact) []Violation {
 	violations = append(violations, validateTestTaskDeps(art.Filename, allTasks, typeMap)...)
 
 	// SPEC-002: Final phase verification (REQ-004)
-	violations = append(violations, validateFinalPhase(art.Filename, phases, allTasks, typeMap)...)
+	violations = append(violations, validateFinalPhase(art.Filename, phases, typeMap)...)
 
 	// SPEC-002: Phase-level parallel file exclusivity (REQ-011)
 	violations = append(violations, checkPhaseFileExclusivity(art.Filename, phases, allTasks)...)
@@ -596,9 +596,11 @@ func checkFileExclusivity(filename string, tasks []planTask) []Violation {
 	return violations
 }
 
-// validateFinalPhase enforces REQ-004: the final phase must contain verification
-// tasks covering every category of work the plan performs.
-func validateFinalPhase(filename string, phases []interface{}, allTasks []planTask, typeMap map[string]string) []Violation {
+// validateFinalPhase enforces REQ-004: the final phase must contain at least one
+// verification task. It deliberately does NOT categorize touched files to second-guess
+// which verification is "adequate" — every verification step runs the full gate, so a
+// touched-file filter would only be a way to skip checks (ISSUE-033).
+func validateFinalPhase(filename string, phases []interface{}, typeMap map[string]string) []Violation {
 	var violations []Violation
 	if len(phases) == 0 {
 		return violations
@@ -627,8 +629,8 @@ func validateFinalPhase(filename string, phases []interface{}, allTasks []planTa
 		}
 	}
 
-	// Collect verification task files in final phase
-	var verifyFiles []string
+	// The final phase must contain at least one verification task. We intentionally do
+	// not look at WHICH files those tasks touch — see the function doc.
 	hasVerification := false
 	for _, taskItem := range tasks {
 		task, ok := taskItem.(map[string]interface{})
@@ -643,15 +645,7 @@ func validateFinalPhase(filename string, phases []interface{}, allTasks []planTa
 		}
 		if typeMap[taskID] == "verification" {
 			hasVerification = true
-			if filesVal, ok := task["files"]; ok {
-				if files, ok := filesVal.([]interface{}); ok {
-					for _, f := range files {
-						if s, ok := f.(string); ok {
-							verifyFiles = append(verifyFiles, s)
-						}
-					}
-				}
-			}
+			break
 		}
 	}
 
@@ -662,60 +656,9 @@ func validateFinalPhase(filename string, phases []interface{}, allTasks []planTa
 			Message:  fmt.Sprintf("final phase '%s' must contain at least one verification task", lastPhaseID),
 			Severity: "error",
 		})
-		return violations
-	}
-
-	// Collect all categories from all tasks across entire plan
-	requiredCategories := make(map[string]bool)
-	for _, t := range allTasks {
-		for _, f := range t.files {
-			cat := fileCategory(f)
-			if cat != "" {
-				requiredCategories[cat] = true
-			}
-		}
-	}
-
-	// Collect categories covered by final phase verification tasks
-	coveredCategories := make(map[string]bool)
-	for _, f := range verifyFiles {
-		cat := fileCategory(f)
-		if cat != "" {
-			coveredCategories[cat] = true
-		}
-	}
-
-	// Check each required category is covered
-	for cat := range requiredCategories {
-		if !coveredCategories[cat] {
-			violations = append(violations, Violation{
-				Rule:     "plan/final-phase-missing-category",
-				File:     filename,
-				Message:  fmt.Sprintf("final phase '%s' verification tasks do not cover '%s' category", lastPhaseID, cat),
-				Severity: "error",
-			})
-		}
 	}
 
 	return violations
-}
-
-// fileCategory maps a file path to a work category based on extension.
-func fileCategory(path string) string {
-	artifactExts := []string{".spec.md", ".plan.yml", ".adr.md", ".bundle.md", ".issue.md"}
-	for _, ext := range artifactExts {
-		if strings.HasSuffix(path, ext) {
-			return "artifact"
-		}
-	}
-	// fileCategory bakes a Go-specific file-suffix classification. Sourcing this
-	// language-neutrally from pack-declared classification globs (SPEC-043) requires
-	// pack context that validate.Plan does not have today — tracked as ISSUE-033.
-	if strings.HasSuffix(path, ".go") { // nosemgrep: no-language-literal-on-neutral-spine — de-Go tracked by ISSUE-033
-		return "code"
-	}
-	// Other extensions (e.g. .md for docs) don't map to a required category
-	return ""
 }
 
 // checkPhaseFileExclusivity enforces REQ-011: parallel-eligible phases must
