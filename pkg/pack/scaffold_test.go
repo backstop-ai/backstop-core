@@ -231,4 +231,10 @@ func TestScaffoldPack_ResultFieldsAndOutput(t *testing.T) {
 	if !strings.Contains(human, result.Paths[0]) {
 		t.Error("human output missing created path")
 	}
+	// ISSUE-049: the output must give the next-step cd hint, because pack check/test read
+	// pack.yml from the CURRENT dir — `pack check <path>` after `pack new` otherwise fails
+	// confusingly. Assert the hint names the pack dir (slug) and the check command.
+	if !strings.Contains(human, "cd "+result.Slug) || !strings.Contains(human, "backstop pack check") {
+		t.Errorf("human output missing the `cd %s && backstop pack check` next-step hint (ISSUE-049); got:\n%s", result.Slug, human)
+	}
 }

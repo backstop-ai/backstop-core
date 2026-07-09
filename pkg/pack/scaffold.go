@@ -79,6 +79,9 @@ func (r *ScaffoldResult) HumanString() string {
 	for _, p := range r.Paths {
 		sb.WriteString(fmt.Sprintf("  %s\n", p))
 	}
+	// Next-step hint: pack check/pack test read pack.yml from the CURRENT dir, so the
+	// author must cd into the freshly-scaffolded pack before validating it (ISSUE-049).
+	sb.WriteString(fmt.Sprintf("\nNext: cd %s && backstop pack check   # then: backstop pack test\n", r.Slug))
 	return sb.String()
 }
 
