@@ -6,8 +6,11 @@ issue:
   id: ISSUE-049
   title: "pack check / pack test Ignore a Positional Pack-Dir Argument"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-09"
+  closed: "2026-07-09"
+
+resolved-by: 34312d9
 
 complexity:
   scope: isolated
@@ -152,3 +155,33 @@ design):
   surfaced by live verification of its acceptance criteria
 - ISSUE-032 (pack-cli-authoring-loop-reboot) — closed; its e2e test's
   cd-in style masked this gap
+
+## Resolution
+
+`pack check` and `pack test` now accept an optional `[pack-dir]` positional
+argument (`cobra.MaximumNArgs(1)`), defaulting to the current directory when
+omitted. The argument is passed straight through to
+`packval.NewPipeline(packDir, ...)` as the pipeline root — the same struct
+that reads `<packDir>/pack.yml` — so `pack check ./<slug>` immediately after
+`pack new` now works from the project root instead of silently ignoring the
+path and failing. A missing manifest now names the given path
+(`<path>/pack.yml`) rather than the bare cwd, so the error correctly points
+at an argument-handling gap instead of reading like a broken scaffold.
+No-arg invocation from inside the pack directory is unchanged (back-compat
+preserved — additive, not breaking).
+
+A real CLI regression test, `TestPackVal_PackCheckCommand_PathArg` in
+`cmd/backstop/pack_val_cmd_test.go`, runs `pack check <path>` from the
+*parent* cwd (not `cmd.Dir`-into-the-pack-dir), closing the exact blind spot
+ISSUE-032's e2e test left open (it set `cmd.Dir` to the pack directory,
+masking the missing-arg-handling gap). It asserts a valid pack at the given
+subdir passes and that a bad path's report names `nonexistent/pack.yml`.
+
+Live-verified end-to-end from the project root: `pack new` → `pack check
+./<slug>` and `pack test ./<slug>` both pass (exit 0); a bad path errors
+naming the given path; no-arg-from-inside still works. Gate is green (exit
+0); artifact validate is green.
+
+This supersedes/completes the d78b30a mitigation (the `pack new` cd-hint),
+which remains a helpful nicety but is no longer the only recourse — the
+underlying argument-handling gap it worked around is now fixed directly.
