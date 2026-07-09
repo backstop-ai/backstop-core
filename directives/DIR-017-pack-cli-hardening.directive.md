@@ -5,12 +5,13 @@ created: "2026-07-08"
 schema_version: directive/v1
 
 directive:
-  status: active
+  status: done
   source:
     - "ISSUE-032"
     - "ISSUE-030"
     - "ISSUE-025"
     - "ISSUE-026"
+  completed: "2026-07-09"
 ---
 
 ## Description

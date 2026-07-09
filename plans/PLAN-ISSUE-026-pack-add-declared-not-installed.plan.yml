@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-026
 spec_id: ISSUE-026
 created: "2026-07-09"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
 test_command: "go test ./... && backstop gate"

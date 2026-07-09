@@ -1,13 +1,15 @@
 ---
 title: "`pack install` reports success but materializes nothing and follows the stale lock instead of the declared manifest"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-025
 
 issue:
   id: ISSUE-025
   title: "`pack install` reports success but materializes nothing and follows the stale lock instead of the declared manifest"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-21"
+  closed: "2026-07-09"
 
 complexity:
   scope: contained
@@ -97,6 +99,14 @@ entry: slotly/go-standards` line. Any pack declared in the manifest but absent f
 the lock must trigger resolution (write a new lock entry) rather than being silently
 skipped. The lock must converge to exactly what the manifest declares, or install must
 fail explicitly.
+
+## Resolution
+
+pack install now materializes local-source packs onto disk (`.backstop/packs/<name>/`)
+via a recursive copy resolved from a new portable relative `LockEntry.local_path`
+(recorded by `pack add`), and reconciles the DECLARED `backstop.yml` manifest against
+the lock — warning on stale/diverged lock entries and failing loud on an unresolvable
+local source instead of printing vacuous success. Fixed in 83fb200.
 
 ## References
 

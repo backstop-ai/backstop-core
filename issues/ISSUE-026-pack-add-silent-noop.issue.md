@@ -1,13 +1,15 @@
 ---
 title: "`pack add` silently no-ops when the target pack is already declared in the manifest"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-026
 
 issue:
   id: ISSUE-026
   title: "`pack add` silently no-ops when the target pack is already declared in the manifest"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-21"
+  closed: "2026-07-09"
 
 complexity:
   scope: isolated
@@ -85,6 +87,15 @@ install-and-lock step. If the pack is genuinely already installed and current, a
 **Secondary fix:** for local-source packs, suppress the trailing `@` on the success
 line or substitute a meaningful token (`local`, `path:<resolved-path>`, or similar).
 This is a display-only change with no behavior impact.
+
+## Resolution
+
+pack add now distinguishes DECLARED from INSTALLED (checks `.backstop/packs/<name>/`
+on disk + a consistent lock entry, not just `backstop.yml` membership): a
+declared-but-absent or lock-diverged pack now installs via the 025 materialize
+pipeline instead of silently no-op'ing; a genuinely-current pack reports an honest
+"already installed and up to date"; and the bare trailing `@` on versionless
+local-pack success lines is gone. Fixed in 109504e.
 
 ## References
 
