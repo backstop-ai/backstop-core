@@ -13,14 +13,19 @@ func newPackInstallCommand(_ *bool) *cobra.Command {
 		Short: "Restore packs from backstop.lock",
 		Long:  "Clones all packs at their locked versions and verifies content hashes. Does not run validation or merge tool_config. Use --cache for offline/airgapped environments.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts := distribution.InstallOptions{
-				ProjectDir: ".",
-				CachePath:  cacheFlag,
-			}
+			opts := distribution.InstallOptions{ProjectDir: "."}
+			opts.CachePath = cacheFlag
 
 			result, err := distribution.Install(opts)
 			if err != nil {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
+			}
+
+			// Surface reconciliation divergences loudly (stale lock entries, manifest
+			// packs missing from the lock, absent manifest) before the installed summary,
+			// so an install is never silently green over a diverged lock.
+			for _, w := range result.Warnings {
+				cmd.Printf("warning: %s\n", w)
 			}
 
 			cmd.Printf("Installed %d packs\n", len(result.InstalledPacks))

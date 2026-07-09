@@ -68,6 +68,9 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	isLocal := isLocalPath(packRef)
 	var packName, version, packDir, sourceType string
 	var gitRef *string
+	// localRelPath holds the local pack's source dir RELATIVE TO THE PROJECT ROOT, recorded
+	// in the lock so install can re-materialize it portably (empty for git-source packs).
+	var localRelPath string
 
 	if isLocal {
 		// Local path pack.
@@ -86,7 +89,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		}
 
 		// Extract name from manifest.
-		nameData, _ := os.ReadFile(filepath.Join(absPath, "pack.yml"))
+		nameData := readFileOrNil(filepath.Join(absPath, "pack.yml"))
 		var nameMap map[string]interface{}
 		if err := yaml.Unmarshal(nameData, &nameMap); err == nil {
 			if n, ok := nameMap["name"].(string); ok {
@@ -100,6 +103,19 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		_ = manifest
 		packDir = absPath
 		sourceType = "local"
+
+		// Record the source path RELATIVE TO THE PROJECT ROOT (never absolute): backstop.lock
+		// is tracked/committed, so a machine-specific absolute path would be meaningless on CI,
+		// another checkout, or after a project move. A relative path is portable.
+		absProjectDir, absErr := filepath.Abs(opts.ProjectDir)
+		if absErr != nil {
+			return nil, fmt.Errorf("resolving project dir: %w", absErr)
+		}
+		rel, relErr := filepath.Rel(absProjectDir, absPath)
+		if relErr != nil {
+			return nil, fmt.Errorf("computing relative local pack path: %w", relErr)
+		}
+		localRelPath = rel
 	} else {
 		// Git pack: parse org/pack-name@version.
 		packName, version = parsePackRef(packRef)
@@ -122,11 +138,11 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating temp dir: %w", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		gitURL := resolveGitURL(packName)
 		if err := opts.GitCloner.Clone(gitURL, "v"+version, tmpDir); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cloning pack %s: %w", packName, err)
 		}
 		packDir = tmpDir
 	}
@@ -134,10 +150,10 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	// Validate: run pack check and pack test.
 	if opts.Validator != nil {
 		if err := opts.Validator.RunPackCheck(packDir); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pack check for %s: %w", packName, err)
 		}
 		if err := opts.Validator.RunPackTest(packDir); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pack test for %s: %w", packName, err)
 		}
 	}
 
@@ -154,7 +170,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	// Compute content hash from the installed copy.
 	contentHash, err := ComputeContentHash(installedPath)
 	if err != nil {
-		os.RemoveAll(installedPath)
+		_ = os.RemoveAll(installedPath)
 		return nil, fmt.Errorf("computing content hash: %w", err)
 	}
 
@@ -163,28 +179,30 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 	lockPath := filepath.Join(opts.ProjectDir, "backstop.lock")
 	backstopDir := filepath.Join(opts.ProjectDir, ".backstop")
 	if err := os.MkdirAll(backstopDir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating .backstop dir: %w", err)
 	}
 	provPath := filepath.Join(backstopDir, "pack-config-provenance.json")
 
-	ymlSnap, _ := os.ReadFile(ymlPath)
-	lockSnap, _ := os.ReadFile(lockPath)
-	provSnap, _ := os.ReadFile(provPath)
+	ymlSnap := readFileOrNil(ymlPath)
+	lockSnap := readFileOrNil(lockPath)
+	provSnap := readFileOrNil(provPath)
 
+	// rollback best-effort restores the snapshotted files; its cleanup calls are
+	// genuinely fire-and-forget (there is no recovery if undo itself fails).
 	rollback := func() {
-		os.RemoveAll(installedPath)
+		_ = os.RemoveAll(installedPath)
 		if ymlSnap != nil {
-			os.WriteFile(ymlPath, ymlSnap, 0o644)
+			_ = os.WriteFile(ymlPath, ymlSnap, 0o644)
 		}
 		if lockSnap != nil {
-			os.WriteFile(lockPath, lockSnap, 0o644)
+			_ = os.WriteFile(lockPath, lockSnap, 0o644)
 		} else {
-			os.Remove(lockPath)
+			_ = os.Remove(lockPath)
 		}
 		if provSnap != nil {
-			os.WriteFile(provPath, provSnap, 0o644)
+			_ = os.WriteFile(provPath, provSnap, 0o644)
 		} else {
-			os.Remove(provPath)
+			_ = os.Remove(provPath)
 		}
 	}
 
@@ -226,9 +244,10 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		return nil, err
 	}
 
-	// Update backstop.lock.
-	lf, _ := ReadLockfile(lockPath)
-	if lf == nil {
+	// Update backstop.lock. A missing/unreadable lock is expected on a first add — fall
+	// back to a fresh lockfile rather than ignoring the error silently.
+	lf, lockErr := ReadLockfile(lockPath)
+	if lockErr != nil || lf == nil {
 		lf = &Lockfile{Packs: make(map[string]LockEntry)}
 	}
 
@@ -239,6 +258,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		ContentHash: contentHash,
 		SourceType:  sourceType,
 		InstallDate: time.Now().UTC().Format(time.RFC3339),
+		LocalPath:   localRelPath,
 	}
 
 	if err := WriteLockfile(lockPath, lf); err != nil {
@@ -248,7 +268,7 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 
 	// Ensure .backstop/packs/ in .gitignore.
 	if err := ensureGitignore(opts.ProjectDir); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("updating .gitignore: %w", err)
 	}
 
 	return &AddResult{
@@ -358,6 +378,17 @@ func ensureGitignore(projectDir string) error {
 	content += entry + "\n"
 
 	return os.WriteFile(gitignorePath, []byte(content), 0o644)
+}
+
+// readFileOrNil reads a file, returning nil when it cannot be read (e.g. it does not
+// exist yet). It handles the read error explicitly — the caller treats "no bytes" as
+// "no prior file to snapshot" — rather than silently discarding an error inline.
+func readFileOrNil(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // copyDirRecursive recursively copies a directory.

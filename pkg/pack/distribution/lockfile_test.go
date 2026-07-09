@@ -211,6 +211,89 @@ func TestReadLockfile_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestLockfile_LocalPathRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"backstop/go-standards": {
+				Name:        "backstop/go-standards",
+				ContentHash: "sha256:localhash",
+				SourceType:  "local",
+				InstallDate: time.Now().UTC().Format(time.RFC3339),
+				GitRef:      nil,
+				LocalPath:   "../go-standards",
+			},
+		},
+	}
+
+	if err := distribution.WriteLockfile(path, lf); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading lockfile: %v", err)
+	}
+	if !strings.Contains(string(data), "local_path:") {
+		t.Errorf("expected serialized YAML to carry local_path key, got:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "../go-standards") {
+		t.Errorf("expected serialized YAML to carry the relative path value, got:\n%s", string(data))
+	}
+
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+	entry := read.Packs["backstop/go-standards"]
+	if entry.LocalPath != "../go-standards" {
+		t.Errorf("LocalPath = %q, want %q", entry.LocalPath, "../go-standards")
+	}
+}
+
+func TestLockfile_LocalPathOmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	ref := "v1.0.0"
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/pack": {
+				Name:        "acme/pack",
+				Version:     "1.0.0",
+				GitRef:      &ref,
+				ContentHash: "sha256:abc123",
+				SourceType:  "git",
+				InstallDate: time.Now().UTC().Format(time.RFC3339),
+				// LocalPath intentionally empty.
+			},
+		},
+	}
+
+	if err := distribution.WriteLockfile(path, lf); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading lockfile: %v", err)
+	}
+	if strings.Contains(string(data), "local_path") {
+		t.Errorf("expected local_path key to be omitted for empty value, got:\n%s", string(data))
+	}
+
+	// A path-less entry must still parse cleanly and round-trip empty.
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+	if read.Packs["acme/pack"].LocalPath != "" {
+		t.Errorf("LocalPath = %q, want empty", read.Packs["acme/pack"].LocalPath)
+	}
+}
+
 func TestReadLockfile_MissingFile(t *testing.T) {
 	_, err := distribution.ReadLockfile("/nonexistent/backstop.lock")
 	if err == nil {

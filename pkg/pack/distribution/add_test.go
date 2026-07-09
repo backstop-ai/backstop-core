@@ -25,6 +25,44 @@ func TestValidationError_Message(t *testing.T) {
 	}
 }
 
+// --- shared must-helpers (handle errors explicitly so tests don't ignore them) ---
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
+}
+
+func mustAbs(t *testing.T, path string) string {
+	t.Helper()
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("Abs %s: %v", path, err)
+	}
+	return abs
+}
+
+func mustReadLock(t *testing.T, path string) *distribution.Lockfile {
+	t.Helper()
+	lf, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile %s: %v", path, err)
+	}
+	return lf
+}
+
+func mustReadProvenance(t *testing.T, path string) *distribution.Provenance {
+	t.Helper()
+	prov, err := distribution.ReadProvenance(path)
+	if err != nil {
+		t.Fatalf("ReadProvenance %s: %v", path, err)
+	}
+	return prov
+}
+
 // --- Test helpers for add tests ---
 
 func setupAddProject(t *testing.T) string {
@@ -268,7 +306,7 @@ func TestPackAdd_RollbackOnPostCloneFailure(t *testing.T) {
 
 	// Snapshot backstop.yml before add.
 	ymlPath := filepath.Join(projectDir, "backstop.yml")
-	ymlBefore, _ := os.ReadFile(ymlPath)
+	ymlBefore := mustReadFile(t, ymlPath)
 
 	opts := newTestAddOptions(projectDir)
 	// Validator passes check but fails test — post-clone failure.
@@ -286,7 +324,7 @@ func TestPackAdd_RollbackOnPostCloneFailure(t *testing.T) {
 	}
 
 	// Verify rollback: backstop.yml unchanged.
-	ymlAfter, _ := os.ReadFile(ymlPath)
+	ymlAfter := mustReadFile(t, ymlPath)
 	if string(ymlBefore) != string(ymlAfter) {
 		t.Error("backstop.yml should be rolled back after failure")
 	}
@@ -322,7 +360,7 @@ func TestPackAdd_ProvenanceContainsAllFields(t *testing.T) {
 	}
 
 	provPath := filepath.Join(projectDir, ".backstop", "pack-config-provenance.json")
-	prov, _ := distribution.ReadProvenance(provPath)
+	prov := mustReadProvenance(t, provPath)
 
 	if len(prov.Entries) == 0 {
 		t.Fatal("expected provenance entries")
@@ -373,7 +411,7 @@ func TestPackAdd_AppendsToGitignore(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+	data := mustReadFile(t, filepath.Join(projectDir, ".gitignore"))
 	content := string(data)
 
 	if !strings.Contains(content, "node_modules/") {
@@ -395,7 +433,7 @@ func TestPackAdd_GitignoreAlreadyPresent(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+	data := mustReadFile(t, filepath.Join(projectDir, ".gitignore"))
 	count := strings.Count(string(data), ".backstop/packs/")
 	if count != 1 {
 		t.Errorf("expected exactly 1 occurrence of .backstop/packs/ in .gitignore, got %d", count)
@@ -444,7 +482,7 @@ func TestBackstopYml_ExactVersionPins(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	content := string(data)
 
 	// Should contain exact version, not a range.
@@ -504,7 +542,7 @@ func TestPackAdd_LocalPathSkipsGit(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -525,7 +563,7 @@ func TestPackAdd_LocalPathValidatesInPlace(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -542,7 +580,7 @@ func TestPackAdd_LocalPathRegistersWithPathEntry(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -554,7 +592,7 @@ func TestPackAdd_LocalPathRegistersWithPathEntry(t *testing.T) {
 		t.Fatalf("Add local: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	content := string(data)
 
 	if !strings.Contains(content, ": local") {
@@ -566,7 +604,7 @@ func TestPackAdd_LocalPathComputesHash(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -587,7 +625,7 @@ func TestPackAdd_LocalPathCopiedToPacksDir(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -611,7 +649,7 @@ func TestLocalPack_ValidatedSameAsGit(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	// Validator that fails check — should abort for local packs too.
 	opts := distribution.AddOptions{
@@ -710,7 +748,7 @@ func TestPackAdd_GitignoreNoTrailingNewline(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+	data := mustReadFile(t, filepath.Join(projectDir, ".gitignore"))
 	content := string(data)
 
 	if !strings.Contains(content, "node_modules/") {
@@ -831,7 +869,7 @@ func TestPackAdd_LocalLockfileSourceType(t *testing.T) {
 	projectDir := setupAddProject(t)
 
 	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath, _ := filepath.Abs(localPackDir)
+	absPath := mustAbs(t, localPackDir)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -844,7 +882,7 @@ func TestPackAdd_LocalLockfileSourceType(t *testing.T) {
 	}
 
 	lockPath := filepath.Join(projectDir, "backstop.lock")
-	lf, _ := distribution.ReadLockfile(lockPath)
+	lf := mustReadLock(t, lockPath)
 
 	entry := lf.Packs["internal/local-rules"]
 	if entry.SourceType != "local" {
@@ -866,7 +904,7 @@ func TestPackAdd_ToolConfigConflictRollsBack(t *testing.T) {
 
 	// Snapshot backstop.yml before add.
 	ymlPath := filepath.Join(projectDir, "backstop.yml")
-	ymlBefore, _ := os.ReadFile(ymlPath)
+	ymlBefore := mustReadFile(t, ymlPath)
 
 	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
 	if err == nil {
@@ -878,7 +916,7 @@ func TestPackAdd_ToolConfigConflictRollsBack(t *testing.T) {
 	}
 
 	// Verify rollback: backstop.yml unchanged.
-	ymlAfter, _ := os.ReadFile(ymlPath)
+	ymlAfter := mustReadFile(t, ymlPath)
 	if string(ymlBefore) != string(ymlAfter) {
 		t.Error("backstop.yml should be rolled back after conflict")
 	}
@@ -926,7 +964,7 @@ func TestPackAdd_RollbackOnProvenanceReadError(t *testing.T) {
 
 	// Snapshot backstop.yml before add.
 	ymlPath := filepath.Join(projectDir, "backstop.yml")
-	ymlBefore, _ := os.ReadFile(ymlPath)
+	ymlBefore := mustReadFile(t, ymlPath)
 
 	opts := newTestAddOptions(projectDir)
 
@@ -936,7 +974,7 @@ func TestPackAdd_RollbackOnProvenanceReadError(t *testing.T) {
 	}
 
 	// Verify rollback: backstop.yml unchanged.
-	ymlAfter, _ := os.ReadFile(ymlPath)
+	ymlAfter := mustReadFile(t, ymlPath)
 	if string(ymlBefore) != string(ymlAfter) {
 		t.Error("backstop.yml should be rolled back after provenance error")
 	}
@@ -1024,7 +1062,7 @@ func TestPackAdd_WriteLockfileRollback(t *testing.T) {
 
 	// Verify lockfile was created with correct source type.
 	lockPath := filepath.Join(projectDir, "backstop.lock")
-	lf, _ := distribution.ReadLockfile(lockPath)
+	lf := mustReadLock(t, lockPath)
 	entry := lf.Packs["acme/simple-pack"]
 	if entry.SourceType != "git" {
 		t.Errorf("SourceType = %q, want %q", entry.SourceType, "git")
@@ -1044,7 +1082,7 @@ func TestPackAdd_MergeToolConfigErrorRollsBack(t *testing.T) {
 
 	// Snapshot backstop.yml before add.
 	ymlPath := filepath.Join(projectDir, "backstop.yml")
-	ymlBefore, _ := os.ReadFile(ymlPath)
+	ymlBefore := mustReadFile(t, ymlPath)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
@@ -1069,7 +1107,7 @@ func TestPackAdd_MergeToolConfigErrorRollsBack(t *testing.T) {
 	}
 
 	// Verify rollback: backstop.yml unchanged.
-	ymlAfter, _ := os.ReadFile(ymlPath)
+	ymlAfter := mustReadFile(t, ymlPath)
 	if string(ymlBefore) != string(ymlAfter) {
 		t.Error("backstop.yml should be rolled back after merge error")
 	}
@@ -1104,7 +1142,7 @@ func TestPackAdd_ExistingLockfileIsPreserved(t *testing.T) {
 	}
 
 	// Verify both packs are in lockfile.
-	readLf, _ := distribution.ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	readLf := mustReadLock(t, filepath.Join(projectDir, "backstop.lock"))
 	if _, ok := readLf.Packs["existing/pack"]; !ok {
 		t.Error("existing pack should be preserved in lockfile")
 	}
@@ -1130,9 +1168,9 @@ func TestPackAdd_WriteProvenanceFailRollsBack(t *testing.T) {
 	if err := os.Chmod(provPath, 0o444); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(provPath, 0o644)
+	defer func() { _ = os.Chmod(provPath, 0o644) }()
 
-	ymlBefore, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	ymlBefore := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 
 	opts := newTestAddOptions(projectDir)
 	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
@@ -1141,9 +1179,181 @@ func TestPackAdd_WriteProvenanceFailRollsBack(t *testing.T) {
 	}
 
 	// Verify rollback: backstop.yml unchanged.
-	ymlAfter, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	ymlAfter := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	if string(ymlBefore) != string(ymlAfter) {
 		t.Error("backstop.yml should be rolled back after provenance write failure")
+	}
+}
+
+func TestPackAdd_LocalPathRecordsRelativeSourcePath(t *testing.T) {
+	projectDir := setupAddProject(t)
+
+	localPackDir := filepath.Join("testdata", "local-pack")
+	absSource, absErr := filepath.Abs(localPackDir)
+	if absErr != nil {
+		t.Fatalf("Abs: %v", absErr)
+	}
+
+	opts := distribution.AddOptions{
+		ProjectDir: projectDir,
+		Validator:  &mockValidator{},
+	}
+
+	_, err := distribution.Add(absSource, opts)
+	if err != nil {
+		t.Fatalf("Add local: %v", err)
+	}
+
+	lockPath := filepath.Join(projectDir, "backstop.lock")
+	lf, readErr := distribution.ReadLockfile(lockPath)
+	if readErr != nil {
+		t.Fatalf("ReadLockfile: %v", readErr)
+	}
+
+	entry, ok := lf.Packs["internal/local-rules"]
+	if !ok {
+		t.Fatal("expected local pack in lockfile")
+	}
+
+	if entry.LocalPath == "" {
+		t.Fatal("expected LocalPath to be recorded for a local pack")
+	}
+	if filepath.IsAbs(entry.LocalPath) {
+		t.Errorf("LocalPath = %q, want a project-relative (non-absolute) path", entry.LocalPath)
+	}
+
+	// Joining the recorded relative path against the project dir must resolve to the
+	// same directory that was added.
+	resolved, absErr := filepath.Abs(filepath.Join(projectDir, entry.LocalPath))
+	if absErr != nil {
+		t.Fatalf("resolving joined path: %v", absErr)
+	}
+	if resolved != absSource {
+		t.Errorf("resolved LocalPath = %q, want %q", resolved, absSource)
+	}
+}
+
+func TestPackAdd_GitSourceLeavesLocalPathEmpty(t *testing.T) {
+	projectDir := setupAddProject(t)
+	opts := newTestAddOptions(projectDir)
+
+	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	lockPath := filepath.Join(projectDir, "backstop.lock")
+	lf, readErr := distribution.ReadLockfile(lockPath)
+	if readErr != nil {
+		t.Fatalf("ReadLockfile: %v", readErr)
+	}
+	entry := lf.Packs["acme/valid-pack"]
+	if entry.LocalPath != "" {
+		t.Errorf("git-source LocalPath = %q, want empty", entry.LocalPath)
+	}
+}
+
+func TestPackAdd_PacksDirMkdirFails(t *testing.T) {
+	projectDir := setupAddProject(t)
+
+	// Pre-create .backstop/packs as a FILE so MkdirAll of the org subdir fails.
+	if err := os.MkdirAll(filepath.Join(projectDir, ".backstop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, ".backstop", "packs"), "not a dir")
+
+	opts := newTestAddOptions(projectDir)
+	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	if err == nil {
+		t.Fatal("expected error when packs dir cannot be created")
+	}
+	if !strings.Contains(err.Error(), "creating packs dir") {
+		t.Errorf("error should mention creating packs dir, got: %v", err)
+	}
+}
+
+func TestPackAdd_CopyToInstalledPathFails(t *testing.T) {
+	projectDir := setupAddProject(t)
+
+	// Pre-create the org dir and make the pack's install target a FILE so the recursive
+	// copy (which must create it as a directory) fails.
+	orgDir := filepath.Join(projectDir, ".backstop", "packs", "acme")
+	if err := os.MkdirAll(orgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(orgDir, "valid-pack"), "occupying file")
+
+	opts := newTestAddOptions(projectDir)
+	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	if err == nil {
+		t.Fatal("expected error when install target cannot be created")
+	}
+	if !strings.Contains(err.Error(), "copying pack") {
+		t.Errorf("error should mention copying pack, got: %v", err)
+	}
+}
+
+func TestPackAdd_ManifestWithoutPacksKey(t *testing.T) {
+	projectDir := t.TempDir()
+	// backstop.yml with NO packs key — updateBackstopYml must initialize the map.
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "project: myproj\n")
+
+	opts := newTestAddOptions(projectDir)
+	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	data, readErr := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	if readErr != nil {
+		t.Fatalf("reading backstop.yml: %v", readErr)
+	}
+	if !strings.Contains(string(data), "acme/valid-pack") {
+		t.Error("backstop.yml should contain the added pack even when packs key was absent")
+	}
+}
+
+func TestPackAdd_RollbackRestoresExistingLock(t *testing.T) {
+	projectDir := setupAddProject(t)
+
+	// Pre-existing lock with another pack — the rollback path must restore it (lockSnap
+	// non-nil branch).
+	ref := "v1.0.0"
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"existing/pack": {
+				Name:        "existing/pack",
+				Version:     "1.0.0",
+				GitRef:      &ref,
+				ContentHash: "sha256:existing",
+				SourceType:  "git",
+				InstallDate: "2026-01-01T00:00:00Z",
+			},
+		},
+	}
+	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	// Conflicting config forces a rollback AFTER the snapshot is taken.
+	writeFile(t, filepath.Join(projectDir, ".golangci.yml"), `{"linters.enable.revive": false}`)
+
+	opts := newTestAddOptions(projectDir)
+	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	if err == nil {
+		t.Fatal("expected error for tool_config conflict")
+	}
+
+	// The pre-existing lock must be restored intact.
+	readLf, readErr := distribution.ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	if readErr != nil {
+		t.Fatalf("ReadLockfile: %v", readErr)
+	}
+	if _, ok := readLf.Packs["existing/pack"]; !ok {
+		t.Error("pre-existing lock entry should be restored after rollback")
+	}
+	if _, ok := readLf.Packs["acme/valid-pack"]; ok {
+		t.Error("the failed pack should not remain in the lock after rollback")
 	}
 }
 

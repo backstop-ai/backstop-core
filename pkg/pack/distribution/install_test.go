@@ -1,6 +1,7 @@
 package distribution_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,25 @@ import (
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
 )
 
-func setupInstallProject(t *testing.T) (string, *distribution.Lockfile) {
+// writeManifestForLock writes a backstop.yml declaring exactly the packs pinned in lf,
+// so install_test.go tests exercise the manifest-driven reconcile behavior (Defect B)
+// instead of regressing under the reconcile-aligned Install (which drives off the
+// DECLARED manifest, not raw lf.Packs).
+func writeManifestForLock(t *testing.T, projectDir string, lf *distribution.Lockfile) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("packs:\n")
+	for name, entry := range lf.Packs {
+		value := entry.Version
+		if entry.SourceType == "local" || value == "" {
+			value = "local"
+		}
+		fmt.Fprintf(&b, "  %s: %q\n", name, value)
+	}
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), b.String())
+}
+
+func setupInstallProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -17,7 +36,7 @@ func setupInstallProject(t *testing.T) (string, *distribution.Lockfile) {
 	ref := "v1.0.0"
 	packDir := t.TempDir()
 	writeFile(t, filepath.Join(packDir, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\n")
-	hash, _ := distribution.ComputeContentHash(packDir)
+	hash := mustHash(t, packDir)
 
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -37,11 +56,14 @@ func setupInstallProject(t *testing.T) (string, *distribution.Lockfile) {
 		t.Fatal(err)
 	}
 
-	return dir, lf
+	// The DECLARED manifest is the source of truth for WHAT to install (Defect B).
+	writeManifestForLock(t, dir, lf)
+
+	return dir
 }
 
 func TestPackInstall_RestoresFromLockfile(t *testing.T) {
-	projectDir, lf := setupInstallProject(t)
+	projectDir := setupInstallProject(t)
 
 	// Create a source directory matching the lockfile hash.
 	sourceDir := t.TempDir()
@@ -53,7 +75,6 @@ func TestPackInstall_RestoresFromLockfile(t *testing.T) {
 			cloneDir: sourceDir,
 		},
 	}
-	_ = lf
 
 	result, err := distribution.Install(opts)
 	if err != nil {
@@ -66,7 +87,7 @@ func TestPackInstall_RestoresFromLockfile(t *testing.T) {
 }
 
 func TestPackInstall_VerifiesContentHash(t *testing.T) {
-	projectDir, _ := setupInstallProject(t)
+	projectDir := setupInstallProject(t)
 
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\n")
@@ -89,7 +110,7 @@ func TestPackInstall_VerifiesContentHash(t *testing.T) {
 }
 
 func TestPackInstall_SkipsValidation(t *testing.T) {
-	projectDir, _ := setupInstallProject(t)
+	projectDir := setupInstallProject(t)
 
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\n")
@@ -126,6 +147,7 @@ func TestPackInstall_HashMismatchFailsHard(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/pack\n")
@@ -146,7 +168,7 @@ func TestPackInstall_HashMismatchFailsHard(t *testing.T) {
 }
 
 func TestPackInstall_CacheReadsFromLocalDir(t *testing.T) {
-	projectDir, _ := setupInstallProject(t)
+	projectDir := setupInstallProject(t)
 
 	// Set up cache directory with the pack.
 	cacheDir := t.TempDir()
@@ -156,10 +178,8 @@ func TestPackInstall_CacheReadsFromLocalDir(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(packCache, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\n")
 
-	opts := distribution.InstallOptions{
-		ProjectDir: projectDir,
-		CachePath:  cacheDir,
-	}
+	opts := distribution.InstallOptions{ProjectDir: projectDir}
+	opts.CachePath = cacheDir
 
 	result, err := distribution.Install(opts)
 	if err != nil {
@@ -190,6 +210,7 @@ func TestPackInstall_CacheStillVerifiesHash(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	cacheDir := t.TempDir()
 	packCache := filepath.Join(cacheDir, "acme", "pack")
@@ -198,10 +219,8 @@ func TestPackInstall_CacheStillVerifiesHash(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(packCache, "pack.yml"), "name: acme/pack\n")
 
-	opts := distribution.InstallOptions{
-		ProjectDir: projectDir,
-		CachePath:  cacheDir,
-	}
+	opts := distribution.InstallOptions{ProjectDir: projectDir}
+	opts.CachePath = cacheDir
 
 	_, err := distribution.Install(opts)
 	if err == nil {
@@ -216,7 +235,7 @@ func TestPackInstall_SkipsToolConfigMerge(t *testing.T) {
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\ntool_config:\n  - config_file: .golangci.yml\n    settings:\n      test: true\n")
 
-	hash, _ := distribution.ComputeContentHash(sourceDir)
+	hash := mustHash(t, sourceDir)
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -233,6 +252,7 @@ func TestPackInstall_SkipsToolConfigMerge(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -255,7 +275,7 @@ func TestPackInstall_LocalPackHashVerification(t *testing.T) {
 
 	localDir := t.TempDir()
 	writeFile(t, filepath.Join(localDir, "pack.yml"), "name: internal/local\n")
-	hash, _ := distribution.ComputeContentHash(localDir)
+	hash := mustHash(t, localDir)
 
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -270,6 +290,7 @@ func TestPackInstall_LocalPackHashVerification(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir:   projectDir,
@@ -289,7 +310,7 @@ func TestPackInstall_SkipsSDKDependencies(t *testing.T) {
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"),
 		"name: acme/valid-pack\nversion: \"1.0.0\"\nsdk_dependencies:\n  - go:1.21\n")
 
-	hash, _ := distribution.ComputeContentHash(sourceDir)
+	hash := mustHash(t, sourceDir)
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -306,6 +327,7 @@ func TestPackInstall_SkipsSDKDependencies(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -355,6 +377,7 @@ func TestPackInstall_AtomicRollbackOnCloneFailure(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -392,6 +415,7 @@ func TestPackInstall_AtomicRollbackOnHashFailure(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/pack\n")
@@ -425,7 +449,7 @@ func TestPackInstall_WithExistingPacksDir(t *testing.T) {
 
 	sourceDir := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir, "pack.yml"), "name: acme/pack\nversion: \"1.0.0\"\n")
-	hash, _ := distribution.ComputeContentHash(sourceDir)
+	hash := mustHash(t, sourceDir)
 
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
@@ -443,6 +467,7 @@ func TestPackInstall_WithExistingPacksDir(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -474,6 +499,7 @@ func TestPackInstall_NoGitClonerForGitPack(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -506,11 +532,10 @@ func TestPackInstall_CacheMissingPack(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
-	opts := distribution.InstallOptions{
-		ProjectDir: projectDir,
-		CachePath:  cacheDir,
-	}
+	opts := distribution.InstallOptions{ProjectDir: projectDir}
+	opts.CachePath = cacheDir
 
 	_, err := distribution.Install(opts)
 	if err == nil {
@@ -518,6 +543,10 @@ func TestPackInstall_CacheMissingPack(t *testing.T) {
 	}
 }
 
+// TestPackInstall_LocalPackNoLocalDir asserts the reconcile-aligned fail-loud behavior
+// (Defect A): a local pack with NO LocalPackDir override and an EMPTY local_path can no
+// longer be silently "installed" — Install must return an error naming the pack and
+// materialize nothing.
 func TestPackInstall_LocalPackNoLocalDir(t *testing.T) {
 	projectDir := t.TempDir()
 
@@ -534,22 +563,25 @@ func TestPackInstall_LocalPackNoLocalDir(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		// No LocalPackDir provided — should skip hash verification.
+		// No LocalPackDir provided and no recorded local_path — must fail loud.
 	}
 
-	result, err := distribution.Install(opts)
-	if err != nil {
-		t.Fatalf("Install with no local dir should succeed: %v", err)
+	_, err := distribution.Install(opts)
+	if err == nil {
+		t.Fatal("expected error for local pack with no resolvable source")
+	}
+	if !strings.Contains(err.Error(), "internal/local") {
+		t.Errorf("error should name the pack, got: %v", err)
 	}
 
-	if len(result.InstalledPacks) != 1 {
-		t.Errorf("expected 1 installed pack, got %d", len(result.InstalledPacks))
-	}
-	if result.InstalledPacks[0] != "internal/local" {
-		t.Errorf("InstalledPacks[0] = %q, want %q", result.InstalledPacks[0], "internal/local")
+	// Nothing should be materialized.
+	destDir := filepath.Join(projectDir, ".backstop", "packs", "internal", "local")
+	if _, statErr := os.Stat(destDir); !os.IsNotExist(statErr) {
+		t.Error("nothing should be materialized when the local source is unresolvable")
 	}
 }
 
@@ -572,6 +604,7 @@ func TestPackInstall_LocalPackHashMismatch(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir:   projectDir,
@@ -597,6 +630,7 @@ func TestPackInstall_EmptyLockfile(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -642,6 +676,7 @@ func TestPackInstall_RollbackRestoresExistingPacks(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
@@ -670,11 +705,11 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 	// Create two source directories.
 	sourceDir1 := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir1, "pack.yml"), "name: acme/pack-a\nversion: \"1.0.0\"\n")
-	hash1, _ := distribution.ComputeContentHash(sourceDir1)
+	hash1 := mustHash(t, sourceDir1)
 
 	sourceDir2 := t.TempDir()
 	writeFile(t, filepath.Join(sourceDir2, "pack.yml"), "name: acme/pack-b\nversion: \"1.0.0\"\n")
-	hash2, _ := distribution.ComputeContentHash(sourceDir2)
+	hash2 := mustHash(t, sourceDir2)
 
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
@@ -700,6 +735,7 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	// Mock cloner that copies the right source for each pack.
 	// Since map iteration order is random, use a single source that matches both hashes.
@@ -714,7 +750,7 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 	// Recreate with matching content.
 	sharedSource := t.TempDir()
 	writeFile(t, filepath.Join(sharedSource, "pack.yml"), "name: shared\nversion: \"1.0.0\"\n")
-	sharedHash, _ := distribution.ComputeContentHash(sharedSource)
+	sharedHash := mustHash(t, sharedSource)
 
 	lf.Packs["acme/pack-a"] = distribution.LockEntry{
 		Name: "acme/pack-a", Version: "1.0.0", GitRef: &ref,
@@ -727,6 +763,7 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
 		t.Fatal(err)
 	}
+	writeManifestForLock(t, projectDir, lf)
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,

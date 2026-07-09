@@ -1,0 +1,420 @@
+---
+plan_id: PLAN-ISSUE-025
+spec_id: ISSUE-025
+created: "2026-07-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... && backstop gate"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-025 — `pack install` reports success but MATERIALIZES NOTHING for
+  local-source packs (Defect A) and follows the stale LOCK instead of the declared
+  MANIFEST (Defect B). This is launch-critical: two downstream projects depend on pack
+  DISTRIBUTION actually working, so the acceptance is a REAL end-to-end (declare a local
+  pack → real `pack install` → the pack dir + files ACTUALLY exist on disk under
+  `.backstop/packs/<name>/` and the gate/pack-consume path resolves it), NOT a stub.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TREE VERIFICATION (read 2026-07-08 — current code, line numbers may drift)
+  ─────────────────────────────────────────────────────────────────────────────
+  Defect A — pkg/pack/distribution/install.go, local-source branch. On
+    `entry.SourceType == "local"` the branch resolves `sourceDir := opts.LocalPackDir`;
+    when it is "" it `append`s the name to InstalledPacks and `continue`s WITH NO COPY;
+    when it is non-"" it hash-verifies and STILL `continue`s with no copy. The git branch
+    (same file, lower down) DOES copy sourceDir → `.backstop/packs/<name>/` via
+    copyDirRecursive. The CLI wrapper cmd/backstop/pack_install.go builds
+    InstallOptions{ProjectDir: ".", CachePath: cacheFlag} and NEVER sets LocalPackDir →
+    the real CLI path ALWAYS no-materializes, yet exits 0 printing "Installed N packs".
+    FIX: the local branch must COPY the pack's source dir into `.backstop/packs/<name>/`,
+    mirroring the git branch's materialization, so the pack is genuinely on disk after
+    the command.
+
+  THE DESIGN CRUX (source-path resolution) — RESOLVED. For install to materialize a
+    local pack it needs the pack's SOURCE PATH, but today NEITHER surface records it:
+      • backstop.yml (pkg/pack/distribution/add.go updateBackstopYml) writes the local
+        pack as `name: "local"` — a bare marker string, NO path.
+      • backstop.lock (pkg/pack/distribution/lockfile.go LockEntry) has fields
+        name/version/git_ref/content_hash/source_type/install_date — NO local-path field.
+    add.go materializes at ADD time (copies the source into `.backstop/packs/<name>/`),
+    but `.backstop/packs/` is GITIGNORED (ensureGitignore writes `.backstop/packs/`), so
+    on a fresh checkout the materialized copy AND the source origin are both gone —
+    install has nothing to re-materialize from. CHOSEN MECHANISM: record the local source
+    path RELATIVE TO THE PROJECT ROOT in the LOCK at add-time (new `LockEntry.LocalPath`,
+    yaml `local_path,omitempty`); install resolves a local pack's source by joining that
+    relative path against `opts.ProjectDir` and re-copies it into `.backstop/packs/<name>/`.
+    RELATIVE (not absolute) is load-bearing: backstop.lock is TRACKED/committed (the
+    durability boundary), so an absolute `/Users/...` path is machine-specific — meaningless
+    on CI, another dev's checkout, or after the project moves, and it does NOT even help the
+    fresh-checkout case it is meant for (that IS the cross-machine case where abs also
+    fails). A relative path is portable, survives project moves, and matches the sibling-
+    checkout `../go-standards` layout the two launching projects will actually use. A local
+    pack with an EMPTY local_path, or whose resolved dir does not exist on disk, FAILS LOUD
+    naming the pack — never a silent success. (The manifest cannot carry the path — its
+    value is the fixed string "local"; the lock is the durable record, consistent with how
+    relock.go already treats the lock as the local-pack source of truth.) `opts.LocalPackDir`
+    is retained as an explicit per-call override for tests, but the REAL/CLI path resolves
+    from `entry.LocalPath` against ProjectDir.
+
+  Defect B — pkg/pack/distribution/install.go iterates `lf.Packs` (backstop.lock) ONLY;
+    it never reads backstop.yml, so a stale/diverged lock entry (e.g. `slotly/go-standards`
+    left from a rename) gets "installed" instead of the declared `backstop/go-standards`,
+    with no warning and no lock cleanup. FIX: install must reconcile the DECLARED manifest
+    (backstop.yml `packs:`) against the lock — install exactly what the manifest declares;
+    warn LOUDLY on divergence (a lock entry absent from the manifest is stale → surfaced,
+    not installed; a manifest pack missing/diverged from the lock is surfaced, not silently
+    skipped). backstop.yml is read via the distribution package's existing manifest reader
+    (the `backstopYml` struct in add.go already models `Packs map[string]string` and
+    tolerates the `"local"` value) — no new baked language/tool knowledge. InstallResult
+    gains a Warnings slice so the CLI can surface the divergence.
+
+  DO NOT REGRESS THE GIT PATH — the git-source branch already materializes correctly
+    (copies from the cloned/cached repo). The changes MUST NOT regress it; a git-path
+    materialization assertion is included (CLM-006). Keep the local-copy logic in a small
+    REUSABLE helper — ISSUE-026 (`pack add`, sibling) will call the same materializer;
+    026 is NOT scoped here.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  ACCEPTANCE (launch bar — a REAL e2e, not stubbed):
+    Declare a local pack in a temp project's backstop.yml → run the REAL `pack install`
+    (or add→install) → assert the pack directory + files ACTUALLY exist under
+    `.backstop/packs/<name>/` → the gate/pack-consume path resolves it. PLUS: install of
+    a manifest pack with a stale/diverged lock entry WARNS + installs the DECLARED pack
+    (Defect B); a local pack with an unresolvable source FAILS LOUD; the git path still
+    materializes. Proven in Phase 4 against the REAL CLI, plus per-defect units.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TOOLING NOTE: `backstop code check` was REMOVED from this repo (ISSUE-018). Middle-
+    phase verification uses `go test` (package-scoped) + the REAL pack CLI. The FINAL
+    phase runs `backstop gate` (full kill chain, covers .go) + `backstop artifact validate`
+    (covers this plan artifact). Any NEW package-level regex/map var must carry the
+    `// nosemgrep: go.core.no-global-mutable-state` suppression the codebase uses. All new
+    code covered to 90%; errors handled explicitly (go-standards).
+
+  ─────────────────────────────────────────────────────────────────────────────
+  CLAIMS (this plan's own; issues carry no formal CLM-NNN):
+    CLM-001 — LockEntry gains a `local_path` (yaml `local_path,omitempty`) field, and
+              `pack add` records the local source path RELATIVE TO THE PROJECT ROOT of a
+              local-source pack into it, so a later install re-materializes the pack from a
+              durable, PORTABLE record (survives project moves, cross-machine/CI checkouts,
+              and the sibling-checkout `../go-standards` layout) — never a machine-specific
+              absolute path in the tracked/committed lock.
+    CLM-002 — `Install` MATERIALIZES a local-source pack by COPYING its recorded source
+              dir into `.backstop/packs/<name>/` (mirroring the git branch), via a small
+              REUSABLE helper — the pack directory + files genuinely exist on disk after
+              the command (Defect A core).
+    CLM-003 — a local-source pack whose source is UNRESOLVABLE (empty `local_path`, or the
+              recorded dir missing on disk) FAILS LOUD naming the pack — never a silent
+              success/no-op (fresh-checkout hard error, since `.backstop/packs/` is
+              gitignored).
+    CLM-004 — `Install` reconciles the DECLARED manifest (backstop.yml `packs:`) against
+              the lock: the MANIFEST is the source of truth for WHAT to install (not raw
+              `lf.Packs`), the lock supplies version/source/hash. A manifest pack
+              missing/diverged from the lock is surfaced, not silently skipped. An ABSENT
+              backstop.yml means nothing is declared ⇒ install installs NOTHING and says so
+              with a clear message — NO silent `lf.Packs` fallback (which would bypass
+              Defect B untested) (Defect B core).
+    CLM-005 — a LOCK entry NOT present in the manifest (stale/renamed, e.g.
+              `slotly/go-standards`) is called out LOUDLY and NOT installed; install no
+              longer installs the stale-lock pack in place of the declared one (Defect B).
+    CLM-006 — the git-source install branch STILL materializes correctly (copies the
+              cloned/cached repo into `.backstop/packs/<name>/`); the local-pack changes do
+              NOT regress the git path — asserted by a git-path materialization test.
+    CLM-007 — the CLI wrapper (cmd/backstop/pack_install.go) SURFACES reconciliation
+              warnings (prints stale-lock divergence) and exits NON-ZERO on an unresolvable
+              local pack, instead of always printing "Installed N packs" green — the
+              invisible-failure fix.
+    CLM-008 — REAL end-to-end: declare a local pack in a temp project (add→install / real
+              `pack install`) → the pack dir + files ACTUALLY exist under
+              `.backstop/packs/<name>/` and the gate/pack-consume path resolves it; PLUS a
+              stale-lock divergence warns + installs the DECLARED pack, and an unresolvable
+              local pack fails loud — proven against the REAL CLI, not a stub.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Durable local source path — lock schema + pack add records it"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: LockEntry.local_path round-trips; pack add records the abs local source path"
+        description: |
+          Author the failing tests for the durability foundation (CLM-001).
+          (1) lockfile_test.go — a LockEntry with a populated LocalPath (a RELATIVE path,
+          e.g. `../go-standards`) is written by WriteLockfile and read back by ReadLockfile
+          preserving `local_path` (assert the serialized YAML carries the key and the
+          round-tripped value is exact); an entry with an EMPTY LocalPath must omit the key
+          (omitempty), so pre-existing local entries without a path parse cleanly.
+          (2) add_test.go — running distribution.Add on a LOCAL pack source dir records a
+          RELATIVE source path (relative to the project root) into that pack's backstop.lock
+          entry's LocalPath (assert it is NOT absolute and that joining it against the
+          project dir resolves to the same directory that was added). Git-source adds leave
+          LocalPath empty.
+          These reference LockEntry.LocalPath, which does not exist yet — the suite fails
+          (compile-red) until TASK-002 lands.
+        files:
+          - pkg/pack/distribution/lockfile_test.go
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: add LockEntry.local_path field + serialize it; pack add records source path"
+        description: |
+          Make TASK-001 pass (CLM-001). Add `LocalPath string` with yaml tag
+          `local_path,omitempty` to LockEntry (lockfile.go); serialize it in
+          buildSortedLockEntryNode (emit the `local_path` scalar in sorted-key position
+          ONLY when non-empty, matching the existing omitempty pattern for version). In
+          add.go, for a local-source pack (isLocal) populate the new lock entry's LocalPath
+          with the source path RELATIVE TO THE PROJECT ROOT — `filepath.Rel(opts.ProjectDir,
+          absSource)` where absSource is the abs local pack dir already resolved at add time
+          — so the tracked lock stays portable (NOT filepath.Abs). Git-source entries leave
+          it empty. Errors handled explicitly; no new global mutable state.
+        files:
+          - pkg/pack/distribution/lockfile.go
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: verification
+        title: "Verify lock schema + add recording (package-scoped)"
+        description: |
+          Run `go test ./pkg/pack/distribution/...` covering the lockfile round-trip and
+          the pack-add local-path recording (CLM-001). Confirms the durable source-path
+          record the install materialization depends on is written and read back exactly,
+          and that omitempty keeps legacy path-less entries valid.
+        files:
+          - pkg/pack/distribution/lockfile_test.go
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-002
+  - id: phase-2
+    name: "Phase 2: Install materializes local packs + reconciles manifest against lock"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "RED: install materializes a local pack to disk; fails loud when unresolvable; git path still materializes"
+        description: |
+          Author failing materialization tests (CLM-002, CLM-003, CLM-006) in a NEW file.
+          (1) Local materialize: given a temp project with backstop.yml declaring a local
+          pack and a backstop.lock entry (source_type local, populated local_path,
+          matching content_hash), the real Install COPIES the source into
+          `.backstop/packs/<name>/` — assert the destination directory AND a representative
+          file exist on disk with expected contents after Install returns (CLM-002).
+          (2) Fail-loud: a local lock entry with an EMPTY local_path, and separately one
+          whose recorded dir is missing on disk, must make Install return a non-nil error
+          NAMING the pack and materialize NOTHING (no partial `.backstop/packs/<name>/`)
+          (CLM-003).
+          (3) Git regression guard: a git-source install (via the existing mock GitCloner)
+          STILL materializes `.backstop/packs/<name>/` with the cloned files (CLM-006).
+          References the LocalPath field from TASK-002 and the new materialize behavior.
+        files:
+          - pkg/pack/distribution/install_materialize_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on: []
+      - id: TASK-005
+        type: test
+        title: "RED: install follows the declared manifest, warns on stale-lock divergence, installs nothing when manifest absent; align existing lock-only tests"
+        description: |
+          Author failing reconciliation tests (CLM-004, CLM-005) in a NEW file AND align the
+          existing install suite to the manifest-driven model so it does not regress.
+          (1) install_reconcile_test.go — Manifest-driven: a temp project whose backstop.yml
+          declares `backstop/go-standards: local` and whose backstop.lock ALSO holds a stale
+          `slotly/go-standards` entry — Install installs the DECLARED pack and does NOT
+          install the stale lock-only entry; the stale entry (in lock, absent from manifest)
+          appears in InstallResult.Warnings naming it; a manifest pack absent/diverged from
+          the lock is surfaced (warning or error), not silently skipped (CLM-004, CLM-005).
+          (2) install_reconcile_test.go — ABSENT-MANIFEST RED case: a temp project with a
+          backstop.lock but NO backstop.yml ⇒ Install installs NOTHING (empty
+          InstalledPacks) and returns a clear message/warning — asserting there is NO silent
+          `lf.Packs` fallback. This FAILS against current code (which installs from the lock
+          regardless of any manifest) and goes green only with TASK-006 (CLM-004).
+          (3) install_test.go — bring the EXISTING suite into line: the shared
+          setupInstallProject helper (and the ~20 tests on it — RestoresFromLockfile,
+          VerifiesContentHash, MultiplePacks, the rollback suite, git/cache tests, etc.)
+          today write ONLY backstop.lock. Update setupInstallProject to ALSO write a
+          backstop.yml manifest that DECLARES exactly the packs the lock pins, so those
+          tests exercise the reconcile-aligned behavior instead of regressing red under the
+          new manifest-driven Install. This closes the recurring unit-green/cross-surface-red
+          integration-gap trap in the plan, not at the gate.
+          References InstallResult.Warnings, added in TASK-006.
+        files:
+          - pkg/pack/distribution/install_reconcile_test.go
+          - pkg/pack/distribution/install_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on: []
+      - id: TASK-006
+        type: implementation
+        title: "GREEN: materialize local packs, fail loud, and reconcile manifest vs lock in Install"
+        description: |
+          Make TASK-004 and TASK-005 pass (CLM-002..006). In install.go:
+          (a) Materialize: the local-source branch resolves the source dir by joining
+          `entry.LocalPath` (a project-relative path) against `opts.ProjectDir`
+          (`filepath.Join(opts.ProjectDir, entry.LocalPath)`), falling back to
+          `opts.LocalPackDir` when set (test override); hash-verifies, then COPIES it into
+          `.backstop/packs/<name>/` via a small REUSABLE helper (e.g. materializeLocalPack)
+          that ISSUE-026 can also call — honoring the existing snapshot/rollback discipline
+          (CLM-002).
+          (b) Fail loud: an empty `entry.LocalPath` (with no LocalPackDir override) OR a
+          resolved source dir that does not exist returns an error NAMING the pack and rolls
+          back — no silent success, no partial copy (CLM-003).
+          (c) Reconcile — the DECLARED manifest is the source of truth for WHAT to install;
+          the lock supplies version/source/hash. Read backstop.yml `packs:` and drive
+          installation off that DECLARED set, not raw `lf.Packs`. A lock entry absent from
+          the manifest is recorded as a stale-lock Warning and NOT installed; a manifest
+          pack missing/diverged from the lock is surfaced (CLM-004, CLM-005). ABSENT
+          backstop.yml ⇒ nothing declared ⇒ install NOTHING and return a clear message
+          (empty InstalledPacks) — explicitly NO `lf.Packs` fallback (that would bypass
+          Defect B untested). Add `Warnings []string` to InstallResult. (Impl note: there is
+          no exported manifest reader in the distribution package — `backstopYml` is
+          unexported and add.go inlines the unmarshal; this impl will inline/reuse that same
+          read of `packs: map[string]string`, tolerating the `"local"` value. No new baked
+          language/tool knowledge.)
+          (d) Preserve the git branch's existing copy behavior unchanged (CLM-006). No new
+          global mutable state; errors explicit.
+        files:
+          - pkg/pack/distribution/install.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-005
+      - id: TASK-007
+        type: verification
+        title: "Verify install materialization + reconciliation (package-scoped)"
+        description: |
+          Run `go test ./pkg/pack/distribution/...` covering materialize-to-disk, the
+          unresolvable fail-loud paths, the manifest-vs-lock reconciliation, the stale-lock
+          warning, the absent-manifest install-nothing case, the realigned existing install
+          suite (setupInstallProject now writes a matching backstop.yml), and the git-path
+          regression guard (CLM-002..006). This is the core of both defects; the on-disk
+          assertions confirm real materialization, not a bookkeeping-only "installed" count.
+        files:
+          - pkg/pack/distribution/install_materialize_test.go
+          - pkg/pack/distribution/install_reconcile_test.go
+          - pkg/pack/distribution/install_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-006
+  - id: phase-3
+    name: "Phase 3: CLI surfaces warnings and hard errors instead of vacuous green"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "RED: pack install CLI prints stale-lock warnings and exits non-zero on unresolvable local pack"
+        description: |
+          Author failing CLI tests (CLM-007). Drive the real `pack install` cobra command
+          against a temp project: (1) with a stale lock entry diverging from the manifest,
+          assert the command PRINTS a divergence/stale-lock warning line naming the stale
+          entry (surfaced from InstallResult.Warnings). (2) with a local pack whose source
+          is unresolvable, assert the command exits NON-ZERO (ExitViolations) and does NOT
+          print a bare "Installed N packs" success. References the CLI surfacing added in
+          TASK-009.
+        files:
+          - cmd/backstop/pack_install_test.go
+        claims:
+          - CLM-007
+        depends_on: []
+      - id: TASK-009
+        type: implementation
+        title: "GREEN: surface reconciliation warnings + hard errors in the pack install command"
+        description: |
+          Make TASK-008 pass (CLM-007). In cmd/backstop/pack_install.go, after
+          distribution.Install returns, print each InstallResult.Warnings line (loud,
+          e.g. a `warning:` prefix) before the installed summary; keep the non-zero exit on
+          Install error (already an ExitCodeError) so an unresolvable local pack fails
+          visibly rather than printing green. Do NOT set LocalPackDir — the real path now
+          resolves the source from the lock's local_path (TASK-002/006). Errors explicit.
+        files:
+          - cmd/backstop/pack_install.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-006
+          - TASK-008
+      - id: TASK-010
+        type: verification
+        title: "Verify CLI surfacing (package-scoped)"
+        description: |
+          Run `go test ./cmd/backstop/...` covering the pack-install CLI warning output and
+          the non-zero exit on an unresolvable local pack (CLM-007). Confirms the
+          invisible-failure mode from the issue — green exit over an empty
+          `.backstop/packs/` — is closed at the user-facing surface.
+        files:
+          - cmd/backstop/pack_install_test.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-009
+  - id: phase-4
+    name: "Phase 4: Real end-to-end acceptance + full gate"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "RED: real add→install e2e — pack files exist on disk and the gate consumes them"
+        description: |
+          Author the launch-bar end-to-end acceptance test (CLM-008) driving the REAL CLI,
+          not stubs. In a temp project: declare a local pack (real `pack add <local-path>`
+          or backstop.yml + lock), run the REAL `pack install`, then ASSERT the pack
+          directory AND representative rule files ACTUALLY exist under
+          `.backstop/packs/<name>/`, and that the gate/pack-consume path resolves the
+          installed pack (e.g. the pack-consume/gate resolver finds it from inside the temp
+          project). PLUS two negative/divergence cases through the same real path: (a) a
+          manifest pack with a stale/diverged lock entry WARNS and installs the DECLARED
+          pack; (b) a local pack with an unresolvable source FAILS LOUD (non-zero, nothing
+          on disk). Goes green only once all impls land.
+        files:
+          - cmd/backstop/pack_install_e2e_test.go
+        claims:
+          - CLM-008
+        depends_on: []
+      - id: TASK-012
+        type: verification
+        title: "Full kill chain: go test -race, backstop gate, backstop artifact validate"
+        description: |
+          Final comprehensive verification covering both code and artifact work categories.
+          Run `go test ./... -race` (executes the e2e acceptance loop + all unit suites and
+          enforces the 90% coverage threshold on new code). Run `backstop gate` on
+          backstop-core — the full chain over the .go changes (build/lint/test/semgrep/
+          coverage/contracts) must be GREEN. Run `backstop artifact validate` — covers this
+          plan artifact and confirms no artifact regressions. Proves the whole issue closed:
+          local packs materialize (CLM-002), unresolvable sources fail loud (CLM-003),
+          install follows the manifest and warns on stale-lock divergence (CLM-004/005),
+          the git path is intact (CLM-006), the CLI surfaces it (CLM-007), and the real
+          e2e passes (CLM-008) — on the durable local_path record (CLM-001).
+        files:
+          - cmd/backstop/pack_install_e2e_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-006
+          - TASK-009
+          - TASK-011

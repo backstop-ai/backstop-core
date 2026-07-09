@@ -21,6 +21,11 @@ type LockEntry struct {
 	ContentHash string  `yaml:"content_hash"`
 	SourceType  string  `yaml:"source_type"`
 	InstallDate string  `yaml:"install_date"`
+	// LocalPath is the local-source pack's directory RELATIVE TO THE PROJECT ROOT,
+	// recorded at add time so a later install can re-materialize the pack from a durable,
+	// portable record. Empty for git-source packs. It is provenance only — it is NOT part
+	// of ComputeContentHash (a source path is not pack content).
+	LocalPath string `yaml:"local_path,omitempty"`
 }
 
 // ReadLockfile reads and parses a backstop.lock YAML file.
@@ -108,6 +113,13 @@ func buildSortedLockEntryNode(entry LockEntry) *yaml.Node {
 	}
 
 	addScalarPair(node, "install_date", entry.InstallDate)
+
+	// local_path is alphabetically between install_date and name; emit only when set
+	// (omitempty), so pre-existing path-less local entries parse and round-trip cleanly.
+	if entry.LocalPath != "" {
+		addScalarPair(node, "local_path", entry.LocalPath)
+	}
+
 	addScalarPair(node, "name", entry.Name)
 	addScalarPair(node, "source_type", entry.SourceType)
 
