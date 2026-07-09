@@ -1,186 +1,192 @@
 ---
-title: "De-Go plan validation file classification"
+title: "Remove final-phase category-coverage check (delete fileCategory)"
 schema_version: issue/v1
 
 issue:
   id: ISSUE-033
-  title: "De-Go plan validation file classification"
+  title: "Remove final-phase category-coverage check (delete fileCategory)"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-05"
+  closed: "2026-07-09"
+
+resolved-by: 3756e1c
 
 complexity:
-  scope: cross-cutting
-  uncertainty: exploratory
-  risk: moderate
+  scope: contained
+  uncertainty: known
+  risk: safe
 ---
 
-# De-Go plan validation file classification
+# Remove final-phase category-coverage check (delete fileCategory)
 
 ## Problem
 
-`pkg/validate/plan.go`'s `fileCategory()` (~line 703) classifies a plan task's touched
-files into work categories — `"artifact"`, `"code"`, or `""` (uncategorized) — and that
-classification drives TDD-ordering checks and `checkFinalPhaseCategoryCoverage`'s
-final-phase verification-coverage requirement. The `"code"` bucket is decided by a single
-baked literal:
+`pkg/validate/plan.go`'s `fileCategory()` (~line 704) classifies a plan
+task's touched files into work categories — `"artifact"`, `"code"`, or `""`
+(uncategorized) — by file-extension matching. `validateFinalPhase`
+(~line 601) uses that classification to drive a "final-phase category
+coverage" requirement (`plan/final-phase-missing-category`, ~line 692): every
+category of file touched anywhere in the plan must be covered by a
+verification task in the plan's *final* phase, or the plan is rejected.
+
+The `"code"` bucket is decided by a single baked literal:
 
 ```go
-func fileCategory(path string) string {
-	artifactExts := []string{".spec.md", ".plan.yml", ".adr.md", ".bundle.md", ".issue.md"}
-	for _, ext := range artifactExts {
-		if strings.HasSuffix(path, ext) {
-			return "artifact"
-		}
-	}
-	if strings.HasSuffix(path, ".go") {
-		return "code"
-	}
-	// Other extensions (e.g. .md for docs) don't map to a required category
-	return ""
+if strings.HasSuffix(path, ".go") { // nosemgrep: no-language-literal-on-neutral-spine — de-Go tracked by ISSUE-033
+    return "code"
 }
 ```
 
-`strings.HasSuffix(path, ".go")` bakes a Go-specific file-naming assumption into
-backstop's own artifact/plan validation — a violation of the zero-baked-language
-invariant (backstop must know no language; see CLAUDE.md's "What backstop IS"). For a
-plan describing work in a TypeScript, Python, or any non-Go project, whose task files are
-`.ts`, `.tsx`, `.py`, etc., the classification silently mis-fires: those files fall
-through to `""` (uncategorized) rather than `"code"`, and are silently exempted from the
-final-phase-verification-coverage requirement this function exists to enforce. This is
-the dangerous direction of failure — it doesn't wrongly flag a non-Go plan, it wrongly
-lets one skip a real requirement. The `backstop/self` dogfood pack flags this line under
-`no-language-literal-on-neutral-spine`.
+This was originally scoped (2026-07-05) as a de-Go'ing job: replace the
+baked `.go` suffix with a pack-declared, language-neutral classifier
+(SPEC-043's `gate.SourceClassifier`), mirroring what `mergeSourceClassifier`
+already does for the gate's coverage step. That framing is **rejected**.
+Sourcing the classifier language-neutrally would still leave the check
+itself intact, and the check itself is the wrong idea:
 
-### Why this is deferred rather than fixed inline in ISSUE-018
+- **It's a redundant filter on top of a check that already does the real
+  job.** `plan/gate-cadence-missing` (~line 920) already requires every
+  phase containing implementation/refactor tasks to also contain a
+  verification task, and `plan/final-phase-no-verification` (~line 660)
+  already requires the final phase specifically to contain at least one
+  verification task. Together those two rules encode backstop's actual
+  invariant: verify at every step. Category-coverage doesn't add a new
+  invariant — it second-guesses those verification tasks by inspecting
+  *which files* they happen to touch, as if a verification task could only
+  be "real" if its file list literally overlaps the categories touched
+  earlier in the plan.
+- **It's antithetical to "gates run at every verification step."** A
+  verification task in backstop's model runs the full gate — every
+  installed pack's rules, not a scoped subset keyed to touched-file
+  categories. Filtering "did verification cover the `code` category vs the
+  `artifact` category" assumes verification is partial/scoped when it
+  isn't. The classification exists to answer a question the model doesn't
+  actually ask.
+- **It bakes a Go-specific literal on backstop's own neutral spine** (the
+  proximate finding that triggered the original issue) — `strings.HasSuffix`
+  on `.go` silently mis-classifies every non-Go plan's task files as `""`
+  (uncategorized), which is the dangerous direction of failure: it doesn't
+  wrongly block a non-Go plan, it silently exempts one from a requirement
+  that was never sound to begin with. De-Go'ing it would fix invariant (1)
+  but leave the actual defect — a redundant, over-engineered filter — in
+  place.
 
-ISSUE-018 (deleting the vestigial `backstop code check` command and its dead
-native-standards validator) touches this same file already — for an unrelated, dead
-`.standard.md` reference — and originally flagged this `.go` literal as an "open design
-point for the planner" with two options: (A) source the classification from pack-declared
-classification globs (SPEC-043), or (B) apply a narrower neutral-spine exemption now and
-defer glob-sourcing to a follow-on.
-
-**Decided 2026-07-05:** ISSUE-018 goes with Option B. Its implementation keeps the
-current `.go` behavior and suppresses the self-pack finding with a scoped `// nosemgrep`
-comment that references **this issue (ISSUE-033)** by ID — so the baked literal stays
-loud and tracked in the self-pack's own findings output rather than silently buried by
-the suppression. This issue is that tracked follow-on: it owns Option A, the real
-language-neutral fix.
-
-The reason Option A doesn't collapse into ISSUE-018 is a genuine, unresolved design
-question, not scope padding — see below.
-
-### Why this isn't a drop-in glob swap
-
-SPEC-043 already built the exact mechanism this needs, for a sibling problem: the gate's
-coverage step used to have the same kind of baked-extension classification, and now
-reads a pack-declared, language-neutral classifier instead —
-`gate.SourceClassifier` (`pkg/gate/classification.go`), constructed by
-`mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier`
-(`cmd/backstop/gate.go:1017`) from the merged `classification.source` /
-`classification.test` globs across every installed toolchain pack's manifest
-(`pkg/pack/manifest.go`'s `Manifest.Classification`). `fileCategory`'s `"code"` bucket is
-conceptually the same question `SourceClassifier.IsMeasurableSource` already answers.
-
-The reuse is not mechanical, because `validate.Plan` runs in a genuinely different
-context than the gate:
-
-- **`validate.Plan`'s entry point discards its second argument.**
-  `pkg/validate/plan.go:31` — `func Plan(art *artifact.ParsedArtifact, _ *schema.Schema)
-  ValidationResult` — takes a `*schema.Schema`, not a classifier or pack/project handle,
-  and doesn't use even that. There is currently no channel for pack-declared config to
-  reach `fileCategory` at all.
-- **That signature is shared across every artifact type, not just plans.**
-  `cmd/backstop/artifact_route.go:14` defines `ValidatorFunc` as
-  `func(*artifact.ParsedArtifact, *schema.Schema) validate.ValidationResult` and
-  `validatorRouter` (line 17-24) maps ALL SIX artifact types (`spec`, `plan`, `adr`,
-  `bundle`, `issue`, `directive`) onto that one function type. Widening `validate.Plan`'s
-  signature to accept a classifier means either breaking the shared `ValidatorFunc`
-  contract (forcing every other validator to accept a parameter it doesn't use) or
-  finding a different injection seam (e.g. a plan-specific override path, a
-  package-level/contextual default, or a broader `ValidatorFunc` redesign). Which of
-  these is right is not decided.
-- **The only production caller is `ValidateArtifacts` in
-  `cmd/backstop/artifact_validate.go`** (the `validatorFn(art, sch)` call at line 169),
-  invoked from the standalone `backstop artifact validate` CLI path — a path that
-  currently has no pack-discovery or `mergeSourceClassifier` wiring at all (that wiring
-  today lives entirely in `cmd/backstop/gate.go`'s gate-run path). Whether/how
-  `artifact validate` should discover and load installed packs just to classify plan
-  task files is itself an open question, not a known recipe.
-- **The test blast radius is large but mechanical.** `validate.Plan(art, nil)` (or
-  `(art, sch)`) is called directly from ~90 call sites across 8 test files
-  (`pkg/validate/plan_test.go`, `plan_gate_test.go`, `plan_type_test.go`,
-  `plan_final_test.go`, `plan_testtask_test.go`, `plan_compat_test.go`,
-  `terminal_rules_test.go`, `terminal_acceptance_test.go`) plus one production call site.
-  A signature change touches all of them; this is busywork, not design risk, but it's
-  real scope the planner needs to size.
-
-None of this makes the fix unclear in direction — SPEC-043's classifier is the right
-target — but it does mean "wire the classifier in" is cross-cutting work with a real
-unresolved seam (where does `validate.Plan` get pack/project context from), not a
-same-file literal swap.
+The sound resolution is deletion, not language-neutralization.
 
 ## Solution
 
-Make `pkg/validate/plan.go`'s file classification (the `fileCategory` "code" bucket, and
-any sibling baked `.go`/`_test.go` literal introduced by ISSUE-018's interim fix) source
-its test-vs-impl / code-vs-other decision from pack-declared classification globs
-(SPEC-043's `Classification.Source` / `Classification.Test`, merged the same way
-`mergeSourceClassifier` does for the gate) instead of a baked extension literal.
+Delete `fileCategory` and the category-coverage half of
+`validateFinalPhase` entirely. Keep the no-verification half and both
+cadence rules untouched — they are the correct, already-language-neutral
+encoding of "verify at every step."
 
-Suggested shape (for the planner to confirm, not prescribed):
+1. In `pkg/validate/plan.go`:
+   - Delete `fileCategory()` (~line 704-718).
+   - In `validateFinalPhase` (~line 601), delete the category-coverage block
+     that follows the `hasVerification` check (~line 664-698): the
+     `requiredCategories` collection, the `coveredCategories` collection,
+     the per-category loop, and the `plan/final-phase-missing-category`
+     violation it emits. Leave the `hasVerification` /
+     `plan/final-phase-no-verification` block and the function's early
+     returns unchanged.
+   - Confirm no other call site references `fileCategory` after deletion
+     (the two call sites at ~line 672 and ~line 682 disappear along with
+     the block that contains them).
+2. In `pkg/validate/plan_final_test.go`: delete
+   `TestPlan_FinalPhase_ComprehensiveVerification` (~line 39-57) and
+   `TestPlan_FinalPhase_IncompleteVerification` (~line 59-78) — the two
+   tests that assert on `plan/final-phase-missing-category`. Leave
+   `TestPlan_FinalPhase_HasVerification` and `TestPlan_FinalPhase_NoVerification`
+   (the `plan/final-phase-no-verification` tests) untouched.
+3. Leave `plan/gate-cadence-missing` and `plan/final-phase-no-verification`
+   — and their tests in `pkg/validate/plan_gate_test.go` /
+   `pkg/validate/plan_final_test.go` — completely untouched. This issue
+   removes the redundant filter, not the underlying cadence invariant.
 
-1. Resolve the injection-seam question first: how does `validate.Plan` (or its caller)
-   obtain a `gate.SourceClassifier`-equivalent at the point `fileCategory` runs, given
-   `ValidatorFunc` is shared across all six artifact types and `artifact validate` has no
-   existing pack-discovery wiring. Candidate directions include a plan-specific validator
-   signature carve-out, a classifier passed through `ValidateConfig`/`ValidateArtifacts`
-   and threaded only to the plan path, or relocating `fileCategory`'s call sites behind an
-   interface that defaults to a no-op/absent classifier when none is available (mirroring
-   the gate coverage step's "classification capability absent" non-blocking state rather
-   than silently falling through to `""`).
-2. Replace the `strings.HasSuffix(path, ".go")` check with a classifier lookup once the
-   seam is decided.
-3. Remove the interim `// nosemgrep` suppression that ISSUE-018 adds (it must reference
-   this issue's ID; removing it here closes the loop).
-4. Update/add tests for `fileCategory` and `checkFinalPhaseCategoryCoverage` covering a
-   non-Go classifier configuration (e.g. `.ts`/`.py` source globs) to prove the
-   language-neutral path actually classifies correctly, not just that it compiles.
-
-**Acceptance:** `fileCategory` (and any sibling baked `.go`/`_test.go` literal in plan
-validation) carries zero baked language tokens; a plan describing a non-Go project's task
-files classifies them correctly via pack-declared globs; the `backstop/self`
-`no-language-literal-on-neutral-spine` finding on `pkg/validate/plan.go` is genuinely
-eradicated (not suppressed); the interim `// nosemgrep` referencing ISSUE-033 is removed.
+**Acceptance:** `fileCategory` no longer exists anywhere in
+`pkg/validate/plan.go`; `plan/final-phase-missing-category` is no longer
+emitted or referenced anywhere in the codebase; the corresponding two test
+functions in `plan_final_test.go` are gone; `plan/gate-cadence-missing` and
+`plan/final-phase-no-verification` still pass their existing tests
+unmodified. The `backstop/self` `no-language-literal-on-neutral-spine`
+suppression on `pkg/validate/plan.go` (added by ISSUE-018's interim fix,
+referencing this issue by ID) is drained because the line it suppresses no
+longer exists — not because it was replaced with a classifier.
 
 ## References
 
-- `pkg/validate/plan.go:703-715` — `fileCategory()`, the baked `.go`-suffix literal
-- `pkg/validate/plan.go:31` — `func Plan(art *artifact.ParsedArtifact, _ *schema.Schema)
-  ValidationResult`, the discarded schema argument / entry point with no pack context
-- `pkg/validate/plan.go:671,681` — `fileCategory` call sites feeding TDD-ordering and
-  `checkFinalPhaseCategoryCoverage`
-- `cmd/backstop/artifact_route.go:12-24` — `ValidatorFunc` shared signature and
-  `validatorRouter`, mapping all six artifact types onto one function type
-- `cmd/backstop/artifact_validate.go:101-189,169` — `ValidateArtifacts`, the sole
-  production caller (`validatorFn(art, sch)`) and the `backstop artifact validate` CLI
-  path with no existing pack-discovery wiring
-- `pkg/validate/plan_test.go`, `plan_gate_test.go`, `plan_type_test.go`,
-  `plan_final_test.go`, `plan_testtask_test.go`, `plan_compat_test.go`,
-  `terminal_rules_test.go`, `terminal_acceptance_test.go` — ~90 `validate.Plan(...)` test
-  call sites; mechanical blast radius for a signature change
-- SPEC-043 (`specs/SPEC-043-pack-declared-globs-coverage-consumer.spec.md`) — the
-  pack-declared classification-globs mechanism this issue builds on
-- `pkg/gate/classification.go` — `SourceClassifier`, `NewSourceClassifier`,
-  `IsMeasurableSource` / `IsTestFile`; the reference implementation of the language-neutral
-  classifier for the sibling (gate coverage) problem
-- `pkg/pack/manifest.go` — `Manifest.Classification` (`Source`/`Test` glob lists parsed
-  from a pack's `classification:` block)
-- `cmd/backstop/gate.go:1007-1026` — `mergeSourceClassifier(packs)`, the merge-across-packs
-  logic to reuse/adapt for the plan-validation path
-- ISSUE-018 — the deletion issue whose interim `// nosemgrep` suppression (Option B) defers
-  the real fix to this issue; its "Open design point" section (Option A vs B) is the origin
-  of this issue's scope
-- `backstop/self` pack rule `no-language-literal-on-neutral-spine` — the dogfood finding
-  this issue eradicates for real (rather than suppresses)
+- **ISSUE-048 (Reconcile Stranded Terminal Lineage) — SPEC-002 reconciliation
+  tracked separately, NOT in this issue's scope.** SPEC-002
+  (`specs/SPEC-002-plan-schema-evolution.spec.md`) mandates the
+  category-coverage behavior this issue deletes: REQ-004's text
+  ("...covering every category of work the plan performs...") plus
+  CLM-010/CLM-011/CLM-026/CLM-027 (`requirement: REQ-004`, ~lines
+  177-188, 319-327) map directly onto `plan/final-phase-missing-category`
+  and the two test functions this issue removes. Deleting the check strands
+  those claims and half of REQ-004 (the other half — final phase must
+  contain *a* verification task — survives via
+  `plan/final-phase-no-verification` and is unaffected). SPEC-002 itself is
+  a `closed`/success-terminal spec; editing its requirements/claims to
+  match reality is exactly the kind of stranded-lineage reconciliation
+  ISSUE-048 exists to track. Do not fold that edit into this issue — this
+  issue is the code-and-tests deletion only.
+- `pkg/validate/plan.go:601` — `validateFinalPhase`, the function this
+  issue trims (keeps the `hasVerification` block, deletes the
+  category-coverage block)
+- `pkg/validate/plan.go:660` — `plan/final-phase-no-verification` violation
+  emission (kept)
+- `pkg/validate/plan.go:692` — `plan/final-phase-missing-category` violation
+  emission (deleted)
+- `pkg/validate/plan.go:704-718` — `fileCategory()` (deleted in full)
+- `pkg/validate/plan.go:920` — `plan/gate-cadence-missing` violation
+  emission (kept, untouched)
+- `pkg/validate/plan_final_test.go:39-57` —
+  `TestPlan_FinalPhase_ComprehensiveVerification` (deleted)
+- `pkg/validate/plan_final_test.go:59-78` —
+  `TestPlan_FinalPhase_IncompleteVerification` (deleted)
+- `pkg/validate/plan_final_test.go:11-35` —
+  `TestPlan_FinalPhase_HasVerification` /
+  `TestPlan_FinalPhase_NoVerification` (kept, untouched)
+- `pkg/validate/plan_gate_test.go` — `plan/gate-cadence-missing` tests
+  (kept, untouched)
+- ISSUE-018 — the deletion issue whose interim `// nosemgrep` suppression on
+  the now-deleted `.go` literal referenced this issue by ID; that
+  suppression is drained (not converted) by this issue's fix
+- `backstop/self` pack rule `no-language-literal-on-neutral-spine` — the
+  dogfood finding this issue eradicates by deleting the offending line,
+  not by replacing it with a classifier
+- CLAUDE.md, "Enforcement philosophy" — "the enemy is silent/vacuous green,
+  not passing"; category-coverage inverted this by silently exempting
+  non-Go plans rather than failing loud, which is part of why deletion
+  (not repair) is the right call
+
+## Resolution
+
+The final-phase category-coverage check was DELETED rather than de-Go'd, per
+the founder's decision that inferring verification adequacy from which files
+a task touched is a filter that skips checks — antithetical to "every
+verification step runs the full gate." Commit 3756e1c removed:
+`fileCategory()` (and its baked `.go` literal), the
+`checkFinalPhaseCategoryCoverage` category block emitting
+`plan/final-phase-missing-category`, the now-unused `allTasks` parameter of
+`validateFinalPhase`, and the two tests
+`TestPlan_FinalPhase_ComprehensiveVerification` /
+`TestPlan_FinalPhase_IncompleteVerification`. The sound, language-neutral
+cadence checks remain untouched: `plan/gate-cadence-missing` (every working
+phase needs a verification task) and `plan/final-phase-no-verification`
+(final phase needs a verification task) — both task-type based. The
+ISSUE-018 deletion-guard `TestPlan_FileCategory_NoStandardMd`
+(CLM-003/011) was refreshed in place (same name, so ISSUE-018's
+mandated-test pointer stays valid) to prove the stronger post-deletion fact.
+
+Note the consequences: this drained the last `backstop/self`
+no-language-literal suppression (formerly plan.go:714) — backstop/self now
+has zero baked-language carve-outs — and removed the final residual literal
+that DIR-014 tracked. It intentionally strands SPEC-002's category-coverage
+requirement + claims (CLM-026/CLM-027), whose reconciliation (retirement,
+not repoint) is tracked under ISSUE-048.
+
+Verification actually run: `go build ./...` ok, `go test ./...` green,
+`./bin/backstop gate` exit 0 (8 passed / 0 failed), `./bin/backstop artifact
+validate` all checks passed.
