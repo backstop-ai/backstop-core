@@ -19,7 +19,7 @@ var (
 		// (ISSUE-048, delivered-then-removed). No "deprecated" for plans.
 		"replaced": true, "canceled": true, "obsoleted": true,
 	}
-	validTaskTypes = map[string]bool{
+	validTaskTypes = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"setup": true, "test": true, "implementation": true,
 		"verification": true, "refactor": true, "documentation": true,
 	}
@@ -37,7 +37,7 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		violations = append(violations, Violation{
 			Rule:     "plan/filename-pattern",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("filename must match PLAN-*-NNN-slug.plan.yml pattern"),
+			Message:  "filename must match PLAN-*-NNN-slug.plan.yml pattern",
 			Severity: "error",
 		})
 	}
