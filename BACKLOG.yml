@@ -3,6 +3,8 @@
 # See artifacts/directive/v1/backlog-schema.json for format.
 
 directives:
+  - id: DIR-017
+    title: Pack CLI Authoring & Distribution Hardening
   - id: DIR-015
     title: Gate Checker Hardening
   - id: DIR-001
