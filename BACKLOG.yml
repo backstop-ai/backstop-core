@@ -5,6 +5,8 @@
 directives:
   - id: DIR-015
     title: Gate Checker Hardening
+  - id: DIR-018
+    title: Ratchet Honesty Waivers
   - id: DIR-001
     title: Release Workflow
   - id: DIR-003
