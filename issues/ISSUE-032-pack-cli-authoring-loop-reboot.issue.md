@@ -2,13 +2,15 @@
 title: "Pack-CLI authoring-loop reboot — modernize stale pack-authoring/validation/scaffold commands for the engine-pack model"
 schema_version: issue/v1
 number: "032"
+delivered_by: PLAN-ISSUE-032
 
 issue:
   id: ISSUE-032
   title: "Pack-CLI authoring-loop reboot — modernize stale pack-authoring/validation/scaffold commands for the engine-pack model"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-28"
+  closed: "2026-07-08"
 
 complexity:
   scope: contained
@@ -177,6 +179,15 @@ the schema their filename requires.
 `pack update` re-resolve a local source) that re-reads the local pack directory, recomputes
 `content_hash`, and overwrites the lock entry in `backstop.lock`. A clean re-lock path
 eliminates the manual `pack remove` + `pack add` workaround.
+
+## Resolution
+
+Rebooted the pack-CLI authoring loop for the engine-pack model: fixed packval to parse real
+engine packs (string-enum EngineSpec), resolve-gated the check/test layer/claims exemptions
+(no vacuous-green), replaced the dead .standard.md scaffolder with an engine-pack scaffolder,
+fixed --format text / pack list counts / bundle-v2 / added pack relock, and proved it with a
+real new→check→test→gate e2e. Fixed in 6923dba; the old pack-new spec SPEC-011 was deprecated
+as superseded.
 
 ## References
 

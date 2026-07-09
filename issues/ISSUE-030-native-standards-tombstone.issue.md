@@ -2,13 +2,15 @@
 title: "Eradicate the vestigial native-standards scaffolder and record the standards-compiler lineage"
 schema_version: issue/v1
 number: "030"
+resolved-by: 6923dba
 
 issue:
   id: ISSUE-030
   title: "Eradicate the vestigial native-standards scaffolder and record the standards-compiler lineage"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-06-24"
+  closed: "2026-07-08"
 
 complexity:
   scope: isolated
@@ -68,6 +70,13 @@ Delete `scaffoldRulePack` and `ResolvePackNumber` from `pkg/pack/scaffold.go` an
 Clean up the associated artifacts: `artifacts/standard/v1/schema.json`, the `cmd/backstop/testdata/artifacts/standards/` fixture, and any tests that exercise the now-deleted scaffolder path.
 
 Consider adding a deletion assertion (parallel to `pkg/validate/deletion_assertion_test.go:48`) that no `standards/` directory writer exists in production code.
+
+## Resolution
+
+The vestigial native-standards .standard.md/.recipe.md scaffolder (scaffoldRulePack,
+ResolvePackNumber scanning standards/, the standard/v1 orphan schema + fixture) was
+eradicated with a deletion-regression guard + lineage tombstone, folded into the ISSUE-032
+pack-new engine-model reboot (Defect A). Fixed in 6923dba.
 
 ## References
 
