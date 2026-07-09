@@ -1,0 +1,608 @@
+---
+plan_id: PLAN-ISSUE-032
+spec_id: ISSUE-032
+created: "2026-07-08"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... && backstop gate"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-032 — the pack-CLI authoring-loop reboot. Packs are the framework's
+  substrate; the CONSUMPTION/INSTALL path was modernized by BUNDLE-011's engine-dispatch
+  cutover, but the AUTHORING/VALIDATION/SCAFFOLD tooling was not. Six concrete defects
+  (A–F) leave the loop broken at scaffold, broken at validate, and broken at re-lock.
+  This plan fixes all six and FOLDS ISSUE-030 (vestigial native-standards scaffolder
+  eradication) into Defect A — the two share the same surface (pkg/pack/scaffold.go +
+  number.go). ISSUE-030 closes delivered-by this work.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TREE VERIFICATION (read 2026-07-08 — issue line numbers confirmed / corrected)
+  ─────────────────────────────────────────────────────────────────────────────
+  Defect A — pkg/pack/scaffold.go: ScaffoldPack routes "rule"→scaffoldRulePack
+    (writes STD-<LANG>-NNN-<slug>.standard.md, schema_version standard/v1, into
+    standards/<language>/, scaffold.go:78-140) and "code"→scaffoldCodePack (writes
+    <slug>.recipe.md, schema_version recipe/v1, scaffold.go:142-190). ValidPackTypes
+    = {rule, code} (scaffold.go:13-15). NO branch emits a pack.yml. pkg/pack/number.go
+    ResolvePackNumber scans standards/<language>/ for STD-<LANG>-NNN files. cmd/backstop/
+    pack_new.go resolves the number for "rule" packs and its error text says
+    "(must be rule or code)". ISSUE-030 targets: delete scaffoldRulePack +
+    ResolvePackNumber + the standards/ dir writer; remove artifacts/standard/v1/
+    schema.json + the sole fixture cmd/backstop/testdata/artifacts/standards/
+    SEC-001-valid.standard.md; add a deletion assertion.
+
+  Defect B — RE-SCOPED after plan-review RAN the CLI (prior "Defect B VERIFIED" note was
+    wrong: it only pushed go-STANDARDS through pack check, never go-TOOLCHAIN). Three
+    coupled problems, all in pkg/packval, none of which the phase5/phase2 exemptions
+    alone fix. The archetype enum in code is {code, enforcement} ONLY (phase1.go:42) —
+    there is NO "toolchain"/"mechanism" archetype; BOTH production packs are
+    `archetype: enforcement`. The engine-model discriminator is the rule-level `engine:`
+    field. The three problems:
+
+    (B0) ENGINES-BLOCK PARSE FAILS AT PHASE1 (go-toolchain dies before phase2/5).
+      pkg/packval/manifest.go:23 declares `Engines map[string]engine.EngineBinding` and
+      unmarshals it with plain yaml.Unmarshal. But engine.EngineBinding's ScopeKind
+      (binding.go:50), EngineCategory (binding.go:70) and GateType (gatetype.go:13) are
+      INT enum types with NO UnmarshalYAML. go-toolchain's engines: block carries STRING
+      values (scope_kind: project-wide, category: mechanism, gate_type: coverage/build/
+      test/lint) → ~12 unmarshal errors at phase1, so go-toolchain never reaches phase2.
+      (input_mode parses only because InputMode is `type InputMode string`, binding.go:15
+      — the red herring that masked this.) The REAL consumer avoids this: pkg/pack/
+      manifest.go:29 uses a string-tagged `EngineSpec` (manifest.go:74) converted by
+      parseEngineSpec (manifest.go:503) via ParseGateType/ParseInputMode/ParseScopeKind/
+      ParseEngineCategory. packval was never brought in line. FIX: parse the engines:
+      block in packval the SAME way the consumer does — reuse pkg/pack's EngineSpec/
+      parseEngineSpec, OR add UnmarshalYAML to the enum types. Fixtures use go-toolchain's
+      REAL string values; verification RUNS go-toolchain through the real `pack check`.
+
+    (B1) phase5.go:22 errors "invalid layer" when rule.Layer < 1. go-standards rules
+      carry `engine: semgrep` + claims + fixtures but NO `layer:` (Layer==0) → fail.
+      FIX: exempt a rule from the layer 1..3 requirement when its `engine:` is non-empty.
+    (B2) phase2.go:30 errors "rule has no claims" for any claimless rule. go-toolchain's
+      build/vet/test/coverage rules carry `engine:` and NO `claims:` → fail.
+      FIX: exempt a claimless rule from "rule has no claims" when its `engine:` is
+      non-empty. Do NOT weaken the claimed-rule fixture checks.
+
+    (B-GUARD) VACUOUS-GREEN HOLE — the exemption must not be a free escape hatch.
+      Discriminating on `rule.Engine != ""` alone lets `engine: totally-bogus` (no file,
+      no claims) pass BOTH `pack check` and `pack test` green — check mode never runs
+      phase3 (pipeline.go appends phase3 only when Mode=="test"); test mode resolves the
+      engine only inside `if rule.File != ""` (phase3.go). So an unknown engine escapes
+      layer+claims and only fails later at gate-consume — a vacuous green, and the
+      discriminator is trivially dodgeable. FIX: the exemption path must require
+      resolveEngine(pack, rule.Engine) to SUCCEED (manifest.go:31 already fails loud via
+      Registry.Lookup); an unknown OR empty engine must FAIL LOUD naming the engine, and
+      this validation must run in CHECK mode (not just test). Only a rule whose engine
+      resolves to a real binding is exempted from layer/claims.
+
+  Defect C — cmd/backstop/pack_check.go:17-21 AND cmd/backstop/pack_test_cmd.go:17-21:
+    both if/else arms assign format="json" (dead branch). FIX: the else arm must assign
+    "text" so `--format text` takes effect.
+
+  Defect D — pkg/pack/distribution/list.go:36-39: listManifest decodes top-level
+    `rules:` / `scaffolds:`; modern packs nest rules under content.ruleset.rules → count
+    is always 0. FIX: decode content.ruleset.rules (fall back to top-level for legacy).
+    Also computeLockStatus (list.go) returns "stale" for a local pack whose path is
+    unchanged; a pack whose LockEntry.SourceType=="local" (lockfile.go:22) with a
+    matching content hash must read "current".
+
+  Defect E — pkg/scaffold/scaffold.go (bundle case, ~line 204): emits schema_version
+    bundle/v1, but the scaffolder builds a BUNDLE-NNN-<slug>.bundle.md filename that only
+    bundle/v2's filename_pattern accepts (v1 rejects the numbered prefix). FIX: stamp
+    bundle/v2. Same file ISSUE-009 just touched.
+
+  Defect F — no clean local-pack relock. pack add refuses an already-installed pack
+    (add.go:116 "use pack update or pack upgrade"); pack update (pack_update.go →
+    distribution.Update) is a no-op for local source. The only path to refresh a stale
+    lock entry for a locally-edited pack is remove+add. FIX: add a `pack relock <path>`
+    subcommand backed by pkg/pack/distribution that re-reads the local pack dir,
+    recomputes content_hash (ComputeContentHash), and overwrites the lock entry.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  ACCEPTANCE (load-bearing end-to-end) — the loop must actually work, not just units:
+    `backstop pack new` a fresh engine pack → `backstop pack check` passes →
+    `backstop pack test` passes → `backstop pack add` installs it INTO A TEMP PROJECT →
+    `backstop gate` RUN FROM INSIDE THAT TEMP PROJECT consumes it GREEN. Running the gate
+    from inside the temp project (NOT backstop-core's own root) is what genuinely proves
+    the scaffolded pack is consumed — backstop-core's own manifest does not list the
+    throwaway pack. Proven in Phase 6 against the REAL CLI (Defect A's scaffolder output
+    validated by Defect B's parse+exemptions). Plus per-defect unit tests. `backstop gate`
+    + `backstop artifact validate` on backstop-core stay green throughout.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TOOLING NOTE: `backstop code check` was REMOVED from this repo (ISSUE-018). Middle-
+    phase verification uses `go test` (package-scoped) + the REAL pack CLI (`backstop
+    pack check/test/new/add/relock`). The FINAL phase runs `backstop gate` (full kill
+    chain, covers .go) + `backstop artifact validate` (covers the deleted standard/v1
+    schema + the bundle scaffold change). New package-level regex/map vars must carry
+    the `// nosemgrep: go.core.no-global-mutable-state` suppression the codebase uses
+    (see pkg/packval/phase1.go:9). All new code covered to 90%; errors handled
+    explicitly (go-standards).
+
+  ─────────────────────────────────────────────────────────────────────────────
+  CLAIMS (this plan's own; issues carry no formal CLM-NNN):
+    CLM-001 — `pack new` emits a VALID engine pack.yml (name/version/language/archetype
+              + content.ruleset with a sample engine rule carrying risk_class + claims +
+              fixtures, + an engines: block with STRING enum values, + the referenced
+              sample rule file) that parses at phase1 and passes phases 1,2,4,5. No more
+              .standard.md / .recipe.md.
+    CLM-002 — ValidPackTypes reflects the live pack shapes (engine/toolchain/mechanism);
+              "rule"/"code" removed; pack_new.go dispatch + error text updated; the
+              number-resolution step for "rule" removed.
+    CLM-003 — scaffoldRulePack, scaffoldCodePack, and ResolvePackNumber are DELETED; the
+              standards/<language>/ writer is gone; artifacts/standard/v1/schema.json +
+              cmd/backstop/testdata/artifacts/standards/SEC-001-valid.standard.md removed;
+              a deletion assertion proves no standards/ writer / no standard/v1 emitter
+              remains. (ISSUE-030 fold — the standards-compiler lineage tombstone is
+              recorded in-code.)
+    CLM-004 — phase5-layer exempts a rule with a non-empty, RESOLVABLE `engine:` from the
+              layer 1..3 requirement, so engine-model rules (go-standards) no longer fail
+              "invalid layer".
+    CLM-005 — phase2-coherence exempts a claimless rule with a non-empty, RESOLVABLE
+              `engine:` from the "rule has no claims" error, so mechanism engine rules
+              (go-toolchain) validate.
+    CLM-006 — BOTH installed production packs — backstop/go-standards AND backstop/
+              go-toolchain — pass BOTH `backstop pack check` and `backstop pack test`
+              (go-toolchain proves the engines-block parse fix; go-standards proves the
+              layer/claims exemptions).
+    CLM-007 — `pack check --format text` and `pack test --format text` emit TEXT (the
+              dead-branch bug in both commands is fixed).
+    CLM-008 — `pack list` reports a real rule count from content.ruleset.rules (falling
+              back to top-level `rules:` for legacy) and shows lock status "current"
+              (not "stale") for an unchanged local pack.
+    CLM-009 — `artifact new bundle` stamps schema_version bundle/v2, so a freshly
+              scaffolded numbered bundle is valid against the schema its filename requires.
+    CLM-010 — `pack relock <path>` re-reads a local pack dir, recomputes content_hash,
+              and overwrites its backstop.lock entry (no remove+add workaround).
+    CLM-011 — the full authoring loop works end-to-end: pack new → check → test → add →
+              gate (run from inside the temp project) green.
+    CLM-012 — packval parses the pack `engines:` block with STRING enum values the same
+              way the consumer does (EngineSpec/parseEngineSpec, or enum UnmarshalYAML),
+              so go-toolchain parses at phase1 instead of failing with ~12 int-enum
+              unmarshal errors.
+    CLM-013 — the layer/claims exemption applies ONLY to a rule whose `engine:` RESOLVES
+              to a known binding (resolveEngine succeeds); an unknown OR empty engine
+              fails LOUD naming the engine in BOTH check AND test mode — no vacuous green,
+              the discriminator is not dodgeable.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Setup — engine-pack validation fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add engine-model pack fixtures (real engines block) for packval tests"
+        description: |
+          Create testdata fixtures for the Defect B parse + exemption + guard tests.
+          (1) A VALID engine pack dir whose top-level engines: block uses go-toolchain's
+          REAL string enum values (scope_kind: project-wide, category: mechanism, gate_type
+          across coverage/build/test/lint, input_mode: none) so it exercises the phase1
+          engines-block parse (B0); its ruleset holds (a) an engine rule with `engine:` +
+          claims + positive/negative fixtures but NO `layer:` (phase5 exemption, B1) and
+          (b) a claimless engine rule with `engine:` and NO `claims:` (phase2 exemption,
+          B2). Include the referenced rule file + fixture files so phase1 file-existence
+          passes. (2) A NEGATIVE bad-engine pack dir whose rule declares `engine:
+          totally-bogus` with no file and no claims — the vacuous-green guard fixture
+          (B-GUARD) that must FAIL check+test. These fixtures let the packval tests run
+          without depending on the globally-installed production packs.
+        files:
+          - pkg/packval/testdata/engine-pack/pack.yml
+          - pkg/packval/testdata/engine-pack/rules/sample.yml
+          - pkg/packval/testdata/engine-pack/fixtures/valid/sample-ok.go
+          - pkg/packval/testdata/engine-pack/fixtures/invalid/sample-bad.go
+          - pkg/packval/testdata/bad-engine-pack/pack.yml
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-013
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Defect B — packval parses + validates engine-model packs"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "RED: packval parses the engines: block with string enum values (B0)"
+        description: |
+          Write a failing test in pkg/packval asserting that a pack manifest whose
+          engines: block carries STRING enum values (scope_kind: project-wide, category:
+          mechanism, gate_type: coverage/build/test/lint, input_mode: none — go-toolchain's
+          real shape, from the TASK-001 fixture) parses at phase1 WITHOUT error. Against
+          current code this fails with the int-enum unmarshal errors (ScopeKind/
+          EngineCategory/GateType have no UnmarshalYAML). Assert the parsed binding round-
+          trips to the same resolved values the consumer's parseEngineSpec produces.
+        files:
+          - pkg/packval/manifest_engines_test.go
+        claims:
+          - CLM-012
+          - CLM-006
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: implementation
+        title: "Bring packval engines-block parsing in line with the consumer (B0)"
+        description: |
+          In pkg/packval/manifest.go, parse the top-level engines: block the SAME way the
+          real consumer does (pkg/pack/manifest.go EngineSpec + parseEngineSpec via
+          ParseGateType/ParseInputMode/ParseScopeKind/ParseEngineCategory) — either reuse
+          pkg/pack's EngineSpec/parseEngineSpec, or add UnmarshalYAML to the engine enum
+          types (engine.ScopeKind/EngineCategory/GateType). A pack engines: block with
+          string enum values must parse to the same resolved bindings the consumer yields.
+          Fail loud on an invalid enum string (do not silently zero-value it). Handle
+          errors explicitly. Make TASK-002 pass.
+        files:
+          - pkg/packval/manifest.go
+        claims:
+          - CLM-012
+        depends_on:
+          - TASK-002
+      - id: TASK-004
+        type: test
+        title: "RED: engine-rule layer/claims exemptions + vacuous-green guard (B1/B2/B-GUARD)"
+        description: |
+          Write failing tests in pkg/packval. EXEMPTIONS: for phase5.go (RunLayer) a rule
+          with a non-empty resolvable `engine:` and Layer==0 must NOT produce "invalid
+          layer", while a NON-engine rule with Layer==0 STILL errors; for phase2.go
+          (RunCoherence) a claimless rule with a non-empty resolvable `engine:` must NOT
+          produce "rule has no claims", while a claimless rule with NO engine STILL errors.
+          GUARD (B-GUARD): using the bad-engine fixture, a rule with `engine: totally-bogus`
+          (unknown) and a rule with an EMPTY engine must FAIL — in BOTH check mode AND test
+          mode — with a loud error naming the engine; they must NOT be silently exempted.
+          Assert resolution is enforced in CHECK mode (which never runs phase3). Tests fail
+          against current code.
+        files:
+          - pkg/packval/phase5_test.go
+          - pkg/packval/phase2_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-013
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-002
+      - id: TASK-005
+        type: implementation
+        title: "Resolve-gated layer/claims exemptions in phase5/phase2 (B1/B2/B-GUARD)"
+        description: |
+          In pkg/packval/phase5.go RunLayer and pkg/packval/phase2.go RunCoherence, exempt
+          a rule from the layer 1..3 requirement (phase5) and the "rule has no claims"
+          requirement (phase2) ONLY when resolveEngine(pack, rule.Engine) SUCCEEDS. On a
+          non-empty engine that does NOT resolve, emit a loud error naming the engine
+          (fail; do not exempt). An EMPTY engine is never exempted. This resolution check
+          must execute in CHECK mode — add it to the phase logic that check mode runs, not
+          phase3 (which check mode skips). Do NOT weaken the claimed-rule fixture checks (a
+          claimed engine rule still needs positive+negative fixtures). Depends on TASK-003
+          so the engines: block resolves. Handle errors explicitly. Make TASK-004 pass.
+        files:
+          - pkg/packval/phase5.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-013
+        depends_on:
+          - TASK-004
+          - TASK-003
+      - id: TASK-006
+        type: verification
+        title: "Verify Defect B: packval units + real check/test on BOTH production packs"
+        description: |
+          Run `go test ./pkg/packval/...` (parse + exemption + guard tests, no
+          regressions). Then run the REAL CLI to prove the fixes hold on real data:
+          `backstop pack check` AND `backstop pack test` against BOTH
+          .backstop/packs/backstop/go-standards (proves the layer/claims exemptions) AND
+          .backstop/packs/backstop/go-toolchain (proves the engines-block parse fix — this
+          is the case the prior review missed) must ALL pass. Also confirm the bad-engine
+          fixture FAILS both check and test (guard holds). Confirms CLM-006/012/013.
+        files:
+          - pkg/packval/phase5.go
+          - pkg/packval/phase2.go
+          - pkg/packval/manifest.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Defect A + ISSUE-030 fold — engine-pack scaffolder"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "RED: pack new emits a valid engine pack.yml; dead scaffolder is gone"
+        description: |
+          Write failing tests. In pkg/pack: assert ScaffoldPack for the modern types
+          (engine/toolchain/mechanism) writes a pack.yml carrying name/version/language/
+          archetype (enforcement) + content.ruleset with a sample engine rule (engine:,
+          risk_class:, claims with positive+negative fixtures) + an engines: block with
+          STRING enum values + the referenced rule file + fixture files; assert NO
+          .standard.md / .recipe.md is written; assert ValidPackTypes == {engine,
+          toolchain, mechanism} and that "rule"/"code" are rejected. In cmd/backstop:
+          assert `pack new --type engine` succeeds and the error text no longer says
+          "rule or code". Add a deletion assertion (parallel to pkg/validate/
+          deletion_assertion_test.go) that grep-proves no production source writes a
+          `standards/` dir, a `.standard.md`, or `schema_version: standard/v1`, and that
+          ResolvePackNumber no longer exists.
+        files:
+          - pkg/pack/scaffold_test.go
+          - pkg/pack/deletion_assertion_test.go
+          - cmd/backstop/pack_new_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+      - id: TASK-008
+        type: implementation
+        title: "Replace .standard.md/.recipe.md scaffolders with an engine-pack scaffolder"
+        description: |
+          In pkg/pack/scaffold.go: DELETE scaffoldRulePack and scaffoldCodePack; add
+          scaffoldEnginePack that writes a valid engine pack.yml (archetype: enforcement;
+          content.ruleset with ONE sample engine rule carrying engine:, risk_class:,
+          claims + positive/negative fixtures; an engines: block with STRING enum values
+          declaring the sample engine; the referenced rule file + fixture files) so the
+          output parses at phase1 and passes phases 1,2,4,5 (relies on Phase 2's parse +
+          engine exemptions). Wire toolchain/mechanism as variants of the engine shape
+          (starter differences per issue). Set ValidPackTypes = {engine, toolchain,
+          mechanism}. In pkg/pack/number.go: DELETE ResolvePackNumber (and the standards/
+          scan). In cmd/backstop/pack_new.go: update the dispatch, drop the
+          ResolvePackNumber call, fix the error text, update flag help. DELETE
+          artifacts/standard/v1/schema.json and cmd/backstop/testdata/artifacts/standards/
+          SEC-001-valid.standard.md. Record the native-standards-compiler lineage tombstone
+          as an in-code comment (ISSUE-030 fold) referencing the 2026-06-16 packs-only
+          shift. Handle errors explicitly. Make TASK-007 tests pass.
+        files:
+          - pkg/pack/scaffold.go
+          - pkg/pack/number.go
+          - cmd/backstop/pack_new.go
+          - artifacts/standard/v1/schema.json
+          - cmd/backstop/testdata/artifacts/standards/SEC-001-valid.standard.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-007
+      - id: TASK-009
+        type: verification
+        title: "Verify Defect A: scaffolder units + real pack new + check in a temp dir"
+        description: |
+          Run `go test ./pkg/pack/... ./cmd/backstop/...` (scaffolder + deletion assertion,
+          no regressions). Then run the REAL CLI: `backstop pack new --type engine
+          --language go --slug sample-check` into a temp project dir; assert it writes a
+          pack.yml (and NO .standard.md/.recipe.md) AND that `backstop pack check` passes
+          on the freshly scaffolded pack (proves the scaffolder's engines: block parses
+          under the Phase 2 fixes). Confirms CLM-001/002/003.
+        files:
+          - pkg/pack/scaffold.go
+          - cmd/backstop/pack_new.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Defects C, D, E — format flag, rule count, bundle schema version"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "RED (C): pack check/test honor --format text"
+        description: |
+          Write a failing test in cmd/backstop asserting `pack check --format text` and
+          `pack test --format text` produce TEXT output (not JSON). Currently both dead
+          branches assign "json" so the assertion fails.
+        files:
+          - cmd/backstop/pack_format_test.go
+        claims:
+          - CLM-007
+        depends_on: []
+      - id: TASK-011
+        type: test
+        title: "RED (D): pack list rule count + local lock status"
+        description: |
+          Write failing tests in pkg/pack/distribution: a pack.yml with rules under
+          content.ruleset.rules yields RuleCount == N (not 0), with a top-level `rules:`
+          legacy pack still counted as a fallback; and a local-source pack whose content is
+          unchanged reports lock status "current" not "stale".
+        files:
+          - pkg/pack/distribution/list_test.go
+        claims:
+          - CLM-008
+        depends_on: []
+      - id: TASK-012
+        type: test
+        title: "RED (E): artifact new bundle stamps bundle/v2 and validates"
+        description: |
+          Write a failing test in pkg/scaffold asserting the bundle scaffold emits
+          schema_version: bundle/v2 for a numbered BUNDLE-NNN bundle. Currently it emits
+          bundle/v1, whose filename_pattern rejects the BUNDLE-NNN- prefix.
+        files:
+          - pkg/scaffold/scaffold_v2_test.go
+        claims:
+          - CLM-009
+        depends_on: []
+      - id: TASK-013
+        type: implementation
+        title: "Fix the --format dead branch in pack check and pack test"
+        description: |
+          In cmd/backstop/pack_check.go and cmd/backstop/pack_test_cmd.go, change the else
+          arm of `if jsonFlag != nil && *jsonFlag` to assign format = "text" so
+          `--format text` takes effect. Make TASK-010 pass.
+        files:
+          - cmd/backstop/pack_check.go
+          - cmd/backstop/pack_test_cmd.go
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-010
+      - id: TASK-014
+        type: implementation
+        title: "Decode content.ruleset.rules for pack list rule count + local lock status"
+        description: |
+          In pkg/pack/distribution/list.go: rewrite listManifest to decode
+          content.ruleset.rules (nested), falling back to a top-level `rules:` for legacy
+          packs, so RuleCount is real. In computeLockStatus, return "current" for a pack
+          whose LockEntry.SourceType == "local" and whose recomputed content hash matches
+          (do not surface "stale" for an unchanged local pack). Handle errors explicitly.
+          Make TASK-011 pass.
+        files:
+          - pkg/pack/distribution/list.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-011
+      - id: TASK-015
+        type: implementation
+        title: "Stamp bundle/v2 in the bundle scaffolder"
+        description: |
+          In pkg/scaffold/scaffold.go bundle case, change `schema_version: bundle/v1` to
+          `bundle/v2` so numbered bundles are valid against their filename. Make TASK-012
+          pass.
+        files:
+          - pkg/scaffold/scaffold.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-012
+      - id: TASK-016
+        type: verification
+        title: "Verify Defects C/D/E: units + real CLI spot checks"
+        description: |
+          Run `go test ./cmd/backstop/... ./pkg/pack/distribution/... ./pkg/scaffold/...`.
+          Then spot-check via the REAL CLI: `backstop pack list --format text` shows a
+          non-zero rule count for an installed pack with rules; `backstop artifact new
+          bundle --slug throwaway` (in a temp dir) produces a file that `backstop artifact
+          validate` accepts. Confirms CLM-007/008/009.
+        files:
+          - cmd/backstop/pack_check.go
+          - pkg/pack/distribution/list.go
+          - pkg/scaffold/scaffold.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-013
+          - TASK-014
+          - TASK-015
+
+  - id: phase-5
+    name: "Phase 5: Defect F — pack relock for local packs"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "RED: pack relock re-resolves a local pack and rewrites its lock entry"
+        description: |
+          Write failing tests. In pkg/pack/distribution: a Relock(path) function, given a
+          local pack whose content changed since install, re-reads the local pack dir,
+          recomputes content_hash (ComputeContentHash), and overwrites the backstop.lock
+          entry (SourceType "local"); it errors clearly for a non-local / unknown pack. In
+          cmd/backstop: `pack relock <path>` invokes it and reports the refreshed hash.
+        files:
+          - pkg/pack/distribution/relock_test.go
+          - cmd/backstop/pack_relock_test.go
+        claims:
+          - CLM-010
+        depends_on: []
+      - id: TASK-018
+        type: implementation
+        title: "Implement pack relock (distribution + command + wiring)"
+        description: |
+          Add pkg/pack/distribution/relock.go: Relock resolves the local pack path,
+          reads pack.yml for the name, recomputes content_hash over the installed pack
+          dir, and rewrites the matching backstop.lock entry (preserving SourceType
+          "local"); returns a clear error when the pack is absent from the lock or is not
+          local. Add cmd/backstop/pack_relock.go (newPackRelockCommand) and wire it into
+          the pack command group in cmd/backstop/root.go. Handle errors explicitly. Make
+          TASK-017 pass.
+        files:
+          - pkg/pack/distribution/relock.go
+          - cmd/backstop/pack_relock.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-017
+      - id: TASK-019
+        type: verification
+        title: "Verify Defect F: units + real relock round-trip"
+        description: |
+          Run `go test ./pkg/pack/distribution/... ./cmd/backstop/...`. Then a real
+          round-trip in a temp project: add a local pack, edit its content, run `backstop
+          pack relock <path>`, and confirm `backstop pack list` reports lock status
+          "current" (no remove+add needed). Confirms CLM-010.
+        files:
+          - pkg/pack/distribution/relock.go
+          - cmd/backstop/pack_relock.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-018
+
+  - id: phase-6
+    name: "Phase 6: Acceptance e2e + full gate"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Author the end-to-end authoring-loop acceptance test (gate inside temp)"
+        description: |
+          Author an integration test that drives the REAL authoring loop against a TEMP
+          project: `backstop pack new` a fresh engine pack → `backstop pack check` passes
+          → `backstop pack test` passes → `backstop pack add` installs it into the temp
+          project → `backstop gate` RUN WITH THE TEMP PROJECT AS CWD/root consumes the
+          newly-installed pack GREEN. The gate MUST run from inside the temp project (where
+          the scaffolded pack is listed in the temp manifest) — running it against
+          backstop-core's own root would not exercise the throwaway pack and would prove
+          nothing. This is the load-bearing proof that Defect A's scaffolder output is
+          parsed + accepted by Defect B's fixes and consumed by the gate — not just
+          per-defect units. Written here so it goes green only once all impls land.
+        files:
+          - cmd/backstop/pack_authoring_loop_test.go
+        claims:
+          - CLM-011
+          - CLM-006
+        depends_on: []
+      - id: TASK-021
+        type: verification
+        title: "Full gate: go test, backstop gate, backstop artifact validate"
+        description: |
+          Run the full kill chain. `go test ./... -race` (executes the acceptance loop
+          test + all unit suites, enforces the 90% coverage threshold on new code).
+          `backstop gate` on backstop-core — full chain over .go changes (build/lint/test/
+          semgrep/coverage/contracts), must be GREEN. `backstop artifact validate` —
+          covers the removed artifacts/standard/v1 schema and the bundle scaffolder change
+          (CLM-009), and confirms no artifact regressions. This is the final,
+          comprehensive verification covering both code and artifact work categories.
+        files:
+          - cmd/backstop/pack_authoring_loop_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-003
+          - TASK-005
+          - TASK-008
+          - TASK-013
+          - TASK-014
+          - TASK-015
+          - TASK-018
+          - TASK-020

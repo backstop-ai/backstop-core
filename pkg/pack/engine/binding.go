@@ -59,6 +59,40 @@ const (
 	ScopeKindDependencyMapped
 )
 
+// ParseScopeKind resolves a raw scope_kind string spelling (file-args |
+// project-wide) into a ScopeKind, fail-louding on an unrecognized value — parallel
+// to ParseGateType/ParseInputMode. An empty value defaults to ScopeKindFileArgs (the
+// binding's zero value), matching the consumer's parseScopeKind so both parsers
+// agree (ISSUE-032 B0).
+func ParseScopeKind(s string) (ScopeKind, error) {
+	switch s {
+	case "", "file-args":
+		return ScopeKindFileArgs, nil
+	case "project-wide":
+		return ScopeKindProjectWide, nil
+	default:
+		return 0, fmt.Errorf("unknown scope_kind %q: must be one of file-args, project-wide", s)
+	}
+}
+
+// UnmarshalYAML decodes a scope_kind STRING spelling directly into a ScopeKind
+// through ParseScopeKind (ISSUE-032 B0). Without it a raw
+// `map[string]engine.EngineBinding` yaml decode dies with "cannot unmarshal !!str
+// into engine.ScopeKind". The consumer's EngineSpec keeps a plain string field and
+// never invokes this method.
+func (k *ScopeKind) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return fmt.Errorf("scope_kind must be a string: %w", err)
+	}
+	parsed, err := ParseScopeKind(s)
+	if err != nil {
+		return err
+	}
+	*k = parsed
+	return nil
+}
+
 // EngineCategory classifies an engine as Go-native toolchain MECHANISM or
 // coding-standards OPINION for the pack-separation enforcer (ISSUE-015 /
 // SPEC-034 REQ-007). It is the single source of truth for the mechanism/opinion
@@ -82,6 +116,41 @@ const (
 	// files (semgrep, ast-grep). A pack carrying these rules is an opinion pack.
 	EngineCategoryOpinion
 )
+
+// ParseEngineCategory resolves a raw category string spelling (mechanism | opinion)
+// into an EngineCategory, fail-louding on an unrecognized value. An empty value
+// defaults to EngineCategoryUnset (neither mechanism nor opinion), matching the
+// consumer's parseEngineCategory so both parsers agree (ISSUE-032 B0).
+func ParseEngineCategory(s string) (EngineCategory, error) {
+	switch s {
+	case "":
+		return EngineCategoryUnset, nil
+	case "mechanism":
+		return EngineCategoryMechanism, nil
+	case "opinion":
+		return EngineCategoryOpinion, nil
+	default:
+		return 0, fmt.Errorf("unknown category %q: must be one of mechanism, opinion", s)
+	}
+}
+
+// UnmarshalYAML decodes a category STRING spelling directly into an EngineCategory
+// through ParseEngineCategory (ISSUE-032 B0). Without it a raw
+// `map[string]engine.EngineBinding` yaml decode dies with "cannot unmarshal !!str
+// into engine.EngineCategory". The consumer's EngineSpec keeps a plain string field
+// and never invokes this method.
+func (c *EngineCategory) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return fmt.Errorf("category must be a string: %w", err)
+	}
+	parsed, err := ParseEngineCategory(s)
+	if err != nil {
+		return err
+	}
+	*c = parsed
+	return nil
+}
 
 // Provision is a pinned install descriptor for a backstop-introduced engine
 // (semgrep, ast-grep). A nil *Provision means the engine is an assumed-present

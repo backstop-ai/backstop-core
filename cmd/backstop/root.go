@@ -78,9 +78,10 @@ backstop by shelling out to CLI commands.`,
 	packUpdateCmd := newPackUpdateCommand(&jsonFlag)
 	packUpgradeCmd := newPackUpgradeCommand(&jsonFlag)
 	packListCmd := newPackListCommand(&jsonFlag)
+	packRelockCmd := newPackRelockCommand(&jsonFlag)
 
 	packCmd.AddCommand(packNewCmd, packCheckCmd, packTestCmd,
-		packAddCmd, packRemoveCmd, packInstallCmd, packUpdateCmd, packUpgradeCmd, packListCmd)
+		packAddCmd, packRemoveCmd, packInstallCmd, packUpdateCmd, packUpgradeCmd, packListCmd, packRelockCmd)
 
 	// --- Top-level: gate ---
 	gateCmd := newGateCommand(&jsonFlag)

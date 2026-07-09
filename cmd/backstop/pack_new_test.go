@@ -3,10 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bmanson/backstop-core/pkg/packval"
 )
 
 // packNewTestCase holds inputs for running the pack new command.
@@ -45,68 +46,65 @@ func runPackNewTest(t *testing.T, tc packNewTestCase) (int, string) {
 	return exitCode, buf.String()
 }
 
-// --- Thin adapter tests (REQ-010) ---
+// --- Thin adapter tests ---
 
 func TestPackNew_ThinAdapter_DelegatesScaffolding(t *testing.T) {
 	tmpDir := t.TempDir()
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args:       []string{"--type", "rule", "--language", "go", "--slug", "error-handling"},
+		args:       []string{"--type", "engine", "--language", "go", "--slug", "error-handling"},
 		projectDir: tmpDir,
 	})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	// Verify file was created via ScaffoldPack delegation
-	matches, err := filepath.Glob(filepath.Join(tmpDir, "standards", "go", "STD-GO-*.standard.md"))
+	// Verify pack.yml was created via ScaffoldPack delegation.
+	matches, err := filepath.Glob(filepath.Join(tmpDir, "error-handling", "pack.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(matches) != 1 {
-		t.Fatalf("expected 1 standard file created via ScaffoldPack, got %d", len(matches))
+		t.Fatalf("expected 1 pack.yml created via ScaffoldPack, got %d", len(matches))
 	}
 }
 
-func TestPackNew_ThinAdapter_DelegatesNumberResolution(t *testing.T) {
-	tmpDir := t.TempDir()
-	// Seed two existing standards so number resolution returns 3
-	stdDir := filepath.Join(tmpDir, "standards", "go")
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, n := range []string{"STD-GO-001-first.standard.md", "STD-GO-002-second.standard.md"} {
-		if err := os.WriteFile(filepath.Join(stdDir, n), []byte("---\n---\n"), 0o644); err != nil {
-			t.Fatal(err)
+// TestPackNew_ScaffoldPassesCheckAndTest is the Defect A integration proof: a freshly
+// scaffolded engine pack passes BOTH `pack check` (phases 1,2,4,5,6) AND `pack test`
+// (adds phase3) through the REAL packval pipeline — i.e. the scaffolder's engines:
+// block parses under the Phase-2 fixes and the sample rule validates (CLM-001).
+func TestPackNew_ScaffoldPassesCheckAndTest(t *testing.T) {
+	for _, typ := range []string{"engine", "mechanism", "toolchain"} {
+		tmpDir := t.TempDir()
+		code, out := runPackNewTest(t, packNewTestCase{
+			args:       []string{"--type", typ, "--language", "go", "--slug", "sample-check"},
+			projectDir: tmpDir,
+		})
+		if code != 0 {
+			t.Fatalf("type %s: expected exit 0, got %d (%s)", typ, code, out)
+		}
+		packDir := filepath.Join(tmpDir, "sample-check")
+		for _, mode := range []string{"check", "test"} {
+			res := packval.NewPipeline(packDir, packval.PipelineOptions{Mode: mode}).Run()
+			if res.Status != "pass" {
+				t.Errorf("type %s: pack %s on scaffolded pack = %q, want pass; errors=%+v", typ, mode, res.Status, res.Errors)
+			}
 		}
 	}
-
-	code, _ := runPackNewTest(t, packNewTestCase{
-		args:       []string{"--type", "rule", "--language", "go", "--slug", "third"},
-		projectDir: tmpDir,
-	})
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d", code)
-	}
-	// Verify the standard file uses number 003 (from ResolvePackNumber)
-	expectedFile := filepath.Join(stdDir, "STD-GO-003-third.standard.md")
-	if _, err := os.Stat(expectedFile); err != nil {
-		t.Fatalf("expected STD-GO-003 file from ResolvePackNumber delegation, got error: %v", err)
-	}
 }
 
-// --- Exit code tests (REQ-008) ---
+// --- Exit code tests ---
 
-func TestPackNew_ExitCode_0_RulePackSuccess(t *testing.T) {
+func TestPackNew_ExitCode_0_EnginePackSuccess(t *testing.T) {
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "rule", "--language", "go", "--slug", "error-handling"},
+		args: []string{"--type", "engine", "--language", "go", "--slug", "error-handling"},
 	})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
 }
 
-func TestPackNew_ExitCode_0_CodePackSuccess(t *testing.T) {
+func TestPackNew_ExitCode_0_ToolchainPackSuccess(t *testing.T) {
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "code", "--language", "go", "--slug", "error-handling"},
+		args: []string{"--type", "toolchain", "--language", "go", "--slug", "error-handling"},
 	})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
@@ -114,17 +112,33 @@ func TestPackNew_ExitCode_0_CodePackSuccess(t *testing.T) {
 }
 
 func TestPackNew_ExitCode_2_InvalidType(t *testing.T) {
+	// The retired "rule" type is now rejected (CLM-002).
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "bogus", "--language", "go", "--slug", "my-pack"},
+		args: []string{"--type", "rule", "--language", "go", "--slug", "my-pack"},
 	})
 	if code != 2 {
-		t.Fatalf("expected exit 2, got %d", code)
+		t.Fatalf("expected exit 2 for retired type, got %d", code)
+	}
+}
+
+// TestPackNew_InvalidType_ErrorNamesLiveTypes checks the error text lists the live
+// pack types (engine/mechanism/toolchain), invoking the command directly to read the
+// returned ExitCodeError message (SilenceErrors keeps it off the output buffer).
+func TestPackNew_InvalidType_ErrorNamesLiveTypes(t *testing.T) {
+	cmd := newPackNewCommandWithRoot(t.TempDir())
+	cmd.SetArgs([]string{"--type", "rule", "--language", "go", "--slug", "my-pack"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error for retired type 'rule'")
+	}
+	if !strings.Contains(err.Error(), "engine, mechanism, or toolchain") {
+		t.Errorf("invalid-type error should list the live types, got %q", err.Error())
 	}
 }
 
 func TestPackNew_ExitCode_2_InvalidLanguage(t *testing.T) {
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "rule", "--language", "Go", "--slug", "my-pack"},
+		args: []string{"--type", "engine", "--language", "Go", "--slug", "my-pack"},
 	})
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
@@ -133,7 +147,7 @@ func TestPackNew_ExitCode_2_InvalidLanguage(t *testing.T) {
 
 func TestPackNew_ExitCode_2_InvalidSlug(t *testing.T) {
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "rule", "--language", "go", "--slug", "1bad"},
+		args: []string{"--type", "engine", "--language", "go", "--slug", "1bad"},
 	})
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
@@ -141,45 +155,36 @@ func TestPackNew_ExitCode_2_InvalidSlug(t *testing.T) {
 }
 
 func TestPackNew_ExitCode_2_MissingFlags(t *testing.T) {
-	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{},
-	})
+	code, _ := runPackNewTest(t, packNewTestCase{args: []string{}})
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
 }
 
-// TestPackNew_ExitCode_2_MissingLanguage verifies that providing --type but
-// omitting --language is rejected with exit 2, exercising the missing-language
-// branch distinct from missing-type.
 func TestPackNew_ExitCode_2_MissingLanguage(t *testing.T) {
-	// --type present, --slug present, --language omitted: must reach and fail at
-	// the missing-language branch (a later branch than missing-type).
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "rule", "--slug", "error-handling"},
+		args: []string{"--type", "engine", "--slug", "error-handling"},
 	})
 	if code != 2 {
 		t.Fatalf("expected exit 2 for missing --language, got %d", code)
 	}
 }
 
-// TestPackNew_ExitCode_2_MissingSlug verifies that providing --type and
-// --language but omitting --slug is rejected with exit 2.
 func TestPackNew_ExitCode_2_MissingSlug(t *testing.T) {
 	code, _ := runPackNewTest(t, packNewTestCase{
-		args: []string{"--type", "rule", "--language", "go"},
+		args: []string{"--type", "engine", "--language", "go"},
 	})
 	if code != 2 {
 		t.Fatalf("expected exit 2 for missing --slug, got %d", code)
 	}
 }
 
-// --- JSON output test from command level ---
+// --- Output tests ---
 
 func TestPackNew_Command_JSONOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 	code, output := runPackNewTest(t, packNewTestCase{
-		args:       []string{"--type", "rule", "--language", "go", "--slug", "error-handling", "--json"},
+		args:       []string{"--type", "engine", "--language", "go", "--slug", "error-handling", "--json"},
 		projectDir: tmpDir,
 	})
 	if code != 0 {
@@ -195,12 +200,15 @@ func TestPackNew_Command_JSONOutput(t *testing.T) {
 			t.Errorf("JSON output missing field %q", field)
 		}
 	}
+	if m["pack_id"] != "local/error-handling" {
+		t.Errorf("pack_id = %v, want local/error-handling", m["pack_id"])
+	}
 }
 
 func TestPackNew_Command_HumanOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 	code, output := runPackNewTest(t, packNewTestCase{
-		args:       []string{"--type", "rule", "--language", "go", "--slug", "error-handling"},
+		args:       []string{"--type", "engine", "--language", "go", "--slug", "error-handling"},
 		projectDir: tmpDir,
 	})
 	if code != 0 {
@@ -209,8 +217,8 @@ func TestPackNew_Command_HumanOutput(t *testing.T) {
 	if !strings.Contains(output, "Created") {
 		t.Error("human output should contain 'Created'")
 	}
-	if !strings.Contains(output, "STD-GO-001") {
-		t.Error("human output should contain pack identifier")
+	if !strings.Contains(output, "local/error-handling") {
+		t.Error("human output should contain the pack identifier")
 	}
 }
 

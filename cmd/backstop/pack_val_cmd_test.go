@@ -15,11 +15,15 @@ func TestPackVal_PackCheckCommand_Exists(t *testing.T) {
 	}
 }
 
-func TestPackVal_PackCheckCommand_DefaultJSON(t *testing.T) {
+// TestPackVal_PackCheckCommand_DefaultText proves the human default is TEXT after the
+// Defect C dead-branch fix (ISSUE-032 CLM-007): the default without --json is the text
+// renderer, not JSON. (Run in a dir with no pack.yml, the pipeline still renders a
+// phase1 failure — as text, no leading brace.)
+func TestPackVal_PackCheckCommand_DefaultText(t *testing.T) {
 	root := NewRootCommand()
-	out, err := executeCommand(root, "pack", "check")
-	if err == nil && !strings.Contains(out, "{") {
-		t.Fatal("expected json output")
+	out, _ := executeCommand(root, "pack", "check")
+	if strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Fatalf("expected text default, got JSON: %s", out)
 	}
 }
 
@@ -65,7 +69,9 @@ content:
 	cwd := chdirForTest(t, dir)
 	defer cwd()
 	root := NewRootCommand()
-	out, err := executeCommand(root, "pack", "check")
+	// The human default is now text (Defect C); request JSON explicitly to assert the
+	// structured "status": "pass".
+	out, err := executeCommand(root, "pack", "check", "--format", "json")
 	if err != nil || !strings.Contains(out, `"status": "pass"`) {
 		t.Fatalf("want pass output err=%v out=%s", err, out)
 	}
@@ -101,11 +107,13 @@ content:
 	}
 }
 
-func TestPackVal_PackTestCommand_DefaultJSON(t *testing.T) {
+// TestPackVal_PackTestCommand_DefaultText proves the human default is TEXT after the
+// Defect C fix (ISSUE-032 CLM-007).
+func TestPackVal_PackTestCommand_DefaultText(t *testing.T) {
 	root := NewRootCommand()
 	out, _ := executeCommand(root, "pack", "test")
-	if !strings.Contains(out, "{") {
-		t.Fatal("expected json")
+	if strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Fatalf("expected text default, got JSON: %s", out)
 	}
 }
 

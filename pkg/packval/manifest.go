@@ -20,7 +20,13 @@ type PackManifest struct {
 	// declares to add or OVERRIDE an execution engine (ISSUE-019). resolveEngine
 	// merges these OVER baseengines.Registry(), a pack-declared engine winning over a
 	// same-named base binding. The binding carries the command as DATA, so the harness
-	// bakes no tool name.
+	// bakes no tool name. The block decodes STRAIGHT into engine.EngineBinding: its
+	// int-enum fields (ScopeKind/EngineCategory/GateType) resolve their STRING
+	// spellings through the enum UnmarshalYAML added in the leaf engine package
+	// (ISSUE-032 B0/CLM-012), so a real engine pack's `scope_kind: project-wide`,
+	// `category: mechanism`, `gate_type: build` parse to the SAME resolved bindings the
+	// consumer's EngineSpec/parseEngineSpec yields — packval no longer dies at phase1
+	// with the int-enum unmarshal errors that kept go-toolchain from reaching phase2/5.
 	Engines map[string]engine.EngineBinding `json:"engines,omitempty" yaml:"engines,omitempty"`
 }
 

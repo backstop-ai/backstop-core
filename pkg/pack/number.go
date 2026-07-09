@@ -2,14 +2,10 @@ package pack
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
-	"strconv"
-	"strings"
 )
 
-var languagePattern = regexp.MustCompile(`^[a-z]+$`)
+var languagePattern = regexp.MustCompile(`^[a-z]+$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, never reassigned
 
 // ValidateLanguage checks that the language string matches ^[a-z]+$.
 func ValidateLanguage(language string) error {
@@ -22,41 +18,8 @@ func ValidateLanguage(language string) error {
 	return nil
 }
 
-// ResolvePackNumber scans standards/<language>/ for existing standard files
-// and returns the next available number. Gaps are not filled. If no existing
-// standards exist for the language, the number starts at 1.
-func ResolvePackNumber(language string, projectRoot string) (int, error) {
-	langUpper := strings.ToUpper(language)
-	dir := filepath.Join(projectRoot, "standards", language)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 1, nil
-		}
-		return 0, fmt.Errorf("reading standards directory: %w", err)
-	}
-
-	// Pattern: STD-<LANG>-<NNN>-<slug>.standard.md
-	pattern := regexp.MustCompile(fmt.Sprintf(`^STD-%s-(\d{3})-.*\.standard\.md$`, regexp.QuoteMeta(langUpper)))
-
-	maxNum := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		matches := pattern.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-		num, err := strconv.Atoi(matches[1])
-		if err != nil {
-			continue
-		}
-		if num > maxNum {
-			maxNum = num
-		}
-	}
-
-	return maxNum + 1, nil
-}
+// ResolvePackNumber is DELETED (ISSUE-032 Defect A / ISSUE-030 fold). It scanned
+// `standards/<language>/` for `STD-<LANG>-NNN` files to auto-number a native-standards
+// artifact — a concept the packs-only decision retired. Engine packs are named by slug
+// (local/<slug>), not numbered. See the lineage tombstone in scaffold.go and the
+// deletion assertion in deletion_assertion_test.go.

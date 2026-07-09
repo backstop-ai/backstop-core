@@ -547,35 +547,18 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 }
 
 // parseScopeKind resolves the pack-declared scope_kind spelling (file-args |
-// project-wide) into engine.ScopeKind, fail-louding on an unrecognized value. An
-// empty value defaults to file-args (the scoped-file-args attachment), matching
-// the binding's zero value.
+// project-wide) into engine.ScopeKind. It delegates to engine.ParseScopeKind — the
+// single source of truth also used by the enum's UnmarshalYAML (ISSUE-032 B0) — so
+// the EngineSpec path and packval's direct EngineBinding decode cannot drift.
 func parseScopeKind(s string) (engine.ScopeKind, error) {
-	switch s {
-	case "", "file-args":
-		return engine.ScopeKindFileArgs, nil
-	case "project-wide":
-		return engine.ScopeKindProjectWide, nil
-	default:
-		return 0, fmt.Errorf("unknown scope_kind %q: must be one of file-args, project-wide", s)
-	}
+	return engine.ParseScopeKind(s)
 }
 
 // parseEngineCategory resolves the pack-declared category spelling (opinion |
-// mechanism) into engine.EngineCategory, fail-louding on an unrecognized value.
-// An empty value defaults to EngineCategoryUnset (neither mechanism nor opinion,
-// invisible to the pack-separation boundary check).
+// mechanism) into engine.EngineCategory. It delegates to engine.ParseEngineCategory
+// — the single source of truth also used by the enum's UnmarshalYAML (ISSUE-032 B0).
 func parseEngineCategory(s string) (engine.EngineCategory, error) {
-	switch s {
-	case "":
-		return engine.EngineCategoryUnset, nil
-	case "mechanism":
-		return engine.EngineCategoryMechanism, nil
-	case "opinion":
-		return engine.EngineCategoryOpinion, nil
-	default:
-		return 0, fmt.Errorf("unknown category %q: must be one of mechanism, opinion", s)
-	}
+	return engine.ParseEngineCategory(s)
 }
 
 func validateSemver(v string) error {

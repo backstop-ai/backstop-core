@@ -64,3 +64,25 @@ func ParseGateType(s string) (GateType, error) {
 	}
 	return 0, fmt.Errorf("unknown gate_type %q: must be one of lint, build, test, findings, coverage, substantiveness, contracts", s)
 }
+
+// UnmarshalYAML decodes a gate_type STRING spelling directly into a GateType,
+// fail-louding on an unrecognized value through ParseGateType (ISSUE-032 B0). It is
+// the missing decoder that let a raw `map[string]engine.EngineBinding` yaml decode
+// die with "cannot unmarshal !!str into engine.GateType": packval decodes the
+// engines: block straight into EngineBinding, whose int-enum fields had no
+// UnmarshalYAML, so go-toolchain's string gate_type values crashed at phase1. With
+// this the binding parses to the SAME value the consumer's parseEngineSpec yields.
+// The consumer's own EngineSpec keeps a plain string field and never invokes this
+// method, so its parse path is unchanged.
+func (g *GateType) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return fmt.Errorf("gate_type must be a string: %w", err)
+	}
+	parsed, err := ParseGateType(s)
+	if err != nil {
+		return err
+	}
+	*g = parsed
+	return nil
+}

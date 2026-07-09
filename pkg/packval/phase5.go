@@ -20,6 +20,20 @@ func RunLayer(pack *PackManifest, packDir string) *PhaseResult {
 	validCategory := map[string]bool{"presence": true, "structural": true, "other": true}
 	for _, rule := range pack.Content.Ruleset.Rules {
 		if rule.Layer < 1 || rule.Layer > 3 {
+			// Engine-model rules carry an engine, not a layer (go-standards rules
+			// declare `engine: semgrep` and no layer). Exempt such a rule from the
+			// layer 1..3 requirement ONLY when its declared engine RESOLVES to a real
+			// binding (base registry merged with the pack's engines: block). An unknown
+			// engine fails LOUD naming it, and an EMPTY engine is never exempted — the
+			// exemption is not a free escape hatch a bogus engine can dodge (B-GUARD /
+			// CLM-013). This resolve gate lives in phase5, which CHECK mode runs, so it
+			// is not deferred to phase3.
+			if rule.Engine != "" {
+				if _, err := resolveEngine(pack, rule.Engine); err != nil {
+					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "engine-resolve", Rule: rule.ID, Message: err.Error()})
+				}
+				continue
+			}
 			res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "layer", Rule: rule.ID, Message: "invalid layer"})
 			continue
 		}

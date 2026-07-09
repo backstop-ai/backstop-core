@@ -154,18 +154,9 @@ func TestSchema_AdrStandardCapability_Unchanged(t *testing.T) {
 		}
 	}
 
-	// standard/v1 status enum is unchanged.
-	std := schemaJSON(t, "artifacts", "standard", "v1", "schema.json")
-	stdEnum := enumAt(t, std, "metadata", "properties", "status", "enum")
-	wantSTD := []string{"draft", "active", "deprecated"}
-	if len(stdEnum) != len(wantSTD) {
-		t.Fatalf("standard/v1 status enum = %v, want %v", stdEnum, wantSTD)
-	}
-	for i, s := range wantSTD {
-		if stdEnum[i] != s {
-			t.Errorf("standard/v1 status enum[%d] = %q, want %q", i, stdEnum[i], s)
-		}
-	}
+	// The standard/v1 schema was DELETED (ISSUE-032 Defect A / ISSUE-030 fold): the
+	// native-standards artifact type is retired with its scaffolder, so there is no
+	// standard/v1 status enum to pin here anymore.
 
 	// capability/v1 status enum is unchanged (no terminal-state additions).
 	cap := schemaJSON(t, "artifacts", "capability", "v1", "schema.json")

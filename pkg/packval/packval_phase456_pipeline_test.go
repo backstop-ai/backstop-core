@@ -71,6 +71,10 @@ func TestPackVal_P4_EnforcementPackRulesOnlyPass(t *testing.T) {
 
 func TestPackVal_P5_MissingLayer(t *testing.T) {
 	m := baseManifest()
+	// Clear the engine so the layer 1..3 requirement is ENFORCED: an engine-model
+	// rule with a resolvable engine is now exempt from it (ISSUE-032 CLM-004), so this
+	// test exercises the non-exempt (no-engine) path where a missing layer still fails.
+	m.Content.Ruleset.Rules[0].Engine = ""
 	m.Content.Ruleset.Rules[0].Layer = 0
 	if packval.RunLayer(m, makePackDir(t)).Status != "fail" {
 		t.Fatal("fail")
@@ -78,6 +82,9 @@ func TestPackVal_P5_MissingLayer(t *testing.T) {
 }
 func TestPackVal_P5_InvalidLayer(t *testing.T) {
 	m := baseManifest()
+	// No engine: the layer requirement is enforced, so an out-of-range layer fails
+	// (an engine-model rule would be exempt — ISSUE-032 CLM-004).
+	m.Content.Ruleset.Rules[0].Engine = ""
 	m.Content.Ruleset.Rules[0].Layer = 9
 	if packval.RunLayer(m, makePackDir(t)).Status != "fail" {
 		t.Fatal("fail")

@@ -32,11 +32,38 @@ type PackInfo struct {
 	ScaffoldCount int    `json:"scaffold_count"`
 }
 
-// listManifest is a minimal pack.yml for list metadata extraction.
+// listManifest is a minimal pack.yml for list metadata extraction. Modern engine
+// packs nest their rules under content.ruleset.rules (SPEC-031); legacy packs used a
+// top-level rules:. Both shapes are decoded so RuleCount is real, not always 0
+// (ISSUE-032 Defect D / CLM-008).
 type listManifest struct {
 	Archetype string        `yaml:"archetype"`
 	Rules     []interface{} `yaml:"rules"`
 	Scaffolds []interface{} `yaml:"scaffolds"`
+	Content   struct {
+		Ruleset struct {
+			Rules []interface{} `yaml:"rules"`
+		} `yaml:"ruleset"`
+		Scaffolds []interface{} `yaml:"scaffolds"`
+	} `yaml:"content"`
+}
+
+// ruleCount returns the modern content.ruleset.rules count, falling back to the
+// legacy top-level rules: for older packs (CLM-008).
+func (m *listManifest) ruleCount() int {
+	if n := len(m.Content.Ruleset.Rules); n > 0 {
+		return n
+	}
+	return len(m.Rules)
+}
+
+// scaffoldCount returns the modern content.scaffolds count, falling back to the
+// legacy top-level scaffolds:.
+func (m *listManifest) scaffoldCount() int {
+	if n := len(m.Content.Scaffolds); n > 0 {
+		return n
+	}
+	return len(m.Scaffolds)
 }
 
 // List implements the pack list command: reads backstop.yml and backstop.lock,
@@ -84,8 +111,8 @@ func List(opts ListOptions) (*ListResult, error) {
 		packDir := filepath.Join(opts.ProjectDir, ".backstop", "packs", filepath.FromSlash(ref))
 		if manifest, readErr := readListManifest(packDir); readErr == nil {
 			info.Archetype = manifest.Archetype
-			info.RuleCount = len(manifest.Rules)
-			info.ScaffoldCount = len(manifest.Scaffolds)
+			info.RuleCount = manifest.ruleCount()
+			info.ScaffoldCount = manifest.scaffoldCount()
 		}
 
 		result.Packs = append(result.Packs, info)
@@ -119,6 +146,12 @@ func computeLockStatus(projectDir, ref, version string, entry LockEntry) string 
 	}
 
 	if hash == entry.ContentHash {
+		// A local-source pack whose installed content matches its lock entry is
+		// "current" — the authoring-loop word (ISSUE-032 Defect D / CLM-008), refreshed
+		// by `pack relock`. A git-source pack keeps the pinned-version "locked" word.
+		if entry.SourceType == "local" {
+			return "current"
+		}
 		return "locked"
 	}
 	return "stale"

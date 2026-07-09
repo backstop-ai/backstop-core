@@ -203,13 +203,24 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 		sb.WriteString(fmt.Sprintf("title: %q\n", title))
 		sb.WriteString(fmt.Sprintf("number: BUNDLE-%s\n", id))
 		sb.WriteString(fmt.Sprintf("created: %q\n", date))
-		sb.WriteString("schema_version: bundle/v1\n")
+		// bundle/v2 (ISSUE-032 Defect E / CLM-009): the scaffolder builds a numbered
+		// BUNDLE-NNN-<slug>.bundle.md filename that ONLY bundle/v2's filename_pattern
+		// accepts (v1's pattern rejects the numbered prefix), so a freshly scaffolded
+		// bundle must stamp v2 to validate against the schema its filename requires.
+		sb.WriteString("schema_version: bundle/v2\n")
 		sb.WriteString("\n")
 		sb.WriteString("bundle:\n")
 		sb.WriteString(fmt.Sprintf("  name: %s\n", slug))
-		sb.WriteString("  version: \"1.0.0\"\n")
+		// version 0.1.0 keeps a fresh scaffold valid without an `updated` field (the v2
+		// schema requires bundle.updated only beyond 0.1.0); category is a v2-enum value
+		// (v1's `idea` is not in the v2 enum). A scaffolded bundle starts at `exploring`
+		// (ISSUE-032 Defect E / CLM-009 — a fresh numbered bundle validates against v2).
+		sb.WriteString("  version: \"0.1.0\"\n")
 		sb.WriteString(fmt.Sprintf("  created: %q\n", date))
-		sb.WriteString("  category: idea\n")
+		sb.WriteString("  category: feature\n")
+		sb.WriteString("\n")
+		sb.WriteString("status:\n")
+		sb.WriteString("  maturity: exploring\n")
 
 	case "capability":
 		sb.WriteString(fmt.Sprintf("# Capability: %s\n", title))
@@ -234,6 +245,12 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 		// Plan uses YAML phases, not markdown
 		sb.WriteString("\nphases: []\n")
 	} else {
+		if artifactType == "bundle" {
+			// base/title-required reads the artifact title from the body H1 heading
+			// (art.Title), not the frontmatter title: key — so a fresh numbered bundle
+			// needs an H1 to validate against bundle/v2 (ISSUE-032 Defect E / CLM-009).
+			sb.WriteString(fmt.Sprintf("\n# %s\n", title))
+		}
 		for _, section := range cfg.BodySections {
 			sb.WriteString(fmt.Sprintf("\n## %s\n", section))
 		}

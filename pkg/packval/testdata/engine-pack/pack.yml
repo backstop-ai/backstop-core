@@ -1,0 +1,63 @@
+name: acme/engine-pack
+version: 1.0.0
+# NON-Go language on purpose: the harness bakes no language gate. This fixture's
+# job is to exercise the engines: block STRING enum parse (B0) plus the phase5/
+# phase2 engine-model exemptions (B1/B2) with go-toolchain's REAL string spellings
+# (scope_kind: project-wide, category: mechanism, gate_type: build/coverage/test/
+# lint, input_mode: none). Every string here previously died at phase1 with an
+# int-enum unmarshal error.
+language: generic
+archetype: enforcement
+description: "Engine-model pack fixture exercising the engines-block string-enum parse and the layer/claims exemptions."
+engines:
+  # Mechanism build engine mirroring go-build: input_mode none + project-wide +
+  # category mechanism + gate_type build + crash_guard + exempt_from_scope_filter.
+  mybuild:
+    command: mytool build
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    gate_type: build
+    crash_guard: true
+    exempt_from_scope_filter: true
+  # Mechanism coverage engine mirroring go-coverage: gate_type coverage.
+  mycoverage:
+    command: mytool test -cover
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    gate_type: coverage
+  # Config-file lint engine mirroring golangci: input_mode config-file + strict_sarif.
+  mylint:
+    command: mylinter run
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    strict_sarif: true
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      # (a) engine rule WITH claims + positive/negative fixtures but NO layer:
+      # exercises the phase5 layer exemption (B1). Its engine resolves (mylint,
+      # declared above).
+      - id: claimed-engine-rule
+        engine: mylint
+        file: rules/sample.yml
+        risk_class: correctness
+        claims:
+          - id: C1
+            fixtures:
+              positive:
+                - fixtures/valid/sample-ok.go
+              negative:
+                - fixtures/invalid/sample-bad.go
+      # (b) claimless engine rule with a resolvable engine and NO claims / NO layer:
+      # exercises the phase2 no-claims exemption (B2). Its engine resolves (mybuild).
+      - id: mechanism-engine-rule
+        engine: mybuild
+        risk_class: correctness

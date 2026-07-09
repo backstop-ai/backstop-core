@@ -181,14 +181,23 @@ func TestArtifactNew_Frontmatter_DefaultStatusOpen(t *testing.T) {
 	}
 }
 
-func TestArtifactNew_Frontmatter_DefaultMaturityIdea(t *testing.T) {
+// TestArtifactNew_Bundle_ExploringDefaults proves the fresh bundle stamps a v2-valid
+// body: a v2-enum category (the retired v1 `idea` category is gone) and an exploring
+// maturity, so it validates against bundle/v2 (ISSUE-032 Defect E / CLM-009).
+func TestArtifactNew_Bundle_ExploringDefaults(t *testing.T) {
 	content, err := Scaffold("bundle", "001", "test", "2026-04-04", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	s := string(content)
-	if !strings.Contains(s, "category: idea") {
-		t.Error("bundle maturity should default to idea")
+	if !strings.Contains(s, "category: feature") {
+		t.Error("bundle should default to a v2-enum category (feature)")
+	}
+	if strings.Contains(s, "category: idea") {
+		t.Error("bundle must NOT use the retired v1 category 'idea'")
+	}
+	if !strings.Contains(s, "maturity: exploring") {
+		t.Error("bundle should start at maturity exploring")
 	}
 }
 

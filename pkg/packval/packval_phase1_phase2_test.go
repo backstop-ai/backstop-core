@@ -296,6 +296,10 @@ func TestPackVal_P1_ValidRiskClassPerf(t *testing.T) {
 
 func TestPackVal_P2_RuleNoClaims(t *testing.T) {
 	m := baseManifest()
+	// Clear the engine so the has-claims requirement is ENFORCED: a claimless rule with
+	// a resolvable engine is now exempt (ISSUE-032 CLM-005), so this test exercises the
+	// non-exempt (no-engine) path where missing claims still fails.
+	m.Content.Ruleset.Rules[0].Engine = ""
 	m.Content.Ruleset.Rules[0].Claims = nil
 	if packval.RunCoherence(m, makePackDir(t)).Status != "fail" {
 		t.Fatal("expected fail")

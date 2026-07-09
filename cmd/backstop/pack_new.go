@@ -27,7 +27,7 @@ func newPackNewCommandWithRoot(projectRoot string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "new",
 		Short:         "Scaffold a new enforcement pack",
-		Long:          "Creates a new rule pack or code pack with language-specific templates and auto-assigned numbering.",
+		Long:          "Creates a new engine, mechanism, or toolchain pack: a valid pack.yml with a declared engines: block and a sample rule that passes pack check, pack test, and the gate.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -36,7 +36,7 @@ func newPackNewCommandWithRoot(projectRoot string) *cobra.Command {
 				return &ExitCodeError{Code: ExitConfigError, Message: "missing required flag: --type"}
 			}
 			if !pack.ValidPackTypes[typeFlag] {
-				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("invalid pack type: %q (must be rule or code)", typeFlag)}
+				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("invalid pack type: %q (must be engine, mechanism, or toolchain)", typeFlag)}
 			}
 
 			// Validate --language
@@ -55,22 +55,13 @@ func newPackNewCommandWithRoot(projectRoot string) *cobra.Command {
 				return &ExitCodeError{Code: ExitConfigError, Message: err.Error()}
 			}
 
-			// Resolve number for rule packs
-			number := 0
-			if typeFlag == "rule" {
-				var err error
-				number, err = pack.ResolvePackNumber(languageFlag, projectRoot)
-				if err != nil {
-					return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("resolving pack number: %s", err)}
-				}
-			}
-
-			// Delegate scaffolding to pkg/pack
+			// Delegate scaffolding to pkg/pack. Engine packs are named by slug, not
+			// auto-numbered — the retired ResolvePackNumber scan of standards/ is gone
+			// (ISSUE-032 Defect A / ISSUE-030 fold).
 			result, err := pack.ScaffoldPack(pack.ScaffoldOptions{
 				Type:        typeFlag,
 				Language:    languageFlag,
 				Slug:        slugFlag,
-				Number:      number,
 				ProjectRoot: projectRoot,
 			})
 			if err != nil {
@@ -92,7 +83,7 @@ func newPackNewCommandWithRoot(projectRoot string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&typeFlag, "type", "", "Pack type: rule or code")
+	cmd.Flags().StringVar(&typeFlag, "type", "", "Pack type: engine, mechanism, or toolchain")
 	cmd.Flags().StringVar(&languageFlag, "language", "", "Target language (e.g., go, typescript)")
 	cmd.Flags().StringVar(&slugFlag, "slug", "", "Human-readable pack name (kebab-case, 2-64 chars)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results as structured JSON")

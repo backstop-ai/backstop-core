@@ -28,7 +28,20 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 		}
 		ruleIDs[rule.ID] = true
 		if len(rule.Claims) == 0 {
-			res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "claims", Rule: rule.ID, Message: "rule has no claims"})
+			// Mechanism engine-model rules (go-toolchain's build/test/coverage) carry an
+			// engine and no claims. Exempt a claimless rule from the no-claims error ONLY
+			// when its declared engine RESOLVES to a real binding. An unknown engine fails
+			// LOUD naming it, and an EMPTY engine is never exempted — the exemption is not
+			// a free escape hatch a bogus engine can dodge (B-GUARD / CLM-013). This
+			// resolve gate lives in phase2, which CHECK mode runs, so it is not deferred to
+			// phase3.
+			if rule.Engine != "" {
+				if _, err := resolveEngine(pack, rule.Engine); err != nil {
+					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "engine-resolve", Rule: rule.ID, Message: err.Error()})
+				}
+			} else {
+				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "claims", Rule: rule.ID, Message: "rule has no claims"})
+			}
 		}
 		for _, claim := range rule.Claims {
 			if claimIDs[claim.ID] {

@@ -427,3 +427,74 @@ func TestPackList_ManifestMissing(t *testing.T) {
 		t.Error("expected empty archetype when manifest is missing")
 	}
 }
+
+// installListPack writes backstop.yml + an installed pack.yml + a matching lockfile
+// entry, and returns the project dir. sourceType selects git/local.
+func installListPack(t *testing.T, packYml, sourceType, versionField string) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "backstop.yml"),
+		"packs:\n  acme/modern-pack: "+versionField+"\n")
+	packDir := filepath.Join(dir, ".backstop", "packs", "acme", "modern-pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(packDir, "pack.yml"), packYml)
+	hash, _ := distribution.ComputeContentHash(packDir)
+	lf := &distribution.Lockfile{Packs: map[string]distribution.LockEntry{
+		"acme/modern-pack": {
+			Name: "acme/modern-pack", ContentHash: hash, SourceType: sourceType,
+			InstallDate: "2026-01-01T00:00:00Z",
+		},
+	}}
+	if err := distribution.WriteLockfile(filepath.Join(dir, "backstop.lock"), lf); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestPackList_RuleCountFromContentRuleset (ISSUE-032 Defect D / CLM-008): a modern
+// pack nesting its rules under content.ruleset.rules yields a real RuleCount, not 0.
+func TestPackList_RuleCountFromContentRuleset(t *testing.T) {
+	modern := "name: acme/modern-pack\nversion: 1.0.0\nlanguage: go\narchetype: enforcement\n" +
+		"content:\n  ruleset:\n    rules:\n      - id: a\n        risk_class: style\n      - id: b\n        risk_class: style\n"
+	projectDir := installListPack(t, modern, "git", "\"1.0.0\"")
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if result.Packs[0].RuleCount != 2 {
+		t.Errorf("RuleCount = %d, want 2 (from content.ruleset.rules)", result.Packs[0].RuleCount)
+	}
+}
+
+// TestPackList_RuleCountLegacyTopLevel guards the fallback: a legacy pack with
+// top-level rules: is still counted (CLM-008).
+func TestPackList_RuleCountLegacyTopLevel(t *testing.T) {
+	legacy := "name: acme/modern-pack\nversion: 1.0.0\narchetype: rule-pack\n" +
+		"rules:\n  - id: RULE-001\n  - id: RULE-002\n  - id: RULE-003\n"
+	projectDir := installListPack(t, legacy, "git", "\"1.0.0\"")
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if result.Packs[0].RuleCount != 3 {
+		t.Errorf("RuleCount = %d, want 3 (legacy top-level rules fallback)", result.Packs[0].RuleCount)
+	}
+}
+
+// TestPackList_LocalPackUnchangedIsCurrent (ISSUE-032 Defect D / CLM-008): a
+// local-source pack whose installed content matches its lock entry reads "current",
+// not "stale".
+func TestPackList_LocalPackUnchangedIsCurrent(t *testing.T) {
+	modern := "name: acme/modern-pack\nversion: 1.0.0\nlanguage: go\narchetype: enforcement\n" +
+		"content:\n  ruleset:\n    rules:\n      - id: a\n        risk_class: style\n"
+	projectDir := installListPack(t, modern, "local", "local")
+	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if got := result.Packs[0].LockStatus; got != "current" {
+		t.Errorf("LockStatus = %q, want %q for an unchanged local pack", got, "current")
+	}
+}

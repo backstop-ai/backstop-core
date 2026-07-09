@@ -2,9 +2,9 @@
 title: "SPEC-011: Pack New — Rule Pack and Code Pack Scaffolding"
 number: SPEC-011
 created: "2026-04-04"
-status: draft
+status: deprecated
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.2.0
 
 implementation:
   summary: >
@@ -398,9 +398,6 @@ contracts:
       - source: pkg/pack
         name: ScaffoldPack
         kind: function
-      - source: pkg/pack
-        name: ResolvePackNumber
-        kind: function
       - source: encoding/json
         name: MarshalIndent
         kind: function
@@ -423,15 +420,33 @@ contracts:
       - name: ValidPackTypes
         kind: variable
         signature: "var ValidPackTypes map[string]bool"
-        notes: "Registry of valid pack types: rule, code"
+        notes: >
+          Registry of valid pack types. ISSUE-032 (Defect A, folding ISSUE-030)
+          RETIRED the native-standards `rule`/`code` types (which emitted a
+          `.standard.md` / `.recipe.md` compiled by the deleted standards
+          compiler); the live values are the engine-model shapes engine,
+          mechanism, and toolchain. The symbol itself SURVIVES (it is not deleted)
+          — only its membership changed — so this remains a PRESENCE contract.
     consumes: []
 
   - file: pkg/pack/number.go
     provides:
       - name: ResolvePackNumber
         kind: function
+        absent: true
         signature: "func ResolvePackNumber(language string, projectRoot string) (int, error)"
-        notes: "Scans standards/<language>/ for existing standards and returns the next available number"
+        notes: >
+          ABSENCE assertion (absent: true): this entry asserts ResolvePackNumber
+          is GONE from pkg/pack/number.go and fails if it reappears (a deletion
+          regression guard, mirrored by TestScaffolder_ResolvePackNumberDeleted).
+          The signature value is documentary only — the gate ignores it for an
+          absent entry; the schema requires a non-empty signature on every
+          provides entry.
+          ISSUE-032 (Defect A, folding ISSUE-030) DELETED this symbol: it scanned
+          `standards/<language>/` to auto-number a native-standards artifact — a
+          concept the 2026-06-16 packs-only decision retired. Engine packs are
+          named by slug (local/<slug>), not numbered, so there is no number to
+          resolve. See the lineage tombstone in pkg/pack/scaffold.go.
       - name: ValidateLanguage
         kind: function
         signature: "func ValidateLanguage(language string) error"
@@ -640,3 +655,56 @@ temporary directories for filesystem operations.
 - STD-GO-001: Example standard file structure (template reference)
 - ADR-0008: CLI as agent API
 - D-069: CLI as universal agent API
+
+## Version History
+
+- **1.0.0** (2026-04-04) — Initial spec: `backstop pack new` scaffolding for the
+  native-standards `rule`/`code` pack types (`.standard.md` / `.recipe.md`
+  templates, `standards/<language>/` numbering).
+- **1.1.0** (2026-07-08) — Contract reconciliation with **ISSUE-032** (the pack-CLI
+  authoring-loop reboot, folding ISSUE-030), which replaced the native-standards
+  scaffolder with the engine-pack scaffolder. Two `provides`/`consumes` contract
+  entries were stranded and failed the gate `contract_signature` step; reconciled
+  to match the live source (no other contract entry touched):
+  (1) **`ResolvePackNumber` deleted → absence assertion.** ISSUE-032 removed
+  `func ResolvePackNumber` from `pkg/pack/number.go` (the `standards/<language>/`
+  numbering scan the packs-only substrate retired — engine packs are slug-named,
+  not numbered). Its `pkg/pack/number.go` `provides` entry was converted from a
+  present-signature contract to `absent: true` (maps to `ContractEntry.Absent` per
+  `pkg/gate/step_contract.go` — passes when the symbol is gone, fails if it
+  reappears), plus a documentary `signature` (the schema requires a non-empty
+  signature on every `provides` entry; the gate ignores it for an absent entry).
+  The stale `consumes` reference to `pkg/pack.ResolvePackNumber` in the
+  `cmd/backstop/pack_new.go` block was removed (the reworked command no longer
+  calls it). Mirrored by `TestScaffolder_ResolvePackNumberDeleted`.
+  (2) **`ValidPackTypes` repurposed, NOT deleted → notes refresh only.** The
+  `var ValidPackTypes map[string]bool` symbol SURVIVES in `pkg/pack/scaffold.go`;
+  ISSUE-032 only changed its membership from the retired `rule`/`code` types to the
+  engine-model shapes `engine`/`mechanism`/`toolchain`. Because the symbol and its
+  type are unchanged, this stays a PRESENCE contract — only the stale `notes` were
+  corrected. Converting it to `absent: true` would have wrongly tripped the
+  deletion guard on a live symbol.
+  No requirement or claim text is changed; the Implementation-section prose still
+  describes the pre-reboot `rule`/`code` behavior and is superseded by ISSUE-032's
+  engine-pack scaffolder.
+- **1.2.0** (2026-07-08) — **SPEC-011 DEPRECATED (terminal).** The 1.1.0 contract
+  reconciliation surfaced that the supersession is not limited to two contracts:
+  this spec's ENTIRE claims/tests surface (CLM-001..029 —
+  `TestPackNew_ValidType_Rule`/`_Code`, `RulePack_CreatesStandardFile`,
+  `CodePack_*`, `NumberAssign_*`, `Output_JSON`, etc.) verifies the OLD pack-new
+  behavior — `rule`/`code` types, `.standard.md` / `.recipe.md` scaffolding, and
+  `ResolvePackNumber`'s `standards/<language>/` numbering — which **ISSUE-032** (the
+  pack-CLI engine-model authoring-loop reboot, folding ISSUE-030) rebooted and
+  DELETED. With that surface gone, `test_verification` flags all mandated tests as
+  ABSENT once the spec is in diff scope; the honest resolution is to retire the
+  spec, not to leave phantom-test claims. Status set to `deprecated` (retired
+  terminal, per the spec status enum: "superseded without a single named
+  successor") — which excludes SPEC-011 from `test_verification`, `contract_signature`,
+  and drift enforcement. `deprecated` NOT `replaced`: pack-new was rebooted by an
+  ISSUE, not a 1:1 successor spec — the new engine-pack `pack new` behavior is
+  specified/verified by **ISSUE-032 / PLAN-ISSUE-032**, which carries the new
+  claims/tests. The body (requirements, claims, prose) is intentionally RETAINED as
+  the historical record of the pre-reboot behavior; the terminal status alone
+  excludes it from enforcement. The 1.1.0 contract reconciliations
+  (`ResolvePackNumber` `absent: true`, `ValidPackTypes` notes) are kept — accurate,
+  though moot under deprecation.

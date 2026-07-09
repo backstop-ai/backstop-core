@@ -1,0 +1,17 @@
+name: acme/bad-engine
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: "Vacuous-green GUARD fixture: an unknown engine and an empty engine must FAIL check+test, never be silently exempted from the layer/claims requirements."
+content:
+  ruleset:
+    rules:
+      # Unknown engine: resolveEngine fails, naming "totally-bogus". No file, no
+      # claims, no layer — it must NOT slip through the engine-model exemptions.
+      - id: bogus-engine-rule
+        engine: totally-bogus
+        risk_class: correctness
+      # Empty engine: never exempted. With no claims and no layer it fails the
+      # standard requirements loudly — the exemption is not a free escape hatch.
+      - id: empty-engine-rule
+        risk_class: correctness
