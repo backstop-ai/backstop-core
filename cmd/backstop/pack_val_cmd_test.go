@@ -21,7 +21,7 @@ func TestPackVal_PackCheckCommand_Exists(t *testing.T) {
 // phase1 failure — as text, no leading brace.)
 func TestPackVal_PackCheckCommand_DefaultText(t *testing.T) {
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "pack", "check")
+	out, _ := executeCommand(root, "pack", "check") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Fatalf("expected text default, got JSON: %s", out)
 	}
@@ -29,7 +29,7 @@ func TestPackVal_PackCheckCommand_DefaultText(t *testing.T) {
 
 func TestPackVal_PackCheckCommand_TextFormat(t *testing.T) {
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "pack", "check", "--format", "text")
+	out, _ := executeCommand(root, "pack", "check", "--format", "text") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if !strings.Contains(out, "status:") {
 		t.Fatal("expected text output")
 	}
@@ -77,6 +77,53 @@ content:
 	}
 }
 
+// TestPackVal_PackCheckCommand_PathArg proves `pack check <pack-dir>` validates the pack at
+// the GIVEN path from a DIFFERENT cwd — the real post-`pack new` flow (ISSUE-049). The
+// ISSUE-032 e2e missed this by cd-ing into the pack dir (cmd.Dir=packDir), so the arg was
+// never exercised. Here we stay in the parent dir and address the pack by path.
+func TestPackVal_PackCheckCommand_PathArg(t *testing.T) {
+	parent := t.TempDir()
+	pack := filepath.Join(parent, "mypack")
+	writeFileForTest(t, pack, "rules/r1.yml", "rules: []")
+	writeFileForTest(t, pack, "fixtures/p.go", "package p")
+	writeFileForTest(t, pack, "fixtures/n.go", "package p")
+	writeFileForTest(t, pack, "pack.yml", `
+name: acme/example
+version: 1.0.0
+language: go
+archetype: enforcement
+content:
+  ruleset:
+    rules:
+      - id: R1
+        file: rules/r1.yml
+        risk_class: style
+        layer: 1
+        claims:
+          - id: C1
+            fixtures:
+              positive: [fixtures/p.go]
+              negative: [fixtures/n.go]
+`)
+	cwd := chdirForTest(t, parent)
+	defer cwd()
+
+	// Valid pack addressed by path from the parent cwd → pass.
+	out, err := executeCommand(NewRootCommand(), "pack", "check", "./mypack", "--format", "json")
+	if err != nil || !strings.Contains(out, `"status": "pass"`) {
+		t.Fatalf("pack check ./mypack from parent: want pass err=%v out=%s", err, out)
+	}
+
+	// A bad path fails and the report names THE PATH (not the bare cwd), so it is actionable.
+	out, err = executeCommand(NewRootCommand(), "pack", "check", "./nonexistent", "--format", "json")
+	if err == nil {
+		t.Fatal("pack check ./nonexistent: expected error for missing pack")
+	}
+	if !strings.Contains(out, "nonexistent/pack.yml") {
+		t.Errorf("report should name the given path, got out=%s err=%v", out, err)
+	}
+}
+
 func TestPackVal_PackTestCommand_Exists(t *testing.T) {
 	root := NewRootCommand()
 	cmd, _, err := root.Find([]string{"pack", "test"})
@@ -101,7 +148,7 @@ content:
 	cwd := chdirForTest(t, dir)
 	defer cwd()
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "pack", "test")
+	out, _ := executeCommand(root, "pack", "test") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if !strings.Contains(out, "phase6-risk-class") {
 		t.Fatal("expected all phases")
 	}
@@ -111,7 +158,7 @@ content:
 // Defect C fix (ISSUE-032 CLM-007).
 func TestPackVal_PackTestCommand_DefaultText(t *testing.T) {
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "pack", "test")
+	out, _ := executeCommand(root, "pack", "test") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Fatalf("expected text default, got JSON: %s", out)
 	}
@@ -119,7 +166,7 @@ func TestPackVal_PackTestCommand_DefaultText(t *testing.T) {
 
 func TestPackVal_PackTestCommand_TextFormat(t *testing.T) {
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "pack", "test", "--format", "text")
+	out, _ := executeCommand(root, "pack", "test", "--format", "text") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if !strings.Contains(out, "status:") {
 		t.Fatal("expected text")
 	}
@@ -144,7 +191,7 @@ content:
 	defer chdirForTest(t, dir)()
 
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "--json", "pack", "check")
+	out, _ := executeCommand(root, "--json", "pack", "check") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if !strings.Contains(out, "{") {
 		t.Fatalf("expected JSON output under global --json, got: %s", out)
 	}
@@ -167,7 +214,7 @@ content:
 	defer chdirForTest(t, dir)()
 
 	root := NewRootCommand()
-	out, _ := executeCommand(root, "--json", "pack", "test")
+	out, _ := executeCommand(root, "--json", "pack", "test") // nosemgrep: go.core.no-ignored-errors — asserts on stdout; the command error is deliberately not the assertion here
 	if !strings.Contains(out, "{") {
 		t.Fatalf("expected JSON output under global --json, got: %s", out)
 	}
