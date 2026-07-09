@@ -50,6 +50,11 @@ type AddResult struct {
 	Version       string `json:"version"`
 	ContentHash   string `json:"content_hash"`
 	InstalledPath string `json:"installed_path"`
+	// AlreadyCurrent is true when the pack was already genuinely installed (materialized
+	// on disk AND recorded in the lock), so Add was an honest no-op rather than a
+	// re-install. It lets the CLI print a clear "already installed and up to date" message
+	// instead of a misleading error or a silent zero-output exit.
+	AlreadyCurrent bool `json:"already_current,omitempty"`
 }
 
 // backstopYml represents backstop.yml preserving all fields during read-modify-write.
@@ -127,9 +132,13 @@ func Add(packRef string, opts AddOptions) (*AddResult, error) {
 		gitRef = &ref
 	}
 
-	// Check if already installed.
-	if isPackInstalled(opts.ProjectDir, packName) {
-		return nil, fmt.Errorf("pack %s is already installed; use pack update or pack upgrade instead", packName)
+	// Distinguish DECLARED from INSTALLED. Manifest membership in backstop.yml is NOT
+	// enough: a pack is genuinely installed-and-current only when it is materialized on
+	// disk AND recorded in the lock. When it IS current, honestly report a no-op; when it
+	// is declared-but-absent (or the lock diverged), fall through to the materialize/lock
+	// pipeline below and actually install it.
+	if isPackInstalledAndCurrent(opts.ProjectDir, packName) {
+		return &AddResult{PackName: packName, AlreadyCurrent: true}, nil
 	}
 
 	if !isLocal {
@@ -321,6 +330,31 @@ func isPackInstalled(projectDir, packName string) bool {
 
 	_, exists := yml.Packs[packName]
 	return exists
+}
+
+// isPackInstalledAndCurrent reports whether a pack is genuinely installed and current:
+// its artifact is MATERIALIZED on disk (.backstop/packs/<name>/ exists AND is non-empty)
+// AND backstop.lock holds an entry for that name. Manifest membership in backstop.yml
+// alone does NOT count — a declared-but-absent pack, an empty materialized dir, or one
+// whose lock entry is missing/diverged is NOT installed-and-current and must be
+// (re)installed. Read/stat errors are treated explicitly as "not current" so Add proceeds
+// to install rather than silently swallowing the condition.
+func isPackInstalledAndCurrent(projectDir, packName string) bool {
+	packDir := filepath.Join(projectDir, ".backstop", "packs", packName)
+	entries, err := os.ReadDir(packDir)
+	if err != nil || len(entries) == 0 {
+		// Missing or empty materialized dir ⇒ not installed on disk.
+		return false
+	}
+
+	lf, err := ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	if err != nil || lf == nil {
+		// Missing/unreadable lock ⇒ not current.
+		return false
+	}
+
+	_, ok := lf.Packs[packName]
+	return ok
 }
 
 // updateBackstopYml adds a pack entry to backstop.yml.

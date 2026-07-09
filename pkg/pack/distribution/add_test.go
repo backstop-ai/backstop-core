@@ -519,22 +519,128 @@ func TestPackAdd_SkipsSDKDependencies(t *testing.T) {
 	}
 }
 
-func TestPackAdd_AlreadyInstalledExitsNonZero(t *testing.T) {
+// TestPackAdd_DeclaredButNotMaterializedInstalls realigns the former
+// TestPackAdd_AlreadyInstalledExitsNonZero (which ENCODED the ISSUE-026 defect: it
+// declared a pack in backstop.yml with nothing on disk and asserted Add ERRORED with
+// "already installed"). That is exactly the false equivalence — declared but not
+// materialized must now PROCEED to a real install, not short-circuit. (CLM-001, CLM-002)
+func TestPackAdd_DeclaredButNotMaterializedInstalls(t *testing.T) {
 	projectDir := setupAddProject(t)
 
-	// Write backstop.yml with the pack already listed.
+	absPath := mustAbs(t, filepath.Join("testdata", "local-pack"))
+	packName := "internal/local-rules"
+
+	// Declare the pack in backstop.yml, but do NOT materialize it on disk.
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
-		"packs:\n  acme/valid-pack: \"1.0.0\"\n")
+		"packs:\n  "+packName+": local\n")
 
-	opts := newTestAddOptions(projectDir)
-
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
-	if err == nil {
-		t.Fatal("expected error for already-installed pack")
+	opts := distribution.AddOptions{
+		ProjectDir: projectDir,
+		Validator:  &mockValidator{},
 	}
 
-	if !strings.Contains(err.Error(), "already installed") {
-		t.Errorf("error should mention 'already installed', got: %v", err)
+	result, err := distribution.Add(absPath, opts)
+	if err != nil {
+		t.Fatalf("declared-but-absent pack should install, got error: %v", err)
+	}
+	if result.AlreadyCurrent {
+		t.Error("declared-but-absent pack should not report AlreadyCurrent")
+	}
+
+	// Materialized on disk with a representative file.
+	installed := filepath.Join(projectDir, ".backstop", "packs", packName)
+	if _, statErr := os.Stat(filepath.Join(installed, "pack.yml")); statErr != nil {
+		t.Errorf("pack.yml not materialized on disk: %v", statErr)
+	}
+
+	// Lock entry written.
+	lf := mustReadLock(t, filepath.Join(projectDir, "backstop.lock"))
+	if _, ok := lf.Packs[packName]; !ok {
+		t.Errorf("lock entry not written for %q", packName)
+	}
+}
+
+// TestPackAdd_EmptyMaterializedDirIsNotCurrent asserts CLM-001: an EMPTY
+// .backstop/packs/<name>/ dir does NOT count as installed — Add proceeds to
+// materialize real content.
+func TestPackAdd_EmptyMaterializedDirIsNotCurrent(t *testing.T) {
+	projectDir := setupAddProject(t)
+	absPath := mustAbs(t, filepath.Join("testdata", "local-pack"))
+	packName := "internal/local-rules"
+
+	// Empty materialized dir + declared in yml, but no real content, no lock.
+	if err := os.MkdirAll(filepath.Join(projectDir, ".backstop", "packs", packName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  "+packName+": local\n")
+
+	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
+	result, err := distribution.Add(absPath, opts)
+	if err != nil {
+		t.Fatalf("empty-dir pack should install, got error: %v", err)
+	}
+	if result.AlreadyCurrent {
+		t.Error("empty materialized dir should not report AlreadyCurrent")
+	}
+	if _, statErr := os.Stat(filepath.Join(projectDir, ".backstop", "packs", packName, "pack.yml")); statErr != nil {
+		t.Errorf("pack.yml not materialized on disk: %v", statErr)
+	}
+}
+
+// TestPackAdd_DivergedLockIsNotCurrent asserts CLM-001: a pack whose disk dir exists and
+// is non-empty but has NO matching backstop.lock entry (diverged/missing) is NOT
+// installed-and-current — Add proceeds and writes the lock entry.
+func TestPackAdd_DivergedLockIsNotCurrent(t *testing.T) {
+	projectDir := setupAddProject(t)
+	absPath := mustAbs(t, filepath.Join("testdata", "local-pack"))
+	packName := "internal/local-rules"
+
+	// Non-empty materialized dir, but no lock entry for this pack.
+	writeFile(t, filepath.Join(projectDir, ".backstop", "packs", packName, "stale.txt"), "stale")
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
+		"packs:\n  "+packName+": local\n")
+
+	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
+	result, err := distribution.Add(absPath, opts)
+	if err != nil {
+		t.Fatalf("diverged-lock pack should install, got error: %v", err)
+	}
+	if result.AlreadyCurrent {
+		t.Error("pack with no lock entry should not report AlreadyCurrent")
+	}
+	lf := mustReadLock(t, filepath.Join(projectDir, "backstop.lock"))
+	if _, ok := lf.Packs[packName]; !ok {
+		t.Errorf("lock entry not written for diverged pack %q", packName)
+	}
+}
+
+// TestPackAdd_GenuinelyInstalledReportsAlreadyCurrent asserts CLM-003: when a pack is
+// genuinely materialized on disk AND has a consistent lock entry, a second Add is an
+// HONEST no-op — nil error, AddResult.AlreadyCurrent == true — not the old misleading
+// "already installed; use pack update" error and not a silent re-copy.
+func TestPackAdd_GenuinelyInstalledReportsAlreadyCurrent(t *testing.T) {
+	projectDir := setupAddProject(t)
+	absPath := mustAbs(t, filepath.Join("testdata", "local-pack"))
+	packName := "internal/local-rules"
+
+	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
+
+	// First add: genuinely materialize + lock.
+	if _, err := distribution.Add(absPath, opts); err != nil {
+		t.Fatalf("first Add: %v", err)
+	}
+
+	// Second add: honest no-op.
+	result, err := distribution.Add(absPath, opts)
+	if err != nil {
+		t.Fatalf("genuinely-installed pack should be an honest no-op, got error: %v", err)
+	}
+	if !result.AlreadyCurrent {
+		t.Error("genuinely-installed pack should report AlreadyCurrent == true")
+	}
+	if result.PackName != packName {
+		t.Errorf("PackName = %q, want %q", result.PackName, packName)
 	}
 }
 

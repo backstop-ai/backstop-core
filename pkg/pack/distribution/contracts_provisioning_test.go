@@ -23,7 +23,7 @@ func provRepoRoot(t *testing.T) string {
 		t.Fatalf("getwd: %v", err)
 	}
 	for i := 0; i < 8; i++ {
-		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil { // nosemgrep: backstop.packs.backstop.self.rules.no-baked-language-token — test walks up to the repo root by go.mod, not baked routing
 			return dir
 		}
 		dir = filepath.Dir(dir)
@@ -181,8 +181,11 @@ func TestInstallContractsLocalPack_ErrorPath(t *testing.T) {
 }
 
 // TestInstallContractsLocalPack_ReinstallExercisesInstalledPath installs the contracts
-// pack twice into the same workspace, exercising the already-installed + copy-over paths
-// of the Add machinery the contracts dogfood install relies on.
+// pack twice into the same workspace, exercising the already-installed-and-current branch
+// of the Add machinery the contracts dogfood install relies on. Realigned for ISSUE-026:
+// the first install genuinely materializes the pack on disk AND records the lock, so the
+// second install is an HONEST no-op (AddResult.AlreadyCurrent, nil error) — NOT the old
+// misleading "already installed" error, which conflated declared with installed.
 func TestInstallContractsLocalPack_ReinstallExercisesInstalledPath(t *testing.T) {
 	root := provRepoRoot(t)
 	ws := newProvWorkspace(t)
@@ -190,9 +193,14 @@ func TestInstallContractsLocalPack_ReinstallExercisesInstalledPath(t *testing.T)
 	if _, err := distribution.InstallContractsLocalPack(root, ws); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	// A second install over the same workspace hits the already-installed branch -> error.
-	if _, err := distribution.InstallContractsLocalPack(root, ws); err == nil {
-		t.Error("re-installing an already-installed pack must error (already-installed branch)")
+	// A second install over the same workspace hits the installed-and-current branch ->
+	// honest no-op, not an error.
+	res, err := distribution.InstallContractsLocalPack(root, ws)
+	if err != nil {
+		t.Fatalf("re-installing an already-current pack must be an honest no-op, got error: %v", err)
+	}
+	if !res.AlreadyCurrent {
+		t.Error("re-installing an already-current pack must report AlreadyCurrent")
 	}
 	// The declaration + lock remain consistent after re-install.
 	lf, err := distribution.ReadLockfile(filepath.Join(ws, "backstop.lock"))

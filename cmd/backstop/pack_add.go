@@ -1,9 +1,21 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
 	"github.com/spf13/cobra"
 )
+
+// formatAddedLine renders the pack-add success line. For a versionless (local) pack the
+// "@version" slot is omitted so there is no bare trailing `@`; a versioned pack renders
+// `<name>@<version>` as before.
+func formatAddedLine(name, version, hash string) string {
+	if version == "" {
+		return fmt.Sprintf("Added %s (hash: %s)", name, hash)
+	}
+	return fmt.Sprintf("Added %s@%s (hash: %s)", name, version, hash)
+}
 
 func newPackAddCommand(_ *bool) *cobra.Command {
 	var versionFlag string
@@ -26,7 +38,12 @@ func newPackAddCommand(_ *bool) *cobra.Command {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}
 
-			cmd.Printf("Added %s@%s (hash: %s)\n", result.PackName, result.Version, result.ContentHash)
+			if result.AlreadyCurrent {
+				cmd.Printf("Pack %s is already installed and up to date\n", result.PackName)
+				return nil
+			}
+
+			cmd.Println(formatAddedLine(result.PackName, result.Version, result.ContentHash))
 			return nil
 		},
 	}

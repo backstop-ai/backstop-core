@@ -1,0 +1,314 @@
+---
+plan_id: PLAN-ISSUE-026
+spec_id: ISSUE-026
+created: "2026-07-09"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./... && backstop gate"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-026 — `pack add <local-path>` conflates "the pack NAME is already
+  declared in backstop.yml" with "already installed and up to date" (a FALSE equivalence),
+  so a pack that is DECLARED but NOT materialized on disk (or whose lock is diverged/missing)
+  makes `pack add` short-circuit — no install, no lock update, no honest output — instead of
+  installing it. This is the last launch-critical piece of DIR-017 distribution work; its
+  sibling ISSUE-025 (commit 83fb200) already shipped the install materialization path, the
+  reusable `materializeLocalPack` helper, and `LockEntry.LocalPath`. Two downstream projects
+  are about to depend on `pack add`/install actually working, so the acceptance is a REAL
+  end-to-end against the CLI, not a stub. REUSE 025's work — do NOT reimplement materialization.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TREE VERIFICATION (read 2026-07-09 — current post-025 code, line numbers may drift)
+  ─────────────────────────────────────────────────────────────────────────────
+  THE DEFECT — pkg/pack/distribution/add.go:
+    • `isPackInstalled(projectDir, packName)` (~line 311) reads backstop.yml ONLY and returns
+      `_, exists := yml.Packs[packName]`. It keys off MANIFEST MEMBERSHIP, never checking
+      whether the pack is materialized on disk (`.backstop/packs/<name>/`) or whether the lock
+      has a consistent entry. So "declared" ⇒ "installed" — the false equivalence.
+    • The Add gate (~line 131): `if isPackInstalled(...) { return nil, fmt.Errorf("pack %s is
+      already installed; use pack update or pack upgrade instead", packName) }`. When the pack
+      is declared-but-absent-on-disk (or the lock diverged, as in the issue's `slotly/...` vs
+      `backstop/...` rename), this ERRORS/short-circuits instead of installing. The rest of the
+      Add pipeline below this gate ALREADY materializes correctly (copies packDir →
+      `.backstop/packs/<name>/` at ~line 166, records `LockEntry.LocalPath` post-025 at
+      ~line 261) — the ONLY thing standing between a declared-but-absent pack and a correct
+      install is this over-eager gate. So the fix is to make the gate HONEST, not to
+      reimplement the install/materialize (which 025 already made correct).
+
+  ADJACENT DEFECT — empty version on local-pack success (cmd/backstop/pack_add.go:29):
+    `cmd.Printf("Added %s@%s (hash: %s)\n", result.PackName, result.Version, result.ContentHash)`.
+    Local packs have no semver (the isLocal branch never sets `version`), so the success line
+    renders a bare trailing `@`: `Added backstop/go-standards@ (hash: ...)`. Fix is display-only:
+    omit the `@version` when the version is empty (versionless local pack).
+
+  ─────────────────────────────────────────────────────────────────────────────
+  FIX DESIGN (reuse 025; minimal, honest):
+    1. DISTINGUISH DECLARED FROM INSTALLED. Replace `isPackInstalled`'s manifest-membership
+       check with a real installed-and-current predicate: the pack is INSTALLED only when its
+       artifact is MATERIALIZED on disk (`.backstop/packs/<name>/` exists AND is non-empty) AND
+       backstop.lock has a consistent entry for that name. A declared-but-absent pack, or one
+       whose lock entry is missing/diverged, is NOT installed.
+    2. WHEN DECLARED-BUT-NOT-INSTALLED → INSTALL IT. Let Add proceed through its EXISTING
+       materialize/lock pipeline (which post-025 copies into `.backstop/packs/<name>/` and
+       records `LockEntry.LocalPath`) — do NOT early-return, do NOT reimplement materialization.
+       WHEN GENUINELY INSTALLED + CURRENT (on disk + lock consistent) → return an honest signal
+       (AddResult gains `AlreadyCurrent bool`, nil error) so the CLI prints a clear
+       "already installed and up to date" message; NEVER a silent zero-output exit 0 and NEVER
+       the misleading "use pack update/upgrade" error for a pack that is not actually on disk.
+    3. LOCAL-PACK SUCCESS LINE — omit the `@version` when version is empty (no bare `@`).
+
+  ─────────────────────────────────────────────────────────────────────────────
+  PREDATING-TEST REALIGNMENT (do this openly, do NOT work around it):
+    pkg/pack/distribution/add_test.go:522 `TestPackAdd_AlreadyInstalledExitsNonZero` ENCODES
+    THE DEFECT — it lists a pack in backstop.yml (NOT on disk) and asserts Add errors with
+    "already installed". Under the fix that exact scenario (declared-but-not-materialized) must
+    now PROCEED to install, not error. This stale test is realigned in TASK-001: the
+    declared-but-absent case asserts a real install (materialize + lock), and a NEW genuinely-
+    installed-and-current case asserts the honest no-op message. See MEMORY
+    [[feedback_align_predating_artifacts]].
+
+  ─────────────────────────────────────────────────────────────────────────────
+  ACCEPTANCE (launch bar — REAL e2e, not stubbed):
+    Reproduce the issue's exact scenario in a temp project: backstop.yml declares a local pack,
+    `.backstop/packs/` empty (or lock diverged) → run the REAL `pack add <local-path>` → assert
+    it MATERIALIZES the pack under `.backstop/packs/<name>/` (not a no-op), updates the lock,
+    and prints a NON-EMPTY success line. PLUS: a genuinely-installed-and-current pack → honest
+    "already installed" message (no silent no-op, no misleading error); the local-pack success
+    line has NO bare `@`. Proven in Phase 3 against the REAL CLI, plus per-behavior units.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  TOOLING NOTE: `backstop code check` was REMOVED from this repo (ISSUE-018) — do NOT prescribe
+    it. Middle-phase verification uses `go test` (package-scoped) against the REAL Add API and
+    pack CLI. The FINAL phase runs `backstop gate` (full kill chain over the .go changes:
+    build/lint/test/semgrep/coverage/contracts) + `backstop artifact validate` (covers this
+    plan artifact). All NEW code covered to 90%; errors handled explicitly (wrap with %w;
+    `_ =` for genuine fire-and-forget cleanup). Any NEW package-level regex/map var must carry
+    the `// nosemgrep: go.core.no-global-mutable-state` suppression the codebase uses (none is
+    anticipated here). If constructor-injection touches struct literals, note the go-standards
+    `.*cache.*`-regex false-positive quirk (hoist cache fields out of the literal) — not
+    expected to arise in this change.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  CLAIMS (this plan's own; issues carry no formal CLM-NNN):
+    CLM-001 — the installed-and-current predicate (formerly `isPackInstalled`) distinguishes
+              DECLARED from INSTALLED: it returns true ONLY when the pack is MATERIALIZED on
+              disk (`.backstop/packs/<name>/` exists AND is non-empty) AND backstop.lock holds a
+              consistent entry for that name — NOT on backstop.yml membership alone. A
+              declared-but-absent pack, or one whose lock entry is missing/diverged, is NOT
+              installed.
+    CLM-002 — when a pack is DECLARED-BUT-NOT-INSTALLED (absent on disk or lock diverged), Add
+              PROCEEDS through its existing materialize/lock pipeline (reusing 025's work —
+              copies into `.backstop/packs/<name>/`, records `LockEntry.LocalPath`) so the pack
+              dir + files genuinely land on disk and the lock is updated — never the old
+              short-circuit no-op / misleading "use pack update" error.
+    CLM-003 — when a pack is GENUINELY installed and current (on disk + lock consistent), Add
+              returns an HONEST signal (`AddResult.AlreadyCurrent`, nil error) instead of a
+              silent zero-output exit 0 or a misleading error; the predating
+              `TestPackAdd_AlreadyInstalledExitsNonZero` (which asserted the defect) is
+              realigned to the corrected behavior.
+    CLM-004 — the local-pack success line no longer renders a bare trailing `@`: for a
+              versionless local pack the `@version` is omitted (display-only, no behavior change).
+    CLM-005 — the `pack add` CLI surfaces the honest already-installed message for a
+              genuinely-current pack (never silent) and prints a real, non-empty Added line
+              (with the corrected version display) when it materializes a declared-but-absent
+              pack.
+    CLM-006 — REAL end-to-end against the CLI: a temp project declaring a local pack with
+              `.backstop/packs/` empty (or lock diverged) → real `pack add <local-path>`
+              MATERIALIZES the pack under `.backstop/packs/<name>/`, updates the lock, and
+              prints a non-empty success line; a genuinely-installed-and-current pack yields the
+              honest message (no silent no-op); the local success line has no bare `@`.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Distinguish declared-from-installed; install (not no-op) or honestly report already-installed"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: installed predicate keys off disk+lock (not manifest); Add installs declared-but-absent, honestly reports genuinely-current; realign the defect-encoding test"
+        description: |
+          Author the failing core-behavior tests in add_test.go (CLM-001, CLM-002, CLM-003)
+          AND realign the predating test that encodes the defect.
+          (1) Installed-and-current predicate (CLM-001): a pack declared in backstop.yml but
+          with NO `.backstop/packs/<name>/` on disk is NOT installed; a pack with an EMPTY
+          `.backstop/packs/<name>/` dir is NOT installed; a pack whose disk dir exists but has
+          NO matching backstop.lock entry (diverged/missing) is NOT installed; a pack that IS
+          materialized on disk (non-empty) AND has a consistent lock entry IS installed. Assert
+          via the observable Add outcome for each case (since the predicate is unexported).
+          (2) Declared-but-not-installed → INSTALLS (CLM-002): with backstop.yml already
+          declaring the pack name but `.backstop/packs/` empty (or the lock diverged), Add on
+          the LOCAL pack source PROCEEDS — after it returns, `.backstop/packs/<name>/` exists
+          with a representative file on disk, and the backstop.lock entry is written/updated
+          (populated LocalPath). No error, no short-circuit.
+          (3) Genuinely-installed-and-current → HONEST no-op (CLM-003): with the pack already
+          materialized on disk AND a consistent lock entry, Add returns nil error and
+          `AddResult.AlreadyCurrent == true` (does not re-copy / error). Assert AlreadyCurrent,
+          which does not exist yet — compile-red until TASK-002.
+          (4) REALIGN the predating test (CLM-003): rewrite
+          `TestPackAdd_AlreadyInstalledExitsNonZero` (add_test.go:522), which today lists a pack
+          in backstop.yml with nothing on disk and asserts Add ERRORS "already installed" — that
+          scenario is exactly the false equivalence and must now be a declared-but-absent →
+          INSTALLS assertion (folded into case 2) or removed in favor of the genuinely-installed
+          honest-message case. Do this openly per align-predating-artifacts — do not leave the
+          stale assertion to fight the fix.
+          These reference `AddResult.AlreadyCurrent` and the reworked predicate — the suite
+          fails until TASK-002 lands.
+        files:
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: rework the installed predicate to disk+lock; make Add install declared-but-absent packs and honestly signal genuinely-current"
+        description: |
+          Make TASK-001 pass (CLM-001, CLM-002, CLM-003), in add.go only.
+          (a) Rework the installed check (rename `isPackInstalled` → e.g.
+          `isPackInstalledAndCurrent(projectDir, packName)`): return true ONLY when
+          `.backstop/packs/<name>/` exists AND is non-empty on disk AND backstop.lock (via the
+          existing ReadLockfile) holds an entry for `packName`. Manifest membership alone no
+          longer counts. Handle read/stat errors explicitly (a missing dir / unreadable lock ⇒
+          not-current ⇒ proceed), no silent swallow (CLM-001).
+          (b) At the Add gate (~line 131), when the pack is genuinely installed-and-current,
+          return `&AddResult{PackName: packName, AlreadyCurrent: true}` with NIL error (honest
+          no-op) instead of the misleading "use pack update/upgrade" error. When it is NOT
+          installed-and-current (declared-but-absent or lock diverged), FALL THROUGH to the
+          existing materialize/lock pipeline unchanged — do NOT reimplement materialization;
+          it already copies into `.backstop/packs/<name>/` and records `LockEntry.LocalPath`
+          post-025 (CLM-002, CLM-003).
+          (c) Add `AlreadyCurrent bool` (json `already_current,omitempty`) to AddResult.
+          No new global mutable state; errors wrapped with %w where propagated.
+        files:
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+      - id: TASK-003
+        type: verification
+        title: "Verify core Add behavior (package-scoped)"
+        description: |
+          Run `go test ./pkg/pack/distribution/...` covering the reworked installed-and-current
+          predicate, the declared-but-absent → real-materialize path, the genuinely-current
+          honest no-op, and the realigned predating test (CLM-001, CLM-002, CLM-003). Confirms
+          the false equivalence is gone: declared no longer means installed, and a
+          declared-but-absent pack actually lands on disk.
+        files:
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+  - id: phase-2
+    name: "Phase 2: CLI surfaces the honest already-installed message and the corrected version display"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "RED: pack add CLI prints honest already-installed message and omits the bare @ for versionless local packs"
+        description: |
+          Author failing CLI tests in pack_add_test.go (CLM-004, CLM-005). Drive the real
+          `pack add` cobra command against a temp project.
+          (1) Version display (CLM-004): adding a LOCAL pack (versionless) prints a success line
+          with NO bare trailing `@` — assert the output contains the pack name but does not
+          contain `<name>@ ` (empty version slot). A git pack (with a version) STILL shows
+          `<name>@<version>` (guard against over-eager stripping).
+          (2) Honest already-installed (CLM-005): when Add reports AlreadyCurrent (pack already
+          materialized on disk + consistent lock), the command prints a clear
+          "already installed"-style message and exits 0 — NOT silent zero output, NOT a
+          non-zero error. When the pack is declared-but-absent, the command prints a real,
+          non-empty "Added ..." line. References the CLI branching added in TASK-005.
+        files:
+          - cmd/backstop/pack_add_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on: []
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: branch pack add output on AlreadyCurrent and fix the local-pack version display"
+        description: |
+          Make TASK-004 pass (CLM-004, CLM-005), in cmd/backstop/pack_add.go only. After
+          distribution.Add returns nil error: if `result.AlreadyCurrent`, print a clear
+          "Pack <name> is already installed and up to date" line (never silent). Otherwise print
+          the success line, but render the version conditionally — when `result.Version == ""`
+          (versionless local pack) print `Added <name> (hash: ...)` with NO bare `@`; when a
+          version is present print `Added <name>@<version> (hash: ...)` as today. Keep the
+          existing non-zero ExitViolations path on Add error. Errors handled explicitly.
+        files:
+          - cmd/backstop/pack_add.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-004
+      - id: TASK-006
+        type: verification
+        title: "Verify CLI surfacing + version display (package-scoped)"
+        description: |
+          Run `go test ./cmd/backstop/...` covering the honest already-installed message, the
+          real Added line for a declared-but-absent pack, and the corrected versionless-local
+          success line with no bare `@` (CLM-004, CLM-005). Confirms the user-facing surface no
+          longer shows the invisible no-op or the `Added <name>@` artifact.
+        files:
+          - cmd/backstop/pack_add_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-005
+  - id: phase-3
+    name: "Phase 3: Real end-to-end acceptance + full gate"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "RED: real pack add e2e — declared-but-absent materializes on disk; genuinely-current is an honest no-op; no bare @"
+        description: |
+          Author the launch-bar end-to-end acceptance test (CLM-006) driving the REAL CLI in a
+          NEW file, reproducing the issue's exact scenario. In a temp project: write a
+          backstop.yml DECLARING a local pack (name derived from the local pack source) with
+          `.backstop/packs/` EMPTY (and, as a second variant, a DIVERGED/missing lock entry) →
+          run the REAL `pack add <local-path>` → ASSERT `.backstop/packs/<name>/` now exists
+          with a representative rule file on disk (MATERIALIZED, not a no-op), backstop.lock is
+          updated with a consistent entry, and stdout contains a NON-EMPTY success line with NO
+          bare `@`. PLUS: run `pack add` again on the now genuinely-installed-and-current pack →
+          assert an HONEST "already installed" message on stdout, exit 0, and no error — never
+          silent zero output. Goes green only once TASK-002 and TASK-005 land.
+        files:
+          - cmd/backstop/pack_add_declared_e2e_test.go
+        claims:
+          - CLM-006
+        depends_on: []
+      - id: TASK-008
+        type: verification
+        title: "Full kill chain: go test -race, backstop gate, backstop artifact validate"
+        description: |
+          Final comprehensive verification covering both code and artifact work categories.
+          Run `go test ./... -race` (executes the real e2e acceptance + all unit suites and
+          enforces the 90% coverage threshold on new code). Run `backstop gate` on
+          backstop-core — the full chain over the .go changes (build/lint/test/semgrep/coverage/
+          contracts) must be GREEN. Run `backstop artifact validate` — covers this plan artifact
+          and confirms no artifact regressions. Proves the whole issue closed: declared ≠
+          installed (CLM-001), a declared-but-absent pack materializes on disk (CLM-002), a
+          genuinely-current pack is an honest no-op (CLM-003), the local success line has no
+          bare `@` (CLM-004), the CLI surfaces it all (CLM-005), and the real e2e passes
+          (CLM-006).
+        files:
+          - cmd/backstop/pack_add_declared_e2e_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-007
