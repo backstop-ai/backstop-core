@@ -5,10 +5,12 @@ created: "2026-07-09"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
   source:
     - "BUNDLE-013"
     - "ISSUE-050"
+  spec: "SPEC-049"
+  completed: "2026-07-10"
 ---
 
 ## Description
@@ -71,3 +73,16 @@ reporting) — all deliberately left for founder-driven resolution before any
 design decisions or spec seeds are committed. ISSUE-050 is a decided design
 (founder verbatim, 2026-07-09) but is explicitly blocked on BUNDLE-013
 landing an accountable escape valve before it implements.
+
+**Closed out 2026-07-10.** Both halves delivered in sequence as planned:
+
+- BUNDLE-013 resolved all 8 OQs and promoted exploring → defined
+  (`cbe83df`), then implemented via SPEC-049 (`eee4700`); bundle status is
+  `delivered`.
+- ISSUE-050 implemented after BUNDLE-013's escape valve landed
+  (`ba3169e`), closed via `delivered_by: PLAN-ISSUE-050` (`bd50aa8`).
+
+The ratchet-honesty theme (accountable waivers + strict file-level
+grandfathering revocation, on by default) is fully realized. No follow-on
+directive opened — any future waiver/ratchet work is new scope, not a
+reopening of this theme.
