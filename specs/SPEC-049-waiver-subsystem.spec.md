@@ -2,7 +2,7 @@
 title: "SPEC-049: Waiver Subsystem — Accountable, Engine-Neutral Suppression"
 number: SPEC-049
 created: "2026-07-09"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

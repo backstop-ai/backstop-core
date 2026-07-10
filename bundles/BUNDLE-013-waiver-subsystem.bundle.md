@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: waiver-subsystem
-  version: "0.2.0"
+  version: "0.3.0"
   created: "2026-07-09"
   updated: "2026-07-09"
   category: feature
 
 status:
-  maturity: defined
+  maturity: delivered
 
 problem:
   summary: >
@@ -503,6 +503,16 @@ Out-of-v1 follow-ons, captured so they are not lost:
   `solution.approach`, formal requirements REQ-001 through REQ-015, Draft
   Requirements and Spec Seeds (4 seeds), and Notes / Ideas follow-ons. Removed
   the now-resolved Open Questions section.
+
+- 0.3.0 (2026-07-09): Advanced to **delivered** (success-terminal). The bundle's
+  sole spec, SPEC-049, covers all 15 requirements (REQ-001 through REQ-015) and
+  is implemented and committed (eee4700), reviewed at every stage — Seeds A–D
+  (DSL + zero-baked line-scan adjudication, lifecycle & expiry, declared
+  non-waivable tier, and gate step-8 integration / reporting / ratchet / CLI)
+  all shipped. The four Notes / Ideas follow-ons (migration nudge, surfacing
+  engine-VISIBLE native suppressions, step-9 audit-ledger wiring, secrets
+  report-everything hardening) remain explicitly out of v1 and do not block
+  delivery. No requirement or design-decision content changed in this bump.
 
 ## References
 

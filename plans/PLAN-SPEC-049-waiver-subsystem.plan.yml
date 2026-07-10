@@ -3,7 +3,7 @@ plan_id: PLAN-SPEC-049
 spec_id: SPEC-049
 spec_version: 1.0.0
 created: "2026-07-09"
-status: draft
+status: completed
 target_module: pkg/waiver
 test_command: "go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race -coverprofile=cover.out"
 coverage_threshold: 80
