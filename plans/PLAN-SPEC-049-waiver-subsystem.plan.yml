@@ -1,0 +1,1298 @@
+---
+plan_id: PLAN-SPEC-049
+spec_id: SPEC-049
+spec_version: 1.0.0
+created: "2026-07-09"
+status: draft
+target_module: pkg/waiver
+test_command: "go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-049 (BUNDLE-013 waiver subsystem) as ONE coupled plan phased
+  along the spec's four seeds A -> B -> C -> D, each phase built failing-first
+  (TDD) and closed by a middle-phase `backstop code check`; a final phase runs the
+  full `backstop gate`.
+
+  ════════════════════════════════════════════════════════════════════════════
+  THE LOAD-BEARING PROPERTY IS ZERO-BAKED ADJUDICATION (Phase A / Sharp Edge 1)
+  ════════════════════════════════════════════════════════════════════════════
+  Adjudicate(findings, LineReader, policy, now) receives NO language identifier
+  and invokes NO comment/source parser — it byte-scans the RAW bytes of the
+  finding's own SARIF-reported association window (the finding's start line and
+  the single line immediately above it) for a literal `@waiver:` occurrence.
+  CLM-011 is an absence claim asserting exactly this. Any language/comment
+  parameter on the suppression path is a defect, not a feature. The pkg/waiver
+  core (Phase A) is fully unit-testable with an in-memory LineReader — no gate,
+  no engine, no fixture.
+
+  ════════════════════════════════════════════════════════════════════════════
+  PHASE D IS THE INTEGRATION-GAP RISK — PROVE THE WIRING, NOT JUST THE UNITS
+  ════════════════════════════════════════════════════════════════════════════
+  Suppression is a Run-loop RECONCILIATION pass (computeWaiverResult) modeled on
+  the shipped computeBaselineResult (pkg/gate/gate.go:163): a StepFunc returns
+  only its OWN result and CANNOT delete a preceding step's violations, so waiver
+  suppression MUST be a reconciliation pass that mutates the ALREADY-accumulated
+  results. It collects the WAIVABLE surface — the LIVE `pack_engines` and
+  `test_substantiveness` dimensions (NOT the removed `code_check`; feeding a dead
+  dimension = an EMPTY waivable surface = vacuous green AND the backstop/self
+  gate-ERROR path never fires — Sharp Edge 6), recasts those Violations into
+  []waiver.Finding, calls the pure Adjudicate, REMOVES the Suppressed findings
+  from the accumulated Violation slices (CLM-067 — the actual subtraction, else it
+  suppresses nothing), adds Malformed/NonWaivable diagnostics as gate findings
+  (a @waiver on a pack_engines backstop/self rule is thus a gate ERROR — CLM-025),
+  persists the active []waiver.Waiver onto a NEW GateResult.ActiveWaivers carrier
+  (needed because GateResult/Violation carry no reason-code/expiry — REQ-015), and
+  emits the distinct `PASS · N waivers` waiver_resolution StepResult.
+
+  To close the recurring pack-provisioning integration gap, Phase D carries a
+  COMMITTED installed-pack fixture and a REAL end-to-end proof (TASK-020) driven
+  by a REAL check.CommandRunner over a committed POSIX fake engine — NOT a stubbed
+  dispatcher: a @waiver token actually SUPPRESSES a real pack_engines finding in a
+  full gate Run (green -> PASS·N-waivers), and a @waiver on a policy-declared
+  non-waivable backstop/self rule produces a gate ERROR. The e2e is authored
+  failing-first (before the Phase-D impl, which depends on it), so an implementer
+  following the DAG observes it RED against the stub and greens it with real
+  wiring. Unit isolation alone is INSUFFICIENT for Phase D.
+
+  ════════════════════════════════════════════════════════════════════════════
+  THE SHIPPED GATE MUST NOT BE DARK — DEFINED IS NOT ENABLED (REQ-016/REQ-017)
+  ════════════════════════════════════════════════════════════════════════════
+  Defining computeWaiverResult + the WithWaiver Option in pkg/gate is NOT enough:
+  the reconciliation only runs in shipped `backstop gate` if the CONSTRUCTION SITE
+  (cmd/backstop/gate.go) actually CALLS WithWaiver — mirroring its gate.WithBaseline
+  call (~:114) — with the runtime inputs the pass consumes: a scope LineReader
+  (buildWaiverLineReader), the current time, and a PRODUCTION Policy
+  (buildWaiverPolicy) built by EXTRACTING the declared non-waivable sets from the
+  INSTALLED pack manifests (CLM-027 realized in production, not a hardcoded list).
+  TASK-027..032 close this reviewer-flagged gap (no prior task scoped
+  cmd/backstop/gate.go): TASK-027 unit-proves the WithWaiver-guarded swap; TASK-029's
+  CLI-path proofs drive the REAL shipped construction path (not gate.New in-package),
+  failing-first against the dark gate. Ordering matters too: the assembled step list
+  currently runs baseline (:707) before waiver (:708); TASK-031 REVERSES it so
+  StepWaiverResolution precedes StepBaselineComparison — otherwise an active-waived
+  finding is still counted as a NewViolation by baseline_comparison and the ratchet
+  (REQ-013) is defeated (REQ-017).
+
+  ════════════════════════════════════════════════════════════════════════════
+  THIN-EXECUTOR INVARIANT
+  ════════════════════════════════════════════════════════════════════════════
+  No language/tool literal enters the adjudication path. The non-waivable set is
+  supplied by a declared Policy (pack manifest / enforcement policy), never a
+  core-hardcoded list (CLM-027). The e2e fake engine is a committed POSIX script
+  (no real semgrep/go/bun in backstop-core's Go CI); backstop does 100% of the
+  suppressing because `@waiver` is a token foreign to every engine.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE A — Seed A: the @waiver DSL grammar + the pure zero-baked line-scan
+  # Adjudicate matcher. Self-contained pkg/waiver core, no gate dependency.
+  # Covers REQ-001, REQ-002 (minus the gate-side CLM-067), REQ-003, REQ-007,
+  # REQ-008, REQ-009 (rule-id match). Unit-tested with an in-memory LineReader.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-a
+    name: "Phase A: DSL Grammar + Zero-Baked Line-Scan Adjudication Core"
+    description: |
+      Build the pkg/waiver foundation: the closed reason-code enum + Waiver struct
+      + ParseToken grammar (pkg/waiver/waiver.go), and the pure zero-baked
+      Adjudicate byte-scan matcher with its supporting types Finding/Location/
+      LineReader/Policy/Diagnostic/Result (pkg/waiver/adjudicate.go). Adjudicate
+      harvests tokens by reading RAW line bytes via LineReader over the finding's
+      association window (same-line-trailing OR the single line immediately above),
+      parses each via ParseToken, suppresses ONLY on an EXACT rule-id match with
+      per-finding location identity (no file/rule blanket), and records malformed
+      tokens as Diagnostic{Kind:"malformed"}. Adjudicate takes NO language
+      identifier and invokes NO comment parser (the load-bearing zero-baked
+      property — CLM-011 absence). Three parallel failing-first test files (disjoint)
+      feed ONE core implementation; expiry, unused detection, and non-waivable
+      enforcement are layered in Phases B and C.
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the DSL grammar + closed reason-code enum tests (ParseToken)"
+        description: |
+          pkg/waiver/waiver_grammar_test.go — failing-first over ParseToken and the
+          ReasonCode enum:
+            - a well-formed @waiver:<rule>:<reason>:<expiry> token parses into a
+              populated Waiver (CLM-001);
+            - an optional trailing free-text note is captured (CLM-002);
+            - an optional issue reference is captured (CLM-003);
+            - each of the four closed reason-codes false-positive / accepted-risk /
+              deferred / third-party is accepted (CLM-004..007);
+            - an unknown reason-code outside the closed enum is rejected with a
+              non-nil parse error (CLM-008).
+        files:
+          - pkg/waiver/waiver_grammar_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestWaiver_ParseToken_WellFormedParses
+          - TestWaiver_ParseToken_OptionalNoteCaptured
+          - TestWaiver_ParseToken_OptionalIssueRefCaptured
+          - TestWaiver_ParseToken_ReasonFalsePositiveValid
+          - TestWaiver_ParseToken_ReasonAcceptedRiskValid
+          - TestWaiver_ParseToken_ReasonDeferredValid
+          - TestWaiver_ParseToken_ReasonThirdPartyValid
+          - TestWaiver_ParseToken_UnknownReasonRejected
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write the zero-baked adjudication + identity + location-matching tests"
+        description: |
+          pkg/waiver/adjudicate_core_test.go — failing-first over Adjudicate with an
+          IN-MEMORY LineReader (no gate, no engine):
+            - a finding is suppressed when a matching token sits at its reported
+              location (CLM-009);
+            - suppression is comment-syntax agnostic — it works regardless of the
+              surrounding comment prefix, reading only raw line bytes (CLM-010);
+            - the ZERO-BAKED absence guard: Adjudicate takes no language identifier
+              and invokes no comment/source parser (CLM-011);
+            - per-finding location identity: a waiver suppresses exactly its
+              co-located finding (CLM-012), a same-rule finding elsewhere in the
+              file is NOT suppressed (no file-blanket — CLM-013), and with two
+              same-rule findings waiving one leaves the other firing (no rule-blanket
+              — CLM-014);
+            - location-matching semantics: same-line-trailing suppresses (CLM-034),
+              line-immediately-above suppresses (CLM-035), two-or-more lines above
+              does NOT associate (CLM-036), a multi-line finding associates via a
+              token above its start line (CLM-037), a multi-line finding associates
+              via a token TRAILING on its start line (CLM-066), and a token whose
+              rule-id differs from the finding's rule-id does NOT suppress —
+              false-match avoidance (CLM-038);
+            - rule-id: a matching rule-id suppresses (CLM-039).
+          CLM-011 asserts the zero-baked boundary; CLM-036/CLM-038 encode the
+          narrow-matching + false-match residual (Sharp Edges 1 & 2).
+        files:
+          - pkg/waiver/adjudicate_core_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-066
+          - CLM-038
+          - CLM-039
+        test_names:
+          - TestWaiver_Adjudicate_SuppressesAtReportedLocation
+          - TestWaiver_Adjudicate_CommentSyntaxAgnostic
+          - TestWaiver_Adjudicate_NoLanguageParserInvoked
+          - TestWaiver_Identity_SuppressesColocatedFinding
+          - TestWaiver_Identity_NoFileBlanket
+          - TestWaiver_Identity_NoRuleBlanket
+          - TestWaiver_Match_SameLineTrailingSuppresses
+          - TestWaiver_Match_LineAboveSuppresses
+          - TestWaiver_Match_TwoLinesAboveDoesNotAssociate
+          - TestWaiver_Match_MultiLineFindingAssociates
+          - TestWaiver_Match_MultiLineTrailingStartLineAssociates
+          - TestWaiver_Match_MismatchedRuleIdNoSuppress
+          - TestWaiver_RuleId_MatchingRuleSuppresses
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "Write the malformed-token-as-diagnostic tests"
+        description: |
+          pkg/waiver/adjudicate_malformed_test.go — failing-first proving grammar is
+          ENFORCED, never a silent no-op (Sharp Edge 4). A harvested token that is
+          malformed becomes a Diagnostic{Kind:"malformed"} in Result.Malformed:
+            - too few fields / bad structure (CLM-029);
+            - unknown reason-code (CLM-030);
+            - missing expiry (CLM-031);
+            - invalid expiry format (CLM-032);
+            - a well-formed token is NOT flagged malformed (CLM-033).
+        files:
+          - pkg/waiver/adjudicate_malformed_test.go
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+        test_names:
+          - TestWaiver_Malformed_BadStructureIsFinding
+          - TestWaiver_Malformed_UnknownReasonIsFinding
+          - TestWaiver_Malformed_MissingExpiryIsFinding
+          - TestWaiver_Malformed_InvalidExpiryIsFinding
+          - TestWaiver_Malformed_WellFormedNotFlagged
+        depends_on: []
+
+      - id: TASK-004
+        type: implementation
+        title: "Implement the DSL grammar + pure zero-baked Adjudicate matcher"
+        description: |
+          Make TASK-001/002/003 green with two files:
+            - pkg/waiver/waiver.go: ReasonCode (closed enum: false-positive /
+              accepted-risk / deferred / third-party), the Waiver struct
+              (RuleID/Reason/Expiry/Note/IssueRef/File/Line), and ParseToken(raw,
+              loc) (Waiver, error) — deterministic grammar parse + validation
+              returning a non-nil error for ANY malformed token (REQ-001/REQ-007).
+              (DefaultDuration/Expired are added in Phase B alongside their tests.)
+            - pkg/waiver/adjudicate.go: the Finding, Location, LineReader, Policy,
+              Diagnostic, and Result types, and Adjudicate(findings, read, policy,
+              now) Result. Adjudicate does token HARVEST (byte-scan the finding's
+              start line and the single line immediately above via LineReader —
+              raw bytes, NO comment parser, NO language identifier), GRAMMAR PARSE
+              (ParseToken; malformed -> Diagnostic{Kind:"malformed"}), EXACT rule-id
+              MATCH with per-finding location identity (no file/rule blanket), and
+              records Suppressed / Malformed. The signature takes policy and now for
+              the Phase-B/C passes but this task suppresses matched active tokens;
+              lifecycle (expiry/unused) and non-waivable enforcement are layered in
+              B and C. It is PROHIBITED to add a language/extension/comment-lexer
+              parameter to the suppression path (CLM-011 absence).
+        files:
+          - pkg/waiver/waiver.go
+          - pkg/waiver/adjudicate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-066
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the DSL grammar + adjudication core (code check)"
+        description: |
+          Run `backstop code check` over pkg/waiver/waiver.go,
+          pkg/waiver/adjudicate.go and the three Phase-A test files. Confirms
+          ParseToken parses well-formed tokens and errors on every malformation, the
+          closed reason-code enum is enforced, Adjudicate suppresses on an exact
+          rule-id match with per-finding identity, the location-matching matrix
+          (same-line / line-above / two-above-inert / multi-line / mismatched-rule)
+          holds, malformed tokens surface as Diagnostics, and the zero-baked boundary
+          is intact — no language identifier and no comment parser on the suppression
+          path. Middle-phase verification; the full gate runs in Phase E.
+        files:
+          - pkg/waiver/waiver.go
+          - pkg/waiver/adjudicate.go
+          - pkg/waiver/adjudicate_core_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE B — Seed B: lifecycle & expiry. Reason-code default durations,
+  # active-suppresses / expired-re-fires, the loud pre-expiry warning, and
+  # unused/dangling detection (incl. the pack-rename -> unused path). Covers
+  # REQ-004 and REQ-005 (+ CLM-040 rename). Edits pkg/waiver (sequential on A).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-b
+    name: "Phase B: Lifecycle, Expiry & Unused/Dangling Detection"
+    description: |
+      Layer the lifecycle onto pkg/waiver: DefaultDuration(rc) and the Waiver.Expired
+      method (pkg/waiver/waiver.go), and Adjudicate's lifecycle classification pass
+      (pkg/waiver/adjudicate.go) — an ACTIVE (unexpired) matched waiver suppresses;
+      an EXPIRED waiver does NOT (the finding re-fires immediately, no post-expiry
+      grace — Sharp Edge 5); waivers inside the grace window are recorded Expiring
+      for the loud pre-expiry warning; and any token whose associated location has
+      no matching live finding is recorded Unused (a WARNING), including the
+      pack-rename case where a stale rule-id matches nothing. Two parallel
+      failing-first test files feed one implementation; sequential on Phase A.
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write the default-duration + active/expired + pre-expiry tests"
+        description: |
+          pkg/waiver/waiver_lifecycle_test.go — failing-first over DefaultDuration,
+          Expired, and Adjudicate's lifecycle classification:
+            - DefaultDuration resolves false-positive to a long-lived default
+              (CLM-015), and accepted-risk / deferred / third-party each to a
+              short-lived default (CLM-016..018);
+            - an ACTIVE (unexpired) waiver suppresses its finding (CLM-019);
+            - an EXPIRED waiver does NOT suppress — the finding re-fires under normal
+              enforcement at the instant of expiry (CLM-020, Sharp Edge 5);
+            - a loud pre-expiry warning is emitted within the grace window before a
+              waiver expires (CLM-021).
+        files:
+          - pkg/waiver/waiver_lifecycle_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        test_names:
+          - TestWaiver_DefaultDuration_FalsePositiveLongLived
+          - TestWaiver_DefaultDuration_AcceptedRiskShortLived
+          - TestWaiver_DefaultDuration_DeferredShortLived
+          - TestWaiver_DefaultDuration_ThirdPartyShortLived
+          - TestWaiver_Expiry_ActiveWaiverSuppresses
+          - TestWaiver_Expiry_ExpiredWaiverRefires
+          - TestWaiver_Expiry_PreExpiryWarningEmitted
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: test
+        title: "Write the unused/dangling + pack-rename detection tests"
+        description: |
+          pkg/waiver/adjudicate_unused_test.go — failing-first over Adjudicate's
+          unused/dangling detection:
+            - a waiver with no live finding at its location is surfaced as an
+              unused/dangling WARNING (CLM-022);
+            - a waiver with a matching live finding at its location is NOT flagged
+              unused (CLM-023);
+            - after a pack renames a rule, the stale rule-id matches no live finding
+              and the waiver surfaces as unused/dangling rather than silently waiving
+              a DIFFERENT rule (CLM-040, REQ-009 rename safety).
+        files:
+          - pkg/waiver/adjudicate_unused_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-040
+        test_names:
+          - TestWaiver_Unused_DanglingSurfacedAsWarning
+          - TestWaiver_Unused_UsedWaiverNotFlagged
+          - TestWaiver_RuleId_RenamedRuleSurfacesUnused
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: implementation
+        title: "Implement default durations, expiry classification & unused detection"
+        description: |
+          Make TASK-006/007 green:
+            - pkg/waiver/waiver.go: DefaultDuration(rc) (time.Duration, bool) —
+              false-positive long-lived, the other three short-lived, ok=false for an
+              unknown reason-code — and Waiver.Expired(now) bool (true at or past
+              Expiry). Durations are tunable config, not contract, but every
+              reason-code MUST resolve.
+            - pkg/waiver/adjudicate.go: add the lifecycle classification pass — a
+              matched waivable token that is Expired re-fires its finding (recorded
+              Expired, NOT Suppressed); otherwise it is Active and its finding is
+              Suppressed; Active waivers within the grace window are also recorded
+              Expiring. Add the unused/dangling pass — any @waiver token whose
+              associated location has no matching live finding (including a stale
+              rule-id after a rename) is recorded Unused. Populate Result.Active /
+              Expiring / Expired / Unused accordingly. Expiry lifts the shield
+              IMMEDIATELY — no post-expiry suppression window (Sharp Edge 5).
+        files:
+          - pkg/waiver/waiver.go
+          - pkg/waiver/adjudicate.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-040
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify lifecycle, expiry & unused detection (code check)"
+        description: |
+          Run `backstop code check` over pkg/waiver/waiver.go,
+          pkg/waiver/adjudicate.go and the two Phase-B test files. Confirms every
+          reason-code resolves to a default duration, an active waiver suppresses
+          while an expired waiver re-fires immediately, the pre-expiry warning fires
+          within the grace window, and unused/dangling detection (including the
+          pack-rename stale-rule-id path) surfaces as a warning without silently
+          waiving a different rule. Middle-phase verification; full gate in Phase E.
+        files:
+          - pkg/waiver/waiver.go
+          - pkg/waiver/adjudicate.go
+          - pkg/waiver/waiver_lifecycle_test.go
+          - pkg/waiver/adjudicate_unused_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-022
+          - CLM-040
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE C — Seed C: the DECLARED non-waivable tier. Waivability is decided by
+  # a Policy supplied to adjudication (never core-hardcoded); a @waiver on a
+  # policy-declared non-waivable rule is a gate ERROR (Diagnostic{Kind:
+  # "non-waivable"}), not a suppression. Ships the backstop/self + critical-secret
+  # non-waivable set as declared DATA. Covers REQ-006 (CLM-024..028).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-c
+    name: "Phase C: Declared Non-Waivable Tier"
+    description: |
+      Add the non-waivable check to Adjudicate (pkg/waiver/adjudicate.go) and a
+      concrete DECLARED Policy (pkg/waiver/policy.go) constructed from a supplied
+      non-waivable set (rule-ids + a critical-severity predicate) — NOT a
+      core-hardcoded list (CLM-027). When policy.Waivable(ruleID, severity) is false,
+      the token does not suppress and becomes a Diagnostic{Kind:"non-waivable"} gate
+      error; a normal (undeclared) rule remains waivable. The shipped configuration
+      places backstop/self rules and critical-severity secrets in the non-waivable
+      set. The non-waivable guarantee is airtight only for engine-EMITTED findings
+      (backstop/self via SARIF), not engine-native allows — Sharp Edge 3, out of
+      scope by design. Two parallel failing-first test files feed one implementation.
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Write the non-waivable enforcement matrix tests"
+        description: |
+          pkg/waiver/adjudicate_nonwaivable_test.go — failing-first over Adjudicate
+          with a declared Policy:
+            - a waiver on a normal code rule (not in the non-waivable set) suppresses
+              the finding (CLM-024);
+            - a waiver targeting a backstop/self rule is a gate ERROR
+              (Diagnostic{Kind:"non-waivable"}), not a suppression (CLM-025);
+            - a waiver targeting a critical-severity secret is a gate ERROR, not a
+              suppression (CLM-026);
+            - a rule NOT present in the declared non-waivable set remains waivable
+              (CLM-028).
+        files:
+          - pkg/waiver/adjudicate_nonwaivable_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-028
+        test_names:
+          - TestWaiver_NonWaivable_NormalRuleWaivable
+          - TestWaiver_NonWaivable_SelfRuleIsError
+          - TestWaiver_NonWaivable_CriticalSecretIsError
+          - TestWaiver_NonWaivable_UndeclaredRuleRemainsWaivable
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: test
+        title: "Write the policy-declared-not-hardcoded test"
+        description: |
+          pkg/waiver/policy_test.go — failing-first proving the non-waivable set is
+          data-driven: the declared Policy reports non-waivable for exactly the rules
+          / severities it was CONSTRUCTED with, and core contains no hardcoded list of
+          backstop/self rule-ids or secret rule-ids — a Policy built with an empty
+          declared set reports every rule waivable (CLM-027).
+        files:
+          - pkg/waiver/policy_test.go
+        claims:
+          - CLM-027
+        test_names:
+          - TestWaiver_NonWaivable_PolicyDeclaredNotHardcoded
+        depends_on:
+          - TASK-009
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement the declared Policy + non-waivable adjudication check"
+        description: |
+          Make TASK-010/011 green:
+            - pkg/waiver/policy.go: a concrete Policy implementing
+              Waivable(ruleID, severity) bool from a SUPPLIED declared non-waivable
+              set (a set of rule-ids plus a critical-severity predicate) — no
+              hardcoded backstop/self or secret rule-ids in core (CLM-027). Provide
+              the constructor and the shipped-configuration data placing backstop/self
+              rules and critical-severity secrets in the non-waivable set (declared
+              DATA, distinct from the interface).
+            - pkg/waiver/adjudicate.go: insert the non-waivable check BEFORE lifecycle
+              classification — when policy.Waivable(ruleID, severity) is false the
+              token does not suppress and is recorded in Result.NonWaivable as a
+              Diagnostic{Kind:"non-waivable"}; an undeclared rule stays waivable and
+              flows to the lifecycle pass.
+        files:
+          - pkg/waiver/policy.go
+          - pkg/waiver/adjudicate.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the declared non-waivable tier (code check)"
+        description: |
+          Run `backstop code check` over pkg/waiver/policy.go,
+          pkg/waiver/adjudicate.go and the two Phase-C test files. Confirms a normal
+          rule stays waivable, a backstop/self rule and a critical-severity secret
+          each become a non-waivable gate ERROR rather than a suppression, an
+          undeclared rule remains waivable, and the non-waivable set is sourced from
+          the supplied Policy with no core-hardcoded rule list. Middle-phase
+          verification; full gate in Phase E.
+        files:
+          - pkg/waiver/policy.go
+          - pkg/waiver/adjudicate.go
+          - pkg/waiver/adjudicate_nonwaivable_test.go
+          - pkg/waiver/policy_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-027
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE D — Seed D: gate step-8 integration (the load-bearing seam). Replace
+  # the step_deferred.go waiver STUB with step_waiver.go + the Run-loop
+  # computeWaiverResult reconciliation pass (modeled on computeBaselineResult):
+  # exhaustive waivable-surface scope, real subtraction, distinct pass-with-waivers
+  # reporting, ratchet interaction, pre-filled token, ActiveWaivers carrier +
+  # audit feed, and the read-only `backstop waiver list` CLI. A COMMITTED
+  # installed-pack fixture + a REAL end-to-end proof close the integration gap.
+  # Covers REQ-010..015 (+ CLM-067, CLM-025 wiring).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-d
+    name: "Phase D: Gate Integration, Reporting, Ratchet & CLI"
+    description: |
+      Wire pkg/waiver into the gate. step_waiver.go replaces the step_deferred.go
+      waiver stub with the registered placeholder StepWaiverResolutionScopedFunc
+      (mirroring StepBaselineComparisonScopedFunc) and the Run-loop reconciliation
+      pass computeWaiverResult, modeled on computeBaselineResult (gate.go:163): it
+      collects ONLY the waivable surface — the LIVE pack_engines and
+      test_substantiveness dimensions (Sharp Edge 6: NOT the removed code_check;
+      coverage_threshold via the first-line annotation convention), recasts those
+      Violations into []waiver.Finding, calls the pure Adjudicate, REMOVES Suppressed
+      findings from the accumulated Violation slices (CLM-067), adds Malformed/
+      NonWaivable diagnostics as gate findings (a @waiver on a pack_engines
+      backstop/self rule -> gate ERROR, CLM-025), persists active []waiver.Waiver
+      onto the new GateResult.ActiveWaivers carrier feeding ActiveWaiverFeed and the
+      ratchet, emits the pre-filled neutral token for blocked waivable findings only,
+      and returns the distinct PASS·N-waivers waiver_resolution StepResult. gate.go
+      gains the reconciliation swap exactly where the baseline swap lives. A COMMITTED
+      fake-engine installed-pack fixture drives a REAL end-to-end proof (authored
+      failing-first) that a @waiver actually suppresses a real pack_engines finding in
+      a full gate Run and a non-waivable backstop/self @waiver produces a gate ERROR.
+      Finally the read-only `backstop waiver list` CLI (cmd/backstop/waiver.go) —
+      core NEVER authors tokens (CLM-049 absence).
+    tasks:
+      - id: TASK-014
+        type: setup
+        title: "Scaffold the committed fake-engine installed-pack waiver e2e fixture"
+        description: |
+          Under pkg/gate/testdata/waiver-e2e/ create the committed installed-pack
+          fixture the REQ-010/REQ-006 real end-to-end proof (TASK-020) drives through
+          the ACTUAL gate Run loop with a REAL check.CommandRunner (no stub):
+            - backstop.yml declaring the fake pack as an ordinary pack (no language
+              field), so its findings flow through the LIVE pack_engines dimension.
+            - the fake pack.yml declaring a findings engine whose command is a
+              committed POSIX script, pinned/allowlisted so the dispatch trust gate
+              passes over a real runner, plus a declared non-waivable rule-id (the
+              backstop/self-style protected rule) in its enforcement policy so the
+              gate can construct a Policy that reports it non-waivable.
+            - scripts/fake-engine.sh: a deterministic POSIX fake emitting SARIF
+              findings at fixed locations in the committed source — one WAIVABLE
+              finding (co-located with a valid @waiver token) and one NON-WAIVABLE
+              finding on the protected rule (co-located with a @waiver token).
+            - src with the committed @waiver tokens co-located at the fake's reported
+              finding locations (one waivable -> suppressed, one non-waivable ->
+              gate ERROR). Committed testdata (the .backstop/packs gitignore does not
+              bite the testdata tree). Fixture DATA only; assertions live in TASK-020.
+        files:
+          - pkg/gate/testdata/waiver-e2e/backstop.yml
+          - pkg/gate/testdata/waiver-e2e/.backstop/packs/backstop/waiver-e2e/pack.yml
+          - pkg/gate/testdata/waiver-e2e/.backstop/packs/backstop/waiver-e2e/scripts/fake-engine.sh
+          - pkg/gate/testdata/waiver-e2e/src/app.go
+        claims:
+          - CLM-067
+          - CLM-025
+          - CLM-041
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: test
+        title: "Write the reconciliation-subtraction + carrier + audit-feed tests"
+        description: |
+          pkg/gate/step_waiver_reconcile_test.go — failing-first over
+          computeWaiverResult and ActiveWaiverFeed with synthetic accumulated
+          StepResults:
+            - the reconciliation pass REMOVES suppressed findings from the
+              already-accumulated pack_engines Violation set — the subtraction
+              actually mutates the accumulated results (CLM-067, Sharp Edge 8: a pass
+              that computes a result but never removes the finding suppresses nothing);
+            - the active []waiver.Waiver is exposed to the step-9 audit surface via
+              ActiveWaiverFeed reading the new GateResult.ActiveWaivers carrier
+              (CLM-062);
+            - each audit-feed entry carries the rule-id, reason-code, and expiry of
+              its waiver (CLM-063).
+        files:
+          - pkg/gate/step_waiver_reconcile_test.go
+        claims:
+          - CLM-067
+          - CLM-062
+          - CLM-063
+        test_names:
+          - TestGateWaiver_Suppress_MutatesAccumulatedPackEngines
+          - TestGateWaiver_AuditFeed_ActiveSetExposed
+          - TestGateWaiver_AuditFeed_EntryCarriesRuleReasonExpiry
+        depends_on:
+          - TASK-013
+
+      - id: TASK-016
+        type: test
+        title: "Write the exhaustive waivable-surface scope-boundary tests"
+        description: |
+          pkg/gate/step_waiver_scope_test.go — failing-first proving the EXHAUSTIVE
+          code-located-only scope over the LIVE gate dimensions (Sharp Edges 6 & 7):
+            - a pack_engines finding (the LIVE pack code-rule dimension) is waivable
+              (CLM-041);
+            - a test_substantiveness (source-located) finding is waivable (CLM-064);
+            - artifact_status_drift is NOT waivable by a @waiver token (CLM-042);
+            - contract_signature is NOT waivable (CLM-043);
+            - test_verification is NOT waivable (CLM-044);
+            - artifact_validation is NOT waivable (CLM-065);
+            - a locationless coverage_threshold finding is waived by a
+              @waiver:coverage_threshold token on the file's FIRST line (annotation
+              convention), not a per-line source token (CLM-045).
+        files:
+          - pkg/gate/step_waiver_scope_test.go
+        claims:
+          - CLM-041
+          - CLM-064
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-065
+          - CLM-045
+        test_names:
+          - TestGateWaiver_Scope_PackEnginesWaivable
+          - TestGateWaiver_Scope_SubstantivenessWaivable
+          - TestGateWaiver_Scope_StatusDriftNotWaivable
+          - TestGateWaiver_Scope_ContractSignatureNotWaivable
+          - TestGateWaiver_Scope_TestVerificationNotWaivable
+          - TestGateWaiver_Scope_ArtifactValidationNotWaivable
+          - TestGateWaiver_Scope_CoverageFirstLineAnnotation
+        depends_on:
+          - TASK-013
+
+      - id: TASK-017
+        type: test
+        title: "Write the never-silent reporting tests (distinct pass-with-waivers state)"
+        description: |
+          pkg/gate/step_waiver_report_test.go — failing-first over the
+          waiver_resolution StepResult (REQ-012):
+            - a run passing BECAUSE of active waivers renders the distinct
+              `PASS · N waivers` terminal state (CLM-050);
+            - a clean run with zero waivers does NOT render as the waiver state
+              (CLM-051);
+            - the active-waiver summary is always shown on a run with active waivers
+              (CLM-052);
+            - the actionable subset (expiring-soon and unused) is surfaced inline on
+              every run (CLM-053).
+        files:
+          - pkg/gate/step_waiver_report_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+        test_names:
+          - TestGateWaiver_Report_DistinctPassWithWaiversState
+          - TestGateWaiver_Report_CleanRunNotWaiverState
+          - TestGateWaiver_Report_SummaryAlwaysShown
+          - TestGateWaiver_Report_ActionableSubsetInline
+        depends_on:
+          - TASK-013
+
+      - id: TASK-018
+        type: test
+        title: "Write the ISSUE-050 ratchet-interaction tests"
+        description: |
+          pkg/gate/step_waiver_ratchet_test.go — failing-first over the ratchet
+          interaction (REQ-013):
+            - a valid ACTIVE waiver satisfies the file-level ratchet for its finding
+              (the accountable "or waived" branch) (CLM-055);
+            - an EXPIRED waiver does NOT satisfy the ratchet — the live finding
+              stands and demands action (CLM-056);
+            - an UNUSED waiver satisfies nothing (CLM-057);
+            - baseline generation authors NO @waiver tokens — baseline generation and
+              waiver authoring stay DISTINCT operations (CLM-058, Sharp Edge 9).
+        files:
+          - pkg/gate/step_waiver_ratchet_test.go
+        claims:
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+        test_names:
+          - TestGateWaiver_Ratchet_ActiveSatisfies
+          - TestGateWaiver_Ratchet_ExpiredDoesNotSatisfy
+          - TestGateWaiver_Ratchet_UnusedSatisfiesNothing
+          - TestGateWaiver_Ratchet_BaselineDoesNotAuthorWaivers
+        depends_on:
+          - TASK-013
+
+      - id: TASK-019
+        type: test
+        title: "Write the pre-filled neutral token tests"
+        description: |
+          pkg/gate/step_waiver_prefill_test.go — failing-first over the pre-filled
+          token affordance (REQ-014):
+            - blocking on a WAIVABLE finding emits a pre-filled @waiver token carrying
+              that finding's own rule-id and a reason-code-defaulted expiry (CLM-059);
+            - a NON-WAIVABLE finding does NOT get a pre-filled token — it cannot be
+              waived (CLM-060);
+            - a structural / non-code finding does NOT get a pre-filled token — it is
+              outside the waivable surface (CLM-061).
+        files:
+          - pkg/gate/step_waiver_prefill_test.go
+        claims:
+          - CLM-059
+          - CLM-060
+          - CLM-061
+        test_names:
+          - TestGateWaiver_Prefill_WaivableFindingEmitsToken
+          - TestGateWaiver_Prefill_NonWaivableFindingNoToken
+          - TestGateWaiver_Prefill_StructuralFindingNoToken
+        depends_on:
+          - TASK-013
+
+      - id: TASK-020
+        type: test
+        title: "Write the REAL end-to-end gate-wiring proof (fails against the stub)"
+        description: |
+          pkg/gate/step_waiver_e2e_test.go — the pack-provisioning integration-gap
+          guard: a REAL gate Run over the TASK-014 committed installed-pack fixture
+          driven by a REAL check.CommandRunner executing the committed POSIX fake
+          engine — NO stubbed dispatcher, NO canned-stdout runner, NO real
+          semgrep/go/bun — exercising the ACTUAL computeWaiverResult reconciliation
+          on the LIVE pack_engines stream:
+            - TestGateWaiver_E2E_WaiverSuppressesRealPackEnginesFinding: the fake
+              emits a real pack_engines finding co-located with a valid @waiver token;
+              the full gate Run SUPPRESSES it and terminates in the distinct
+              PASS·N-waivers state (the finding is removed from the accumulated
+              pack_engines Violations — real subtraction, not a computed-but-ignored
+              result) (CLM-067, CLM-041);
+            - TestGateWaiver_E2E_NonWaivableSelfRuleWaiverIsGateError: the fake emits a
+              finding on the policy-declared non-waivable backstop/self-style rule
+              co-located with a @waiver token; the full gate Run raises a gate ERROR
+              (not a suppression) — proving the non-waivable path fires on the real
+              pack_engines stream, not just in unit isolation (CLM-025).
+          Authored failing-first and ordered BEFORE the Phase-D impl (TASK-021
+          depends_on TASK-020): against the step_deferred.go stub the waivable surface
+          is empty (nothing suppressed, no gate error), so both assertions are RED
+          until real wiring lands. A version that passes against the stub proves
+          nothing.
+        files:
+          - pkg/gate/step_waiver_e2e_test.go
+        claims:
+          - CLM-067
+          - CLM-041
+          - CLM-025
+        test_names:
+          - TestGateWaiver_E2E_WaiverSuppressesRealPackEnginesFinding
+          - TestGateWaiver_E2E_NonWaivableSelfRuleWaiverIsGateError
+        depends_on:
+          - TASK-014
+
+      - id: TASK-027
+        type: test
+        title: "Write the WithWaiver enablement-seam test (guarded Run-loop swap)"
+        description: |
+          pkg/gate/step_waiver_wiring_test.go — failing-first over the pkg/gate
+          enablement seam (REQ-016a, mirroring WithBaseline at gate.go:51-53 / :139):
+            - TestGateWaiver_Wiring_WithWaiverEnablesReconciliation: constructing a Gate
+              WITH the WithWaiver(read, policy, now) Option sets g.waiverEnabled and the
+              Run-loop swaps StepWaiverResolution's placeholder output for
+              computeWaiverResult (a co-located @waiver over a synthetic pack_engines
+              StepResult is suppressed); constructing WITHOUT WithWaiver leaves
+              waiverEnabled false and the swap does NOT fire (the placeholder
+              skipped/pending StepResult stands and nothing is suppressed) (CLM-068).
+          This is the unit-level proof that the swap is guarded on g.waiverEnabled — the
+          production analog (that shipped `backstop gate` actually CALLS WithWaiver) is
+          TASK-029.
+        files:
+          - pkg/gate/step_waiver_wiring_test.go
+        claims:
+          - CLM-068
+        test_names:
+          - TestGateWaiver_Wiring_WithWaiverEnablesReconciliation
+        depends_on:
+          - TASK-013
+
+      - id: TASK-021
+        type: implementation
+        title: "Implement the computeWaiverResult reconciliation pass + gate wiring"
+        description: |
+          Make TASK-015..020 green. Replace the step_deferred.go waiver stub with a
+          real step_waiver.go and wire the reconciliation pass into the Run loop:
+            - pkg/gate/step_deferred.go: REMOVE the StepWaiverResolutionFunc /
+              StepWaiverResolutionScopedFunc stub (the baseline + ledger stubs stay).
+            - pkg/gate/step_waiver.go: StepWaiverResolutionScopedFunc (registered
+              placeholder mirroring StepBaselineComparisonScopedFunc, emitting the
+              skipped/pending StepResult when waivers are disabled) and
+              StepWaiverResolutionFunc (unscoped delegator); the (*Gate)
+              computeWaiverResult(accumulated, read, policy, now) StepResult
+              reconciliation pass MODELED ON computeBaselineResult — collect ONLY the
+              waivable surface (pack_engines + test_substantiveness; coverage_threshold
+              via the first-line annotation convention; EXCLUDE artifact_status_drift,
+              contract_signature, test_verification, artifact_validation), recast to
+              []waiver.Finding, call waiver.Adjudicate, REMOVE Suppressed findings from
+              the accumulated results' Violation slices (CLM-067), add Malformed /
+              NonWaivable as gate findings (non-waivable pack_engines backstop/self ->
+              gate ERROR, CLM-025), persist active []waiver.Waiver onto
+              GateResult.ActiveWaivers, satisfy the ratchet from ACTIVE waivers only
+              (Expired/Unused satisfy nothing; baseline generation authors no tokens),
+              emit the pre-filled neutral token for blocked WAIVABLE findings only, and
+              return the distinct PASS·N-waivers waiver_resolution StepResult with the
+              always-on summary + inline actionable subset. Add ActiveWaiverFeed(res)
+              []waiver.Waiver reading GateResult.ActiveWaivers.
+            - pkg/gate/gate.go: add the WithWaiver(read, policy, now) Option (mirroring
+              WithBaseline at gate.go:51-53) that sets a new g.waiverEnabled = true and
+              attaches the runtime inputs (LineReader, Policy, now) computeWaiverResult
+              consumes; and, in the Run loop where the baseline swap lives (gate.go:139),
+              add the GUARDED waiver reconciliation swap — `if g.waiverEnabled &&
+              result.StepName == StepWaiverResolution { result =
+              g.computeWaiverResult(results, g.waiverRead, g.waiverPolicy, g.waiverNow) }`
+              (mutating the accumulated results in place). The swap fires ONLY when
+              g.waiverEnabled, exactly mirroring the baseline guard (CLM-068). The
+              cmd/backstop/gate.go call site that actually enables this in shipped
+              `backstop gate` is TASK-031.
+            - pkg/gate/result.go: add the ActiveWaivers []waiver.Waiver carrier field to
+              GateResult (GateResult/Violation carry no reason-code/expiry, so a
+              dedicated carrier is required — REQ-015).
+          No language/tool literal enters the reconciliation; the non-waivable set is
+          Policy-supplied, never hardcoded.
+        files:
+          - pkg/gate/step_waiver.go
+          - pkg/gate/step_deferred.go
+          - pkg/gate/gate.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-067
+          - CLM-062
+          - CLM-063
+          - CLM-041
+          - CLM-064
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-065
+          - CLM-045
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-025
+          - CLM-068
+        depends_on:
+          - TASK-015
+          - TASK-016
+          - TASK-017
+          - TASK-018
+          - TASK-019
+          - TASK-020
+          - TASK-027
+
+      - id: TASK-022
+        type: verification
+        title: "Verify the gate reconciliation pass + e2e wiring (code check)"
+        description: |
+          Run `backstop code check` over pkg/gate/step_waiver.go,
+          pkg/gate/step_deferred.go, pkg/gate/gate.go, pkg/gate/result.go and the
+          Phase-D gate test files. Confirms computeWaiverResult collects only the LIVE
+          pack_engines + test_substantiveness waivable surface (structural dimensions
+          excluded, coverage via first-line annotation), REALLY subtracts suppressed
+          findings from the accumulated pack_engines Violations, raises a gate ERROR on
+          a non-waivable backstop/self @waiver, persists ActiveWaivers feeding
+          ActiveWaiverFeed and the ratchet (ACTIVE satisfies; Expired/Unused do not;
+          baseline authors no tokens), emits the pre-filled token for waivable findings
+          only, renders the distinct PASS·N-waivers state, and — via the REAL
+          end-to-end proof over the committed fake-engine installed pack — actually
+          suppresses a real pack_engines finding and errors on a non-waivable one.
+          Middle-phase verification; the full gate runs in Phase E.
+        files:
+          - pkg/gate/step_waiver.go
+          - pkg/gate/gate.go
+          - pkg/gate/result.go
+          - pkg/gate/step_waiver_e2e_test.go
+          - pkg/gate/step_waiver_wiring_test.go
+        claims:
+          - CLM-067
+          - CLM-041
+          - CLM-025
+          - CLM-045
+          - CLM-050
+          - CLM-058
+          - CLM-062
+          - CLM-068
+        depends_on:
+          - TASK-021
+
+      - id: TASK-023
+        type: test
+        title: "Write the read-only `backstop waiver list` CLI tests"
+        description: |
+          cmd/backstop/waiver_cli_test.go — failing-first over the read-only CLI
+          (REQ-011):
+            - `backstop waiver list` reports active waivers (CLM-046);
+            - it reports expiring-soon waivers (CLM-047);
+            - it reports unused/dangling waivers (CLM-048);
+            - the read-only absence guard: no core code path writes or inserts a
+              @waiver token — authoring belongs to the human/agent because writing a
+              comment requires baked language syntax (CLM-049, Sharp Edge 10).
+        files:
+          - cmd/backstop/waiver_cli_test.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        test_names:
+          - TestWaiverList_ReportsActive
+          - TestWaiverList_ReportsExpiringSoon
+          - TestWaiverList_ReportsUnused
+          - TestWaiver_ReadOnly_NoTokenAuthoringInCore
+        depends_on:
+          - TASK-022
+
+      - id: TASK-024
+        type: implementation
+        title: "Implement the read-only `backstop waiver` CLI command"
+        description: |
+          Make TASK-023 green. cmd/backstop/waiver.go: the waiverCmd parent command
+          and waiverListCmd (`backstop waiver list`) with the runWaiverList RunE
+          handler. It runs adjudication over the current scope and prints active,
+          expiring-soon, and unused/dangling waivers (reading pkg/gate ActiveWaiverFeed
+          / pkg/waiver types). It is PROHIBITED for any core path to WRITE or insert a
+          @waiver token — the command is strictly read-only (CLM-049); authoring a
+          comment requires language comment-syntax, which is baked-language knowledge
+          that belongs to the human or runtime agent. Register the command on the root.
+        files:
+          - cmd/backstop/waiver.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify the read-only waiver CLI (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/waiver.go and
+          cmd/backstop/waiver_cli_test.go. Confirms `backstop waiver list` reports
+          active / expiring-soon / unused waivers and that NO core path writes or
+          inserts a @waiver token (read-only). Middle-phase verification; the full
+          gate runs in Phase E.
+        files:
+          - cmd/backstop/waiver.go
+          - cmd/backstop/waiver_cli_test.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-024
+
+      # ───────────────────────────────────────────────────────────────────
+      # B1 + S1 — the shipped construction-site wiring (cmd/backstop/gate.go).
+      # Without this, WithWaiver is DEFINED (Phase-D pkg/gate) but never CALLED,
+      # so shipped `backstop gate` stays dark and suppresses nothing (REQ-016);
+      # and the step list must place waiver BEFORE baseline so an active waiver
+      # is subtracted before the ratchet captures NewViolations (REQ-017). No
+      # prior task scopes cmd/backstop/gate.go — this is the reviewer-flagged gap.
+      # ───────────────────────────────────────────────────────────────────
+      - id: TASK-028
+        type: test
+        title: "Write the packs-derived production Policy extraction test"
+        description: |
+          cmd/backstop/waiver_policy_test.go — failing-first over
+          buildWaiverPolicy(projectRoot) (REQ-016, the CLM-027 declared-not-hardcoded
+          mechanism realized IN PRODUCTION):
+            - TestWaiverPolicy_ExtractedFromInstalledPackManifests: buildWaiverPolicy
+              builds the production waiver.Policy by EXTRACTING the declared
+              non-waivable sets from the INSTALLED pack manifests (loadInstalledPacks
+              over projectRoot), not from a hardcoded list — a fixture whose pack
+              manifest declares a rule/severity non-waivable yields a Policy reporting
+              exactly that rule non-waivable, while a manifest declaring nothing yields
+              an all-waivable Policy; no backstop/self or secret rule-id is hardcoded
+              in cmd/backstop (CLM-069).
+          Drives over the committed installed-pack fixture (TASK-014) whose pack.yml
+          declares the non-waivable rule.
+        files:
+          - cmd/backstop/waiver_policy_test.go
+        claims:
+          - CLM-069
+        test_names:
+          - TestWaiverPolicy_ExtractedFromInstalledPackManifests
+        depends_on:
+          - TASK-014
+          - TASK-022
+
+      - id: TASK-029
+        type: test
+        title: "Write the REAL shipped-CLI gate-path waiver proofs (fail against dark gate)"
+        description: |
+          cmd/backstop/gate_waiver_e2e_test.go — the PRODUCTION analog of TASK-020,
+          driving the ACTUAL shipped `backstop gate` construction path (buildGateSteps
+          + gate.WithWaiver + buildWaiverPolicy + buildWaiverLineReader at
+          cmd/backstop/gate.go ~:102-122), NOT gate.New in-package, over the committed
+          installed-pack fixture (TASK-014) with a REAL check.CommandRunner:
+            - TestGateCLI_Waiver_SuppressesOverInstalledPack: the shipped gate
+              construction path suppresses a code-located pack_engines finding via a
+              co-located @waiver and terminates in the distinct PASS·N-waivers state —
+              proving WithWaiver is actually CALLED and fed, not merely defined (RED
+              against a construction site that never calls WithWaiver — the dark gate)
+              (CLM-070);
+            - TestGateCLI_Waiver_SelfRuleErrorsOverInstalledPack: the shipped path
+              errors when a @waiver targets the packs-declared backstop/self
+              non-waivable rule — proving buildWaiverPolicy's extracted set reaches the
+              real reconciliation (CLM-071).
+          Authored FAILING-FIRST; TASK-031 (the construction-site impl) depends on
+          this, so an implementer observes it RED against the un-wired CLI and greens
+          it by calling WithWaiver with the packs-derived Policy + LineReader.
+        files:
+          - cmd/backstop/gate_waiver_e2e_test.go
+        claims:
+          - CLM-070
+          - CLM-071
+        test_names:
+          - TestGateCLI_Waiver_SuppressesOverInstalledPack
+          - TestGateCLI_Waiver_SelfRuleErrorsOverInstalledPack
+        depends_on:
+          - TASK-014
+          - TASK-022
+
+      - id: TASK-030
+        type: test
+        title: "Write the waiver-before-baseline shipped step-order tests"
+        description: |
+          cmd/backstop/gate_step_order_test.go — failing-first over the assembled
+          shipped step list in cmd/backstop/gate.go (REQ-017; currently baseline
+          precedes waiver at buildGateSteps :707-708):
+            - TestGateCLI_StepOrder_WaiverBeforeBaseline: the assembled step list places
+              StepWaiverResolution BEFORE StepBaselineComparison (CLM-072);
+            - TestGateCLI_Ratchet_ActiveWaiverSubtractedBeforeBaseline: against the REAL
+              pipeline order (not synthetic StepResults), an active waiver subtracts its
+              finding BEFORE baseline_comparison captures its NewViolations, so the
+              waived finding does NOT count against the ISSUE-050 ratchet — proving
+              REQ-013/CLM-055 holds only because waiver runs first (CLM-073). RED while
+              waiver is ordered after baseline.
+        files:
+          - cmd/backstop/gate_step_order_test.go
+        claims:
+          - CLM-072
+          - CLM-073
+        test_names:
+          - TestGateCLI_StepOrder_WaiverBeforeBaseline
+          - TestGateCLI_Ratchet_ActiveWaiverSubtractedBeforeBaseline
+        depends_on:
+          - TASK-014
+          - TASK-022
+
+      - id: TASK-031
+        type: implementation
+        title: "Wire WithWaiver at the shipped gate construction site + reorder steps"
+        description: |
+          Make TASK-028/029/030 green by wiring the shipped `backstop gate`
+          construction site (cmd/backstop/gate.go) — the reviewer-flagged gap that no
+          prior task scoped:
+            - buildWaiverPolicy(projectRoot) (waiver.Policy, error): build the
+              production Policy by EXTRACTING the declared non-waivable sets from the
+              INSTALLED pack manifests (via loadInstalledPacks) — backstop/self rules
+              and critical-severity secrets ship non-waivable — with NO hardcoded rule
+              list in cmd/backstop (CLM-069, CLM-027 in production).
+            - buildWaiverLineReader(projectRoot, scope) waiver.LineReader: construct the
+              LineReader over the active scope yielding RAW bytes of a requested source
+              line, no language knowledge.
+            - At the construction site where gate.WithBaseline is appended (~:114), also
+              append gate.WithWaiver(buildWaiverLineReader(projectRoot, scope),
+              buildWaiverPolicy(projectRoot), time.Now()) so shipped `backstop gate`
+              actually ENABLES and FEEDS the reconciliation (CLM-070, CLM-071 — no
+              longer a dark gate).
+            - REORDER the buildGateSteps step list so
+              gate.StepWaiverResolutionScopedFunc(activeScope) precedes
+              gate.StepBaselineComparisonScopedFunc(activeScope) (swap the current
+              :707-708 order) — the accumulated violation set is waiver-subtracted
+              before baseline_comparison reads it, so an active waiver satisfies the
+              ratchet (CLM-072, CLM-073).
+          No language/tool literal enters the wiring; the non-waivable set is
+          packs-derived, never hardcoded.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-069
+          - CLM-070
+          - CLM-071
+          - CLM-072
+          - CLM-073
+        depends_on:
+          - TASK-028
+          - TASK-029
+          - TASK-030
+
+      - id: TASK-032
+        type: verification
+        title: "Verify the shipped construction-site wiring + step order (code check)"
+        description: |
+          Run `backstop code check` over cmd/backstop/gate.go and the three
+          construction-site test files. Confirms shipped `backstop gate` actually CALLS
+          gate.WithWaiver with a packs-derived Policy (buildWaiverPolicy extracting the
+          non-waivable sets from installed pack manifests, not hardcoded) and a
+          scope LineReader (buildWaiverLineReader), so the real CLI path suppresses a
+          @waiver over the installed-pack fixture and errors on a backstop/self
+          non-waivable waiver; and that the assembled step list orders
+          StepWaiverResolution BEFORE StepBaselineComparison so an active waiver is
+          subtracted before the ratchet captures NewViolations. Middle-phase
+          verification; the full gate runs in Phase E.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/waiver_policy_test.go
+          - cmd/backstop/gate_waiver_e2e_test.go
+          - cmd/backstop/gate_step_order_test.go
+        claims:
+          - CLM-069
+          - CLM-070
+          - CLM-071
+          - CLM-072
+          - CLM-073
+        depends_on:
+          - TASK-031
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE E — Final comprehensive verification: the full kill chain over the
+  # whole SPEC-049 change (code + artifacts). The only phase that runs
+  # `backstop gate`; also `backstop artifact validate` (this plan is an
+  # artifact) and the coverage-bearing test command (>=80%).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-e
+    name: "Phase E: Final Verification — Full Gate"
+    description: |
+      Run the full kill chain over the complete SPEC-049 waiver subsystem —
+      artifact validation, code check, test verification, substantiveness, coverage
+      (>=80%), contracts — confirming every claim's mandated tests are green and the
+      five declared contracts (pkg/waiver/waiver.go, pkg/waiver/adjudicate.go,
+      pkg/gate/step_waiver.go, cmd/backstop/waiver.go, cmd/backstop/gate.go) are
+      honestly satisfied. The gate itself now exercises the real waiver reconciliation
+      pass over its own pack_engines stream — the shipped construction site enables
+      and feeds it, so `backstop gate` is no longer dark.
+    tasks:
+      - id: TASK-026
+        type: verification
+        title: "Run the full gate + artifact validate over the complete SPEC-049 change"
+        description: |
+          Run `backstop gate` (artifact validation + code check + test verification +
+          substantiveness + coverage + contracts), `backstop artifact validate` over
+          this plan, and the coverage-bearing FULL-SUITE test command
+          (go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race
+          -coverprofile=cover.out, >=80% — the unfiltered suites so coverage is
+          meaningful, matching the spec verification block). Confirm:
+          the DSL grammar + closed reason-code enum parse deterministically and every
+          malformation is a gate finding; the pure Adjudicate matcher is zero-baked
+          (no language identifier, no comment parser) with exact rule-id match,
+          per-finding identity, and the full location-matching matrix; default
+          durations resolve, active suppresses / expired re-fires immediately, the
+          pre-expiry warning fires, and unused/dangling (incl. pack-rename) surfaces;
+          the declared non-waivable tier makes a backstop/self / critical-secret
+          @waiver a gate ERROR with no core-hardcoded list; the gate reconciliation
+          pass collects only the LIVE pack_engines + test_substantiveness surface,
+          REALLY subtracts suppressed findings, excludes the structural dimensions,
+          honors the coverage first-line annotation, persists ActiveWaivers feeding
+          ActiveWaiverFeed and the ratchet (ACTIVE satisfies; Expired/Unused do not;
+          baseline authors no tokens), emits the pre-filled token for waivable
+          findings only, renders the distinct PASS·N-waivers state, and — via the REAL
+          end-to-end proof over the committed fake-engine installed pack — actually
+          suppresses a real pack_engines finding and errors on a non-waivable one; and
+          the read-only `backstop waiver list` CLI reports active / expiring-soon /
+          unused without authoring any token. Critically, confirm the SHIPPED
+          `backstop gate` is NOT dark: WithWaiver sets g.waiverEnabled and the Run-loop
+          swap is guarded on it (CLM-068); cmd/backstop/gate.go actually CALLS
+          gate.WithWaiver with a packs-derived Policy (buildWaiverPolicy extracting the
+          non-waivable sets from installed pack manifests) and a scope LineReader
+          (buildWaiverLineReader), so the real CLI path suppresses a @waiver over the
+          installed-pack fixture (CLM-070) and errors on a backstop/self non-waivable
+          waiver (CLM-071); the extracted Policy is packs-declared, not hardcoded
+          (CLM-069); and the assembled step list orders StepWaiverResolution BEFORE
+          StepBaselineComparison so an active waiver is subtracted before the ratchet
+          captures NewViolations (CLM-072, CLM-073). Validates the plan artifact too.
+        files:
+          - pkg/waiver/waiver.go
+          - pkg/waiver/adjudicate.go
+          - pkg/gate/step_waiver.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/waiver.go
+          - plans/PLAN-SPEC-049-waiver-subsystem.plan.yml
+        claims:
+          - CLM-001
+          - CLM-011
+          - CLM-020
+          - CLM-025
+          - CLM-040
+          - CLM-045
+          - CLM-049
+          - CLM-050
+          - CLM-058
+          - CLM-062
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-071
+          - CLM-072
+          - CLM-073
+        depends_on:
+          - TASK-005
+          - TASK-009
+          - TASK-013
+          - TASK-022
+          - TASK-025
+          - TASK-021
+          - TASK-024
+          - TASK-020
+          - TASK-032
