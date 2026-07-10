@@ -6,12 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: waiver-subsystem
-  version: "0.1.0"
+  version: "0.2.0"
   created: "2026-07-09"
+  updated: "2026-07-09"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: defined
 
 problem:
   summary: >
@@ -43,6 +44,139 @@ problem:
     and I never want to silently bury the finding in a regenerated baseline.
     The gate should still go green, but the deferral should be visible,
     attributable, and reviewable — not a hole in the accounting.
+
+solution:
+  approach: >
+    An inline, per-finding waiver expressed as a backstop-native DSL token —
+    `@waiver:<rule-id>:<reason-code>:<expiry>` (plus optional trailing
+    note/issue-ref) — that a human (or the runtime agent) writes inside
+    whatever comment their language already uses, at the source location of the
+    finding. Backstop adjudicates by LINE-SCANNING the finding's own SARIF
+    location for the token: because `@waiver` is a foreign token to every
+    engine, engines emit the finding normally and backstop does all
+    suppressing, so the model works uniformly across engines with no
+    report-everything pack contract and stays zero-baked (core reads bytes at a
+    location the engine already reported; it never parses source or knows any
+    language's comment syntax). Identity is the finding's location, not a stored
+    fingerprint, and waivers are per-finding — no file- or rule-blanket
+    shortcut. EVERY waiver carries a mandatory expiry (default duration set by
+    reason-code); on expiry the shield lifts and the finding re-fires under
+    normal enforcement, with a loud heads-up before the flip. A declared
+    non-waivable tier (rules/severities that self-declare un-waivable in their
+    pack manifest — shipping with backstop/self zero-baked-language rules and
+    critical-severity secrets) makes the escape valve unable to neutralize
+    cardinal invariants. This replaces silent baseline grandfathering and
+    invisible engine-native suppression with one loud, expiring, accountable
+    ledger, and is the accountable "or waived" branch of the ISSUE-050
+    file-level ratchet.
+
+requirements:
+  - id: REQ-001
+    text: >
+      Backstop must define a waiver DSL token of the form
+      `@waiver:<rule-id>:<reason-code>:<expiry>` with an optional trailing
+      free-text note and/or issue reference. `reason-code` is a closed enum:
+      `false-positive`, `accepted-risk`, `deferred`, `third-party`. The grammar
+      must be specified precisely enough to parse and validate deterministically.
+  - id: REQ-002
+    text: >
+      Waiver adjudication must be inline and engine-neutral: engines emit
+      findings normally (no report-everything mode required), and backstop
+      suppresses a finding by LINE-SCANNING the finding's own reported SARIF
+      location for a matching `@waiver` token. Adjudication must remain
+      zero-baked — backstop reads bytes at a location the engine already
+      reported and must NOT parse source or encode any language's comment
+      syntax.
+  - id: REQ-003
+    text: >
+      Waiver identity must be per-finding and location-based, not a stored
+      content fingerprint. A waiver applies only to the specific finding at the
+      token's associated location. There is no file-blanket or rule-blanket
+      scope: a debt-heavy file that is touched is discharged finding-by-finding.
+  - id: REQ-004
+    text: >
+      Every waiver must carry a mandatory expiry; no waiver is permanent. Each
+      reason-code sets a default duration (e.g. `false-positive` long-lived,
+      `deferred`/`accepted-risk`/`third-party` short-lived; concrete durations
+      are tunable). On expiry the waiver becomes inactive and the finding
+      re-fires under normal enforcement. The gate must emit a loud heads-up
+      BEFORE a waiver expires (the pre-expiry warning is the grace period).
+  - id: REQ-005
+    text: >
+      The gate must detect and warn on unused/dangling waivers — a `@waiver`
+      token whose associated location no longer has a matching live finding.
+      An unused waiver is surfaced as a warning; it must not silently persist.
+  - id: REQ-006
+    text: >
+      Backstop must support a declared non-waivable tier: a rule or severity
+      self-declares itself un-waivable in its pack manifest / enforcement
+      policy (declared, not a core-hardcoded list). The shipped configuration
+      places backstop/self rules and critical-severity secrets in the
+      non-waivable set. A `@waiver` token targeting a non-waivable rule is a
+      gate ERROR, not a suppression.
+  - id: REQ-007
+    text: >
+      Malformed `@waiver` tokens (bad grammar, unknown reason-code, missing or
+      invalid expiry) must themselves be gate findings. The waiver grammar is
+      enforced, not best-effort.
+  - id: REQ-008
+    text: >
+      Token-to-finding location matching semantics must be defined: the line
+      association rule (same-line trailing token vs token on the line above),
+      handling of multi-line findings, and avoidance of false matches when the
+      literal string `@waiver:...` appears inside a string literal or other
+      non-suppressing context rather than as an author's waiver.
+  - id: REQ-009
+    text: >
+      `rule-id` in the token must be a stable, ergonomic identifier for the
+      rule being waived, and the subsystem must define behavior when a pack
+      renames a rule (e.g. the waiver no longer matches and surfaces as
+      unused/dangling per REQ-005, rather than silently waiving a different
+      rule).
+  - id: REQ-010
+    text: >
+      Waivers apply to CODE-LOCATED findings only. Artifact/structural gate
+      dimensions (artifact_status_drift, contract_signature, test_verification)
+      are NOT waivable and keep their existing accountable resolution paths
+      (retire/replace/resolved-by/obsoleted). File-level coverage findings get
+      a defined annotation convention rather than a source-location token.
+  - id: REQ-011
+    text: >
+      The core CLI is read-only with respect to waivers: `backstop waiver list`
+      must report active, expiring-soon, and unused/dangling waivers. Core
+      backstop must NOT write `@waiver` tokens (inserting a comment requires
+      language comment-syntax = baked-language knowledge); authoring and
+      re-certification belong to the human or the runtime agent.
+  - id: REQ-012
+    text: >
+      Gate reporting must never be silent about waivers. A run that passes
+      because of active waivers is a DISTINCT terminal state (e.g.
+      `PASS · N waivers`), visually distinguishable from a clean pass. An
+      active-waiver summary is always shown; the actionable subset
+      (expiring-soon, unused) is surfaced inline on every run; full per-waiver
+      detail is available on demand. Engine-native VISIBLE suppressions
+      (e.g. semgrep's SARIF-reported suppressions) are reported on a separate
+      line.
+  - id: REQ-013
+    text: >
+      Waivers must interact correctly with the ISSUE-050 file-level ratchet:
+      a valid ACTIVE waiver satisfies the ratchet for its finding (the
+      accountable "or waived" branch). An EXPIRED waiver does not satisfy the
+      ratchet (the live finding demands action). An UNUSED waiver satisfies
+      nothing. Baseline generation (machine snapshot) and waiver authoring
+      (human decision) remain distinct operations.
+  - id: REQ-014
+    text: >
+      When the gate blocks on a waivable finding, its output must hand the
+      author a pre-filled, neutral `@waiver:<rule>:<reason>:<expiry>` token for
+      that specific finding, so that acknowledging is at most as much friction
+      as writing an engine-native `//nolint`.
+  - id: REQ-015
+    text: >
+      The active-waiver set must be exposed to the gate's step-9 audit/ledger
+      surface so that "what are we deliberately ignoring, why, and until when"
+      is a first-class, auditable question. (Step 9 itself is unbuilt; this
+      requirement is the data-feed contract, not step-9 implementation.)
 ---
 
 # Waiver Subsystem
@@ -51,420 +185,335 @@ problem:
 
 ### Why now
 
-Two things make the waiver subsystem load-bearing right now rather than
-"someday."
+Two things make the waiver subsystem load-bearing now rather than "someday."
 
-First, the gate already reserves a slot for it and multiple artifacts are
-waiting on it:
+First, the gate already reserves a slot for it and multiple artifacts wait on
+it:
 
 - **SPEC-010 REQ-006** reserves gate **step 8, "waiver resolution"**: the step
   "must check active waivers and suppress matching violations from preceding
-  steps. An active waiver is one [criteria unspecified]." It is currently
-  stubbed — `pkg/gate/step_deferred.go` `StepWaiverResolutionScopedFunc`
-  returns status `"skipped"`, reason `"waivers not implemented"`. SPEC-010
-  also leaves the "active" criteria explicitly open and flags the
-  expired-vs-active distinction as an unresolved question. This bundle is
-  where that gets designed.
+  steps." It is currently stubbed — `pkg/gate/step_deferred.go`
+  `StepWaiverResolutionScopedFunc` returns status `"skipped"`, reason
+  `"waivers not implemented"`. SPEC-010 also left the "active waiver" criteria
+  and the expired-vs-active distinction explicitly open; this bundle settles
+  them.
 - **SPEC-019 (baseline)** deliberately preserves "a future waiver-aware
-  integration point" and records that v1 baseline comparison **ignores
-  waivers ONLY because the subsystem is unbuilt** — it must not bake in
-  permanent pre-waiver semantics. When waivers exist, waived violations must
-  participate in baseline calculation rather than being treated as permanent
-  regressions. So the baseline design has an intentional seam waiting for
-  this work.
+  integration point" and records that v1 baseline comparison ignores waivers
+  ONLY because the subsystem was unbuilt — it must not bake in permanent
+  pre-waiver semantics. This bundle fills that reserved seam.
 
 Second, the motivating driver: **ISSUE-050 (strict file-level ratchet)** — the
 decision that touching a file revokes baseline grandfathering for ALL of that
 file's findings, forcing each one to be either fixed or WAIVED. That ratchet is
-only humane if there is an accountable escape valve. Without waivers, the only
+only humane if there is an accountable escape valve; without waivers, the only
 valve left when the ratchet fires is the invisible engine-native suppression —
-which is exactly the accountability hole this subsystem exists to close. So
-waivers should land **alongside or ahead of** ISSUE-050; the ratchet is the
-forcing function that makes the escape valve necessary.
+the exact accountability hole this subsystem closes. **The key insight: the
+ratchet is the bridge that converts silent, baseline-grandfathered debt into
+loud, expiring, accountable waivers at the moment someone touches the file.**
 
-### What a waiver is (and is not)
+### The settled model
 
-A waiver is the backstop-native, engine-neutral, tracked, justified,
-gate-visible alternative to the two bad valves. The design intent, stated as
-principles rather than settled mechanism:
+All ten open questions and two scope boundaries are resolved (see Draft Design
+Decisions). The shape of the answer:
 
-- **Engine-neutral.** A waiver is expressed in backstop's own vocabulary and,
-  in the leading model, applied to backstop's SARIF-shaped finding stream AFTER
-  engines produce findings — not inside any one engine's comment dialect. One
-  concept covers semgrep, golangci-lint, staticcheck, gitleaks, and any future
-  engine. This whole "waive on the SARIF stream" model is **contingent on
-  engines actually emitting the findings they would otherwise suppress**: if a
-  pack lets its engine keep suppressing findings internally, backstop never sees
-  them and cannot waive them. That contingency is not a detail — it is OQ-9, the
-  hinge the ledger aspiration hangs on.
-- **Tracked and durable.** Unlike the gitignored/CI-regenerated baseline, a
-  waiver is meant to be a durable record of a human decision. Where exactly it
-  lives — a tracked file, in-code annotations backstop parses, or the lock
-  file — is an open question (OQ-4), but the durability intent is not.
-- **Justified.** A waiver without a reason is just a hidden baseline with extra
-  steps. The whole point is that a deferral carries its "why." What counts as
-  sufficient justification without becoming ceremony is OQ-2.
-- **Loud, not silent.** Per backstop's loud-not-blocking principle, a waiver
-  suppresses a finding from BLOCKING while keeping the suppression VISIBLE and
-  auditable in gate output. The enemy is silent/vacuous green; a waiver is a
-  green that still shows its work. How that surfaces is OQ-8.
-
-A waiver is NOT a way to make findings disappear, and it is NOT the baseline.
-The baseline answers "did you make it worse than main?"; a waiver answers "this
-specific finding is a deliberate, justified, on-the-record deferral." Keeping
-those two operations distinct (OQ-5) matters — mass-waiving and
-baseline-generation should not collapse into each other.
+- **Inline, per-finding, location-based.** A waiver is a backstop-native DSL
+  token — `@waiver:<rule-id>:<reason-code>:<expiry>` — that a human writes
+  inside whatever comment their language already uses, at the finding's source
+  location. Identity is the location, not a stored fingerprint; the waiver
+  moves and dies with the code.
+- **Foreign-token adjudication dissolves the hardest problem.** Because
+  `@waiver` is a foreign token to every engine, engines emit findings normally
+  and backstop does 100% of the suppressing by line-scanning the finding's own
+  reported location. This works uniformly — golangci-lint included — with **no
+  forced report-everything pack contract**, and it keeps core zero-baked:
+  backstop reads bytes at a location the engine already reported and never
+  learns a single language's comment syntax.
+- **Everything expires.** No permanent waivers. Reason-code sets the default
+  duration; on expiry the shield lifts and the finding re-fires under normal
+  enforcement, with a loud pre-expiry warning as the grace period. This is the
+  structural defense against waivers becoming the new silent debt.
+- **A declared non-waivable tier protects the invariants.** Rules and
+  severities self-declare un-waivable in their pack manifest (declared, not
+  core-hardcoded); backstop/self zero-baked-language rules and critical-severity
+  secrets ship in that set. The escape valve cannot neutralize a cardinal
+  invariant.
+- **Loud by construction.** A pass that depends on waivers is a distinct
+  terminal state; the active-waiver summary is always shown and the actionable
+  subset (expiring-soon, unused) is surfaced inline every run.
 
 ### The suppression accounting model
 
-The core reframing: today, suppression happens in three disconnected places —
-inside each engine (invisible), in the baseline (silent), and nowhere else.
-The aspiration is a SINGLE gate-visible ledger of every "chosen not to fix,"
-so that a reviewer can answer "what are we deliberately ignoring, why, and for
-how long?" from one place. Whether the subsystem should go further and actively
-push authors OFF engine-native suppressions and INTO waivers — by having the
-`backstop/self` dogfood pack flag `//nolint`/`nosemgrep`/etc. — is a real fork
-(OQ-6): it is the difference between offering a better valve and mandating that
-all deferrals flow through the one accountable channel.
+Today, suppression happens in three disconnected places — inside each engine
+(invisible), in the baseline (silent), and nowhere else. The waiver channel
+becomes a single gate-visible ledger of every "chosen not to fix." Notably, the
+subsystem does NOT wage a migration crusade against engine-native suppressions:
+`//nolint`/`nosemgrep`/`#gitleaks:allow` are accepted as debt/risk rather than
+fought, because the foreign-token design already gives an accountable channel
+without needing to force engines out of their own suppression modes. An
+empirical asymmetry is worth recording as design context: semgrep REPORTS
+`nosemgrep`-suppressed findings in SARIF (`suppressions: kind inSource`) so
+backstop can surface them, whereas golangci-lint DROPS `//nolint`'d findings
+entirely (invisible to backstop). The design accepts that asymmetry rather than
+trying to erase it.
 
-### Deliberately unresolved
+### Scope and enforceability boundaries
 
-This bundle is at **exploring** on purpose. The problem and the seams are well
-understood — SPEC-010 and SPEC-019 have been holding space for this — but the
-shape of the answer is genuinely open. The Open Questions below are real forks
-with live tradeoffs, not a checklist to rubber-stamp. Granularity (OQ-1),
-lifecycle/expiry (OQ-3), and storage (OQ-4) in particular have no obvious
-right answer and pull against each other. These are for the founder to drive.
+Waivers apply to code-located findings only; artifact/structural dimensions keep
+their existing accountable resolution paths. The non-waivable secrets guarantee
+is scoped to backstop's OWN `@waiver` channel, where it is enforceable — it is
+airtight for semgrep-based backstop/self findings. It does not extend to
+engine-native allows: a `gitleaks:allow` on a secret is an EXPLICIT,
+source-visible human choice to expose the secret — categorically different from
+silent debt — so it is out of scope to "plug," and no report-everything
+requirement is imposed to chase it.
 
-## Open Questions
+## Draft Requirements
 
-### OQ-1: Waiver identity and scope granularity
+Requirements are formally captured in the frontmatter `requirements` block
+(REQ-001 through REQ-015). Summary:
 
-At what granularity does a waiver match findings? This is the single most
-consequential fork because it sets the precision/churn/staleness tradeoff for
-everything else.
+- **REQ-001** — `@waiver:<rule-id>:<reason-code>:<expiry>` DSL grammar +
+  closed reason-code enum (false-positive / accepted-risk / deferred /
+  third-party).
+- **REQ-002** — Inline, engine-neutral, zero-baked line-scan adjudication:
+  engines emit, backstop suppresses at the reported location.
+- **REQ-003** — Per-finding, location-based identity; no file/rule blanket
+  scope; touched files discharged finding-by-finding.
+- **REQ-004** — Mandatory expiry with reason-code default durations; re-fire on
+  expiry; loud pre-expiry warning.
+- **REQ-005** — Unused/dangling waiver detection surfaced as a warning.
+- **REQ-006** — Declared non-waivable tier (pack-manifest-declared); ships with
+  backstop/self + critical secrets; waiving one is a gate error.
+- **REQ-007** — Grammar enforcement: a malformed `@waiver` is itself a gate
+  finding.
+- **REQ-008** — Token-location matching semantics: line association, multi-line
+  findings, false-match avoidance (token inside a string literal).
+- **REQ-009** — Stable ergonomic `rule-id` + defined behavior on pack rule
+  rename.
+- **REQ-010** — Scope boundary: code-located findings only; structural
+  dimensions non-waivable; coverage annotation convention.
+- **REQ-011** — Read-only core CLI `backstop waiver list`; core never writes
+  tokens (authoring belongs to human/agent).
+- **REQ-012** — Reporting: distinct pass-with-waivers terminal state, always-on
+  summary, inline actionable subset, separate engine-native-visible line.
+- **REQ-013** — Ratchet interaction: active satisfies, expired/unused do not;
+  baseline-generation and waiver-authoring stay distinct.
+- **REQ-014** — Gate emits a pre-filled neutral token on a blocked waivable
+  finding.
+- **REQ-015** — Active-waiver set feeds the step-9 audit/ledger surface.
 
-- **(a) Per-finding fingerprint** — bind the waiver to the exact violation
-  identity backstop already computes (the `NormalizePath`/fingerprint scheme
-  from ISSUE-046 that the baseline uses). Most precise: waives exactly one
-  finding and nothing else. But fingerprints are content/region-derived, so a
-  waiver can go stale the moment the surrounding code is edited — the finding
-  re-fires under a new identity and the waiver silently stops applying. Precise
-  but brittle; high churn on active code.
-- **(b) Per-rule** — waive a rule everywhere (e.g. "we don't enforce
-  rule X anywhere"). Extremely durable and low-churn, but blunt: it is barely
-  distinguishable from disabling the rule, and it defeats the per-finding
-  accountability the subsystem is trying to create.
-- **(c) Per-file** — waive all findings (or a rule's findings) in a given
-  file. Survives edits within the file, coarser blast radius. Interacts
-  directly with ISSUE-050's file-level ratchet (a file-scoped waiver is a
-  natural unit for "I touched this file and am deferring its debt"), but risks
-  waiving future NEW findings in that file that nobody reviewed.
-- **(d) Per-rule-per-path** — waive rule X under path/glob Y. A middle ground:
-  more durable than a fingerprint, more targeted than whole-rule. But glob
-  semantics introduce their own ambiguity and can quietly over-suppress.
+## Draft Design Decisions
 
-Tradeoff axis: precision (a) ↔ durability/low-churn (b/c). The tighter the
-identity, the more accountable each waiver is — and the faster it goes stale.
+- **DD-1 (OQ-1 identity):** Waiver identity is per-finding and LOCATION-based,
+  expressed as an inline annotation — NO stored fingerprint. The waiver lives at
+  the finding's source location and applies to exactly that finding. Rationale:
+  a content fingerprint (as the baseline uses) drifts on any nearby edit and
+  goes silently stale; a co-located token instead moves, and dies, with the code
+  it annotates. Per-finding rather than per-file/per-rule keeps accountability
+  finding-by-finding and forecloses a blanket "waive this whole file/rule"
+  shortcut.
 
-**Sub-decision — multi-granularity precedence.** The subsystem may not pick one
-granularity at all; it could support several (a fingerprint waiver AND a
-per-file waiver AND a per-rule waiver coexisting). If it does, precedence
-becomes a first-class design question, not a tail detail: when a finding is
-covered by more than one waiver, which one applies — the narrowest (most
-specific wins), the first-declared, or the most-permissive? Precedence drives
-real behavior: it decides which waiver's justification and expiry govern the
-suppression, which waiver is "used" vs "unused" for staleness reporting
-(OQ-3), and whether a broad per-rule waiver can silently shadow — and thereby
-hide the staleness of — a narrow fingerprint one. Choosing to support multiple
-granularities is choosing to owe a precedence rule.
+- **DD-2 (OQ-2 justification):** A waiver is a compact DSL token
+  `@waiver:<rule-id>:<reason-code>:<expiry>` with an optional trailing
+  note/issue-ref. `reason-code` is a closed enum: `false-positive`,
+  `accepted-risk`, `deferred`, `third-party`. Rationale: structured enough to
+  report/filter and to drive default expiry durations (DD-3), compact enough
+  that writing one is no more friction than an engine-native ignore.
 
-### OQ-2: Justification — what makes a waiver accountable without being ceremony
+- **DD-3 (OQ-3 lifecycle):** EVERY waiver expires — none is permanent. The
+  reason-code sets the default duration (`false-positive` long-lived, e.g.
+  ~1yr; `deferred`/`accepted-risk`/`third-party` short-lived, e.g. ~90d;
+  durations are tuning, not contract). On expiry the waiver becomes inactive and
+  the finding re-fires under normal enforcement; the gate emits a loud heads-up
+  BEFORE the flip. An unused/dangling waiver (no live finding at its location)
+  surfaces as a warning. Rationale: permanent waivers would recreate exactly the
+  silent-baseline debt the subsystem exists to kill; forced expiry guarantees
+  periodic reckoning, and the pre-expiry warning is the grace so re-fire is
+  never a surprise.
 
-A waiver's reason is what separates it from a silent baseline. How structured
-should it be?
+- **DD-4 (OQ-4 storage):** Waivers are stored inline in source, located by
+  LINE-SCANNING the finding's own SARIF location for the token — NOT by parsing
+  comments, and NOT in a central file. Rationale: this sidesteps the
+  first-principles collision that an earlier option raised — per-language
+  comment PARSING would be baked-language knowledge, the cardinal zero-baked
+  violation. Here backstop reads bytes at a location the engine already
+  reported; the human writes the token inside whatever comment their language
+  uses, so core never learns comment syntax. Co-located and tracked in source =
+  durable, with no central merge-conflict hotspot.
 
-- **(a) Freeform text** — a required non-empty reason string. Lowest friction,
-  keeps authors in flow, but unenforceable quality: "temp" and "false positive"
-  pass. Accountability depends entirely on culture.
-- **(b) Structured (reason-code + text)** — a small enum of reason categories
-  (e.g. false-positive / accepted-risk / deferred / third-party) plus free
-  text. Enables reporting and filtering ("show me all accepted-risk waivers"),
-  at the cost of forcing a taxonomy that may not fit every case.
-- **(c) Mandatory link to an issue/ticket** — every waiver must reference a
-  tracked work item (an issue in this repo, or an external ticket). Strongest
-  accountability and a built-in remediation path, but the heaviest ceremony —
-  it forces issue creation at the exact moment an author is trying to get
-  unblocked, which is precisely the friction that drives people back to
-  `//nolint`.
+- **DD-5 (OQ-5 baseline/ratchet):** A valid ACTIVE waiver satisfies ISSUE-050's
+  file-level ratchet for its finding (the accountable "or waived" branch). An
+  EXPIRED waiver does NOT satisfy it (the live finding stands and the ratchet
+  demands action). An UNUSED waiver satisfies nothing. Because identity is
+  per-finding (DD-1), there is no file-blanket shortcut — a touched, debt-heavy
+  file is discharged finding-by-finding. Baseline generation (a machine
+  snapshot) and waiver authoring (a human decision) stay DISTINCT operations.
+  Rationale — the key framing: the ratchet is the bridge that converts silent,
+  baseline-grandfathered debt into loud, expiring, accountable waivers at the
+  moment someone touches the file.
 
-Tension with the whole thesis: the more ceremony a waiver demands, the more
-attractive the invisible engine-native suppression becomes — which would
-defeat the subsystem. The bar has to be high enough to be accountable and low
-enough that the accountable path is the path of least resistance.
+- **DD-6 (OQ-6 migration):** No migration crusade. Native engine suppressions
+  (`//nolint`, `nosemgrep`, `#gitleaks:allow`, etc.) are accepted as debt/risk,
+  not fought. Rationale: the foreign-token design (DD-9) already yields an
+  accountable channel without forcing engines out of their suppression modes,
+  so a forced migration would add adoption cost for little gain. Optional
+  loud-surfacing of engine-VISIBLE suppressions is a follow-on (see
+  Notes / Ideas), not a v1 requirement.
 
-### OQ-3: Lifecycle — how is a waiver "active," and do waivers expire?
+- **DD-7 (OQ-7 CLI/ergonomics):** Primary authoring is writing the inline
+  comment, not running a command. Core backstop READS `@waiver` (line-scan) but
+  does NOT WRITE it — inserting a comment requires language comment-syntax,
+  which is baked-language knowledge, so authoring and re-certification belong to
+  the human or the runtime AGENT (which may legitimately hold language
+  knowledge). The core CLI is read-only: `backstop waiver list`
+  (active/expiring/unused). Grammar is enforced — a malformed `@waiver` is
+  itself a gate finding (REQ-007). When the gate blocks on a waivable finding it
+  hands the author a pre-filled neutral `@waiver:<rule>:<reason>:<expiry>`
+  token. North star: authoring a waiver must be ≤ the friction of `//nolint`.
+  Rationale: keeps core zero-baked (writing comments is the one place language
+  knowledge would leak in) and pushes authoring to the layer that legitimately
+  owns it.
 
-SPEC-010 left "an active waiver is one [criteria unspecified]" deliberately
-open. This is that decision.
+- **DD-8 (OQ-8 reporting):** Waiver suppression is never silent. A run that
+  passes because of active waivers is a DISTINCT terminal state (e.g.
+  `PASS · N waivers`). The active-waiver summary is always shown; the actionable
+  subset (expiring-soon, unused) is surfaced inline every run; full per-waiver
+  detail is available on demand. Engine-native VISIBLE suppressions (e.g.
+  semgrep's SARIF-reported suppressions) get a separate line. On expiry the
+  shield lifts and normal enforcement resumes immediately — the pre-expiry
+  warning was the grace — and the runtime agent notices and prompts
+  re-certification. The active-waiver set feeds the step-9 audit/ledger surface.
+  Rationale: loud-not-blocking — a green built on waivers must show its work.
 
-- **(a) Permanent until removed** — a waiver applies until someone deletes it.
-  Simplest; matches how most lint-ignore comments behave. But waivers
-  accumulate silently and become permanent invisible debt — the same failure
-  mode as the baseline, just relocated.
-- **(b) Time-boxed with auto-reactivation** — a waiver carries an expiry
-  (explicit date, or a TTL from creation). Past expiry it becomes inactive and
-  the finding re-fires (and can re-block). Forces periodic reckoning and
-  prevents zombie waivers, but can re-block work at an inconvenient time and
-  needs a well-defined clock (commit time? wall clock at gate run?).
-- **(c) Periodic-review required** — waivers don't hard-expire but are
-  surfaced for review on a cadence; unreviewed waivers get loudly flagged.
-  Softer than auto-reactivation, but "flagged" only works if something actually
-  makes the team look.
+- **DD-9 (OQ-9 report-don't-suppress):** No forced report-everything pack
+  contract. Because `@waiver` is a FOREIGN token to engines, they emit the
+  finding normally and backstop adjudicates — this works uniformly, golangci
+  included. Empirical design context: semgrep REPORTS `nosemgrep`-suppressed
+  findings in SARIF (`suppressions: kind inSource`), so backstop can see them;
+  golangci-lint DROPS `//nolint`'d findings entirely (invisible). The design
+  accepts that asymmetry. Rationale: the foreign-token insight dissolves what
+  looked like the subsystem's hardest hinge — the ledger works WITHOUT changing
+  any engine's mode, so no pack-contract churn is needed.
 
-Cross-cutting sub-questions regardless of the above:
+- **DD-10 (OQ-10 non-waivable tier + authority):** A rule or severity
+  self-declares itself un-waivable in its pack manifest / enforcement policy —
+  declared, not a core-hardcoded list. The shipped set includes backstop/self
+  rules and critical-severity secrets. A waiver targeting a non-waivable rule is
+  a gate ERROR. Enforceability caveat (recorded, not a gap to plug): the
+  guarantee is only as strong as the engine's suppression-reporting — airtight
+  for semgrep-based backstop/self, but a `gitleaks:allow` on a secret is an
+  EXPLICIT, source-visible human choice to expose (categorically different from
+  silent debt), so it is out of scope and imposes no report-everything
+  requirement. Author/approval mechanics are deferred to diff-visibility.
+  Rationale: an unrestricted waiver is itself a vacuous-green vector; a declared
+  protected tier keeps the escape valve from neutralizing cardinal invariants
+  while staying pack-driven and zero-baked.
 
-- **How is "active" actually determined at gate time** — presence + not-expired
-  + fingerprint-still-matches? A waiver whose target finding no longer exists is
-  "unused" — is that an error, a warning, or silently ignored?
-- **How are expired / unused / stale waivers surfaced?** Per the
-  loud-not-blocking principle, these should be LOUD (a waiver that no longer
-  matches anything, or has expired, is drift the gate should call out) — but
-  loud-blocking vs loud-warning is itself a choice tied to OQ-8.
+- **DD-11 (scope boundary — waivable surface):** Waivers apply to CODE-LOCATED
+  findings only. Artifact/structural dimensions (artifact_status_drift,
+  contract_signature, test_verification) are NOT waivable — they retain their
+  existing accountable resolution paths (retire / replace / resolved-by /
+  obsoleted). File-level coverage gets a defined annotation convention rather
+  than a source-location token. Rationale: the inline-location model only makes
+  sense where a finding has a source location, and structural dimensions already
+  have first-class accountable lifecycles.
 
-### OQ-4: Storage and format — where does a waiver durably live?
+- **DD-12 (scope boundary — secrets guarantee):** The non-waivable secrets
+  guarantee is scoped to backstop's OWN `@waiver` channel, where it is
+  enforceable. Engine-native allows are the human's explicit, source-visible
+  choice, not a backstop hole. Rationale: bound the guarantee to what backstop
+  can actually enforce rather than overclaiming coverage it cannot deliver.
 
-- **(a) A tracked file** — e.g. `waivers.yml` at repo root, or a
-  `.backstop/waivers/` directory (one file per waiver, or per area). Tracked in
-  git, so waivers are durable, reviewable in PRs, and diffable. Central,
-  greppable ledger. Cost: waivers live away from the code they waive, so they
-  can rot out of sync, and the file can become a merge-conflict hotspot (the
-  exact pain the baseline design fled from).
-- **(b) In-code annotations backstop itself parses** — a backstop-native
-  comment (NOT an engine's dialect) that backstop reads and turns into a waiver,
-  e.g. a `backstop:waive` marker with structured fields. Keeps the waiver next
-  to the code (co-located, moves/deletes with it), and is engine-neutral in the
-  sense that backstop — not the engine — parses it. **But this option collides
-  head-on with a cardinal first principle.** To find a `backstop:waive` comment,
-  backstop must know each language's comment syntax (`//` vs `#` vs `--` vs
-  `<!-- -->` vs `;`) and scan source per-language. That IS baked
-  language knowledge — the exact zero-baked-knowledge invariant backstop exists
-  to protect, where "new language = a new pack, never new core code." This is
-  not merely "a comment-scanning surface we otherwise avoid"; it is the cardinal
-  invariant violation, and it likely **disqualifies 4(b) on invariant grounds**,
-  independent of any ergonomic upside. Flagged at full weight for the founder;
-  co-located waivers are also harder to audit as a single ledger. (A pack could
-  in principle own the comment-parsing, pushing the language knowledge back out
-  of core — but that is a materially different, more complex design than "in-code
-  annotation" implies, and would need its own exploration.)
-- **(c) Extend `backstop.lock`** — fold waivers into the existing tracked lock
-  file that is already the durability boundary. Reuses an established
-  tracked-artifact story. Cost: overloads the lock file's purpose (pins vs
-  human decisions) and may not suit per-finding volume.
+## Spec Seeds
 
-Explicit relationship to `baseline.json`: the baseline is gitignored and
-CI-regenerated (ephemeral, machine-owned). The leading intuition is that
-waivers are the OPPOSITE — tracked, durable, human-owned — precisely because
-they encode decisions the baseline is not allowed to. Stating that contrast as
-the design's north star, but the concrete format is open.
+Suggested decomposition; each requirement belongs to exactly one seed.
+Implementation order A → B → C → D (D integrates the rest).
 
-### OQ-5: Relationship to the baseline and the ISSUE-050 ratchet
+- **Seed A — Waiver DSL + zero-baked line-scan adjudication (foundation).**
+  The `@waiver` token grammar and reason-code enum, per-finding location
+  identity, the engine-neutral line-scan that suppresses at the finding's
+  reported location without parsing source, token-to-finding location matching
+  semantics (line association, multi-line findings, string-literal false-match
+  avoidance), stable `rule-id` + rename behavior, and malformed-token-as-gate-
+  finding enforcement. Covers REQ-001, REQ-002, REQ-003, REQ-007, REQ-008,
+  REQ-009. Implement first — everything else consumes it.
 
-- **Does a waiver satisfy the ratchet — and at which edges?** ISSUE-050 says
-  touching a file forces every finding on it to be fixed OR waived. That a
-  *valid, active* waiver is the accountable "or waived" branch is close to
-  foreclosed — it is the reason the two subsystems are being built together, and
-  it is NOT the live decision here. The live decisions are the edges, and they
-  are where the founder's judgment is actually needed:
-  - **Expired waiver.** A file is touched; a finding on it is covered by a waiver
-    that has expired (OQ-3b). Does the ratchet treat that finding as unresolved
-    (block until re-waived or fixed), or does the mere existence of a
-    once-valid waiver satisfy it? An expired waiver satisfying the ratchet would
-    reopen the silent-debt hole.
-  - **Unused / non-matching waiver.** A waiver exists but no longer matches any
-    live finding (its fingerprint drifted, OQ-1a). Does it still "count" toward
-    the ratchet for that file, or is it dead weight that satisfies nothing?
-  - **Scope mismatch — the sharp one.** ISSUE-050's ratchet is FILE-level, but a
-    waiver may be fingerprint-scoped (OQ-1a). Does a single fingerprint waiver
-    satisfy a file-level ratchet only for that one finding (leaving the file's
-    other findings still ratcheted), or is a FILE-scoped waiver (OQ-1c) the only
-    unit that cleanly discharges a file-level ratchet? This is where OQ-1's
-    granularity choice and OQ-5's ratchet semantics directly collide.
-- **Are baseline-generation and mass-waiving distinct operations?** They should
-  be. Baseline generation is a machine operation (CI snapshots existing debt);
-  mass-waiving is a human decision (someone accepts specific findings with
-  reasons). Collapsing them would let a bulk "waive everything" masquerade as
-  accountability. Leading position: keep them distinct — but how they compose at
-  gate step 7 (baseline) → step 8 (waiver) needs design, since SPEC-019
-  reserved that seam.
+- **Seed B — Lifecycle & expiry.** Mandatory expiry, reason-code default
+  durations, re-fire on expiry, the loud pre-expiry warning, and
+  unused/dangling detection. Covers REQ-004, REQ-005.
 
-### OQ-6: Migration off engine-native suppressions
+- **Seed C — Declared non-waivable tier.** Pack-manifest/enforcement-policy
+  declaration of un-waivable rules/severities, the shipped backstop/self +
+  critical-secrets set, and gate-error-on-waiving-a-protected-rule. Covers
+  REQ-006.
 
-Should this subsystem actively push authors off engine-native suppressions and
-into waivers — centralizing every "chosen not to fix" into the one gate-visible
-ledger?
+- **Seed D — Gate step-8 integration, reporting, ratchet & CLI.** Replace the
+  `pkg/gate/step_deferred.go` waiver-resolution stub with real adjudication;
+  the distinct pass-with-waivers terminal state, always-on summary and inline
+  actionable subset (and the separate engine-native-visible suppression line);
+  the ISSUE-050 ratchet interaction; the pre-filled neutral token emitted on a
+  blocked waivable finding; the read-only `backstop waiver list` CLI; the
+  code-located-only scope boundary + coverage annotation convention; and the
+  active-waiver feed into the step-9 audit surface. Covers REQ-010, REQ-011,
+  REQ-012, REQ-013, REQ-014, REQ-015.
 
-- **(a) In scope** — the `backstop/self` dogfood pack (or an equivalent
-  pack rule) eventually FLAGS `//nolint`, `nosemgrep`, `//lint:ignore`,
-  `#gitleaks:allow`, etc. as findings in their own right, steering authors
-  toward waivers. This is the only way to actually close the invisibility hole
-  rather than just offering an alternative beside it. But it is a real
-  behavior-change campaign and expands scope considerably.
-- **(b) Follow-on** — build the waiver subsystem first as a strictly better
-  valve; defer any flagging/migration of engine-native suppressions to a later
-  bundle once waivers have proven themselves. Smaller, faster, lower-risk, but
-  leaves the invisible-suppression hole open in the meantime.
+## Notes / Ideas
 
-This is a scope-boundary fork, not just a mechanism choice: (a) makes the
-subsystem's mission "all deferrals flow through one ledger"; (b) makes it
-"there exists a better ledger to flow through."
+Out-of-v1 follow-ons, captured so they are not lost:
 
-### OQ-7: CLI and authoring ergonomics
-
-How does a developer create a waiver at the exact moment they hit a blocking
-finding, without breaking flow? Ergonomics here directly determine whether the
-accountable path beats reaching for `//nolint`.
-
-- **CLI surface** — some subset of `backstop waiver add / list / rm / prune`.
-  `add` at the point of blockage; `list` for the ledger; `rm` to revoke;
-  `prune` to clear expired/unused. Open: does `add` take a fingerprint the gate
-  just printed, a file+rule, or interactively pick from the current finding
-  set?
-- **In-flow creation** — can the gate output itself hand the author a
-  copy-pasteable `backstop waiver add ...` for the specific finding it just
-  blocked on, so acknowledging is one command? This is the ergonomic crux: the
-  moment of friction is the moment of blockage, and that is where the
-  accountable path has to be easiest.
-- **Interaction with OQ-4** — if waivers are in-code annotations (OQ-4b), the
-  "CLI" may partly be "write a comment," which changes this surface entirely.
-
-### OQ-8: Gate reporting — keeping suppression loud
-
-How are active waivers surfaced in gate output so suppression stays loud and
-auditable rather than silent?
-
-- What does the gate print when step 8 suppresses findings? A count? A
-  per-waiver line with reason and (if any) expiry? Grouped by reason-code
-  (depends on OQ-2)?
-- Loud-not-blocking says the gate can go GREEN while still prominently
-  reporting "N findings suppressed by active waivers." Is a run with active
-  waivers visually distinct from a clean run, so a reviewer can't miss that
-  suppression happened?
-- How do expired / unused / stale waivers (OQ-3) appear — as warnings in the
-  same output, and do any of them block? A stale/expired waiver is drift; the
-  loud-not-blocking principle suggests warn-loudly, but whether an EXPIRED
-  waiver that is now re-exposing a real finding should block is genuinely open.
-- Does the waiver ledger feed the broader auditability/ledger surface
-  (gate step 9) so "what are we deliberately ignoring" is a first-class,
-  forensically-replayable question?
-
-### OQ-9: The "report-don't-suppress" pack/engine contract
-
-This is the hinge the entire ledger aspiration hangs on. Every other OQ quietly
-assumes that backstop's SARIF stream actually RECEIVES the finding, so step 8
-can waive it. But engine-native suppression kills the finding INSIDE the engine,
-upstream of backstop: a `//nolint` makes golangci-lint never emit the finding, a
-`nosemgrep` makes semgrep never emit it. A finding already suppressed at the
-engine is **unwaivable** — backstop cannot waive what it never sees — and,
-worse, it is exactly the invisible-suppression hole the subsystem set out to
-close. So the "single gate-visible ledger" goal and OQ-6's migrate-off-engine-
-suppressions goal are both **impossible unless packs run their engines in a
-report-everything / suppress-nothing mode** and hand ALL findings to backstop,
-letting backstop do 100% of the suppressing via waivers.
-
-The fork:
-
-- **(a) Require it as a pack contract.** Packs MUST configure their engines to
-  disable native suppression and emit every finding (e.g. run golangci-lint with
-  its nolint handling off, semgrep without honoring `nosemgrep`, etc.), so
-  backstop is the sole suppression authority. This is what makes the one-ledger
-  and OQ-6 migration actually achievable — but it is a real pack-contract change
-  with genuine adoption cost: every existing pack must be updated, engines vary
-  in whether they even *can* be told to report-everything, and authors lose the
-  familiar inline-ignore ergonomics they may still want.
-- **(b) Accept that engines keep suppressing.** Backstop waives only what
-  reaches its stream and lives alongside engine-native suppression rather than
-  replacing it. Far lower adoption cost and no pack-contract churn — but then
-  **OQ-6's migration collapses**: you cannot centralize "chosen not to fix" into
-  one ledger if engines are still silently eating findings before backstop can
-  count them. The subsystem becomes "a better valve beside the invisible ones,"
-  not "the one accountable channel."
-
-Whichever way this resolves cascades into OQ-6 (migration is only coherent under
-9a) and OQ-8 (a finding suppressed at the engine can never appear in gate
-reporting, no matter how loud the waiver surface is). If the honest answer is
-"we can't force engines to stop suppressing," the founder should know that
-foreclosing the one-ledger vision before committing to it downstream.
-
-### OQ-10: Is every finding waivable? (non-waivable tier + waiver authority)
-
-An unrestricted waiver is itself a vacuous-green vector — the precise failure
-mode this subsystem exists to kill. If any finding can be waived by anyone with
-a one-line reason, the waiver becomes a universal "make it green" button and the
-gate's teeth are optional. Two distinct sub-forks:
-
-- **(a) Is there a NON-WAIVABLE class?** A waiver that could suppress a
-  `backstop/self` zero-baked-language finding, or a critical secret leak, would
-  let the escape valve undercut a cardinal invariant — the exact defects the
-  gate is supposed to be non-negotiable about. Fork: "everything is waivable"
-  (maximally flexible, but the escape valve can neutralize any rule including the
-  ones that define backstop's thesis) vs "some rules/severities are
-  un-waivable" (a protected tier — e.g. secrets above a severity, and
-  zero-baked-language self-pack findings — that no waiver can touch). A
-  non-waivable tier preserves the invariant but requires deciding WHICH rules are
-  sacred and giving packs/severities a way to declare themselves un-waivable.
-- **(b) Who may create a waiver, and is it reviewed?** "Accountable" implies a
-  waiver is not silently self-approved by the same author dodging the finding.
-  Fork: does the gate treat an unreviewed / self-added waiver differently
-  (e.g. warn louder, require a second party, or require the waiver to land via
-  PR review rather than a local edit) vs treat all waivers equally regardless of
-  provenance? This is **lower priority for a solo founder today** — there is no
-  second party to review — but it is a real fork the moment the subsystem is used
-  by a team, and the storage choice (OQ-4: a tracked file reviewed in a PR vs a
-  local annotation) quietly pre-decides part of it.
+- **Migration nudge (not a crusade):** a `backstop/self` grep rule that flags
+  native suppression tokens (`//nolint`, `nosemgrep`, `#gitleaks:allow`) and
+  suggests converting them to `@waiver`. Steers without forcing.
+- **Surface engine-VISIBLE native suppressions:** render semgrep's
+  SARIF-reported `suppressions` as a non-blocking gate line, so the visible
+  subset of engine-native ignores is at least loud.
+- **Step-9 audit-ledger integration:** wire the active-waiver feed into the
+  step-9 audit/ledger surface once step 9 itself is built (it is currently
+  unbuilt; REQ-015 defines only the data-feed contract).
+- **Future secrets hardening:** optionally run the secrets engine in a
+  report-everything mode so that `gitleaks:allow`'d secrets still surface —
+  weighed against the DD-12 position that a visible `gitleaks:allow` is an
+  explicit human choice, not a hole.
 
 ## Version History
 
 - 0.1.0 (2026-07-09): Initial bundle at **exploring**. Framed the problem: no
   accountable, engine-neutral, gate-visible way to say "chosen not to fix,"
-  with today's only valves being invisible engine-native suppressions
-  (`//nolint`, `nosemgrep`, `//lint:ignore`, `#gitleaks:allow`) and silent
-  baseline grandfathering. Captured why-now (SPEC-010 step 8 reserved and
-  stubbed in `pkg/gate/step_deferred.go`; SPEC-019's reserved waiver-aware
-  seam; ISSUE-050's strict file-level ratchet as the forcing function that
-  demands an accountable escape valve). Surfaced 8 genuine, unresolved open
-  questions: granularity (OQ-1), justification (OQ-2), lifecycle/expiry
-  (OQ-3), storage/format (OQ-4), baseline+ratchet relationship (OQ-5),
-  migration off engine-native suppressions (OQ-6), CLI/ergonomics (OQ-7), and
-  gate reporting (OQ-8). All OQs left open for founder-driven resolution; no
-  design decisions, requirements, or spec seeds committed yet.
+  with today's only valves being invisible engine-native suppressions and
+  silent baseline grandfathering. Grounded why-now in SPEC-010 step 8
+  (reserved/stubbed), SPEC-019's reserved waiver seam, and ISSUE-050's ratchet
+  as the forcing function. Surfaced 8 open questions.
 
-- 0.1.0 (2026-07-09, review pass): Completed and sharpened the OQ set from a
-  bundle review; still **exploring**, still fully unresolved, no promotion.
-  Added two missing open questions: OQ-9 (the "report-don't-suppress"
-  pack/engine contract — the hinge on which the single-ledger and OQ-6 migration
-  goals depend, since engine-native suppression kills findings upstream of
-  backstop) and OQ-10 (is every finding waivable — non-waivable tier for
-  cardinal invariants like zero-baked-language and critical secrets, plus waiver
-  authority/review). Sharpened framing without resolving: named OQ-4(b)'s in-code
-  annotation parsing as a first-principles zero-baked-knowledge collision that
-  likely disqualifies it on invariant grounds; softened the "waive on the SARIF
-  stream" line from settled principle to leading model contingent on OQ-9;
-  reframed OQ-5 so the founder resolves the LIVE ratchet edges (expired/unused
-  waiver, file-scoped vs fingerprint-scoped satisfying a file-level ratchet)
-  rather than re-ratifying the near-foreclosed "yes"; elevated OQ-1's
-  multi-granularity precedence from a tail mention to an explicit sub-decision.
+- 0.1.0 (2026-07-09, review pass): Completed the OQ set — added OQ-9
+  (report-don't-suppress pack/engine contract) and OQ-10 (non-waivable tier +
+  authority) — and sharpened framing (OQ-4b as a first-principles zero-baked
+  collision; OQ-5 reframed to the live ratchet edges; OQ-1 precedence elevated).
+  Still exploring, still fully unresolved.
+
+- 0.2.0 (2026-07-09): Advanced to **defined** on founder approval. Resolved all
+  10 open questions plus two scope boundaries into DD-1 through DD-12: inline
+  per-finding location-based `@waiver` DSL (DD-1/DD-2), zero-baked line-scan
+  adjudication (DD-4), mandatory reason-code-defaulted expiry with pre-expiry
+  warning and unused-waiver detection (DD-3), ratchet interaction as the
+  accountable "or waived" branch (DD-5), no migration crusade (DD-6),
+  read-only core CLI with human/agent authoring (DD-7), loud distinct
+  pass-with-waivers reporting (DD-8), foreign-token adjudication dissolving the
+  report-everything hinge (DD-9), declared non-waivable tier (DD-10), and the
+  code-located-only + secrets-channel scope boundaries (DD-11/DD-12). Added
+  `solution.approach`, formal requirements REQ-001 through REQ-015, Draft
+  Requirements and Spec Seeds (4 seeds), and Notes / Ideas follow-ons. Removed
+  the now-resolved Open Questions section.
 
 ## References
 
-- SPEC-010 (gate): REQ-006 reserves step 8 "waiver resolution"; leaves
-  "active waiver" criteria and the expired-vs-active distinction open.
-- SPEC-019 (baseline): preserves a future waiver-aware integration point;
-  v1 baseline comparison ignores waivers only because this subsystem is unbuilt.
-- ISSUE-050 (strict file-level ratchet): the forcing function — touching a file
-  forces every finding to be fixed or waived; waivers are the accountable valve.
-- BUNDLE-007 (baseline): REQ-013 / DD-18 record the deferred waiver seam.
-- ISSUE-046: exported `NormalizePath` / fingerprint violation identity — the
-  candidate substrate for per-finding waiver matching (OQ-1a).
+- DIR-003 / BUNDLE-007 (baseline): the CI-generated baseline whose silent
+  grandfathering this subsystem replaces with accountable waivers.
+- ISSUE-050 (strict file-level ratchet): the driver — touching a file forces
+  every finding to be fixed or waived; waivers are the accountable valve.
+- SPEC-010 REQ-006 (gate step 8, waiver resolution): the reserved, stubbed step
+  this subsystem implements.
+- SPEC-019 (baseline): reserved the waiver-aware baseline integration seam.
+- ISSUE-046: exported `NormalizePath` / path normalization — the reported-
+  location substrate the line-scan adjudication relies on.
 - `pkg/gate/step_deferred.go`: `StepWaiverResolutionScopedFunc` — the current
-  stub returning "skipped / waivers not implemented."
+  "skipped / waivers not implemented" stub to be replaced (Seed D).
