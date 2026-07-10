@@ -117,9 +117,14 @@ func TestEnrichViolationIdentity_ChangedContent_GetsNewIdentity(t *testing.T) {
 // exercises the real generate→gate cycle at the identity layer: a baseline whose
 // single violation carries the full-scope File form, compared against a current
 // run carrying the SAME violation in the diff-scope File form under a diff
-// GateScope that Contains the file. The pre-existing finding must grandfather —
-// zero NewViolations and NOT mis-counted as Fixed. FAILS today (identity mismatch
-// reads the finding as both "new" and "fixed"); passes after canonicalization.
+// GateScope that Contains the file. IDENTITY STABILITY (ISSUE-046) is asserted via
+// FixedViolations == 0: a stable identity means the baseline finding MATCHED a
+// current finding (not orphaned), so it is not mis-counted as Fixed — a broken
+// identity would surface it as both net-new AND fixed. Under the strict file-level
+// ratchet (ISSUE-050) the touched file's grandfather is REVOKED, so the matched
+// finding now reports as exactly one NEW violation (revocation, not a net-new
+// identity miss). The FixedViolations == 0 assertion is what still pins the
+// ISSUE-046 canonicalization guarantee.
 func TestCompareBaseline_GenerateThenDiffScope_PreexistingGrandfathers(t *testing.T) {
 	// Baseline captured under full scope: File in the directory-walk "./"-form.
 	baseline := &BaselineArtifact{
@@ -147,11 +152,16 @@ func TestCompareBaseline_GenerateThenDiffScope_PreexistingGrandfathers(t *testin
 		Scope: newGateScope("", GateScopeModeDiff, []string{"pkg/pack/manifest.go"}, nil),
 	})
 
-	if len(comparison.NewViolations) != 0 {
-		t.Fatalf("pre-existing finding read as NEW across scope forms: got %d new %#v", len(comparison.NewViolations), comparison.NewViolations)
+	// Revoked-on-touch (ISSUE-050): the matched finding is on the touched file, so it
+	// reports as exactly one NEW violation via the scope-touch path — NOT a net-new
+	// identity miss.
+	if len(comparison.NewViolations) != 1 {
+		t.Fatalf("touched-file finding must be revoked as exactly one NEW across scope forms: got %d new %#v", len(comparison.NewViolations), comparison.NewViolations)
 	}
+	// Identity stability (ISSUE-046): stable identity ⇒ baseline finding matched
+	// current ⇒ NOT orphaned as Fixed. A broken identity would surface it as fixed.
 	if len(comparison.FixedViolations) != 0 {
-		t.Fatalf("pre-existing finding mis-counted as FIXED across scope forms: got %d fixed %#v", len(comparison.FixedViolations), comparison.FixedViolations)
+		t.Fatalf("pre-existing finding mis-counted as FIXED across scope forms (identity unstable): got %d fixed %#v", len(comparison.FixedViolations), comparison.FixedViolations)
 	}
 }
 

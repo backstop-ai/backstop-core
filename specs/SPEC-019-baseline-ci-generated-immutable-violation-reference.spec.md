@@ -216,11 +216,13 @@ supersedes:
 claims:
   - id: CLM-001
     requirement: REQ-001
+    subject: pkg/gate
     text: Baseline JSON is versioned, portable, and contains metadata, counts, and raw violations.
     tests:
       - TestBaseline_ArtifactJSONRoundTrip_Contract
   - id: CLM-002
     requirement: REQ-002
+    subject: pkg/gate
     text: Gate violations expose additive baseline identity data while preserving gate/v1 fields.
     tests:
       - TestBaseline_ViolationJSON_AdditiveIdentityFieldsContract
@@ -232,10 +234,9 @@ claims:
       - TestGate_BaselineComparison_WiredAfterAccumulatedChecks
   - id: CLM-004
     requirement: REQ-004
-    text: Baseline comparison fails only on current scoped identities absent from the full baseline.
+    text: Baseline comparison fails the gate on current scoped identities absent from the full baseline (CLI orchestration).
     tests:
       - TestGate_BaselineRatchet_FailsNewAndAllowsReductions_Contract
-      - TestBaseline_CompareBaseline_ScopedRunDisallowsRuleSetChangeBypass
   - id: CLM-005
     requirement: REQ-006
     text: Missing baseline skips comparison with a warning and does not generate a local baseline.
@@ -276,10 +277,8 @@ claims:
       - TestBaselineCIContract_ArtifactNamingAndLatestMainSelectionSemantics
   - id: CLM-011
     requirement: REQ-013
-    text: Rule-set-change seeding is the only ratchet exception and does not permit changed-code regressions.
+    text: Rule-set-change seeding is the only ratchet exception and does not permit changed-code regressions (CI/CLI contract).
     tests:
-      - TestBaseline_CompareBaseline_AllScopeAllowsRuleSetChangeSeeding
-      - TestBaseline_CompareBaseline_ScopedRunDisallowsRuleSetChangeBypass
       - TestBaselineCIContract_RuleSetChangeExceptionOnlySeedsOnFullBaseline
       - TestBaselineCIContract_PullRequestGateKeepsChangedCodeEnforcement
   - id: CLM-012
@@ -309,6 +308,19 @@ claims:
     text: SPEC-010 baseline placeholder is superseded by JSON path and stable identity matching.
     tests:
       - TestSpec010BaselinePlaceholderSuperseded
+  - id: CLM-017
+    requirement: REQ-004
+    subject: pkg/gate
+    text: CompareBaseline logic fails a scoped run whose current identities are absent from the full baseline and does not allow a scoped run to bypass via rule-set-change context.
+    tests:
+      - TestBaseline_CompareBaseline_ScopedRunDisallowsRuleSetChangeBypass
+  - id: CLM-018
+    requirement: REQ-013
+    subject: pkg/gate
+    text: CompareBaseline logic seeds existing-code violations only on a full-scope rule-set change and disallows scoped-run bypass, enforcing rule-set-change seeding as the sole ratchet exception.
+    tests:
+      - TestBaseline_CompareBaseline_AllScopeAllowsRuleSetChangeSeeding
+      - TestBaseline_CompareBaseline_ScopedRunDisallowsRuleSetChangeBypass
 
 contracts:
   - file: pkg/gate/baseline.go

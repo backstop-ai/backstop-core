@@ -167,11 +167,19 @@ func TestSarifFingerprint_StableAcrossScopeInvocations(t *testing.T) {
 	}
 }
 
-// TestBaselineCycle_GenerateThenGate_ZeroNew (CLM-003): the real-path analogue of
-// the ISSUE-045 grandfather repro. Generate a baseline from a full-scope run, then
-// CompareBaseline a diff-scope run of the same tree against it; the pre-existing
-// finding must grandfather — zero NewViolations.
-func TestBaselineCycle_GenerateThenGate_ZeroNew(t *testing.T) {
+// TestBaselineCycle_GenerateThenGate_TouchedFileRevoked (CLM-003 / ISSUE-050): the
+// real-dispatch generate->gate cycle. Generate a baseline from a full-scope run,
+// then CompareBaseline a diff/file-scope run of the same tree against it. The gated
+// file IS explicitly touched, so under the strict file-level ratchet (ISSUE-050)
+// the pre-existing finding's grandfather is REVOKED and it surfaces as exactly one
+// NewViolation through the REAL dispatch path — the end-to-end proof the ratchet
+// fires, not just in a hand-aligned unit. Identity stability across scope forms
+// (ISSUE-046) is still pinned by FixedViolations == 0: a stable identity means the
+// baseline finding MATCHED the current one (not orphaned), whereas a path-form
+// mismatch would surface it as both net-new AND fixed. (The pure canonicalization
+// guarantee is separately covered by
+// TestBaselineIdentity_RealDispatch_FullScopeVsDiffScope_ByteIdentical.)
+func TestBaselineCycle_GenerateThenGate_TouchedFileRevoked(t *testing.T) {
 	projectRoot := t.TempDir()
 	relFile := "pkg/pack/manifest.go"
 
@@ -182,7 +190,7 @@ func TestBaselineCycle_GenerateThenGate_ZeroNew(t *testing.T) {
 		Violations:    []gate.Violation{gate.EnrichViolationIdentity(fullV)},
 	}
 
-	// gate (diff scope) over the same tree.
+	// gate (diff/file scope) over the same tree — the gated file is touched.
 	diffScope, err := gate.ComputeGateScope(projectRoot, gate.GateScopeModeFile, []string{relFile})
 	if err != nil {
 		t.Fatalf("ComputeGateScope: %v", err)
@@ -193,8 +201,11 @@ func TestBaselineCycle_GenerateThenGate_ZeroNew(t *testing.T) {
 	}
 
 	comparison := gate.CompareBaseline([]gate.Violation{diffV}, baseline, gate.BaselineCompareOptions{Scope: diffScope})
-	if len(comparison.NewViolations) != 0 {
-		t.Fatalf("pre-existing finding read as NEW across the generate->gate cycle: got %d new %#v", len(comparison.NewViolations), comparison.NewViolations)
+	if len(comparison.NewViolations) != 1 {
+		t.Fatalf("touched-file pre-existing finding must be revoked as exactly one NEW across the generate->gate cycle: got %d %#v", len(comparison.NewViolations), comparison.NewViolations)
+	}
+	if len(comparison.FixedViolations) != 0 {
+		t.Fatalf("stable identity must NOT orphan the finding as fixed (a path-form mismatch would): got %d %#v", len(comparison.FixedViolations), comparison.FixedViolations)
 	}
 }
 

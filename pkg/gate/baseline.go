@@ -67,7 +67,7 @@ type BaselineCompareOptions struct {
 func LoadBaseline(path string) (*BaselineArtifact, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read baseline %s: %w", path, err)
 	}
 	var artifact BaselineArtifact
 	if err := json.Unmarshal(data, &artifact); err != nil {
@@ -101,12 +101,15 @@ func WriteBaseline(path string, artifact *BaselineArtifact) error {
 	}
 	data, err := json.MarshalIndent(copyArtifact, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal baseline: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return fmt.Errorf("create baseline dir %s: %w", filepath.Dir(path), err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write baseline %s: %w", path, err)
+	}
+	return nil
 }
 
 func CompareBaseline(current []Violation, baseline *BaselineArtifact, options BaselineCompareOptions) BaselineComparison {
@@ -129,7 +132,19 @@ func CompareBaseline(current []Violation, baseline *BaselineArtifact, options Ba
 		enriched := EnrichViolationIdentity(v)
 		currentSet[enriched.IdentityHash] = enriched
 		if _, ok := baselineSet[enriched.IdentityHash]; ok {
-			continue
+			// Strict file-level ratchet (ISSUE-050): baseline grandfathers a finding
+			// ONLY while nobody touches its file. The moment the file enters an explicit
+			// diff/file scope, its grandfather is REVOKED and the finding falls through
+			// to newViolations — every pre-existing finding in a touched file must be
+			// resolved (fixed or waived), not merely kept net-new-clean. Untouched files
+			// (per-finding scope.Contains == false), --all mode, and nil scope keep
+			// grandfathering unchanged (scopeTouches). Pass the RAW finding File:
+			// scope.Contains self-normalizes both sides against the real ProjectRoot,
+			// whereas enriched.File was normalized with projectRoot=="".
+			if !scopeTouches(options.Scope, v.File) {
+				continue
+			}
+			// touched: grandfather revoked → fall through to newViolations.
 		}
 		if options.AllowRuleSetChangeSeeding && options.Scope != nil && options.Scope.Mode == GateScopeModeAll && isExistingCodeViolation(enriched, options.ChangedFiles) {
 			seededViolations = append(seededViolations, enriched)
@@ -157,6 +172,20 @@ func CompareBaseline(current []Violation, baseline *BaselineArtifact, options Ba
 		seededViolations = []Violation{}
 	}
 	return BaselineComparison{NewViolations: newViolations, FixedViolations: fixedViolations, SeededViolations: seededViolations}
+}
+
+// scopeTouches reports whether file was explicitly touched by an author under a
+// diff/file-scoped gate run — the single definition of "touched" for the strict
+// file-level ratchet (ISSUE-050). It is the guard that keeps revocation honest:
+// nil scope → false (grandfather kept); GateScopeModeAll excluded (scope.Contains
+// is universally true in --all, so revoking there would blanket-revoke the whole
+// repo and break gradual baseline generation); and revocation is keyed per-finding
+// on scope.Contains(file), so a project-wide dimension's findings on UNtouched
+// files stay grandfathered.
+func scopeTouches(scope *GateScope, file string) bool {
+	return scope != nil &&
+		(scope.Mode == GateScopeModeDiff || scope.Mode == GateScopeModeFile) &&
+		scope.Contains(file)
 }
 
 func isExistingCodeViolation(v Violation, changedFiles map[string]struct{}) bool {
