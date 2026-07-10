@@ -6,8 +6,11 @@ issue:
   id: ISSUE-050
   title: "Strict File Level Ratchet"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-07-09"
+  closed: "2026-07-10"
+
+delivered_by: PLAN-ISSUE-050
 
 complexity:
   scope: contained
@@ -153,6 +156,46 @@ go test ./pkg/gate/... -run Policy
   `s.Violations` on the next run) or suppressed (engine-native
   `nosemgrep`/`nolint`, absent from the SARIF findings entirely) no longer
   counts and the step returns to pass.
+
+## Resolution
+
+Delivered (commit `ba3169e`). The strict file-level ratchet lives at a
+single chokepoint, `CompareBaseline` (`pkg/gate/baseline.go`), via a
+`scopeTouches` helper: `Diff`/`File` mode plus a per-finding
+`scope.Contains` check on the raw `v.File`. All three grandfathering
+callers inherit revocation from that one site — the two `policy.go` paths
+(`ApplyPolicy` unscoped, `applyScopedPolicy` per-source) **and** the
+no-policy aggregate `baseline_comparison` step — rather than the two-site
+fix originally scoped in this issue's Solution.
+
+Consequence: baseline + ratchet are **on by default** for every baseline
+consumer. `enforcement.policy` **tunes** the ratchet (warn / off /
+all-code) rather than opting into it — there is no way to get
+grandfathering without the ratchet. `--all` mode is unchanged, and
+untouched project-wide findings stay grandfathered.
+
+Reviewed at plan stage — the review caught that the revocation belonged
+at the `CompareBaseline` chokepoint, not only the two `policy.go` sites,
+since a no-policy consumer would otherwise leave the ratchet silently
+dead. Verified firing precisely: on its own introduction, the change
+revoked grandfathering on exactly its own touched files with zero
+collateral (100 untouched `pack_engines` findings elsewhere stayed
+grandfathered).
+
+The 8 findings the ratchet surfaced on its own touched files were
+resolved **by fixing**, zero waivers — per the founder principle that
+waivers are a last resort:
+
+- `baseline.go` error-wrapping (`%w`).
+- Coverage 85/95 → 92/97 via real error-path tests.
+- 6 `test_substantiveness` false positives, fixed at the root: SPEC-019's
+  `cmd/backstop` subject was mis-resolving its `pkg/gate` claims. Fixed
+  via per-claim `subject: pkg/gate` (CLM-001/002) and by splitting the
+  mixed-target claims (CLM-004 → +CLM-017, CLM-011 → +CLM-018) so every
+  mandated test sits in a claim whose subject matches its own package. No
+  tests were contorted to pass.
+
+Gate green, `go test` green, artifact validate green.
 
 ## References
 
