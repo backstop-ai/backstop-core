@@ -37,7 +37,7 @@ implementation:
 
 verification:
   level: integration
-  test_command: go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -run "TestWaiver|TestGateWaiver" -race -coverprofile=cover.out
+  test_command: go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race -coverprofile=cover.out
   coverage_threshold: 80
 
 requirements:
@@ -220,6 +220,42 @@ requirements:
       `ActiveWaiverFeed` reads that field. Step 9 itself is unbuilt; this
       requirement is the data-feed CONTRACT, not step-9 implementation.
     supports: waiver-subsystem:REQ-015
+    follows: STD-GO-001:GO-010
+  - id: REQ-016
+    text: >
+      The waiver reconciliation must be ENABLED AND FED at the shipped
+      `backstop gate` construction site, not merely defined at the pkg/gate
+      level, or shipped `backstop gate` stays dark and suppresses nothing. This
+      requires BOTH seams that the baseline analog has (not just the pkg/gate
+      swap): (a) a `WithWaiver(...)` gate Option in pkg/gate/gate.go that sets a
+      new `g.waiverEnabled = true` and attaches the runtime inputs, mirroring
+      `WithBaseline`; the Run-loop swap is guarded `if g.waiverEnabled &&
+      result.StepName == StepWaiverResolution`, mirroring the baseline guard; and
+      (b) `cmd/backstop/gate.go` must CALL `WithWaiver` at the same construction
+      site where it calls `gate.WithBaseline`, constructing the runtime inputs the
+      pass consumes: a `LineReader` over the active scope, the current time, and
+      the production `Policy`. The production `Policy` MUST be built by EXTRACTING
+      the declared non-waivable sets from the INSTALLED pack manifests — the
+      CLM-027 "declared, not hardcoded" mechanism realized IN PRODUCTION, not just
+      the shipped-config data used to construct the pkg/waiver `Policy` type. The
+      shipped `backstop gate` path must therefore actually suppress a code-located
+      finding via a `@waiver` and error on a `backstop/self` non-waivable waiver
+      end-to-end over the installed packs.
+    supports: waiver-subsystem:REQ-011
+    follows: STD-GO-001:GO-010
+  - id: REQ-017
+    text: >
+      Waiver reconciliation MUST run BEFORE the baseline/ratchet evaluation in the
+      shipped step list so the accumulated violation set is ALREADY
+      waiver-subtracted when `baseline_comparison` captures its NewViolations.
+      Because `baseline_comparison` reads the accumulated set at its loop position,
+      an active waiver only satisfies the ISSUE-050 ratchet (REQ-013 / CLM-055) if
+      `StepWaiverResolution` is ordered BEFORE `StepBaselineComparison` in the
+      assembled `cmd/backstop/gate.go` step list. Ordering waiver after baseline
+      (the current deferred-stub order) would let an active-waived finding still
+      count as a new violation against the ratchet, defeating REQ-013. The shipped
+      step order must place waiver resolution ahead of baseline comparison.
+    supports: waiver-subsystem:REQ-013
     follows: STD-GO-001:GO-010
 
 claims:
@@ -609,6 +645,46 @@ claims:
     tests:
       - TestGateWaiver_AuditFeed_EntryCarriesRuleReasonExpiry
 
+  # REQ-016 — production construction-site wiring + real-CLI-path proof
+  - id: CLM-068
+    requirement: REQ-016
+    subject: pkg/gate
+    text: WithWaiver sets waiverEnabled and the Run-loop swaps StepWaiverResolution for computeWaiverResult only when enabled
+    tests:
+      - TestGateWaiver_Wiring_WithWaiverEnablesReconciliation
+  - id: CLM-069
+    requirement: REQ-016
+    subject: cmd/backstop
+    text: The production Policy is built by EXTRACTING the declared non-waivable sets from the installed pack manifests, not from a hardcoded list
+    tests:
+      - TestWaiverPolicy_ExtractedFromInstalledPackManifests
+  - id: CLM-070
+    requirement: REQ-016
+    subject: cmd/backstop
+    text: The SHIPPED `backstop gate` construction path (not gate.New inside package gate) suppresses a code-located finding via a @waiver over the committed installed-pack fixture
+    tests:
+      - TestGateCLI_Waiver_SuppressesOverInstalledPack
+  - id: CLM-071
+    requirement: REQ-016
+    subject: cmd/backstop
+    text: The SHIPPED `backstop gate` path errors when a @waiver targets a backstop/self non-waivable rule over the installed-pack fixture
+    tests:
+      - TestGateCLI_Waiver_SelfRuleErrorsOverInstalledPack
+
+  # REQ-017 — waiver-before-baseline ordering in the shipped pipeline
+  - id: CLM-072
+    requirement: REQ-017
+    subject: cmd/backstop
+    text: The assembled step list orders StepWaiverResolution BEFORE StepBaselineComparison
+    tests:
+      - TestGateCLI_StepOrder_WaiverBeforeBaseline
+  - id: CLM-073
+    requirement: REQ-017
+    subject: cmd/backstop
+    text: Against the REAL pipeline order, an active waiver subtracts its finding before baseline captures NewViolations, so the finding does not count against the ratchet
+    tests:
+      - TestGateCLI_Ratchet_ActiveWaiverSubtractedBeforeBaseline
+
 contracts:
   - file: pkg/waiver/waiver.go
     provides:
@@ -679,6 +755,10 @@ contracts:
         kind: function
         signature: "func StepWaiverResolutionFunc() StepFunc"
         notes: "Unscoped constructor delegating to the scoped form"
+      - name: WithWaiver
+        kind: function
+        signature: "func WithWaiver(read waiver.LineReader, policy waiver.Policy, now time.Time) Option"
+        notes: "Construction-site enablement seam mirroring WithBaseline (gate.go:51-53): sets a new g.waiverEnabled = true and attaches the runtime inputs (LineReader, Policy, now) that computeWaiverResult consumes. The Run-loop swap is guarded `if g.waiverEnabled && result.StepName == StepWaiverResolution` (mirror gate.go:139). Without this seam AND the cmd/backstop/gate.go call, shipped `backstop gate` stays dark and suppresses nothing (REQ-016)."
       - name: computeWaiverResult
         kind: method
         signature: "func (g *Gate) computeWaiverResult(accumulated []StepResult, read waiver.LineReader, policy waiver.Policy, now time.Time) StepResult"
@@ -727,6 +807,32 @@ contracts:
       - source: pkg/gate
         name: ActiveWaiverFeed
         kind: function
+  - file: cmd/backstop/gate.go
+    provides:
+      - name: buildWaiverPolicy
+        kind: function
+        signature: "func buildWaiverPolicy(projectRoot string) (waiver.Policy, error)"
+        notes: "Builds the PRODUCTION Policy by EXTRACTING the declared non-waivable sets from the INSTALLED pack manifests — the CLM-027 declared-not-hardcoded mechanism realized in production (REQ-016). backstop/self rules and critical-severity secrets ship in the non-waivable set."
+      - name: buildWaiverLineReader
+        kind: function
+        signature: "func buildWaiverLineReader(projectRoot string, scope *gate.GateScope) waiver.LineReader"
+        notes: "Constructs the LineReader over the active scope that computeWaiverResult consumes; yields RAW bytes of a requested source line, no language knowledge (REQ-016)."
+    consumes:
+      - source: pkg/gate
+        name: WithWaiver
+        kind: function
+      - source: pkg/gate
+        name: StepWaiverResolutionScopedFunc
+        kind: function
+      - source: pkg/gate
+        name: StepBaselineComparisonScopedFunc
+        kind: function
+      - source: pkg/waiver
+        name: Policy
+        kind: interface
+      - source: pkg/waiver
+        name: LineReader
+        kind: type
 ---
 
 # SPEC-049: Waiver Subsystem — Accountable, Engine-Neutral Suppression
@@ -953,6 +1059,46 @@ FIRST line waives that file's coverage finding. This is the only dimension that
 uses the first-line rule; all code-located dimensions use per-finding
 association (REQ-008).
 
+### Shipped construction site — enable AND feed the pass (Seed D, REQ-016)
+
+The pkg/gate reconciliation pass is inert until the shipped `backstop gate`
+construction site turns it on and feeds it — exactly like baseline, which has TWO
+seams, not one:
+
+1. **pkg/gate swap (already specified):** `computeWaiverResult`, mirroring
+   `computeBaselineResult`, swapped in the Run loop.
+2. **Construction-site enablement + feed (this requirement):**
+   - `WithWaiver(read, policy, now)` in pkg/gate sets `g.waiverEnabled = true` and
+     attaches the runtime inputs, mirroring `WithBaseline` (gate.go:51-53). The
+     Run-loop swap is guarded `if g.waiverEnabled && result.StepName ==
+     StepWaiverResolution` (mirror of gate.go:139).
+   - `cmd/backstop/gate.go` calls `WithWaiver` at the same construction site where
+     it calls `gate.WithBaseline` (~:114), constructing: a `LineReader` over the
+     active scope (`buildWaiverLineReader`), the current time, and the production
+     `Policy` (`buildWaiverPolicy`).
+   - `buildWaiverPolicy` builds the production `Policy` by **extracting the
+     declared non-waivable sets from the INSTALLED pack manifests** — the CLM-027
+     "declared, not hardcoded" mechanism realized in production. The shipped
+     configuration places `backstop/self` rules and critical-severity secrets in
+     the non-waivable set by virtue of those manifests, not a core list.
+
+Without seam 2, every unit test and the pkg/gate e2e can be green while shipped
+`backstop gate` suppresses nothing — so REQ-016's claims drive the REAL CLI
+construction path (CLM-070/071) over the committed installed-pack fixture.
+
+### Shipped step order — waiver before baseline (Seed D, REQ-017)
+
+`baseline_comparison` captures its NewViolations from the accumulated violation
+set AT ITS LOOP POSITION. In today's deferred step list baseline (`:707`)
+precedes waiver (`:708`), so baseline would capture NewViolations BEFORE waiver
+subtraction and an ACTIVE waiver would NOT satisfy the ratchet (REQ-013 /
+CLM-055) in the real pipeline — even though synthetic-StepResult ratchet tests
+pass in isolation. The shipped `cmd/backstop/gate.go` step list must therefore
+order `StepWaiverResolution` BEFORE `StepBaselineComparison`, so the accumulated
+set is already waiver-subtracted when baseline captures NewViolations. CLM-072
+asserts the order; CLM-073 proves the ratchet interaction against the real
+pipeline order, not synthetic results.
+
 ### CLI (Seed D)
 
 `backstop waiver list` is read-only. It runs adjudication over the current scope
@@ -965,11 +1111,21 @@ which is baked-language knowledge that belongs to the human or runtime agent.
 Verification is defined in frontmatter: integration level, 80% coverage
 threshold, targeting `pkg/waiver`, `pkg/gate`, and `cmd/backstop`. Integration
 level is chosen because the subsystem is cross-package — core adjudication in
-`pkg/waiver`, gate step-8 wiring and reporting in `pkg/gate`, and the CLI in
-`cmd/backstop` — and the load-bearing behavior is the wiring, not any single
-unit. Claims are defined in frontmatter; every requirement has at least one
-claim, and the REQ-006, REQ-008, REQ-010, and REQ-013 matrices are covered cell
-by cell.
+`pkg/waiver`, gate step-8 wiring and reporting in `pkg/gate`, and the shipped
+construction site + CLI in `cmd/backstop` — and the load-bearing behavior is the
+wiring, not any single unit. The `test_command` deliberately does NOT apply a
+`-run` filter: a filter would restrict which tests execute while
+`-coverprofile` still measures the WHOLE package, making the 80% threshold
+meaningless (unmeetable) for `pkg/gate`. Running the full suites of the three
+target packages measures coverage against all their tests, so the threshold is
+meaningful for the waiver-owned code inside them. Claims are defined in
+frontmatter; every requirement has at least one claim, and the REQ-006, REQ-008,
+REQ-010, and REQ-013 matrices are covered cell by cell. The production wiring
+(REQ-016) and ordering (REQ-017) claims are proven against the REAL
+`backstop gate` construction path over the committed installed-pack fixture —
+not against synthetic in-package `gate.New` StepResults — so a green unit +
+pkg/gate e2e cannot coexist with a shipped `backstop gate` that suppresses
+nothing.
 
 ## Sharp Edges
 
@@ -1067,6 +1223,29 @@ by cell.
   are read-only (CLM-049 absence). Authoring belongs to the human or the runtime
   agent, which may legitimately hold language knowledge.
 
+- **The pkg/gate pass is inert until the shipped construction site enables AND
+  feeds it — two seams, not one.** Baseline has both a `computeBaselineResult`
+  swap AND a `WithBaseline` construction call; a spec that defines only the swap
+  ships a dark gate. `WithWaiver` must set `g.waiverEnabled` and the Run loop must
+  guard the swap on it, AND `cmd/backstop/gate.go` must call `WithWaiver` with a
+  real `LineReader`, `now`, and the production `Policy`. If the `Policy` is
+  anything other than the sets EXTRACTED from the installed pack manifests
+  (CLM-069), the "declared, not hardcoded" property (CLM-027) is true in the type
+  but false in production, and `backstop/self` non-waivable enforcement never
+  fires through the shipped path. The REQ-016 tests drive the real CLI
+  construction path over the committed installed-pack fixture precisely so this
+  cannot pass vacuously.
+
+- **Waiver must run BEFORE baseline, or an active waiver silently fails the
+  ratchet.** `baseline_comparison` reads the accumulated violation set at its loop
+  position. If waiver resolution is ordered after baseline (the current
+  deferred-stub order), an active-waived finding is still present when baseline
+  captures NewViolations, so it counts as a new violation against the ISSUE-050
+  ratchet — defeating REQ-013/CLM-055 in the real pipeline even while synthetic
+  ratchet tests pass. Order `StepWaiverResolution` ahead of
+  `StepBaselineComparison` in the shipped step list (CLM-072) and prove the
+  interaction against the real order (CLM-073).
+
 ## Review Questions
 
 1. Does `Adjudicate` receive ONLY findings, a raw-bytes `LineReader`, a `Policy`,
@@ -1090,17 +1269,30 @@ by cell.
    grace delivered earlier as the pre-expiry warning), rather than continuing to
    suppress?
 
-6. Is the waivable surface restricted to code-located findings, with
-   `artifact_status_drift`, `contract_signature`, and `test_verification`
-   provably non-waivable and coverage handled by the annotation convention?
+6. Is the waivable surface restricted to the LIVE code-located dimensions
+   (`pack_engines`, `test_substantiveness`), with `artifact_status_drift`,
+   `contract_signature`, `test_verification`, and `artifact_validation` provably
+   non-waivable and coverage handled by the first-line annotation convention?
 
 7. Does a pass that depends on active waivers render as the distinct
-   `PASS · N waivers` state (never as a clean pass), and are engine-native
-   visible suppressions reported on a separate line from backstop waivers?
+   `PASS · N waivers` state (never as a clean pass), with an always-on summary and
+   inline actionable subset (expiring/unused)?
 
 8. Does the ratchet treat ACTIVE / EXPIRED / UNUSED waivers as satisfy /
    not-satisfy / not-satisfy respectively, and does baseline generation author no
    tokens?
+
+9. Does `cmd/backstop/gate.go` actually CALL `WithWaiver` (not just define the
+   pkg/gate swap), constructing a real `LineReader`, `now`, and a production
+   `Policy` EXTRACTED from the installed pack manifests — and does a test drive the
+   real `backstop gate` construction path (not in-package `gate.New`) to prove a
+   `@waiver` suppresses and a `backstop/self` waiver errors over the installed-pack
+   fixture? (REQ-016.)
+
+10. Is `StepWaiverResolution` ordered BEFORE `StepBaselineComparison` in the
+    shipped step list, and is the ratchet interaction proven against that real
+    order so an active waiver is subtracted before baseline captures
+    NewViolations? (REQ-017.)
 
 ## References
 
@@ -1118,3 +1310,8 @@ by cell.
   grandfathering this subsystem replaces with accountable waivers.
 - ISSUE-046 (exported `NormalizePath`): the reported-location path substrate the
   line-scan adjudication relies on.
+- `pkg/gate/gate.go` `WithBaseline` / `computeBaselineResult` / Run-loop swap: the
+  TWO-seam construction precedent the waiver wiring mirrors (REQ-016).
+- `cmd/backstop/gate.go` construction site (`gate.WithBaseline` call ~:114) and
+  assembled step list (baseline ~:707 precedes waiver ~:708): the production
+  surface REQ-016 extends and REQ-017 reorders.
