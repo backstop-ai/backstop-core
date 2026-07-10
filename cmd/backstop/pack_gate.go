@@ -741,6 +741,11 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			// untouched — we normalize the OUTPUT path, never the engine INPUTS
 			// (CLM-006, ISSUE-010 preserved).
 			File:        gate.NormalizePath(projectRoot, v.File),
+			// Carry the SARIF-reported start line so the SPEC-049 waiver
+			// reconciliation can byte-scan the finding's own line for a @waiver token.
+			// It rides through to gate.Violation.Line, which is line-INDEPENDENT of
+			// baseline identity (json:"-").
+			Line:        v.Line,
 			Message:     v.Message,
 			Severity:    nonEmpty(v.Severity, "error"),
 			SourcePack:  manifest.NormalizedName,

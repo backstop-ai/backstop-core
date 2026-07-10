@@ -138,7 +138,10 @@ backstop by shelling out to CLI commands.`,
 		},
 	}
 
-	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd)
+	// --- Top-level: waiver (read-only) ---
+	waiverCmd := newWaiverCommand()
+
+	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd)
 
 	return rootCmd
 }

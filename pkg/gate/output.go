@@ -92,6 +92,11 @@ func FormatHuman(result GateResult, noColor bool) string {
 			if violation.File != "" {
 				sb.WriteString(fmt.Sprintf(" (%s)", violation.File))
 			}
+			// REQ-014: on a still-blocked waivable finding, hand the author the
+			// pre-filled @waiver token so acknowledging is one paste.
+			if violation.WaiverHint != "" {
+				sb.WriteString(fmt.Sprintf("\n      ↳ to waive: %s", violation.WaiverHint))
+			}
 			sb.WriteString("\n")
 		}
 	}

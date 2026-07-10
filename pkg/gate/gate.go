@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bmanson/backstop-core/pkg/waiver"
 )
 
 // Gate orchestrates the nine-step verification kill chain.
@@ -21,6 +23,14 @@ type Gate struct {
 	ruleSetChangeSeedingAllowed bool
 	ruleSetChangeFiles          map[string]struct{}
 	policy                      map[string]DimensionPolicy
+	// Waiver reconciliation inputs (SPEC-049 REQ-016), mirroring the baseline
+	// seam: enablement flag + the runtime inputs computeWaiverResult consumes.
+	// waiverEnabled gates the Run-loop swap exactly like baselineEnabled.
+	waiverEnabled bool
+	waiverRead    waiver.LineReader
+	waiverPolicy  waiver.Policy
+	waiverNow     time.Time
+	activeWaivers []waiver.Waiver
 }
 
 // Option is a functional option for configuring a Gate.
@@ -136,6 +146,12 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 	for _, stepFn := range g.steps {
 		started := time.Now()
 		result := stepFn(ctx)
+		if g.waiverEnabled && result.StepName == StepWaiverResolution {
+			// Waiver reconciliation swap (SPEC-049), mirroring the baseline swap:
+			// mutate the ALREADY-accumulated results in place (subtracting suppressed
+			// findings) and replace the placeholder waiver step with the computed one.
+			result = g.computeWaiverResult(results, g.waiverRead, g.waiverPolicy, g.waiverNow)
+		}
 		if g.baselineEnabled && result.StepName == StepBaselineComparison {
 			result = g.computeBaselineResult(results)
 		}
@@ -152,6 +168,9 @@ func (g *Gate) Run(ctx context.Context) (GateResult, int) {
 	results = ApplyPolicy(results, g.baseline, g.policy, g.scope)
 
 	gateResult := NewGateResultWithScope(results, g.scope)
+	// Persist the active waiver set onto the GateResult carrier (REQ-015) so the
+	// step-9 audit feed (ActiveWaiverFeed) can report what was deliberately waived.
+	gateResult.ActiveWaivers = g.activeWaivers
 
 	if configErrHalt {
 		return gateResult, 2

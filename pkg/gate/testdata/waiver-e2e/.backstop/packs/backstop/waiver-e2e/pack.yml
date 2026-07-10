@@ -1,0 +1,31 @@
+name: backstop/waiver-e2e
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Committed fake-engine findings pack for the SPEC-049 waiver reconciliation
+  real-runner e2e. It declares a project-wide findings engine whose command is a
+  committed POSIX fake (sh fake-engine.sh) that writes SARIF findings at FIXED
+  locations in src/app.go to the declared stdout_artifact FILE. One rule is a
+  normal waivable code rule; one is DECLARED non_waivable (the backstop/self-style
+  protected rule) — the production waiver Policy extracts that declared set. No
+  real semgrep/go/bun runs; the fake is a POSIX script.
+engines:
+  fake-engine:
+    command: sh fake-engine.sh
+    stdout_artifact: findings.sarif
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: waivable-defect
+        engine: fake-engine
+        risk_class: correctness
+      - id: protected-defect
+        engine: fake-engine
+        risk_class: correctness
+        non_waivable: true

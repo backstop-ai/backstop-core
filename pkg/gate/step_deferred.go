@@ -20,24 +20,6 @@ func StepBaselineComparisonScopedFunc(_ *GateScope) StepFunc {
 	}
 }
 
-// StepWaiverResolutionFunc returns a StepFunc for the waiver resolution
-// step. Currently deferred — always reports "skipped" with reason.
-func StepWaiverResolutionFunc() StepFunc {
-	return StepWaiverResolutionScopedFunc(nil)
-}
-
-// StepWaiverResolutionScopedFunc is scope-aware for future waiver checks.
-func StepWaiverResolutionScopedFunc(_ *GateScope) StepFunc {
-	return func(_ context.Context) StepResult {
-		return StepResult{
-			StepName:   StepWaiverResolution,
-			Status:     "skipped",
-			Violations: []Violation{},
-			Reason:     "waivers not implemented",
-		}
-	}
-}
-
 // StepLedgerIntegrityFunc returns a StepFunc for the ledger integrity
 // step. Currently deferred — always reports "skipped" with reason.
 func StepLedgerIntegrityFunc() StepFunc {

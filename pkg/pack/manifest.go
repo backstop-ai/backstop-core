@@ -143,6 +143,13 @@ type Rule struct {
 	Validator     string    `yaml:"validator"`
 	InputScope    string    `yaml:"input_scope"`
 	PairsWith     PairsWith `yaml:"pairs_with"`
+	// NonWaivable marks a rule as self-declared un-waivable (SPEC-049 REQ-006): a
+	// @waiver token targeting it is a gate ERROR, not a suppression. This is the
+	// pack-manifest DECLARATION the production waiver Policy is EXTRACTED from
+	// (CLM-069, the "declared, not core-hardcoded" mechanism) — the shipped
+	// backstop/self pack marks its rules non_waivable here. Optional; zero value
+	// (false) leaves the rule waivable.
+	NonWaivable bool `yaml:"non_waivable"`
 }
 
 // Claim defines a rule claim and fixture mappings.

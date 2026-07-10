@@ -61,8 +61,10 @@ func TestGate_Baseline_PassWhenClean(t *testing.T) {
 
 // --- Waiver resolution tests ---
 
-// TestGate_Waiver_SkippedWhenNotImplemented verifies waiver step reports
-// skipped when subsystem is not implemented.
+// TestGate_Waiver_SkippedWhenNotImplemented verifies the waiver step's
+// placeholder reports skipped when waivers are NOT enabled. The subsystem is now
+// implemented (SPEC-049): when g.waiverEnabled the Run loop swaps this placeholder
+// for computeWaiverResult; absent that, the placeholder stands as skipped.
 func TestGate_Waiver_SkippedWhenNotImplemented(t *testing.T) {
 	step := StepWaiverResolutionFunc()
 	result := step(context.Background())
@@ -72,8 +74,8 @@ func TestGate_Waiver_SkippedWhenNotImplemented(t *testing.T) {
 	if result.Status != "skipped" {
 		t.Errorf("expected status %q, got %q", "skipped", result.Status)
 	}
-	if result.Reason != "waivers not implemented" {
-		t.Errorf("expected reason %q, got %q", "waivers not implemented", result.Reason)
+	if result.Reason != "waivers not enabled" {
+		t.Errorf("expected reason %q, got %q", "waivers not enabled", result.Reason)
 	}
 }
 

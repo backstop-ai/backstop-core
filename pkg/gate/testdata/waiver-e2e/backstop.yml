@@ -1,0 +1,3 @@
+project: waiver-e2e-fixture
+packs:
+  backstop/waiver-e2e: local

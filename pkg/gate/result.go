@@ -3,7 +3,11 @@
 // a unified pass/fail result consumed by the GitHub Actions gate action.
 package gate
 
-import "context"
+import (
+	"context"
+
+	"github.com/bmanson/backstop-core/pkg/waiver"
+)
 
 // Canonical step names (REQ-011). These are part of the JSON output contract
 // and must not change without a schema version bump.
@@ -65,7 +69,22 @@ type Violation struct {
 	// serialized (json:"-"): baseline identity hashing ignores it and
 	// LoadBaseline is a non-strict unmarshal, so omitting it keeps baseline
 	// identity stable across this change.
-	ProjectWide  bool   `json:"-"`
+	ProjectWide bool `json:"-"`
+	// Line is the finding's 1-indexed start line at its reported source location.
+	// It is carried from the engine's SARIF region (check.Violation.Line) so the
+	// SPEC-049 waiver reconciliation pass can byte-scan the finding's own line for a
+	// @waiver token. It is deliberately EXCLUDED from baseline identity/serialization
+	// (json:"-") — identity stays line-INDEPENDENT (RegionHash) so a waiver-carrying
+	// line number never destabilizes baseline grandfathering. Zero when the engine
+	// reported no line (a locationless finding).
+	Line         int    `json:"-"`
+	// WaiverHint is a pre-filled `@waiver:<rule>:<reason>:<expiry>` token (SPEC-049
+	// REQ-014) surfaced on a still-blocked WAIVABLE finding so acknowledging it is at
+	// most as much friction as an engine-native //nolint. Presentation only: like
+	// Line it is json:"-" and NOT part of baseline identity, so the expiry date it
+	// embeds never destabilizes grandfathering. Empty for non-waivable/structural
+	// findings and when no waiver step ran.
+	WaiverHint   string `json:"-"`
 	Identity     string `json:"identity"`
 	IdentityHash string `json:"identity_hash"`
 	RegionHash   string `json:"region_hash"`
@@ -100,6 +119,13 @@ type GateResult struct {
 	// Pass.
 	StepsWarned int          `json:"steps_warned"`
 	Steps       []StepResult `json:"steps"`
+	// ActiveWaivers is the SPEC-049 waiver carrier: the set of ACTIVE (valid,
+	// unexpired) waivers the reconciliation pass applied on this run. GateResult /
+	// Violation carry no reason-code or expiry, so this dedicated field is what
+	// feeds the step-9 audit surface (ActiveWaiverFeed) and answers "what are we
+	// deliberately ignoring, why, and until when" (REQ-015). Populated by
+	// computeWaiverResult via the Run loop; empty on a run with no active waivers.
+	ActiveWaivers []waiver.Waiver `json:"active_waivers,omitempty"`
 }
 
 // StepFunc is the common signature for gate step functions.

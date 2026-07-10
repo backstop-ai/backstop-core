@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
 )
 
@@ -112,6 +114,24 @@ func runGate(cmd *cobra.Command, args []string) error {
 	}
 	baselineArtifact, baselineWarning, baselineModTime := resolveBaselineCache(baselinePath, ttl)
 	opts = append(opts, gate.WithBaseline(baselineArtifact), gate.WithBaselineWarning(baselineWarning), gate.WithBaselineCacheMeta(baselinePath, ttl, baselineModTime))
+
+	// SPEC-049 REQ-016: ENABLE AND FEED the waiver reconciliation pass at the
+	// shipped construction site (mirroring the WithBaseline call above), or the
+	// shipped `backstop gate` stays dark and suppresses nothing. The production
+	// Policy is EXTRACTED from the installed pack manifests (buildWaiverPolicy) —
+	// the CLM-027 "declared, not hardcoded" mechanism realized in production — and
+	// the LineReader yields RAW source bytes over the active scope.
+	// A pack that's declared-but-not-installed (or an unreadable manifest) must NOT
+	// abort the gate here — the gate's own pack-resolution reports that loudly with
+	// output. Degrade to the severity-only policy (critical secrets stay non-waivable
+	// regardless of packs) and let the run proceed. An uninstalled pack emits no
+	// findings anyway, so it has nothing to protect via its declared non-waivable set.
+	waiverPolicy, waiverPolicyErr := buildWaiverPolicy(projectRoot)
+	if waiverPolicyErr != nil {
+		waiverPolicy = waiver.NewDeclaredPolicy(nil, []string{"critical"})
+	}
+	opts = append(opts, gate.WithWaiver(buildWaiverLineReader(projectRoot, scope), waiverPolicy, time.Now()))
+
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	opts = append(opts, gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
 
@@ -703,9 +723,13 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		contractStep,
 		driftBlockStep,
 		driftAdvisoryStep,
-		// Steps 7-9: deferred
-		gate.StepBaselineComparisonScopedFunc(activeScope),
+		// SPEC-049 REQ-017: waiver resolution MUST run BEFORE baseline comparison so
+		// the accumulated violation set is ALREADY waiver-subtracted when
+		// baseline_comparison captures its NewViolations — otherwise an active-waived
+		// finding still counts against the ISSUE-050 ratchet (REQ-013). Ordering here
+		// (waiver ahead of baseline) is what makes an active waiver satisfy the ratchet.
 		gate.StepWaiverResolutionScopedFunc(activeScope),
+		gate.StepBaselineComparisonScopedFunc(activeScope),
 		gate.StepLedgerIntegrityScopedFunc(activeScope),
 	}
 
@@ -1342,6 +1366,60 @@ func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.
 
 		step := gate.StepContractSignatureScopedFunc(results, scope)
 		return step(ctx)
+	}
+}
+
+// buildWaiverPolicy builds the PRODUCTION waiver Policy by EXTRACTING the declared
+// non-waivable sets from the INSTALLED pack manifests (SPEC-049 REQ-016 / CLM-069)
+// — the CLM-027 "declared, not hardcoded" mechanism realized in production. A pack
+// rule self-declares itself un-waivable via `non_waivable: true` in its manifest;
+// the backstop/self pack marks its rules that way. Critical-severity secrets ship
+// non-waivable as a severity-level policy (not a hardcoded rule list). cmd/backstop
+// holds NO hardcoded list of protected rule-ids.
+func buildWaiverPolicy(projectRoot string) (waiver.Policy, error) {
+	packs, err := loadInstalledPacks(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("loading installed packs: %w", err)
+	}
+	var nonWaivableRules []string
+	for _, m := range packs {
+		if m == nil {
+			continue
+		}
+		for _, r := range m.Content.Ruleset.Rules {
+			if r.NonWaivable {
+				nonWaivableRules = append(nonWaivableRules, pack.NamespacedRuleID(m.NormalizedName, r.ID))
+			}
+		}
+	}
+	return waiver.NewDeclaredPolicy(nonWaivableRules, []string{"critical"}), nil
+}
+
+// buildWaiverLineReader constructs the LineReader the waiver reconciliation pass
+// consumes (SPEC-049 REQ-016): it yields the RAW bytes of a requested source line,
+// resolved against the project root, with NO language knowledge and NO comment
+// parsing. The scope is accepted to mirror the baseline analog's signature; reads
+// are keyed by the repo-relative file path each finding carries.
+func buildWaiverLineReader(projectRoot string, _ *gate.GateScope) waiver.LineReader {
+	return func(file string, line int) (string, bool) {
+		if line <= 0 {
+			return "", false
+		}
+		f, err := os.Open(filepath.Join(projectRoot, filepath.FromSlash(file)))
+		if err != nil {
+			return "", false
+		}
+		defer func() { _ = f.Close() }()
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		n := 0
+		for scanner.Scan() {
+			n++
+			if n == line {
+				return scanner.Text(), true
+			}
+		}
+		return "", false
 	}
 }
 

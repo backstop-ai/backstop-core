@@ -1,0 +1,6 @@
+packs:
+  backstop/waiver-e2e:
+    name: backstop/waiver-e2e
+    version: 1.0.0
+    source_type: local
+    install_date: "2026-07-09T00:00:00Z"
