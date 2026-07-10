@@ -10,209 +10,248 @@ coverage_threshold: 90
 
 notes: |
   ─────────────────────────────────────────────────────────────────────────
-  THE DECIDED CHANGE (ISSUE-050 Solution — do NOT re-open)
+  DESIGN PRINCIPLE (founder decision, 2026-07-10 — supersedes the issue's
+  original two-policy-site scope; do NOT re-open)
   ─────────────────────────────────────────────────────────────────────────
-  The gate's baseline ratchet today only blocks NET-NEW findings on touched
-  files. A pre-existing baseline-grandfathered finding on a file the author
-  edits does NOT block — you can rewrite a debt-heavy file, add zero new debt,
-  and stay green. This closes that gap: the moment a file enters the diff (or
-  --file target list), its grandfather is REVOKED and every finding in it must
-  be resolved (fixed OR waived) before the gate passes.
+  The baseline ratchet is WELDED to grandfathering at ONE chokepoint —
+  CompareBaseline (pkg/gate/baseline.go) — so it is ON BY DEFAULT for every
+  baseline consumer. enforcement.policy TUNES the ratchet (warn / off /
+  all-code) — it does NOT opt into it. Waivers and warn-level are the relief
+  valves. The single hatch this change CLOSES is "grandfather a finding but
+  never pay it down": once you touch a file, its pre-existing findings must be
+  resolved (fixed OR waived) — not just kept net-new-clean.
 
-  Per-violation grandfathering becomes: a finding counts (blocks) when it is
-  net-new OR its file was explicitly touched:
+  WHY CONSOLIDATE INTO CompareBaseline (not the two policy.go sites the issue
+  originally named): all THREE grandfathering callers funnel through
+  CompareBaseline, each passing Scope: g.scope —
+    (1) policy.go:113  — ApplyPolicy unscoped net-new path
+    (2) policy.go:158  — applyScopedPolicy (per-PACK Sources overrides)
+    (3) gate.go:194    — computeBaselineResult, the AGGREGATE
+                         baseline_comparison step
+  Patching only (1)+(2) leaves (3) DEAD: a project with a baseline but NO
+  `enforcement.policy` grandfathers SOLELY via computeBaselineResult, because
+  ApplyPolicy early-returns on empty policy (policy.go:68). The ratchet would
+  be silently dead for exactly that common case. Putting the revocation inside
+  CompareBaseline covers all three at one site and makes the design principle
+  literally true. (There is a dedicated test for the no-policy aggregate path,
+  CLM-007 — without it the gap silently reopens.)
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE CONSOLIDATED CHANGE — CompareBaseline (baseline.go:112-160)
+  ─────────────────────────────────────────────────────────────────────────
+  In the new-vs-grandfathered classification loop (:128-139), a current finding
+  whose IdentityHash is present in baselineSet is today `continue`d as
+  grandfathered (:131-133). Reclassify it as NEW when its file was explicitly
+  touched:
 
       touched := scope != nil &&
           (scope.Mode == GateScopeModeDiff || scope.Mode == GateScopeModeFile) &&
           scope.Contains(v.File)
-      counts = <net-new?> || touched
+      // baseline-present AND touched  → grandfather REVOKED → count as NEW
+      // baseline-present AND !touched → grandfathered (unchanged)
+
+  Extract this predicate as one small unexported helper (e.g. `scopeTouches`)
+  in baseline.go and use it at the single classification site — one definition
+  of "touched". A touched baseline-present finding falls through to the
+  newViolations append (the All-mode rule-set-change seeding branch at :134 is
+  Mode==All-only, so a Diff/File-touched finding never lands there). Use
+  `v.File` — gate.Violation has NO `Path` field (result.go:58). scope.Contains
+  self-normalizes BOTH sides (scope.go:68 → NormalizePath), so pass the raw
+  finding File; do NOT pre-normalize at the call site.
 
   ─────────────────────────────────────────────────────────────────────────
-  TWO SITES — BOTH MUST CHANGE (the vacuous-green hole)
+  GUARDS THAT RIDE INSIDE THE CONSOLIDATED LOGIC (correctness invariants)
   ─────────────────────────────────────────────────────────────────────────
-  The issue Solution names BOTH grandfathering decision sites in
-  pkg/gate/policy.go, and this is load-bearing:
-    (1) applyScopedPolicy (:180-187) — the PER-VIOLATION resolver, used only
-        when a dimension carries per-PACK `Sources` overrides.
-    (2) ApplyPolicy's unscoped net-new path (:110-117) — used by every
-        dimension WITHOUT a `Sources` override (the common case:
-        go-toolchain, go-standards). This path subtracts the whole-step
-        `cmp.NewViolations` SET at once; it has no per-file granularity today.
-  MOST dimensions flow through (2). Patching only (1) would mean the ratchet
-  NEVER FIRES for un-scoped dimensions — a silent, vacuous half-fix. So (2)
-  must also become per-file-aware: keep a finding when it is net-new OR its
-  file is touched. Concretely, (2) can no longer just take `cmp.NewViolations`
-  wholesale — it must UNION the net-new set with the touched-file findings
-  from `s.Violations` (deduped), so touching one file revokes only THAT file's
-  grandfathering, never the whole dimension.
-
-  ─────────────────────────────────────────────────────────────────────────
-  CORRECTNESS TRAPS (where this silently goes vacuous — each has a test)
-  ─────────────────────────────────────────────────────────────────────────
-  A. WRONG FIELD NAME. The issue pseudocode says `scope.Contains(v.Path)`.
-     The real field on gate.Violation is `v.File` (pkg/gate/result.go:58) —
-     there is NO `Path` field. Use `v.File`. A test PINS that the touched-file
-     match actually fires (not a compile-only assumption).
-  B. PATH-NORMALIZATION MATCH (the primary vacuous-green trap). `scope.Files`
-     are NORMALIZED (ISSUE-046 NormalizePath, scope.go:76-89) and
-     GateScope.Contains normalizes its argument too (scope.go:68:
-     `s.fileSet[NormalizePath(s.ProjectRoot, path)]`). So passing raw `v.File`
-     to `scope.Contains` is CORRECT — both sides canonicalize. But if a
-     violation's File is in a form that normalizes differently than the scope
-     entry (e.g. absolute vs repo-relative, `./`-prefixed), the lookup
-     silently returns false and the ratchet NEVER FIRES. A test constructs the
-     scope via the real `newGateScope`/`ComputeGateScope` path (NOT a
-     hand-aligned fileSet) with a ProjectRoot set, and a Violation whose File
-     is a non-canonical form of a touched file, and asserts revocation
-     genuinely fires end-to-end — so a future path-format drift can't no-op the
-     ratchet.
-  C. ONLY TOUCHED FILES, NEVER THE WHOLE DIMENSION. Project-wide-scope
-     dimensions (a go-toolchain lint scans the whole repo even in diff mode)
-     report findings on files OUTSIDE the diff. Those UNtouched-file findings
-     MUST stay grandfathered. Revocation is keyed strictly on
-     scope.Contains(v.File), so touching one file obligates only that file's
-     findings — never the repo's whole pre-existing debt in one commit.
-  D. --all / GateScopeModeAll UNCHANGED. scope.Contains returns true for EVERY
-     path in `all` mode (scope.go:65), which would revoke grandfathering
-     repo-wide if applied naively. The touched-check is therefore gated on
-     Mode == Diff || Mode == File EXPLICITLY, excluding All. A full sweep
-     (`gate --all`, `baseline generate`) keeps grandfathering gradual.
-  E. NIL SCOPE. Guard `scope != nil` before reading scope.Mode; a nil scope
-     (some call paths) must not panic and must not revoke.
+  G1. --all / GateScopeModeAll → NO revocation. The Mode ∈ {Diff,File} guard
+      excludes All, where scope.Contains returns true for EVERY path
+      (scope.go:65). Without the guard, --all would revoke the whole repo and a
+      full sweep / baseline generate would stop grandfathering gradually.
+  G2. PROJECT-WIDE UNTOUCHED findings stay grandfathered. A whole-repo-scanning
+      dimension (go-toolchain lint) reports findings on unchanged files; those
+      pass filterViolations via the ProjectWide exemption (scope.go:202) but
+      scope.Contains(v.File) is FALSE for their file → per-finding, they stay
+      grandfathered. Revocation is keyed strictly on the touched file — never a
+      blanket revoke of all in-scope findings, never the whole repo's debt in
+      one commit.
+  G3. NIL-SAFE + generation-safe. nil baseline → CompareBaseline early-returns
+      (:113). nil scope → scopeTouches returns false → no revocation, stays
+      grandfathered (positive test, S2). CompareBaseline is COMPARISON-only
+      (all 3 callers compare; none GENERATE), so baseline generation
+      (NewBaselineArtifactFromSteps) is untouched.
 
   ─────────────────────────────────────────────────────────────────────────
   RESOLUTION = FIX or WAIVE (interaction with SPEC-049, delivered)
   ─────────────────────────────────────────────────────────────────────────
-  Waiver reconciliation (computeWaiverResult, gate.go:153) runs in the Run
-  loop and mutates the accumulated step Violations IN PLACE (step_waiver.go:132
-  `s.Violations = kept`) BEFORE ApplyPolicy (gate.go:168). So a @waiver'd
-  finding is ALREADY subtracted from s.Violations by the time applyScopedPolicy
-  / the unscoped path evaluates — an active waiver satisfies the ratchet on a
-  touched file with NO extra logic in this change. A revoked (touched-file)
-  finding therefore clears either by being FIXED (absent from s.Violations on
-  the next run) or by being WAIVED/engine-suppressed (also absent). The test
-  proves both paths clear the step.
+  computeWaiverResult (gate.go:153) subtracts waived findings from the
+  accumulated step Violations IN PLACE (step_waiver.go:132) BEFORE both the
+  baseline comparison and ApplyPolicy. So a @waiver'd finding is ALREADY absent
+  from `current` when CompareBaseline classifies — it is never a candidate for
+  reclassification, with no extra logic here. A revoked (touched-file) finding
+  therefore clears either by being FIXED (absent from current on the next run)
+  or WAIVED/engine-suppressed (also absent). Same mechanism: absent from
+  current ⇒ not NEW.
 
   ─────────────────────────────────────────────────────────────────────────
-  SCOPE / VERIFICATION
+  BLAST-RADIUS RECONCILIATION (expected, not a defect)
   ─────────────────────────────────────────────────────────────────────────
-  Surgical, unit-testable change confined to pkg/gate/policy.go plus one new
-  test file. No engine invocation needed — exercise applyScopedPolicy AND the
-  unscoped ApplyPolicy path directly against constructed StepResult /
-  Violation / BaselineArtifact / GateScope fixtures. Middle verification runs
-  `backstop code check`; the final phase runs the full `backstop gate` kill
-  chain, plus `backstop artifact validate` to confirm this plan artifact
-  itself validates. The change touches only .go files (no .spec.md/.issue.md
-  edits), so `backstop gate` subsumes code verification.
+  This changes the semantics of the central, most-tested grandfathering
+  function. Existing CompareBaseline/baseline tests that assert "baseline-
+  present in Diff mode on a TOUCHED file → grandfathered" will CORRECTLY flip
+  to "revoked". Confirmed target: TestBaselineCompareIgnoresExistingAndOutOf
+  ScopeFixedViolations (baseline_test.go:234-248) — its `existing` finding is on
+  "changed.ts", which is the scope's touched file, so it must now report 1 NEW,
+  not 0. A dedicated reconciliation task audits baseline_test.go and
+  baseline_identity_test.go and updates every such assertion to the new
+  behavior — while PRESERVING out-of-scope/untouched grandfathering and
+  All-mode seeding assertions (those must NOT change). Reconciliation is a
+  refactor DEPENDENT on the implementation (the tests document the new truth),
+  not new red tests.
 
   ─────────────────────────────────────────────────────────────────────────
-  CLAIMS (enumerated from the issue's Solution + acceptance nuances + mandated
-  tests; every task maps ≥1, every claim mapped by ≥1 task)
+  VERIFICATION
   ─────────────────────────────────────────────────────────────────────────
-  CLM-001 — The per-violation grandfathering decision in BOTH policy.go sites
-            (applyScopedPolicy AND the unscoped ApplyPolicy net-new path) is
-            extended so a finding counts when it is net-new OR its file was
-            explicitly touched — `touched = scope != nil && (Mode==Diff ||
-            Mode==File) && scope.Contains(v.File)` (using v.File, NOT v.Path),
-            with the unscoped path unioning net-new with touched-file findings
-            so it gains the per-file granularity it lacked.
-  CLM-002 — TOUCHED-FILE REVOCATION FIRES: a baseline-present (pre-existing,
-            non-net-new) finding on a file listed in scope.Files under
-            GateScopeModeDiff now BLOCKS (counts==true) where before it was
-            silently grandfathered. (TestPolicy_TouchedFileRevokesGrandfathering)
-  CLM-003 — ONLY TOUCHED FILES lose grandfathering: a baseline-present finding
-            on a file NOT in scope.Files (a project-wide-scanning dimension
-            reporting outside the diff) STAYS grandfathered (counts==false) —
-            revocation is scoped to the touched file, not the dimension/repo.
-            (TestPolicy_UntouchedFileUnderProjectWideDimensionStaysGrandfathered)
+  Unit-level in pkg/gate — exercise CompareBaseline directly (new-vs-
+  grandfathered classification) plus the aggregate computeBaselineResult path,
+  against constructed Violation / BaselineArtifact / GateScope fixtures; no
+  engine run. Middle verification runs `backstop code check` + `go test
+  ./pkg/gate/...`. The final phase runs the full `backstop gate` kill chain
+  plus `backstop artifact validate --plan PLAN-ISSUE-050`. The code change
+  touches only .go files (no .spec.md/.issue.md edits), so `backstop gate`
+  subsumes code verification.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (every task maps ≥1; every claim mapped by ≥1 task)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — Touched-file revocation is CONSOLIDATED into CompareBaseline
+            (baseline.go, new-vs-grandfathered classification), so all THREE
+            callers (policy.go:113 unscoped, policy.go:158 scoped, gate.go:194
+            aggregate) inherit it from one chokepoint. A baseline-present
+            finding whose file is touched (scope!=nil && Mode∈{Diff,File} &&
+            scope.Contains(v.File), using v.File) reclassifies as NEW instead
+            of grandfathered, via one `scopeTouches` helper.
+  CLM-002 — REVOCATION FIRES: a baseline-present finding on a file in
+            scope.Files under GateScopeModeDiff is reclassified NEW (revoked)
+            where the old half-ratchet grandfathered it.
+            (TestPolicy_TouchedFileRevokesGrandfathering)
+  CLM-003 — ONLY TOUCHED FILES: a baseline-present finding on a file NOT in
+            scope.Files (project-wide dimension reporting outside the diff via
+            the ProjectWide exemption) STAYS grandfathered (0 new) — revocation
+            is per-finding, never a blanket in-scope revoke. (TestPolicy_
+            UntouchedFileUnderProjectWideDimensionStaysGrandfathered)
   CLM-004 — --all UNCHANGED: the identical baseline-present finding under
-            GateScopeModeAll stays grandfathered (counts==false) — the
-            touched-check excludes GateScopeModeAll explicitly, so
-            gate --all / baseline generate behavior is untouched.
+            GateScopeModeAll stays grandfathered (Mode guard excludes All), so
+            gate --all / baseline generate / seeding behavior is unaffected.
             (TestPolicy_AllModeUnaffectedByStrictRevocation)
-  CLM-005 — RESOLUTION = FIX or WAIVE: a revoked (touched-file, baseline-
-            present) finding that is fixed (absent from s.Violations) OR waived/
-            engine-suppressed (also absent, subtracted upstream by
-            computeWaiverResult before ApplyPolicy) no longer counts and the
-            step returns to pass.
+  CLM-005 — FIX or WAIVE clears: a revoked (touched-file, baseline-present)
+            finding that is absent from `current` — because it was fixed, or
+            waived/engine-suppressed (subtracted upstream by computeWaiverResult
+            before comparison) — is no longer NEW; the step returns to pass.
             (TestPolicy_RevokedFindingClearsWhenFixedOrSuppressed)
-  CLM-006 — PATH-NORMALIZATION MATCH IS REAL (anti-vacuous-green): with the
-            GateScope built via the real newGateScope/ComputeGateScope path
-            (normalized fileSet, ProjectRoot set) and a Violation whose File is
-            a non-canonical form of a touched file, scope.Contains(v.File)
-            genuinely matches and the ratchet fires end-to-end — the revocation
-            cannot silently no-op on a path-format mismatch between v.File and
-            scope.Files. (TestPolicy_TouchedRevocation_MatchesNormalizedPath)
+  CLM-006 — PATH-NORMALIZATION MATCH IS REAL (anti-vacuous-green), and the
+            test is itself non-vacuous (S1): with the GateScope built via the
+            real newGateScope path (normalized fileSet, ProjectRoot set) and a
+            BASELINE-PRESENT Violation whose File is a NON-canonical form of the
+            touched file, the test first asserts the finding is NOT independently
+            net-new (so the "already new" short-circuit is false and the
+            scope-touch path is genuinely exercised), then asserts
+            scope.Contains(v.File) is true and the finding is reclassified NEW.
+            Guards against a silent no-op on a v.File↔scope.Files path-format
+            mismatch. (TestPolicy_TouchedRevocation_MatchesNormalizedPath)
+  CLM-007 — NO-POLICY AGGREGATE PATH FIRES (the whole reason to consolidate),
+            + nil-scope safety (S2): with a baseline present but EMPTY
+            enforcement.policy, the aggregate baseline_comparison step
+            (computeBaselineResult, gate.go:194) reclassifies a touched-file
+            baselined finding as NEW and FAILS — proving the ratchet is not
+            left dead by ApplyPolicy's empty-policy early-return (policy.go:68).
+            A nil scope keeps the finding grandfathered with no panic.
+            (TestPolicy_NoPolicyBaselineComparisonStepFiresRatchet,
+            TestPolicy_NilScopeKeepsGrandfathering)
+  CLM-008 — BLAST-RADIUS RECONCILED: existing baseline tests asserting
+            "baseline-present in Diff mode on a TOUCHED file → grandfathered"
+            (confirmed: TestBaselineCompareIgnoresExistingAndOutOfScope
+            FixedViolations, baseline_test.go:234) are updated to the new
+            revoked behavior, while out-of-scope/untouched grandfathering and
+            All-mode seeding assertions are preserved; go test ./pkg/gate/...
+            and backstop gate stay green.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
-  # Phase 1: TDD — strict file-level ratchet (touched-file revocation)
+  # Phase 1: TDD — consolidated touched-file revocation in CompareBaseline
   # ═══════════════════════════════════════════════════════════════════════
   - id: phase-1
-    name: "Phase 1: TDD — Touched-File Grandfathering Revocation in Both Policy Sites"
+    name: "Phase 1: TDD — Weld the Ratchet to Grandfathering at the CompareBaseline Chokepoint"
     tasks:
       - id: TASK-001
         type: test
-        title: "Failing ratchet tests: touched file revokes grandfathering; untouched stays; --all unchanged; fix-or-waive clears; normalized-path match fires"
+        title: "Failing ratchet tests at CompareBaseline: touched revokes; untouched/project-wide stays; --all unchanged; fix-or-waive clears; normalized-path pin (non-vacuous); no-policy aggregate path fires; nil-scope safe"
         description: |
-          Add pkg/gate/policy_ratchet_test.go exercising BOTH grandfathering
-          decision paths in policy.go — the unscoped ApplyPolicy net-new path
-          (a dimension policy with NO Sources override) AND applyScopedPolicy
-          (a dimension policy WITH a Sources override) — against constructed
-          StepResult / Violation / BaselineArtifact / GateScope fixtures. NO
-          engine run. Reuse the existing package test helpers (`vioSrc` in
-          policy_perpack_test.go, and construct GateScope via the real
-          `newGateScope` so its normalized fileSet is populated — do NOT
-          hand-build the unexported fileSet, that would defeat CLM-006). Do NOT
-          touch policy.go in this task.
+          Add pkg/gate/baseline_ratchet_test.go exercising the CONSOLIDATED
+          revocation in CompareBaseline (the new-vs-grandfathered classification)
+          plus the aggregate computeBaselineResult path. NO engine run. Construct
+          fixtures with hand-built Violation / BaselineArtifact / GateScope
+          values; build every GateScope via the real `newGateScope(projectRoot,
+          mode, files, nil)` so its normalized fileSet is populated — do NOT
+          hand-build the unexported fileSet (that would defeat the CLM-006 pin).
+          Reuse existing package helpers (`vioSrc` in policy_perpack_test.go, the
+          Gate construction helpers in gate_test.go for the aggregate path); do
+          NOT re-declare them. Do NOT touch baseline.go in this task.
 
-          A grandfathered finding = present in the BaselineArtifact (so it is
-          NOT in the net-new set). Assert the STEP verdict (pass vs fail) and/or
-          the counted NewViolations, matching the style of policy_perpack_test.go.
+          A grandfathered finding = present in the BaselineArtifact.Violations
+          (so its IdentityHash is in baselineSet). Assert on
+          comparison.NewViolations (and, for the aggregate test, the
+          baseline_comparison StepResult verdict).
 
-          Mandated test names (exact):
-            - TestPolicy_TouchedFileRevokesGrandfathering (CLM-001, CLM-002):
-              a baseline-present finding on file "pkg/x/x.go" that IS in
-              scope.Files under GateScopeModeDiff. Before this change it
-              grandfathers (step pass); assert it now BLOCKS (step fail /
-              counted). Cover BOTH the unscoped-dimension policy and a
-              Sources-scoped dimension policy so both code sites are pinned.
+          Mandated test names (exact — retargeted at CompareBaseline behavior):
+            - TestPolicy_TouchedFileRevokesGrandfathering (CLM-001, CLM-002): a
+              baseline-present finding on "pkg/x/x.go", current run carries it,
+              scope = newGateScope with Files ["pkg/x/x.go"] under
+              GateScopeModeDiff. Assert CompareBaseline reports it in
+              NewViolations (revoked). (Sanity companion: the SAME finding with
+              scope Files that do NOT include it → 0 new, grandfathered — pins
+              that touch is the cause.)
             - TestPolicy_UntouchedFileUnderProjectWideDimensionStaysGrandfathered
-              (CLM-003): the same baseline-present finding on file
-              "pkg/other/other.go" that is NOT in scope.Files (scope touches a
-              different file), under GateScopeModeDiff — simulating a project-
-              wide-scanning dimension reporting outside the diff. Assert it
-              STAYS grandfathered (step pass / not counted). Proves revocation
-              is keyed strictly on the touched file, not the whole dimension.
+              (CLM-003): a baseline-present finding on "pkg/other/other.go" with
+              ProjectWide=true (so filterViolations keeps it in scope) while the
+              scope touches a DIFFERENT file under Diff mode. Assert 0 new
+              (stays grandfathered) — revocation is keyed on the touched file,
+              not the dimension.
             - TestPolicy_AllModeUnaffectedByStrictRevocation (CLM-004): the
-              identical baseline-present finding under a GateScopeModeAll scope
-              (where scope.Contains returns true for every path). Assert it
-              STAYS grandfathered (step pass / not counted) — proves the
-              touched-check excludes GateScopeModeAll and gate --all /
-              baseline generate is unchanged.
-            - TestPolicy_RevokedFindingClearsWhenFixedOrSuppressed (CLM-005):
-              (a) FIXED — a touched-file, baseline-present finding that is
-              ABSENT from s.Violations on the next run yields step pass (nothing
-              to count). (b) WAIVED/SUPPRESSED — model the upstream subtraction
-              (computeWaiverResult removes waived findings from s.Violations
-              BEFORE ApplyPolicy) by likewise omitting it from s.Violations;
-              assert the step passes. Proves a revoked finding clears by fix OR
-              by waiver, not only by fix.
-            - TestPolicy_TouchedRevocation_MatchesNormalizedPath (CLM-006): the
-              anti-vacuous-green pin. Build the GateScope via `newGateScope`
-              with a real ProjectRoot and a touched file in one textual form
-              (e.g. repo-relative "pkg/x/x.go"), and a baseline-present
-              Violation whose File is a NON-canonical form of the SAME file
-              (e.g. "./pkg/x/x.go", or the ProjectRoot-joined absolute path).
-              First assert scope.Contains(v.File) is TRUE (the match is real),
-              then assert the ratchet BLOCKS the step. This FAILS if v.File and
-              scope.Files ever normalize differently — guaranteeing the
-              revocation cannot silently no-op on a path-format mismatch.
+              identical baseline-present finding under a GateScopeModeAll scope.
+              Assert 0 new (grandfathered) — the Mode∈{Diff,File} guard excludes
+              All, so gate --all / seeding is unchanged.
+            - TestPolicy_RevokedFindingClearsWhenFixedOrSuppressed (CLM-005): a
+              touched-file baseline-present finding that is ABSENT from the
+              current slice (modeling both fix and the upstream waiver/suppress
+              subtraction) → 0 new. Proves a revoked finding clears by fix OR
+              waive (absent-from-current is the shared mechanism).
+            - TestPolicy_TouchedRevocation_MatchesNormalizedPath (CLM-006, S1):
+              scope built via newGateScope with a real projectRoot and touched
+              file "pkg/x/x.go"; a BASELINE-PRESENT Violation whose File is a
+              NON-canonical form of that file (e.g. "./pkg/x/x.go" or the
+              projectRoot-joined absolute path). FIRST assert the finding is NOT
+              independently net-new — i.e. its identity IS in the baseline set
+              (compute EnrichViolationIdentity and confirm baseline contains the
+              same hash), so the "already new" path is NOT what makes it count.
+              THEN assert scope.Contains(v.File) is true AND CompareBaseline
+              reports it NEW (revoked via the scope-touch path). This keeps the
+              marquee anti-vacuous-green test from being itself vacuous.
+            - TestPolicy_NoPolicyBaselineComparisonStepFiresRatchet (CLM-007):
+              the consolidation payoff. Build a Gate with a baseline containing a
+              finding on a touched file, a Diff scope touching that file, and NO
+              enforcement.policy (empty policy map). Drive the aggregate
+              baseline_comparison step (computeBaselineResult / the Run path) and
+              assert that step FAILS (NewViolations includes the revoked finding)
+              — proving the ratchet fires through the third caller that
+              ApplyPolicy's empty-policy early-return (policy.go:68) would leave
+              dead.
+            - TestPolicy_NilScopeKeepsGrandfathering (CLM-007, S2): a baseline-
+              present finding with options.Scope == nil → CompareBaseline reports
+              0 new (grandfathered) and does not panic. Positive nil-scope guard.
 
-          All five FAIL against today's policy.go (no touched-file revocation)
-          and pass after TASK-002.
+          All FAIL against today's CompareBaseline (no touched-file revocation);
+          pass after TASK-002.
         files:
-          - pkg/gate/policy_ratchet_test.go
+          - pkg/gate/baseline_ratchet_test.go
         claims:
           - CLM-001
           - CLM-002
@@ -220,6 +259,7 @@ phases:
           - CLM-004
           - CLM-005
           - CLM-006
+          - CLM-007
         depends_on: []
         test_names:
           - TestPolicy_TouchedFileRevokesGrandfathering
@@ -227,15 +267,19 @@ phases:
           - TestPolicy_AllModeUnaffectedByStrictRevocation
           - TestPolicy_RevokedFindingClearsWhenFixedOrSuppressed
           - TestPolicy_TouchedRevocation_MatchesNormalizedPath
+          - TestPolicy_NoPolicyBaselineComparisonStepFiresRatchet
+          - TestPolicy_NilScopeKeepsGrandfathering
 
       - id: TASK-002
         type: implementation
-        title: "Extend grandfathering in both policy.go sites: a finding counts when net-new OR its file is touched (diff/file mode)"
+        title: "Consolidate touched-file revocation into CompareBaseline: baseline-present + touched → NEW, with the mode/scope/nil guards"
         description: |
-          Implement the strict file-level ratchet in pkg/gate/policy.go at BOTH
-          grandfathering decision sites (the issue Solution names both). Add one
-          small unexported helper capturing the touched-file predicate and reuse
-          it in both, so there is exactly ONE definition of "touched":
+          Implement the strict file-level ratchet at the ONE chokepoint —
+          CompareBaseline in pkg/gate/baseline.go — so all three callers inherit
+          it (issue Solution as revised by the founder decision; see notes).
+
+          Add one small unexported helper in baseline.go capturing the
+          touched-file predicate (single definition of "touched"):
 
               func scopeTouches(scope *GateScope, file string) bool {
                   return scope != nil &&
@@ -243,45 +287,32 @@ phases:
                       scope.Contains(file)
               }
 
-          CRITICAL: use `v.File` (gate.Violation.File, result.go:58) — the
-          issue pseudocode's `v.Path` does NOT exist. `scope.Contains`
-          normalizes its argument internally (scope.go:68), so pass the raw
-          v.File; do not pre-normalize at the call site. Guard scope != nil
-          (helper does this) and EXCLUDE GateScopeModeAll (helper does this).
+          In the new-vs-grandfathered classification loop (:128-139), where a
+          baseline-present current finding is currently `continue`d as
+          grandfathered (:131-133), reclassify it as NEW when its file is
+          touched:
 
-          (1) applyScopedPolicy (:180-187) — the per-violation resolver. Change:
-                  counts := true
-                  if eff.AppliesTo == AppliesToNewCode && baseline != nil {
-                      counts = newSet[EnrichViolationIdentity(v).IdentityHash] ||
-                          scopeTouches(scope, v.File)
+              if _, ok := baselineSet[enriched.IdentityHash]; ok {
+                  if !scopeTouches(options.Scope, enriched.File) {
+                      continue // grandfathered (unchanged)
                   }
-              Net-new grandfathering is preserved; a touched-file finding now
-              additionally counts. The nil-baseline fail-loud branch is
-              untouched (counts stays true when baseline == nil).
+                  // touched: grandfather revoked → fall through to newViolations
+              }
 
-          (2) ApplyPolicy unscoped net-new path (:110-117) — this path today
-              takes the whole-step `cmp.NewViolations` SET wholesale, so it has
-              NO per-file granularity and would never revoke. Rework it to
-              per-file awareness: keep a finding from s.Violations when it is
-              net-new (in the net-new identity set) OR scopeTouches(scope,
-              v.File). Concretely, build the net-new identity set from
-              cmp.NewViolations, then compute `counted` by iterating s.Violations
-              and keeping each v where `newIdentitySet[EnrichViolationIdentity(v)
-              .IdentityHash] || scopeTouches(scope, v.File)`. This UNIONs net-new
-              with touched-file findings (deduped by iterating the source
-              Violations once) so touching one file revokes only THAT file's
-              grandfathering — never the whole dimension. Keep s.NewViolations /
-              s.FixedViolations assignments consistent (s.NewViolations = the
-              counted blocking set, as today). The `baseline == nil` case and
-              the AppliesTo != new-code (all-code) case are unchanged — every
-              finding still counts there.
-
-          Both sites: revocation fires ONLY under GateScopeModeDiff /
-          GateScopeModeFile (CLM-004: All is excluded), keyed strictly on the
-          per-finding v.File (CLM-003: only touched files). No language noun, no
-          tool knowledge enters policy.go — this is pure scope/identity logic.
+          Use enriched.File / v.File (gate.Violation has NO Path — result.go:58).
+          scope.Contains self-normalizes both sides (scope.go:68), so pass the
+          finding File raw; do NOT pre-normalize. A Diff/File-touched finding
+          then reaches the newViolations append — it never hits the All-mode-only
+          seeding branch (:134). GUARDS (see notes G1–G3): the Mode∈{Diff,File}
+          check excludes GateScopeModeAll (no repo-wide revoke); the per-finding
+          scope.Contains keeps project-wide UNtouched findings grandfathered; nil
+          scope and nil baseline stay safe (nil scope → scopeTouches false; nil
+          baseline → existing early-return at :113). Do NOT alter the
+          FixedViolations loop (:141-149), the seeding branch, or baseline
+          generation — this is comparison-only. No language noun / tool knowledge
+          enters baseline.go.
         files:
-          - pkg/gate/policy.go
+          - pkg/gate/baseline.go
         claims:
           - CLM-001
           - CLM-002
@@ -289,34 +320,79 @@ phases:
           - CLM-004
           - CLM-005
           - CLM-006
+          - CLM-007
         depends_on:
           - TASK-001
 
       - id: TASK-003
-        type: verification
-        title: "backstop code check — ratchet unit tests green, existing policy suites unregressed"
+        type: refactor
+        title: "Reconcile existing baseline tests to the new revoked-on-touch semantics (blast radius of consolidating the central function)"
         description: |
-          Inner-loop verification via `backstop code check` (diff-scoped, the
-          fast inner loop: lint, build, test, semgrep over the change). Confirm:
-            - The five TASK-001 mandated tests pass
+          Audit and update the existing CompareBaseline/baseline tests that
+          assumed the OLD half-ratchet ("baseline-present in Diff mode on a
+          touched file → grandfathered"). These tests document the old behavior;
+          the founder decision intentionally changes it, so their assertions must
+          flip to the new truth. This is a refactor DEPENDENT on the
+          implementation (the new behavior must exist first).
+
+          Confirmed target:
+            - pkg/gate/baseline_test.go —
+              TestBaselineCompareIgnoresExistingAndOutOfScopeFixedViolations
+              (:234-248): its `existing` finding is on "changed.ts", the scope's
+              touched file, so it must now report 1 NEW (revoked), not 0. Update
+              the assertion and, if the test's INTENT (out-of-scope FIXED
+              handling) still needs an untouched-grandfather case, add/retain a
+              companion using an UNtouched file so both truths are covered.
+          Sweep both pkg/gate/baseline_test.go and
+          pkg/gate/baseline_identity_test.go for any other assertion of the same
+          shape and flip only those. PRESERVE — do not weaken — assertions about:
+          out-of-scope / untouched findings staying grandfathered, All-mode
+          rule-set-change seeding (TestBaseline_CompareBaseline_AllScope...),
+          nil-baseline behavior, and identity STABILITY (ISSUE-046). If a test's
+          scope does NOT touch the finding's file, its verdict must be UNCHANGED
+          — a changed verdict there is a bug, not reconciliation. Do NOT modify
+          baseline.go or baseline_ratchet_test.go here.
+        files:
+          - pkg/gate/baseline_test.go
+          - pkg/gate/baseline_identity_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "backstop code check + go test ./pkg/gate/... — new ratchet tests green, reconciled tests green, no other grandfathering regression"
+        description: |
+          Inner-loop verification. Run `backstop code check` (diff-scoped: lint,
+          build, test, semgrep) AND `go test ./pkg/gate/...` (the full package
+          suite, to catch every inherited-caller and reconciliation effect).
+          Confirm:
+            - The seven TASK-001 mandated tests pass
               (TestPolicy_TouchedFileRevokesGrandfathering,
               _UntouchedFileUnderProjectWideDimensionStaysGrandfathered,
               _AllModeUnaffectedByStrictRevocation,
               _RevokedFindingClearsWhenFixedOrSuppressed,
-              _TouchedRevocation_MatchesNormalizedPath).
-            - The EXISTING policy suites stay green with UNCHANGED verdicts —
-              especially policy_test.go, policy_appliesto_test.go, and
-              policy_perpack_test.go (the per-pack Sources scoping and the
-              nil-baseline fail-loud invariant
-              TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen must not
-              regress), plus the waiver ratchet suite
-              (step_waiver_ratchet_test.go / step_waiver_e2e_test.go) since
-              fix-or-waive relies on the upstream subtraction being intact.
-          Report pass/fail per mandated test and any perturbation to existing
-          policy/waiver verdicts.
+              _TouchedRevocation_MatchesNormalizedPath,
+              _NoPolicyBaselineComparisonStepFiresRatchet,
+              _NilScopeKeepsGrandfathering).
+            - The reconciled tests (TASK-003) pass under the new semantics.
+            - The rest of pkg/gate stays green with the ONLY behavior change
+              being the intended touched-file revocation — inspect the three
+              inheriting callers' suites (policy_test.go / policy_appliesto_test.go
+              / policy_perpack_test.go including the nil-baseline fail-loud
+              invariant TestPolicy_ScopedNilBaselineBlocksFailLoudNotSilentGreen;
+              the waiver ratchet suite step_waiver_ratchet_test.go /
+              step_waiver_e2e_test.go; and the gate aggregate tests). Any verdict
+              change on a scope that does NOT touch the finding's file is a
+              regression to investigate.
+          Report pass/fail per mandated test, the reconciled-test results, and
+          any unexpected verdict delta.
         files:
-          - pkg/gate/policy.go
-          - pkg/gate/policy_ratchet_test.go
+          - pkg/gate/baseline.go
+          - pkg/gate/baseline_ratchet_test.go
+          - pkg/gate/baseline_test.go
+          - pkg/gate/baseline_identity_test.go
         claims:
           - CLM-001
           - CLM-002
@@ -324,8 +400,11 @@ phases:
           - CLM-004
           - CLM-005
           - CLM-006
+          - CLM-007
+          - CLM-008
         depends_on:
           - TASK-002
+          - TASK-003
 
   # ═══════════════════════════════════════════════════════════════════════
   # Phase 2: Comprehensive verification — full gate + artifact validate
@@ -333,37 +412,35 @@ phases:
   - id: phase-2
     name: "Phase 2: Comprehensive Verification — backstop gate + artifact validate"
     tasks:
-      - id: TASK-004
+      - id: TASK-005
         type: verification
-        title: "backstop gate + artifact validate — ratchet lands with no dimension regression, plan artifact validates"
+        title: "backstop gate + artifact validate — ratchet lands at the chokepoint, no unintended dimension regression, plan artifact validates"
         description: |
           Final comprehensive verification via the full kill chain. Run:
             1. backstop gate            (full gate: artifact validation, code
                                          check, test verification,
-                                         substantiveness, coverage, contracts)
+                                         substantiveness, coverage, contracts —
+                                         and the baseline_comparison ratchet
+                                         itself, now welded in CompareBaseline)
             2. backstop artifact validate --plan PLAN-ISSUE-050
-                                        (confirm this plan artifact itself
-                                         validates; the code change touches only
-                                         .go files, so `backstop gate` subsumes
-                                         code verification and no other artifact
-                                         edit is involved)
 
-          Confirm the ACCEPTANCE invariants (the whole fix):
-            - `backstop gate` passes its full kill chain with NO dimension
-              regressing — the touched-file revocation must not flip any
-              currently-green dimension red beyond the intended strictness
-              increase; enumerate any dimension whose counted/violation total
-              changed and confirm it is the deliberate ratchet, not collateral.
-            - Grandfathering is NARROWED CORRECTLY: findings on UNtouched files
-              stay grandfathered (project-wide dimensions do not force paying
-              down the whole repo — CLM-003), and gate --all / baseline generate
-              behavior is unchanged (CLM-004).
-            - The change stayed language-neutral: no baked language noun or tool
-              knowledge entered pkg/gate/policy.go (thin-executor invariant).
-          Report the final gate status, any dimension-count delta (with whether
-          it is the intended revocation), and the artifact-validate result.
+          Confirm the ACCEPTANCE invariants:
+            - `backstop gate` passes its full kill chain. Because the change runs
+              its OWN gate through the consolidated CompareBaseline, any finding
+              on a file this change TOUCHES that is baseline-present must now be
+              resolved (fixed or waived) — enumerate any such revocation and
+              confirm it is the intended ratchet, not collateral on an untouched
+              file/dimension.
+            - Grandfathering is NARROWED CORRECTLY: untouched-file / project-wide
+              findings stay grandfathered (CLM-003), and gate --all / baseline
+              generate behavior is unchanged (CLM-004).
+            - The no-policy aggregate path is genuinely live (CLM-007) and the
+              change stayed language-neutral (no baked language noun / tool
+              knowledge in baseline.go).
+          Report the final gate status, any revocation the change's own diff
+          triggered (and how it was resolved), and the artifact-validate result.
         files:
-          - pkg/gate/policy.go
+          - pkg/gate/baseline.go
         claims:
           - CLM-001
           - CLM-002
@@ -371,6 +448,9 @@ phases:
           - CLM-004
           - CLM-005
           - CLM-006
+          - CLM-007
+          - CLM-008
         depends_on:
           - TASK-002
           - TASK-003
+          - TASK-004
