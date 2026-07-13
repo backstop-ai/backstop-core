@@ -20,6 +20,12 @@ type MandatedTest struct {
 	TargetPkg string // reduced opaque subject token (per-claim subject override, else spec default)
 	SpecID    string
 	ClaimID   string
+	// Status carries the mandating spec's lifecycle status (populated by
+	// ExtractMandatedTests from the spec frontmatter). It lets the test_verification
+	// and test_substantiveness CONSUMERS apply the implemented-only scope
+	// (contractsAreDue) while ExtractMandatedTests itself stays UNFILTERED, so the
+	// artifact_status_drift consumer keeps full draft-spec visibility (ISSUE-054 CLM-002).
+	Status string
 	// IsAbsence is the opt-in per-claim signal (ISSUE-035 Category 2): the mandating
 	// claim declared `kind: absence`, marking this an absence/structural test that by
 	// design does NOT call its target package. When true, the gate SKIPS the noTarget
@@ -106,7 +112,7 @@ func (fm *specFrontmatter) implementationSubject() string {
 func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading spec dir %s: %w", specDir, err)
 	}
 
 	var tests []MandatedTest
@@ -150,6 +156,7 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 					TargetPkg: targetPkg,
 					SpecID:    fm.Number,
 					ClaimID:   claim.ID,
+					Status:    fm.Status,
 					IsAbsence: isAbsence,
 				})
 			}
@@ -170,6 +177,38 @@ func isTerminalSpecStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// contractsAreDue reports whether a spec's contracts are held as a live promise.
+// Contracts are due ONLY once a spec reaches `implemented` (ISSUE-051):
+// pre-implementation specs (draft, ready-for-implementation) describe intended
+// future code, and all terminal specs (replaced, canceled, deprecated,
+// obsoleted) are retired — neither is enforced. This is the single source of
+// truth for contract-due exclusion on the contract path; unlike
+// isTerminalSpecStatus it also correctly excludes obsoleted and the
+// pre-implementation statuses without enumerating them.
+func contractsAreDue(status string) bool {
+	return status == "implemented"
+}
+
+// ContractsAreDue is the exported wrapper over the unexported contractsAreDue so the
+// cmd/backstop test_substantiveness consumer can apply the same implemented-only scope
+// (ISSUE-054). It is additive: the unexported predicate stays the single source of
+// truth (and keeps its existing pkg/gate callers/tests intact).
+func ContractsAreDue(status string) bool { return contractsAreDue(status) }
+
+// filterDueMandatedTests keeps only the mandated tests whose mandating spec is due
+// (implemented) per contractsAreDue, applying the ISSUE-054 implemented-only scope at
+// the test_verification consumer. It does NOT touch the shared ExtractMandatedTests,
+// so artifact_status_drift keeps consuming the unfiltered list.
+func filterDueMandatedTests(mandated []MandatedTest) []MandatedTest {
+	due := mandated[:0:0]
+	for _, mt := range mandated {
+		if contractsAreDue(mt.Status) {
+			due = append(due, mt)
+		}
+	}
+	return due
 }
 
 // CountTerminalSpecs returns the number of spec files in specDir whose status is
@@ -201,9 +240,9 @@ func CountTerminalSpecs(specDir string) (int, error) {
 func parseSpecFrontmatter(path string) (*specFrontmatter, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening spec %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 
@@ -223,13 +262,13 @@ func parseSpecFrontmatter(path string) (*specFrontmatter, error) {
 
 	var fm specFrontmatter
 	if err := yaml.Unmarshal([]byte(strings.Join(yamlLines, "\n")), &fm); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing spec frontmatter %s: %w", path, err)
 	}
 	return &fm, nil
 }
 
 // TestNameMatcher holds the compiled UNION of pack-declared test-name regexes
-// (SPEC-045 REQ-002). It replaces the DELETED baked Go-shaped `funcPattern`: the
+// (SPEC-045 REQ-002). It replaces the DELETED baked Go-shaped func-name pattern matcher: the
 // test-name/indicator pattern now comes from pack DATA (Manifest.TestNamePatterns),
 // merged across declared toolchain packs and compiled here. It carries NO language
 // knowledge — data (the declared patterns) plus match logic only (DD-1). Each
@@ -304,6 +343,14 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, c
 				Violations: []Violation{{Rule: "test_verification", Message: "failed to extract mandated tests: " + err.Error(), Severity: "error"}},
 			}
 		}
+
+		// Implemented-only scope (ISSUE-054): a mandated test is a live promise only
+		// once its spec is `implemented`; draft / ready-for-implementation specs
+		// describe planned-but-unbuilt code. Applied at the CONSUMER (not the shared
+		// ExtractMandatedTests, which artifact_status_drift needs unfiltered) and BEFORE
+		// the len==0 early-return + capability guard, so an all-draft set is a clean
+		// pass rather than a capability warning.
+		mandated = filterDueMandatedTests(mandated)
 
 		if len(mandated) == 0 {
 			return StepResult{
@@ -432,7 +479,7 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier Sou
 		if err != nil {
 			return nil
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
@@ -465,7 +512,7 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier Sou
 func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading spec dir %s: %w", specDir, err)
 	}
 
 	var specs []SpecVerification
@@ -479,8 +526,8 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 		if err != nil {
 			continue // skip unparseable specs
 		}
-		if isTerminalSpecStatus(fm.Status) {
-			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		if !contractsAreDue(fm.Status) {
+			continue // coverage due only at `implemented` (ISSUE-054)
 		}
 
 		// The extraction gate is LOOSENED (SPEC-044 REQ-003): a spec is extracted when
@@ -509,7 +556,7 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error) {
 	entries, err := os.ReadDir(specDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading spec dir %s: %w", specDir, err)
 	}
 
 	var contracts []ContractEntry
@@ -523,8 +570,8 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 		if err != nil {
 			continue // skip unparseable specs
 		}
-		if isTerminalSpecStatus(fm.Status) {
-			continue // terminal specs are excluded from enforcement (ISSUE-031)
+		if !contractsAreDue(fm.Status) {
+			continue // contracts are due only at `implemented` (ISSUE-051)
 		}
 
 		for _, c := range fm.Contracts {

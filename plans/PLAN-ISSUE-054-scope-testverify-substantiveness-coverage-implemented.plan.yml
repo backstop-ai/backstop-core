@@ -1,0 +1,574 @@
+---
+plan_id: PLAN-ISSUE-054
+spec_id: ISSUE-054
+created: "2026-07-13"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  THE CHANGE — sibling of PLAN-ISSUE-051, but TWO mechanisms (verified against
+  the source at author time; do NOT re-derive). Reuses the `contractsAreDue`
+  predicate ISSUE-051 already landed (pkg/gate/step_testverify.go:183,
+  `status == "implemented"`) — do NOT reinvent it, do NOT rename it, do NOT
+  touch isTerminalSpecStatus.
+  ─────────────────────────────────────────────────────────────────────────
+  Three extraction functions in pkg/gate/step_testverify.go feed the three
+  sibling dimensions, and they have DIFFERENT status needs:
+
+  1. ExtractSpecVerifications (:477) → coverage_threshold ONLY (not shared).
+     DIRECT-scope it exactly like ExtractContractEntries: replace the
+     terminal-only skip (:494-496 `if isTerminalSpecStatus(fm.Status)`) with
+         if !contractsAreDue(fm.Status) { continue }
+
+  2. ExtractMandatedTests (:106) feeds THREE consumers:
+       - StepTestVerificationScopedFunc (:311)            → test_verification
+       - buildTestSubstantivenessStep (cmd/backstop/gate.go:974) → test_substantiveness
+       - ResolveArtifactStatus (pkg/gate/artifact_status.go:160) → artifact_status_drift
+     artifact_status_drift REQUIRES draft-spec visibility (looksDelivered /
+     ClassifyStatusDrift in pkg/gate/status_drift.go raise the "draft but looks
+     delivered" advisory), so ExtractMandatedTests itself MUST NOT be scoped.
+     Instead:
+       (a) add a `Status string` field to the MandatedTest struct (:16),
+       (b) populate it in ExtractMandatedTests from fm.Status (the extractor
+           already reads fm.Status at :123),
+       (c) filter at the test_verification + substantiveness CONSUMERS with
+           `contractsAreDue(mt.Status)` before acting on a mandated test.
+     ResolveArtifactStatus keeps consuming the UNFILTERED list unchanged — this
+     is the guard that must be proven with a test (draft-looks-delivered still
+     fires).
+
+  ─────────────────────────────────────────────────────────────────────────
+  FILTER PLACEMENT (exact)
+  ─────────────────────────────────────────────────────────────────────────
+  - test_verification: in StepTestVerificationScopedFunc, filter `mandated`
+    to keep only contractsAreDue(mt.Status) IMMEDIATELY after ExtractMandatedTests
+    and BEFORE the `len(mandated) == 0` early-return + capability guard, so an
+    all-draft spec set returns a clean pass (nothing due) rather than a
+    capability warning.
+  - test_substantiveness: in buildTestSubstantivenessStep, filter `mandated`
+    to keep only contractsAreDue(mt.Status) after ExtractMandatedTests and
+    BEFORE ResolveMandatedTestPaths / the Q2 noTarget join loop. The Q1 hollow
+    findings are pack-produced over test files (not per-mandated-test) — the
+    scoping bites the mandated-test-keyed Q2 join; Q1 hollow stays as-is.
+  - artifact_status_drift: NO change to ResolveArtifactStatus — it consumes
+    the unfiltered list. Adding the Status field is additive and does not
+    change its behavior.
+
+  ─────────────────────────────────────────────────────────────────────────
+  BLAST RADIUS — TRACED EXHAUSTIVELY (independent grep of every caller of all
+  three extractors AND every fixture staging a draft/statusless spec carrying
+  a test command / mandated tests / coverage threshold that reaches one of the
+  three scoped consumers). 051's plan under-counted and FAILED review — this is
+  the #1 risk, so the categories below distinguish FLIPS from VERIFIED-UNCHANGED.
+  ─────────────────────────────────────────────────────────────────────────
+  RECONCILE (fixtures that FLIP red or go VACUOUS under consumer/direct scoping
+  — reconcile by flipping the fixture status draft → implemented):
+
+    pkg/gate (both are SHARED fixture helpers — one edit each fixes many tests):
+    - pkg/gate/step_testverify_test.go — the `writeSpecFixture` helper writes
+      `status: draft` (:20). It is used by the test_verification consumer tests
+      (MandatedTestExists/MandatedTestMissing/CollectsAllSpecClaims/
+      FilterToChangedFiles/FilterToChangedSpec, DiscoveryCapabilityAbsent x2,
+      CapabilityPresentGenuineMiss) AND by TestGate_ExtractSpecVerifications_
+      HappyPath (direct coverage extraction) AND transitively by
+      pkg/gate/dimension_pathnorm_test.go:80 (same package, same helper). Flip
+      the helper default `status: draft` → `status: implemented`; this single
+      edit reconciles ALL of them (dimension_pathnorm needs no direct edit).
+    - pkg/gate/step_testverify_metric_test.go — the `writeMetricSpecFixture`
+      template writes `status: draft` (:19); the three
+      TestExtractSpecVerifications_* metric tests (PopulatesMetricThresholds,
+      PerMetricOnlyNoScalarStillExtracted, NilMetricThresholdsPreservesScalarOnly)
+      call ExtractSpecVerifications directly and assert extraction. Flip the
+      template default `status: draft` → `status: implemented`.
+
+    cmd/backstop (substantiveness + test_verification e2e consumers):
+    - cmd/backstop/gate_substantiveness_wiring_test.go — the inline `sub.spec.md`
+      fixture writes `status: draft` (:66) with mandated tests (:88) and drives
+      buildTestSubstantivenessStep (TestWiring_SubstantivenessStepRoutesThrough
+      DispatchSeam / _UnwiredSubstantivenessStep_FailsDispatchSpy /
+      _NoBakedAnalyzerDelegateInvoked). Flip `status: draft` → `implemented`.
+    - cmd/backstop/gate_discovery_e2e_test.go — the inline `writeColocationSpec`
+      helper's `coloc.spec.md` fixture writes `status: draft` (:109) with a
+      mandated test, driving the substantiveness colocation e2e
+      (TestGate_SubstantivenessUsesColocationEndToEnd). Flip `status: draft` →
+      `implemented`.
+    - cmd/backstop/testdata/spec045-discovery/specs/discovery.spec.md — the
+      testdata spec (`status: draft`, :5) drives the test_verification discovery
+      e2e (TestGate_TestVerificationConsumesMergedDiscoveryEndToEnd,
+      TestGate_DiscoveryMergesAcrossDeclaredToolchainPacks). Under consumer
+      scoping a draft spec's mandated tests are dropped, so these NEGATIVE
+      ("must be discovered, not reported not-found") assertions pass VACUOUSLY
+      — the flip keeps them honest. Flip `status: draft` → `implemented`.
+    - cmd/backstop/gate_substantiveness_e2e.go — a `package main` NON-`_test.go`
+      harness (a plain `.go` grep for `_test.go` fixtures misses it). Its
+      `newE2EWorkspace` embeds a spec fixture (`status: draft`, :60) with a
+      test_command, coverage_threshold, and mandated tests, driving
+      buildTestSubstantivenessStep via `runProductionSubstantivenessStep`.
+      TestE2E_SubstantivenessMultiRuleDispatch_AndSandboxedConvert
+      (gate_substantiveness_e2e_test.go:106) mandates `TestE2ENoTarget` on that
+      draft spec and asserts a POSITIVE noTarget "does not call package"
+      violation (t.Fatalf at :146) — under the consumer filter the draft mandated
+      test is dropped and the violation vanishes → RED. Flip `status: draft` →
+      `implemented`. (The sibling `...HollowRed` test asserts only Q1 hollow,
+      which is status-independent, so it stays green.)
+
+  VERIFIED UNCHANGED (grepped and reasoned — must stay byte-for-byte; a change
+  here is a regression, and their green-ness after the diff is part of
+  acceptance):
+    - pkg/gate/artifact_status_test.go, pkg/gate/status_drift_test.go,
+      pkg/gate/testdata/artifact_status/specs/* (SPEC-901-draft etc.) — the
+      artifact_status_drift consumer is UNFILTERED; the draft fixture is the
+      GUARD. Must stay green with no edit.
+    - pkg/gate/terminal_exclusion_test.go + pkg/gate/testdata/terminal/* — the
+      active fixture is ALREADY `status: implemented` (flipped by ISSUE-051).
+      TestExtractSpecVerifications_SkipsTerminalSpecs asserts the implemented
+      active spec IS extracted and the deprecated/replaced ARE skipped — all
+      still hold under implemented-only (implemented≠terminal; terminal≠
+      implemented). No edit.
+    - pkg/gate/subject_multitarget_test.go, pkg/gate/absence_annotation_test.go,
+      pkg/gate/testdata/absence-annotation/* — call ExtractMandatedTests /
+      NoTargetViolationForTest DIRECTLY (unfiltered / pure function). Draft
+      fixtures stay extracted; no edit.
+    - pkg/gate/step_coverage_test.go, pkg/gate/coverage_permetric_verdict_test.go,
+      pkg/gate/step_coverage_eradication_test.go — build SpecVerification{}
+      records DIRECTLY (no ExtractSpecVerifications). Unaffected; no edit.
+    - cmd/backstop/gate_terminal_exclusion_test.go — no active/implemented
+      fixture (only a deprecated one); asserts exclusion + count only. No edit.
+    - cmd/backstop/gate_contract_*_test.go — already flipped to `implemented`
+      by ISSUE-051 (do NOT double-count / re-flip).
+    - cmd/backstop/artifact_validate_*_test.go — their draft specs +
+      coverage_threshold fields feed `backstop artifact validate` (the VALIDATOR),
+      NOT the three gate consumers. No edit.
+    - cmd/backstop/coverage_real_dispatch_e2e_test.go — drives coverage off
+      dispatched CoverageRecords, not ExtractSpecVerifications over a draft spec.
+      No edit.
+
+  Because reconciled fixtures span cmd/backstop AND pkg/gate, reconciliation
+  MUST be proven with `go test ./...` (full module), NOT `./pkg/gate/...` alone
+  — else the cmd/backstop breakage surfaces only at the final gate with no
+  remediation task behind it (the exact way 051's under-count would have hurt).
+
+  ─────────────────────────────────────────────────────────────────────────
+  ANTI-GAMING COMPOSITION (relied on, acknowledged, NOT re-tested here beyond
+  the drift guard): implemented-only scoping is safe from a park-in-draft-forever
+  dodge because artifact_status_drift independently keeps status honest — a spec
+  whose code is built and tested cannot legitimately linger `draft` without
+  raising the drift advisory. This plan's CLM-006 guard test proves that advisory
+  still fires after the change.
+
+  ─────────────────────────────────────────────────────────────────────────
+  EMPIRICAL ACCEPTANCE (via the gate itself — this is the proof)
+  ─────────────────────────────────────────────────────────────────────────
+  After the change, `backstop gate --all`:
+    - test_verification drops from 342 → ~2 (the genuine SPEC-041 residual,
+      left OPEN and explicitly out of scope — do NOT close it).
+    - test_substantiveness draft-spec false "does not call package X" findings
+      drop (e.g. the 9 on draft SPEC-010).
+    - coverage_threshold draft-spec false positives drop.
+    - artifact_status_drift UNCHANGED — SAME violation count before and after
+      (verify explicitly; a delta here means the shared extractor was scoped by
+      mistake).
+    - new_violations: 0.
+  Then `backstop baseline generate` to refresh the gitignored baseline to the
+  corrected set, then `backstop gate` (full kill chain) and `backstop artifact
+  validate --plan PLAN-ISSUE-054` pass. The code change touches only .go files
+  (no artifact edits), so `backstop gate` subsumes code verification.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (this plan defines its own — ISSUE-054 has no claims[] array)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — Predicate reuse: the implemented-only filter REUSES the existing
+    contractsAreDue(status) predicate (true only for `implemented`, false for
+    draft / ready-for-implementation / every terminal status incl. obsoleted).
+    No new predicate; isTerminalSpecStatus is NOT edited.
+  CLM-002 — MandatedTest.Status: MandatedTest gains a `Status` field populated
+    by ExtractMandatedTests from the spec frontmatter status; ExtractMandatedTests
+    itself stays UNFILTERED (still returns draft / ready-for-implementation
+    specs' mandated tests) so artifact_status_drift keeps full visibility.
+  CLM-003 — test_verification scoped at consumer: StepTestVerificationScopedFunc
+    enforces a mandated test ONLY when its spec is `implemented`; draft /
+    ready-for-implementation are not enforced; terminal excluded (the 342 → ~2
+    drop, without retiring any real promise).
+  CLM-004 — test_substantiveness scoped at consumer: buildTestSubstantivenessStep
+    runs the mandated-test-keyed noTarget join ONLY for `implemented` specs'
+    mandated tests; draft-spec false "does not call package X" findings evaporate.
+  CLM-005 — coverage scoped directly: ExtractSpecVerifications extracts coverage
+    thresholds ONLY from `implemented` specs (direct filter mirroring
+    ExtractContractEntries); draft-spec coverage-threshold false positives drop;
+    terminal still excluded.
+  CLM-006 — artifact_status_drift UNCHANGED (the guard): ResolveArtifactStatus
+    consumes the unfiltered mandated-test list, so the "draft (non-terminal) but
+    all mandated tests PRESENT → looks delivered" advisory (looksDelivered /
+    ClassifyStatusDrift) STILL fires for draft specs after the change — proven
+    by a test.
+  CLM-007 — enforcement preserved: an `implemented` spec's mandated tests,
+    substantiveness join, and coverage threshold are STILL enforced (no
+    vacuous-green hole on live specs).
+  CLM-008 — reconciliation complete: all SIX fixtures staging a non-implemented
+    spec that fed the three scoped consumers are reconciled to `implemented` —
+    pkg/gate/step_testverify_test.go (writeSpecFixture default),
+    pkg/gate/step_testverify_metric_test.go (writeMetricSpecFixture default),
+    cmd/backstop/gate_substantiveness_wiring_test.go (sub.spec.md),
+    cmd/backstop/gate_discovery_e2e_test.go (coloc.spec.md),
+    cmd/backstop/testdata/spec045-discovery/specs/discovery.spec.md, AND the
+    `package main` NON-`_test.go` harness cmd/backstop/gate_substantiveness_e2e.go
+    (newE2EWorkspace fixture) — and the untouched categories
+    (artifact_status_drift, terminal exclusion, direct-record coverage tests,
+    validator tests, ExtractMandatedTests-direct tests) are verified unchanged.
+  CLM-009 — empirical acceptance: `backstop gate --all` shows test_verification
+    342 → ~2, draft-spec substantiveness + coverage FPs dropped,
+    artifact_status_drift count UNCHANGED, new_violations: 0; baseline refreshed;
+    `backstop gate` + `backstop artifact validate --plan PLAN-ISSUE-054` pass;
+    `go test ./...` green.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION
+  ─────────────────────────────────────────────────────────────────────────
+  Unit-level in pkg/gate (ExtractSpecVerifications / StepTestVerificationScopedFunc
+  / ExtractMandatedTests / ClassifyStatusDrift over temp-specDir fixtures across
+  the full status vocabulary) and in cmd/backstop (buildTestSubstantivenessStep
+  over a draft-vs-implemented spec pair). Middle verification runs `backstop code
+  check` + `go test ./...` (FULL module — reconciled fixtures span cmd/backstop).
+  The final phase runs the full `backstop gate` kill chain, the `backstop gate
+  --all` acceptance measurement (incl. the artifact_status_drift-unchanged
+  check), the baseline refresh, and `backstop artifact validate --plan
+  PLAN-ISSUE-054`.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD — scope test_verification / substantiveness / coverage to
+  # `implemented`, with the artifact_status_drift guard, then reconcile fixtures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Scope the Three Sibling Dimensions to Implemented Specs (+ Drift Guard)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing tests: coverage (direct) + test_verification (consumer) + substantiveness (consumer) enforce ONLY implemented specs; MandatedTest.Status populated + extractor stays unfiltered; artifact_status_drift draft-looks-delivered STILL fires (both directions, full status vocabulary)"
+        description: |
+          Add TWO new test files proving the fix in BOTH directions (no vacuous
+          pass, no over-suppression) and pinning the shared-extractor guard. NO
+          reliance on the engine — call the extractors / step funcs directly
+          against temp specDirs (t.TempDir() + os.WriteFile a `.spec.md` with the
+          relevant frontmatter, mirroring the existing writeSpecFixture /
+          writeMetricSpecFixture patterns). Do NOT edit step_testverify.go,
+          gate.go, or any existing test file here.
+
+          FILE A — pkg/gate/implemented_scope_test.go. Mandated tests (exact
+          names):
+            - TestExtractSpecVerifications_OnlyImplementedSpecsExtracted
+              (CLM-005): TABLE-DRIVEN over status ∈ {draft,
+              ready-for-implementation, implemented, replaced, canceled,
+              deprecated, obsoleted}, each spec declaring test_command +
+              coverage_threshold. Assert `implemented` → 1 SpecVerification
+              extracted; every other status → 0. FAILS today (draft /
+              ready-for-implementation / obsoleted extract under the terminal-only
+              skip).
+            - TestTestVerification_EnforcesOnlyImplementedSpecMandatedTests
+              (CLM-003, CLM-007): TABLE-DRIVEN. Stage a spec whose single
+              mandated test does NOT exist in the codeDir. For status
+              `implemented` assert StepTestVerificationScopedFunc(...) returns a
+              test_verification violation (enforced); for `draft` and
+              `ready-for-implementation` assert NO test_verification violation
+              (not enforced — the false pressure removed); terminal statuses also
+              yield none. FAILS today (draft mandated tests are enforced).
+            - TestExtractMandatedTests_PopulatesStatusAndStaysUnfiltered
+              (CLM-002): stage a `draft` spec with a mandated test; assert
+              ExtractMandatedTests STILL returns it (unfiltered) AND the returned
+              MandatedTest.Status == "draft". FAILS today (no Status field).
+            - TestStatusDriftAdvisory_DraftLooksDeliveredStillFires (CLM-006):
+              the GUARD. It MUST drive the ResolveArtifactStatus →
+              ExtractMandatedTests path over a temp projectRoot (NOT a hand-built
+              ClassifyStatusDrift record) so it actually exercises the SHARED
+              extractor — that is the only variant that catches a wrongly-scoped
+              ExtractMandatedTests. Scaffold a temp projectRoot with a specs/
+              dir holding a `draft` (non-terminal) spec whose single mandated
+              test IS present in the code tree, call ResolveArtifactStatus(root),
+              feed its records + the present-set into ClassifyStatusDrift, and
+              assert the StepArtifactStatusDriftAdvisory "looks delivered" warning
+              FIRES for that draft spec. This is the regression proof that the
+              filter is at the consumer, not the shared extractor. (Compiles and
+              passes today; it must STILL pass after TASK-002 — a red here after
+              the impl means ExtractMandatedTests was wrongly scoped.)
+
+          FILE B — cmd/backstop/gate_substantiveness_implemented_scope_test.go.
+          Mandated test (exact name):
+            - TestSubstantiveness_EnforcesOnlyImplementedSpecMandatedTests
+              (CLM-004, CLM-007): drive buildTestSubstantivenessStep over a spec
+              pair (or a table) — a `draft` spec's mandated test must NOT
+              contribute a test_substantiveness noTarget finding, while the SAME
+              spec at `implemented` MUST (given a hollow / non-referencing test
+              fixture through the same dispatch seam the wiring tests use). FAILS
+              today (draft mandated tests are joined). Reuse the existing
+              cmd/backstop substantiveness test harness / dispatch-spy helpers so
+              the assertion keys off the real consumer path, not a reimplemented
+              dispatcher.
+        files:
+          - pkg/gate/implemented_scope_test.go
+          - cmd/backstop/gate_substantiveness_implemented_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestExtractSpecVerifications_OnlyImplementedSpecsExtracted
+          - TestTestVerification_EnforcesOnlyImplementedSpecMandatedTests
+          - TestExtractMandatedTests_PopulatesStatusAndStaysUnfiltered
+          - TestStatusDriftAdvisory_DraftLooksDeliveredStillFires
+          - TestSubstantiveness_EnforcesOnlyImplementedSpecMandatedTests
+
+      - id: TASK-002
+        type: implementation
+        title: "Add MandatedTest.Status + populate it; direct-scope ExtractSpecVerifications to implemented; consumer-scope test_verification + test_substantiveness with contractsAreDue(mt.Status); leave ExtractMandatedTests + artifact_status_drift unfiltered"
+        description: |
+          Implement the fix across the two production files. Reuse the EXISTING
+          contractsAreDue predicate (pkg/gate/step_testverify.go:183) everywhere;
+          do NOT add a new predicate and do NOT edit isTerminalSpecStatus.
+
+          pkg/gate/step_testverify.go:
+            1. Add a `Status string` field to the MandatedTest struct (:16) with
+               a doc comment: it carries the mandating spec's lifecycle status so
+               the test_verification and test_substantiveness CONSUMERS can apply
+               the implemented-only scope while ExtractMandatedTests itself stays
+               unfiltered for artifact_status_drift (CLM-002).
+            2. In ExtractMandatedTests (:106), populate Status: fm.Status on each
+               appended MandatedTest (the loop already has fm in scope at :147).
+               Do NOT add any status filter to this extractor.
+            3. In ExtractSpecVerifications (:477), REPLACE the terminal-only skip
+               (:494-496 `if isTerminalSpecStatus(fm.Status) { continue }`) with:
+                   if !contractsAreDue(fm.Status) {
+                       continue // coverage due only at `implemented` (ISSUE-054)
+                   }
+               (CLM-005 — mirrors ExtractContractEntries exactly.)
+            4. In StepTestVerificationScopedFunc (:311), IMMEDIATELY after the
+               ExtractMandatedTests call and BEFORE the `len(mandated) == 0`
+               early-return + capability guard, drop mandated tests whose spec is
+               not due:
+                   mandated = filter to keep only contractsAreDue(mt.Status)
+               so an all-draft set returns a clean pass, not a capability warning
+               (CLM-003, CLM-007).
+
+          cmd/backstop/gate.go:
+            5. Export the predicate for cross-package reuse via an ADDITIVE
+               wrapper (NOT a rename): keep the unexported contractsAreDue
+               (:183) BYTE-FOR-BYTE, and add alongside it
+                   // ContractsAreDue is the exported wrapper over the unexported
+                   // contractsAreDue so the cmd/backstop substantiveness consumer
+                   // can apply the implemented-only scope (ISSUE-054).
+                   func ContractsAreDue(status string) bool { return contractsAreDue(status) }
+               MANDATORY: do NOT rename contractsAreDue → ContractsAreDue. The
+               unexported name is referenced by the ISSUE-051 test
+               pkg/gate/contract_implemented_scope_test.go:119,134 (a file in NO
+               task's scope) — a rename breaks it. Add the wrapper only.
+            6. In buildTestSubstantivenessStep (cmd/backstop/gate.go:974), after
+               the ExtractMandatedTests call and BEFORE ResolveMandatedTestPaths /
+               the Q2 noTarget join loop, drop mandated tests whose spec is not due
+               (keep only gate.ContractsAreDue(mt.Status)). Q1 hollow findings are
+               pack-produced over test files and stay UNCHANGED (CLM-004, CLM-007).
+
+          DO NOT (CLM-006): touch ResolveArtifactStatus (artifact_status.go:160),
+          ClassifyStatusDrift/looksDelivered (status_drift.go), or
+          isTerminalSpecStatus. No language noun / tool knowledge enters either
+          file. Keep the diff to the edits above (the exported wrapper plus the
+          MandatedTest.Status field, its population, the ExtractSpecVerifications
+          direct filter, and the two consumer filters).
+        files:
+          - pkg/gate/step_testverify.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: refactor
+        title: "Reconcile the five-file fixture blast radius (pkg/gate + cmd/backstop): every draft fixture feeding the three scoped consumers → status implemented; verified-unchanged categories left byte-for-byte"
+        description: |
+          Flip ONLY the fixtures that fed the now-scoped consumers and would
+          otherwise flip red or pass vacuously. They are correct in intent
+          (happy-path extraction, mandated-test discovery, substantiveness
+          colocation, per-metric extraction) and orthogonal to status. This is a
+          refactor DEPENDENT on TASK-002. Do NOT modify step_testverify.go,
+          gate.go, or the TASK-001 files here.
+
+          Flip draft → implemented in:
+            - pkg/gate/step_testverify_test.go — the `writeSpecFixture` helper
+              default `status: draft` (:20). One edit reconciles the
+              test_verification consumer tests, TestGate_ExtractSpecVerifications_
+              HappyPath, AND (same package) dimension_pathnorm_test.go's
+              StepTestVerificationScopedFunc test — no separate edit to
+              dimension_pathnorm_test.go.
+            - pkg/gate/step_testverify_metric_test.go — the `writeMetricSpecFixture`
+              template default `status: draft` (:19); reconciles the three
+              TestExtractSpecVerifications_* metric tests.
+            - cmd/backstop/gate_substantiveness_wiring_test.go — the inline
+              `sub.spec.md` fixture `status: draft` (:66).
+            - cmd/backstop/gate_discovery_e2e_test.go — the inline
+              `writeColocationSpec` helper's `coloc.spec.md` fixture `status:
+              draft` (:109).
+            - cmd/backstop/testdata/spec045-discovery/specs/discovery.spec.md —
+              `status: draft` (:5).
+            - cmd/backstop/gate_substantiveness_e2e.go — NOTE: a `package main`
+              NON-`_test.go` harness. Its `newE2EWorkspace` embeds a spec fixture
+              at `status: draft` (:60) with a test_command, coverage_threshold,
+              and mandated tests, and drives the substantiveness consumer through
+              `runProductionSubstantivenessStep` → `buildTestSubstantivenessStep`.
+              `TestE2E_SubstantivenessMultiRuleDispatch_AndSandboxedConvert`
+              (gate_substantiveness_e2e_test.go:106) mandates `TestE2ENoTarget` on
+              that draft spec and asserts a POSITIVE noTarget "does not call
+              package" violation (t.Fatalf at :146 if absent) — under the consumer
+              filter the draft mandated test is dropped and that violation
+              vanishes, turning the test RED. Flip `status: draft` → `implemented`.
+              The sibling `...HollowRed` test asserts only Q1 hollow (status-
+              independent), so it stays green under the flip.
+
+          Do NOT touch (a change is a regression; verified-unchanged is part of
+          acceptance): pkg/gate/artifact_status_test.go, status_drift_test.go,
+          testdata/artifact_status/* (the drift GUARD, incl. SPEC-901-draft);
+          pkg/gate/terminal_exclusion_test.go + testdata/terminal/* (active
+          already `implemented`); subject_multitarget_test.go,
+          absence_annotation_test.go, testdata/absence-annotation/*
+          (ExtractMandatedTests-direct, unfiltered); step_coverage_test.go,
+          coverage_permetric_verdict_test.go, step_coverage_eradication_test.go
+          (build SpecVerification directly); cmd/backstop/gate_terminal_exclusion_
+          test.go; cmd/backstop/gate_contract_*_test.go (already implemented via
+          ISSUE-051 — do NOT re-flip); cmd/backstop/artifact_validate_*_test.go
+          (validator, not gate consumers); coverage_real_dispatch_e2e_test.go.
+        files:
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_testverify_metric_test.go
+          - cmd/backstop/gate_substantiveness_wiring_test.go
+          - cmd/backstop/gate_discovery_e2e_test.go
+          - cmd/backstop/testdata/spec045-discovery/specs/discovery.spec.md
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "backstop code check + go test ./... (FULL module) — new scope + guard tests green, all five reconciled fixtures green (pkg/gate AND cmd/backstop), verified-unchanged suites still green, ExtractMandatedTests + artifact_status_drift diff empty"
+        description: |
+          Inner-loop verification. Run `backstop code check` (diff-scoped: lint,
+          build, test, semgrep) AND `go test ./...` (the FULL module — reconciled
+          fixtures span cmd/backstop; `./pkg/gate/... ./cmd/backstop/...` is the
+          minimum acceptable scope). Confirm:
+            - The five TASK-001 mandated tests pass
+              (TestExtractSpecVerifications_OnlyImplementedSpecsExtracted,
+              TestTestVerification_EnforcesOnlyImplementedSpecMandatedTests,
+              TestExtractMandatedTests_PopulatesStatusAndStaysUnfiltered,
+              TestStatusDriftAdvisory_DraftLooksDeliveredStillFires,
+              TestSubstantiveness_EnforcesOnlyImplementedSpecMandatedTests) — note
+              the drift guard passing is the proof the shared extractor was NOT
+              scoped.
+            - All five TASK-003 reconciled files pass under the new scoping.
+            - The verified-unchanged suites stay green WITHOUT edits:
+              artifact_status_test.go / status_drift_test.go (drift guard),
+              terminal_exclusion_test.go (implemented active fixture),
+              subject_multitarget_test.go / absence_annotation_test.go
+              (ExtractMandatedTests-direct), step_coverage_*_test.go
+              (direct-record coverage), gate_contract_*_test.go (051 fixtures).
+            - git diff shows ExtractMandatedTests's status handling stays
+              unfiltered, and ResolveArtifactStatus / ClassifyStatusDrift /
+              looksDelivered / isTerminalSpecStatus are untouched.
+          Report pass/fail per mandated test, per reconciled file, and confirm
+          the drift/extractor diff is empty.
+        files:
+          - pkg/gate/step_testverify.go
+          - cmd/backstop/gate.go
+          - pkg/gate/implemented_scope_test.go
+          - cmd/backstop/gate_substantiveness_implemented_scope_test.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_testverify_metric_test.go
+          - cmd/backstop/gate_substantiveness_wiring_test.go
+          - cmd/backstop/gate_discovery_e2e_test.go
+          - cmd/backstop/testdata/spec045-discovery/specs/discovery.spec.md
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Comprehensive verification — gate acceptance, drift-unchanged
+  # check, baseline refresh, artifact validate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Comprehensive Verification — Gate Acceptance (342→~2, Drift Unchanged), Baseline Refresh, Artifact Validate"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "backstop gate --all acceptance (test_verification 342→~2, substantiveness+coverage FPs drop, artifact_status_drift UNCHANGED, new_violations 0), refresh baseline, backstop gate + artifact validate --plan"
+        description: |
+          Final comprehensive verification via the full kill chain plus the
+          empirical acceptance measurement (CLM-009). Run, in order:
+            1. backstop gate --all — MEASURE:
+               - test_verification drops from 342 → ~2 (the genuine SPEC-041
+                 residual, left OPEN and explicitly out of scope — do NOT close
+                 it).
+               - test_substantiveness draft-spec false "does not call package X"
+                 findings drop (e.g. the 9 on draft SPEC-010).
+               - coverage_threshold draft-spec false positives drop.
+               - artifact_status_drift violation count is UNCHANGED vs before the
+                 change (record both counts and confirm equality — a delta means
+                 the shared extractor was scoped by mistake; this is the CLM-006
+                 empirical guard).
+               - new_violations: 0 (NO regression).
+            2. backstop baseline generate — REFRESH the gitignored
+               .backstop/baseline.json so the baseline dimensions reflect the
+               corrected smaller set rather than the polluted one; confirm the
+               scoped dimensions still pass after the refresh.
+            3. backstop gate — full kill chain (artifact validation, code check,
+               test verification, substantiveness, coverage, contracts) passes.
+            4. backstop artifact validate --plan PLAN-ISSUE-054 — the plan
+               validates.
+          Confirm the invariants: enforcement NARROWED CORRECTLY (implemented
+          specs' mandated tests / substantiveness / coverage still enforced —
+          CLM-007), draft / ready-for-implementation / terminal specs no longer
+          drive the three sibling dimensions (CLM-003/004/005), artifact_status_
+          drift still fires its draft-looks-delivered advisory (CLM-006), the
+          change stayed language-neutral (no baked language noun in
+          step_testverify.go or the gate.go edit), and `go test ./...` is fully
+          green. Report the before/after counts for all four dimensions,
+          new_violations, the baseline-refresh result, the final gate status, and
+          the artifact-validate result.
+        files:
+          - pkg/gate/step_testverify.go
+          - cmd/backstop/gate.go
+          - pkg/gate/implemented_scope_test.go
+          - cmd/backstop/gate_substantiveness_implemented_scope_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004

@@ -2,7 +2,7 @@
 title: "TEST-100: Active Broken Spec"
 number: TEST-100
 created: "2026-06-27"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: "1.0.0"
 

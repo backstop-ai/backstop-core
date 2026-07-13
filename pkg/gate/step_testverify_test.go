@@ -17,7 +17,7 @@ func writeSpecFixture(t *testing.T, dir, filename string, claims []struct{ id, t
 title: "Test Spec"
 number: TEST-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -331,7 +331,7 @@ func TestGate_ExtractContractEntries_HappyPath(t *testing.T) {
 title: "Contract Spec"
 number: SPEC-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -451,7 +451,7 @@ func TestGate_ResolveMandatedTestPaths_MissingTestUnresolved(t *testing.T) {
 // ════════════════════════════════════════════════════════════════════════════
 // SPEC-045 REQ-001 — test-FILE discovery via pack-declared TEST globs (IsTestFile)
 // collectTestFuncNamesScoped(codeDir, scope, classifier, matcher) keys discovery on
-// classifier.IsTestFile (NO baked `_test.go` walk) + matcher.FindName (NO funcPattern).
+// classifier.IsTestFile (NO baked `_test.go` walk) + matcher.FindName (NO baked func-name pattern matcher).
 // ════════════════════════════════════════════════════════════════════════════
 
 const tsTestBody = "test('renders the widget', () => {\n  expect(1).toBe(1)\n})\n"
@@ -652,7 +652,7 @@ func TestTestNameMatcher_InvalidRegexIsLoudError(t *testing.T) {
 // `func\s+(Test\w+)` regex literal remains in any non-test pkg/gate source file —
 // a reintroduced baked pattern fails this guard.
 func TestTestVerify_NoBakedFuncTestRegexLiteral(t *testing.T) {
-	// The deleted funcPattern's distinctive literal, assembled at runtime so this
+	// The deleted func-name pattern matcher's distinctive literal, assembled at runtime so this
 	// guard does not itself contain the forbidden literal.
 	forbidden := "func" + `\s+(Test\w+)`
 	entries, err := os.ReadDir(".")

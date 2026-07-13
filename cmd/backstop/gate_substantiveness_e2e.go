@@ -57,7 +57,7 @@ func newE2EWorkspace(tmp string) (*e2eWorkspace, error) {
 title: "E2E Sub Spec"
 number: E2E-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

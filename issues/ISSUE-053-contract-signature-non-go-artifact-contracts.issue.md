@@ -1,0 +1,155 @@
+---
+title: "Contract Signature Non Go Artifact Contracts"
+schema_version: issue/v1
+
+issue:
+  id: ISSUE-053
+  title: "Contract Signature Non Go Artifact Contracts"
+  type: technical-debt
+  status: open
+  created: "2026-07-13"
+
+complexity:
+  scope: contained
+  uncertainty: exploratory
+  risk: safe
+---
+
+# ISSUE-053: Contract Signature Non Go Artifact Contracts
+
+## Problem
+
+`contract_signature`'s compiler (`packs/contracts/scripts/compile-signature.sh`,
+the `ast-grep-contracts` engine) is Go-oriented: it shells `ast-grep --lang
+go` (plus a grep fallback) to structurally match a declared signature
+against source. A slice of the 143 whole-repo `contract_signature`
+violations surfaced under `--all` (see ISSUE-051 for the full split) are
+declared on artifacts that are not Go source at all — no signature the
+current compiler can emit will ever compile to a match against them,
+regardless of whether the code/content behind them is correct.
+
+### Verified instances
+
+Grepping every `kind: constant` / `kind: variable` contract with a
+non-Go-shaped (prose) signature turns up, among others:
+
+| Spec | Status | File | Signature |
+|---|---|---|---|
+| SPEC-003 | `draft` | `.claude/settings.json` | `"hooks.PreToolUse[] entries for Edit and Write tools"` |
+| SPEC-003 | `draft` | `.claude/hooks/backstop-agent-guard.sh` | `"backstop-agent-guard.sh (reads JSON from stdin, ...)"` |
+| SPEC-004 | `draft` | `artifacts/spec/v1/schema.json` | `"JSON schema definition"` |
+| SPEC-004 | `draft` | `.claude/agents/spec-author.md` | `"Agent definition markdown"` |
+| SPEC-004 | `draft` | `.claude/agents/impl-reviewer.md` | `"Agent definition markdown"` |
+| SPEC-004 | `draft` | `.claude/hooks/backstop-standards-context.sh` | `"Shell script"` |
+| SPEC-004 | `draft` | `.claude/settings.json` | `"JSON configuration"` |
+| SPEC-033 | `draft` | `specs/SPEC-033-...spec.md` (self) | `"contract-lock: BUNDLE-010 producer → BUNDLE-009 consumer hand-off artifact set"` |
+
+All eight target files/paths above were confirmed to exist on disk. None of
+these signatures is a compilable Go fragment — they are prose descriptions
+of a JSON config shape, a Markdown agent definition, a shell script's
+stdin/stdout contract, or (SPEC-033) a spec declaring itself as its own
+"provides." ISSUE-037's audit of `kind: constant` contracts already flagged
+the SPEC-004/SPEC-033 entries as this same orthogonal schema-fit gap in
+passing, without pursuing it; this issue is that follow-up, scoped and
+tracked.
+
+### Important nuance found during this investigation — verify against ISSUE-051's fix
+
+Every currently-known instance above is declared by a spec whose status is
+`draft` (SPEC-003, SPEC-004, SPEC-033). ISSUE-051's fix (scope
+`ExtractContractEntries` to `implemented` specs only) would stop extracting
+**all** of these regardless of this issue — not because the non-Go problem
+was solved, but because the declaring specs aren't built yet either. So once
+ISSUE-051 lands, **re-audit before assuming this issue still has ~7 live
+instances**: it may temporarily drop to zero known instances (latent, not
+fixed) rather than genuinely reconcile down to zero. The underlying gap is
+real and will resurface the moment any spec — one of these three reaching
+`implemented`, or any future spec — declares a `kind: constant`/`variable`
+contract on a non-Go artifact while `implemented`. `SPEC-042` (an
+`implemented` spec) already shows the shape can occur on live specs too: it
+declares `kind: variable` contracts on a pack's `pack.yml` rule entry and a
+shell convert script's stdin/stdout contract (`cmd/backstop/testdata/go-toolchain/...`),
+both non-Go-signature — worth checking whether the current compiler
+correctly handles or silently mis-scores those before assuming this issue's
+population is exactly the eight rows above.
+
+### Why it matters
+
+The contracts schema explicitly allows non-`function` kinds
+(`type`/`interface`/`method`/`constant`/`variable`) and nothing in the
+schema restricts contracts to Go artifacts — declaring a contract on a hook
+script, an agent definition, or a JSON schema is a reasonable way to make a
+cross-cutting hand-off citable and traceable. But the signature *compiler*
+only understands Go, so any such contract is permanently unverifiable
+structurally: it will read as either silently vacuous (if never diff-scoped
+in) or as a permanent, un-fixable "signature not found" false positive (if
+scoped in) — a Go-shaped check force-fit onto an artifact it was never built
+to check.
+
+## Solution
+
+Not committed — left open for the plan. Three directions, none clearly
+correct without a decision:
+
+1. **Scope contracts out of `contract_signature` when the declared file is
+   not Go source.** `ExtractContractEntries` (or a filter ahead of the
+   compiler) skips a contract whose `file` doesn't end in `.go`, so
+   non-Go contracts stop being run through a compiler that can never verify
+   them. Cheapest fix; loses structural verification entirely for these
+   entries (same disposition ISSUE-037 used for the retired
+   `CheckTypeFindings` — behaviorally covered, not structurally).
+2. **Route non-Go contracts to an artifact-appropriate verification
+   instead of skipping them.** E.g. a JSON file's contract could be
+   verified by `jq`/schema-validate that the declared shape is actually
+   present; a shell script's stdin/stdout contract could be verified by a
+   grep/shellcheck-style engine; a Markdown agent definition might not be
+   structurally verifiable at all and should fall back to (3). This is the
+   most faithful fix but requires new pack-side engine capability per
+   artifact type — weigh against actual demand (only ~7-8 instances exist
+   today, all currently on unbuilt specs).
+3. **Retire the prose-signature contracts as descriptive documentation that
+   was never meant to be a compilable Go contract**, and say so explicitly
+   in the schema/pack documentation rather than leaving future authors to
+   rediscover the mismatch per-contract. This treats "signature" as
+   Go-contract-only by convention and non-Go hand-offs as
+   documentation-only, living in the `notes` field instead of `signature`.
+
+Whichever direction is chosen, do NOT force-fit a Go-shaped check onto
+these artifacts by inventing a Go-looking fictional signature for them (the
+same anti-pattern ISSUE-037 named and rejected for iota members) — the fix
+should make the schema/compiler boundary honest about what `kind: constant`
++ `signature` actually promises to verify.
+
+## References
+
+- `packs/contracts/scripts/compile-signature.sh` — the Go-oriented compiler;
+  the component this issue's contracts can never satisfy
+- `pkg/gate/step_testverify.go:509` (`ExtractContractEntries`) — where a
+  file-extension or artifact-kind filter would most naturally live under
+  Solution direction 1
+- `specs/SPEC-003-agent-hooks.spec.md` — declares the `.claude/settings.json`
+  and `backstop-agent-guard.sh` non-Go contracts
+- `specs/SPEC-004-spec-schema-evolution.spec.md` — declares the
+  `artifacts/spec/v1/schema.json`, `spec-author.md`, `impl-reviewer.md`,
+  `backstop-standards-context.sh`, and a second `.claude/settings.json`
+  non-Go contract
+- `specs/SPEC-033-engine-bundle-009-seam.spec.md` — the self-referential
+  "contract-lock" entry (a spec declaring itself as its own provides)
+- `specs/SPEC-042-coverage-production-engine.spec.md` — an `implemented`
+  spec with `kind: variable` contracts on a `pack.yml` rule entry and a
+  shell convert script; evidence the gap recurs on live, not just unbuilt,
+  specs and should be checked once ISSUE-051 lands
+- ISSUE-037 (contracts-compiler-iota-member-const-support) — the audit that
+  first flagged the SPEC-004/SPEC-033 prose-signature entries as this
+  orthogonal schema-fit gap, without pursuing it
+- ISSUE-051 (contract-signature-scopes-to-implemented-specs) — the
+  status-scoping fix this issue's residual population depends on; re-audit
+  this issue's instance list after ISSUE-051 lands rather than assuming it
+  is unchanged
+- `artifacts/issue/v1/schema.json` (`contracts.kind_enum`) — the contract
+  kind vocabulary that permits non-`function` kinds without restricting them
+  to Go artifacts
+- `directives/DIR-015-gate-checker-hardening.directive.md` — this issue
+  sits in the same gate-correctness cluster as ISSUE-036/037/038
+- CLAUDE.md — "don't force-fit a check onto an artifact it wasn't built to
+  verify" / no-vacuous-green, no-false-pressure first principles

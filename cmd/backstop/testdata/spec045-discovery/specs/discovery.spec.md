@@ -2,7 +2,7 @@
 title: "Discovery E2E Spec"
 number: DISC-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

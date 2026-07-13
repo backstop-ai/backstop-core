@@ -16,7 +16,7 @@ func writeMetricSpecFixture(t *testing.T, dir, filename, verificationBlock strin
 title: "Metric Spec"
 number: TEST-METRIC
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

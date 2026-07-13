@@ -60,7 +60,7 @@ func novacWorkspace(t *testing.T, fixtureName, contractsYAMLTemplate string) gat
 	// The template carries a {{FILE}} placeholder for the in-workspace path.
 	contractsYAML := strings.ReplaceAll(contractsYAMLTemplate, "{{FILE}}", wsFile)
 	spec := "---\n" +
-		"title: \"NoVac Spec\"\nnumber: NV-001\ncreated: \"2026-01-01\"\nstatus: draft\n" +
+		"title: \"NoVac Spec\"\nnumber: NV-001\ncreated: \"2026-01-01\"\nstatus: implemented\n" +
 		"schema_version: spec/v1\nspec_version: 1.0.0\n\n" +
 		"implementation:\n  summary: nv\n  package: pkg/gate\n\n" +
 		"verification:\n  level: integration\n  test_command: go test ./pkg/gate/\n  coverage_threshold: 80\n\n" +

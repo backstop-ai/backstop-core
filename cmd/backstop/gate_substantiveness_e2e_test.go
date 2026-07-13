@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,6 +97,79 @@ func TestE2E_SubstantivenessUninstalled_NoVacuousGreen(t *testing.T) {
 	installedRes := ws.runProductionSubstantivenessStep()
 	if !hasSubstantivenessHollowViolation(installedRes) {
 		t.Fatalf("cross-check: the SAME hollow fixture must produce a violation once the pack is installed; got %#v", installedRes.Violations)
+	}
+}
+
+// TestE2EWorkspaceScaffoldErrorPaths exercises the newE2EWorkspace filesystem
+// error-return branches by pre-seeding directory/file collisions at each write site,
+// so a scaffold failure surfaces the wrapped error instead of a silent nil. Each
+// sub-case makes exactly ONE of MkdirAll(specs) / WriteFile(backstop.yml) /
+// WriteFile(spec) / WriteFile(hollow) fail. No ast-grep is required — this drives the
+// harness's own construction, not the real gate.
+func TestE2EWorkspaceScaffoldErrorPaths(t *testing.T) {
+	t.Run("mkdir_specs_fails_when_specs_is_a_file", func(t *testing.T) {
+		tmp := t.TempDir()
+		// A regular file at the specs/ position makes MkdirAll(tmp/specs) fail.
+		if err := os.WriteFile(filepath.Join(tmp, "specs"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("seeding specs-as-file: %v", err)
+		}
+		if _, err := newE2EWorkspace(tmp); err == nil {
+			t.Fatal("newE2EWorkspace must fail when specs/ cannot be created")
+		}
+	})
+
+	t.Run("write_backstop_yml_fails_when_it_is_a_dir", func(t *testing.T) {
+		tmp := t.TempDir()
+		// backstop.yml pre-created as a directory makes WriteFile fail (is a directory).
+		if err := os.Mkdir(filepath.Join(tmp, "backstop.yml"), 0o755); err != nil {
+			t.Fatalf("seeding backstop.yml-as-dir: %v", err)
+		}
+		if _, err := newE2EWorkspace(tmp); err == nil {
+			t.Fatal("newE2EWorkspace must fail when backstop.yml cannot be written")
+		}
+	})
+
+	t.Run("write_spec_fails_when_spec_is_a_dir", func(t *testing.T) {
+		tmp := t.TempDir()
+		// e2e.spec.md pre-created as a directory (which also creates specs/) makes the
+		// spec WriteFile fail while MkdirAll(specs) and the backstop.yml write succeed.
+		if err := os.MkdirAll(filepath.Join(tmp, "specs", "e2e.spec.md"), 0o755); err != nil {
+			t.Fatalf("seeding spec-as-dir: %v", err)
+		}
+		if _, err := newE2EWorkspace(tmp); err == nil {
+			t.Fatal("newE2EWorkspace must fail when the spec file cannot be written")
+		}
+	})
+
+	t.Run("write_hollow_fails_when_hollow_is_a_dir", func(t *testing.T) {
+		tmp := t.TempDir()
+		// subject_test.go pre-created as a directory makes the hollow-fixture WriteFile
+		// fail after every prior write has succeeded.
+		if err := os.Mkdir(filepath.Join(tmp, "subject_test.go"), 0o755); err != nil {
+			t.Fatalf("seeding hollow-as-dir: %v", err)
+		}
+		if _, err := newE2EWorkspace(tmp); err == nil {
+			t.Fatal("newE2EWorkspace must fail when the hollow fixture cannot be written")
+		}
+	})
+}
+
+// TestE2EInstallLocalPackErrorPath exercises installSubstantivenessLocalPack's
+// distribution.Add error branch by pointing it at a repoRoot whose
+// packs/substantiveness/ source is absent, so Add fails and the wrapped install error
+// is returned rather than a false "installed" flag. No ast-grep is required.
+func TestE2EInstallLocalPackErrorPath(t *testing.T) {
+	ws, err := newE2EWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatalf("scaffolding e2e workspace: %v", err)
+	}
+	// A repoRoot with no packs/substantiveness/pack.yml makes distribution.Add fail.
+	bogusRepoRoot := t.TempDir()
+	if err := ws.installSubstantivenessLocalPack(bogusRepoRoot); err == nil {
+		t.Fatal("installSubstantivenessLocalPack must fail when the pack source is absent")
+	}
+	if ws.installed {
+		t.Fatal("a failed install must NOT mark the workspace installed")
 	}
 }
 

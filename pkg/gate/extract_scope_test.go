@@ -39,6 +39,7 @@ func TestExtract_ContractEntryScopePopulatedFromDeclaration(t *testing.T) {
 	specDir := t.TempDir()
 	writeSpec(t, specDir, "absence-path.spec.md", strings.Join([]string{
 		"number: SPEC-FIX",
+		"status: implemented",
 		"contracts:",
 		"  - file: pkg/gate/testdata/contract-absence-present.go",
 		"    provides:",
@@ -73,6 +74,7 @@ func TestExtract_PathScopedAbsenceScopeReachesGrepProbe(t *testing.T) {
 	specDir := t.TempDir()
 	writeSpec(t, specDir, "absence-path.spec.md", strings.Join([]string{
 		"number: SPEC-FIX",
+		"status: implemented",
 		"contracts:",
 		"  - file: pkg/gate/testdata/contract-absence-present.go",
 		"    provides:",
@@ -106,6 +108,7 @@ func TestExtract_ContractEntryExtractionDoesNotParseOrCompile(t *testing.T) {
 	declaredSig := "func RouteFile(path string, mode int) (string, error)"
 	writeSpec(t, specDir, "signature.spec.md", strings.Join([]string{
 		"number: SPEC-FIX",
+		"status: implemented",
 		"contracts:",
 		"  - file: pkg/gate/testdata/contract-sig-present.go",
 		"    provides:",

@@ -63,7 +63,7 @@ func newContractE2EWorkspace(tmp string) (*contractE2EWorkspace, error) {
 title: "Contract E2E Spec"
 number: E2E-CON-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

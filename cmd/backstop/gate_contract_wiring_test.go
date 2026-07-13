@@ -48,7 +48,7 @@ func writeContractSpec(t *testing.T, specDir string) {
 title: "Contract Spec"
 number: CON-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -192,15 +192,13 @@ func TestBuildContractStep_ExtractErrorPath(t *testing.T) {
 	orig := contractEngineResultsFn
 	t.Cleanup(func() { contractEngineResultsFn = orig })
 	contractEngineResultsFn = func(string, []gate.ContractEntry) ([]gate.ContractEngineResult, error) {
-		return nil, errTestSeam
+		return nil, errTest("dispatch boom")
 	}
 	res = buildContractStep(specDir, ".", nil)(context.Background())
 	if res.Status != "fail" || !res.ConfigErr {
 		t.Errorf("a dispatch error must fail the step as a config error, got %#v", res)
 	}
 }
-
-var errTestSeam = errTest("dispatch boom")
 
 type errTest string
 
@@ -263,7 +261,7 @@ func TestProduceContractEngineResults_SeamErrorAndNoPack(t *testing.T) {
 	// Seam returns an error.
 	origFn := resolveContractsPacksFn
 	t.Cleanup(func() { resolveContractsPacksFn = origFn })
-	resolveContractsPacksFn = func(string) ([]*pack.Manifest, error) { return nil, errTestSeam }
+	resolveContractsPacksFn = func(string) ([]*pack.Manifest, error) { return nil, errTest("dispatch boom") }
 	if _, err := produceContractEngineResults(".", []gate.ContractEntry{{File: "x"}}); err == nil {
 		t.Error("a resolve error must propagate")
 	}

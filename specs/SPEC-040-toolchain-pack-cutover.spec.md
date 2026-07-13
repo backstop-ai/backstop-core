@@ -322,18 +322,10 @@ contracts:
           pkg/pack/engine, so no new pkg/check->pkg/pack/engine import is added. The
           no-toolchain-pack WARN-ONLY loud state (REQ-005/REQ-006) is produced here as a
           non-failing "warning" StepResult with a stable "enforcement not configured" message.
-      - name: loadBridgedToolchainPacks
-        kind: function
-        signature: "func loadBridgedToolchainPacks(projectRoot, language string, declared []*pack.Manifest) ([]*pack.Manifest, error)"
-        notes: >
-          The landed SPEC-034 bridge, GENERALIZED beyond Go (REQ-004/REQ-008/CLM-014): the
-          early `if language != \"\" && language != \"go\"` short-circuit is replaced so it
-          resolves the <lang>-toolchain pack for the project's declared language generically,
-          not Go-only. It still loads from .backstop/packs/<name> on disk (so pack-relative
-          convert scripts resolve for SandboxedRunStdout), still dedupes against a declared
-          toolchain pack, and a missing pack directory yields no bridged packs — which is now
-          the trigger for the no-toolchain-pack WARN-ONLY loud state (REQ-005/REQ-006), NOT a
-          fall-through to a baked builtinToolchain (which is deleted).
+      # loadBridgedToolchainPacks contract entry REMOVED (ISSUE-038 contract-drift
+      # reconciliation): the language-derived toolchain bridge was DELETED in the
+      # BUNDLE-011/012 native-toolchain cutover and formally retired by SPEC-046. The
+      # symbol no longer exists (grep: zero hits); there is no replacement symbol.
     consumes:
       - source: cmd/backstop/pack_gate.go
         name: dispatchPackEngines

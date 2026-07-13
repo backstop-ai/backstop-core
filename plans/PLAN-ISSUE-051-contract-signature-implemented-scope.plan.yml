@@ -1,0 +1,452 @@
+---
+plan_id: PLAN-ISSUE-051
+spec_id: ISSUE-051
+created: "2026-07-13"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "backstop gate"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  THE CHANGE (one predicate + one filter + tests) — from the verified
+  investigation attached to ISSUE-051; do NOT re-derive
+  ─────────────────────────────────────────────────────────────────────────
+  Root cause: ExtractContractEntries (pkg/gate/step_testverify.go:509) skips
+  ONLY terminal specs (`if isTerminalSpecStatus(fm.Status) { continue }`,
+  :526-528). It therefore extracts contracts from `draft` and
+  `ready-for-implementation` specs whose code does not exist yet, and hands
+  them to the Go signature compiler, which correctly reports "symbol not
+  found" — 104 false positives, all from the unbuilt init/release suite
+  SPEC-020..029 (children of BUNDLE-003).
+
+  Spec lifecycle (artifacts/spec/v1/schema.json):
+    LIVE     = draft → ready-for-implementation → implemented
+    TERMINAL = replaced / canceled / deprecated / obsoleted
+  Contracts are only DUE at `implemented`. A draft / ready-for-implementation
+  spec's contracts describe intended future code, not a broken promise.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CHOSEN SHAPE — positive predicate `contractsAreDue` (NOT the isTerminal
+  extension). Rationale locked; do NOT re-open.
+  ─────────────────────────────────────────────────────────────────────────
+  Add one small unexported helper in step_testverify.go, mirroring
+  isTerminalSpecStatus as the single source of truth for this exclusion:
+
+      // contractsAreDue reports whether a spec's contracts are held as a live
+      // promise. Contracts are due ONLY once a spec reaches `implemented`
+      // (ISSUE-051): pre-implementation specs (draft, ready-for-implementation)
+      // describe intended future code, and all terminal specs (replaced,
+      // canceled, deprecated, obsoleted) are retired — neither is enforced.
+      func contractsAreDue(status string) bool {
+          return status == "implemented"
+      }
+
+  In ExtractContractEntries, REPLACE the terminal-only skip (:526-528) with:
+
+      if !contractsAreDue(fm.Status) {
+          continue // contracts are due only at `implemented` (ISSUE-051)
+      }
+
+  WHY the positive form is chosen over extending isTerminalSpecStatus:
+    1. It excludes draft + ready-for-implementation AND every terminal status
+       in ONE predicate — no need to enumerate the pre-impl statuses AND keep
+       the terminal skip.
+    2. It closes a PRE-EXISTING GAP for free: isTerminalSpecStatus
+       (:166-173) returns true for replaced/canceled/deprecated but NOT
+       `obsoleted` (obsoleted is terminal per the schema; the helper predates
+       ISSUE-048 adding it). The positive predicate excludes obsoleted
+       correctly on the contract path WITHOUT touching isTerminalSpecStatus —
+       so the shared helper (still used by the deferred ExtractSpecVerifications
+       and the mandated-test step) keeps its exact current behavior and blast
+       radius stays zero outside ExtractContractEntries.
+    Note the obsoleted-in-isTerminalSpecStatus gap only as an observation; do
+    NOT widen scope to fix isTerminalSpecStatus here — that shared helper feeds
+    the deferred sibling and other steps.
+
+  ─────────────────────────────────────────────────────────────────────────
+  EXPLICITLY OUT OF SCOPE — the deferred sibling (leave alone, say so)
+  ─────────────────────────────────────────────────────────────────────────
+  ExtractSpecVerifications (step_testverify.go:465), feeding test_verification
+  and coverage_threshold, has the IDENTICAL terminal-only filter (:482-484)
+  and the same latent "pull enforcement from unbuilt draft specs" behavior.
+  Fixing it is EXPLICITLY DEFERRED — the founder has parked the 342-finding
+  test_verification broken-promise backlog (see ISSUE-012). This plan touches
+  ONLY the contract path. isTerminalSpecStatus and ExtractSpecVerifications
+  MUST remain byte-for-byte unchanged; CLM-005 pins that.
+
+  ─────────────────────────────────────────────────────────────────────────
+  RECONCILIATION BLAST RADIUS (existing tests that assumed non-implemented
+  specs get their contracts extracted — they must flip to `implemented`)
+  ─────────────────────────────────────────────────────────────────────────
+  Several existing tests stage specs that are NOT `implemented` yet assert
+  their contracts ARE extracted. Under the fix they extract 0 and break. They
+  are correct in INTENT (scope-population, absence parsing, happy-path
+  extraction, e2e violation-firing) and orthogonal to status — reconcile by
+  setting the fixture status to `implemented`. The full blast radius is SEVEN
+  files across pkg/gate AND cmd/backstop (an independent grep of every
+  ExtractContractEntries caller — do NOT trust the pkg/gate-only list):
+    - step_testverify_test.go:327  TestGate_ExtractContractEntries_HappyPath
+      (fixture `status: draft`, :334) — expects 1 contract.
+    - step_contract_parser_absence_test.go  TestGate_ExtractContractEntries_
+      AbsentFieldParsed (:13, draft) and _AbsentDefaultsFalse (:106, draft).
+    - extract_scope_test.go  TestExtract_ContractEntryScopePopulatedFrom
+      Declaration / _PathScopedAbsenceScopeReachesGrepProbe / _ContractEntry
+      ExtractionDoesNotParseOrCompile — these fixtures declare NO `status`
+      field (empty ≠ implemented), so they also break; add `status:
+      implemented` to each fixture (via the writeSpec frontmatter).
+    - pkg/gate/testdata/terminal/spec-active-broken.spec.md (`status: draft`,
+      :5) — the SHARED "active" fixture. terminal_exclusion_test.go's
+      TestExtractContractEntries_SkipsTerminalSpecs (:76) asserts its
+      `DeletedActiveSymbol` IS extracted, which breaks under implemented-only.
+      Flip the fixture to `status: implemented`; its terminal-exclusion
+      assertions (the deprecated/replaced siblings stay SKIPPED) remain valid —
+      only the active fixture's status changes. VERIFIED SAFE: the sibling
+      TestExtractSpecVerifications_SkipsTerminalSpecs and
+      TestExtractMandatedTests_SkipsTerminalSpecs stay green because
+      isTerminalSpecStatus treats draft and implemented identically as
+      non-terminal.
+    - cmd/backstop/gate_contract_wiring_test.go — the `writeContractSpec`
+      helper writes `status: draft` (:51); 3 tests assert extraction/violation.
+    - cmd/backstop/gate_contract_e2e_harness_test.go — `newContractE2EWorkspace`
+      writes `status: draft` (:66); drives the whole e2e suite asserting fired
+      violations.
+    - cmd/backstop/gate_contract_novacuous_test.go — writes `status: draft`
+      (:63); 3 "no vacuous green" tests assert the step fires.
+  NOTE (do NOT conflate active/non-terminal with still-extracted): under the
+  OLD terminal-only filter, a non-terminal draft spec's contracts were
+  extracted; under implemented-only they are NOT. So every draft "active"
+  fixture above must move to `implemented`, INCLUDING the terminal-test's
+  active fixture. Terminal-exclusion assertions themselves stay valid.
+
+  Because these fixtures span cmd/backstop, reconciliation must be proven with
+  `go test ./...` (or at minimum `./pkg/gate/... ./cmd/backstop/...`), NOT
+  `./pkg/gate/...` alone — otherwise the cmd/backstop breakage surfaces only at
+  the final gate with no remediation task behind it.
+
+  ANTI-GAMING COMPOSITION (relied upon, not re-asserted here): implemented-only
+  scoping is safe from a park-a-spec-in-draft-forever dodge because the
+  independent `artifact_status_drift` gate dimension keeps status honest — a
+  spec whose code is actually built cannot legitimately linger in draft. This
+  plan RELIES on that composition but does NOT re-test it (that would exercise a
+  separate dimension); it is acknowledged only.
+
+  ─────────────────────────────────────────────────────────────────────────
+  EMPIRICAL ACCEPTANCE (verify via the gate itself — this is the proof)
+  ─────────────────────────────────────────────────────────────────────────
+  After the change, `backstop gate --all` shows contract_signature dropping
+  from 143 → ~39 violations (the 104 unbuilt init/release contracts stop being
+  extracted) with new_violations: 0 (NO regression). The residual ~39 is
+  genuine drift on already-implemented specs (ISSUE-038, ~30) plus non-Go
+  artifact contracts the Go compiler cannot compile regardless of status
+  (ISSUE-053, ~7). contract_signature carries `baseline: true` in
+  backstop.yml, so after the fix REFRESH the baseline (`backstop baseline
+  generate`, writes gitignored .backstop/baseline.json) so it reflects the
+  corrected smaller set rather than the polluted one, and confirm
+  contract_signature still passes.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIMS (this plan defines its own — ISSUE-051 has no claims[] array)
+  ─────────────────────────────────────────────────────────────────────────
+  CLM-001 — Predicate: `contractsAreDue(status) bool` returns true ONLY for
+    `implemented`; false for draft, ready-for-implementation, and every
+    terminal status (replaced / canceled / deprecated / obsoleted).
+  CLM-002 — Scoping: ExtractContractEntries extracts contracts ONLY from
+    `implemented` specs — draft and ready-for-implementation are skipped (the
+    104 planned-not-built false positives evaporate, not by retiring a real
+    contract but by correctly not-yet-enforcing unbuilt work).
+  CLM-003 — Enforcement preserved: an `implemented` spec's contracts are STILL
+    extracted (no vacuous-green hole; real drift on live specs still fires).
+  CLM-004 — Terminal + obsoleted excluded: terminal specs remain excluded, and
+    `obsoleted` (which isTerminalSpecStatus does NOT cover) is now correctly
+    excluded on the contract path via the positive predicate — without editing
+    isTerminalSpecStatus.
+  CLM-005 — Sibling untouched: ExtractSpecVerifications and isTerminalSpecStatus
+    are left byte-for-byte unchanged; the test_verification/coverage sibling
+    fix stays explicitly deferred.
+  CLM-006 — Empirical acceptance: `backstop gate --all` contract_signature
+    drops 143 → ~39 with new_violations: 0; the contract_signature baseline is
+    refreshed to the corrected set; `backstop gate` and `backstop artifact
+    validate` pass.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION
+  ─────────────────────────────────────────────────────────────────────────
+  Unit-level in pkg/gate — exercise ExtractContractEntries and contractsAreDue
+  directly against temp-specDir fixtures over the full status vocabulary; no
+  engine run. Middle verification runs `backstop code check` + `go test
+  ./pkg/gate/...`. The final phase runs the full `backstop gate` kill chain,
+  the `backstop gate --all` acceptance measurement, the baseline refresh, and
+  `backstop artifact validate --plan PLAN-ISSUE-051`. The code change touches
+  only .go files (no artifact edits), so `backstop gate` subsumes code
+  verification.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD — scope contract extraction to `implemented` specs
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD — Scope Contract Extraction to Implemented Specs"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing tests: contracts extracted ONLY from implemented specs — draft/ready-for-implementation skipped, implemented preserved, terminal + obsoleted excluded (table-driven over the full status vocabulary)"
+        description: |
+          Add a NEW file pkg/gate/contract_implemented_scope_test.go proving the
+          fix in BOTH directions so it cannot regress into either a vacuous pass
+          or over-suppression. NO engine run — call ExtractContractEntries
+          directly against temp specDirs staged with the existing package
+          pattern (t.TempDir(), os.WriteFile a `.spec.md` whose frontmatter
+          declares a `contracts:` block, mirroring
+          TestGate_ExtractContractEntries_HappyPath at step_testverify_test.go:327).
+          Do NOT touch step_testverify.go or any existing test file here.
+
+          Mandated tests (exact names):
+            - TestExtractContractEntries_OnlyImplementedSpecsAreExtracted
+              (CLM-002, CLM-003, CLM-004): TABLE-DRIVEN over the status
+              vocabulary. For each of a single spec staged with status ∈
+              {draft, ready-for-implementation, implemented, replaced, canceled,
+              deprecated, obsoleted}, each declaring the SAME one contract on a
+              symbol that does not exist, assert:
+                * `implemented`            → 1 contract extracted (DUE).
+                * `draft`                  → 0 extracted (would previously have
+                                             produced a false "symbol not found").
+                * `ready-for-implementation` → 0 extracted (same false pressure).
+                * replaced/canceled/deprecated → 0 extracted (terminal, unbroken).
+                * `obsoleted`              → 0 extracted (terminal per schema;
+                                             previously LEAKED because
+                                             isTerminalSpecStatus omits it — now
+                                             excluded via contractsAreDue).
+              This single table covers the false-positive removal (draft +
+              ready-for-implementation), enforcement preservation (implemented),
+              existing terminal exclusion, and the obsoleted-gap closure.
+            - TestContractsAreDue_TrueOnlyForImplemented (CLM-001): direct unit
+              test of the predicate — asserts contractsAreDue("implemented") is
+              true and contractsAreDue(x) is false for every other status in the
+              vocabulary (draft, ready-for-implementation, replaced, canceled,
+              deprecated, obsoleted, and an unknown/empty string).
+
+          Both FAIL against today's terminal-only filter (draft &
+          ready-for-implementation & obsoleted contracts are extracted today,
+          and contractsAreDue does not yet exist); both pass after TASK-002.
+        files:
+          - pkg/gate/contract_implemented_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+        test_names:
+          - TestExtractContractEntries_OnlyImplementedSpecsAreExtracted
+          - TestContractsAreDue_TrueOnlyForImplemented
+
+      - id: TASK-002
+        type: implementation
+        title: "Add contractsAreDue predicate and scope ExtractContractEntries to implemented specs; leave the deferred sibling untouched"
+        description: |
+          Implement the scope fix in pkg/gate/step_testverify.go.
+
+          1. Add the small unexported helper `contractsAreDue(status string)
+             bool` returning true ONLY for "implemented" (CLM-001), placed
+             alongside isTerminalSpecStatus (:166) with a doc comment naming it
+             the single source of truth for contract-due exclusion and citing
+             ISSUE-051. Mirror the isTerminalSpecStatus shape.
+
+          2. In ExtractContractEntries (:509), REPLACE the terminal-only skip
+             (:526-528, `if isTerminalSpecStatus(fm.Status) { continue }`) with:
+
+                 if !contractsAreDue(fm.Status) {
+                     continue // contracts are due only at `implemented` (ISSUE-051)
+                 }
+
+             This subsumes the terminal skip (terminal ≠ implemented) AND adds
+             the pre-implementation (draft, ready-for-implementation) and
+             obsoleted exclusions (CLM-002, CLM-004), while `implemented` specs
+             still fall through to the contract-append loop unchanged (CLM-003).
+
+          DO NOT (CLM-005): edit isTerminalSpecStatus (:166) — it stays
+          byte-for-byte, still consumed by the mandated-test step and by the
+          DEFERRED ExtractSpecVerifications; and DO NOT touch
+          ExtractSpecVerifications (:465) or its identical terminal-only filter
+          (:482-484). No language noun / tool knowledge enters the file. Keep the
+          diff to the two edits above (helper + the single filter line).
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: refactor
+        title: "Reconcile the full seven-file contract-fixture blast radius (pkg/gate + cmd/backstop): every draft/statusless active fixture → status implemented"
+        description: |
+          Update EVERY test whose fixture is NOT `implemented` yet asserts its
+          contracts ARE extracted / fire violations — they are correct in intent
+          (happy-path extraction, absence parsing, scope population, e2e
+          violation-firing) and orthogonal to status, so reconcile by making each
+          fixture `implemented`. This is a refactor DEPENDENT on TASK-002 (the
+          new behavior must exist first). Do NOT modify step_testverify.go or
+          contract_implemented_scope_test.go here.
+
+          The blast radius spans pkg/gate AND cmd/backstop (independent grep of
+          every ExtractContractEntries caller — seven files):
+            - pkg/gate/step_testverify_test.go:
+              TestGate_ExtractContractEntries_HappyPath (fixture at :334) —
+              `status: draft` → `status: implemented`; expects 1 contract.
+            - pkg/gate/step_contract_parser_absence_test.go:
+              TestGate_ExtractContractEntries_AbsentFieldParsed (:20) and
+              _AbsentDefaultsFalse (:113) — `status: draft` → `implemented`.
+            - pkg/gate/extract_scope_test.go: the three TestExtract_* fixtures
+              declare NO `status` field (empty ≠ implemented, so they now extract
+              0) — add `status: implemented` to each writeSpec frontmatter.
+            - pkg/gate/testdata/terminal/spec-active-broken.spec.md (:5): the
+              SHARED "active" fixture — `status: draft` → `status: implemented`.
+              terminal_exclusion_test.go's
+              TestExtractContractEntries_SkipsTerminalSpecs (:76) asserts its
+              `DeletedActiveSymbol` IS extracted, which breaks under
+              implemented-only; the flip restores it. The deprecated/replaced
+              siblings stay SKIPPED (their assertions are UNCHANGED — do NOT
+              touch them), and the sibling
+              TestExtractSpecVerifications_SkipsTerminalSpecs /
+              TestExtractMandatedTests_SkipsTerminalSpecs stay green because
+              isTerminalSpecStatus treats draft and implemented identically as
+              non-terminal.
+            - cmd/backstop/gate_contract_wiring_test.go: the `writeContractSpec`
+              helper writes `status: draft` (:51) — change to `implemented`; 3
+              tests assert extraction/violation.
+            - cmd/backstop/gate_contract_e2e_harness_test.go:
+              `newContractE2EWorkspace` writes `status: draft` (:66) — change to
+              `implemented`; drives the e2e suite asserting fired violations.
+            - cmd/backstop/gate_contract_novacuous_test.go: writes `status:
+              draft` (:63) — change to `implemented`; 3 "no vacuous green" tests
+              assert the step fires.
+
+          Do NOT conflate active/non-terminal with still-extracted: every draft
+          "active" fixture above (including the terminal test's) must move to
+          `implemented`. Terminal-exclusion ASSERTIONS (deprecated/replaced/
+          canceled stay skipped) remain valid and unchanged.
+        files:
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_contract_parser_absence_test.go
+          - pkg/gate/extract_scope_test.go
+          - pkg/gate/testdata/terminal/spec-active-broken.spec.md
+          - cmd/backstop/gate_contract_wiring_test.go
+          - cmd/backstop/gate_contract_e2e_harness_test.go
+          - cmd/backstop/gate_contract_novacuous_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "backstop code check + go test ./... — new scope tests green, all seven reconciled fixtures green (pkg/gate AND cmd/backstop), terminal exclusion unbroken, sibling untouched"
+        description: |
+          Inner-loop verification. Run `backstop code check` (diff-scoped: lint,
+          build, test, semgrep) AND `go test ./...` (the FULL module — not just
+          ./pkg/gate/... — because TASK-003 reconciles cmd/backstop fixtures too;
+          `./pkg/gate/... ./cmd/backstop/...` is the minimum acceptable scope).
+          Confirm:
+            - The TASK-001 mandated tests pass
+              (TestExtractContractEntries_OnlyImplementedSpecsAreExtracted,
+              TestContractsAreDue_TrueOnlyForImplemented).
+            - All seven TASK-003 reconciled files pass under the new scoping —
+              pkg/gate (HappyPath, the two absence tests, the three extract-scope
+              tests, and terminal_exclusion_test.go's
+              TestExtractContractEntries_SkipsTerminalSpecs now green via the
+              flipped active fixture) AND cmd/backstop
+              (gate_contract_wiring_test.go, gate_contract_e2e_harness_test.go,
+              gate_contract_novacuous_test.go).
+            - Terminal-exclusion ASSERTIONS stay green (deprecated/replaced dead
+              contracts still SKIPPED) — only the active fixture's status
+              changed; a verdict change on a terminal fixture is a regression.
+            - The deferred sibling is genuinely untouched: git diff shows
+              ExtractSpecVerifications and isTerminalSpecStatus unchanged, and
+              the test_verification/coverage suites
+              (step_testverify_metric_test.go, step_coverage_*_test.go,
+              TestExtractSpecVerifications_SkipsTerminalSpecs) stay green with no
+              behavior delta.
+          Report pass/fail per mandated test, the seven reconciled-file results
+          (pkg/gate + cmd/backstop), and confirmation the sibling diff is empty.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/contract_implemented_scope_test.go
+          - pkg/gate/step_testverify_test.go
+          - pkg/gate/step_contract_parser_absence_test.go
+          - pkg/gate/extract_scope_test.go
+          - pkg/gate/testdata/terminal/spec-active-broken.spec.md
+          - cmd/backstop/gate_contract_wiring_test.go
+          - cmd/backstop/gate_contract_e2e_harness_test.go
+          - cmd/backstop/gate_contract_novacuous_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Comprehensive verification — gate acceptance + baseline refresh
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Comprehensive Verification — Gate Acceptance, Baseline Refresh, Artifact Validate"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "backstop gate --all acceptance (143 → ~39, new_violations 0), refresh contract_signature baseline, backstop gate + artifact validate"
+        description: |
+          Final comprehensive verification via the full kill chain plus the
+          empirical acceptance measurement (CLM-006). Run, in order:
+            1. backstop gate --all
+               — MEASURE contract_signature: it must drop from 143 to ~39
+                 violations (the 104 unbuilt init/release-suite SPEC-020..029
+                 contracts stop being extracted) with new_violations: 0 (NO
+                 regression). Confirm the residual ~39 is genuine drift on
+                 already-`implemented` specs (ISSUE-038) plus non-Go-artifact
+                 contracts (ISSUE-053), NOT any newly-suppressed real contract on
+                 an implemented spec.
+            2. backstop baseline generate
+               — REFRESH the gitignored .backstop/baseline.json so the
+                 `baseline: true` contract_signature dimension reflects the
+                 corrected smaller set rather than the polluted 143. Confirm
+                 contract_signature still passes after the refresh.
+            3. backstop gate
+               — full kill chain (artifact validation, code check, test
+                 verification, substantiveness, coverage, contracts) passes.
+            4. backstop artifact validate --plan PLAN-ISSUE-051
+               — the plan artifact validates.
+
+          Confirm the invariants: enforcement is NARROWED CORRECTLY (implemented
+          specs' contracts still enforced — CLM-003), draft /
+          ready-for-implementation / terminal / obsoleted contracts are no
+          longer extracted (CLM-002, CLM-004), the change stayed
+          language-neutral (no baked language noun in step_testverify.go), and
+          the deferred sibling (test_verification) is untouched (CLM-005).
+          Report the before/after contract_signature counts, new_violations,
+          the baseline-refresh result, the final gate status, and the
+          artifact-validate result.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/contract_implemented_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004

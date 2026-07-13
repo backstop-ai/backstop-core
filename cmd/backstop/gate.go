@@ -26,9 +26,6 @@ type GateResult = gate.GateResult
 // StepResult is re-exported from pkg/gate for the contract.
 type StepResult = gate.StepResult
 
-// gateCmd is the top-level gate command variable.
-var gateCmd *cobra.Command
-
 // newGateCommand creates the Cobra command for backstop gate.
 func newGateCommand(jsonFlag *bool) *cobra.Command {
 	var allFlag bool
@@ -50,7 +47,6 @@ it's green, it ships.`,
 	}
 	cmd.Flags().BoolVar(&allFlag, "all", false, "run the full project sweep")
 	cmd.Flags().StringVar(&fileFlag, "file", "", "scope gate to one or more explicit files")
-	gateCmd = cmd
 	return cmd
 }
 
@@ -980,6 +976,20 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
+		// Implemented-only scope (ISSUE-054): the mandated-test-keyed noTarget join runs
+		// only for `implemented` specs' mandated tests — draft / ready-for-implementation
+		// specs describe planned code and must not produce false "does not call package X"
+		// findings. Applied at the CONSUMER (the shared ExtractMandatedTests stays
+		// unfiltered for artifact_status_drift) and BEFORE ResolveMandatedTestPaths / the
+		// Q2 join. Q1 hollow findings are pack-produced over test files and stay unchanged.
+		due := mandated[:0:0]
+		for _, mt := range mandated {
+			if gate.ContractsAreDue(mt.Status) {
+				due = append(due, mt)
+			}
+		}
+		mandated = due
+
 		// Resolve file paths for found tests (the keying join's FilePath side) via the
 		// SAME pack-declared discovery the verification step uses (classifier + matcher).
 		mandated = gate.ResolveMandatedTestPaths(mandated, codeDir, classifier, matcher)
@@ -1212,7 +1222,7 @@ func produceContractEngineResults(projectRoot string, contracts []gate.ContractE
 	for _, c := range contracts {
 		r, err := dispatchContractEntry(projectRoot, manifest, c)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dispatching contract entry for %s: %w", c.Name, err)
 		}
 		results = append(results, r)
 	}

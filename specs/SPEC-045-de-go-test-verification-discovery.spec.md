@@ -313,6 +313,7 @@ claims:
   # REQ-006 — merged classifier + matcher wired into the live gate (integration gap)
   - id: CLM-034
     requirement: REQ-006
+    subject: cmd/backstop
     text: END-TO-END — the live gate threads the merged classifier + matcher into the test-verification step; with a declared toolchain pack whose test globs + name patterns cover `.test.ts`, a `.test.ts` file whose test name matches a mandated claim is discovered and verified by the REAL gate
     tests:
       - TestGate_TestVerificationConsumesMergedDiscoveryEndToEnd
@@ -323,6 +324,7 @@ claims:
       - TestGate_SubstantivenessUsesColocationEndToEnd
   - id: CLM-036
     requirement: REQ-006
+    subject: cmd/backstop
     text: UNION in the live gate — with two toolchain packs declared (go + bun), the live test-verification step discovers BOTH a `_test.go` and a `.test.ts` mandated test from the merged glob + pattern set
     tests:
       - TestGate_DiscoveryMergesAcrossDeclaredToolchainPacks
@@ -353,14 +355,6 @@ contracts:
         kind: method
         signature: "func (m TestNameMatcher) HasPatterns() bool"
         notes: "NEW (REQ-005): reports whether any name patterns are declared, so the step can surface the DISTINCT discovery-capability-absent state instead of a misleading mass not-found fail."
-      - name: SourceClassifier.IsTestFile
-        kind: method
-        signature: "func (c SourceClassifier) IsTestFile(path string) bool"
-        notes: "NEW METHOD on SPEC-043's gate.SourceClassifier (REQ-001/CLM-001..CLM-009): true iff path matches some declared TEST glob. Added in this file (same package pkg/gate) reading the test-glob matchers SPEC-043 already stores on the classifier. SEAM: depends on SPEC-043 keeping SourceClassifier in pkg/gate with its test-glob set populated — flagged for the cross-consistency pass."
-      - name: SourceClassifier.HasTestGlobs
-        kind: method
-        signature: "func (c SourceClassifier) HasTestGlobs() bool"
-        notes: "NEW METHOD on SPEC-043's gate.SourceClassifier (REQ-005): reports whether any test globs are declared, paired with TestNameMatcher.HasPatterns to detect discovery-capability-absent. Same-package addition; flagged with IsTestFile."
       - name: collectTestFuncNamesScoped
         kind: function
         signature: "func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher) map[string]string"
@@ -397,6 +391,17 @@ contracts:
       - source: pkg/gate
         name: MandatedTest
         kind: type
+  - file: pkg/gate/classification.go
+    provides:
+      - name: SourceClassifier.IsTestFile
+        kind: method
+        signature: "func (c SourceClassifier) IsTestFile(path string) bool"
+        notes: "NEW METHOD on SPEC-043's gate.SourceClassifier (REQ-001/CLM-001..CLM-009): true iff path matches some declared TEST glob. Defined in pkg/gate/classification.go (same package pkg/gate, alongside the SourceClassifier type) reading the test-glob matchers SPEC-043 already stores on the classifier. Repointed from step_testverify.go — the method moved into classification.go when the classifier's predicates were consolidated there (ISSUE-038 contract-drift reconciliation). SEAM: depends on SPEC-043 keeping SourceClassifier in pkg/gate with its test-glob set populated — flagged for the cross-consistency pass."
+      - name: SourceClassifier.HasTestGlobs
+        kind: method
+        signature: "func (c SourceClassifier) HasTestGlobs() bool"
+        notes: "NEW METHOD on SPEC-043's gate.SourceClassifier (REQ-005): reports whether any test globs are declared, paired with TestNameMatcher.HasPatterns to detect discovery-capability-absent. Defined in pkg/gate/classification.go (same package pkg/gate). Repointed from step_testverify.go alongside IsTestFile (ISSUE-038 contract-drift reconciliation)."
+    consumes: []
   - file: pkg/gate/step_coverage.go
     provides:
       - name: coverageSpecRelevantToFile

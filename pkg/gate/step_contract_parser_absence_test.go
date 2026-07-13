@@ -17,7 +17,7 @@ func TestGate_ExtractContractEntries_AbsentFieldParsed(t *testing.T) {
 title: "Absence Contract Spec"
 number: SPEC-013
 created: "2026-06-20"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -110,7 +110,7 @@ func TestGate_ExtractContractEntries_AbsentDefaultsFalse(t *testing.T) {
 title: "Present-Only Contract Spec"
 number: SPEC-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 

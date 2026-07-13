@@ -63,7 +63,7 @@ func writeSubstantivenessSpec(t *testing.T, specDir string) {
 title: "Sub Spec"
 number: SUB-001
 created: "2026-01-01"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.0
 
