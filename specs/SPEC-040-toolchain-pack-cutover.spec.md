@@ -375,21 +375,6 @@ contracts:
       - source: pkg/gate/scope.go
         name: ProjectWide
         kind: variable
-  - file: cmd/backstop/shared_testrun.go
-    provides:
-      - name: newSharedTestRunner
-        kind: function
-        signature: "func newSharedTestRunner(dir string) *sharedTestRunner"
-        notes: >
-          The test-runner ↔ coverage SEAM (Sharp Edge). Today the shared `go test ./...` runner
-          feeds BOTH Step 2's test FAILs AND the baked coverage step. This spec deletes Step 2's
-          consumption of it but must NOT orphan the coverage step before SPEC-041 (Seed 3)
-          migrates coverage. The shared runner SURVIVES this cutover as the transitional coverage
-          feed: it keeps feeding `buildCoverageStep` so coverage still runs and passes
-          (REQ-001/CLM-028), until SPEC-041 deletes step_coverage.go and re-implements coverage
-          over the toolchain test pass. The toolchain test pass (through dispatchPackEngines)
-          becomes the established test-runner seam SPEC-041 migrates coverage onto.
-    consumes: []
 ---
 
 # SPEC-040: Toolchain Pack Cutover

@@ -19,14 +19,18 @@ const (
 	DimensionContracts       TraceabilityDimension = "contracts"
 )
 
-// knownDimensions is the exhaustive set of recognized dimension names. A
-// non-empty gate_type that is NOT in this set is an unknown toolchain key — a
+// isKnownDimension reports whether d is a recognized dimension name. A
+// non-empty gate_type that is NOT recognized is an unknown toolchain key — a
 // class-1 BROKEN-DECLARED config defect (Sharp Edge 2), never a silent
-// fall-through to UNDECLARED.
-var knownDimensions = map[TraceabilityDimension]bool{
-	DimensionSubstantiveness: true,
-	DimensionCoverage:        true,
-	DimensionContracts:       true,
+// fall-through to UNDECLARED. (A switch, not a package-level map, keeps this
+// read-only set out of global mutable state.)
+func isKnownDimension(d TraceabilityDimension) bool {
+	switch d {
+	case DimensionSubstantiveness, DimensionCoverage, DimensionContracts:
+		return true
+	default:
+		return false
+	}
 }
 
 // PolarityClass is the fail-loud class a dimension resolves to. The three
@@ -80,7 +84,7 @@ func (c PolarityClass) String() string {
 //   - Stack: the cosmetic stack label for fail-loud messages, derived from the SET
 //     of declared toolchain-pack NAMES and stamped by cmd/backstop's
 //     deriveCapabilityState (SPEC-046 REQ-004). It REPLACES the retired
-//     language-derived stackLabel; pkg/gate no longer reads any config language field.
+//     language-derived stack label; pkg/gate no longer reads any config language field.
 type CapabilityState struct {
 	Present       bool
 	Working       bool
@@ -118,7 +122,7 @@ func hasUnknownGateType(cfg *config.Config) bool {
 		if tp.GateType == "" {
 			continue
 		}
-		if !knownDimensions[TraceabilityDimension(tp.GateType)] {
+		if !isKnownDimension(TraceabilityDimension(tp.GateType)) {
 			return true
 		}
 	}

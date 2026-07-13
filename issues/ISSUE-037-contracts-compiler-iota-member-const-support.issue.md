@@ -6,8 +6,11 @@ issue:
   id: ISSUE-037
   title: "Contracts Compiler Iota Member Const Support"
   type: technical-debt
-  status: open
+  status: replaced
   created: "2026-07-05"
+  closed: "2026-07-13"
+
+replaced-by: ISSUE-052
 
 complexity:
   scope: contained
@@ -241,3 +244,20 @@ the heavier fix is obviously warranted.
 - CLAUDE.md — "Loud ≠ blocking" enforcement philosophy and the
   zero-baked-checks / no-vacuous-green first principle this gap is a residual
   pocket of
+
+## Resolution
+
+**Replaced by ISSUE-052** (2026-07-13). This issue's iota-member gap turned out to
+be one instance of a broader compiler limitation: `compile-signature.sh` cannot
+express STRUCTURAL PRESENCE (only value/token patterns) under its `pattern-arg`
+input mode. The iota-member case has **0 live instances** (the one instance,
+`CheckTypeFindings`, was already retired). But the ISSUE-038 reconciliation
+(2026-07-13) proved the identical-root **struct-field** variant has **3 LIVE
+instances** (`ExemptFromScopeFilter`, `Manifest.Classification`,
+`Manifest.TestNamePatterns`) — verified empirically that field signatures compile
+to never-matching ast-grep ERROR nodes. Since iota members and struct fields need
+the same fix (a relational-rule engine `input_mode`), and the struct-field variant
+is what actually justifies building it, this issue is consolidated into ISSUE-052
+(broadened to the full structural-presence capability, including this issue's
+direction-1 fail-loud guard). Nothing is lost — the guard and the structural fix
+both live in ISSUE-052 now, backed by real instances rather than a speculative one.

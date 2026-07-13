@@ -5,7 +5,7 @@ created: "2026-07-06"
 schema_version: directive/v1
 
 directive:
-  status: active
+  status: done
   source:
     - "ISSUE-036"
     - "ISSUE-034"
@@ -28,40 +28,43 @@ really checking, plus scope bugs producing false positives against a clean tree.
 This directive owns fixing that cluster and draining the drift the un-vacuuming
 surfaced — it is gate-hardening work, not new checker capability.
 
-**Delivered (3):**
-- ISSUE-036 — the contracts pack's signature compiler
-  (`compile-signature.sh`) was `func`-only; every `type`/`const`/`method`/
-  `variable`/`interface` contract silently compiled into a vacuous always-pass
-  rule. Made the compiler kind-aware, which for the first time makes
-  `contract_signature` actually verify non-function contracts.
-- ISSUE-034 — the `coverage_threshold` step treated git-**deleted** files as
-  in-scope for coverage measurement, producing spurious
-  `coverage_unmeasured` violations. Fixed with an `os.Stat` existence guard.
-- ISSUE-035 — `test_substantiveness` false-flagged `TestMain` and legitimate
-  structural/absence-style tests as hollow. Fixed via an opt-in
-  `kind: absence` claim annotation (default-off — no existing check is
-  blinded by the fix).
+**DELIVERED — all nine source issues terminal (2026-07-13).**
 
-**Remaining (5):**
-- ISSUE-037 — the kind-aware compiler from ISSUE-036 still can't express
-  `const` contracts whose value is an `iota` member; those remain
-  unverifiable by design until this lands.
-- ISSUE-038 — audit and reconcile the pre-existing contract drift that the
-  kind-aware compiler (ISSUE-036) exposed now that `contract_signature` runs
-  with `baseline: true` for real. This is the ratchet-down backlog: specs
-  whose contracts had silently diverged from the implementation while the
-  check was vacuous.
-- ISSUE-039 — a genuine hollow test: `TestGate_SucceedsWithoutStandards`
-  (the mandated test for SPEC-030 claim CLM-015) lost its assertion during
-  the cutover and now passes vacuously.
-- ISSUE-040 — the dogfood substantiveness scan walks `testdata/` fixture
-  directories as ordinary source, flagging intentional fixture violations
-  that exist to test the rule engine itself.
-- ISSUE-041 — the `enforcement.policy.<dimension>.baseline` key in
-  `backstop.yml` is misnamed: every dimension is always compared against the
-  baseline, so the boolean actually controls scope (new-code only vs.
-  all-code), not whether baseline comparison happens. Rename to
-  `applies-to: new-code | all-code`.
+Bug-fix cluster:
+- ISSUE-036 — made the contracts `compile-signature.sh` kind-aware (was
+  `func`-only; every non-func contract compiled to a vacuous always-pass).
+- ISSUE-034 — `coverage_threshold` no longer measures git-deleted files
+  (`os.Stat` existence guard).
+- ISSUE-035 — `test_substantiveness` stopped false-flagging `TestMain` /
+  structural tests via an opt-in `kind: absence` claim annotation.
+- ISSUE-039 — restored the lost assertion in `TestGate_SucceedsWithoutStandards`
+  (SPEC-030 CLM-015) that had gone vacuous.
+- ISSUE-040 — stopped the dogfood substantiveness scan walking `testdata/`
+  fixtures as source.
+- ISSUE-041 — renamed the misnamed `enforcement.policy.<dimension>.baseline`
+  key to `applies-to: new-code | all-code`.
+- ISSUE-033 — de-Go'd `plan.go`'s baked `.go` file-classification.
+
+Contract-correctness (037/038) — reconciled and handed off:
+- ISSUE-038 — the contract-drift ratchet backlog. The exhaustive `--all` sweep
+  drained all GENUINE drift (repointed `SourceClassifier`, shared-runner absence
+  guards; retired `loadBridgedToolchainPacks` + stale `newSharedTestRunner`;
+  fixed the `funcPattern`/`stackLabel` comment-match FPs). **Status `replaced`
+  by ISSUE-052** — the 5 residual findings proved NOT to be drift but structural
+  blind spots of the compiler (3 struct-field contracts it can't express, 2 non-Go
+  prose contracts on testdata), re-scoped to ISSUE-052 (struct-field/iota
+  capability) and ISSUE-053 (non-Go).
+- ISSUE-037 — the iota-member gap. Found to have 0 live instances while its
+  identical-root sibling (struct fields) has 3 live ones; **status `replaced`
+  by ISSUE-052**, which now carries the full structural-presence capability
+  (iota + struct fields + the fail-loud guard), justified by real instances.
+
+Emergent gate-correctness fixes (not original sources; surfaced by the ISSUE-038
+investigation and delivered under this theme) — ISSUE-051/ISSUE-054 scoped
+`contract_signature` / `test_verification` / `test_substantiveness` /
+`coverage_threshold` to `implemented` specs, correcting the gate's enforcement of
+contracts and mandated-tests on planned-but-unbuilt draft specs
+(contract_signature 143→9, test_verification 342→2 — the residual are genuine).
 
 ## Acceptance Criteria
 

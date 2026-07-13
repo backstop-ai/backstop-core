@@ -319,6 +319,7 @@ claims:
   # REQ-004 — exempt_from_scope_filter declared property + engine-path ProjectWide bridge
   - id: CLM-011
     requirement: REQ-004
+    subject: pkg/pack
     text: The engine binding (pkg/pack/engine) gains an `exempt_from_scope_filter bool` property DECOUPLED from ScopeKind; the go-build engine declares it true, golangci(lint) and go-test declare it false/unset — asserted against the declared binding records
     tests:
       - TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind
@@ -349,6 +350,7 @@ claims:
       - TestExemption_FindingsViolationUnchangedFileIsFiltered
   - id: CLM-017
     requirement: REQ-004
+    subject: pkg/pack
     text: ScopeKind stays arg-shaping-only and DECOUPLED — golangci/go-build/go-test all remain ScopeKindProjectWide (each still appends its ./... ProjectTarget) while ONLY go-build is exempt_from_scope_filter; the two properties are independent and a test asserts ScopeKind is not consulted for the ProjectWide decision
     tests:
       - TestExemption_ScopeKindDecoupledFromExemptDecision
@@ -427,19 +429,6 @@ contracts:
       - source: pkg/gate
         name: SpecVerification
         kind: type
-  - file: cmd/backstop/shared_testrun.go
-    provides:
-      - name: sharedTestRunner
-        kind: type
-        signature: "type sharedTestRunner struct"
-        absent: true
-        notes: "DELETED (REQ-002/CLM-004): the baked whole-module `go test ./... -coverprofile=/dev/null` dedup runner that coupled code_check and coverage. Coverage now reads the declared toolchain test pass; code_check's test pass is owned by SPEC-040. The whole file is removed; declared absent so a renamed reconstruction (CLM-006) is caught as a regression."
-      - name: newSharedTestRunner
-        kind: function
-        signature: "func newSharedTestRunner(dir string) *sharedTestRunner"
-        absent: true
-        notes: "DELETED (REQ-002/CLM-004): the constructor for the eradicated shared runner."
-    consumes: []
   - file: pkg/pack/engine/binding.go
     provides:
       - name: ExemptFromScopeFilter
@@ -462,6 +451,16 @@ contracts:
         kind: type
   - file: cmd/backstop/gate.go
     provides:
+      - name: sharedTestRunner
+        kind: type
+        signature: "type sharedTestRunner struct"
+        absent: true
+        notes: "DELETED (REQ-002/CLM-004): the baked whole-module `go test ./... -coverprofile=/dev/null` dedup runner that coupled code_check and coverage. Coverage now reads the declared toolchain test pass; code_check's test pass is owned by SPEC-040. Its file cmd/backstop/shared_testrun.go is DELETED (confirmed by TestSharedRunner_Eradicated), so the absence probe scope is repointed here to gate.go — the former wiring site — where absence is scannable and meaningful; declared absent so a renamed reconstruction (CLM-006) reappearing in the gate wiring is caught. The broader all-of-cmd/backstop eradication guard is carried by the compiled TestSharedRunner_Eradicated / TestSharedRunner_NoRenamedWholeModuleGoTestRunner."
+      - name: newSharedTestRunner
+        kind: function
+        signature: "func newSharedTestRunner(dir string) *sharedTestRunner"
+        absent: true
+        notes: "DELETED (REQ-002/CLM-004): the constructor for the eradicated shared runner. Scope repointed from the DELETED cmd/backstop/shared_testrun.go to gate.go (the former wiring site) so the grep absence probe scans a real file; TestSharedRunner_WiringRemovedFromGate is the compiled companion guard for gate.go."
       - name: checkViolationsToGate
         kind: function
         signature: "func checkViolationsToGate(cvs []check.Violation) []gate.Violation"

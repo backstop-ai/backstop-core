@@ -6,8 +6,11 @@ issue:
   id: ISSUE-051
   title: "Contract Signature Scopes To Implemented Specs"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-13"
+  closed: "2026-07-13"
+
+delivered_by: PLAN-ISSUE-051
 
 complexity:
   scope: contained
@@ -177,3 +180,17 @@ founder has parked that backlog and this issue's scope is
   that makes scoping contracts to `implemented` status safe
 - CLAUDE.md — "Loud ≠ blocking" enforcement philosophy; this is the false
   positive form of what that principle guards against
+
+## Resolution
+
+Delivered by PLAN-ISSUE-051 (commit 2164994). `ExtractContractEntries`
+(`pkg/gate/step_testverify.go`) now extracts contracts only from `implemented`
+specs via a positive `contractsAreDue` predicate, skipping the pre-implementation
+`draft`/`ready-for-implementation` statuses in addition to terminal ones.
+`contract_signature` dropped from 143 → 9 under `--all` (the 104 contracts on
+unbuilt init/release specs stopped being enforced; `new_violations: 0`). The
+deferred sibling (`ExtractSpecVerifications`/`test_verification`) was left
+untouched here and handled in ISSUE-054. Safety rests on the `artifact_status_drift`
+composition (a built spec cannot linger in `draft` to dodge enforcement). Mandated
+tests `TestExtractContractEntries_OnlyImplementedSpecsAreExtracted` and
+`TestContractsAreDue_TrueOnlyForImplemented` prove both directions.

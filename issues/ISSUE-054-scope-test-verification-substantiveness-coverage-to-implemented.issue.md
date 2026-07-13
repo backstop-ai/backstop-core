@@ -6,8 +6,11 @@ issue:
   id: ISSUE-054
   title: "Scope Test Verification Substantiveness Coverage To Implemented"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-13"
+  closed: "2026-07-13"
+
+delivered_by: PLAN-ISSUE-054
 
 complexity:
   scope: cross-cutting
@@ -176,3 +179,19 @@ tests / substantiveness / coverage only on specs honestly `implemented`.
   itself cannot be filtered
 - CLAUDE.md — "Loud ≠ blocking" enforcement philosophy; this issue removes
   false loudness (draft-spec pressure), not real enforcement
+
+## Resolution
+
+Delivered by PLAN-ISSUE-054 (commit 2164994). Scoped `test_verification`,
+`test_substantiveness`, and `coverage_threshold` to `implemented` specs.
+`ExtractSpecVerifications` (coverage, unshared) filters directly; for the shared
+`ExtractMandatedTests` — also consumed by `artifact_status_drift`, which REQUIRES
+draft-spec visibility — a `MandatedTest.Status` field was added and the
+`implemented`-only filter applied at the test_verification + substantiveness
+CONSUMERS, leaving the shared extractor and status_drift untouched.
+`test_verification` dropped 342 → 2 (the 2 real broken promises on SPEC-041);
+draft-spec substantiveness/coverage FPs cleared; `artifact_status_drift` unchanged
+(9 → 9), proving no leak into the shared path. Largely drains the ISSUE-012
+backlog. Guard test `TestStatusDriftAdvisory_DraftLooksDeliveredStillFires`
+exercises the real `ResolveArtifactStatus → ExtractMandatedTests` path over a temp
+projectRoot.

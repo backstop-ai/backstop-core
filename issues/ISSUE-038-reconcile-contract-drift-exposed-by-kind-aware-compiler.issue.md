@@ -6,8 +6,11 @@ issue:
   id: ISSUE-038
   title: "Reconcile Contract Drift Exposed By Kind Aware Compiler"
   type: technical-debt
-  status: open
+  status: replaced
   created: "2026-07-06"
+  closed: "2026-07-13"
+
+replaced-by: ISSUE-052
 
 complexity:
   scope: cross-cutting
@@ -205,3 +208,32 @@ verified here, and should not assume the fix is "ten small edits."
   the spec-author agent, don't work around them
 - CLAUDE.md — "Loud ≠ blocking" enforcement philosophy: the baseline exists
   to make debt visible-but-non-blocking, not to make it permanently invisible
+
+## Resolution
+
+**Reconciled 2026-07-13; residual re-categorized to ISSUE-052/ISSUE-053** (status
+`replaced` points at ISSUE-052 as the primary residual home). The exhaustive
+`--all` sweep found the true count was ~15 contract_signature drifts, not the ~10
+sampled. All GENUINE drift was reconciled openly via the spec-author agent:
+
+- **Repointed (symbol moved):** `SourceClassifier.IsTestFile`/`HasTestGlobs`
+  (SPEC-045 → `pkg/gate/classification.go`); the two shared-runner absence guards
+  (SPEC-041 → `cmd/backstop/gate.go`).
+- **Retired (symbol deleted):** `loadBridgedToolchainPacks` positive contract
+  (SPEC-040); the stale `newSharedTestRunner` present contract (SPEC-040).
+- **Comment-match FPs fixed in code** by rewording the offending comments (the
+  genuinely-deleted symbol was only referenced in prose): `funcPattern`
+  (`step_testverify.go`), `stackLabel` (`traceability_polarity.go`).
+
+The **5 residual findings are NOT drift** — they are structural blind spots of the
+contracts compiler, proven (not assumed) during reconciliation:
+- **3 struct-field contracts** (`ExemptFromScopeFilter`, `Manifest.Classification`,
+  `Manifest.TestNamePatterns`) — the compiler cannot express struct-field presence
+  under `pattern-arg` (compiles to never-matching ast-grep ERROR nodes). → **ISSUE-052**
+  (broadened to the structural-presence capability; these are its live instances).
+- **2 non-Go prose contracts on testdata fixtures** (SPEC-042 `go-coverage-rule`,
+  `coverage-to-records`). → **ISSUE-053** (non-Go-artifact contracts).
+
+Landed in commit 2164994 (touched-file drift, alongside ISSUE-051/054) plus the
+follow-on spec-author sweep. Nothing is grandfathered-and-forgotten: every residual
+finding is owned by a named successor issue.
