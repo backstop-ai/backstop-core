@@ -1,14 +1,14 @@
 ---
-title: "Onboarding Experience — Zero to First Value in Under 2 Minutes"
+title: "Onboarding Experience — Zero to First Value"
 number: BUNDLE-003
 created: "2026-04-09"
 schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.2.0"
+  version: "0.6.0"
   created: "2026-04-09"
-  updated: "2026-04-19"
+  updated: "2026-07-13"
   category: feature
 
 status:
@@ -16,244 +16,442 @@ status:
 
 problem:
   summary: >
-    Today backstop has no onboarding path. Users must hand-create backstop.yml,
-    manually set up .backstop/, figure out which pack to wire, and their first
-    run produces a wall of violations with exit code 1. A tech lead evaluating
-    the tool has ~30 minutes of patience. Every manual step and every hostile
-    first impression is adoption friction that kills the eval. The objective is
-    minimal time from downloading backstop to first value derived — under 2
-    minutes from install to "oh, this caught something real in my code."
+    Backstop has no onboarding path. A consumer must hand-create backstop.yml,
+    figure out the artifact-directory layout, know which packs to add, and their
+    first run either errors on missing SDLC directories or produces a wall of
+    violations. Two profiles onboarded by hand (a full-SDLC greenfield TypeScript
+    repo and a pack-only consumer) both reached a clean gate PASS — but only after
+    a human absorbed a ranked list of sharp edges the tool gave no help with.
+    Every one of those sharp edges is adoption friction. The objective is minimal
+    time from having the binary to first value derived: install, one command,
+    "this caught something real in my code" — without hand-writing config,
+    guessing the layout, or being told the whole codebase is broken.
 
   user_story: >
-    As a tech lead evaluating backstop for my team, I want to install the tool,
-    run one command in my project, and see useful observations about my codebase
-    within 2 minutes — without installing dependencies manually, without writing
-    config files by hand, and without being told my entire codebase is broken.
-    I want to feel like the tool understands my project, not that it's judging
-    it.
+    As a tech lead evaluating backstop for my team, I want to run one command in
+    my project and see useful observations about my codebase in minutes — without
+    hand-writing config, without guessing where artifacts go, and without the tool
+    hard-erroring on directories I never created. I want the tool to feel like it
+    understands my project, not like it is judging it.
 
 solution:
   approach: >
-    A single `backstop init` command that detects the project's language,
-    installs required toolchain dependencies (semgrep, golangci-lint, ruff,
-    etc.), scaffolds backstop.yml and .backstop/, wires the appropriate default
-    language pack, runs a full check, and captures the results as a baseline —
-    presented as passive observation ("here's what we noticed") rather than
-    judgment ("427 violations found"). Post-init, default scope is diff-based:
-    backstop only enforces on changed files, making day-one friction zero. The
-    baseline exists so the gate knows inherited patterns from introduced ones.
-    Over time the team chips away at the baseline; day one is zero blocking
-    violations.
+    A single `backstop init` command that takes a consuming project from zero to
+    first value, scaffolded for one of two validated profiles: full-SDLC greenfield
+    (adopting backstop's artifact pipeline) or pack-only (adopting packs without the
+    SDLC artifacts). Init installs an opinionated base bundle (omakase — bare `init`
+    is the full bundle you subtract from via flags) and does ZERO language/framework
+    detection; languages enter only via explicit `pack add`. It writes the
+    profile-correct backstop.yml, scaffolds the `.backstop/`-rooted artifact layout,
+    emits a canonical .gitignore, seeds a local baseline, verifies the toolchain
+    actually runs, wires CI by default via a recipe pack, and captures the first gate
+    result as a baseline framed as observation ("here's what we noticed"), not
+    judgment. Post-init, default scope is diff-based — you are accountable for new
+    patterns, not inherited ones. The init algorithm is specified by transcribing the
+    two validated hand-onboarding checklists, not by inventing a flow; each ranked
+    sharp edge becomes either an init guardrail or a `backstop doctor` diagnostic.
+    Detection, framework recognition, and CI-platform knowledge live in packs as data,
+    never in core (a HARD INVARIANT).
+    Binary + system-toolchain acquisition and baseline generation are owned elsewhere
+    (DIR-001, BUNDLE-007) and are out of scope here.
 ---
 
 # Onboarding Experience
 
 ## Current Thinking
 
+### Provenance: dogfood-grounded
+
+This bundle began (0.1.0, April 2026) as a thought exercise — analyzing onboarding
+from a tech lead's perspective. It is now **dogfood-grounded**: the requirements for
+`backstop init` and `backstop doctor` derive from onboarding two real repos by hand,
+one write-up per profile (see References). Those two write-ups are the empirical
+requirements corpus. Both currently live as untracked field notes in other repos, so
+the load-bearing substance is lifted into the design decisions below (especially DD-8)
+rather than left to survive by citation alone.
+
 ### The current state
 
-There is no `backstop init`. Users must:
-1. Somehow obtain the binary (no distributable yet)
-2. Hand-create `backstop.yml` (two lines, but you have to know what)
-3. Hand-create `.backstop/` directory structure
-4. Figure out how the Go standards pack gets wired (it's embedded but implicit)
-5. Run `backstop gate` — get hundreds of violations with no context
-6. Give up
+There is no `backstop init`. A consumer must:
+1. Hand-create `backstop.yml` — and know the profile-correct contents (a pack-only
+   consumer must set `enforcement.policy` `level: off` for every SDLC dimension or the
+   gate hard-errors on a missing `specs/` directory).
+2. Decide an artifact-directory layout with no canonical answer (live repos already
+   diverge — see OQ-1).
+3. Know which packs to add and add each one.
+4. Write a `.gitignore` that matches what the packs and gate actually emit.
+5. Run `backstop gate` — and debug whatever it surfaces with no diagnostic help.
+
+Both profiles reached gate PASS by hand, which proves the flow exists; each step above
+is a sharp edge the tool should absorb.
 
 ### The target experience
 
-1. `brew install backstop` or `go install` — 10 seconds
-2. `backstop init` — detects language, installs deps, scaffolds config, wires
-   default pack, runs baseline — 30 seconds
-3. Fix one thing, run `backstop check` on the changed file, see it go green
-4. **That's first value. Under 2 minutes.**
+1. Obtain the binary — owned by DIR-001, out of scope here.
+2. `backstop init` — installs the omakase base (prompt-free; subtract via flags),
+   writes profile-correct config, scaffolds the `.backstop/`-rooted layout, emits the
+   canonical `.gitignore`, seeds a local baseline, verifies the toolchain runs, and
+   wires CI by default. Zero language/framework detection — languages arrive via
+   explicit `pack add`.
+3. Fix one thing, run a diff-scoped check, watch it go green. That is first value.
 
-Everything between "install" and "first green check" is friction that kills
-adoption. The 9-step gate kill chain, artifacts, specs, plans — that's the
-power user story. The tech lead doing a 30-minute eval never sees it.
+### Key principles (product thesis)
 
-### Key design principles
-
-**Auto-install dependencies.** The tech lead should never have to
-`pip install semgrep` or `brew install golangci-lint` themselves.
-`backstop init` detects the language, identifies the required toolchain,
-and installs what's missing. We already have `EnsureSemgrep` in the code
-check pipeline (SPEC-008) — same pattern, applied at init time for the
-full toolchain.
-
-**Baseline as observation, not judgment.** If the first thing backstop says
-is "427 violations found, exit code 1," the tech lead hears "your code
-sucks." The reframe: init captures everything as a baseline and presents it
-as "here's what we noticed" with a breakdown by category. Same data,
-completely different emotional response. The tech lead thinks "cool, it
-understands my codebase" instead of "great, another tool yelling at me."
-
-**Diff-based scope by default post-init.** After init, `backstop check`
-only looks at what you changed. The baseline exists so the gate knows what
-was already there vs what you introduced. You're only accountable for new
-patterns, not inherited ones. Progressive adoption — over time the team
-chips away at the baseline, but day one is zero friction.
+- **Baseline as observation, not judgment.** If the first thing backstop says is "427
+  violations, exit 1," the tech lead hears "your code sucks." Init captures the first
+  run as a baseline and presents it as "here's what we noticed," grouped by category —
+  same data, opposite emotional response.
+- **Diff-scoped by default post-init.** After init, an unflagged check looks only at
+  changed files. The baseline records what existed at init so the gate separates
+  inherited patterns from introduced ones. You are accountable for new code from day one.
+- **Two profiles, not one generic flow.** The single most important empirical finding:
+  onboarding is not one-size-fits-all. Full-SDLC and pack-only consumers need
+  materially different config, and picking the wrong one silently produces the
+  hard-error experience (see DD-2).
 
 ## Draft Design Decisions
 
-- **DD-1:** `backstop init` is a single command that takes a project from
-  zero to first value. It detects language, installs dependencies, scaffolds
-  config, wires the default pack, runs a full check, and captures the
-  baseline. No manual steps required between install and first useful output.
+- **DD-1: `backstop init` is the single zero-to-first-value command.** It installs the
+  opinionated base bundle (omakase; DD-2 / OQ-2), writes profile-correct config, scaffolds
+  the `.backstop/`-rooted artifact layout (OQ-1), emits the canonical `.gitignore`, seeds a
+  local baseline (OQ-3), verifies the toolchain runs, and wires CI by default (OQ-7). It
+  does ZERO language/framework detection (DD-11 / DD-13). No manual steps between having the
+  binary and first useful output. Owned downstream by DIR-002.
 
-- **DD-2:** Dependency installation happens automatically during init.
-  `backstop init` detects which tools are needed for the detected language
-  (semgrep, golangci-lint, ruff, etc.) and installs any that are missing.
-  Extends the existing `EnsureSemgrep` pattern from SPEC-008 to the full
-  toolchain. Failures are reported clearly ("could not install golangci-lint:
-  reason") rather than surfacing as cryptic errors on first check.
+- **DD-2 (headline): Init scaffolds for one of TWO validated profiles.** The **full-SDLC
+  greenfield** profile (repo adopting backstop's artifact pipeline: artifact dirs + a
+  minimal `backstop.yml` carrying `project:` + `language:`) reaches gate PASS on clean
+  defaults with zero policy boilerplate. The **pack-only** profile (a consumer adopting
+  packs but NOT the SDLC artifacts) must instead set `enforcement.policy` `level: off`
+  for every SDLC dimension (`test_verification`, `coverage_threshold`,
+  `contract_signature`, `test_substantiveness`, `artifact_status_drift`), because those
+  dimensions hard-error on a missing `specs/` directory rather than skipping. Init must
+  generate the correct config for the chosen profile so neither consumer hand-writes
+  policy. Evidence: the full-SDLC dogfood of bclabs-portal (empty repo → gate PASS, 10
+  passed / 2 skipped / 0 violations, 2026-07-12) and the pack-only profile captured in
+  `backstop-packs/BACKSTOP-INIT-REQUIREMENTS.md`. This asymmetry is a genuine init design
+  fork; earlier versions of this bundle imagined only one generic flow.
 
-- **DD-3:** The first run's output is framed as a baseline observation, not
-  a failure. Output uses language like "here's what we noticed" with
-  violations grouped by category and count. Exit code is 0 (baseline
-  captured), not 1 (violations found). The emotional framing matters as
-  much as the data — the tool should feel like it understands the codebase,
-  not that it's condemning it.
+- **DD-3: The first run is framed as baseline observation, not failure.** Output uses
+  "here's what we noticed," grouped by category and count; exit code is 0 (baseline
+  captured), not 1 (violations found). The emotional framing is a product decision that
+  matters as much as the data.
 
-- **DD-4:** Post-init default scope is diff-based. `backstop check` without
-  flags operates on changed files only (git diff). The baseline records what
-  existed at init time so the gate can distinguish inherited patterns from
-  newly introduced ones. Users are only accountable for new code from day
-  one. `--all` is available for full-codebase checks when the team is ready.
+- **DD-4: Post-init default scope is diff-based.** An unflagged check operates on changed
+  files only; the baseline records what existed at init so the gate distinguishes
+  inherited from introduced patterns. Full-codebase checks are available on demand.
 
-- **DD-5:** Language detection drives default pack selection. `backstop init`
-  inspects the project (file extensions, go.mod, package.json, pyproject.toml,
-  Cargo.toml, etc.) and wires the appropriate default language pack
-  automatically. Multi-language projects get multiple packs wired. The user
-  can override or add packs later.
+- **DD-5 (RETRACTED — superseded by OQ-5 / DD-11):** ~~Language detection drives default
+  pack selection.~~ Init does ZERO language detection. Languages enter only via explicit
+  `pack add`; multi-language = multiple packs. Retained here as a record of the reversal:
+  detection was a baked-language assumption (a thin-executor violation), and removing it
+  dissolves the multi-language question entirely (no "primary language" to pick). See the
+  OQ-5 resolution and the hard invariant DD-13.
 
-- **DD-6:** Consuming repos use `.backstop/` as the artifact root. All
-  governance artifacts (bundles, specs, plans, ADRs, issues, standards)
-  live under `.backstop/` — not at the repo root. This keeps the consuming
-  repo clean: only `backstop.yml`, `backstop.lock`, and `.backstop/` are
-  visible at root level. `backstop init` creates the full `.backstop/`
-  directory structure. backstop-core itself uses top-level directories
-  because it IS the framework — its artifacts are primary content, not
-  governance overhead. The convention is: if you're backstop-core,
-  artifacts live at root. If you're any other project, artifacts live
-  in `.backstop/`.
+- **DD-6: Init verifies the toolchain actually RUNS.** It executes the language's
+  test/compile entrypoint once (e.g. vitest / tsc) and confirms success rather than
+  trusting package-manager configuration, whose semantics shift between majors. Evidence:
+  pnpm 11.11 ignored `onlyBuiltDependencies` and exited nonzero with
+  `ERR_PNPM_IGNORED_BUILDS`, which turned out cosmetic (vitest ran fine). Trusting the
+  package-manager exit code would have produced a false init failure; executing the
+  toolchain is ground truth.
 
-- **DD-7:** The consuming repo footprint is exactly three items at root:
-  `backstop.yml` (project config, committed), `backstop.lock` (pack pins,
-  committed), and `.backstop/` (everything else). `backstop.yml` and
-  `backstop.lock` stay at root because they're project-level config that
-  should be visible — same convention as go.mod/go.sum. Everything
-  operational (packs, baseline, provenance, compiled rules, artifacts)
-  goes in `.backstop/`.
+- **DD-7: Init emits one canonical `.gitignore` and scaffolds at least one source file.**
+  The canonical ignore list is the superset that worked in the dogfood: `.backstop/packs/`,
+  `.backstop/baseline.json`, `.backstop/pack-config-provenance.json`,
+  `.backstop/ts-coverage/`, `.backstop/ts-test-results.json`, `node_modules/`,
+  `coverage/`. At least one source file is scaffolded because `tsc` on an empty repo REDs
+  with TS18003 (No inputs found). Evidence: `.gitignore` diverged across onboarded repos
+  (one ignored provenance + baseline; another ignored only `packs/`); a single canonical
+  list removes the divergence.
 
-- **DD-8:** `backstop init` scaffolds the `.backstop/` directory structure:
-  `.backstop/bundles/`, `.backstop/specs/`, `.backstop/plans/`,
-  `.backstop/adrs/`, `.backstop/issues/`, `.backstop/standards/`,
-  `.backstop/rules/` (compiled), `.backstop/packs/` (gitignored),
-  `.backstop/baseline.json` (gitignored). It also creates `backstop.yml`
-  and `backstop.lock` at root.
+- **DD-8: The init algorithm is specified BY transcribing the validated hand-onboarding
+  checklist, not by re-inventing a flow.** The two hand write-ups are the empirical
+  requirements corpus (one document per profile — see References); the greenfield doc's
+  "Manual steps performed" list IS init's happy-path step sequence. Captured here so it
+  survives the source docs being deleted, the full-SDLC greenfield sequence is:
+  1. Scaffold a minimal project with ≥1 source file + one test + minimal config
+     (toolchain devDeps, `tsconfig.json`, workspace config) and install dependencies.
+  2. Write a minimal `backstop.yml` (`project:` + `language:` for greenfield; the
+     pack-only profile adds the `enforcement.policy` `level: off` lines per DD-2).
+  3. Create the artifact dirs (layout per OQ-1).
+  4. Write the canonical `.gitignore` (DD-7).
+  5. `backstop pack add <ref>` for each pack (toolchain, standards, secrets, contracts,
+     substantiveness).
+  6. `backstop gate` → iterate to PASS.
+  Corollary: each ranked sharp edge from the write-ups is either a `doctor` check or an
+  init guardrail — init automates the happy path, `doctor` diagnoses the deviations.
+  Rationale: the flow is already validated by reaching gate PASS on a real repo by hand;
+  transcribing "what the human did" is lower-risk than designing a new sequence.
 
-- **DD-9:** Artifact discovery and `artifact new` respect the artifact root.
-  In consuming repos, `backstop artifact new spec` scaffolds into
-  `.backstop/specs/`, not `specs/`. The artifact root is determined by
-  convention: `.backstop/` if it exists, repo root otherwise. No config
-  field needed — just directory detection.
+- **DD-9: Init and `doctor` make CLI/pack version skew diagnosable.** Two mechanics:
+  (a) `backstop version` stamps the build commit and date, never a bare `dev`; (b)
+  `pack add` and `gate` compare the binary's capability against the pack manifest's
+  required features and fail loudly with "your backstop is older than this pack requires"
+  instead of surfacing a downstream engine error. Evidence: the highest-pain sharp edge in
+  the 2026-07-12 dogfood — a stale binary reporting bare `dev` predated the pack
+  producer/convert split, and the gate reported `declared stdout_artifact ... not produced`
+  quoting the plain engine command, giving no hint the binary was simply too old. This
+  consumed most of the debugging time. Feeds the `backstop doctor` spec seed.
+
+- **DD-10: Adjacent scope is owned elsewhere and is out of scope here (settled).**
+  Baseline mechanics are owned by **BUNDLE-007** — resolved as: baseline is a CI-generated
+  post-merge artifact, cached locally at `.backstop/baseline.json` (gitignored), pulled by
+  the gate, ratchet-only (can only go down), never committed or hand-edited. Binary
+  distribution (Homebrew tap, GitHub releases, cross-platform builds) and system-toolchain
+  acquisition are owned by **DIR-001** (Release Workflow), now the top backlog priority.
+  This bundle references those boundaries and does not re-litigate them; init consumes their
+  outputs (a binary is present; a baseline can be generated), it does not implement them.
+
+- **DD-11: Greenfield init = `git init` (only if not already a repo) + backstop base.**
+  Init's job is to add the backstop layer, not the project. It runs `git init` only when
+  there is no `.git`, then installs the omakase base. Zero language/framework detection —
+  the project's identity is never inspected (emergent from OQ-5 / OQ-6).
+
+- **DD-12: Packs may carry SCAFFOLDING RECIPES.** A recipe is a template plus a
+  self-declared target path. `pack add` can bootstrap a repo for its language via a recipe,
+  and init applies recipes through a GENERIC copy-template-to-declared-path mechanism —
+  never language- or platform-aware code. (Depends on the pack-recipe capability, which
+  does not yet exist — see Out of Scope / Dependencies.)
+
+- **DD-13: HARD INVARIANT — init's thin-executor boundary.** Detection, framework
+  recognition, and CI-platform knowledge live in PACKS as data, NEVER in core/CLI. Core
+  dispatches; packs know. A language, framework, or platform name appearing in core CLI code
+  IS the bug; `backstop/self` enforces it. This is the invariant that makes every other init
+  resolution safe — omakase, recipes, and CI templates are all data supplied by packs.
+
+- **DD-14: backstop COMPOSES with ecosystem scaffolders — it does not own project
+  scaffolding.** `create-next-app`, `rails new`, `cargo new`, etc. produce the project;
+  `backstop init` adds the backstop layer on top (converge-not-clobber, DD/OQ-6). Init never
+  reimplements what an ecosystem scaffolder already does.
 
 ## Open Questions
 
-- **OQ-1: Binary distribution.** How do users get backstop? `brew install`
-  via a Homebrew tap? `go install`? Pre-built binaries on GitHub releases?
-  Docker image? All of the above? Each has different first-install friction.
-  `brew install` is lowest friction for macOS; `go install` assumes Go
-  toolchain is present. Lean: Homebrew tap + GitHub releases + go install,
-  in that priority order.
+All seven open questions were driven to resolution by the founder in a 2026-07-13
+working session (recorded in 0.6.0 below). None remain open. They are kept here — marked
+RESOLVED with the decision and rationale — rather than deleted, so the reasoning survives.
+Maturity stays `exploring`; the founder triggers promotion separately.
 
-- **OQ-2: Dependency installation strategy.** How does backstop install
-  dependencies? Homebrew for macOS tools? pip for semgrep? Direct binary
-  download? What about environments where the user can't install system
-  packages (CI containers, locked-down corporate machines)? The EnsureSemgrep
-  pattern downloads a binary directly — does that scale to all tools?
+- **OQ-1 (load-bearing) — RESOLVED: Canonical artifact-dir layout.** Decision: `.backstop/`
+  is the artifact root for consumer repos; **backstop-core keeps the root layout as the
+  framework exception** (it IS the framework — its artifacts are primary content, not
+  governance overhead). Init scaffolds and validates the `.backstop/`-rooted layout for
+  consumers. Rationale: one canonical consumer layout ends the live-repo divergence
+  (backstop-core root vs backstop-runtime `.backstop/` vs stale test projects) and keeps the
+  consumer root clean (only `backstop.yml`/`.lock` + `.backstop/` visible). This deliberately
+  re-adopts the previously-retracted `.backstop/` convention, now with the framework
+  exception made explicit rather than implicit.
 
-- **OQ-3: Baseline storage format and location.** RESOLVED — see BUNDLE-007.
-  Baseline is a CI post-merge artifact, cached locally at
-  `.backstop/baseline.json` (gitignored). CI generates it after every merge
-  to main. Agents pull it via `backstop baseline pull` or auto-pull with
-  TTL caching during `backstop gate`. Never committed, never hand-edited.
+- **OQ-2 — RESOLVED: How the init profile / capability set is chosen.** Decision: **omakase
+  default** — bare `backstop init` installs the full opinionated bundle, PROMPT-FREE; you
+  SUBTRACT capabilities via flags (`--only X` / `--no-X`, Cargo-features style: a default
+  feature set you strip from). Rationale: an opinionated default is the fastest path to value
+  and removes wrong-default guessing; subtraction is explicit and scriptable. Because it is
+  prompt-free, init is headless/CI-safe by default — the interactive-vs-CI tension dissolves
+  entirely.
 
-- **OQ-4: Baseline granularity.** RESOLVED — see BUNDLE-007 OQ-2. The
-  baseline contains the full violation set with rule ID + file + line range.
-  Diffing uses structural comparison. The exact identity scheme (line-based
-  vs content-hash-based) is an open question in BUNDLE-007.
+- **OQ-3 — RESOLVED: baseline on a remoteless repo.** Decision: init **seeds a GITIGNORED
+  LOCAL baseline** so solo/local-first users get the ratchet from day zero; the CI-generated
+  baseline (BUNDLE-007) is the later team upgrade (tamper-resistance, no concurrent
+  stomping). Also fix the self-contradictory remoteless `baseline_comparison` message.
+  Rationale: local-first users should not need a remote to get the ratchet; CI baseline is an
+  upgrade, not a prerequisite. Reflects back to BUNDLE-007 / DIR-003 as a new day-zero-local
+  baseline mode (see Out of Scope / Dependencies).
 
-- **OQ-5: Progressive baseline reduction.** RESOLVED — see BUNDLE-007 DD-4.
-  Ratchet model: baselines can only go down. Each merge to main produces a
-  new baseline. PRs that fix violations produce a lower post-merge baseline.
-  No manual baseline update command needed.
+- **OQ-4 — RESOLVED: local-pack restore from a fresh clone.** Decision: the committed
+  `backstop.lock` records **only portable git-ref packs**; a GITIGNORED local provenance
+  cache records local-path pack sources so `pack install` restores them **on the same
+  machine**. Promoting a local pack to shareable is an explicit git-ref step. Rationale: keeps
+  the committed lock portable (no machine-specific paths leak into shared history) while a
+  single machine can still restore local packs; sharing is a deliberate act. The gitignored
+  local-provenance lock mechanism is a pack-CLI / lock-schema change (see Out of Scope /
+  Dependencies).
 
-- **OQ-6: Multi-language project init.** A project with Go backend and
-  TypeScript frontend — does init wire both packs? Ask the user? Only wire
-  the primary language? How does it detect "primary"?
+- **OQ-5 — RESOLVED (DISSOLVED): multi-language init.** Decision: init does **ZERO language
+  detection**. Languages enter only via explicit `pack add` (which may optionally scaffold
+  via a recipe); multi-language = multiple packs. Registry-era auto-detect is out of
+  scope / future. Rationale: language detection was a baked-language assumption (a
+  thin-executor violation); removing it dissolves the question — there is no "primary
+  language" to pick. Supersedes the former DD-5; codified as DD-11 / DD-13.
 
-- **OQ-7: Init in an existing backstop project.** What happens when someone
-  runs `backstop init` in a project that already has `backstop.yml`? Error?
-  Upgrade/re-detect? Offer to re-baseline? Must be non-destructive.
+- **OQ-6 — RESOLVED: re-init / idempotency.** Decision: **converge, never clobber,
+  FRAMEWORK-BLIND.** Init detects only backstop-neutral facts (is there a `.git`? a
+  `backstop.yml`? artifact dirs?), adds only what is missing, reports only in backstop terms,
+  and NEVER interprets the repo's language/framework identity. Rationale: idempotent and
+  non-destructive re-runs, and staying framework-blind keeps init inside the thin-executor
+  boundary (DD-13). Codified as DD-11 / DD-14.
 
-- **OQ-8: CI integration scaffolding.** Should `backstop init` also
-  generate a `.github/workflows/backstop.yml` for CI? Or is that a separate
-  `backstop ci init` command? The faster the team gets backstop into CI, the
-  faster enforcement becomes real rather than optional.
+- **OQ-7 — RESOLVED: consumer CI-workflow scaffolding.** Decision: CI is wired **by default**
+  (omakase), delivered as a **CI RECIPE PACK** holding per-platform templates as DATA; init
+  applies the selected variant via the generic recipe mechanism (`--ci github` default,
+  `--no-ci` opts out). **No `ci` verb** — the CI job chains existing agnostic commands
+  (`pack install` → `baseline pull` → `gate`), which also gives local/CI parity. If no CI
+  pack is installed, the CI STEP fails LOUDLY with actionable guidance (no baked fallback
+  exists — the architecture makes silent success impossible) while the rest of init succeeds.
+  Rationale: CI-platform knowledge is data in a pack, never baked into core (DD-13);
+  default-on makes enforcement real fast; the loud-but-non-blocking failure honors
+  loud-≠-blocking. Depends on the recipe capability + a concrete CI recipe pack (see Out of
+  Scope / Dependencies).
+
+### Questions closed earlier (recorded, not open)
+
+- **Baseline storage / granularity / progressive reduction** — RESOLVED via BUNDLE-007;
+  captured in DD-10. Not reopened here.
+- **Binary distribution** and **dependency/toolchain installation strategy** — MOVED to
+  DIR-001 (Release Workflow), the owner of "how users get the binary + system toolchain."
+  Captured in DD-10. Not litigated here.
 
 ## Spec Seeds
 
-- **`backstop init` command** — language detection, config scaffolding,
-  dependency installation, default pack wiring, baseline capture, output
-  framing. The critical-path spec.
-- **`backstop doctor`** — diagnose config, verify toolchain, check pack
-  integrity, report what's missing or broken. The "help me fix my setup"
-  command that init delegates to if something goes wrong.
-- **Baseline capture and storage** — baseline format, storage location,
-  gate integration (step 7), progressive reduction mechanics.
-- **Dependency management** — generalized EnsureSemgrep pattern for the
-  full toolchain. Detection, installation, version pinning, update path.
-- **Binary distribution** — Homebrew tap, GitHub releases, go install,
-  CI images. Making "step 1: install" as frictionless as possible.
+Two non-overlapping seeds. Baseline, binary distribution, and toolchain acquisition are
+deliberately NOT seeds here — they belong to BUNDLE-007 and DIR-001 (DD-10).
+
+- **`backstop init` command** — the critical-path spec. Covers: omakase base install with
+  subtract-via-flags (DD-2 / OQ-2), `git init`-if-needed + converge-not-clobber re-init
+  (DD-11 / DD-14 / OQ-6), `.backstop/`-rooted artifact layout scaffolding (OQ-1),
+  profile-correct `backstop.yml` generation, canonical `.gitignore` emission + scaffold ≥1
+  source file (DD-7), verify the toolchain runs (DD-6), local baseline seeding (OQ-3),
+  default CI wiring via recipe (OQ-7), and first-gate baseline capture with observation
+  framing (DD-3 / DD-4). Zero language/framework detection (DD-13). Specified by transcribing
+  the greenfield hand-onboarding checklist (DD-8). **Blocked on** the pack-recipe capability
+  (init consumes recipes but cannot be built until it exists — see Out of Scope /
+  Dependencies).
+
+- **`backstop doctor`** — the "help me fix my setup" diagnostic init delegates to when
+  something is off. Covers: binary version stamp present (commit+date, not bare `dev`) and
+  binary-vs-pack capability skew (DD-9); toolchain actually executes (DD-6); Node version
+  vs stack policy (Node LTS); artifact-layout validation once OQ-1 lands. Each check is the
+  diagnosis of a ranked sharp edge from the write-ups (DD-8 corollary).
 
 ## Notes / Ideas
 
-- The emotional framing of first-run output is a product decision, not
-  a technical one. It deserves design attention — the exact wording of
-  the baseline summary will determine whether a tech lead feels welcomed
-  or attacked. Consider user-testing the output with people outside the
+### Out of Scope / Dependencies
+
+The 0.6.0 OQ resolutions lean on capabilities that this bundle consumes but does NOT design
+here. These are recorded so spec authoring does not accidentally absorb them:
+
+- **Pack-recipe capability (BLOCKING DEPENDENCY)** — how packs declare and ship scaffolding
+  + CI templates (template + self-declared target path; generic copy-to-path apply). Init
+  consumes recipes but **cannot be built until this exists**. Likely its own bundle.
+- **CI recipe pack** — a concrete pack deliverable in backstop-packs holding
+  github / gitlab / bitbucket / jenkins templates as data. Depends on the recipe capability.
+- **Gitignored local-provenance lock mechanism (OQ-4)** — a pack-CLI / lock-schema change so
+  local-path pack sources restore on the same machine while the committed lock stays portable.
+- **Local-first baseline seeding (OQ-3)** — a new day-zero-local baseline mode; reflects back
+  to BUNDLE-007 / DIR-003 (the baseline subsystem).
+- **Pack registry + pack-declared `detect:` field** — registry-era auto-detection; deferred,
+  relates to pack distribution (BUNDLE-001 / BUNDLE-002). Explicitly NOT how languages enter
+  in this bundle (OQ-5 dissolved detection).
+- **Bundle→spec promotion gate check** — an orthogonal workflow-integrity hole: a spec whose
+  parent bundle is not promoted should be a violation but currently is not enforced (this
+  bundle's own legacy SPEC-020..029 were auto-generated against an unpromoted parent). Belongs
+  to gate/workflow hardening, not init.
+
+### Observations and evidence
+
+- The emotional framing of first-run output (DD-3) is a product decision, not a technical
+  one. The exact wording of the baseline summary determines whether a tech lead feels
+  welcomed or attacked; it deserves design attention and possibly user-testing outside the
   project.
-- The baseline is gate step 7 (currently deferred). This bundle's baseline
-  work directly unblocks that step in the kill chain.
-- The `EnsureSemgrep` pattern in SPEC-008 already proves the dependency
-  auto-install approach works for one tool. Generalizing it is the spec
-  seed, not a new invention.
-- Init should be idempotent or at minimum non-destructive. Running it
-  twice should not break anything or lose config.
+- **Cascading coverage error masks the real failure (pack-side, first-run polish).** When
+  a test FAILS, `coverage_threshold` fails with a misleading secondary error — `declared
+  stdout_artifact ".backstop/ts-coverage/backstop-summary.json" not produced` — because
+  vitest emits no coverage summary on a failed run. The real failure is caught loudly in
+  `pack_engines`, but the coverage step points at the pack producer rather than saying
+  "tests failed, so coverage was not computed." Same misdiagnosis family as DD-9. A
+  pack-side messaging concern, not strictly init, but it degrades the clean first-run
+  experience init aims to deliver. (2026-07-12 verification pass.)
+- **Node LTS is unenforced.** The dogfood machine had only non-LTS Node (23 + 25) despite a
+  documented "Node LTS" stack decision, and nothing warned. Feeds the `doctor` seed as a
+  node-version-vs-stack-policy check.
+- **Positive — enforcement is real, not vacuous green.** On the live bclabs-portal repo, an
+  injected `eval()` tripped the standards no-eval rule, a type error tripped tsc TS2322, a
+  hardcoded AWS key tripped no-hardcoded-credentials, and a failing test tripped vitest —
+  all drove the gate RED; a clean repo goes GREEN. First validation of the "real-project
+  e2e / RED-when-it-should" bar in an external consumer.
+- **Positive — waiver-hint renders in the wild.** The waiver-hint wiring
+  (`↳ to waive: @waiver:...`) renders correctly in a live external consumer; first
+  confirmation of that requirement outside the framework repo.
+- **Observation — `ledger_integrity: skipped (ledger not implemented)`.** Core already
+  reserves the concept a consumer is about to implement.
+- **Go-forward.** Derive the `backstop init` and `backstop doctor` specs directly from the
+  two per-profile hand-onboarding checklists (DD-8), NOT by re-inventing the flow — after
+  OQ-1 and OQ-2 are resolved and the bundle is promoted. Spec authoring is a
+  transcription-and-hardening exercise against a validated flow.
 
 ## Version History
 
-- 0.1.0 (2026-04-09): Initial bundle. Captured problem (no onboarding
-  path, tech lead has 30 minutes of patience), target experience (under 2
-  minutes to first value), 5 design decisions (init command, auto-install
-  deps, baseline as observation, diff-based default scope, language
-  detection), 8 open questions, 5 spec seeds. Maturity: exploring.
-  Motivated by thought exercise analyzing onboarding from a tech lead's
-  perspective.
-- 0.2.0 (2026-04-19): Added DD-6 through DD-9 for .backstop/ directory
-  convention in consuming repos. Resolved OQ-3/4/5 via BUNDLE-007
-  (baseline is CI-generated, not local). Three-item repo footprint:
-  backstop.yml, backstop.lock, .backstop/.
+- 0.1.0 (2026-04-09): Initial bundle. Problem (no onboarding path), target experience,
+  5 design decisions (init command, auto-install deps, baseline as observation, diff-based
+  default scope, language detection), 8 open questions, 5 spec seeds. Maturity: exploring.
+  A thought exercise analyzing onboarding from a tech lead's perspective.
+- 0.2.0 (2026-04-19): Added DD-6..9 mandating `.backstop/` as the consuming-repo artifact
+  root. Resolved baseline OQs via BUNDLE-007.
+- 0.3.0 (2026-07-12): Evidence intake from the first real greenfield onboarding
+  (bclabs-portal: empty repo → gate PASS). Added the two-profile decision, version-skew
+  diagnosability, verify-the-toolchain-runs, canonical `.gitignore` + scaffold source file;
+  added OQs for profile selection, artifact layout, remoteless baseline, local-pack restore.
+- 0.4.0 (2026-07-12): Provenance reframe — established the two hand-onboarding write-ups as
+  the empirical requirements corpus; added the "specify init by transcription" decision.
+- 0.5.0 (2026-07-13): **From-scratch rewrite to current discipline.** Purged the legacy
+  auto-generated SPEC-020..029 and their 9 plans (never committed — untracked cruft from a
+  2026-05-30 auto-dispatch experiment run against this then-unpromoted bundle) and reset to
+  a clean `exploring` foundation from which init will be properly re-speced in order
+  (resolve OQs → promote → spec). Kept the dogfood gold: two-profile model (now the headline
+  DD-2), version-skew diagnosability (DD-9), verify-the-toolchain-runs (DD-6), canonical
+  `.gitignore` + scaffold source file (DD-7), init-by-transcription (DD-8), and the
+  requirements-corpus framing. **Retracted the `.backstop/`-root mandate** (old DD-6/7/8):
+  the dogfood used the ROOT convention and passed, and live repos diverge, so the layout is
+  reopened as OQ-1 (the load-bearing open question) — root vs `.backstop/` vs detect-both.
+  **Moved** binary distribution and dependency/toolchain installation OUT to DIR-001 (their
+  owner); dropped the corresponding OQs and the binary/dependency spec seeds. **Recorded**
+  the baseline OQs as resolved-via-BUNDLE-007 rather than open. Distilled the DD set to the
+  ten dogfood-grounded decisions and the two spec seeds (init, doctor). Maturity unchanged:
+  exploring — no self-promotion, no pre-resolved OQs.
+- 0.6.0 (2026-07-13): **All 7 OQs resolved** in a founder-driven working session; each
+  converted open → RESOLVED with decision + rationale (none remain open). Decisions: OQ-1
+  `.backstop/` root for consumers, root for backstop-core (framework exception); OQ-2 omakase
+  prompt-free default with subtract-via-flags (headless-safe, tension dissolved); OQ-3 seed a
+  gitignored local baseline day-zero (CI baseline is the team upgrade); OQ-4 committed lock
+  holds only portable git-refs + a gitignored local-provenance cache for local packs; OQ-5
+  DISSOLVED — zero language detection, languages enter via `pack add`; OQ-6 converge /
+  never-clobber / framework-blind re-init; OQ-7 CI wired by default via a CI recipe pack, no
+  `ci` verb, loud failure if the pack is absent. Added emergent DD-11 (`git init` + backstop
+  base, zero detection), DD-12 (pack scaffolding recipes via a generic copy-to-path apply),
+  DD-13 (HARD INVARIANT — detection / framework / CI-platform knowledge lives in packs as
+  data, never in core; `backstop/self` enforces), DD-14 (composes with ecosystem scaffolders,
+  does not own project scaffolding). RETRACTED DD-5 (language detection) as superseded.
+  Revised DD-1, the solution approach, and the init spec seed to drop language detection and
+  reflect omakase + recipes + local baseline + default CI. Added an "Out of Scope /
+  Dependencies" note recording the pack-recipe capability (a BLOCKING dependency init can't be
+  built without), the CI recipe pack, the local-provenance lock change, local-first baseline
+  seeding, registry-era detection, and the orthogonal bundle→spec promotion gate hole.
+  Maturity unchanged: exploring — promotion is founder-triggered separately.
 
 ## References
 
-- SPEC-008: Code check (EnsureSemgrep pattern, diff-based scope via
-  ResolveScope)
-- SPEC-010: Gate (step 7 baseline is currently deferred — this bundle's
-  baseline work unblocks it)
-- BUNDLE-001: Pack distribution (default pack wiring depends on packs
-  being distributable)
-- BUNDLE-007: Baseline (CI-generated immutable violation reference —
-  resolves OQ-3/4/5 from this bundle)
+### Requirements corpus (hand-onboarding write-ups — one per profile)
+
+These are the empirical requirements corpus for the `backstop init` and `backstop doctor`
+specs, not incidental links. Both are currently UNTRACKED field notes living in OTHER repos;
+treat them as transient. Their durable home is this bundle — DD-8 and the sharp-edge
+decisions/OQs/notes above lift the load-bearing substance in so it survives the docs being
+deleted.
+
+- **`bclabs-portal/docs/dogfood/init-sharp-edges.md`** — the **full-SDLC greenfield**
+  profile hand-onboarding (empty repo → `backstop gate` PASS, 2026-07-12). Its "Manual steps
+  performed" list is transcribed into DD-8 as init's happy-path sequence.
+- **`backstop-packs/BACKSTOP-INIT-REQUIREMENTS.md`** — the **pack-only** profile
+  hand-onboarding (consumer adopting packs without SDLC artifacts). Source of the
+  `enforcement.policy` `level: off` requirement in DD-2.
+
+### Related artifacts
+
+- DIR-001: Release Workflow — owns binary distribution + system-toolchain acquisition +
+  post-merge baseline generation (out of scope here; DD-10).
+- DIR-002: `backstop init` command — the directive this bundle sources.
+- BUNDLE-007: Baseline — owns baseline mechanics (CI-generated post-merge, gitignored local
+  cache, ratchet-only); resolves this bundle's baseline questions (DD-10).
+- BUNDLE-001: Pack distribution — default pack wiring depends on packs being distributable.
+- SPEC-008: Code check (diff-based scope via ResolveScope).
+- SPEC-010: Gate (baseline step consumes BUNDLE-007's output).

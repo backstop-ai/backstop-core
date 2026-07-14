@@ -7,6 +7,8 @@ directives:
     title: Release Workflow
   - id: DIR-003
     title: Baseline Implementation
+  - id: DIR-019
+    title: Pack Recipe Capability
   - id: DIR-002
     title: backstop init Command
   - id: DIR-008
