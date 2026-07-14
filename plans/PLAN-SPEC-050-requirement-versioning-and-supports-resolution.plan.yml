@@ -1,0 +1,815 @@
+---
+plan_id: PLAN-SPEC-050
+spec_id: SPEC-050
+created: "2026-07-14"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... ./cmd/backstop/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC-050 — Seed 1 of BUNDLE-014 (requirement-traceability). Four
+  mechanically-separable pieces, all inside core's own artifact-validation
+  domain (ZERO language/tool knowledge):
+    (F1) REQ-004 + REQ-005 — bundle REQ per-REQ semver `version:` + version
+         LOG well-formedness, and `requirements[]` required at `delivered`,
+         both inside validateBundleRequirements (pkg/validate/bundle.go).
+    (F2) REQ-002 — tighten the shared `supportsRe` to REQUIRE the mandatory
+         exact-semver pin `bundle-name:REQ-NNN@MAJOR.MINOR.PATCH` on spec AND
+         issue requirements (pkg/validate/spec.go owns the regex, shared by
+         pkg/validate/issue.go).
+    (F3) REQ-001 + REQ-003 — pure corpus-resolution functions in the NEW
+         pkg/validate/supports_resolution.go (BuildBundleReqCatalog,
+         CollectSupportRefs, ResolveSupports). No filesystem, no language
+         knowledge; operate on already-parsed artifacts.
+    (F4) REQ-001 wiring — ValidateArtifacts (cmd/backstop/artifact_validate.go)
+         runs the resolution pass over the discovered corpus so the CLI and the
+         gate's realArtifactValidator.ValidateAll share ONE verdict.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CO-LAND SEQUENCING — the enforcement flip must NOT go live before SPEC-051's
+  backfill. This is a merge-sequencing constraint, NOT a runtime toggle; the
+  END state is unconditionally on with no grandfather path (Sharp Edge 1).
+  ─────────────────────────────────────────────────────────────────────────
+  The moment `supportsRe` requires the `@X.Y.Z` pin (F2), REQ-004 requires a
+  `version:` FIELD on every bundle REQ (F1), and the error-severity resolution
+  pass is wired (F4), the ENTIRE existing unpinned/unversioned corpus goes red
+  — BY DESIGN. SPEC-050's code turns that corpus green ONLY once SPEC-051's
+  Seed-2 backfill (which stamps `version: 1.0.0` and `@1.0.0` pins across the
+  corpus, and retires the stale SPEC-002/003/004 drafts) co-lands in the SAME
+  atomic change-train.
+  Consequence for verification:
+    • `go test ./...` is FIXTURE-based and is the per-phase GREEN PROOF of
+      SPEC-050's own correctness — it stays green throughout (each SPEC-050
+      test operates on in-test fixtures, independent of the live corpus).
+    • `./bin/backstop gate` and a full-corpus `backstop artifact validate` red
+      on the un-backfilled corpus until SPEC-051 lands. That red is the signal
+      to land the backfill, NOT a defect in this plan's code. The final phase
+      runs the full gate on the ASSEMBLED change-train (SPEC-050 code +
+      SPEC-051 backfill applied together).
+  Per repo law (no check filtering, no scoping down) every verification task
+  still runs the FULL command set — no dimension is cherry-picked out; the
+  corpus-red is understood and annotated, never dodged.
+
+  ─────────────────────────────────────────────────────────────────────────
+  STRICT SEMVER — one notion for BOTH the version field and the pin (REQ-002 /
+  REQ-004). Use the strict `^\d+\.\d+\.\d+$` shape (the existing `semverRe`,
+  pkg/validate/bundle.go:14) for the version field and the log entries, and the
+  `@\d+\.\d+\.\d+$` tail on `supportsRe` for the pin. DO NOT reuse
+  pkg/pack/manifest.go's `validateSemver` — it PERMITS `-prerelease`/`+build`
+  suffixes, so it would accept `1.0.0-rc1` as a version-field value while the
+  pin regex rejects `@1.0.0-rc1`, producing a version no pin could match and
+  breaking the one-strict-M.M.P seam SPEC-052's stale-pin comparison depends on.
+  Monotonic-ascending ordering and duplicate detection compare SEMVER
+  numerically (1.10.0 > 1.9.0), NOT string order; "newest" is the semver-max
+  (= last element of a well-formed ascending list).
+
+  ─────────────────────────────────────────────────────────────────────────
+  B2 COUPLED EXISTING TESTS (must be migrated, NOT worked around — do NOT
+  weaken the regex to make them pass). Tightening `supportsRe` breaks fixtures
+  asserting the OLD unpinned format:
+    • pkg/validate/spec_test.go:988 TestSpec_RequirementValidSupports asserts
+      the unpinned `my-feature:REQ-001` produces no supports-format violation —
+      migrate the fixture value to `my-feature:REQ-001@1.0.0`, keep the
+      assertion.
+    • pkg/validate/issue_test.go:23 validIssueArtifact() carries an unpinned
+      `my-feature:REQ-003` (issue_test.go:78) that ~20+ tests ride through the
+      Pass() assertion (issue_test.go:127) — migrate the fixture ref to
+      `my-feature:REQ-003@1.0.0` so the shared fixture stays green.
+  These migrations are TASK-006 so the implementer does not hit unexplained
+  reds.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FULL-CORPUS CATALOG UNDER TYPE-SCOPING (REQ-001 / CLM-031). ValidateArtifacts
+  passes the type filter to DiscoverArtifacts (artifact_validate.go:112), so a
+  `--spec`-scoped run discovers ONLY specs. If the resolution catalog were
+  built from that filtered set it would contain ZERO bundles and ResolveSupports
+  would false-red every ref as "missing bundle." The catalog MUST be built from
+  a SEPARATE, unfiltered bundle discovery (or discover-all-then-filter only for
+  the per-artifact loop), so a scoped run resolves identically to an unscoped
+  run and to the gate. CLM-031 is the guard.
+
+  ─────────────────────────────────────────────────────────────────────────
+  TERMINAL EXEMPTION (REQ-001 / CLM-035 / CLM-036). CollectSupportRefs SKIPS
+  terminal-status citers (replaced / canceled / deprecated / obsoleted),
+  mirroring the per-artifact exemption at spec.go:175 / issue.go:349 /
+  isTerminalStatus — a format-exempt-but-resolution-checked split would be
+  incoherent and would pin a retired artifact's stale ref red forever. This is
+  the seam SPEC-051 relies on to clear SPEC-002/003/004's dangling refs and keep
+  `replaced` SPEC-039 out of resolution.
+
+  This plan's own file (PLAN-SPEC-050) is the only artifact it authors; it emits
+  NO report/summary files. REQ-005's `delivered` extension lives in the
+  requiresDefined condition at bundle.go:531 (NOT the terminal exemption at
+  bundle.go:94 — `delivered` is not terminal, so validateBundleRequirements
+  already runs for it), leaving replaced/canceled/deprecated exempt untouched.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: REQ-004 + REQ-005 — bundle version-log well-formedness &
+  # requirements[]-at-delivered (pkg/validate/bundle.go). Parallel-eligible
+  # with Phases 2 and 3 (disjoint file sets).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Bundle Version-Log Well-Formedness & requirements[]-at-Delivered (REQ-004, REQ-005)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing tests: per-REQ version + version-log well-formedness (shape matrix) and requirements[]-required-at-delivered (maturity matrix)"
+        description: |
+          Add a NEW file pkg/validate/bundle_version_test.go proving REQ-004 and
+          REQ-005 against in-test bundle fixtures (build *artifact.ParsedArtifact
+          Frontmatter maps directly, mirroring the existing bundle_test.go
+          fixture style — no filesystem needed). Do NOT touch bundle.go here; all
+          tests must FAIL against today's validateBundleRequirements (which
+          validates neither `version:` nor the version log, and does not require
+          requirements[] at `delivered`).
+
+          REQ-004 version + version-log well-formedness (mandated test names):
+            - TestBundleReqVersion_ImplicitSingleEntryValid (CLM-015): a REQ with
+              a well-formed `version:` and NO explicit `versions:` list — the
+              implicit single-entry log — is VALID (backward-compat hinge).
+            - TestBundleReqVersion_MissingVersionErrors (CLM-016): a REQ with no
+              `version:` field is an error.
+            - TestBundleReqVersion_MalformedVersionErrors (CLM-017): a REQ whose
+              `version:` is non-semver (e.g. `1.0`, `v1.0.0`, `1.0.0-rc1`) is an
+              error — the strict `^\d+\.\d+\.\d+$` shape, NOT the looser
+              manifest.validateSemver.
+            - TestBundleReqVersionLog_WellFormedValid (CLM-018): an explicit
+              `versions:` list that is ascending, unique, and whose top-level
+              `version:`/`text:` equal the newest entry is VALID.
+            - TestBundleReqVersionLog_NonSemverEntryErrors (CLM-019): a
+              `versions:` entry with a non-semver `version` is an error.
+            - TestBundleReqVersionLog_NonMonotonicErrors (CLM-020): a `versions:`
+              list not strictly ascending BY SEMVER is an error (include a case
+              like [1.9.0, 1.10.0] to prove numeric — not string — comparison).
+            - TestBundleReqVersionLog_DuplicateVersionErrors (CLM-021): a
+              `versions:` list with a duplicate version is an error.
+            - TestBundleReqVersionLog_CurrentNotNewestErrors (CLM-022): a
+              top-level `version:` not equal to the newest (semver-max) entry is
+              an error.
+            - TestBundleReqVersionLog_EmptyEntryTextErrors (CLM-023): a
+              `versions:` entry with empty `text` is an error.
+            - TestBundleReqVersionLog_EmptyVersionsListErrors (CLM-032): an
+              EXPLICIT but EMPTY `versions: []` is an error (a present log must
+              have at least one entry) — note the asymmetry with an ABSENT
+              `versions:` (CLM-015, valid).
+            - TestBundleReqVersionLog_CurrentTextNotNewestErrors (CLM-033): a
+              top-level `text:` not equal to the newest entry's `text` is an
+              error.
+
+          REQ-005 requirements[]-at-delivered (mandated test names):
+            - TestBundleRequirements_DeliveredMissingErrors (CLM-024): a
+              `delivered` bundle with no requirements[] is an error.
+            - TestBundleRequirements_DeliveredPresentValid (CLM-025): a
+              `delivered` bundle with a valid non-empty requirements[] validates
+              clean.
+            - TestBundleRequirements_DefinedMissingStillErrors (CLM-026):
+              `defined` with no requirements[] still errors (regression guard).
+            - TestBundleRequirements_ReadyMissingStillErrors (CLM-027): `ready`
+              with no requirements[] still errors (regression guard).
+            - TestBundleRequirements_ReplacedStaysExempt (CLM-028): `replaced`
+              with no requirements[] stays exempt (no error).
+            - TestBundleRequirements_CanceledStaysExempt (CLM-029): `canceled`
+              stays exempt.
+            - TestBundleRequirements_DeprecatedStaysExempt (CLM-030): `deprecated`
+              stays exempt.
+        files:
+          - pkg/validate/bundle_version_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+        depends_on: []
+        test_names:
+          - TestBundleReqVersion_ImplicitSingleEntryValid
+          - TestBundleReqVersion_MissingVersionErrors
+          - TestBundleReqVersion_MalformedVersionErrors
+          - TestBundleReqVersionLog_WellFormedValid
+          - TestBundleReqVersionLog_NonSemverEntryErrors
+          - TestBundleReqVersionLog_NonMonotonicErrors
+          - TestBundleReqVersionLog_DuplicateVersionErrors
+          - TestBundleReqVersionLog_CurrentNotNewestErrors
+          - TestBundleReqVersionLog_EmptyEntryTextErrors
+          - TestBundleReqVersionLog_EmptyVersionsListErrors
+          - TestBundleReqVersionLog_CurrentTextNotNewestErrors
+          - TestBundleRequirements_DeliveredMissingErrors
+          - TestBundleRequirements_DeliveredPresentValid
+          - TestBundleRequirements_DefinedMissingStillErrors
+          - TestBundleRequirements_ReadyMissingStillErrors
+          - TestBundleRequirements_ReplacedStaysExempt
+          - TestBundleRequirements_CanceledStaysExempt
+          - TestBundleRequirements_DeprecatedStaysExempt
+
+      - id: TASK-002
+        type: implementation
+        title: "Extend validateBundleRequirements: per-REQ version + version-log well-formedness (REQ-004) and requirements[]-at-delivered (REQ-005)"
+        description: |
+          Implement REQ-004 and REQ-005 inside validateBundleRequirements
+          (pkg/validate/bundle.go:528), reusing the strict `semverRe`
+          (bundle.go:14) as the single source of truth for the version field and
+          every log entry. Make TASK-001 go green.
+
+          REQ-005 (delivered gate): extend the `requiresDefined` condition at
+          bundle.go:531 to also fire for `delivered`
+          (`maturity == "defined" || maturity == "ready" || maturity ==
+          "delivered"`). This ONLY extends — it never relaxes defined/ready. The
+          replaced/canceled/deprecated terminal exemption at bundle.go:94 is
+          untouched (they never reach this function), so CLM-028/029/030 hold by
+          construction; `delivered` is NOT terminal so validateBundleRequirements
+          already runs for it (CLM-024/025).
+
+          REQ-004 (version + log well-formedness): for each REQ in
+          requirements[], validate:
+            • `version:` present and matches `semverRe` (strict M.M.P;
+              CLM-016/017).
+            • If `versions:` is ABSENT, the effective log is the implicit single
+              entry {version, text} — VALID with no further ceremony
+              (CLM-015; backward-compat hinge, and the never-pinned-churn edge).
+            • If `versions:` is PRESENT: it must be non-empty (explicit empty list
+              is an error — CLM-032); every entry's `version` matches semverRe
+              (CLM-019) and `text` is non-empty (CLM-023); the list is strictly
+              monotonically ascending BY NUMERIC SEMVER with no duplicate versions
+              (CLM-020/021 — compare M.M.P components numerically so 1.10.0 >
+              1.9.0); and the top-level `version:` AND `text:` each equal the
+              newest (semver-max = last) entry's `version`/`text` (CLM-022/033).
+          Emit error-severity Violations with clear Rule names (e.g.
+          bundle/requirement-version-required, .../version-format,
+          .../versions-empty, .../versions-nonmonotonic, .../versions-duplicate,
+          .../versions-entry-text, .../version-not-newest, .../text-not-newest).
+          No language/tool noun enters bundle.go.
+        files:
+          - pkg/validate/bundle.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify Phase 1: full gate + go test ./... + artifact validate (bundle version-log & delivered gate green on fixtures)"
+        description: |
+          Run the FULL command set — no dimension filtering, no scoping down:
+            1. go test ./... — the FIXTURE-GREEN proof for SPEC-050's own
+               correctness. Confirm all 18 TASK-001 mandated tests pass and the
+               existing bundle_test.go suite stays green (the delivered extension
+               only ADDS a requirement, never relaxes defined/ready).
+            2. ./bin/backstop gate — full kill chain. EXPECTED: reds on the
+               un-backfilled corpus because REQ-004 now demands `version:` on
+               every bundle REQ (SPEC-051's backfill stamps them). Confirm the
+               reds are confined to unversioned bundle REQs (the backfill target),
+               NOT a logic defect in bundle.go — go test green is the correctness
+               signal at this stage (see co-land note).
+            3. ./bin/backstop artifact validate — same expected corpus red;
+               confirm PLAN-SPEC-050 itself validates (backstop artifact validate
+               --plan PLAN-SPEC-050 passes).
+          Report per-test pass/fail, and confirm any gate/corpus-validate red is
+          the un-backfilled-corpus signal, not a bundle.go regression.
+        files:
+          - pkg/validate/bundle.go
+          - pkg/validate/bundle_version_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: REQ-002 — mandatory exact-semver pin on spec AND issue supports
+  # refs (pkg/validate/spec.go owns the regex; pkg/validate/issue.go shares
+  # it). Parallel-eligible with Phases 1 and 3 (disjoint file sets).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Mandatory Exact-Semver Pin on Supports Refs (REQ-002)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing tests: pinned supports ref valid, unpinned / non-semver-pin refs error — on BOTH spec and issue requirements"
+        description: |
+          Add failing format tests to pkg/validate/spec_test.go and
+          pkg/validate/issue_test.go for the tightened `supportsRe`. Do NOT edit
+          spec.go/issue.go here, and do NOT migrate the coupled fixtures yet
+          (that is TASK-006). All new assertions must FAIL against today's loose
+          regex (`^[a-z0-9-]+:REQ-\d{3}$`, spec.go:16), which rejects the pinned
+          form and accepts the unpinned form.
+
+          Mandated test names:
+            - TestSpecSupportsFormat_PinnedRefValid (CLM-007): a spec requirement
+              with `bundle-name:REQ-001@1.0.0` produces NO supports-format
+              violation (fails today: `@1.0.0` is rejected by the loose regex).
+            - TestSpecSupportsFormat_UnpinnedRefErrors (CLM-008): a spec
+              requirement with an unpinned `bundle-name:REQ-001` is a
+              supports-format error (fails today: unpinned is accepted).
+            - TestSpecSupportsFormat_NonSemverPinErrors (CLM-009): a spec ref with
+              a non-semver pin (`@1.0`, and also assert `@v1.0.0`) is an error.
+            - TestIssueSupportsFormat_PinnedRefValid (CLM-010): an issue
+              requirement with a pinned ref passes the format check.
+            - TestIssueSupportsFormat_UnpinnedRefErrors (CLM-011): an unpinned
+              issue ref is an error (the pin mandate applies to issues too).
+        files:
+          - pkg/validate/spec_test.go
+          - pkg/validate/issue_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on: []
+        test_names:
+          - TestSpecSupportsFormat_PinnedRefValid
+          - TestSpecSupportsFormat_UnpinnedRefErrors
+          - TestSpecSupportsFormat_NonSemverPinErrors
+          - TestIssueSupportsFormat_PinnedRefValid
+          - TestIssueSupportsFormat_UnpinnedRefErrors
+
+      - id: TASK-005
+        type: implementation
+        title: "Tighten supportsRe to require the @MAJOR.MINOR.PATCH pin; keep it shared by spec.go and issue.go"
+        description: |
+          In pkg/validate/spec.go, replace the `supportsRe` pattern
+          (`^[a-z0-9-]+:REQ-\d{3}$`, spec.go:16) with one that REQUIRES the
+          strict-semver pin: `^[a-z0-9-]+:REQ-\d{3}@\d+\.\d+\.\d+$`. The
+          `@\d+\.\d+\.\d+$` tail is the same strict M.M.P notion as REQ-004's
+          version field (`semverRe`) — no prerelease/build metadata, so `@1.0`
+          and `@v1.0.0` are rejected (CLM-009). issue.go (:570) already consumes
+          the SAME compiled `supportsRe`, so tightening the one regex covers both
+          spec and issue refs (CLM-007/008/010/011) — do NOT introduce a second
+          regex. Update the violation message text from
+          "must match format bundle-name:REQ-NNN" to the pinned form
+          "bundle-name:REQ-NNN@MAJOR.MINOR.PATCH" in both spec.go and issue.go.
+          Make TASK-004 go green. No language/tool noun enters either file.
+        files:
+          - pkg/validate/spec.go
+          - pkg/validate/issue.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: refactor
+        title: "Migrate the B2 coupled fixtures to the pinned @1.0.0 form (do NOT weaken the regex)"
+        description: |
+          Reconcile the two existing fixtures that assert the OLD unpinned format
+          and now break under the tightened regex. This is a refactor DEPENDENT
+          on TASK-005 (the new behavior must exist first). Do NOT modify spec.go
+          or issue.go here; migrate fixtures ONLY — the regex is correct, the old
+          fixtures are stale.
+            • pkg/validate/spec_test.go:988 TestSpec_RequirementValidSupports:
+              change the fixture supports value from `my-feature:REQ-001` to
+              `my-feature:REQ-001@1.0.0`; KEEP the "no supports-format violation"
+              assertion.
+            • pkg/validate/issue_test.go:23 validIssueArtifact(): change the
+              shared fixture's unpinned `my-feature:REQ-003` (issue_test.go:78) to
+              `my-feature:REQ-003@1.0.0` so the ~20+ tests riding the Pass()
+              assertion at issue_test.go:127 stay green.
+          These are the two files named in the spec's "Coupled existing tests"
+          note; migrating them (not weakening supportsRe) is the required move.
+        files:
+          - pkg/validate/spec_test.go
+          - pkg/validate/issue_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify Phase 2: full gate + go test ./... + artifact validate (pin format green on fixtures, coupled fixtures migrated)"
+        description: |
+          Run the FULL command set — no dimension filtering, no scoping down:
+            1. go test ./... — the FIXTURE-GREEN proof. Confirm the five TASK-004
+               mandated tests pass AND the migrated TASK-006 fixtures
+               (TestSpec_RequirementValidSupports plus the ~20+ tests riding
+               validIssueArtifact() through Pass()) stay green.
+            2. ./bin/backstop gate — full kill chain. EXPECTED: reds on the
+               un-backfilled corpus (every spec/issue citing an unpinned
+               `bundle:REQ-NNN` now fails the tightened format check; SPEC-051's
+               backfill stamps `@1.0.0`). Confirm the reds are the unpinned-corpus
+               signal, not a regex defect — go test green is the correctness
+               signal at this stage.
+            3. ./bin/backstop artifact validate — same expected corpus red;
+               confirm PLAN-SPEC-050 validates.
+          Report per-test pass/fail, confirm no coupled fixture was left on the
+          unpinned form, and confirm the regex was tightened (not weakened) to
+          make the tests pass.
+        files:
+          - pkg/validate/spec.go
+          - pkg/validate/issue.go
+          - pkg/validate/spec_test.go
+          - pkg/validate/issue_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: REQ-001 + REQ-003 — pure corpus-resolution functions
+  # (NEW pkg/validate/supports_resolution.go). Parallel-eligible with Phases
+  # 1 and 2 (disjoint file sets).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Pure Corpus-Resolution Functions — catalog, harvest, resolve (REQ-001, REQ-003)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Failing tests: both-direction resolution, version-log match, live-status-independence, terminal-citer exemption, malformed-bundle no-panic"
+        description: |
+          Add a NEW file pkg/validate/supports_resolution_test.go exercising the
+          pure functions BuildBundleReqCatalog, CollectSupportRefs, and
+          ResolveSupports DIRECTLY against in-test []*artifact.ParsedArtifact
+          fixtures (no filesystem, no ValidateArtifacts wiring — that is Phase 4).
+          All tests FAIL today (the functions and supports_resolution.go do not
+          exist). Author against the contract signatures in the spec.
+
+          Mandated test names:
+            - TestResolveSupports_DeclaredReqResolves (CLM-001): a ref naming an
+              existing bundle + a REQ declared in its requirements[] resolves
+              clean (no violation).
+            - TestResolveSupports_MissingBundleErrors (CLM-002): a ref naming a
+              bundle absent from the catalog is an error.
+            - TestResolveSupports_UndeclaredReqErrors (CLM-003): a ref to an
+              existing bundle but a REQ id it never declared is an error.
+            - TestResolveSupports_DraftCitingStatusIndependent (CLM-004): a
+              `draft` spec citing a real, declared, logged REQ resolves clean —
+              resolution keys off the ref TARGET, never the citer's live status.
+            - TestResolveSupports_IssueRefMissingBundleErrors (CLM-005): an ISSUE
+              requirement's ref is resolution-checked the same way — a missing
+              bundle is an error.
+            - TestResolveSupports_PinMatchesLogEntry (CLM-012): a pin matching a
+              real entry in the cited REQ's version log resolves clean.
+            - TestResolveSupports_FabricatedVersionErrors (CLM-013): a pin to a
+              version absent from the cited REQ's log is an error.
+            - TestResolveSupports_OlderLoggedVersionResolves (CLM-014): a pin to
+              an OLDER version present in a multi-entry log resolves clean
+              (historical pins stay resolvable).
+            - TestBuildBundleReqCatalog_MalformedBundleSkippedGracefully
+              (CLM-034): a cited bundle whose requirements[] is absent / non-list
+              / malformed is SKIPPED by the builder without panicking — resolution
+              still surfaces the ref violation.
+            - TestResolveSupports_DeprecatedCiterExempt (CLM-035): a `deprecated`
+              (terminal) spec's dangling ref is NOT harvested/resolution-checked
+              — it resolves clean (CollectSupportRefs skips terminal citers).
+            - TestResolveSupports_ReplacedCiterExempt (CLM-036): a `replaced`
+              (terminal) spec's ref is NOT resolution-checked (keeps SPEC-039 out
+              of resolution).
+        files:
+          - pkg/validate/supports_resolution_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on: []
+        test_names:
+          - TestResolveSupports_DeclaredReqResolves
+          - TestResolveSupports_MissingBundleErrors
+          - TestResolveSupports_UndeclaredReqErrors
+          - TestResolveSupports_DraftCitingStatusIndependent
+          - TestResolveSupports_IssueRefMissingBundleErrors
+          - TestResolveSupports_PinMatchesLogEntry
+          - TestResolveSupports_FabricatedVersionErrors
+          - TestResolveSupports_OlderLoggedVersionResolves
+          - TestBuildBundleReqCatalog_MalformedBundleSkippedGracefully
+          - TestResolveSupports_DeprecatedCiterExempt
+          - TestResolveSupports_ReplacedCiterExempt
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement supports_resolution.go: SupportRef, BundleReqCatalog, BuildBundleReqCatalog, CollectSupportRefs, ResolveSupports"
+        description: |
+          Create pkg/validate/supports_resolution.go with the pure functions from
+          the spec's contracts (no filesystem, no language/tool knowledge —
+          operate on already-parsed artifacts). Make TASK-008 go green.
+
+          Types & functions (match the contract signatures):
+            • type SupportRef struct { Raw, BundleName, ReqID, Version string;
+              Pinned bool; File, Label string } — one parsed pin harvested from a
+              citing spec/issue requirement.
+            • type BundleReqCatalog — bundle name -> REQ id -> ordered set of
+              logged versions.
+            • BuildBundleReqCatalog(bundles []*artifact.ParsedArtifact)
+              *BundleReqCatalog: extract each bundle REQ's EFFECTIVE version log
+              (implicit single-entry {version} when `versions:` absent, else the
+              explicit list's versions) into the catalog. GRACEFULLY skip a bundle
+              whose requirements[] is absent / non-list / malformed — never panic
+              (CLM-034). Do NOT re-check well-formedness here (that lives in
+              validateBundleRequirements); read what is present.
+            • CollectSupportRefs(citing []*artifact.ParsedArtifact) []SupportRef:
+              harvest every supports ref from the requirements[] of the given
+              spec/issue artifacts, parsing bundle name, REQ id, and pin.
+              SKIP terminal-status citers (replaced/canceled/deprecated/obsoleted)
+              via the existing isTerminalStatus, mirroring spec.go:175 /
+              issue.go:349 (CLM-035/036).
+            • ResolveSupports(catalog *BundleReqCatalog, refs []SupportRef)
+              []Violation: for each ref emit error-severity Violations for a
+              missing bundle (CLM-002), an undeclared REQ (CLM-003), and a pin
+              absent from the REQ's version set (CLM-013), at ANY citing status
+              (CLM-004). A declared REQ with a pin present in its log resolves
+              clean (CLM-001/012/014).
+          Version-set membership uses the strict M.M.P string form directly (the
+          pin and log entries share `semverRe`, so exact string match suffices for
+          membership; older-but-present pins resolve — CLM-014).
+        files:
+          - pkg/validate/supports_resolution.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify Phase 3: full gate + go test ./... + artifact validate (pure resolution functions green; corpus-neutral)"
+        description: |
+          Run the FULL command set — no dimension filtering, no scoping down:
+            1. go test ./... — confirm all 11 TASK-008 mandated tests pass.
+            2. ./bin/backstop gate — the pure functions are UNWIRED at this phase
+               (ValidateArtifacts does not call them until Phase 4), so this phase
+               is corpus-neutral: any gate red here is inherited from Phases 1/2's
+               enforcement flip (un-backfilled corpus), NOT from supports_
+               resolution.go. Confirm supports_resolution.go adds no new corpus
+               behavior yet.
+            3. ./bin/backstop artifact validate — confirm PLAN-SPEC-050 validates;
+               any corpus red is the Phase-1/2 flip signal.
+          Report per-test pass/fail and confirm the new file is genuinely pure
+          (no filesystem access, no baked language/tool noun).
+        files:
+          - pkg/validate/supports_resolution.go
+          - pkg/validate/supports_resolution_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: REQ-001 wiring — ValidateArtifacts runs the resolution pass over
+  # the discovered corpus (full-corpus catalog under type-scoping), so the CLI
+  # and the gate's ValidateAll share ONE verdict. Depends on Phase 3.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Wire the Resolution Pass into ValidateArtifacts — one shared verdict, full-corpus catalog under scoping (REQ-001)"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Failing tests: resolution runs inside ValidateArtifacts (CLI==gate), and a type-scoped run still builds the catalog from the full corpus"
+        description: |
+          Add a NEW file cmd/backstop/artifact_validate_resolution_test.go
+          exercising the WIRED pass through ValidateArtifacts against on-disk
+          fixture corpora (t.TempDir + written .bundle.md/.spec.md/.issue.md,
+          mirroring the existing cmd/backstop validate-test style). These tests
+          FAIL today (ValidateArtifacts does not yet run the resolution pass).
+          This test task depends on Phase 3's verification (TASK-010) so the pure
+          functions it wires already exist and compile — a test task may depend on
+          a verification task.
+
+          Mandated test names:
+            - TestValidateArtifacts_ResolutionPassSharedByCLIAndGate (CLM-006):
+              stage a corpus with a spec citing a MISSING bundle; assert
+              ValidateArtifacts surfaces the resolution violation — i.e. the pass
+              runs inside the shared walk that both `backstop artifact validate`
+              and the gate's realArtifactValidator.ValidateAll flow through (one
+              verdict, no forked second copy). Prove BOTH a clean-resolving corpus
+              (no violation) and a dangling-ref corpus (violation) so it cannot
+              go vacuous.
+            - TestResolveSupports_TypeScopedRunUsesFullCorpusCatalog (CLM-031):
+              stage a corpus with a real bundle + a spec whose ref resolves
+              against it; run ValidateArtifacts with a `--spec`-equivalent type
+              filter (cfg.TypeFilters scoped to spec) and assert the ref STILL
+              resolves clean — the catalog is built from a full-corpus bundle
+              discovery independent of the scope, so the scoped run does NOT
+              false-red the ref as "missing bundle." An unscoped run over the same
+              corpus must produce the identical verdict.
+        files:
+          - cmd/backstop/artifact_validate_resolution_test.go
+        claims:
+          - CLM-006
+          - CLM-031
+        depends_on:
+          - TASK-010
+        test_names:
+          - TestValidateArtifacts_ResolutionPassSharedByCLIAndGate
+          - TestResolveSupports_TypeScopedRunUsesFullCorpusCatalog
+
+      - id: TASK-012
+        type: implementation
+        title: "Wire BuildBundleReqCatalog + CollectSupportRefs + ResolveSupports into ValidateArtifacts with a scope-independent full-corpus catalog"
+        description: |
+          In cmd/backstop/artifact_validate.go, extend ValidateArtifacts
+          (:101; unchanged signature) to run the resolution pass AFTER the
+          per-artifact loop and append its violations. Make TASK-011 go green.
+
+          Wiring:
+            1. Build the resolution catalog from a FULL-corpus bundle set that is
+               INDEPENDENT of cfg's type filter — do a separate unfiltered bundle
+               discovery (or discover all types once and filter only for the
+               per-artifact validation loop). This is load-bearing: because
+               DiscoverArtifacts receives the type filter (:112), a naive catalog
+               built from the scoped discovery would see ZERO bundles on a
+               `--spec` run and false-red every ref (CLM-031). Parse those bundles
+               and pass them to validate.BuildBundleReqCatalog.
+            2. Harvest refs via validate.CollectSupportRefs over the discovered
+               spec + issue artifacts (terminal citers skipped inside the harvest).
+            3. Run validate.ResolveSupports(catalog, refs) and append the returned
+               violations to allViolations before the final ValidateResult
+               (CLM-006). Because the gate's realArtifactValidator.ValidateAll
+               delegates to ValidateArtifacts, the CLI and gate inherit the pass
+               identically — do NOT add a second gate-only resolution copy.
+          No baked language/tool noun enters the file.
+        files:
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-006
+          - CLM-031
+        depends_on:
+          - TASK-011
+          - TASK-009
+
+      - id: TASK-013
+        type: verification
+        title: "Verify Phase 4: full gate + go test ./... + artifact validate (wired pass green on fixtures; CLI==gate; scoped==unscoped)"
+        description: |
+          Run the FULL command set — no dimension filtering, no scoping down:
+            1. go test ./... — confirm TestValidateArtifacts_ResolutionPassShared
+               ByCLIAndGate and TestResolveSupports_TypeScopedRunUsesFullCorpus
+               Catalog pass, and no existing cmd/backstop validate test regressed.
+            2. ./bin/backstop gate — full kill chain. The resolution pass is now
+               LIVE (error-severity), so this reds the un-backfilled corpus
+               (dangling/unpinned refs) BY DESIGN until SPEC-051's backfill
+               co-lands. Confirm the reds are resolution/format/version reds on
+               the exact artifacts SPEC-051 targets (unpinned refs, unversioned
+               bundle REQs, the SPEC-002/003/004 danglers to be deprecated), NOT a
+               wiring defect — go test green is the correctness signal here.
+            3. ./bin/backstop artifact validate — confirm the SAME verdict a
+               `--spec`-scoped run and an unscoped run produce (no scope-induced
+               false-red), and that PLAN-SPEC-050 validates.
+          Report per-test pass/fail and confirm the resolution pass reaches the
+          gate through the shared ValidateArtifacts path (no forked copy).
+        files:
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/artifact_validate_resolution_test.go
+        claims:
+          - CLM-006
+          - CLM-031
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Final comprehensive verification on the ASSEMBLED change-train
+  # (SPEC-050 code + SPEC-051 backfill co-landed). Full gate + go test +
+  # artifact validate across code AND artifacts.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification on the Co-Landed Change-Train (full gate + go test + artifact validate)"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Final kill chain on the assembled SPEC-050+SPEC-051 change-train: full gate + go test ./... + full-corpus artifact validate, green"
+        description: |
+          Final comprehensive verification. This runs on the ASSEMBLED atomic
+          change-train — SPEC-050's code (this plan) PLUS SPEC-051's Seed-2
+          corpus backfill applied together — because the enforcement flip
+          (mandatory pin, `version:`-required, error-severity resolution) reds the
+          un-backfilled corpus by design with NO runtime toggle (see co-land
+          note). Run the FULL command set — no dimension filtering, no scoping:
+            1. ./bin/backstop gate — the full kill chain (artifact validation,
+               code check, test verification, substantiveness, coverage,
+               contracts) passes GREEN on the co-landed corpus. This subsumes code
+               verification (the plan touches .go files).
+            2. go test ./pkg/validate/... ./cmd/backstop/... -race
+               -coverprofile=cover.out — all SPEC-050 mandated tests pass and the
+               80% coverage threshold for pkg/validate + cmd/backstop is met.
+            3. ./bin/backstop artifact validate — the FULL corpus validates clean
+               (SPEC-051's `@1.0.0` pins + `version: 1.0.0` stamps + the
+               deprecated SPEC-002/003/004 danglers resolve/exempt correctly), and
+               PLAN-SPEC-050 validates.
+          Confirm the end-state invariants: mandatory pin enforced on spec AND
+          issue refs (REQ-002); both-direction resolution + version-log match live
+          through the shared ValidateArtifacts pass, CLI==gate (REQ-001/003);
+          type-scoped == unscoped (CLM-031); bundle version-log well-formedness +
+          requirements[]-at-delivered enforced (REQ-004/005); terminal citers
+          exempt (CLM-035/036); no baked language/tool noun entered any file; and
+          the flip is unconditionally on with no toggle. Report the final gate
+          status, the go-test result + coverage, and the artifact-validate result.
+        files:
+          - pkg/validate/bundle.go
+          - pkg/validate/spec.go
+          - pkg/validate/issue.go
+          - pkg/validate/supports_resolution.go
+          - cmd/backstop/artifact_validate.go
+          - plans/PLAN-SPEC-050-requirement-versioning-and-supports-resolution.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-031
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-005
+          - TASK-006
+          - TASK-007
+          - TASK-009
+          - TASK-010
+          - TASK-012
+          - TASK-013

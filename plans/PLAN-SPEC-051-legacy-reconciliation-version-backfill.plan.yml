@@ -1,0 +1,556 @@
+---
+plan_id: PLAN-SPEC-051
+spec_id: SPEC-051
+spec_version: 1.3.0
+created: "2026-07-14"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/validate/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  Implements SPEC-051 (BUNDLE-014 Seed 2, covers requirement-traceability:REQ-015):
+  the ONE-TIME legacy corpus reconciliation + `1.0.0` version-backfill sweep that
+  makes the artifact corpus uniformly explicit and GREEN at the exact moment
+  SPEC-050 (Seed 1) flips mandatory-pin + both-direction resolution ON.
+
+  SHAPE — this plan adds ZERO production code. SPEC-051 explicitly owns no
+  pkg/validate code path (SPEC-050 owns `supportsRe`, BuildBundleReqCatalog,
+  CollectSupportRefs, ResolveSupports, validateBundleRequirements). The two
+  deliverables are (a) a reconciled corpus — a set of artifact edits routed through
+  the artifact agents — and (b) a single corpus-assertion test file that CONSUMES
+  SPEC-050's public functions over the REAL project artifacts to prove the end
+  state. Because the work modifies existing artifacts rather than writing new
+  production code, the corpus edits are typed `refactor` (not `implementation`);
+  the assertion harness is typed `test`; there are no `implementation` tasks. The
+  contracts[] block is `consumes`-only, so no `provides` symbol is created here.
+
+  ARTIFACT-ROUTING (CLAUDE.md law — never hand-edit artifacts): every corpus edit
+  MUST be made through the purpose-built artifact agents at implementation time —
+  bundle-author for the bundle edits (deprecate agent-definitions; version-stamp
+  the ten bundles), spec-author for the spec edits (retire SPEC-002/003/004;
+  append the re-home ref to SPEC-040; pin-stamp every live spec). The plan tasks
+  describe the TARGET STATE + the validate proof; they do NOT authorize
+  hand-editing frontmatter. [agent-guard + validate-artifact]
+
+  ATOMIC CO-LAND (REQ-006, non-negotiable): the current `supportsRe`
+  (`^[a-z0-9-]+:REQ-\d{3}$`) REJECTS a pinned `@1.0.0` ref, and SPEC-050's
+  tightened `supportsRe` REJECTS an unpinned ref. So the pin-stamp (REQ-005),
+  the version stamp (REQ-004), the re-home (REQ-002), and SPEC-050's
+  regex/resolution change are a SINGLE merge-sequencing change-train — no
+  intermediate committed state may have the old regex facing pinned refs or the
+  new regex facing unpinned refs. The only phase whose `artifact validate` is
+  green STANDALONE under today's rules is the retirement phase (Phase 2 —
+  deprecating specs/bundle is valid now). The version/pin phases assemble into
+  the change-train and are proven green only by the FINAL comprehensive
+  verification (Phase 4) run with SPEC-050's enforcement UNCONDITIONALLY ON —
+  no runtime toggle, no grandfather path.
+
+  EXTERNAL CO-LAND DEPENDENCIES (outside this plan's file scope, both authored in
+  parallel):
+    - SPEC-050: the assertion test file will not COMPILE until SPEC-050's
+      BuildBundleReqCatalog / CollectSupportRefs / ResolveSupports land, and the
+      corpus goes green only once its regex tightens. SPEC-050's resolution pass
+      MUST also EXCLUDE terminal-status citing specs (mirror of the per-artifact
+      supports-format exemption) or the retired SPEC-002/003/004 dangling refs
+      still red — flagged to Seed 1; REQ-003 depends on it.
+    - SPEC-053 (retroactive-codecheck-deadcode-deletions): the ONLY live coverage
+      of BUNDLE-011 REQ-007/REQ-010 is SPEC-053 REQ-007/REQ-010. SPEC-053 must be
+      `implemented` and land in the same change-train, or BUNDLE-011 blocks the
+      Seed-3 coverage gate. This plan does NOT author SPEC-053 (parallel work); it
+      only pin-stamps SPEC-053's own supports refs as part of the REQ-005 sweep and
+      asserts BUNDLE-011's coverage flows through it.
+
+  SET RE-MEASUREMENT: the file lists below (ten version-stamp bundles; ~31 live
+  pin-stamp specs) reflect the corpus at planning time (2026-07-14, all Seed specs
+  authored). The executor MUST RE-MEASURE the exact sets at implementation time by
+  the RULE (REQ-004: every REQ of every non-terminal bundle declaring
+  requirements[]; REQ-005: every supports ref on every live/non-terminal spec/issue
+  requirement, minus the retiring SPEC-002/003/004 and ALL terminal specs
+  SPEC-008/011/034/039), not by trusting these frozen lists.
+
+  COVERAGE VACUITY IS EXPECTED (not a defect): SPEC-051 adds only corpus-assertion
+  tests, no new production lines, so there is no meaningful coverage delta. The
+  anti-vacuous-green concern is answered by the assertion tests proving a genuinely
+  green corpus, not by a coverage percentage (Sharp Edges).
+
+  CLAIM MAP (all 20 CLMs → tasks):
+    CLM-001 agent-definitions deprecated ............ TASK-002 / TASK-001
+    CLM-002 terminal-exempt from requirements gate .. TASK-002 / TASK-003
+    CLM-003 no backfilled requirements[] (neg guard). TASK-002
+    CLM-004 terminal → outside coverage eval (F1) ... TASK-002 / TASK-003
+    CLM-005 B011:REQ-004 → SPEC-040 REQ-001 ......... TASK-005
+    CLM-006 B011:REQ-007 → SPEC-053 (not 040/039) ... TASK-001 / TASK-007
+    CLM-007 B011:REQ-010 → SPEC-053 (not 040/039) ... TASK-001 / TASK-007
+    CLM-008 SPEC-039 left untouched (neg guard) ..... TASK-005 / TASK-001
+    CLM-009 SPEC-002 deprecated .................... TASK-002
+    CLM-010 SPEC-003 deprecated .................... TASK-002
+    CLM-011 SPEC-004 deprecated .................... TASK-002
+    CLM-012 retired drafts exempt (dangling refs) ... TASK-002 / TASK-003
+    CLM-013 retired drafts NOT implemented (neg) .... TASK-002
+    CLM-014 all non-terminal bundle REQs versioned .. TASK-004 / TASK-007
+    CLM-015 zero bundle version-log violations ...... TASK-004 / TASK-007
+    CLM-016 all live supports refs pinned @X.Y.Z .... TASK-006 / TASK-007
+    CLM-017 zero unpinned-supports violations ....... TASK-006 / TASK-007
+    CLM-018 Seed specs self-pinned @1.0.0 .......... TASK-006 / TASK-007
+    CLM-019 corpus resolves green under enforcement . TASK-008
+    CLM-020 unpinned+fabricated refs still red (neg). TASK-008
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Corpus-assertion test harness (TDD red)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Corpus-Assertion Test Harness"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the corpus-assertion test file consuming SPEC-050's resolution + version-log functions over the real corpus"
+        description: |
+          RED phase. Author the single contract-declared assertion file
+          pkg/validate/reconciliation_backfill_test.go. It parses the REAL project
+          artifacts with pkg/artifact.ParseFile and drives SPEC-050's public
+          functions — BuildBundleReqCatalog over the parsed bundles,
+          CollectSupportRefs over the parsed live specs/issues, ResolveSupports for
+          the both-direction + log-match verdict — plus validate.Bundle /
+          validate.Spec for the terminal exemptions. Each of the 20 TestReconcile_*
+          functions asserts one specific corpus-state fact (a status terminal, a
+          version present, a ref pinned, a resolution clean, a negative guard).
+
+          These tests assert the END STATE of the reconciled corpus, so they stay
+          RED until BOTH the reconciliation sweep (Phases 2-3) AND SPEC-050's flip
+          co-land. The file also will not COMPILE until SPEC-050's functions exist
+          (external co-land dependency, see notes) — that is expected and is the
+          whole point of the atomic change-train.
+
+          Exact assertions (mandated names → claim):
+            - TestReconcile_AgentDefsDeprecated (CLM-001): agent-definitions bundle
+              maturity is `deprecated` after the sweep.
+            - TestReconcile_AgentDefsTerminalExemptFromRequirementsGate (CLM-002):
+              deprecated agent-definitions validates clean with NO requirements[] —
+              the terminal exemption skips the requirements-required gate (no
+              bundle requirements-missing violation).
+            - TestReconcile_AgentDefsNoBackfilledRequirements (CLM-003): the bundle
+              carries no backfilled requirements[] (the 18-REQ backfill was dropped).
+            - TestReconcile_AgentDefsTerminalOutsideCoverageEval (CLM-004):
+              isTerminalStatus recognizes it, so it is outside the SPEC-052
+              delivered-coverage evaluation (zero coverage debt — F1 seam resolved).
+            - TestReconcile_Bundle011Req004CoveredBySpec040Req001 (CLM-005):
+              collapse-legacy-codecheck-into-packs:REQ-004 resolves to SPEC-040
+              REQ-001 (implemented) after the append.
+            - TestReconcile_Bundle011Req007CoveredBySpec053 (CLM-006): :REQ-007
+              resolves to an implemented spec requirement (SPEC-053 REQ-007), NOT
+              SPEC-040 and NOT the replaced SPEC-039.
+            - TestReconcile_Bundle011Req010CoveredBySpec053 (CLM-007): :REQ-010
+              resolves to SPEC-053 REQ-010, same exclusions.
+            - TestReconcile_Spec039LeftUntouched (CLM-008): SPEC-039 still
+              `replaced`; its two supports refs neither re-pinned nor re-homed.
+            - TestReconcile_Spec002Deprecated / _Spec003Deprecated /
+              _Spec004Deprecated (CLM-009/010/011): each at terminal `deprecated`.
+            - TestReconcile_RetiredDraftsExemptFromDanglingRefs (CLM-012): the
+              retired drafts raise no completeness / supports-format violation for
+              their dangling agent-definitions refs (terminal-citer exemption).
+            - TestReconcile_RetiredDraftsNotImplemented (CLM-013): none of
+              SPEC-002/003/004 is `implemented` (retired, not promoted).
+            - TestReconcile_AllNonTerminalBundleReqsVersioned (CLM-014): every REQ
+              of every non-terminal bundle declaring requirements[] has a
+              well-formed semver version.
+            - TestReconcile_NoBundleVersionLogViolationsCorpusWide (CLM-015): the
+              version-log validation over the whole corpus yields zero violations.
+            - TestReconcile_AllLiveSupportsRefsPinned (CLM-016): every supports ref
+              on a live spec requirement carries an exact @MAJOR.MINOR.PATCH pin.
+            - TestReconcile_NoUnpinnedSupportsRefViolations (CLM-017): the tightened
+              supportsRe raises zero pin-format violations across live specs.
+            - TestReconcile_SeedSpecsSelfPinnedAt100 (CLM-018): SPEC-050/051/052
+              carry their own supports refs pinned at @1.0.0 (self-referential).
+            - TestReconcile_CorpusResolvesGreenUnderEnforcement (CLM-019):
+              both-direction resolution over the real corpus with mandatory-pin
+              enforcement ON raises zero unresolved-ref violations.
+            - TestReconcile_UnpinnedAndFabricatedRefsStillRedUnderEnforcement
+              (CLM-020): a still-unpinned ref and a fabricated-version ref each FAIL
+              resolution under enforcement ON (proves the flip is genuinely on,
+              not grandfathered).
+        files:
+          - pkg/validate/reconciliation_backfill_test.go
+        test_names:
+          - TestReconcile_AgentDefsDeprecated
+          - TestReconcile_AgentDefsTerminalExemptFromRequirementsGate
+          - TestReconcile_AgentDefsNoBackfilledRequirements
+          - TestReconcile_AgentDefsTerminalOutsideCoverageEval
+          - TestReconcile_Bundle011Req004CoveredBySpec040Req001
+          - TestReconcile_Bundle011Req007CoveredBySpec053
+          - TestReconcile_Bundle011Req010CoveredBySpec053
+          - TestReconcile_Spec039LeftUntouched
+          - TestReconcile_Spec002Deprecated
+          - TestReconcile_Spec003Deprecated
+          - TestReconcile_Spec004Deprecated
+          - TestReconcile_RetiredDraftsExemptFromDanglingRefs
+          - TestReconcile_RetiredDraftsNotImplemented
+          - TestReconcile_AllNonTerminalBundleReqsVersioned
+          - TestReconcile_NoBundleVersionLogViolationsCorpusWide
+          - TestReconcile_AllLiveSupportsRefsPinned
+          - TestReconcile_NoUnpinnedSupportsRefViolations
+          - TestReconcile_SeedSpecsSelfPinnedAt100
+          - TestReconcile_CorpusResolvesGreenUnderEnforcement
+          - TestReconcile_UnpinnedAndFabricatedRefsStillRedUnderEnforcement
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Retire the legacy scaffolding cluster (current-regex-safe)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Retire the Legacy Scaffolding Cluster"
+    tasks:
+      - id: TASK-002
+        type: refactor
+        title: "Deprecate the agent-definitions bundle (drop the backfill) and retire SPEC-002/003/004 as one cluster"
+        description: |
+          The legacy scaffolding cluster goes terminal together (REQ-001 + REQ-003).
+          This is the ONE phase whose end state is green STANDALONE under today's
+          rules (no pins introduced), so it lands first.
+
+          ROUTING — never hand-edit; route through the artifact agents at
+          implementation time: bundle-author for the bundle, spec-author for the
+          three specs. This task describes the target state + proof only.
+
+          Edits:
+            - bundles/agent-definitions.bundle.md (REQ-001, via bundle-author): set
+              status.maturity `delivered` -> `deprecated`. Do NOT add a
+              requirements[] array — the once-planned 18-REQ backfill is DROPPED. An
+              OPTIONAL free-text reason MAY cite supersession by the living `.claude`
+              agent roster + the agent-guard hook + the ISSUE-044 roster-consistency
+              check. `deprecated` needs no retirement pointer. Rationale: a terminal
+              bundle is exempt from BOTH the requirements[] gate and SPEC-052's
+              delivered-coverage gate, so deprecating creates ZERO coverage debt,
+              whereas a `delivered` bundle with a backfilled-but-uncovered
+              requirements[] would be blocked the moment SPEC-052 lands (CLM-001..004).
+            - specs/SPEC-002-plan-schema-evolution.spec.md,
+              specs/SPEC-003-agent-hooks.spec.md,
+              specs/SPEC-004-spec-schema-evolution.spec.md (REQ-003, via spec-author):
+              set status `draft` -> `deprecated` (an OPTIONAL free-text reason MAY be
+              recorded), leaving their bodies otherwise intact. They retire as one
+              cluster with the bundle — retired without a single named successor
+              (`canceled`/`replaced`/`obsoleted` would misrepresent history or demand
+              a successor pointer none has). Do NOT promote them to `implemented`
+              (CLM-009/010/011/013). Retiring them takes their dangling
+              agent-definitions:REQ-004..018 refs out of live validation via the
+              terminal-citer exemption (CLM-012).
+
+          File set is disjoint from every version-stamp bundle (Phase 3) and every
+          live pin-stamp spec (Phase 3 excludes SPEC-002/003/004).
+        files:
+          - bundles/agent-definitions.bundle.md
+          - specs/SPEC-002-plan-schema-evolution.spec.md
+          - specs/SPEC-003-agent-hooks.spec.md
+          - specs/SPEC-004-spec-schema-evolution.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the retired cluster validates clean under the terminal exemption via backstop artifact validate"
+        description: |
+          Middle-phase verification of the retirement (artifact work → the relevant
+          all-gates check is `backstop artifact validate`, run over the WHOLE corpus,
+          unfiltered). Confirm:
+            - agent-definitions is `deprecated` and validates clean with NO
+              requirements[] — no bundle requirements-missing violation (terminal
+              exemption; CLM-002) — and is recognized as terminal, hence outside the
+              delivered-coverage evaluation (CLM-004).
+            - SPEC-002/003/004 are `deprecated` and validate clean with no
+              completeness / supports-format violation for their now-dangling
+              agent-definitions refs (terminal-citer exemption; CLM-012).
+          Use the backstop CLI surface only (`backstop artifact validate`); do NOT
+          prescribe raw tooling. This phase is green standalone (no pins yet).
+        files:
+          - bundles/agent-definitions.bundle.md
+          - specs/SPEC-002-plan-schema-evolution.spec.md
+          - specs/SPEC-003-agent-hooks.spec.md
+          - specs/SPEC-004-spec-schema-evolution.spec.md
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-012
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Version backfill + re-home + supports-pin sweep (co-land core)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Version Backfill, Re-home, and Supports-Pin Sweep"
+    tasks:
+      - id: TASK-004
+        type: refactor
+        title: "Stamp version: \"1.0.0\" on every REQ of the ten non-terminal bundles declaring requirements[]"
+        description: |
+          REQ-004. Route through bundle-author (never hand-edit). Add
+          `version: "1.0.0"` (the initial version-log entry) to EVERY requirement of
+          every non-terminal bundle that declares a requirements[] array, so
+          SPEC-050 REQ-004's per-REQ version + version-log validation passes
+          corpus-wide (CLM-014/015).
+
+          RE-MEASURE the set by the rule at implementation time. At planning time the
+          ten bundles are: BUNDLE-004, 005, 006, 007, 009, 010, 011, 012, 013, and
+          the cli bundle. EXCLUDE BUNDLE-014 (already stamped — it dogfooded the
+          convention), the now-`deprecated` agent-definitions (terminal, no
+          requirements[]), and all other terminal bundles (runtime-hooks,
+          standards-compiler).
+
+          Co-land note: this is part of the atomic change-train — the version field's
+          validation lands with SPEC-050's schema; standalone green is proven only by
+          Phase 4. File set (bundles) is disjoint from the re-home (SPEC-040) and the
+          pin-stamp (specs), so this task is parallel-eligible with TASK-005.
+        files:
+          - bundles/BUNDLE-004-pack-manifest-authoring.bundle.md
+          - bundles/BUNDLE-005-pack-validation.bundle.md
+          - bundles/BUNDLE-006-pack-distribution-lifecycle.bundle.md
+          - bundles/BUNDLE-007-baseline.bundle.md
+          - bundles/BUNDLE-009-stack-aware-traceability.bundle.md
+          - bundles/BUNDLE-010-pluggable-pack-engines.bundle.md
+          - bundles/BUNDLE-011-collapse-legacy-codecheck-into-packs.bundle.md
+          - bundles/BUNDLE-012-language-neutral-consumer-ts-toolchain.bundle.md
+          - bundles/BUNDLE-013-waiver-subsystem.bundle.md
+          - bundles/cli.bundle.md
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: refactor
+        title: "Re-home BUNDLE-011 REQ-004 by appending collapse…:REQ-004 to SPEC-040 REQ-001's supports list"
+        description: |
+          REQ-002. Route through spec-author (never hand-edit). Append
+          `collapse-legacy-codecheck-into-packs:REQ-004` to SPEC-040 REQ-001's
+          `supports` LIST (supports accepts a string OR a list per
+          pkg/validate/spec.go) — a metadata append only: NO new requirement, NO new
+          claim, NO code change, so the already-`implemented` SPEC-040's
+          contracts/tests/coverage gate is NOT re-opened. This gives BUNDLE-011
+          REQ-004 a faithful live home (SPEC-040 delivered the toolchain-routing;
+          CLM-005).
+
+          Do NOT re-home REQ-007/REQ-010 here — SPEC-040's scope fence DISOWNS those
+          deletions; their honest home is SPEC-053 REQ-007/REQ-010 (parallel work,
+          not edited by this plan). Do NOT edit the `replaced` SPEC-039 — its refs
+          are neither re-pinned nor re-homed (CLM-008 negative guard). This task
+          touches SPEC-040 only; the REQ-005 pin-stamp (TASK-006) depends on it so
+          SPEC-040's newly-appended ref is pinned in the same sweep (shared-file edit
+          serialized).
+        files:
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+        claims:
+          - CLM-005
+          - CLM-008
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: refactor
+        title: "Stamp @1.0.0 on every supports ref of every live (non-terminal) spec"
+        description: |
+          REQ-005. Route through spec-author (never hand-edit). Append the exact
+          `@1.0.0` pin (`bundle-name:REQ-NNN@1.0.0`) to EVERY `supports` ref on every
+          live spec requirement, so SPEC-050 REQ-002's mandatory-pin format check and
+          REQ-003's log-match resolution both pass corpus-wide (CLM-016/017/018). This
+          is a mechanical, uniform edit repeated across the live set; it is kept as one
+          task so the live ref set is re-measured ONCE, in a single shot — splitting it
+          across parallel tasks would force each slice to independently re-derive its
+          subset, risking gaps or overlaps in the ref set — hence the broad file scope.
+
+          RE-MEASURE the exact live set by the rule at implementation time: every spec
+          carrying `supports` MINUS the retiring SPEC-002/003/004 (whose refs cease to
+          be validated on retirement, TASK-002) and MINUS ALL terminal specs
+          (SPEC-008 `replaced`, SPEC-011 `deprecated`, SPEC-034 `replaced`, SPEC-039
+          `replaced` — untouched per REQ-002). No issue currently carries a supports
+          ref. The Seed specs SPEC-050/051/052/053 ARE in the live set — the sweep
+          stamps their own refs too (self-referential corpus; CLM-018). The file list
+          below is the set at planning time (31 specs) and includes SPEC-040 (its
+          re-homed ref, appended by TASK-005, is pinned here — hence the dependency on
+          TASK-005 for the shared-file edit) and SPEC-051 (this spec's own
+          `requirement-traceability:REQ-015` ref, written unpinned today, is stamped
+          to @1.0.0 by this sweep).
+
+          Depends on TASK-005 (SPEC-040 shared-file ordering) and TASK-002 (retirement
+          settles which specs are live). Co-land note: pinned refs are REJECTED by
+          today's `supportsRe`; standalone green is impossible until SPEC-050's regex
+          tightens — proven only by Phase 4.
+        files:
+          - specs/SPEC-005-cli-foundation.spec.md
+          - specs/SPEC-006-artifact-validate.spec.md
+          - specs/SPEC-007-artifact-new.spec.md
+          - specs/SPEC-009-pack-compile.spec.md
+          - specs/SPEC-010-gate.spec.md
+          - specs/SPEC-013-pack-manifest-schema.spec.md
+          - specs/SPEC-014-pack-validation.spec.md
+          - specs/SPEC-015-pack-distribution.spec.md
+          - specs/SPEC-016-pack-manifest-constraints.spec.md
+          - specs/SPEC-030-packs-only-native-standards-removal.spec.md
+          - specs/SPEC-031-pluggable-engine-dispatch.spec.md
+          - specs/SPEC-032-pack-fixture-engine-execution.spec.md
+          - specs/SPEC-033-engine-bundle-009-seam.spec.md
+          - specs/SPEC-035-pack-declared-engines-trusted-allowlist.spec.md
+          - specs/SPEC-036-traceability-fail-loud.spec.md
+          - specs/SPEC-037-traceability-substantiveness-pack.spec.md
+          - specs/SPEC-038-traceability-contracts-pack.spec.md
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+          - specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md
+          - specs/SPEC-042-coverage-production-engine.spec.md
+          - specs/SPEC-043-pack-declared-globs-coverage-consumer.spec.md
+          - specs/SPEC-044-multi-metric-coverage-records.spec.md
+          - specs/SPEC-045-de-go-test-verification-discovery.spec.md
+          - specs/SPEC-046-retire-language-toolchain-bridge.spec.md
+          - specs/SPEC-047-bun-toolchain-pack-and-proof.spec.md
+          - specs/SPEC-048-engine-dispatch-selftarget-stdout-artifact.spec.md
+          - specs/SPEC-049-waiver-subsystem.spec.md
+          - specs/SPEC-050-requirement-versioning-and-supports-resolution.spec.md
+          - specs/SPEC-051-legacy-reconciliation-version-backfill.spec.md
+          - specs/SPEC-052-requirement-traceability-gate-step.spec.md
+          - specs/SPEC-053-retroactive-codecheck-deadcode-deletions.spec.md
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-001
+          - TASK-005
+          - TASK-002
+
+      - id: TASK-007
+        type: verification
+        title: "Verify version-log well-formedness, supports-pin format, and both-direction resolution via backstop artifact validate"
+        description: |
+          Middle-phase verification of the version + re-home + pin work, assembled
+          into the SPEC-050 change-train. Run `backstop artifact validate` over the
+          WHOLE corpus (unfiltered, all gates) with SPEC-050's schema + tightened
+          `supportsRe` + resolution present, and confirm:
+            - every non-terminal bundle REQ carries a well-formed version and the
+              version-log validation yields zero violations (CLM-014/015);
+            - every live supports ref carries an exact @1.0.0 pin and the tightened
+              supportsRe raises zero pin-format violations, Seed specs included
+              (CLM-016/017/018);
+            - BUNDLE-011 REQ-004 resolves to SPEC-040 REQ-001, and REQ-007/REQ-010
+              resolve to SPEC-053 REQ-007/REQ-010 — not SPEC-040, not SPEC-039
+              (CLM-006/007);
+            - SPEC-039 is byte-for-byte unchanged, still `replaced` (CLM-008).
+          Use the backstop CLI surface only (`backstop artifact validate`). Depends
+          on the three Phase-3 refactor tasks.
+        files:
+          - specs/SPEC-040-toolchain-pack-cutover.spec.md
+          - specs/SPEC-050-requirement-versioning-and-supports-resolution.spec.md
+          - bundles/BUNDLE-011-collapse-legacy-codecheck-into-packs.bundle.md
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Atomic co-land + comprehensive final verification (REQ-006)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Atomic Co-land and Comprehensive Final Verification"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Full kill chain — backstop gate + artifact validate GREEN over the whole corpus with SPEC-050 enforcement unconditionally ON"
+        description: |
+          Final comprehensive verification of the whole change set (REQ-006), run
+          over the REAL tree with the entire sweep assembled in the SAME change-train
+          as SPEC-050's `supportsRe` tightening + resolution wiring (and SPEC-053
+          landed `implemented`) — so no intermediate committed state has the old regex
+          facing pinned refs or the new regex facing unpinned refs.
+
+          Because the change set touches a .go file (the assertion test), run
+          `backstop gate` (full kill chain: code check, test verification,
+          substantiveness, coverage, contracts) and confirm GREEN — the 20
+          TestReconcile_* assertion tests now compile (SPEC-050's functions present)
+          and PASS over the real corpus. Coverage vacuity is expected and is NOT a
+          defect (assertion-only; the proof is the green corpus, not a coverage
+          delta).
+
+          Because the change set is primarily artifacts, ALSO run
+          `backstop artifact validate` over the WHOLE corpus (unfiltered) with
+          SPEC-050's mandatory-pin enforcement UNCONDITIONALLY ON and confirm GREEN:
+          every supports ref resolves (real bundle, declared REQ, pin in the version
+          log), zero unresolved / unpinned / fabricated-version violations, zero
+          grandfathering — no runtime toggle, no config path (CLM-019). The negative
+          guards must hold: a still-unpinned ref and a fabricated-version ref each
+          fail resolution under enforcement ON, proving the flip is genuinely on
+          (CLM-020). This plan file (PLAN-SPEC-051) must also validate clean.
+
+          Use the backstop CLI surface only (`backstop gate`, `backstop artifact
+          validate`). This is the acceptance gate for SPEC-051.
+        files:
+          - pkg/validate/reconciliation_backfill_test.go
+          - plans/PLAN-SPEC-051-legacy-reconciliation-version-backfill.plan.yml
+          - specs/SPEC-051-legacy-reconciliation-version-backfill.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+          - TASK-007

@@ -40,6 +40,15 @@
             "command": ".claude/hooks/backstop-agent-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-agent-guard.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [

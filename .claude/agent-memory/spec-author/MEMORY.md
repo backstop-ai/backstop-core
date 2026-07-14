@@ -1,0 +1,1 @@
+- [New validation honors existing exemptions](feedback_new_validation_honors_exemptions.md) — a new corpus-wide pass must mirror terminal/live-work exemptions the per-artifact validators apply

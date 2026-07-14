@@ -1,0 +1,1074 @@
+---
+plan_id: PLAN-SPEC-052
+spec_id: SPEC-052
+spec_version: "1.1.1"
+created: "2026-07-14"
+status: draft
+test_command: "backstop gate"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  HARD DEPENDENCY — SEQUENCE FIRST (SPEC Sharp Edge #1, non-negotiable)
+  ─────────────────────────────────────────────────────────────────────────
+  Execution of THIS plan starts ONLY after SPEC-050 AND SPEC-051 have landed:
+    • SPEC-050 (Seed 1, now v1.2.0) supplies the versioning schema, the
+      resolution surfaces this step consumes — validate.SupportRef,
+      validate.CollectSupportRefs (whose v1.2.0 terminal-citer exemption skips
+      replaced/canceled/deprecated/obsoleted citers) — and the bundle-REQ
+      top-level `version:` (newest log entry) the stale-pin model reads.
+    • SPEC-051 (Seed 2) reconciled + `1.0.0`-backfilled the corpus so every
+      supports ref is pinned and green BEFORE this step turns on.
+  SPEC-053 is already landed. Because the corpus is uniformly versioned and
+  green by the time this runs, the step NEVER reasons about an unbackfilled /
+  unpinned corpus — there is NO "if unpinned" tolerance branch to build.
+  Sequencing is the guard; do not build a tolerance mode.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS (five mechanically-separable pieces, all pure
+  artifact-domain logic — ZERO language/tool knowledge enters pkg/gate)
+  ─────────────────────────────────────────────────────────────────────────
+  1. Two NEW gate step-name constants in pkg/gate/result.go —
+     StepRequirementTraceability ("requirement_traceability", policied block
+     surface) and StepRequirementTraceabilityAdvisory
+     ("requirement_traceability_advisory", NON-policied twin). The reserved
+     StepLedgerIntegrity name is NOT claimed/renamed/reused. These are
+     dynamically-wired step names (like the drift steps), NOT added to the
+     fixed AllStepNames array.
+  2. A bundle-aware extension of ResolveArtifactStatus in
+     pkg/gate/artifact_status.go: a KindBundle case fed by a DEDICATED bundle
+     frontmatter struct + walk (mirroring walkPlanDir/planFrontmatter), NOT a
+     reuse of the string-`Status` artifactFrontmatter. A bundle's `status:` is
+     a YAML MAP (status.maturity) and `bundle:` is a map (bundle.name); routing
+     a .bundle.md through the string-Status artifactFrontmatter yaml.TypeErrors
+     and walkArtifactDir SILENTLY SKIPS it — zero bundle records, vacuously
+     GREEN coverage. The dedicated reader captures bundle.name (the JOIN KEY),
+     nested status.maturity (extractMaturity-style read → the record Status),
+     and requirements[] (id + current version → BundleReqs). ClassifyArtifact
+     Status gains a KindBundle case: `delivered` → ClassSuccessTerminal; the
+     existing retired switch already maps replaced/canceled/deprecated →
+     ClassRetiredTerminal, giving terminal-bundle exclusion for free.
+  3. A pure classifier pkg/gate/requirement_traceability.go (NEW), modeled
+     EXACTLY on status_drift's ClassifyStatusDrift/SplitDriftResult: one
+     combined StepResult carrying error-severity BLOCK + warning-severity
+     ADVISORY violations, partitioned by SplitTraceabilityResult into the
+     policied block surface and the non-policied advisory surface. Plus the
+     coverage-source predicate SupportsCoverage and the semver stale-pin gate
+     StalePinVerdict.
+  4. The cmd/backstop/gate.go wiring buildRequirementTraceabilitySteps,
+     MIRRORING buildStatusDriftSteps: one lazy (sync.Once) resolve reusing the
+     now-bundle-aware gate.ResolveArtifactStatus + validate.CollectSupportRefs,
+     converting []validate.SupportRef → []gate.TraceRef, NORMALIZING both the
+     TraceRef.CitingPath and each record.Path via gate.NormalizePath so the
+     join keys agree, then ClassifyRequirementTraceability +
+     SplitTraceabilityResult, returning the block + advisory StepFuncs inserted
+     next to the drift steps.
+  5. The stance guarantees: the advisory carries NO enforcement.policy entry
+     (structurally non-upgradable); the block surface is left OUT of the gate's
+     code-located waivable dimension set and carries NO `applies-to: new-code`
+     policy entry (non-waivable, non-baseline-grandfathered).
+
+  ─────────────────────────────────────────────────────────────────────────
+  TWO SILENT-DROP HAZARDS — GUARDED BY THE MANDATORY FIXTURE INTEGRATION TEST
+  ─────────────────────────────────────────────────────────────────────────
+  Both fail GREEN (the worst mode), so a classifier unit test over hand-built
+  records is NOT sufficient — CLM-049 mandates a REAL fixture-corpus test
+  through the shipped buildRequirementTraceabilitySteps path:
+    • BUNDLE-NAME JOIN: supports refs cite a bundle by NAME (bundle.name, e.g.
+      `requirement-traceability`), and a delivered bundle may carry NO
+      `number:` at all (agent-definitions.bundle.md). ID = fm.Number is
+      unusable — join TraceRef.BundleName ↔ record.BundleName (CLM-048).
+    • PATH NORMALIZATION: TraceRef.CitingPath (validate-relative SupportRef.File)
+      vs record.Path (gate-side filepath.Join) can differ absolute/relative;
+      both MUST be gate.NormalizePath'd before joining or every join silently
+      drops and all coverage vanishes (CLM-050).
+
+  ─────────────────────────────────────────────────────────────────────────
+  POSTURE / SEAM INVARIANTS THREADED THROUGH THE CLASSIFIER TASKS
+  ─────────────────────────────────────────────────────────────────────────
+    • Three tiers (REQ-007): (a) resolution DEFECTS stay validate's — this step
+      emits NO ref-resolution/dangling findings; (b) BROKEN PROMISES (delivered
+      coverage failure, downstream-outruns-chain, stale-pin) BLOCK; (c) IN-
+      FLIGHT gaps (uncovered REQ on a non-delivered bundle) are advisory WARN.
+    • The advisory is a SEPARATE step name so no policy can upgrade its WARN.
+    • DISPATCH REFUSAL IS A SEAM: pkg/gate supplies ONLY the block StepResult;
+      it subscribes to / intercepts / refuses NO promotion or dispatch event
+      (the gate-on-implement hook / opencode runtime consume the verdict).
+    • ALL gate dimensions run at EVERY verification step (no-check-filtering
+      razor) — verification tasks never scope or categorize what was touched.
+
+  ─────────────────────────────────────────────────────────────────────────
+  COMPILE-CLOSURE (why the phase ordering is what it is)
+  ─────────────────────────────────────────────────────────────────────────
+  A Go package's _test.go files compile as a unit. Each phase introduces only
+  test files whose referenced symbols are built by that phase's (or an earlier
+  phase's) impl, so every phase's verification finds a compiling, green
+  package: P1 = constants; P2 = bundle walker + pure predicates (SupportsCover
+  age, StalePinVerdict) — no classifier symbols referenced; P3 = the classifier
+  + split + TraceRef; P4 = cmd/backstop wiring + the mandatory fixture-corpus
+  integration test.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Gate step surfaces (REQ-001) — the two step-name constants
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Mint the requirement_traceability step + non-policied advisory twin"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing constant tests: block/advisory step names + ledger_integrity stays reserved"
+        description: |
+          Add pkg/gate/requirement_traceability_stepnames_test.go asserting the
+          two new canonical gate step-name constants and the reserved-name
+          absence. These are compile-time/value assertions over pkg/gate
+          constants only — no classifier, no resolution.
+
+          Mandated test names (exact):
+            - TestTraceStep_BlockStepNameConstant (CLM-001): asserts
+              gate.StepRequirementTraceability == "requirement_traceability".
+            - TestTraceStep_AdvisoryStepNameConstant (CLM-002): asserts
+              gate.StepRequirementTraceabilityAdvisory ==
+              "requirement_traceability_advisory".
+            - TestTraceStep_LedgerIntegrityStaysReserved (CLM-003, absence):
+              asserts gate.StepLedgerIntegrity == "ledger_integrity" (unchanged)
+              and that NEITHER new constant equals StepLedgerIntegrity — the
+              provenance-ledger name is not claimed, renamed, or reused.
+
+          All FAIL to compile/pass until TASK-002 defines the constants.
+        files:
+          - pkg/gate/requirement_traceability_stepnames_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestTraceStep_BlockStepNameConstant
+          - TestTraceStep_AdvisoryStepNameConstant
+          - TestTraceStep_LedgerIntegrityStaysReserved
+
+      - id: TASK-002
+        type: implementation
+        title: "Add StepRequirementTraceability + StepRequirementTraceabilityAdvisory constants to result.go"
+        description: |
+          In pkg/gate/result.go add the two canonical step-name constants next
+          to the existing step-name constants (StepArtifactStatusDrift /
+          StepArtifactStatusDriftAdvisory / StepLedgerIntegrity):
+
+              StepRequirementTraceability         = "requirement_traceability"
+              StepRequirementTraceabilityAdvisory = "requirement_traceability_advisory"
+
+          These are DYNAMICALLY-WIRED step names (like the drift steps), part of
+          the gate JSON output contract but NOT added to the fixed
+          AllStepNames[] array. Do NOT touch StepLedgerIntegrity — it stays
+          reserved for SPEC-010's provenance ledger hash chain (REQ-001). No
+          language noun / tool knowledge enters result.go.
+        files:
+          - pkg/gate/result.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "backstop code check — step-name constants compile, tests green, ledger name intact"
+        description: |
+          Inner-loop verification via `backstop code check` (diff-scoped: build,
+          lint, test, semgrep — the full unfiltered set, no scoping to what was
+          touched). Confirm the three TASK-001 tests pass and the reserved
+          StepLedgerIntegrity constant is unchanged.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/requirement_traceability_stepnames_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Bundle-aware corpus resolution + pure predicates
+  #   (artifact_status.go KindBundle walk; SupportsCoverage; StalePinVerdict)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Bundle-aware ResolveArtifactStatus + coverage-source and stale-pin predicates"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing bundle-walk tests: KindBundle records carry name/maturity/reqs; delivered→success, retired→retired"
+        description: |
+          Add pkg/gate/artifact_status_bundle_test.go exercising the NEW
+          bundle-aware resolution directly (no classifier). Drive
+          gate.ResolveArtifactStatus over a small in-test bundles/ fixture dir
+          (t.TempDir with hand-written .bundle.md files) OR a testdata dir, and
+          assert the produced KindBundle ArtifactStatusRecord values.
+
+          Assert:
+            - A .bundle.md with nested `status: {maturity: delivered}`,
+              `bundle: {name: X}`, and `requirements: [{id, version}]` resolves
+              to a record with Kind == gate.KindBundle, BundleName == "X"
+              (the JOIN KEY, from bundle.name — NOT from number:), Status ==
+              "delivered" (the EXTRACTED nested maturity, not a string-Status
+              read), and BundleReqs carrying each REQ id + its top-level current
+              version (CLM-047: current version is the REQ's top-level version).
+            - A bundle declaring bundle.name but NO `number:` STILL produces a
+              KindBundle record with BundleName set (walker-level half of
+              CLM-048; the join+coverage half is proven in TASK-010/TASK-018).
+            - ClassifyArtifactStatus(KindBundle, "delivered") ==
+              ClassSuccessTerminal; ClassifyArtifactStatus(KindBundle, "replaced"|
+              "canceled"|"deprecated") == ClassRetiredTerminal (the classification
+              underlying the terminal-bundle exclusion in CLM-010/011/012).
+            - ANTI-VACUOUS-GREEN: a bundle dir with ≥1 valid .bundle.md yields
+              a NON-ZERO count of KindBundle records — proving the dedicated walk
+              did not yaml.TypeError-and-silently-skip the file the way routing
+              it through the string-Status artifactFrontmatter would.
+
+          Mandated test names:
+            - TestResolveArtifactStatus_BundleRecordsResolved
+            - TestClassifyArtifactStatus_KindBundleMaturityClasses
+
+          All FAIL until TASK-005 adds the bundle walk + KindBundle classification.
+        files:
+          - pkg/gate/artifact_status_bundle_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-047
+          - CLM-048
+        depends_on: []
+        test_names:
+          - TestResolveArtifactStatus_BundleRecordsResolved
+          - TestClassifyArtifactStatus_KindBundleMaturityClasses
+
+      - id: TASK-005
+        type: implementation
+        title: "Extend ResolveArtifactStatus with a KindBundle case via a DEDICATED bundle frontmatter walk"
+        description: |
+          Extend pkg/gate/artifact_status.go to also resolve bundles/ — as a
+          KindBundle case inside the existing ResolveArtifactStatus (ONE canonical
+          resolution, not a parallel repo walk), but with a DEDICATED reader, NOT
+          a reuse of the string-`Status` artifactFrontmatter.
+
+          WHY DEDICATED (SPEC Sharp Edge): a bundle's `status:` is a YAML map
+          (status.maturity) and `bundle:` is a map (bundle.name), whereas
+          artifactFrontmatter.Status is a `string`. Unmarshalling a .bundle.md
+          through artifactFrontmatter is a yaml.TypeError, and walkArtifactDir
+          SILENTLY SKIPS a file whose unmarshal errors — every .bundle.md would
+          vanish, yielding zero bundle records and a vacuously-GREEN coverage
+          step. So:
+            - Add a dedicated bundle frontmatter struct + walk mirroring
+              walkPlanDir/planFrontmatter (bundles carry fenced frontmatter;
+              read it with the same fenced-frontmatter mechanism the spec/issue
+              walk uses, but into the dedicated struct). Read bundle.name,
+              nested status.maturity (reuse the extractMaturity-style nested
+              read — NOT the string Status field), and requirements[] (id +
+              top-level version).
+            - Add the additive fields to ArtifactStatusRecord: BundleName string
+              (bundle.name; empty for non-bundle kinds) and BundleReqs
+              []BundleReqVersion (nil for non-bundle kinds). Existing fields
+              untouched.
+            - Add type BundleReqVersion struct { ReqID string; CurrentVersion
+              string } — one declared REQ + its current (top-level) version. The
+              stale-pin model needs only the current version, never the full
+              log (log membership is SPEC-050/validate's concern).
+            - Populate the KindBundle record: Kind = KindBundle, BundleName =
+              bundle.name, Status = extracted maturity string, BundleReqs = the
+              declared REQs, Class = ClassifyArtifactStatus(KindBundle, maturity).
+            - Add a KindBundle case to ClassifyArtifactStatus: `delivered` →
+              ClassSuccessTerminal. The existing retired switch already maps
+              replaced/canceled/deprecated → ClassRetiredTerminal (terminal-
+              bundle exclusion for free); do not duplicate it.
+
+          No language noun / tool knowledge enters artifact_status.go.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-047
+          - CLM-048
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: test
+        title: "Failing coverage-source predicate tests: the full 8-cell SupportsCoverage matrix"
+        description: |
+          Add pkg/gate/requirement_traceability_coverage_test.go exercising the
+          pure coverage-source predicate SupportsCoverage(kind, class) bool
+          directly — every cell of the coverage-source matrix (REQ-003/004/005).
+          SupportsCoverage is the AUTHORITY (defensive-in-depth over SPEC-050
+          v1.2.0's terminal-citer exemption): true ONLY for a spec that is
+          success-terminal (implemented); false for everything else.
+
+          Mandated test names:
+            - TestTrace_Coverage_ImplementedSpecCovers (CLM-016):
+              SupportsCoverage(KindSpec, ClassSuccessTerminal) == true.
+            - TestTrace_Coverage_ReplacedSpecDoesNotCover (CLM-017),
+              TestTrace_Coverage_CanceledSpecDoesNotCover (CLM-018),
+              TestTrace_Coverage_DeprecatedSpecDoesNotCover (CLM-019),
+              TestTrace_Coverage_ObsoletedSpecDoesNotCover (CLM-020): a spec at
+              any RETIRED-terminal class → SupportsCoverage == false (no flow-
+              through through a tombstone; the supports claim must be re-stated
+              on a live implemented spec).
+            - TestTrace_Coverage_DraftSpecDoesNotCover (CLM-021),
+              TestTrace_Coverage_ReadyForImplSpecDoesNotCover (CLM-022): a LIVE
+              but not-yet-implemented spec (draft / ready-for-implementation) →
+              false. `implemented` is the ONLY coverage-closing status — accepting
+              ready-for-implementation would reintroduce the assumed-not-proven
+              hole the bundle closes.
+
+          Construct the (kind, class) inputs directly using gate.KindSpec /
+          gate.ClassSuccessTerminal / ClassRetiredTerminal (and the live non-
+          terminal class for draft/ready). All FAIL until TASK-008.
+        files:
+          - pkg/gate/requirement_traceability_coverage_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on: []
+        test_names:
+          - TestTrace_Coverage_ImplementedSpecCovers
+          - TestTrace_Coverage_ReplacedSpecDoesNotCover
+          - TestTrace_Coverage_CanceledSpecDoesNotCover
+          - TestTrace_Coverage_DeprecatedSpecDoesNotCover
+          - TestTrace_Coverage_ObsoletedSpecDoesNotCover
+          - TestTrace_Coverage_DraftSpecDoesNotCover
+          - TestTrace_Coverage_ReadyForImplSpecDoesNotCover
+
+      - id: TASK-007
+        type: test
+        title: "Failing stale-pin predicate tests: same-version satisfied + numeric per-component major.minor"
+        description: |
+          Add pkg/gate/requirement_traceability_stalepin_test.go exercising the
+          pure semver gate StalePinVerdict(pin, current) (bump string, stale
+          bool) directly — the numeric per-component comparison (REQ-008), the
+          bundle-lifecycle forks are the classifier's job (TASK-014).
+
+          Mandated test names:
+            - TestTrace_StalePin_SameVersionSatisfied (CLM-039): pin == current
+              → bump "none", stale false (satisfied, no bump).
+            - TestTrace_StalePin_CurrentVersionNumericMajorMinor (CLM-047): the
+              current version is compared NUMERICALLY per component. A PATCH-only
+              difference (same major.minor, e.g. 1.10.0 vs 1.10.9) → not stale
+              (bump "patch"); a MAJOR or MINOR difference (1.10.0 vs 1.9.0, or
+              2.x vs 1.x) → stale (bump "minor"/"major"). Explicitly pin the
+              1.10 vs 1.9 case so a naive STRING comparison (which would call
+              "1.10" < "1.9") is caught: 1.10.x shares major.minor with 1.10.y
+              but NOT with 1.9.z.
+
+          All FAIL until TASK-008.
+        files:
+          - pkg/gate/requirement_traceability_stalepin_test.go
+        claims:
+          - CLM-039
+          - CLM-047
+        depends_on: []
+        test_names:
+          - TestTrace_StalePin_SameVersionSatisfied
+          - TestTrace_StalePin_CurrentVersionNumericMajorMinor
+
+      - id: TASK-008
+        type: implementation
+        title: "Implement SupportsCoverage + StalePinVerdict in requirement_traceability.go (NEW)"
+        description: |
+          Create pkg/gate/requirement_traceability.go with the two pure
+          predicates (no filesystem access, no language knowledge):
+
+            - func SupportsCoverage(kind ArtifactKind, class StatusClass) bool —
+              the coverage-source predicate. Returns true ONLY for kind ==
+              KindSpec AND class == ClassSuccessTerminal (implemented). Every
+              other kind/class — issues (REQ-005), draft/ready-for-implementation
+              specs, and retired-terminal specs (REQ-004) — returns false. Reuse
+              the existing ClassifyArtifactStatus machinery's classes; do not
+              re-derive statuses. This is the authority even though SPEC-050
+              v1.2.0's CollectSupportRefs already pre-excludes terminal citers
+              (defensive-in-depth).
+
+            - func StalePinVerdict(pin string, current string) (bump string,
+              stale bool) — semver-gated comparison. Parse both into numeric
+              major/minor/patch components (pins are well-formed, guaranteed by
+              SPEC-050, so no unpinned/tolerance branch). bump is
+              none/patch/minor/major from numeric per-component comparison;
+              stale is true iff pin.major != current.major OR pin.minor !=
+              current.minor (a MINOR/MAJOR bump). A patch-only difference is NOT
+              stale (free within major.minor). Compare numerically per component
+              (1.10 shares major.minor with 1.10, not 1.9).
+
+          Do NOT add the classifier or split here — those land in TASK-015 (this
+          keeps Phase 2's test package compiling without any classifier symbol).
+        files:
+          - pkg/gate/requirement_traceability.go
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-039
+          - CLM-047
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "backstop code check — bundle walk resolves non-zero records; predicate matrices green"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm:
+            - The bundle-walk tests pass and produce NON-ZERO KindBundle records
+              (anti-vacuous-green: the dedicated reader did not silently skip
+              .bundle.md files).
+            - The full SupportsCoverage 8-cell matrix and the StalePinVerdict
+              numeric/same-version tests pass.
+            - No regression in the existing artifact_status / status_drift
+              suites from the additive ArtifactStatusRecord fields.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/requirement_traceability.go
+          - pkg/gate/artifact_status_bundle_test.go
+          - pkg/gate/requirement_traceability_coverage_test.go
+          - pkg/gate/requirement_traceability_stalepin_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-039
+          - CLM-047
+          - CLM-048
+        depends_on:
+          - TASK-005
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The traceability classifier + severity split (the state engine)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: ClassifyRequirementTraceability + SplitTraceabilityResult — the corpus-STATE engine"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Failing delivered-gate tests: live-citing check, bundle-maturity scope, name-join, per-REQ coverage"
+        description: |
+          Add pkg/gate/requirement_traceability_delivered_test.go exercising
+          ClassifyRequirementTraceability over hand-built []ArtifactStatusRecord
+          + []TraceRef corpora (except CLM-048, which resolves a name-only bundle
+          record — build it with BundleName set and Number empty to prove the
+          NAME join, not the number). Refs join to bundle records by BundleName
+          and to citing records by Path. Assert error-severity BLOCK violations
+          appear (or not) on the combined result.
+
+          Mandated test names:
+            - TestTrace_Delivered_ImplementedCitingSpecOK (CLM-006): a delivered
+              bundle whose every citing spec is implemented passes the live-
+              citing check.
+            - TestTrace_Delivered_DraftCitingSpecBlocks (CLM-007),
+              TestTrace_Delivered_ReadyForImplCitingSpecBlocks (CLM-008): a
+              LIVE (draft / ready-for-implementation) citing spec on a delivered
+              bundle is a broken-promise BLOCK.
+            - TestTrace_Delivered_ReplacedCitingSpecExcludedFromLiveCheck
+              (CLM-009): a replaced (retired) spec citing a delivered bundle is
+              EXCLUDED from the live-citing check (a tombstone is not an
+              unfinished promise) — no block from the live-citing pass on its
+              account.
+            - TestTrace_Bundle_ReplacedBundleExcluded (CLM-010),
+              TestTrace_Bundle_CanceledBundleExcluded (CLM-011),
+              TestTrace_Bundle_DeprecatedBundleExcluded (CLM-012): a retired
+              BUNDLE is excluded from the delivered-gate ENTIRELY (no coverage
+              obligation, no block) — distinct from a retired SPEC's non-support.
+            - TestTrace_Bundle_NameWithoutNumberJoinsByName (CLM-048): a
+              delivered bundle record with BundleName set and NO number still
+              joins to its citing refs by name — its coverage is evaluated (not
+              silently skipped for lack of a number key).
+            - TestTrace_Delivered_FullCoveragePasses (CLM-013): a delivered
+              bundle whose every REQ has an implemented-spec supporter passes.
+            - TestTrace_Delivered_UncoveredReqBlocks (CLM-014): a delivered
+              bundle with a REQ supported by NO spec blocks as uncovered.
+            - TestTrace_Delivered_PerReqNotAggregate (CLM-015): coverage is
+              PER-REQ — a delivered bundle with one covered and one uncovered REQ
+              BLOCKS, and the block names the specific uncovered REQ (not an
+              aggregate count).
+
+          All FAIL until TASK-015 defines ClassifyRequirementTraceability +
+          TraceRef.
+        files:
+          - pkg/gate/requirement_traceability_delivered_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-048
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestTrace_Delivered_ImplementedCitingSpecOK
+          - TestTrace_Delivered_DraftCitingSpecBlocks
+          - TestTrace_Delivered_ReadyForImplCitingSpecBlocks
+          - TestTrace_Delivered_ReplacedCitingSpecExcludedFromLiveCheck
+          - TestTrace_Bundle_ReplacedBundleExcluded
+          - TestTrace_Bundle_CanceledBundleExcluded
+          - TestTrace_Bundle_DeprecatedBundleExcluded
+          - TestTrace_Bundle_NameWithoutNumberJoinsByName
+          - TestTrace_Delivered_FullCoveragePasses
+          - TestTrace_Delivered_UncoveredReqBlocks
+          - TestTrace_Delivered_PerReqNotAggregate
+
+      - id: TASK-011
+        type: test
+        title: "Failing issue-lineage tests: issue support is queryable lineage, never coverage"
+        description: |
+          Add pkg/gate/requirement_traceability_issue_test.go exercising
+          ClassifyRequirementTraceability with issue supports refs (REQ-005).
+
+          Mandated test names:
+            - TestTrace_Coverage_IssueRefNeverCovers (CLM-023): a delivered
+              bundle REQ supported ONLY by an issue requirement is UNCOVERED and
+              BLOCKS (issue support is not coverage).
+            - TestTrace_Lineage_IssueRefQueryable (CLM-024): an issue supports
+              ref is RETAINED as a queryable lineage link in the traceability
+              corpus (present in the classifier's join/lineage view) even though
+              it never closes a REQ.
+            - TestTrace_Coverage_IssueRefDoesNotAffectSpecCoverage (CLM-025): a
+              bundle REQ already covered by an implemented spec is UNCHANGED by a
+              co-citing issue ref (issue neither adds nor removes coverage).
+
+          All FAIL until TASK-015.
+        files:
+          - pkg/gate/requirement_traceability_issue_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestTrace_Coverage_IssueRefNeverCovers
+          - TestTrace_Lineage_IssueRefQueryable
+          - TestTrace_Coverage_IssueRefDoesNotAffectSpecCoverage
+
+      - id: TASK-012
+        type: test
+        title: "Failing state-invariant tests: downstream-outruns-chain blocks; plan two-hop; verdict-is-state (no event interception)"
+        description: |
+          Add pkg/gate/requirement_traceability_state_test.go exercising the
+          corpus-STATE invariant (REQ-006): a downstream artifact whose upstream
+          chain does not verify is a BLOCK, judged as STATE, never via an event.
+
+          Mandated test names:
+            - TestTrace_State_SpecOutrunsChainBlocks (CLM-026): a spec advanced
+              to implemented whose bundle chain does not verify (a stale pin
+              against an unimplemented bundle) blocks as a downstream-outruns-
+              chain state.
+            - TestTrace_State_PlanForUnverifiedSpecBlocks (CLM-027): a plan
+              existing for a spec whose bundle chain does not verify blocks, via
+              the plan.SpecID → spec record → spec TraceRefs TWO-HOP (the plan
+              carries no supports of its own). This finding is DISTINCT from the
+              spec's own broken-chain block — the SpecID hop attributes it to the
+              plan (a plan was allowed to exist atop an unverified spec), so it is
+              not double-counting the spec's finding.
+            - TestTrace_State_DeliveredWithoutCoverageBlocks (CLM-028): a
+              delivered bundle without full-depth coverage blocks as the full-
+              depth instance of the same invariant (REQ-002 + REQ-003).
+            - TestTrace_State_SpecWithinChainNoBlock (CLM-029, negative): a
+              downstream artifact at a depth its chain FULLY supports produces
+              NO state block.
+            - TestTrace_State_VerdictIsStateNoEventInterception (CLM-030,
+              absence): the classifier supplies its verdict ONLY as the block
+              StepResult — it subscribes to / intercepts / refuses NO promotion
+              or dispatch event. Assert against the public surface (a pure
+              function returning a StepResult; no event hooks, channels, or
+              subscriptions in pkg/gate). Dispatch refusal stays a hook/runtime
+              seam.
+
+          All FAIL until TASK-015.
+        files:
+          - pkg/gate/requirement_traceability_state_test.go
+        claims:
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestTrace_State_SpecOutrunsChainBlocks
+          - TestTrace_State_PlanForUnverifiedSpecBlocks
+          - TestTrace_State_DeliveredWithoutCoverageBlocks
+          - TestTrace_State_SpecWithinChainNoBlock
+          - TestTrace_State_VerdictIsStateNoEventInterception
+
+      - id: TASK-013
+        type: test
+        title: "Failing posture + split tests: three tiers, split-by-severity, non-upgradable/non-waivable/non-baselineable"
+        description: |
+          Add pkg/gate/requirement_traceability_posture_test.go exercising the
+          three-tier posture (REQ-007) and SplitTraceabilityResult (REQ-001).
+
+          Mandated test names:
+            - TestTrace_Posture_InFlightUncoveredAdvisoryWarn (CLM-032): an
+              uncovered REQ on a non-delivered (ready) bundle surfaces as a
+              WARNING-severity advisory violation, not a block.
+            - TestTrace_Posture_NonDeliveredUncoveredAdvisory (CLM-033): an
+              uncovered REQ on an exploring or defined bundle surfaces on the
+              advisory surface (never blocks).
+            - TestTrace_Posture_BrokenPromiseBlocks (CLM-034): a delivered-bundle
+              coverage failure is an ERROR-severity violation on the block
+              surface.
+            - TestTrace_Posture_ResolutionDefectsNotInThisStep (CLM-035,
+              absence): the classifier emits NO ref-resolution / dangling-ref
+              findings — resolution defects are validate's tier (a). Assert no
+              violation carries a resolution/dangling message shape.
+            - TestTrace_Posture_AdvisoryNotPolicyUpgradable (CLM-036): after
+              SplitTraceabilityResult, in-flight WARNs live ONLY on
+              StepRequirementTraceabilityAdvisory (a separate step name carrying
+              no policy entry) so no enforcement.policy can upgrade them — mirror
+              the StepArtifactStatusDriftAdvisory structural guarantee.
+            - TestTrace_Posture_NotWaivable (CLM-037, absence):
+              requirement_traceability is NOT in the gate's code-located waivable
+              dimension set (assert via the same predicate the gate uses, e.g.
+              waivableDimension(StepRequirementTraceability) == false), so a
+              @waiver token cannot suppress a traceability block finding.
+            - TestTrace_Posture_NotBaselineGrandfathered (CLM-038): a
+              requirement_traceability block finding blocks WITH or WITHOUT a
+              baseline entry — it carries no `applies-to: new-code` policy entry,
+              so it is never baseline-grandfathered (an artifact-state broken
+              promise is resolved, never snapshotted).
+            - TestTraceStep_SplitPartitionsBySeverity (CLM-004): given a combined
+              StepResult with mixed error+warning violations,
+              SplitTraceabilityResult partitions error-severity onto the block
+              surface (StepRequirementTraceability) and warning-severity onto the
+              advisory surface (StepRequirementTraceabilityAdvisory), exactly as
+              SplitDriftResult does.
+
+          All FAIL until TASK-015.
+        files:
+          - pkg/gate/requirement_traceability_posture_test.go
+        claims:
+          - CLM-004
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestTrace_Posture_InFlightUncoveredAdvisoryWarn
+          - TestTrace_Posture_NonDeliveredUncoveredAdvisory
+          - TestTrace_Posture_BrokenPromiseBlocks
+          - TestTrace_Posture_ResolutionDefectsNotInThisStep
+          - TestTrace_Posture_AdvisoryNotPolicyUpgradable
+          - TestTrace_Posture_NotWaivable
+          - TestTrace_Posture_NotBaselineGrandfathered
+          - TestTraceStep_SplitPartitionsBySeverity
+
+      - id: TASK-014
+        type: test
+        title: "Failing stale-pin lifecycle tests: bump-size × bundle-lifecycle matrix through the classifier"
+        description: |
+          Add pkg/gate/requirement_traceability_stalepin_lifecycle_test.go
+          exercising the stale-pin outcomes through ClassifyRequirementTraceability
+          (REQ-008) — the bump-size × bundle-lifecycle fork the pure StalePin
+          Verdict does not encode. Build records with a bundle REQ at a current
+          version and citing refs pinned to older/equal versions.
+
+          Mandated test names:
+            - TestTrace_StalePin_PatchUnimplementedFree (CLM-040): a PATCH bump
+              on an UNIMPLEMENTED bundle auto-satisfies a downstream pin sharing
+              major.minor (free — no block).
+            - TestTrace_StalePin_PatchDeliveredFree (CLM-041): a PATCH bump on a
+              DELIVERED bundle auto-satisfies a downstream pin sharing major.minor.
+            - TestTrace_StalePin_MinorUnimplementedRepinBlocks (CLM-042),
+              TestTrace_StalePin_MajorUnimplementedRepinBlocks (CLM-043): a
+              MINOR/MAJOR bump on an UNIMPLEMENTED bundle makes a downstream pin
+              to the old version a stale-pin BLOCK (must re-pin + re-work).
+            - TestTrace_StalePin_MinorDeliveredNewSpecRequiredBlocks (CLM-044),
+              TestTrace_StalePin_MajorDeliveredNewSpecRequiredBlocks (CLM-045): a
+              MINOR/MAJOR bump on a DELIVERED bundle blocks the bundle as NOT-
+              delivered until a spec pinned to the new version is implemented (old
+              specs stay immutable at their pin; a NEW spec is required).
+            - TestTrace_StalePin_DeliveredNewVersionNewSpecImplementedSatisfied
+              (CLM-046): a delivered bundle whose bumped REQ has a NEW implemented
+              spec pinned to the CURRENT version is satisfied (recovery case).
+
+          All FAIL until TASK-015.
+        files:
+          - pkg/gate/requirement_traceability_stalepin_lifecycle_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestTrace_StalePin_PatchUnimplementedFree
+          - TestTrace_StalePin_PatchDeliveredFree
+          - TestTrace_StalePin_MinorUnimplementedRepinBlocks
+          - TestTrace_StalePin_MajorUnimplementedRepinBlocks
+          - TestTrace_StalePin_MinorDeliveredNewSpecRequiredBlocks
+          - TestTrace_StalePin_MajorDeliveredNewSpecRequiredBlocks
+          - TestTrace_StalePin_DeliveredNewVersionNewSpecImplementedSatisfied
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement TraceRef + ClassifyRequirementTraceability + SplitTraceabilityResult (modeled on ClassifyStatusDrift)"
+        description: |
+          Extend pkg/gate/requirement_traceability.go with the classifier input
+          type, the pure full-corpus classifier, and the severity split — modeled
+          EXACTLY on status_drift's ClassifyStatusDrift / SplitDriftResult /
+          driftStepResult block/advisory pattern.
+
+            - type TraceRef struct { BundleName string; ReqID string;
+              PinVersion string; Pinned bool; CitingPath string } — a gate-local
+              citing supports ref (the cmd/backstop wiring converts each
+              validate.SupportRef into one; pkg/gate does not import pkg/validate).
+              BundleName joins to a KindBundle record's BundleName; CitingPath
+              joins to an ArtifactStatusRecord.Path. Both CitingPath and record
+              Path are pre-normalized (gate.NormalizePath) by the wiring BEFORE
+              joining.
+
+            - func ClassifyRequirementTraceability(records []ArtifactStatusRecord,
+              refs []TraceRef) StepResult — the pure classifier. Passes over the
+              resolved corpus (each independently exercised by the Phase 3 tests):
+              (1) CORPUS JOIN — index KindBundle records by BundleName (NOT
+              number), citing records by Path; build per-bundle declared REQs +
+              current versions. (2) COVERAGE RESOLUTION — for each delivered
+              bundle REQ, COVERED iff some citing ref's artifact satisfies
+              SupportsCoverage; per-REQ, not aggregate; issue + non-implemented/
+              retired spec refs never cover; retain issue refs as queryable
+              lineage. (3) LIVE-CITING — for each delivered bundle, every LIVE
+              citing spec must be implemented; a live non-implemented citing spec
+              is a broken-promise BLOCK; terminal-retired citers skipped. (4)
+              STALE-PIN — StalePinVerdict(ref.PinVersion, cited REQ current
+              version); stale on non-delivered → downstream stale-pin BLOCK; on
+              delivered → bundle not-delivered until a spec pinned to current is
+              implemented; PATCH/equal free. (5) STATE INVARIANT — downstream-
+              outruns-chain BLOCK, including the plan.SpecID → spec → spec
+              TraceRefs two-hop. (6) POSTURE — broken-promise findings Severity
+              "error"; in-flight gaps (uncovered REQ on a non-delivered bundle)
+              Severity "warning"; emit NO ref-resolution finding (validate's tier
+              a). Returns ONE combined StepResult carrying both severities.
+              pkg/gate subscribes to / intercepts / refuses NO event — verdict is
+              STATE only (CLM-030).
+
+            - func SplitTraceabilityResult(combined StepResult) (block StepResult,
+              advisory StepResult) — partitions by severity: error-severity onto
+              StepRequirementTraceability (policied block surface), warning-
+              severity onto StepRequirementTraceabilityAdvisory (non-policied
+              advisory surface), exactly as SplitDriftResult does — a single
+              classification, two derived surfaces.
+
+          STANCE (must hold structurally, verified by TASK-013): the advisory
+          surface is a SEPARATE step name carrying no policy entry (non-
+          upgradable); the block surface is NOT added to the waivable dimension
+          set and carries no `applies-to: new-code` policy entry. No language
+          noun / tool knowledge enters requirement_traceability.go; no filesystem
+          access (operates on already-resolved records + refs).
+        files:
+          - pkg/gate/requirement_traceability.go
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-048
+        depends_on:
+          - TASK-003
+          - TASK-009
+          - TASK-010
+          - TASK-011
+          - TASK-012
+          - TASK-013
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "backstop code check — full classifier + split + stance suite green (all passes exercised)"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm every Phase 3 test group passes:
+          delivered-gate + bundle-maturity scope + name-join + per-REQ coverage
+          (TASK-010), issue lineage (TASK-011), state invariant incl. the plan
+          two-hop and the no-event-interception absence (TASK-012), three-tier
+          posture + split + non-upgradable/non-waivable/non-baselineable stance
+          (TASK-013), and the stale-pin lifecycle matrix (TASK-014). No
+          regression in the existing status_drift / policy / step_waiver suites.
+        files:
+          - pkg/gate/requirement_traceability.go
+          - pkg/gate/requirement_traceability_delivered_test.go
+          - pkg/gate/requirement_traceability_issue_test.go
+          - pkg/gate/requirement_traceability_state_test.go
+          - pkg/gate/requirement_traceability_posture_test.go
+          - pkg/gate/requirement_traceability_stalepin_lifecycle_test.go
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Gate wiring + MANDATORY fixture-corpus integration (final gate)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Wire buildRequirementTraceabilitySteps + prove the shipped path over a real fixture corpus"
+    tasks:
+      - id: TASK-017
+        type: setup
+        title: "Build the fixture corpus: a delivered bundle with an uncovered REQ + a path-mismatched implemented citer"
+        description: |
+          Create a REAL, self-contained fixture corpus under
+          cmd/backstop/testdata/trace-corpus/ that the integration test points
+          gate.ResolveArtifactStatus + validate.CollectSupportRefs at (an
+          isolated projectRoot, so it does not collide with the repo's own
+          artifacts). It must exercise BOTH silent-drop hazards and the block
+          verdict end-to-end:
+
+            - bundles/BUNDLE-914-fixture.bundle.md — a DELIVERED bundle
+              (status.maturity: delivered) with a bundle.name and TWO REQs at
+              `1.0.0`: REQ-001 (will be covered) and REQ-002 (will be UNcovered).
+              Include a variant shape note so CLM-048 (name-without-number) is
+              exercisable — the join key is bundle.name, not a number.
+            - specs/SPEC-914-fixture.spec.md — an IMPLEMENTED spec whose
+              requirement `supports` ref cites BUNDLE-914 REQ-001 pinned @1.0.0
+              (covers REQ-001; REQ-002 left with no implemented supporter →
+              delivered coverage BLOCK).
+            - Author the citing ref / spec path so the SupportRef.File (validate-
+              relative) and the ResolveArtifactStatus record Path (gate-side
+              filepath.Join) differ by absolute/relative form — the raw-material
+              for the CLM-050 normalization-join test (the same fixture, asserted
+              two ways in TASK-018).
+
+          These are TEST FIXTURES (inputs), not live repo artifacts — placing
+          them under testdata/ keeps them out of the repo's own gate/validate
+          corpus. Fill them with the minimum valid frontmatter the walkers +
+          CollectSupportRefs require.
+        files:
+          - cmd/backstop/testdata/trace-corpus/bundles/BUNDLE-914-fixture.bundle.md
+          - cmd/backstop/testdata/trace-corpus/specs/SPEC-914-fixture.spec.md
+        claims:
+          - CLM-049
+          - CLM-050
+        depends_on: []
+
+      - id: TASK-018
+        type: test
+        title: "Failing CLI/integration tests: both surfaces wired, verdict in output, delivered-uncovered blocks over the fixture corpus, path-normalized join"
+        description: |
+          Add cmd/backstop/gate_requirement_traceability_test.go. These are the
+          load-bearing tests — the pure classifier is inert until the wiring
+          reuses the bundle-aware ResolveArtifactStatus + CollectSupportRefs and
+          runs it, and this is exactly where it could ship dark (a .bundle.md
+          silently skipped, a path-mismatched join dropped). A classifier unit
+          test over hand-built records does NOT substitute (SPEC Verification +
+          CLM-049).
+
+          Mandated test names:
+            - TestGateCLI_RequirementTraceabilityStepsWired (CLM-005): the
+              shipped backstop gate step list contains BOTH the
+              requirement_traceability block surface AND the
+              requirement_traceability_advisory surface (assert both step names
+              are present in the assembled steps / gate output).
+            - TestGateCLI_RequirementTraceabilityVerdictInOutput (CLM-031): the
+              block verdict is surfaced under the requirement_traceability step
+              name in the gate output so the gate-on-implement hook can consume
+              it.
+            - TestGateCLI_RequirementTraceability_DeliveredUncoveredBlocksOver
+              FixtureCorpus (CLM-049): over the TASK-017 fixture corpus, through
+              the shipped buildRequirementTraceabilitySteps path, the delivered
+              bundle with the uncovered REQ-002 actually resolves to a KindBundle
+              record and actually BLOCKS the requirement_traceability step end-
+              to-end. Assert a NON-ZERO KindBundle record count (anti-vacuous-
+              green) AND a fail verdict on the block surface naming REQ-002.
+            - TestGateCLI_RequirementTraceability_PathNormalizationJoins
+              (CLM-050): a citing ref whose path differs from the record path
+              only by absolute/relative form STILL joins after both are
+              gate.NormalizePath'd, so REQ-001's coverage is NOT silently dropped
+              — assert REQ-001 reads as covered (would falsely read uncovered if
+              the normalization were missing).
+
+          All FAIL until TASK-019 wires the surfaces.
+        files:
+          - cmd/backstop/gate_requirement_traceability_test.go
+        claims:
+          - CLM-005
+          - CLM-031
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-017
+        test_names:
+          - TestGateCLI_RequirementTraceabilityStepsWired
+          - TestGateCLI_RequirementTraceabilityVerdictInOutput
+          - TestGateCLI_RequirementTraceability_DeliveredUncoveredBlocksOverFixtureCorpus
+          - TestGateCLI_RequirementTraceability_PathNormalizationJoins
+
+      - id: TASK-019
+        type: implementation
+        title: "Wire buildRequirementTraceabilitySteps into the shipped gate (mirroring buildStatusDriftSteps)"
+        description: |
+          Add buildRequirementTraceabilitySteps(projectRoot string)
+          (gate.StepFunc, gate.StepFunc) to cmd/backstop/gate.go and insert the
+          two returned StepFuncs into the assembled steps list NEXT TO the drift
+          steps (before waiver_resolution / baseline_comparison), MIRRORING
+          buildStatusDriftSteps:
+
+            - One lazy (sync.Once) resolution reusing the now-bundle-aware
+              gate.ResolveArtifactStatus (statuses + bundle maturity + BundleReqs)
+              and validate.CollectSupportRefs (v1.2.0, terminal citers already
+              exempted) for the citing refs.
+            - Convert each validate.SupportRef → gate.TraceRef.
+            - NORMALIZE both the converted TraceRef.CitingPath and each
+              record.Path via gate.NormalizePath(projectRoot, ...) so the join
+              keys agree — exactly as computeDriftSurfaces normalizes
+              violation.File. (Both silent-drop hazards guarded here.)
+            - Run gate.ClassifyRequirementTraceability + SplitTraceabilityResult;
+              return the block + advisory StepFuncs. A resolve failure is a
+              config-error under the block step name; the advisory stays a clean
+              pass.
+
+          The block surface's fail Status flips GateResult.Pass intrinsically
+          (via NewGateResult) with NO policy entry — never baseline-
+          grandfathered. Add NO enforcement.policy entry for either surface and
+          do NOT add requirement_traceability to the waivable dimension set. No
+          baked language/tool knowledge — this is pure artifact-domain wiring.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+          - CLM-031
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-016
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Final gate: backstop gate (full kill chain) + backstop artifact validate --plan PLAN-SPEC-052"
+        description: |
+          Comprehensive final verification via the full kill chain (ALL gate
+          dimensions, no filtering / no scoping to what was touched — the
+          founder razor):
+            1. backstop gate — artifact validation, code check, test
+               verification, substantiveness, coverage (≥80% on pkg/gate +
+               cmd/backstop per the spec), contracts, the drift dimension, AND
+               the newly-wired requirement_traceability block + advisory
+               surfaces. The change touches only .go files + testdata fixtures,
+               so `backstop gate` subsumes code verification.
+            2. backstop artifact validate --plan PLAN-SPEC-052 — the plan
+               artifact itself validates.
+
+          Confirm the ACCEPTANCE invariants:
+            - Both requirement_traceability surfaces are live in the shipped
+              gate; the fixture-corpus delivered-uncovered case actually BLOCKS
+              through the wiring (non-vacuous: non-zero KindBundle records) and
+              the path-normalized join reads coverage correctly.
+            - The advisory carries no policy entry (non-upgradable); the block
+              surface is non-waivable and non-baseline-grandfathered.
+            - pkg/gate stayed language/tool-neutral (no baked noun) and
+              subscribes to no promotion/dispatch event.
+          Report the final gate status per dimension, the fixture-corpus block
+          verdict, and the artifact-validate result.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_requirement_traceability_test.go
+        claims:
+          - CLM-005
+          - CLM-031
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-019
