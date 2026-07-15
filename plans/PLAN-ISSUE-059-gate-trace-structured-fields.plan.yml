@@ -1,0 +1,500 @@
+---
+plan_id: PLAN-ISSUE-059
+spec_id: ISSUE-059
+created: "2026-07-15"
+status: draft
+coverage_threshold: 90
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -run Trace"
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  REVISIONS
+  ─────────────────────────────────────────────────────────────────────────
+  2026-07-15 rev-2 (post plan-review tightening): coverage_lapsed detection
+    constrained to a retired-terminal SPEC citer (citer.Kind == KindSpec) per
+    DD-3 — a retired-terminal ISSUE citer classifies uncovered/author_spec, not
+    lapsed; added the retired-issue-citer fixture case + assertion to
+    TestTrace_GapKind_CoverageLapsedDistinctFromUncovered. Named the actual
+    field ArtifactStatusRecord.Status (from fm.Status.Maturity,
+    artifact_status.go:197) for bundle_maturity; called out the
+    bundles[name].Status re-lookup for chain_outrun's bundle_maturity.
+  2026-07-15 rev-1: initial plan.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SCOPE — purely additive instrumentation on the SHIPPED SPEC-052 surface
+  ─────────────────────────────────────────────────────────────────────────
+  ISSUE-059 adds (a) a per-violation `trace` object to every violation the
+  requirement_traceability classifier emits and (b) top-level git_sha /
+  generated_at provenance to the gate JSON. No enforcement behavior, severity,
+  gating, or identity changes. Lands standalone; no dependency on other
+  in-flight work. The design is consumer-reviewed and settled — implement it,
+  do not redesign.
+
+  ─────────────────────────────────────────────────────────────────────────
+  GROUNDING — the five real violation-emission sites in
+  pkg/gate/requirement_traceability.go ClassifyRequirementTraceability
+  ─────────────────────────────────────────────────────────────────────────
+  1. citing_spec_not_implemented — the delivered-bundle/non-implemented-spec
+     block at lines 87-94. remedy=implement_spec; carries citing_artifact
+     (citer.ID).
+  2. stale_pin — the stale-ref block at lines 108-114 (driven by staleRefs /
+     StalePinVerdict). Carries pinned_version (ref.PinVersion) + bump
+     (StalePinVerdict's bump). remedy is LIFECYCLE-KEYED: re_pin when the
+     bundle is NOT delivered (bundle.Class != ClassSuccessTerminal), new_spec
+     when delivered (bundle.Class == ClassSuccessTerminal). Carries
+     citing_artifact (the citing spec/issue ID).
+  3. chain_outrun — the plan-targets-stale-spec block at lines 122-128.
+     remedy=resolve_upstream; carries `via` = the targeted spec ID (spec.ID),
+     the non-verifying upstream link the operator must fix FIRST — distinct
+     from the violating plan's own ID (rec.ID).
+  4/5. uncovered vs coverage_lapsed — the bundle-REQ-no-coverage block/advisory
+     at lines 145-150. Today BOTH the never-cited case and the
+     retired-terminal-citer case fall through to this identical generic
+     message (the ref loop at lines 77-79 SKIPS retired-terminal citers, so a
+     REQ whose only citer was a `replaced` spec is indistinguishable from one
+     never cited). This issue requires NEW detection: remember that a
+     retired-terminal SPEC citer existed for a bundle+REQ, so the emission loop
+     can split coverage_lapsed (retired SPEC citer existed → remedy
+     restate_supports) from uncovered (never any spec citer → remedy
+     author_spec). DD-3 defines lapsed as only-citer-is-a-retired-SPEC: the
+     citers map ALSO holds issues (requirement_traceability.go:69-71), and a
+     REQ whose only retired-terminal citer is an ISSUE must classify
+     uncovered/author_spec, NOT lapsed — so the retired-citer detection is
+     constrained to `citer.Kind == KindSpec`. The block still fires either way;
+     only the trace gap_kind/remedy differ.
+
+  ─────────────────────────────────────────────────────────────────────────
+  UNCONDITIONAL trace fields on EVERY violation (both steps): bundle,
+  bundle_maturity (= the bundle record's ArtifactStatusRecord.Status field —
+  populated from fm.Status.Maturity at artifact_status.go:197; the field is
+  named .Status, NOT .Maturity — denormalized deliberately, safe because of the
+  top-level provenance in Phase 2), req_id, req_version
+  (= bundleReqVersion(bundle, reqID)), gap_kind, remedy. For chain_outrun the
+  bundle/req/version come from the originating staleRef, so the stale-spec
+  bookkeeping (today a bool set `staleSpecs`) must carry the originating
+  bundle/req/current-version through to the chain_outrun site; bundle_maturity
+  there needs a bundles[bundleName].Status re-lookup (the bundles map is in
+  scope at the emission site) so it is not left empty.
+  ─────────────────────────────────────────────────────────────────────────
+
+  IDENTITY IS UNTOUCHED (REQ-009). EnrichViolationIdentity
+  (pkg/gate/baseline.go:203) folds only Rule|File|RegionHash where RegionHash
+  hashes Message|Severity|SourcePack. `trace` must be `json:"trace,omitempty"`
+  and — like Line, ProjectWide, WaiverHint — MUST NOT enter identity. Do NOT
+  add Trace to any identity/RegionHash computation. A claim-mapped test proves
+  identity/identity_hash/region_hash are byte-identical before/after.
+
+  GATE-JSON PROVENANCE (Phase 2): GateResult gains git_sha + generated_at.
+  Population lives in the CLI runGate path (cmd/backstop/gate.go), on `result`
+  BEFORE FormatJSON/FormatHuman, mirroring the baseline artifact: git_sha via
+  the EXISTING `gitSHA(projectRoot)` helper (cmd/backstop/baseline.go:74 —
+  `git rev-parse HEAD`, empty string on error/non-repo). DIRTY-TREE BEHAVIOR
+  matches the baseline exactly: rev-parse HEAD returns the HEAD commit SHA
+  regardless of a dirty working tree (no `-dirty` suffix, no clean check);
+  generated_at = time.Now().UTC().Format(time.RFC3339). SchemaVersion stays
+  "gate/v1" (additive change, no bump).
+
+  VOCABULARY (REQ-010): every NEW message, gap_kind/remedy value, and trace
+  doc comment says "covered"/"coverage" for REQ-level state, never "delivered"
+  (which names bundle maturity only). The pre-existing "delivered bundle …"
+  message at line 91 legitimately describes bundle maturity and is out of
+  scope for the vocabulary check.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Per-violation trace object in the requirement_traceability
+  #          classifier (pkg/gate) — the bulk of the change.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Trace object on every requirement_traceability violation (pkg/gate)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing trace-classifier tests: presence, unconditional fields, gap_kind/remedy per path (incl. coverage_lapsed), stale_pin conditionals, citing_artifact, via, identity/baseline stability, forward-compat, vocabulary"
+        description: |
+          Add pkg/gate/requirement_traceability_trace_test.go exercising the
+          `trace` object ClassifyRequirementTraceability must emit. Build
+          fixtures as hand-constructed []ArtifactStatusRecord + []TraceRef (the
+          same style as the existing pkg/gate/requirement_traceability_test.go)
+          — NO gate run, NO CLI. Reuse existing package test helpers where they
+          exist; do NOT touch requirement_traceability.go or result.go here.
+          All tests FAIL today (no Trace type / no trace population) and pass
+          after TASK-002.
+
+          Mandated test names (exact):
+            - TestTrace_Fields_EveryViolationCarriesTraceObject (CLM-001): a
+              fixture corpus spanning all five gap kinds; assert EVERY returned
+              Violation has a non-nil Trace, no gap_kind carved out.
+            - TestTrace_Fields_AdvisoryStepAlsoCarriesTraceObject (CLM-001):
+              a non-delivered (advisory/warning) bundle-REQ gap; after
+              SplitTraceabilityResult the ADVISORY-step violation also carries
+              a non-nil Trace, not just the block step.
+            - TestTrace_Fields_UncoveredCarriesBundleReqAndVersion (CLM-002):
+              trace.bundle / trace.req_id / trace.req_version equal the bundle
+              fixture's name, REQ id, and current REQ version exactly.
+            - TestTrace_Fields_BundleMaturityMatchesRecordAtClassification
+              (CLM-002): trace.bundle_maturity equals the bundle record's
+              maturity string as classified (denormalized per REQ-005).
+            - TestTrace_GapKind_UncoveredMapsToAuthorSpec (CLM-003): a bundle
+              REQ that never had any citer → gap_kind=uncovered,
+              remedy=author_spec.
+            - TestTrace_GapKind_CoverageLapsedDistinctFromUncovered (CLM-003,
+              the NEW-detection test): a bundle REQ whose ONLY citer is a
+              retired-terminal (`replaced`) SPEC → gap_kind=coverage_lapsed,
+              remedy=restate_supports — NOT uncovered/author_spec, even though
+              the same block/advisory violation still fires. The fixture corpus
+              MUST include three side-by-side REQs to pin the predicate: (a) the
+              retired-SPEC-citer REQ → coverage_lapsed; (b) a never-cited REQ →
+              uncovered/author_spec; and (c) a REQ whose ONLY retired-terminal
+              citer is an ISSUE (not a spec) → uncovered/author_spec, NOT lapsed
+              — proving the `citer.Kind == KindSpec` constraint and preventing a
+              vacuous green where a retired ISSUE would wrongly count as lapsed.
+              Assert all three gap_kind/remedy pairs.
+            - TestTrace_GapKind_CitingSpecNotImplementedMapsToImplementSpec
+              (CLM-003): delivered bundle cited by a non-implemented spec →
+              gap_kind=citing_spec_not_implemented, remedy=implement_spec.
+            - TestTrace_GapKind_ChainOutrunMapsToResolveUpstream (CLM-003): a
+              non-terminal plan targeting a spec whose bundle-REQ chain is
+              stale → gap_kind=chain_outrun, remedy=resolve_upstream.
+            - TestTrace_StalePin_RemedyRePinWhenBundleUnimplemented (CLM-004):
+              a stale pin against a bundle that is NOT delivered → remedy=re_pin.
+            - TestTrace_StalePin_RemedyNewSpecWhenBundleDelivered (CLM-004): the
+              SAME stale-pin detection against a `delivered` bundle →
+              remedy=new_spec.
+            - TestTrace_StalePin_PinnedVersionAndBumpPopulated (CLM-004):
+              trace.pinned_version = the ref pin, trace.bump = StalePinVerdict's
+              bump (e.g. "major"/"minor").
+            - TestTrace_CitingArtifact_PresentOnStalePinAndCitingSpecNotImplemented
+              (CLM-005): both kinds carry trace.citing_artifact = the citing
+              spec/issue ID.
+            - TestTrace_CitingArtifact_AbsentOnUncoveredAndChainOutrun (CLM-005):
+              uncovered and chain_outrun violations leave citing_artifact empty
+              (omitempty absent).
+            - TestTrace_ChainOutrun_ViaPointsAtNonVerifyingSpec (CLM-006):
+              trace.via = the targeted spec ID (the non-verifying upstream
+              link), asserted DISTINCT from the violating plan's own ID.
+            - TestTrace_ForwardCompat_UnknownGapKindDegradesToMessage (CLM-008):
+              a Violation JSON whose trace carries an unrecognized
+              gap_kind/remedy round-trips through json.Unmarshal WITHOUT error
+              and preserves the prose Message (GapKind/Remedy are plain strings,
+              so an unknown value is retained, never rejected) — the consumer
+              degrades to Message.
+            - TestTrace_Identity_UnchangedByTraceFieldAddition (CLM-009): for a
+              fixed Violation, EnrichViolationIdentity yields byte-identical
+              Identity / IdentityHash / RegionHash whether Trace is nil or
+              populated — proving trace is excluded from identity like
+              Line/ProjectWide/WaiverHint.
+            - TestTrace_Baseline_PreExistingBaselineStillCompares (CLM-009): a
+              baseline artifact whose violations carry NO trace still
+              CompareBaselines correctly against a current run whose identical
+              violations now carry trace (grandfathering holds on identity).
+            - TestTrace_Vocabulary_NoDeliveredUsedForCoverageState (CLM-010):
+              the trace gap_kind/remedy enum values and the Trace type's field
+              doc comments use "covered"/"coverage" for REQ-level state and
+              never "delivered" — scoped to the NEW trace vocabulary, NOT the
+              pre-existing bundle-maturity message at line 91.
+        files:
+          - pkg/gate/requirement_traceability_trace_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on: []
+        test_names:
+          - TestTrace_Fields_EveryViolationCarriesTraceObject
+          - TestTrace_Fields_AdvisoryStepAlsoCarriesTraceObject
+          - TestTrace_Fields_UncoveredCarriesBundleReqAndVersion
+          - TestTrace_Fields_BundleMaturityMatchesRecordAtClassification
+          - TestTrace_GapKind_UncoveredMapsToAuthorSpec
+          - TestTrace_GapKind_CoverageLapsedDistinctFromUncovered
+          - TestTrace_GapKind_CitingSpecNotImplementedMapsToImplementSpec
+          - TestTrace_GapKind_ChainOutrunMapsToResolveUpstream
+          - TestTrace_StalePin_RemedyRePinWhenBundleUnimplemented
+          - TestTrace_StalePin_RemedyNewSpecWhenBundleDelivered
+          - TestTrace_StalePin_PinnedVersionAndBumpPopulated
+          - TestTrace_CitingArtifact_PresentOnStalePinAndCitingSpecNotImplemented
+          - TestTrace_CitingArtifact_AbsentOnUncoveredAndChainOutrun
+          - TestTrace_ChainOutrun_ViaPointsAtNonVerifyingSpec
+          - TestTrace_ForwardCompat_UnknownGapKindDegradesToMessage
+          - TestTrace_Identity_UnchangedByTraceFieldAddition
+          - TestTrace_Baseline_PreExistingBaselineStillCompares
+          - TestTrace_Vocabulary_NoDeliveredUsedForCoverageState
+
+      - id: TASK-002
+        type: implementation
+        title: "Define Trace, attach Violation.Trace (identity-excluded), and populate trace at all five emission sites incl. new coverage_lapsed detection"
+        description: |
+          Make TASK-001 green. Two files:
+
+          pkg/gate/result.go:
+            - Add `Trace *Trace` with tag `json:"trace,omitempty"` to the
+              Violation struct. Place it beside the other presentation-only,
+              identity-excluded fields with a doc comment stating — like Line /
+              ProjectWide / WaiverHint — that Trace is additive under gate/v1
+              and deliberately EXCLUDED from baseline identity/RegionHash so its
+              presence never destabilizes grandfathering. Do NOT modify
+              EnrichViolationIdentity (baseline.go) — identity must stay
+              Rule|File|RegionHash(Message|Severity|SourcePack).
+
+          pkg/gate/requirement_traceability.go:
+            - Define the Trace type (per issue contract): Bundle,
+              BundleMaturity, ReqID, ReqVersion, GapKind, Remedy, PinnedVersion,
+              Bump, CitingArtifact, Via — all string, each with `omitempty`
+              JSON tags on the conditional fields (PinnedVersion, Bump,
+              CitingArtifact, Via). The type doc comment states the
+              forward-compat contract (unrecognized gap_kind/remedy → consumers
+              degrade to the prose Message, never error; a vocabulary-breaking
+              change requires a gate schema_version bump) and uses
+              "covered"/"coverage" vocabulary throughout (never "delivered" for
+              REQ-level state).
+            - Populate `trace` on EVERY violation the classifier emits, both
+              steps, no gap_kind carved out. Unconditional fields on all five:
+              Bundle, BundleMaturity (the bundle record's
+              ArtifactStatusRecord.Status field — populated from
+              fm.Status.Maturity at artifact_status.go:197; the field is named
+              .Status, NOT .Maturity), ReqID, ReqVersion
+              (bundleReqVersion(bundle, reqID)), GapKind, Remedy.
+              Site-by-site:
+                * citing_spec_not_implemented (lines 87-94): GapKind=
+                  "citing_spec_not_implemented", Remedy="implement_spec",
+                  CitingArtifact=citer.ID.
+                * stale_pin (lines 108-114): GapKind="stale_pin",
+                  PinnedVersion=ref.PinVersion, Bump=StalePinVerdict bump
+                  (thread the bump out of StalePinVerdict at the staleRefs
+                  collection site, lines 82-85, so it reaches here),
+                  CitingArtifact=the citing ID, Remedy LIFECYCLE-KEYED:
+                  bundle.Class==ClassSuccessTerminal → "new_spec", else
+                  "re_pin".
+                * chain_outrun (lines 122-128): GapKind="chain_outrun",
+                  Remedy="resolve_upstream", Via=spec.ID. Carry the originating
+                  bundle/req/current-version into this site: extend the
+                  `staleSpecs` bookkeeping (today `map[string]bool` at line 56,
+                  set at line 106) to a map keyed by spec ID holding the
+                  originating staleRef's BundleName/ReqID/currentVersion so
+                  Bundle/ReqID/ReqVersion populate correctly; BundleMaturity
+                  needs a bundles[bundleName].Status re-lookup (the bundles map
+                  is in scope at this emission site) so it is not left empty.
+                * uncovered / coverage_lapsed (lines 145-150): NEW detection.
+                  Add a `map[bundleName]map[reqID]bool` recording that a
+                  retired-terminal SPEC citer existed for that bundle+REQ —
+                  populate it in the ref loop BEFORE the existing skip at lines
+                  77-79 (when hasBundle && bundle.Class != ClassRetiredTerminal
+                  && citer.Class == ClassRetiredTerminal && citer.Kind ==
+                  KindSpec). The `citer.Kind == KindSpec` guard is REQUIRED:
+                  DD-3 scopes lapsed to a retired-SPEC citer, and the citers map
+                  also holds issues (lines 69-71), so a REQ whose only
+                  retired-terminal citer is an ISSUE must fall through to
+                  uncovered/author_spec, NOT lapsed. In the emission loop, if
+                  that map is set for the bundle+REQ → GapKind=
+                  "coverage_lapsed", Remedy="restate_supports"; else GapKind=
+                  "uncovered", Remedy="author_spec". The block/advisory
+                  severity split is UNCHANGED; only the trace differs.
+            - Do not change any Rule / File / Message / Severity value, the
+              StepResult partition, or SplitTraceabilityResult behavior — this
+              is additive.
+        files:
+          - pkg/gate/requirement_traceability.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "backstop code check + go test ./pkg/gate/... — all 18 trace tests green, no identity/baseline regression across pkg/gate"
+        description: |
+          Inner-loop verification for the classifier change. Run
+          `backstop code check` (diff-scoped: lint, build, test, semgrep) AND
+          `go test ./pkg/gate/...` (the full package suite, to catch any
+          identity/baseline or existing-traceability regression). Confirm:
+            - All 18 TASK-001 mandated tests pass.
+            - The existing pkg/gate/requirement_traceability_test.go and the
+              baseline identity/ratchet suites stay green — the ONLY behavior
+              delta is the additive trace object; any identity_hash / region_hash
+              or grandfathering change is a regression to investigate (trace
+              must be identity-excluded).
+          Report pass/fail per mandated test and any unexpected delta.
+        files:
+          - pkg/gate/requirement_traceability.go
+          - pkg/gate/result.go
+          - pkg/gate/requirement_traceability_trace_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Top-level git_sha / generated_at provenance on the gate JSON
+  #          (cmd/backstop + additive GateResult fields).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Gate-JSON provenance (git_sha / generated_at)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing CLI provenance tests: gate --json carries git_sha + generated_at from repo HEAD/wall-clock; schema_version stays gate/v1"
+        description: |
+          Add cmd/backstop/gate_provenance_test.go, a CLI-level test driving
+          real `gate --json` output (mirroring the existing
+          requirement_traceability_gate_test.go / gate_test.go workspace
+          harness). All FAIL today (no git_sha/generated_at population) and pass
+          after TASK-005. Depends on TASK-003 so the Phase-1 result.go trace
+          field is already present when this phase's result.go edits land
+          (keeps the two phases' result.go edits strictly ordered).
+
+          Mandated test names (exact):
+            - TestGateCLI_JSONOutputIncludesGitSHAAndGeneratedAt (CLM-007):
+              parse `gate --json` output; assert top-level git_sha and
+              generated_at are present and non-empty, and generated_at parses as
+              RFC 3339.
+            - TestGateCLI_GitSHAMatchesRepoHEAD (CLM-007): the emitted git_sha
+              equals `git rev-parse HEAD` for the test repo (the baseline
+              approach — HEAD SHA regardless of a dirty tree).
+            - TestGateCLI_SchemaVersionUnchangedByTraceFields (CLM-008): the
+              gate JSON's schema_version is still "gate/v1" — the trace and
+              provenance additions do not bump it.
+        files:
+          - cmd/backstop/gate_provenance_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestGateCLI_JSONOutputIncludesGitSHAAndGeneratedAt
+          - TestGateCLI_GitSHAMatchesRepoHEAD
+          - TestGateCLI_SchemaVersionUnchangedByTraceFields
+
+      - id: TASK-005
+        type: implementation
+        title: "Add GateResult.GitSHA/GeneratedAt fields and populate them in the CLI runGate path, mirroring the baseline artifact"
+        description: |
+          Make TASK-004 green. Two files:
+
+          pkg/gate/result.go:
+            - Add `GitSHA string` (tag `json:"git_sha,omitempty"`) and
+              `GeneratedAt string` (tag `json:"generated_at,omitempty"`) to the
+              GateResult struct. Additive top-level fields; SchemaVersion stays
+              "gate/v1" (do NOT touch NewGateResultWithScope's version literal).
+              Doc-comment them as provenance making gate-run-vs-corpus-parse
+              skew detectable and as the reason bundle_maturity can stay
+              denormalized per-violation.
+
+          cmd/backstop/gate.go:
+            - In runGate, after `result, exitCode := g.Run(...)` and BEFORE the
+              FormatJSON / FormatHuman branch, set
+              result.GitSHA = gitSHA(projectRoot) and
+              result.GeneratedAt = time.Now().UTC().Format(time.RFC3339).
+              Reuse the EXISTING gitSHA helper (cmd/backstop/baseline.go:74,
+              `git rev-parse HEAD`, "" on error/non-repo) — do NOT add a second
+              git-sha reader. Dirty-tree behavior mirrors the baseline exactly:
+              rev-parse HEAD returns the HEAD commit SHA with no clean check and
+              no `-dirty` suffix. `time` is already imported.
+        files:
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "backstop code check + go test ./cmd/backstop/... — provenance tests green, no gate-output regression"
+        description: |
+          Inner-loop verification for the provenance change. Run
+          `backstop code check` (diff-scoped) AND `go test ./cmd/backstop/...`.
+          Confirm the three TASK-004 mandated tests pass, git_sha matches repo
+          HEAD, generated_at is RFC 3339, schema_version is still "gate/v1", and
+          the rest of the cmd/backstop gate suite stays green (the additive
+          fields must not perturb existing JSON-shape assertions). Report
+          pass/fail per mandated test and any unexpected delta.
+        files:
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_provenance_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Full kill-chain verification.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Full-gate + artifact verification"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "backstop gate + backstop artifact validate — full kill chain green, trace + provenance land additively with zero identity/baseline regression, plan artifact validates"
+        description: |
+          Final comprehensive verification via the full kill chain. Run:
+            1. go test ./...            (whole-module regression sweep)
+            2. go build ./...           (build integrity)
+            3. backstop gate            (full reconciliation kill chain:
+                                         artifact validation, code check, test
+                                         verification, substantiveness,
+                                         coverage, contracts, drift, the
+                                         requirement_traceability step now
+                                         emitting trace, baseline comparison,
+                                         waivers, ledger — unfiltered)
+            4. backstop artifact validate   (validates this plan + the issue
+                                         artifacts)
+          Confirm the ACCEPTANCE invariants:
+            - `backstop gate` passes its full kill chain; the trace object and
+              git_sha/generated_at appear additively with SchemaVersion
+              unchanged ("gate/v1").
+            - No baseline re-baselining is forced: identity/identity_hash/
+              region_hash are unchanged, so any baseline_comparison delta on an
+              untouched finding is a regression to investigate.
+            - All 21 mandated tests across pkg/gate and cmd/backstop pass.
+            - `backstop artifact validate` reports PLAN-ISSUE-059 (and the
+              corpus) valid.
+          Report the gate verdict, the artifact-validate result, and any
+          revocation/regression with its cause.
+        files:
+          - pkg/gate/requirement_traceability.go
+          - pkg/gate/result.go
+          - cmd/backstop/gate.go
+          - plans/PLAN-ISSUE-059-gate-trace-structured-fields.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-005
+          - TASK-006

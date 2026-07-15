@@ -13,3 +13,5 @@ directives:
     title: backstop init Command
   - id: DIR-008
     title: CLI Self-Update
+  - id: DIR-020
+    title: Backstop Trace Command
