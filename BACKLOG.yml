@@ -13,5 +13,13 @@ directives:
     title: backstop init Command
   - id: DIR-008
     title: CLI Self-Update
+  - id: DIR-021
+    title: Traceability Hardening & Corpus Drain
+  - id: DIR-022
+    title: Contracts Engine Hardening
+  - id: DIR-023
+    title: Pack Distribution Hardening
+  - id: DIR-024
+    title: Gate/Engine Quality
   - id: DIR-020
     title: Backstop Trace Command

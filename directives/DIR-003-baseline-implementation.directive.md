@@ -9,6 +9,7 @@ directive:
   source:
     - "BUNDLE-007"
     - "SPEC-010"
+    - "ISSUE-056"
 ---
 
 ## Description
