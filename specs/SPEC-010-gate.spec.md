@@ -45,7 +45,7 @@ requirements:
       short-circuited by a preceding failure. The one exception: if a
       delegated step (artifact validate or code check) returns a config
       error (exit 2), gate halts remaining steps per REQ-009.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-002
     text: >
@@ -53,7 +53,7 @@ requirements:
       backstop artifact validate --all. It validates every artifact in the
       project against embedded schemas. Violations from this step must appear
       in the gate output under a distinct "artifact_validation" section.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-003
     text: >
@@ -61,7 +61,7 @@ requirements:
       check --all. It runs lint, build, test, and semgrep against the full
       codebase. Violations from this step must appear in the gate output
       under a distinct "code_check" section.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-004
     text: >
@@ -71,7 +71,7 @@ requirements:
       names. For each test name, grep the test files for a function with that
       exact name. A missing test function is a failure. This is a mechanical
       check — function name exists or it doesn't.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-015
     text: >
@@ -83,7 +83,7 @@ requirements:
       would fail). A test function that exists but contains no assertions or
       doesn't call the target package is a failure. This uses Go AST parsing
       or grep-level heuristics — not full semantic analysis.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-016
     text: >
@@ -100,7 +100,7 @@ requirements:
       `-coverprofile`, no `coverage: NN.N% of statements` parsing, and no
       in-binary test execution — the retired machinery those described is
       eradicated by BUNDLE-011 and replaced by the SPEC-041/SPEC-042 contract.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-017
     text: >
@@ -110,7 +110,7 @@ requirements:
       AST-parse the declared file for the declared symbol with the declared
       signature. A missing symbol or mismatched signature is a failure. This
       is a mechanical check — the declaration exists or it doesn't.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-005
     superseded_by: SPEC-019 REQ-015
@@ -121,7 +121,7 @@ requirements:
       .backstop/baseline.yml), comparisons use stable violation identity (not
       rule+file counts), and baseline ownership is CI-generated cache/artifact
       state rather than developer-authored repository content.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-006
     text: >
@@ -132,7 +132,7 @@ requirements:
       removed from the step's violation list and recorded as waived in the
       output. When the waiver subsystem is not yet implemented, this step
       must report status "skipped" with reason "waivers not implemented."
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-007
     text: >
@@ -143,7 +143,7 @@ requirements:
       A broken hash chain or tampered entry is a failure. When the ledger
       subsystem is not yet implemented, this step must report status "skipped"
       with reason "ledger not implemented."
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-008
     text: >
@@ -158,7 +158,7 @@ requirements:
       violations across all steps), steps_passed (integer), steps_failed
       (integer), steps_skipped (integer). When --json is not set, the
       command must produce human-readable formatted text to stdout.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-009
     text: >
@@ -172,7 +172,7 @@ requirements:
       errors from delegated steps (artifact validate or code check returning
       exit 2) must propagate as gate exit code 2. Gate must halt remaining
       steps when a delegated step returns a config error.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-010
     text: >
@@ -181,7 +181,7 @@ requirements:
       "gate/v1". Changes to the JSON output structure follow D-070
       evolution rules: additive fields with sensible defaults, deprecated
       fields emit warnings, breaking removals only on major version bumps.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-011
     text: >
@@ -191,7 +191,7 @@ requirements:
       "contract_signature", "baseline_comparison", "waiver_resolution",
       "ledger_integrity". These names are part of the JSON output contract
       and must not change without a schema version bump.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-012
     superseded_by: SPEC-018 REQ-008
@@ -200,7 +200,7 @@ requirements:
       scope flags and always ran against the full project. Gate now accepts
       --all and --file; the original comprehensive behavior is preserved via
       --all.
-    supports: cli:REQ-006
+    supports: cli:REQ-006@1.0.0
 
   - id: REQ-013
     text: >
@@ -209,7 +209,7 @@ requirements:
       violations for that step. Steps with status "skipped" must display
       their reason. The summary must end with an overall pass/fail verdict.
       The human output must respect the NO_COLOR environment variable.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-014
     text: >
@@ -217,7 +217,7 @@ requirements:
       backstop.yml is not found or fails validation, gate must exit with
       code 2 immediately. Gate reuses the config loading infrastructure
       from the CLI foundation (SPEC-005 REQ-003).
-    supports: cli:REQ-009
+    supports: cli:REQ-009@1.0.0
 
 claims:
   # REQ-001: Fixed order, all steps execute

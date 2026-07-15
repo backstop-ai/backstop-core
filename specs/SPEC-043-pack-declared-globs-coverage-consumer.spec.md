@@ -73,7 +73,7 @@ requirements:
       `test: ["**/*_test.go", "**/testdata/**"]` — and under the mandated
       zero-leading-segment semantics this single `**/*.go` source glob measures the
       live repo-root `embed.go`, no separate `*.go` entry needed.
-    supports: language-neutral-consumer-ts-toolchain:REQ-001
+    supports: language-neutral-consumer-ts-toolchain:REQ-001@1.0.0
   - id: REQ-002
     text: >
       The coverage consumer MUST derive its in-scope MEASURABLE SOURCE set from the
@@ -95,7 +95,7 @@ requirements:
       test-command/package-relevance model) until SPEC-045 (Seed 2) de-Go's
       test-verification discovery — they are out of scope here. Files matching only a
       test glob, or matching no declared glob, are NOT measurable.
-    supports: language-neutral-consumer-ts-toolchain:REQ-001
+    supports: language-neutral-consumer-ts-toolchain:REQ-001@1.0.0
   - id: REQ-003
     text: >
       The anti-vacuous-green guard (load-bearing). An in-scope CHANGED file that the
@@ -122,7 +122,7 @@ requirements:
       out of scope here. A changed file classified as TEST (or unclassified) is NOT
       subject to this guard. A pack-declared-excluded path is skipped from the guard
       (its exclusion loudness is SPEC-041 behavior, unchanged).
-    supports: language-neutral-consumer-ts-toolchain:REQ-001
+    supports: language-neutral-consumer-ts-toolchain:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -141,7 +141,7 @@ requirements:
       `<dim>_capability_absent`-style Violation (Severity `warning`, ConfigErr false).
       Emit it as a `coverage`-dimension capability-absent warning in that same shape so
       the report renders it consistently with the traceability-polarity absent states.
-    supports: language-neutral-consumer-ts-toolchain:REQ-001
+    supports: language-neutral-consumer-ts-toolchain:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -168,7 +168,7 @@ requirements:
       `mergeSourceClassifier` call unexercised (the exact integration gap that bit
       SPEC-035/037). The merge MUST be a UNION across all declared toolchain packs (two
       declared toolchain packs contribute both glob sets to the live step).
-    supports: language-neutral-consumer-ts-toolchain:REQ-001
+    supports: language-neutral-consumer-ts-toolchain:REQ-001@1.0.0
 
 claims:
   # REQ-001 — the pack-declared classification contract (DATA shape)

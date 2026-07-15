@@ -12,10 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bmanson/backstop-core/pkg/artifact"
 	"github.com/bmanson/backstop-core/pkg/check"
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/bmanson/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
 )
@@ -685,6 +687,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// the non-policied WARN advisory (StepArtifactStatusDriftAdvisory), so the WARN
 	// direction is structurally non-blocking (no policy can upgrade it).
 	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, classifier, matcher)
+	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot)
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
@@ -719,6 +722,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		contractStep,
 		driftBlockStep,
 		driftAdvisoryStep,
+		traceBlockStep,
+		traceAdvisoryStep,
 		// SPEC-049 REQ-017: waiver resolution MUST run BEFORE baseline comparison so
 		// the accumulated violation set is ALREADY waiver-subtracted when
 		// baseline_comparison captures its NewViolations — otherwise an active-waived
@@ -903,6 +908,91 @@ func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution
 		combined.Violations[i].File = gate.NormalizePath(projectRoot, combined.Violations[i].File)
 	}
 	return gate.SplitDriftResult(combined)
+}
+
+func buildRequirementTraceabilitySteps(projectRoot string) (gate.StepFunc, gate.StepFunc) {
+	var (
+		once           sync.Once
+		blockResult    gate.StepResult
+		advisoryResult gate.StepResult
+	)
+	compute := func() {
+		blockResult, advisoryResult = computeRequirementTraceabilitySurfaces(projectRoot)
+	}
+	block := func(context.Context) gate.StepResult {
+		once.Do(compute)
+		return blockResult
+	}
+	advisory := func(context.Context) gate.StepResult {
+		once.Do(compute)
+		return advisoryResult
+	}
+	return block, advisory
+}
+
+func computeRequirementTraceabilitySurfaces(projectRoot string) (gate.StepResult, gate.StepResult) {
+	res, err := gate.ResolveArtifactStatus(projectRoot)
+	if err != nil {
+		return gate.StepResult{
+			StepName:   gate.StepRequirementTraceability,
+			Status:     "fail",
+			ConfigErr:  true,
+			Violations: []gate.Violation{{Rule: gate.StepRequirementTraceability, Message: "resolving artifact status: " + err.Error(), Severity: "error"}},
+		}, gate.StepResult{StepName: gate.StepRequirementTraceabilityAdvisory, Status: "pass", Violations: []gate.Violation{}}
+	}
+	refs, err := collectTraceRefs(projectRoot)
+	if err != nil {
+		return gate.StepResult{
+			StepName:   gate.StepRequirementTraceability,
+			Status:     "fail",
+			ConfigErr:  true,
+			Violations: []gate.Violation{{Rule: gate.StepRequirementTraceability, Message: "collecting supports refs: " + err.Error(), Severity: "error"}},
+		}, gate.StepResult{StepName: gate.StepRequirementTraceabilityAdvisory, Status: "pass", Violations: []gate.Violation{}}
+	}
+	for i := range res.Records {
+		res.Records[i].Path = gate.NormalizePath(projectRoot, res.Records[i].Path)
+	}
+	for i := range refs {
+		refs[i].CitingPath = gate.NormalizePath(projectRoot, refs[i].CitingPath)
+	}
+	combined := gate.ClassifyRequirementTraceability(res.Records, refs)
+	for i := range combined.Violations {
+		combined.Violations[i].File = gate.NormalizePath("", combined.Violations[i].File)
+	}
+	return gate.SplitTraceabilityResult(combined)
+}
+
+func collectTraceRefs(projectRoot string) ([]gate.TraceRef, error) {
+	discovered, err := DiscoverArtifacts(projectRoot, []string{"spec", "issue"})
+	if err != nil {
+		return nil, fmt.Errorf("discovering spec/issue artifacts: %w", err)
+	}
+	var parsed []*artifact.ParsedArtifact
+	pathByBase := map[string]string{}
+	for _, da := range discovered {
+		art, parseErr := artifact.ParseFile(da.Path)
+		if parseErr != nil {
+			continue
+		}
+		parsed = append(parsed, art)
+		pathByBase[art.Filename] = da.Path
+	}
+	refs := validate.CollectSupportRefs(parsed)
+	out := make([]gate.TraceRef, 0, len(refs))
+	for _, ref := range refs {
+		citingPath := ref.File
+		if pathByBase[ref.File] != "" {
+			citingPath = pathByBase[ref.File]
+		}
+		out = append(out, gate.TraceRef{
+			BundleName: ref.BundleName,
+			ReqID:      ref.ReqID,
+			PinVersion: ref.Version,
+			Pinned:     ref.Version != "",
+			CitingPath: citingPath,
+		})
+	}
+	return out, nil
 }
 
 // substantivenessPackName is the stable normalized name of the substantiveness pack

@@ -51,7 +51,7 @@ requirements:
       ISO-8601 date (YYYY-MM-DD). The grammar must parse and validate
       deterministically: `ParseToken` returns a populated Waiver for a
       well-formed token and a non-nil error for any malformed token.
-    supports: waiver-subsystem:REQ-001
+    supports: waiver-subsystem:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -65,7 +65,7 @@ requirements:
       encode any language's comment syntax. Because `@waiver` is a token foreign
       to every engine, the finding is emitted regardless of engine; backstop does
       100% of the suppressing.
-    supports: waiver-subsystem:REQ-002
+    supports: waiver-subsystem:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -75,7 +75,7 @@ requirements:
       scope: a second finding of the same rule at a different location in the
       same file is NOT suppressed by a token co-located with the first finding.
       A debt-heavy file that is touched is discharged finding-by-finding.
-    supports: waiver-subsystem:REQ-003
+    supports: waiver-subsystem:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -88,7 +88,7 @@ requirements:
       expiry the waiver becomes inactive and the finding re-fires under normal
       enforcement. The gate must emit a loud heads-up BEFORE a waiver expires
       (the pre-expiry warning is the grace period).
-    supports: waiver-subsystem:REQ-004
+    supports: waiver-subsystem:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -96,7 +96,7 @@ requirements:
       token whose associated location no longer has a matching live finding. An
       unused waiver is surfaced as a WARNING (not a block and not silent); a
       waiver with a matching live finding at its location is NOT flagged unused.
-    supports: waiver-subsystem:REQ-005
+    supports: waiver-subsystem:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -108,7 +108,7 @@ requirements:
       critical-severity secrets in the non-waivable set. A `@waiver` token
       targeting a rule the Policy reports non-waivable is a gate ERROR, not a
       suppression. A rule NOT in the declared non-waivable set remains waivable.
-    supports: waiver-subsystem:REQ-006
+    supports: waiver-subsystem:REQ-006@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -117,7 +117,7 @@ requirements:
       or an invalid expiry format each produces a gate finding at the token's
       location. The waiver grammar is enforced, not best-effort. A well-formed
       token is NOT flagged as malformed.
-    supports: waiver-subsystem:REQ-007
+    supports: waiver-subsystem:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -133,7 +133,7 @@ requirements:
       (e.g. an incidental occurrence inside a string literal) does NOT suppress
       the finding. Residual risk when a fully-valid token naming the exact rule
       appears inside a string literal is accepted and documented (Sharp Edges).
-    supports: waiver-subsystem:REQ-008
+    supports: waiver-subsystem:REQ-008@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-009
     text: >
@@ -143,7 +143,7 @@ requirements:
       than silently waiving a DIFFERENT rule. A waiver whose rule-id matches the
       live finding's rule-id suppresses it; a waiver never suppresses a
       co-located finding whose rule-id differs from the token's rule-id.
-    supports: waiver-subsystem:REQ-009
+    supports: waiver-subsystem:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-010
     text: >
@@ -162,7 +162,7 @@ requirements:
       annotation convention rather than a per-line source token (see REQ below /
       Implementation): a `@waiver:coverage_threshold:<reason>:<expiry>` token on
       the FILE's first line waives that file's coverage finding.
-    supports: waiver-subsystem:REQ-010
+    supports: waiver-subsystem:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-011
     text: >
@@ -172,7 +172,7 @@ requirements:
       requires language comment-syntax, which is baked-language knowledge — so no
       code path in core authors tokens; authoring and re-certification belong to
       the human or the runtime agent.
-    supports: waiver-subsystem:REQ-011
+    supports: waiver-subsystem:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-012
     text: >
@@ -184,7 +184,7 @@ requirements:
       every run; full per-waiver detail is available on demand. (Surfacing
       engine-native VISIBLE suppressions on a separate line is a Notes/Ideas
       follow-on per bundle DD-6, NOT a v1 requirement — see Sharp Edges.)
-    supports: waiver-subsystem:REQ-012
+    supports: waiver-subsystem:REQ-012@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-013
     text: >
@@ -195,7 +195,7 @@ requirements:
       nothing. Baseline generation (a machine snapshot) and waiver authoring (a
       human decision) remain DISTINCT operations — baseline generation never
       authors waivers.
-    supports: waiver-subsystem:REQ-013
+    supports: waiver-subsystem:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-014
     text: >
@@ -206,7 +206,7 @@ requirements:
       as writing an engine-native `//nolint`. The gate must NOT emit a pre-filled
       token for a NON-WAIVABLE finding (it cannot be waived) nor for a
       structural/non-code finding (outside the waivable surface).
-    supports: waiver-subsystem:REQ-014
+    supports: waiver-subsystem:REQ-014@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-015
     text: >
@@ -219,7 +219,7 @@ requirements:
       field on `GateResult` (e.g. `ActiveWaivers []waiver.Waiver`), and
       `ActiveWaiverFeed` reads that field. Step 9 itself is unbuilt; this
       requirement is the data-feed CONTRACT, not step-9 implementation.
-    supports: waiver-subsystem:REQ-015
+    supports: waiver-subsystem:REQ-015@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-016
     text: >
@@ -241,7 +241,7 @@ requirements:
       shipped `backstop gate` path must therefore actually suppress a code-located
       finding via a `@waiver` and error on a `backstop/self` non-waivable waiver
       end-to-end over the installed packs.
-    supports: waiver-subsystem:REQ-011
+    supports: waiver-subsystem:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-017
     text: >
@@ -255,7 +255,7 @@ requirements:
       (the current deferred-stub order) would let an active-waived finding still
       count as a new violation against the ratchet, defeating REQ-013. The shipped
       step order must place waiver resolution ahead of baseline comparison.
-    supports: waiver-subsystem:REQ-013
+    supports: waiver-subsystem:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

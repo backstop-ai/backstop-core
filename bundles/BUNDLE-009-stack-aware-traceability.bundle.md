@@ -108,6 +108,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       A traceability dimension that is DECLARED but broken (declared command errors,
       unparseable output, unknown toolchain key, or declared-but-capability-missing)
@@ -115,12 +116,14 @@ requirements:
       emits a conspicuous, specific warn-with-how-to-adopt on the report surface and
       passes (exit 0). Loudness lives on the report surface, not the exit code.
   - id: REQ-002
+    version: "1.0.0"
     text: >
       Delete the baked Go substantiveness analyzer in `step_testverify.go`,
       re-implementing the Q1 hollow-test check ("does this test assert anything?") as
       an ast-grep findings pack (per-language assertion vocabulary in YAML) emitting
       SARIF, with Go included.
   - id: REQ-003
+    version: "1.0.0"
     text: >
       Re-implement the Q2 noTarget check ("does this test exercise the unit under
       test?") as a pack EXTRACTION (a positive ast-grep query emitting the
@@ -128,6 +131,7 @@ requirements:
       SET-JOIN against the spec's declared `implementation.package`; the noTarget
       semantics live in the gate as a set test, not a baked analyzer.
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Delete the baked Go contract analyzer in `step_contract.go`. Re-implement
       contract signature presence as a pack-compiled ast-grep REQUIRED-pattern query
@@ -135,6 +139,7 @@ requirements:
       to its-language ast-grep pattern at gate time), a match = SATISFIED — dissolving
       the `formatFuncSignature`→`signaturesMatch` Go-source-string round-trip.
   - id: REQ-005
+    version: "1.0.0"
     text: >
       Re-implement the ISSUE-013 contract ABSENCE check as a pack-declared,
       allowlisted grep/ripgrep forbidden-pattern probe (`pattern-arg`; scope = file OR
@@ -146,6 +151,7 @@ requirements:
       exist or was not scanned). A scanned non-Go scope is not an error — it is just
       another stack the pack handles.
   - id: REQ-006
+    version: "1.0.0"
     text: >
       Stand up a grep/ripgrep engine for the absence probe without baking tool
       knowledge into the binary: (a) the traceability pack declares grep in its
@@ -153,6 +159,7 @@ requirements:
       script) — no baked DefaultRegistry entry, no ISSUE-027-style eradication debt;
       (b) the `grep`/`rg` tool is added to the backstop-owned trusted-tool allowlist.
   - id: REQ-007
+    version: "1.0.0"
     text: >
       Author one non-Go proof pack — a TypeScript traceability pack — covering
       hollow-test substantiveness on `.test.ts` via ast-grep and contracts (signature
@@ -160,6 +167,7 @@ requirements:
       structural engines only (no TS toolchain), to substantiate the "beyond Go"
       claim and begin unblocking the TS runtime's self-gating.
   - id: REQ-008
+    version: "1.0.0"
     text: >
       Guard the Go contract cutover with a strangler-equivalence pass: prove the
       pack-compiled ast-grep patterns and grep absence probes reproduce the
@@ -167,6 +175,7 @@ requirements:
       Go fixtures BEFORE deleting `step_contract.go`'s analyzer (the SPEC-034
       licensing pattern).
   - id: REQ-009
+    version: "1.0.0"
     text: >
       Delete the baked Go coverage analyzer `step_coverage.go` (the
       `go test -coverprofile` path, the percentage regex, and the dead `Stack` seam)
@@ -174,6 +183,7 @@ requirements:
       deferred to a future dedicated bundle near BUNDLE-011. The interim gap is
       accepted because the deleted check is a non-working 0.0% false-RED.
   - id: REQ-010
+    version: "1.0.0"
     text: >
       End state across the bundle: ZERO baked-in traceability analyzers in the gate.
       The only language-agnostic gate logic that remains is the set-join, the

@@ -38,7 +38,7 @@ requirements:
       valid values: spec, plan, issue, adr, directive, bundle, capability.
       An unrecognized type is a validation error (exit code 2). A missing
       type argument is a usage error (exit code 2).
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-002
     text: >
@@ -48,7 +48,7 @@ requirements:
       An invalid slug is a validation error (exit code 2). If --slug is
       not provided, the command must prompt for or require a slug (exit
       code 2 if missing).
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-003
     text: >
@@ -62,7 +62,7 @@ requirements:
       fails due to conflict (another developer reserved the same number),
       the command must retry with the next available number. Gaps from
       unused reservations are acceptable and must not be filled.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-004
     text: >
@@ -78,7 +78,7 @@ requirements:
       developer claimed the same ID) are NOT eligible for fallback; they
       are handled by retry logic in REQ-003, and if retries are exhausted,
       result in exit code 2 per REQ-010.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-005
     text: >
@@ -89,7 +89,7 @@ requirements:
       create the target directory if it does not exist. If the file already
       exists at the target path, the command must refuse to overwrite it
       and exit with code 1.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-006
     text: >
@@ -105,7 +105,7 @@ requirements:
       type's ID pattern (3 digits for spec/issue/directive/capability/bundle,
       4 digits for adr). Plans have type-specific naming rules depending
       on whether they back a spec or issue.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-007
     text: >
@@ -122,7 +122,7 @@ requirements:
       fields must default to today's date. Status fields must default to
       the initial status for that type (draft for spec/plan/adr, open for
       issue, idea for bundle maturity).
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-008
     text: >
@@ -133,7 +133,7 @@ requirements:
       scaffolds must include Overview, Requirements, Implementation, and
       Verification sections. ADR scaffolds must include Context, Decision,
       and Consequences sections.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-009
     text: >
@@ -143,7 +143,7 @@ requirements:
       file path written, and a schema_version field. In human mode, the
       output must display the created file path and assigned ID. Both
       modes must produce identical underlying data.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-010
     text: >
@@ -154,7 +154,7 @@ requirements:
       Non-conflict remote failures (network, permissions, unreachable remote)
       do NOT produce exit 2; they trigger offline fallback per REQ-004.
       Exit code 2 takes precedence over exit code 1.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-011
     text: >
@@ -164,7 +164,7 @@ requirements:
       tag message must include the creation timestamp and the slug. The
       push must target only the specific tag, not all tags. The retry
       logic must attempt at most 3 retries on conflict before failing.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-012
     text: >
@@ -173,7 +173,7 @@ requirements:
       the template, write the file, and format the result. Template
       rendering logic and ID resolution logic must be in a pkg/ package,
       not in cmd/.
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
   - id: REQ-013
     text: >
@@ -187,7 +187,7 @@ requirements:
       --source does not match the SPEC-NNN or ISSUE-NNN pattern, the
       command exits with code 2. The --source flag is silently ignored
       when the artifact type is not "plan".
-    supports: cli:REQ-002
+    supports: cli:REQ-002@1.0.0
 
 claims:
   # REQ-001: Type argument validation — all 7 types

@@ -53,7 +53,7 @@ requirements:
       through `dispatchPackEngines` (SPEC-031), never an in-process semgrep
       `--config` feed. No pkg/check production code path assembles a semgrep
       `--config` argument from a compiled-standards manifest directory.
-    supports: pluggable-pack-engines:REQ-016
+    supports: pluggable-pack-engines:REQ-016@1.0.0
   - id: REQ-005
     text: >
       The `pkg/compile` standards compiler must be retired from core: it must
@@ -74,7 +74,7 @@ requirements:
       dead code, because its tests consume artifacts this spec deletes and would
       turn the dogfood `go test ./...` red. After this spec, `go test ./...`
       across the whole module must be green with `pkg/compile` gone.
-    supports: pluggable-pack-engines:REQ-016
+    supports: pluggable-pack-engines:REQ-016@1.0.0
   - id: REQ-006
     text: >
       The `STD-GO-001` source standard
@@ -83,7 +83,7 @@ requirements:
       `backstop/go-standards` pack. No production code path may require the `STD-GO-001`
       standard artifact or its compiled outputs to exist. Validation and gate
       runs must not fail merely because `STD-GO-001` is absent.
-    supports: pluggable-pack-engines:REQ-016
+    supports: pluggable-pack-engines:REQ-016@1.0.0
   - id: REQ-007
     text: >
       backstop-core must dogfood-consume the published `backstop/go-standards`
@@ -120,7 +120,7 @@ requirements:
       gate over clean code cannot distinguish "rules enforced, code clean" from
       "rules silently dropped" (the vacuous-green failure this bundle exists to
       kill).
-    supports: pluggable-pack-engines:REQ-016
+    supports: pluggable-pack-engines:REQ-016@1.0.0
 
 claims:
   # REQ-001 — compiled-standards --config arm gone (no in-process semgrep

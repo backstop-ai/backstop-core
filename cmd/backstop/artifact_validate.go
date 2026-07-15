@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,6 +14,7 @@ import (
 )
 
 // ValidateConfig holds parsed flags and configuration for artifact validation.
+// @waiver:backstop/go-standards/backstop.packs.backstop.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-12 pack rule fix pending — ValidateConfig is not an error type; rule misfires on a non-error struct
 type ValidateConfig struct {
 	ProjectRoot string            // Project root directory (from backstop.yml location)
 	TypeFilters map[string]string // Type name → optional artifact ID (empty string = all of type)
@@ -65,16 +67,19 @@ func loadSchemaFromFS(fsys fs.FS, schemaRelPath string) (*schema.Schema, error) 
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir for schema loading: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Copy the extension schema from the embedded FS
 	if err := copyFSFile(fsys, schemaRelPath, tmpDir); err != nil {
 		return nil, fmt.Errorf("reading schema from embed: %w", err)
 	}
 
-	// Copy the base schema if it exists (needed for extends resolution)
+	// Copy the base schema if it exists (needed for extends resolution). A missing
+	// base is expected and non-fatal; surface any other copy failure.
 	basePath := filepath.Join("artifacts", "base", "schema.json")
-	_ = copyFSFile(fsys, basePath, tmpDir) // Ignore error — base may not exist
+	if err := copyFSFile(fsys, basePath, tmpDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("copying base schema: %w", err)
+	}
 
 	fullPath := filepath.Join(tmpDir, schemaRelPath)
 	artifactsRoot := filepath.Join(tmpDir, "artifacts")
@@ -180,12 +185,63 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 		}
 	}
 
+	// Corpus resolution pass (SPEC-050 REQ-001/REQ-003). Built from a FULL-corpus
+	// discovery INDEPENDENT of cfg's type filter, so a --spec-scoped run resolves
+	// identically to an unscoped run and to the gate (which delegates here). Placed
+	// in this shared walk — not a per-artifact validator — so a ref resolves against
+	// a bundle in a different file and the CLI and gate share one verdict.
+	resolutionViolations, err := buildResolutionViolations(cfg.ProjectRoot)
+	if err != nil {
+		return ValidateResult{}, fmt.Errorf("resolving supports refs: %w", err)
+	}
+	allViolations = append(allViolations, resolutionViolations...)
+
 	return ValidateResult{
 		Pass:            len(allViolations) == 0,
 		ViolationsCount: len(allViolations),
 		Violations:      allViolations,
 		ArtifactsFound:  artifactsProcessed,
 	}, nil
+}
+
+// buildResolutionViolations runs the SPEC-050 corpus resolution pass over the FULL
+// artifact corpus rooted at projectRoot, independent of any type-scoping filter.
+// It discovers every bundle to build the version-log catalog, harvests supports
+// refs from every spec/issue (terminal citers skipped inside the harvest), and
+// resolves each ref both directions plus version-log match. Files that fail to
+// parse are skipped here — the per-artifact loop (and the gate's unscoped run)
+// surface parse errors authoritatively — so a scoped CLI run does not error on an
+// unrelated malformed file.
+func buildResolutionViolations(projectRoot string) ([]validate.Violation, error) {
+	bundleDiscovered, err := DiscoverArtifacts(projectRoot, []string{"bundle"})
+	if err != nil {
+		return nil, fmt.Errorf("discovering bundles for resolution catalog: %w", err)
+	}
+	var bundles []*artifact.ParsedArtifact
+	for _, da := range bundleDiscovered {
+		art, parseErr := artifact.ParseFile(da.Path)
+		if parseErr != nil {
+			continue
+		}
+		bundles = append(bundles, art)
+	}
+
+	citerDiscovered, err := DiscoverArtifacts(projectRoot, []string{"spec", "issue"})
+	if err != nil {
+		return nil, fmt.Errorf("discovering citers for resolution: %w", err)
+	}
+	var citers []*artifact.ParsedArtifact
+	for _, da := range citerDiscovered {
+		art, parseErr := artifact.ParseFile(da.Path)
+		if parseErr != nil {
+			continue
+		}
+		citers = append(citers, art)
+	}
+
+	catalog := validate.BuildBundleReqCatalog(bundles)
+	refs := validate.CollectSupportRefs(citers)
+	return validate.ResolveSupports(catalog, refs), nil
 }
 
 // NewArtifactValidateCommand creates the Cobra command for backstop artifact validate.
@@ -210,7 +266,10 @@ the appropriate type-specific schema. Supports scoping by type and artifact ID.
 Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Get the json flag from the root command
-			jsonFlag, _ := cmd.Flags().GetBool("json")
+			jsonFlag, err := cmd.Flags().GetBool("json")
+			if err != nil {
+				return fmt.Errorf("reading --json flag: %w", err)
+			}
 
 			// Determine project root from current directory (backstop.yml location)
 			cwd, err := os.Getwd()
@@ -269,7 +328,9 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 							Severity: "error",
 						}},
 					}
-					_ = outputResult(cmd, &jsonFlag, configResult)
+					if outErr := outputResult(cmd, &jsonFlag, configResult); outErr != nil {
+						cmd.PrintErrln("Error:", outErr)
+					}
 				} else {
 					cmd.PrintErrln("Error:", err)
 				}

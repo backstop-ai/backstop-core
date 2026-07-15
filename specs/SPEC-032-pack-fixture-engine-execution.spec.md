@@ -53,7 +53,7 @@ requirements:
       Adding a new findings engine (ast-grep, eslint, ruff, clippy) must require no
       new arm in the fixture executor — it is satisfied entirely by the engine
       declaration plus, at most, a registered runner shared with the gate path.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
     follows: error-handling-recipe
   - id: REQ-002
     text: >
@@ -75,7 +75,7 @@ requirements:
       enforced by an explicit parity test asserting the assembled invocation equals the
       gate's for the same binding inputs (REQ-002 parity is asserted, not guaranteed by
       shared execution code).
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-003
     text: >
       For findings engines, fixture execution must determine pass/fail from parsed
@@ -89,7 +89,7 @@ requirements:
       not importable here); it must apply the same SARIF results-for-rule-ID contract.
       A non-empty SARIF results set for the rule's ID means the engine flagged the
       fixture; an empty set means it did not.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-004
     text: >
       The positive/negative fixture contract must be preserved exactly under engine
@@ -100,7 +100,7 @@ requirements:
       failing to run, or a `convert`/SARIF-parse failure) is a hard fixture error
       distinct from a clean run, and must be reported as such — it must never be
       silently treated as "not flagged."
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-005
     text: >
       When a negative fixture is not flagged by its engine, the existing
@@ -109,7 +109,7 @@ requirements:
       represent a pattern the engine cannot detect and should be removed and
       documented rather than shipped as an untestable claim. This hint must apply to
       every findings engine, not only semgrep.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-006
     text: >
       Non-findings fixture arms must NOT converge onto the engine/SARIF path and must
@@ -119,7 +119,7 @@ requirements:
       aggregation. Scaffold test execution (RunScaffoldTest) continues to run its
       test_command by exit code. SARIF parsing must not be applied to either; doing so
       is prohibited.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-007
     text: >
       A findings rule that declares an `engine` for which no EngineBinding is
@@ -127,7 +127,7 @@ requirements:
       error (a hard ValidationError identifying the rule and the unresolved engine),
       not a silent skip and not a default-to-semgrep fallback. Misdeclaration is a
       class-1 broken declaration: loud AND blocking.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
     follows: error-handling-recipe
   - id: REQ-008
     text: >
@@ -144,7 +144,7 @@ requirements:
       EngineBinding, not this fixture-path spec); a `rule-dir` rule skips the precheck
       rather than spuriously failing. The precheck must never run-and-fail for a mode it
       does not cover.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-009
     text: >
       The shared EngineBinding type and engine table consumed here must be the same
@@ -152,7 +152,7 @@ requirements:
       pkg/packval, and cmd/backstop. pkg/packval must import that shared type rather
       than redefining an EngineBinding or an engine enum locally. No second,
       packval-local copy of the engine model may exist.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
   - id: REQ-010
     text: >
       The `go mod tidy` pre-check (`goModTidyTempCopy`), today run unconditionally
@@ -162,7 +162,7 @@ requirements:
       is the Go `config-file` engine (golangci-lint) and must NOT run for any other
       engine (semgrep, ast-grep, or a non-Go config-file linter). Attaching the
       go-mod-tidy pre-check to a non-Go engine run is prohibited.
-    supports: pluggable-pack-engines:REQ-012
+    supports: pluggable-pack-engines:REQ-012@1.0.0
 
 claims:
   # --- REQ-001: engine dispatch replaces per-tool arms ---

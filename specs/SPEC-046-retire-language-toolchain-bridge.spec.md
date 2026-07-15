@@ -96,7 +96,7 @@ requirements:
       After this seed it is PROHIBITED for ANY `_test.go` file in `cmd/backstop` to
       reference `loadBridgedToolchainPacks`, `gateLanguage`, or `toolchainPackName` — a
       surviving reference means the bridge was shimmed rather than deleted.
-    supports: language-neutral-consumer-ts-toolchain:REQ-004
+    supports: language-neutral-consumer-ts-toolchain:REQ-004@1.0.0
   - id: REQ-002
     text: >
       Deleting the bridge MUST NOT regress the dogfood gate and MUST support polyglot
@@ -115,7 +115,7 @@ requirements:
       `toolchainEnforcementStatus(bridged, declared)` two-argument call sites (the
       `bridged`-passing cases) are DROPPED — so the test no longer pins the removed
       `bridged` parameter.
-    supports: language-neutral-consumer-ts-toolchain:REQ-004
+    supports: language-neutral-consumer-ts-toolchain:REQ-004@1.0.0
   - id: REQ-003
     text: >
       The `language:` config field MUST be FULLY removed with NO remnant. Delete the
@@ -176,7 +176,7 @@ requirements:
       `check.Options.Language` are SEPARATE fields on other structs, are NOT deleted, and
       MUST remain — the guard fences the look-alikes and trips ONLY on
       `config.Config.Language`.)
-    supports: language-neutral-consumer-ts-toolchain:REQ-005
+    supports: language-neutral-consumer-ts-toolchain:REQ-005@1.0.0
   - id: REQ-004
     text: >
       The traceability classifier MUST be rehomed off `language:` onto the
@@ -203,7 +203,7 @@ requirements:
       label. It is PROHIBITED to introduce a second, parallel glob classifier in this
       seed: the polyglot glob UNION continues to be read ONLY through SPEC-043's single
       `SourceClassifier` (reused, never forked).
-    supports: language-neutral-consumer-ts-toolchain:REQ-005
+    supports: language-neutral-consumer-ts-toolchain:REQ-005@1.0.0
 
 claims:
   # REQ-001 — delete the bridge; toolchain packs only via the declared path

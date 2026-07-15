@@ -29,7 +29,7 @@ requirements:
       it and extract the required top-level fields: name, version, language,
       archetype, description, and content. A manifest missing any required
       field must return a validation error identifying the missing field.
-    supports: pack-manifest-authoring:REQ-001
+    supports: pack-manifest-authoring:REQ-001@1.0.0
 
   - id: REQ-002
     text: >
@@ -39,14 +39,14 @@ requirements:
       preserved in the Name field. A name that does not contain exactly one
       slash separator, or contains characters outside [a-zA-Z0-9-], must be
       rejected.
-    supports: pack-manifest-authoring:REQ-002
+    supports: pack-manifest-authoring:REQ-002@1.0.0
 
   - id: REQ-003
     text: >
       Every pack must declare exactly one archetype field with value
       "enforcement" or "code". Any other value or a missing archetype field
       must be rejected.
-    supports: pack-manifest-authoring:REQ-004
+    supports: pack-manifest-authoring:REQ-004@1.0.0
 
   - id: REQ-004
     text: >
@@ -54,14 +54,14 @@ requirements:
       values: security, correctness, style, perf. A rule with a missing or
       invalid risk_class must be rejected. This applies to all rules
       regardless of layer, including standalone tool_config rules.
-    supports: pack-manifest-authoring:REQ-007
+    supports: pack-manifest-authoring:REQ-007@1.0.0
 
   - id: REQ-005
     text: >
       Rules must be organized into three enforcement layers. Each rule must
       declare a layer field with value 1, 2, or 3. A rule with a missing or
       invalid layer value must be rejected.
-    supports: pack-manifest-authoring:REQ-008
+    supports: pack-manifest-authoring:REQ-008@1.0.0
 
   - id: REQ-006
     text: >
@@ -69,7 +69,7 @@ requirements:
       at least one negative fixture (known-bad). Fixture paths are relative
       to the pack root and declared inline on claims. A claim with zero
       positive fixtures or zero negative fixtures must be rejected.
-    supports: pack-manifest-authoring:REQ-013
+    supports: pack-manifest-authoring:REQ-013@1.0.0
 
   - id: REQ-007
     text: >
@@ -77,7 +77,7 @@ requirements:
       ^[a-z][a-z0-9]*(-[a-z0-9]+)*$. On load, rule IDs are namespaced with
       the pack name using slash delimiters: pack-name/rule-id. A rule ID
       not matching the pattern must be rejected.
-    supports: pack-manifest-authoring:REQ-017
+    supports: pack-manifest-authoring:REQ-017@1.0.0
 
   - id: REQ-008
     text: >
@@ -87,19 +87,19 @@ requirements:
       a cohort. Item version (on scaffolds and SDKs individually) enables
       spec and plan references. All version fields that are present must
       conform to semver format.
-    supports: pack-manifest-authoring:REQ-018
+    supports: pack-manifest-authoring:REQ-018@1.0.0
 
   - id: REQ-009
     text: >
       Scaffolds must declare a tier field with value complete or skeleton.
       Any other value or a missing tier must be rejected.
-    supports: pack-manifest-authoring:REQ-019
+    supports: pack-manifest-authoring:REQ-019@1.0.0
 
   - id: REQ-010
     text: >
       Every scaffold must declare a test_command field specifying how to run
       its tests. A scaffold missing test_command must be rejected.
-    supports: pack-manifest-authoring:REQ-020
+    supports: pack-manifest-authoring:REQ-020@1.0.0
 
   - id: REQ-011
     text: >
@@ -108,7 +108,7 @@ requirements:
       single object with optional keys: rules, scaffolds, sdk). sample_config
       values must be flat key-value string pairs. A scaffold missing use_when
       or assumes must be rejected. pairs_with is required on scaffolds.
-    supports: pack-manifest-authoring:REQ-021
+    supports: pack-manifest-authoring:REQ-021@1.0.0
 
   - id: REQ-012
     text: >
@@ -117,7 +117,7 @@ requirements:
       strings representing the public surface). A pack may declare at most
       one SDK. An sdk entry missing module, version, or provides, or an
       sdk with an empty provides list, must be rejected.
-    supports: pack-manifest-authoring:REQ-022
+    supports: pack-manifest-authoring:REQ-022@1.0.0
 
   - id: REQ-013
     text: >
@@ -128,7 +128,7 @@ requirements:
       required_by) must not declare id, risk_class, or claims. A tool_config
       entry must be either standalone (has id) or supporting (has required_by),
       not both and not neither.
-    supports: pack-manifest-authoring:REQ-023
+    supports: pack-manifest-authoring:REQ-023@1.0.0
 
   - id: REQ-014
     text: >
@@ -136,19 +136,19 @@ requirements:
       .standard.md file) or an inline string. The field is parsed as a
       string regardless of content. Layer-specific requirements for when
       standard must be present are enforced in SPEC-016.
-    supports: pack-manifest-authoring:REQ-025
+    supports: pack-manifest-authoring:REQ-025@1.0.0
 
   - id: REQ-015
     text: >
       Claim IDs must be unique within the pack. Duplicate claim IDs within
       a single pack manifest must be rejected.
-    supports: pack-manifest-authoring:REQ-027
+    supports: pack-manifest-authoring:REQ-027@1.0.0
 
   - id: REQ-016
     text: >
       Each pack targets exactly one language via the required language field.
       The language field must be a non-empty string.
-    supports: pack-manifest-authoring:REQ-030
+    supports: pack-manifest-authoring:REQ-030@1.0.0
 
   - id: REQ-017
     text: >
@@ -156,7 +156,7 @@ requirements:
       and plans using the format pack-name@pack-version:item-name@item-version.
       ParseCoordinate must parse this format and return the constituent parts.
       An invalid coordinate format must return an error.
-    supports: pack-manifest-authoring:REQ-031
+    supports: pack-manifest-authoring:REQ-031@1.0.0
 
   - id: REQ-018
     text: >
@@ -165,7 +165,7 @@ requirements:
       must not imply update semantics. SDKs are native-language module
       references tracked in the manifest; the SDK struct contains module,
       version, and provides but no distribution mechanism.
-    supports: pack-manifest-authoring:REQ-033
+    supports: pack-manifest-authoring:REQ-033@1.0.0
 
   - id: REQ-019
     text: >
@@ -173,7 +173,7 @@ requirements:
       the rule or scaffold. The pairs_with field is a single object with
       optional keys rules, scaffolds, sdk. Structural parsing of pairs_with
       must accept all three keys.
-    supports: pack-manifest-authoring:REQ-034
+    supports: pack-manifest-authoring:REQ-034@1.0.0
 
   - id: REQ-020
     text: >
@@ -182,7 +182,7 @@ requirements:
       in pack.yml, not in fixture file metadata. Fixture entries in the
       manifest may be a plain string path or an object with path and optional
       bypass_attempt boolean.
-    supports: pack-manifest-authoring:REQ-015
+    supports: pack-manifest-authoring:REQ-015@1.0.0
 
 
 claims:

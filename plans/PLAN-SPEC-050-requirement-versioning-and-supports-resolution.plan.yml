@@ -2,7 +2,7 @@
 plan_id: PLAN-SPEC-050
 spec_id: SPEC-050
 created: "2026-07-14"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
 test_command: "go test ./pkg/validate/... ./cmd/backstop/... -race -coverprofile=cover.out"

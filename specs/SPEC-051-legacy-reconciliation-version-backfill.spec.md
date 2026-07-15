@@ -2,9 +2,9 @@
 title: "Legacy Reconciliation Version Backfill"
 number: SPEC-051
 created: "2026-07-14"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.3.0
+spec_version: 1.3.1
 
 implementation:
   summary: >
@@ -31,8 +31,11 @@ implementation:
     clears those dangling refs from live validation), NOT promote them to `implemented`;
     (4) STAMP `version: "1.0.0"` on every REQ of every non-terminal bundle declaring
     `requirements[]`; (5) STAMP
-    the exact `@1.0.0` pin onto every existing `supports` ref on every live
-    (non-terminal) spec/issue requirement, the Seed specs SPEC-050/051/052 included
+    the exact current-version pin onto every existing `supports` ref on every live
+    (non-terminal) spec/issue requirement — `@1.0.0` for the initial backfill, and the
+    REQ's amended current version where one shipped (SPEC-051's own refs to
+    `requirement-traceability:REQ-015` pin `@1.1.0`, that REQ having been amended via
+    RDQ-2, per the RDQ-7 stale-pin model) — the Seed specs SPEC-050/051/052 included
     (self-referential corpus). The whole sweep lands WITH or immediately before
     SPEC-050's enforcement flip (a merge-sequencing constraint, not a runtime toggle)
     so the corpus never sits red, and every edit is routed through the artifact
@@ -64,7 +67,7 @@ requirements:
       is exempt from BOTH the requirements[] gate (pkg/validate/bundle.go terminal
       exemption) and the delivered-coverage gate (terminal artifacts are excluded), so
       deprecating creates zero coverage debt — honest recording, not grandfathering.
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -89,7 +92,7 @@ requirements:
       ADD a ref to SPEC-040 REQ-001's `supports` list only (no new requirement, no new
       claim, no code change on SPEC-040), and the `replaced` SPEC-039 must be left
       byte-for-byte unchanged (its refs are not re-pinned and not re-homed).
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -105,7 +108,7 @@ requirements:
       their dangling `agent-definitions` refs from live validation via the terminal-citer
       exemption, and — since the bundle they cite is itself now terminal — those refs have
       no live resolution obligation either. They must NOT be promoted to `implemented`.
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -120,12 +123,16 @@ requirements:
       so it is NOT stamped. Terminal bundles (`agent-definitions`, and the `deprecated`
       `runtime-hooks` and `standards-compiler`) are exempt via the terminal-state
       exemption and must be left untouched.
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
       Every existing `supports` ref on a LIVE (non-terminal) spec or issue
-      requirement must gain the exact `@1.0.0` pin (`bundle-name:REQ-NNN@1.0.0`) so
+      requirement must gain an exact version pin (`bundle-name:REQ-NNN@MAJOR.MINOR.PATCH`)
+      matching the CURRENT version of the bundle REQ it cites — `@1.0.0` for the initial
+      `1.0.0` backfill (the overwhelming majority), and the REQ's amended current version
+      where one has already shipped (e.g. `requirement-traceability:REQ-015`, amended to
+      `1.1.0` via RDQ-2, so its citers pin `@1.1.0` per the RDQ-7 stale-pin model) — so
       that SPEC-050 REQ-002's mandatory-pin format check and REQ-003's log-match
       resolution both pass corpus-wide — roughly 370 refs across ~33 live specs as the
       corpus stands with all Seed specs authored (the exact set is defined by the rule
@@ -138,7 +145,7 @@ requirements:
       currently carries a `supports` ref. The Seed specs SPEC-050, SPEC-051 (this
       spec), SPEC-052, and SPEC-053 are themselves in the live set — the sweep stamps
       their own refs too (self-referential corpus).
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -153,7 +160,7 @@ requirements:
       `supports` ref resolving (real bundle, declared REQ, pin in the version log),
       zero grandfathering. All edits must be routed through the artifact agents / CLI
       conventions (never hand-edited).
-    supports: requirement-traceability:REQ-015
+    supports: requirement-traceability:REQ-015@1.1.0
     follows: STD-GO-001:GO-010
 
 claims:
@@ -253,7 +260,7 @@ claims:
       - TestReconcile_NoUnpinnedSupportsRefViolations
   - id: CLM-018
     requirement: REQ-005
-    text: The Seed specs SPEC-050, SPEC-051, and SPEC-052 carry their own supports refs pinned at @1.0.0 (self-referential corpus)
+    text: The Seed specs SPEC-050, SPEC-051, and SPEC-052 carry their own supports refs pinned at the CURRENT version of each bundle REQ they implement — @1.0.0 for refs to requirement-traceability:REQ-001..014, and @1.1.0 for SPEC-051's refs to requirement-traceability:REQ-015 (amended via RDQ-2; an in-flight bundle's downstream citers rev to the latest on a minor bump per the RDQ-7 stale-pin model) — self-referential corpus
     tests:
       - TestReconcile_SeedSpecsSelfPinnedAt100
 
@@ -322,18 +329,23 @@ The sweep performs five actions and honours one ordering constraint:
    `deprecated` alongside the bundle (step 1); do not promote them.
 4. **Stamp `1.0.0` on bundle REQs (REQ-004).** Add `version: "1.0.0"` to every REQ of
    every non-terminal bundle that declares `requirements[]`.
-5. **Stamp `@1.0.0` on supports refs (REQ-005).** Append the pin to every `supports`
-   ref on every live spec/issue requirement.
+5. **Stamp the current-version pin on supports refs (REQ-005).** Append the pin matching
+   each cited bundle REQ's current version to every `supports` ref on every live spec/issue
+   requirement — `@1.0.0` for the initial backfill, `@1.1.0` for SPEC-051's own refs to
+   `requirement-traceability:REQ-015` (amended via RDQ-2; per the RDQ-7 stale-pin model an
+   in-flight bundle's downstream citers rev to the latest on a minor bump).
 6. **Co-land atomically (REQ-006).** Ship the sweep in the same change-train as
    SPEC-050's flip so the corpus never sits red; end state is `artifact validate`
    green with enforcement unconditionally on.
 
 This spec covers BUNDLE-014 REQ-015 ONLY. The versioning schema + resolution mechanism
 (Seed 1, SPEC-050) and the `requirement_traceability` coverage gate step + stale-pin
-model (Seed 3, SPEC-052) are explicitly out of scope. This spec's own `supports` ref is
-written UNPINNED for now (like SPEC-050's) because the currently-live `supportsRe` would
-reject the pinned form; the sweep this spec describes stamps it to `@1.0.0` when the flip
-lands (see Sharp Edges, "self-referential corpus").
+model (Seed 3, SPEC-052) are explicitly out of scope. This spec's own `supports` ref was
+written UNPINNED at first (like SPEC-050's) because the then-live `supportsRe` would have
+rejected the pinned form; the sweep this spec describes stamps it to `@1.1.0` — the current
+version of `requirement-traceability:REQ-015`, which was amended from `1.0.0` to `1.1.0`
+via RDQ-2 (backfill → deprecate), so its downstream pins rev to the latest per the RDQ-7
+stale-pin model (see Sharp Edges, "self-referential corpus").
 
 ## Requirements
 
@@ -426,9 +438,11 @@ but EXPORT no new symbol of their own, the `contracts[]` block declares a single
    BUNDLE-004/005/006/007/009/010/011/012/013 and the `cli` bundle (ten bundles). Skip
    BUNDLE-014 (already stamped), the now-terminal `agent-definitions` (no requirements[]),
    and all other terminal bundles.
-5. **Pin-stamp supports refs (REQ-005).** Append `@1.0.0` to every `supports` ref on
-   every live spec/issue requirement — the specs carrying `supports` minus the retiring
-   SPEC-002/003/004 and ALL terminal specs (SPEC-008/011/034/039) — including the Seed
+5. **Pin-stamp supports refs (REQ-005).** Append the cited REQ's current-version pin to
+   every `supports` ref on every live spec/issue requirement — `@1.0.0` for the initial
+   backfill, `@1.1.0` for SPEC-051's own refs to `requirement-traceability:REQ-015` (amended
+   via RDQ-2, revved per the RDQ-7 stale-pin model) — the specs carrying `supports` minus the
+   retiring SPEC-002/003/004 and ALL terminal specs (SPEC-008/011/034/039), including the Seed
    specs SPEC-050/051/052/053.
 6. **Atomic co-land (REQ-006).** Sequence all of the above into the same change-train as
    SPEC-050's `supportsRe` tightening + resolution wiring, so no intermediate committed
@@ -525,11 +539,18 @@ untouched, drafts not promoted, unpinned/fabricated refs still red) are present.
   a `replaced` spec would rewrite delivered history and is out of scope; its terminal
   exemption already keeps its refs out of validation.
 
-- **Self-referential corpus — this spec's own ref is written unpinned now.** SPEC-050,
+- **Self-referential corpus — and the corpus's first live version-bump event.** SPEC-050,
   SPEC-051, and SPEC-052 are draft specs carrying `supports` refs, so they are in the
-  stamped set. This spec's own `supports: requirement-traceability:REQ-015` is written
-  UNPINNED because the pinned form would be rejected by the currently-live `supportsRe`
-  and fail `artifact validate` today; the sweep stamps it to `@1.0.0` when the flip lands.
+  stamped set. This spec's own `supports: requirement-traceability:REQ-015` was written
+  UNPINNED at first (the pinned form would have been rejected by the then-live `supportsRe`);
+  the sweep stamps it to `@1.1.0`, NOT `@1.0.0`. That is the load-bearing subtlety: BUNDLE-014
+  REQ-015 was amended from `1.0.0` to `1.1.0` via RDQ-2 (a real minor meaning-change,
+  backfill → deprecate) and SPEC-051 v1.3.0 implements the AMENDED meaning, so per the RDQ-7
+  stale-pin model an in-flight bundle's downstream citers rev to the latest on a minor bump.
+  Pinning `@1.0.0` here would falsely claim SPEC-051 implements the retired backfill text and
+  would fail log-match resolution against REQ-015's version log (which carries 1.0.0 and
+  1.1.0). Every OTHER seed-spec self-pin stays `@1.0.0` because it cites a REQ still at its
+  initial version (requirement-traceability:REQ-001..014).
 
 - **Coverage vacuity is expected here and is not a defect.** SPEC-051 adds only
   corpus-assertion tests, no new production lines, so there is no meaningful coverage
@@ -562,7 +583,9 @@ untouched, drafts not promoted, unpinned/fabricated refs still red) are present.
    and does each validate clean under the terminal exemption with no retirement-field
    violation? (REQ-003.)
 
-4. Does every LIVE `supports` ref carry exactly `@1.0.0` after the sweep, while the retiring
+4. Does every LIVE `supports` ref carry an exact pin matching its cited REQ's current version
+   after the sweep — `@1.0.0` for the initial backfill, and `@1.1.0` for SPEC-051's own refs to
+   `requirement-traceability:REQ-015` (amended via RDQ-2, revved per RDQ-7) — while the retiring
    SPEC-002/003/004 and the terminal SPEC-039 are excluded from the stamp? (REQ-005.)
 
 5. Do the corpus edits and SPEC-050's regex/resolution flip land in the SAME change-train,
@@ -643,3 +666,15 @@ untouched, drafts not promoted, unpinned/fabricated refs still red) are present.
   list + action map, the cluster-retirement table, Impl steps 1/3/4, the F1-resolution +
   `deprecated`-vs-`canceled` sharp edges (replacing the backfill-scope edge), Review
   Question 1, and References. `spec_version` 1.2.0 → 1.3.0.
+- **1.3.1 (2026-07-14, draft)** — First LIVE version-bump event, resolved by the RDQ-7
+  stale-pin model. BUNDLE-014 REQ-015 was amended `1.0.0` → `1.1.0` via RDQ-2 (backfill →
+  deprecate), and SPEC-051 v1.3.0 implements the AMENDED meaning; per RDQ-7 an in-flight
+  bundle's downstream citers rev to the latest on a minor bump. Re-pinned SPEC-051's six own
+  `supports` refs from `requirement-traceability:REQ-015@1.0.0` to `@1.1.0`. Amended CLM-018
+  and the seed-self-pin prose (implementation summary action 5, Overview step 5 + the
+  self-referential note, Impl step 5, and the "self-referential corpus" sharp edge) so they
+  state the current-version rule: `@1.0.0` for refs to requirement-traceability:REQ-001..014,
+  `@1.1.0` for REQ-015. Nuanced REQ-005's blanket-`@1.0.0` language to the current-version
+  pin rule. bundle-author-sweep adds REQ-015's `versions:` log (1.0.0 + 1.1.0) in parallel so
+  the `@1.1.0` pins resolve. The mandated test `TestReconcile_SeedSpecsSelfPinnedAt100` is
+  implementer territory; its assertion is aligned there, not here. `spec_version` 1.3.0 → 1.3.1.

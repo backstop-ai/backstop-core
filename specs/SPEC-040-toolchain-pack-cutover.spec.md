@@ -72,7 +72,9 @@ requirements:
       → `pkg/check.Run` Step-2 path is removed, not surgically narrowed. No parallel engine
       dispatcher is introduced and `pkg/check` does not import `pkg/pack/engine` (orchestration
       stays at cmd/backstop, which already imports both). (RDQ-1, DD-1)
-    supports: collapse-legacy-codecheck-into-packs:REQ-001
+    supports:
+      - collapse-legacy-codecheck-into-packs:REQ-001@1.0.0
+      - collapse-legacy-codecheck-into-packs:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -104,7 +106,7 @@ requirements:
       (retained per the scope guard above), and a `backstop code check` invocation over a
       project with a DECLARED toolchain must still resolve and run its lint/build/test passes.
       (RDQ-1, DD-1)
-    supports: collapse-legacy-codecheck-into-packs:REQ-002
+    supports: collapse-legacy-codecheck-into-packs:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -119,7 +121,7 @@ requirements:
       dispatcher and NOT a parallel raw-exec path — spying the sandboxed-dispatch seam to assert
       reproduction. A deletion that outran the golden proof must fail a guard test rather than
       shipping green. (RDQ-1, DD-1)
-    supports: collapse-legacy-codecheck-into-packs:REQ-003
+    supports: collapse-legacy-codecheck-into-packs:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -130,7 +132,7 @@ requirements:
       (artifact-chain-only, recipe-packs-only). The warn-only state must use the existing
       non-failing `"warning"` step status (counted in `StepsWarned`, pkg/gate/result.go), NOT a
       `"fail"` and NOT a silent `"pass"`. (RDQ-2, DD-2)
-    supports: collapse-legacy-codecheck-into-packs:REQ-005
+    supports: collapse-legacy-codecheck-into-packs:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -142,7 +144,7 @@ requirements:
       run with 0 toolchain packs must be visibly distinguishable in its output from a gate run
       where toolchain packs ran and passed. This is the anti-vacuous-green guardrail and is the
       single most load-bearing behavior in this spec. (RDQ-2, DD-2)
-    supports: collapse-legacy-codecheck-into-packs:REQ-006
+    supports: collapse-legacy-codecheck-into-packs:REQ-006@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -154,7 +156,7 @@ requirements:
       re-introduce a Go-only assumption (the generalization is REQ-004). The golden-equivalence
       harness (REQ-003) and SPEC-034's landed bridge tests (`TestBridge_*`) are the safety net
       for the deletion. (RDQ-4, DD-4)
-    supports: collapse-legacy-codecheck-into-packs:REQ-008
+    supports: collapse-legacy-codecheck-into-packs:REQ-008@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-009
     text: >
@@ -166,7 +168,7 @@ requirements:
       lint/build/test path and the traceability steps still run and still pass after the cutover.
       Traceability and code-check are separate components; the seam is coordinate-don't-subsume,
       not a merge. (RDQ-4, DD-4)
-    supports: collapse-legacy-codecheck-into-packs:REQ-009
+    supports: collapse-legacy-codecheck-into-packs:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

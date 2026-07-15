@@ -2,7 +2,10 @@
 title: "SPEC-004: Spec Schema Evolution — Standards Binding, Review Questions, Context Injection"
 number: SPEC-004
 created: "2026-04-03"
-status: draft
+status: deprecated
+reason: >
+  Legacy scaffolding-era cluster retired with the agent-definitions bundle. Per
+  terminal-state conventions, deprecated needs no successor pointer.
 schema_version: spec/v1
 spec_version: 1.0.0
 

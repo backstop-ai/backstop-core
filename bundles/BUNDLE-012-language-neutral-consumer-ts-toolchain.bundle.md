@@ -111,6 +111,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       The coverage CONSUMER must derive its measurable-file set from
       pack-DECLARED source globs, NOT a baked `.go` extension
@@ -120,12 +121,14 @@ requirements:
       DISTINCT from below-threshold. This fixes the default-diff-scope
       vacuous-green hole where a changed `.ts` file is silently skipped. (DD-1)
   - id: REQ-002
+    version: "1.0.0"
     text: >
       Test-verification must discover test files via pack-DECLARED test globs,
       NOT a baked `_test.go` walk or a baked `func Test` grep
       (`pkg/gate/step_testverify.go` `collectTestFuncNamesScoped`). The
       test-name extraction must not be Go-shaped. (DD-1)
   - id: REQ-003
+    version: "1.0.0"
     text: >
       The coverage spec-relevance derivation AND the substantiveness set-join
       must use pack-declared patterns, NOT a Go-package identity model or a
@@ -133,6 +136,7 @@ requirements:
       `pkg/gate/step_coverage.go` `coverageSpecRelevantToFile` /
       `packagePathMatches`). TS has no `package` clause and no `./...`. (DD-1)
   - id: REQ-004
+    version: "1.0.0"
     text: >
       The `language:`-derived toolchain BRIDGE must be DELETED
       (`loadBridgedToolchainPacks` / `toolchainPackName` / the auto-load from a
@@ -140,12 +144,14 @@ requirements:
       `backstop.yml packs:` and dispatched UNIFORMLY with every other pack — a
       polyglot repo simply declares more than one toolchain pack. (DD-2)
   - id: REQ-005
+    version: "1.0.0"
     text: >
       The `language:` field must be FULLY removed: the config schema, the
       dogfood `backstop.yml` (`language: go`), every reader, and all tests. The
       traceability classifier that consumed `language` is rehomed onto
       pack-declared globs (the HOW is SQ-1, a spec-time detail). (DD-2)
   - id: REQ-006
+    version: "1.0.0"
     text: >
       `backstop/bun-toolchain` must exist as an ORDINARY pack in its OWN repo,
       hand-authored from the proven `go-toolchain` pack.yml template, declaring
@@ -155,6 +161,7 @@ requirements:
       --coverage-reporter=lcov` (coverage). Coverage records use the canonical
       `{path, covered, total, measured, excluded, metric}` shape. (DD-2, DD-3)
   - id: REQ-007
+    version: "1.0.0"
     text: >
       The coverage record model must support MULTIPLE metrics per file, keyed by
       `(path, metric)`. The bun coverage producer emits BOTH `line` and `branch`;
@@ -163,6 +170,7 @@ requirements:
       vs branch held to different bars). This re-opens the SPEC-042 coverage
       record schema on both the producer convert and consumer index. (SQ-2)
   - id: REQ-008
+    version: "1.0.0"
     text: >
       As each Pillar-A site is de-Go'd it must be UN-grandfathered from the gate
       baseline (ratchet). Once all three sites are clean, `backstop/self`'s
@@ -171,6 +179,7 @@ requirements:
       impact: coverage measurable-path (the vacuous-green hole) → test-verify
       discovery → the go-package / `./...` matchers. (DD-1)
   - id: REQ-009
+    version: "1.0.0"
     text: >
       Proof must be delivered on TWO surfaces: (a) an IN-REPO STATIC testdata
       fixture (pre-captured lcov, runner STUBBED) proving the language-neutral

@@ -30,6 +30,7 @@ const (
 	KindSpec      ArtifactKind = "spec"
 	KindPlan      ArtifactKind = "plan"
 	KindDirective ArtifactKind = "directive"
+	KindBundle    ArtifactKind = "bundle" // nosemgrep: go.core.no-global-mutable-state — immutable const, not mutable global
 )
 
 // StatusClass is the TYPE-AWARE lifecycle class a declared status resolves to. It is
@@ -103,6 +104,10 @@ func ClassifyArtifactStatus(kind ArtifactKind, status string) StatusClass {
 		if status == "completed" {
 			return ClassSuccessTerminal
 		}
+	case KindBundle:
+		if status == "delivered" {
+			return ClassSuccessTerminal
+		}
 	}
 	// Everything else (live statuses + unrecognized) is non-terminal.
 	return ClassNonTerminal
@@ -120,6 +125,14 @@ type ArtifactStatusRecord struct {
 	Path          string
 	MandatedTests []MandatedTest
 	SpecID        string
+	BundleName    string
+	BundleReqs    []BundleReqVersion
+}
+
+// BundleReqVersion is the current declared version of one bundle requirement.
+type BundleReqVersion struct {
+	ReqID          string
+	CurrentVersion string
 }
 
 // ArtifactStatusResolution is the resolver output: every resolved record plus the
@@ -174,6 +187,21 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 		})
 	}); err != nil {
 		return nil, fmt.Errorf("resolving specs under %s: %w", specDir, err)
+	}
+
+	// Bundles: status is nested under status.maturity, and joins use bundle.name.
+	if err := walkBundleDir(filepath.Join(projectRoot, "bundles"), func(path string, fm *bundleFrontmatter) {
+		res.Records = append(res.Records, ArtifactStatusRecord{
+			ID:         fm.Number,
+			Kind:       KindBundle,
+			Status:     fm.Status.Maturity,
+			Class:      ClassifyArtifactStatus(KindBundle, fm.Status.Maturity),
+			Path:       path,
+			BundleName: fm.Bundle.Name,
+			BundleReqs: bundleReqs(fm),
+		})
+	}); err != nil {
+		return nil, fmt.Errorf("resolving bundles: %w", err)
 	}
 
 	// Issues: parse issue frontmatter (issue.id, issue.status) + the SAME claims[].tests
@@ -296,6 +324,24 @@ type planTaskNode struct {
 	TestNames []string `yaml:"test_names"`
 }
 
+// bundleFrontmatter is the minimal bundle shape needed by traceability: bundle.name,
+// nested status.maturity, and current requirement ids/versions.
+type bundleFrontmatter struct {
+	Number string `yaml:"number"`
+	Bundle struct {
+		Name string `yaml:"name"`
+	} `yaml:"bundle"`
+	Status struct {
+		Maturity string `yaml:"maturity"`
+	} `yaml:"status"`
+	Requirements []bundleReqNode `yaml:"requirements"`
+}
+
+type bundleReqNode struct {
+	ID      string `yaml:"id"`
+	Version string `yaml:"version"`
+}
+
 // planTaskMandatedTests flattens a plan's phases[].tasks[].test_names into MandatedTest
 // records (reusing the shared type). SpecFile carries the plan path and SpecID the plan id
 // so a drift violation attributes back to the plan; ClaimID carries the delivering task id.
@@ -312,6 +358,17 @@ func planTaskMandatedTests(fm *planFrontmatter, path string) []MandatedTest {
 				})
 			}
 		}
+	}
+	return out
+}
+
+func bundleReqs(fm *bundleFrontmatter) []BundleReqVersion {
+	var out []BundleReqVersion
+	for _, req := range fm.Requirements {
+		if req.ID == "" {
+			continue
+		}
+		out = append(out, BundleReqVersion{ReqID: req.ID, CurrentVersion: req.Version})
 	}
 	return out
 }
@@ -364,6 +421,34 @@ func walkPlanDir(dir string, visit func(path string, fm *planFrontmatter)) error
 			continue
 		}
 		var fm planFrontmatter
+		if yaml.Unmarshal(raw, &fm) != nil {
+			continue
+		}
+		visit(path, &fm)
+	}
+	return nil
+}
+
+// walkBundleDir reads every fenced bundle artifact in dir and invokes visit. Bundles need
+// a dedicated frontmatter struct because their status is nested under status.maturity.
+func walkBundleDir(dir string, visit func(path string, fm *bundleFrontmatter)) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading bundle dir %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".bundle.md") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		raw, rErr := readFencedFrontmatter(path)
+		if rErr != nil {
+			continue
+		}
+		var fm bundleFrontmatter
 		if yaml.Unmarshal(raw, &fm) != nil {
 			continue
 		}

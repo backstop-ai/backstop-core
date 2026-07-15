@@ -110,7 +110,7 @@ requirements:
       land before that runner exists; the producer (SPEC-040's toolchain test pass) MUST
       emit coverage at this per-file/path granularity for the consumer contract here to
       hold.
-    supports: collapse-legacy-codecheck-into-packs:REQ-011
+    supports: collapse-legacy-codecheck-into-packs:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -125,7 +125,7 @@ requirements:
       toolchain test pass (REQ-001), not a binary-resident `go test`. It is PROHIBITED
       to retain `sharedTestRunner` as a shim or to reconstruct an equivalent
       binary-resident whole-module `go test` runner under any other name.
-    supports: collapse-legacy-codecheck-into-packs:REQ-011
+    supports: collapse-legacy-codecheck-into-packs:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -156,7 +156,7 @@ requirements:
       are not the suppression vector); it is specifically the in-scope CHANGED-file
       exclusion that must be loud. Silently measuring nothing — by absence OR by silent
       exclusion — is the vacuous-green failure mode the project forbids.
-    supports: collapse-legacy-codecheck-into-packs:REQ-011
+    supports: collapse-legacy-codecheck-into-packs:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -181,7 +181,7 @@ requirements:
       identity comparison. The exempt value MUST be resolved PER-VIOLATION (each
       violation carries its producing binding's value) and MUST NOT be aggregated to a
       gate-type level (see REQ-007).
-    supports: collapse-legacy-codecheck-into-packs:REQ-012
+    supports: collapse-legacy-codecheck-into-packs:REQ-012@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -209,7 +209,7 @@ requirements:
       `checkViolationsToGate`/gate.go:1173 build exemption that SPEC-040 removes with
       `realCodeChecker`)}. The catalog is the "don't drop a gate step on the floor" guard
       against the wholesale cutover (BUNDLE-011 REQ-001) silently stranding a consumer.
-    supports: collapse-legacy-codecheck-into-packs:REQ-013
+    supports: collapse-legacy-codecheck-into-packs:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -226,7 +226,7 @@ requirements:
       precise exclusion of cosmetic `.Pass.String()` display sites is what makes the
       discovered-set bounded and equal to the cataloged-set; completeness cannot rest on
       manual review.
-    supports: collapse-legacy-codecheck-into-packs:REQ-013
+    supports: collapse-legacy-codecheck-into-packs:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -241,7 +241,7 @@ requirements:
       EXEMPTING value WINS (`exempt_from_scope_filter: true` → not scope-filtered → the
       violation is shown): because the guarded failure mode is UNDER-broad scope
       filtering, the safe tiebreak direction is louder (show the violation).
-    supports: collapse-legacy-codecheck-into-packs:REQ-012
+    supports: collapse-legacy-codecheck-into-packs:REQ-012@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

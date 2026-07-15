@@ -2,7 +2,7 @@
 title: "Requirement Traceability Gate Step"
 number: SPEC-052
 created: "2026-07-14"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.1.1
 
@@ -69,8 +69,8 @@ requirements:
       coverage is enforced in the gate step while SPEC-050 owns the other half,
       resolution-in-`artifact validate`.
     supports:
-      - requirement-traceability:REQ-006
-      - requirement-traceability:REQ-007
+      - requirement-traceability:REQ-006@1.0.0
+      - requirement-traceability:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -88,7 +88,7 @@ requirements:
       are excluded from the delivered-gate entirely, consistent with the gate's
       existing terminal-exclusion (do NOT conflate a retired BUNDLE's exclusion with
       a retired SPEC's non-support).
-    supports: requirement-traceability:REQ-008
+    supports: requirement-traceability:REQ-008@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -99,7 +99,7 @@ requirements:
       with the block naming the specific uncovered REQ. A requirement in an
       `implemented` spec whose `supports` ref names the bundle REQ is what closes
       that REQ.
-    supports: requirement-traceability:REQ-009
+    supports: requirement-traceability:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -115,7 +115,7 @@ requirements:
       NOR coverage); the classifier additionally treats a retired-terminal citing
       artifact as non-coverage defensively, so the verdict holds even if such a ref
       reaches it.
-    supports: requirement-traceability:REQ-010
+    supports: requirement-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -126,7 +126,7 @@ requirements:
       already covered by an `implemented` spec is unaffected by any co-citing issue
       ref. Only `implemented` SPEC requirements close a bundle REQ; issue support
       is lineage, not coverage.
-    supports: requirement-traceability:REQ-011
+    supports: requirement-traceability:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -144,7 +144,7 @@ requirements:
       the opencode runtime later): core supplies the deterministic verdict on the
       corpus state via the block StepResult surfaced in the gate output, and MUST
       NOT intercept, subscribe to, or refuse any promotion/dispatch event itself.
-    supports: requirement-traceability:REQ-012
+    supports: requirement-traceability:REQ-012@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -166,7 +166,7 @@ requirements:
       suppress it) NOR baseline-grandfathered (it carries no `applies-to: new-code`
       policy entry): an artifact-state broken promise must be resolved, never
       snapshotted, so it blocks whether or not a baseline is present.
-    supports: requirement-traceability:REQ-013
+    supports: requirement-traceability:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -185,7 +185,7 @@ requirements:
       bundle BLOCKS as not-delivered until a spec pinned to the current version is
       `implemented`. Version comparison is numeric per semver component (so
       `1.10.x` shares major.minor with `1.10.y` but not `1.9.z`).
-    supports: requirement-traceability:REQ-014
+    supports: requirement-traceability:REQ-014@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:
@@ -514,29 +514,25 @@ contracts:
     provides:
       - name: StepRequirementTraceability
         kind: constant
-        signature: "StepRequirementTraceability = \"requirement_traceability\""
+        signature: "const StepRequirementTraceability = \"requirement_traceability\""
         notes: "Canonical block-surface step name (REQ-001). Part of the gate JSON output contract; a dynamically-wired step like artifact_status_drift, NOT added to the fixed AllStepNames[9] array. It is the policied broken-promise surface and the deterministic verdict the gate-on-implement hook consumes (REQ-012)."
       - name: StepRequirementTraceabilityAdvisory
         kind: constant
-        signature: "StepRequirementTraceabilityAdvisory = \"requirement_traceability_advisory\""
+        signature: "const StepRequirementTraceabilityAdvisory = \"requirement_traceability_advisory\""
         notes: "Canonical NON-policied advisory-surface step name (REQ-001/REQ-007). A SEPARATE step name specifically so no enforcement.policy entry can upgrade the in-flight-gap WARN to a block, exactly as StepArtifactStatusDriftAdvisory does for drift."
   - file: pkg/gate/artifact_status.go
     provides:
-      - name: KindBundle
-        kind: constant
-        signature: "KindBundle ArtifactKind = \"bundle\""
-        notes: "New artifact kind. ResolveArtifactStatus is EXTENDED to also resolve bundles/, but it must NOT reuse artifactFrontmatter: a bundle's `status:` is a YAML MAP (status.maturity) and `bundle:` is a map (bundle.name), whereas artifactFrontmatter.Status is a `string` — feeding a .bundle.md through it yaml.TypeErrors and walkArtifactDir SILENTLY SKIPS the file, yielding zero bundle records and a vacuously-green step. The extension is a DEDICATED bundle frontmatter struct + a dedicated walk (mirroring walkPlanDir/planFrontmatter) reading bundle.name (the join key), status.maturity (nested — reuse the extractMaturity-style nested read, NOT the string Status field), and requirements[] (id + version). The record's Status carries the EXTRACTED maturity string; ClassifyArtifactStatus gains a KindBundle case where `delivered` -> ClassSuccessTerminal (the retired switch already maps replaced/canceled/deprecated -> ClassRetiredTerminal, giving terminal-bundle exclusion for free)."
       - name: BundleReqVersion
         kind: type
         signature: "type BundleReqVersion struct { ReqID string; CurrentVersion string }"
         notes: "One declared bundle REQ and its CURRENT version (the REQ's top-level version: per SPEC-050's schema = the newest log entry). Populated for KindBundle records only; the stale-pin model needs only the current version, never the full log (log MEMBERSHIP is SPEC-050/validate's concern)."
       - name: ArtifactStatusRecord.BundleName
         kind: type
-        signature: "BundleName string"
+        signature: "type ArtifactStatusRecord struct { ID string; Kind ArtifactKind; Status string; Class StatusClass; Path string; MandatedTests []MandatedTest; SpecID string; BundleName string; BundleReqs []BundleReqVersion }"
         notes: "Additive field carrying `bundle.name` for a KindBundle record (empty for other kinds). This is the JOIN KEY: supports refs cite a bundle by NAME (e.g. `requirement-traceability`), NOT by number — and a delivered bundle may have NO `number:` field at all (agent-definitions.bundle.md is exactly this), so ID = fm.Number is unusable as the join key. TraceRef.BundleName joins against this, mirroring SPEC-050's BuildBundleReqCatalog keying by bundle name."
       - name: ArtifactStatusRecord.BundleReqs
         kind: type
-        signature: "BundleReqs []BundleReqVersion"
+        signature: "type ArtifactStatusRecord struct { ID string; Kind ArtifactKind; Status string; Class StatusClass; Path string; MandatedTests []MandatedTest; SpecID string; BundleName string; BundleReqs []BundleReqVersion }"
         notes: "Additive field on the existing ArtifactStatusRecord: the declared REQs + current versions for a KindBundle record (nil for other kinds). Existing fields are untouched."
     consumes:
       - source: pkg/gate

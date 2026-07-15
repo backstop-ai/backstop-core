@@ -70,7 +70,7 @@ requirements:
       (REQ-006). It is PROHIBITED for the binary to import `go/parser`, `go/ast`, or
       `go/printer` for contract verification, or to compile/render/understand a
       signature in any way.
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -86,7 +86,7 @@ requirements:
       render, or understand the signature — it passes the declared signature through to
       the pack-declared engine and reads back SARIF. Compiling/rendering a signature in
       the binary is a P0 zero-baked-language violation and is PROHIBITED.
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -102,7 +102,7 @@ requirements:
       non-parsed files, the conservative failure direction absence requires. The grep
       probe MUST be a PACK-DECLARED engine, NOT a grep baked into the binary
       (PROHIBITED — that would be baked tool knowledge).
-    supports: stack-aware-traceability:REQ-005
+    supports: stack-aware-traceability:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -126,7 +126,7 @@ requirements:
       language (it asserts only that the engine produced a scan record for the declared
       scope). The file-extension/language is NOT a config-error axis; scanned-vs-unscanned
       is the only axis.
-    supports: stack-aware-traceability:REQ-005
+    supports: stack-aware-traceability:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -143,7 +143,7 @@ requirements:
       allowlist — the existing un-allowlisted-tool fail-loud (exit 2) applies
       unchanged. Backstop learns no grep flags or output format; it runs the
       pack-declared command and consumes the converted SARIF.
-    supports: stack-aware-traceability:REQ-006
+    supports: stack-aware-traceability:REQ-006@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -157,7 +157,7 @@ requirements:
       the deleted analyzer entrypoint is no longer reachable, so an UNWIRED path, or one
       still routed to the old analyzer, FAILS the test. cmd/backstop/ is in the
       verification test_command so the wiring is exercised end-to-end, not assumed.
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -171,7 +171,7 @@ requirements:
       concrete present/absent/mismatch verdicts — a stub MUST NOT satisfy it. This
       substantiates the "beyond Go" claim (a pack is stack-locked, so a second
       stack-locked pack is the proof) and begins unblocking the TS runtime's self-gating.
-    supports: stack-aware-traceability:REQ-007
+    supports: stack-aware-traceability:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -186,7 +186,7 @@ requirements:
       COMPARISON logic (match-verdict + absence polarity + file-scanned guard) stays
       gate-side and is the shared consumer in both the legacy-equivalence and the
       pack-only paths.
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-009
     text: >
@@ -200,7 +200,7 @@ requirements:
       previously-red `contract_signature` cases MUST resolve them to green (the
       dual-substrate dogfood payoff: the brittle `signaturesMatch`/`formatFuncSignature`
       round-trip that reds the gate today is dissolved).
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-010
     text: >
@@ -222,7 +222,7 @@ requirements:
       (Go-source rendering, string-equality normalization, non-`.go`-is-an-error per the
       DISSOLVED REQ-004 clause) MUST be deleted. After this spec NO test in pkg/gate
       references any deleted symbol, and `go test ./pkg/gate/` compiles and passes.
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-011
     text: >
@@ -236,7 +236,7 @@ requirements:
       `StepContractSignatureFunc` as a compatibility shim. The scoped
       `StepContractSignatureScopedFunc` is the sole retained contract entrypoint (rewritten
       per REQ-001 to consume pack SARIF).
-    supports: stack-aware-traceability:REQ-004
+    supports: stack-aware-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-012
     text: >
@@ -252,7 +252,7 @@ requirements:
       data-record builder — it MUST NOT parse, AST-walk, or compile a signature (that
       stays in the pack); it only reads declared fields and fills the record fed to the
       pack engine.
-    supports: stack-aware-traceability:REQ-005
+    supports: stack-aware-traceability:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-013
     text: >
@@ -277,7 +277,7 @@ requirements:
       assert (the TS pack's installation is already covered by SPEC-037). This pins
       BUNDLE-009 REQ-010's "the backstop binary holds no language/tool specifics for
       traceability" for contracts — the rules live in a pack, installed.
-    supports: stack-aware-traceability:REQ-010
+    supports: stack-aware-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-014
     text: >
@@ -303,7 +303,7 @@ requirements:
       the grep engine is pack-declared via SPEC-035's `pattern-arg` + the trusted-tool
       allowlist (REQ-005). REQ-006's wiring-spy claims are RETAINED (they prove wiring);
       this REQ ADDS the over-installed-pack proof on top.
-    supports: stack-aware-traceability:REQ-010
+    supports: stack-aware-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-015
     text: >
@@ -338,7 +338,7 @@ requirements:
       NO test in pkg/gate OR cmd/backstop asserts the deleted baked-analyzer keying for the
       contracts dimension, `./cmd/backstop/` stays green, and no claim is orphaned by a
       silently-broken shipped test.
-    supports: stack-aware-traceability:REQ-010
+    supports: stack-aware-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

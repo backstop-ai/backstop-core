@@ -10,16 +10,16 @@ import (
 )
 
 var (
-	specNumberRe     = regexp.MustCompile(`^(SPEC-\d{3})-`)
-	claimIDRe        = regexp.MustCompile(`^CLM-\d{3}$`)
-	reqIDRe          = regexp.MustCompile(`^REQ-\d{3}$`)
-	supportsRe       = regexp.MustCompile(`^[a-z0-9-]+:REQ-\d{3}$`)
-	followsStdRuleRe = regexp.MustCompile(`^STD-[A-Z]+-[0-9]{3}:[A-Z]+-[0-9]+$`)
-	followsRecipeRe  = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+	specNumberRe     = regexp.MustCompile(`^(SPEC-\d{3})-`)                       // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	claimIDRe        = regexp.MustCompile(`^CLM-\d{3}$`)                          // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	reqIDRe          = regexp.MustCompile(`^REQ-\d{3}$`)                          // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	supportsRe       = regexp.MustCompile(`^[a-z0-9-]+:REQ-\d{3}@\d+\.\d+\.\d+$`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	followsStdRuleRe = regexp.MustCompile(`^STD-[A-Z]+-[0-9]{3}:[A-Z]+-[0-9]+$`)  // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	followsRecipeRe  = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)        // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
 )
 
 // Verification level → required coverage threshold. Nil means threshold must be absent.
-var thresholdRules = map[string]*int{
+var thresholdRules = map[string]*int{ // nosemgrep: go.core.no-global-mutable-state — immutable lookup table, package idiom
 	"unit":        intPtr(90),
 	"security":    intPtr(90),
 	"integration": intPtr(80),
@@ -28,7 +28,7 @@ var thresholdRules = map[string]*int{
 	"build":       nil,
 }
 
-var verificationLevels = map[string]bool{
+var verificationLevels = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 	"static": true, "build": true, "unit": true,
 	"integration": true, "performance": true, "security": true,
 }
@@ -489,7 +489,7 @@ func validateRequirements(art *artifact.ParsedArtifact) reqResult {
 					result.violations = append(result.violations, Violation{
 						Rule:     "spec/requirement-supports-format",
 						File:     art.Filename,
-						Message:  fmt.Sprintf("requirements[%d] 'supports' value '%s' must match format bundle-name:REQ-NNN", i, sup),
+						Message:  fmt.Sprintf("requirements[%d] 'supports' value '%s' must match format bundle-name:REQ-NNN@MAJOR.MINOR.PATCH", i, sup),
 						Severity: "error",
 					})
 				}

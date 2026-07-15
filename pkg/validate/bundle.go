@@ -10,22 +10,22 @@ import (
 )
 
 var (
-	bundleNameRe     = regexp.MustCompile(`^[a-z0-9-]+$`)
-	semverRe         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	dateRe           = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	epicIDRe         = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)
-	placeholderRe    = regexp.MustCompile(`(?i)\b(TBD|TODO|FIXME|XXX)\b|\?{3}`)
-	bundleCategories = map[string]bool{
+	bundleNameRe     = regexp.MustCompile(`^[a-z0-9-]+$`)                     // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	semverRe         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)                  // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	dateRe           = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)             // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	epicIDRe         = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)                // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	placeholderRe    = regexp.MustCompile(`(?i)\b(TBD|TODO|FIXME|XXX)\b|\?{3}`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	bundleCategories = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"feature": true, "service": true, "integration": true,
 		"recipe": true, "infrastructure": true, "tool": true, "epic": true,
 	}
-	maturityLevels = map[string]bool{
+	maturityLevels = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"idea": true, "exploring": true, "defined": true, "ready": true,
 		// Success terminal + retirement terminal states (ISSUE-031).
 		"delivered": true, "replaced": true, "canceled": true, "deprecated": true,
 	}
 	// Sections required at defined/ready maturity
-	matureSections = []string{
+	matureSections = []string{ // nosemgrep: go.core.no-global-mutable-state — immutable section list, package idiom
 		"Current Thinking", "Draft Requirements",
 		"Draft Design Decisions", "Spec Seeds", "Version History",
 	}
@@ -521,14 +521,19 @@ func validatePlaceholderBan(art *artifact.ParsedArtifact, maturity string) []Vio
 }
 
 // Bundle requirement ID pattern: REQ-NNN
-var bundleReqIDRe = regexp.MustCompile(`^REQ-\d{3}$`)
+var bundleReqIDRe = regexp.MustCompile(`^REQ-\d{3}$`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
 
 // validateBundleRequirements checks the formal requirements array.
 // Required from defined maturity onward. Each requirement needs id (REQ-NNN) and text.
 func validateBundleRequirements(art *artifact.ParsedArtifact, maturity string) []Violation {
 	var violations []Violation
 
-	requiresDefined := maturity == "defined" || maturity == "ready"
+	// REQ-005: requirements[] is required from `defined` through `delivered`.
+	// `delivered` is NOT terminal (isTerminalStatus excludes it), so this
+	// function already runs for it; extending the condition only ADDS the
+	// requirement, never relaxing defined/ready. The replaced/canceled/deprecated
+	// terminal exemption at bundle.go's Bundle() gate keeps them out entirely.
+	requiresDefined := maturity == "defined" || maturity == "ready" || maturity == "delivered"
 
 	reqsVal, ok := art.Frontmatter["requirements"]
 	if !ok {
@@ -614,9 +619,204 @@ func validateBundleRequirements(art *artifact.ParsedArtifact, maturity string) [
 				Severity: "error",
 			})
 		}
+
+		// REQ-004: per-REQ version + version-log well-formedness.
+		violations = append(violations, validateReqVersionLog(art.Filename, label, req)...)
 	}
 
 	return violations
+}
+
+// validateReqVersionLog validates REQ-004's per-REQ version and version log for a
+// single bundle requirement map. The strict `semverRe` (M.M.P, no prerelease) is
+// the single source of truth shared with the supports pin. When `versions:` is
+// absent the effective log is the implicit single entry {version, text} and no
+// further ceremony is required (CLM-015). When present it must be non-empty, each
+// entry well-formed, strictly ascending by NUMERIC semver with no duplicates, and
+// the top-level version:/text: must equal the newest (semver-max) entry.
+func validateReqVersionLog(filename, label string, req map[string]interface{}) []Violation {
+	var violations []Violation
+
+	version, hasVersion := getStringField(req, "version")
+	switch {
+	case !hasVersion:
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirement-version-required",
+			File:     filename,
+			Message:  fmt.Sprintf("%s is missing 'version' (per-REQ semver MAJOR.MINOR.PATCH)", label),
+			Severity: "error",
+		})
+	case !semverRe.MatchString(version):
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirement-version-format",
+			File:     filename,
+			Message:  fmt.Sprintf("%s version '%s' must be strict semver (X.Y.Z, no prerelease/build)", label, version),
+			Severity: "error",
+		})
+	}
+
+	// versions: is optional; absent means the implicit single-entry log (valid).
+	versionsVal, present := req["versions"]
+	if !present {
+		return violations
+	}
+
+	versions, ok := versionsVal.([]interface{})
+	if !ok {
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirement-versions-format",
+			File:     filename,
+			Message:  fmt.Sprintf("%s 'versions' must be a list of {version, text} entries", label),
+			Severity: "error",
+		})
+		return violations
+	}
+
+	// An explicit but empty versions: [] is an error (asymmetry with absent).
+	if len(versions) == 0 {
+		violations = append(violations, Violation{
+			Rule:     "bundle/requirement-versions-empty",
+			File:     filename,
+			Message:  fmt.Sprintf("%s 'versions' is present but empty (a version log must have at least one entry)", label),
+			Severity: "error",
+		})
+		return violations
+	}
+
+	entryVersions := make([]string, 0, len(versions))
+	entryTexts := make([]string, 0, len(versions))
+	seen := make(map[string]bool)
+	wellFormed := true
+	for j, item := range versions {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-versions-entry-format",
+				File:     filename,
+				Message:  fmt.Sprintf("%s versions[%d] is not a valid map", label, j),
+				Severity: "error",
+			})
+			wellFormed = false
+			continue
+		}
+
+		ev, hasEV := getStringField(entry, "version")
+		if !hasEV || !semverRe.MatchString(ev) {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-versions-entry-format",
+				File:     filename,
+				Message:  fmt.Sprintf("%s versions[%d] version '%s' must be strict semver (X.Y.Z)", label, j, ev),
+				Severity: "error",
+			})
+			wellFormed = false
+		}
+		if _, hasText := getStringField(entry, "text"); !hasText {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-versions-entry-text",
+				File:     filename,
+				Message:  fmt.Sprintf("%s versions[%d] has empty or missing 'text'", label, j),
+				Severity: "error",
+			})
+			wellFormed = false
+		}
+		if hasEV && seen[ev] {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-versions-duplicate",
+				File:     filename,
+				Message:  fmt.Sprintf("%s versions[%d] duplicate version '%s'", label, j, ev),
+				Severity: "error",
+			})
+			wellFormed = false
+		}
+		if hasEV {
+			seen[ev] = true
+		}
+		entryVersions = append(entryVersions, ev)
+		entryTexts = append(entryTexts, stringField(entry, "text"))
+	}
+
+	// Strictly monotonically ascending by NUMERIC semver (1.10.0 > 1.9.0).
+	for j := 1; j < len(entryVersions); j++ {
+		prev, cur := entryVersions[j-1], entryVersions[j]
+		if !semverRe.MatchString(prev) || !semverRe.MatchString(cur) {
+			continue // malformed entries already flagged
+		}
+		if compareSemver(cur, prev) <= 0 {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-versions-nonmonotonic",
+				File:     filename,
+				Message:  fmt.Sprintf("%s versions must be strictly ascending by semver ('%s' does not exceed '%s')", label, cur, prev),
+				Severity: "error",
+			})
+		}
+	}
+
+	// Top-level version:/text: must equal the newest (semver-max) entry. Only
+	// cross-check when the log entries are well-formed enough to have a newest.
+	if wellFormed && len(entryVersions) > 0 {
+		newestIdx := 0
+		for j := 1; j < len(entryVersions); j++ {
+			if compareSemver(entryVersions[j], entryVersions[newestIdx]) > 0 {
+				newestIdx = j
+			}
+		}
+		if hasVersion && version != entryVersions[newestIdx] {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-version-not-newest",
+				File:     filename,
+				Message:  fmt.Sprintf("%s top-level version '%s' must equal the newest log entry version '%s'", label, version, entryVersions[newestIdx]),
+				Severity: "error",
+			})
+		}
+		// Compare meaning, not bytes: ParseFile clips the trailing newline of a
+		// folded `>` scalar only when it is the last line before the closing `---`,
+		// so byte-equal-authored texts can differ by surrounding whitespace by
+		// position. Normalize both sides (CLM-033 stays meaning-equality).
+		if strings.TrimSpace(stringField(req, "text")) != strings.TrimSpace(entryTexts[newestIdx]) {
+			violations = append(violations, Violation{
+				Rule:     "bundle/requirement-text-not-newest",
+				File:     filename,
+				Message:  fmt.Sprintf("%s top-level text must equal the newest log entry's text", label),
+				Severity: "error",
+			})
+		}
+	}
+
+	return violations
+}
+
+// compareSemver compares two strict M.M.P semver strings numerically, returning
+// -1, 0, or 1. Callers pass only strings already matched by semverRe, so the
+// components parse cleanly; any parse anomaly compares as 0.
+func compareSemver(a, b string) int {
+	ap := strings.SplitN(a, ".", 3)
+	bp := strings.SplitN(b, ".", 3)
+	if len(ap) != 3 || len(bp) != 3 {
+		return 0
+	}
+	for i := 0; i < 3; i++ {
+		an := atoiSafe(ap[i])
+		bn := atoiSafe(bp[i])
+		if an < bn {
+			return -1
+		}
+		if an > bn {
+			return 1
+		}
+	}
+	return 0
+}
+
+// atoiSafe parses a non-negative integer component, returning 0 on any anomaly.
+func atoiSafe(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
 }
 
 // extractMaturity returns the status.maturity value or empty string.
@@ -665,6 +865,17 @@ func resolveFrontmatterPath(fm map[string]interface{}, path string) bool {
 		current = next
 	}
 	return false
+}
+
+// stringField returns the trimmed string value for key, or "" when the key is
+// missing, empty, or non-string. It is the single-value companion to
+// getStringField for callers that do not need the presence bool.
+func stringField(m map[string]interface{}, key string) string {
+	s, ok := getStringField(m, key)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 // getStringField extracts a string value from a map, returning ("", false) if

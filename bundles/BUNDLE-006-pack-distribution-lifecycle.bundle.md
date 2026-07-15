@@ -112,6 +112,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       pack add must resolve org/pack-name to a git URL (github.com/org/pack-name
       by default), clone at the specified version tag, and must exit with a
@@ -119,17 +120,20 @@ requirements:
       (missing tag, clone failure, validation failure) if the tag does not
       exist or the clone fails (DD-1, DD-10)
   - id: REQ-002
+    version: "1.0.0"
     text: >
       pack add must run pack check and pack test on the cloned pack before
       installation and must exit with a non-zero exit code and a diagnostic
       message identifying the failure (missing tag, clone failure, validation
       failure) if either validation step fails (DD-10)
   - id: REQ-003
+    version: "1.0.0"
     text: >
       pack add must copy the validated pack to .backstop/packs/org/pack-name/,
       compute the content hash, and update both backstop.yml (exact version pin)
       and backstop.lock (version + hash + git ref) atomically (DD-10, DD-23)
   - id: REQ-004
+    version: "1.0.0"
     text: >
       When tool_config merge encounters a conflict, pack add must exit with a
       non-zero exit code and output a diagnostic listing each conflicting
@@ -138,43 +142,51 @@ requirements:
       pack add. In non-interactive environments (CI), the same diagnostic and
       non-zero exit apply — no prompts (DD-9)
   - id: REQ-005
+    version: "1.0.0"
     text: >
       pack add must record every tool_config setting it merges in
       .backstop/pack-config-provenance.json, mapping config file path and
       setting key to source pack name and install-time value hash (DD-16, DD-21)
   - id: REQ-006
+    version: "1.0.0"
     text: >
       pack remove must read .backstop/pack-config-provenance.json, revert
       settings sourced from the target pack, and warn (rather than revert)
       any setting whose current value differs from its install-time hash (DD-11,
       DD-21)
   - id: REQ-007
+    version: "1.0.0"
     text: >
       pack remove must delete the pack from .backstop/packs/, remove the pack
       entry from backstop.yml, remove the pack entry from backstop.lock, and
       remove the pack's entries from pack-config-provenance.json (DD-11)
   - id: REQ-008
+    version: "1.0.0"
     text: >
       pack install must restore all packs from backstop.lock by cloning each
       at its pinned version, verifying the content hash matches the locked hash,
       and copying to .backstop/packs/ — without running pack check or pack test
       (DD-12)
   - id: REQ-009
+    version: "1.0.0"
     text: >
       pack install must fail hard (non-zero exit, no partial install) when any
       pack's computed content hash does not match the hash recorded in
       backstop.lock (DD-12)
   - id: REQ-010
+    version: "1.0.0"
     text: >
       pack install --cache <path> must read packs from a local directory instead
       of cloning from git, while still verifying content hashes against the
       lockfile (DD-22)
   - id: REQ-011
+    version: "1.0.0"
     text: >
       pack install must not merge tool_config — config was already merged at
       pack add time and committed to the repo; install is a content-only
       restore (DD-12)
   - id: REQ-012
+    version: "1.0.0"
     text: >
       pack update must resolve the latest version within the semver minor/patch
       range for the specified pack, run pack check + pack test on the new
@@ -183,6 +195,7 @@ requirements:
       version pin to backstop.yml, and update backstop.lock with the new
       version, hash, and git ref (DD-13, DD-23)
   - id: REQ-013
+    version: "1.0.0"
     text: >
       When tamper detection finds fixture removal, severity downgrade,
       risk_class change, or rule removal, pack update must exit with a
@@ -193,123 +206,147 @@ requirements:
       removal. Other content changes in minor/patch versions are accepted
       without acknowledgment (DD-4, DD-13)
   - id: REQ-014
+    version: "1.0.0"
     text: >
       pack upgrade must accept an explicit major version target
       (org/pack-name@version), scan the consumer's codebase against the new
       version, generate a remediation bundle scoping all new violations, and
       baseline those violations (DD-7, DD-13)
   - id: REQ-015
+    version: "1.0.0"
     text: >
       pack upgrade must run pack check and pack test on the new version
       before installing (DD-10)
   - id: REQ-016
+    version: "1.0.0"
     text: >
       pack upgrade must update tool_config for the new version (the new
       version may have new or changed config requirements), with the same
       conflict escalation as pack add (REQ-004) (DD-9)
   - id: REQ-017
+    version: "1.0.0"
     text: >
       pack upgrade must update backstop.yml with the new exact version pin
       and backstop.lock with the new content hash (DD-23)
   - id: REQ-018
+    version: "1.0.0"
     text: >
       pack upgrade must generate a remediation bundle scoping all new
       violations. If remediation bundle generation fails, pack upgrade must
       roll back by restoring the previous version (DD-7)
   - id: REQ-019
+    version: "1.0.0"
     text: >
       pack list must display installed pack name, version, lock status
       (locked/stale/missing), archetype, rule count, and scaffold count in
       a human-readable table by default, and as structured JSON with
       --json (DD-14)
   - id: REQ-020
+    version: "1.0.0"
     text: >
       backstop.lock must be YAML with sorted keys, containing per-pack entries
       with name, version, git ref (null for local packs), content hash, source
       type (git or local), and install date (DD-19)
   - id: REQ-021
+    version: "1.0.0"
     text: >
       Content hash must be SHA-256 computed from a sorted manifest of
       relative-path:SHA-256-file-hash pairs covering every file in the pack
       directory (DD-20)
   - id: REQ-022
+    version: "1.0.0"
     text: >
       backstop gate must verify that every pack in backstop.lock is present
       in .backstop/packs/ with a matching content hash; hash mismatch, missing
       pack, or extra unlocked pack must each produce a gate failure with a
       specific diagnostic message (DD-15)
   - id: REQ-023
+    version: "1.0.0"
     text: >
       backstop gate must fail with a diagnostic error if backstop.lock is
       absent when packs are declared in backstop.yml (DD-3)
   - id: REQ-024
+    version: "1.0.0"
     text: >
       pack add must ensure .backstop/packs/ is listed in the project's
       .gitignore. If .gitignore does not exist, pack add creates it. If
       .backstop/packs/ is not in .gitignore, pack add appends it. Pack
       contents must never be committed to the consumer's repo (DD-18)
   - id: REQ-025
+    version: "1.0.0"
     text: >
       Local path packs (referenced via path: in backstop.yml) must use the
       same pack check and pack test validation as git packs, appear in
       backstop.lock with a content hash but no git ref, and be verified at
       gate time by content hash (DD-17)
   - id: REQ-026
+    version: "1.0.0"
     text: >
       pack update must be a no-op for local path packs since they update when
       their source files change; pack install must verify local pack content
       hash against the lockfile (DD-17)
   - id: REQ-027
+    version: "1.0.0"
     text: >
       Packs cannot declare dependencies on other packs. There is no
       pack-to-pack dependency mechanism. Every pack in a project must be
       explicitly added by the consumer via pack add. This prevents transitive
       trust chains (DD-2)
   - id: REQ-028
+    version: "1.0.0"
     text: >
       backstop.yml must store exact version pins for every pack with no range
       syntax; pack update resolves the latest compatible version internally and
       writes the resolved exact pin (DD-6, DD-23)
   - id: REQ-029
+    version: "1.0.0"
     text: >
       .backstop/pack-config-provenance.json must be committed to the repo
       alongside backstop.yml and backstop.lock, tracking config file path,
       setting key/path, source pack name, and install-time value hash for
       every pack-contributed setting (DD-16, DD-21)
   - id: REQ-030
+    version: "1.0.0"
     text: >
       pack update and pack upgrade must use the enforcement semver model
       (defined in BUNDLE-004) to determine behavior: pack update auto-applies
       patch and minor versions, pack upgrade handles major versions (DD-8)
   - id: REQ-031
+    version: "1.0.0"
     text: >
       pack add and pack install must not install SDK dependencies declared in
       packs. SDK installation is the consumer's responsibility via native
       package managers. backstop tracks SDK references in the manifest and
       lockfile but does not distribute SDK code (DD-5)
   - id: REQ-032
+    version: "1.0.0"
     text: >
       pack add for a pack already in backstop.yml must exit with a diagnostic
       suggesting pack update or pack upgrade instead
   - id: REQ-033
+    version: "1.0.0"
     text: >
       pack remove for a pack not in backstop.yml must exit with a non-zero
       exit code and diagnostic
   - id: REQ-034
+    version: "1.0.0"
     text: >
       pack install must fail with a diagnostic if backstop.lock does not
       exist
   - id: REQ-035
+    version: "1.0.0"
     text: >
       pack install must not leave a partial installation in .backstop/packs/.
       If any pack clone fails, the entire install fails and .backstop/packs/
       is restored to its previous state (or left empty if it was a fresh
       install)
   - id: REQ-036
+    version: "1.0.0"
     text: >
       pack update when the installed version is already the latest compatible
       version must be a no-op with an informational message
   - id: REQ-037
+    version: "1.0.0"
     text: >
       pack add must accept a local filesystem path as an alternative to a git
       org/pack-name reference. When given a local path, pack add must skip git

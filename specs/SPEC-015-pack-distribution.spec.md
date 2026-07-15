@@ -34,7 +34,7 @@ requirements:
       tag, and exit with a non-zero exit code and a diagnostic message
       identifying the failure (missing tag, clone failure) if the tag does
       not exist or the clone fails.
-    supports: pack-distribution-lifecycle:REQ-001
+    supports: pack-distribution-lifecycle:REQ-001@1.0.0
 
   - id: REQ-002
     text: >
@@ -42,7 +42,7 @@ requirements:
       installation. If either validation step fails, pack add must exit with
       a non-zero exit code and a diagnostic message identifying the
       validation failure.
-    supports: pack-distribution-lifecycle:REQ-002
+    supports: pack-distribution-lifecycle:REQ-002@1.0.0
 
   - id: REQ-003
     text: >
@@ -51,7 +51,7 @@ requirements:
       version pin) and backstop.lock (version, hash, git ref) atomically. If
       any step in the install pipeline fails after cloning, pack add must
       roll back all changes (no partial install state).
-    supports: pack-distribution-lifecycle:REQ-003
+    supports: pack-distribution-lifecycle:REQ-003@1.0.0
 
   - id: REQ-004
     text: >
@@ -62,7 +62,7 @@ requirements:
       current value, and the config file path. No interactive prompts in any
       environment. The consumer resolves conflicts manually and re-runs
       pack add.
-    supports: pack-distribution-lifecycle:REQ-004
+    supports: pack-distribution-lifecycle:REQ-004@1.0.0
 
   - id: REQ-005
     text: >
@@ -70,7 +70,7 @@ requirements:
       .backstop/pack-config-provenance.json, mapping config file path and
       setting key to source pack name and install-time value hash (SHA-256
       of the serialized setting value).
-    supports: pack-distribution-lifecycle:REQ-005
+    supports: pack-distribution-lifecycle:REQ-005@1.0.0
 
   - id: REQ-006
     text: >
@@ -79,7 +79,7 @@ requirements:
       any setting whose current value hash differs from its install-time
       hash. The warning must identify the config file, setting key, and
       that the value was modified since install.
-    supports: pack-distribution-lifecycle:REQ-006
+    supports: pack-distribution-lifecycle:REQ-006@1.0.0
 
   - id: REQ-007
     text: >
@@ -87,7 +87,7 @@ requirements:
       pack entry from backstop.yml, remove the pack entry from
       backstop.lock, and remove the pack's entries from
       pack-config-provenance.json.
-    supports: pack-distribution-lifecycle:REQ-007
+    supports: pack-distribution-lifecycle:REQ-007@1.0.0
 
   - id: REQ-008
     text: >
@@ -95,7 +95,7 @@ requirements:
       each at its pinned version, verifying the content hash matches the
       locked hash, and copying to .backstop/packs/. pack install must not
       run pack check or pack test.
-    supports: pack-distribution-lifecycle:REQ-008
+    supports: pack-distribution-lifecycle:REQ-008@1.0.0
 
   - id: REQ-009
     text: >
@@ -103,21 +103,21 @@ requirements:
       install when any pack's computed content hash does not match the hash
       recorded in backstop.lock. The diagnostic must identify which pack
       had the hash mismatch.
-    supports: pack-distribution-lifecycle:REQ-009
+    supports: pack-distribution-lifecycle:REQ-009@1.0.0
 
   - id: REQ-010
     text: >
       pack install --cache <path> must read packs from a local directory
       instead of cloning from git, while still verifying content hashes
       against the lockfile.
-    supports: pack-distribution-lifecycle:REQ-010
+    supports: pack-distribution-lifecycle:REQ-010@1.0.0
 
   - id: REQ-011
     text: >
       pack install must not merge tool_config. Config was already merged
       at pack add time and committed to the repo. Install is a
       content-only restore.
-    supports: pack-distribution-lifecycle:REQ-011
+    supports: pack-distribution-lifecycle:REQ-011@1.0.0
 
   - id: REQ-012
     text: >
@@ -127,7 +127,7 @@ requirements:
       update is aborted and the previous version is retained. On success,
       pack update writes the new exact version pin to backstop.yml and
       updates backstop.lock with the new version, hash, and git ref.
-    supports: pack-distribution-lifecycle:REQ-012
+    supports: pack-distribution-lifecycle:REQ-012@1.0.0
 
   - id: REQ-013
     text: >
@@ -137,7 +137,7 @@ requirements:
       change. The consumer must re-run with --acknowledge flag to proceed.
       This applies in both interactive and CI environments. Other content
       changes in minor/patch versions are accepted without acknowledgment.
-    supports: pack-distribution-lifecycle:REQ-013
+    supports: pack-distribution-lifecycle:REQ-013@1.0.0
 
   - id: REQ-014
     text: >
@@ -145,13 +145,13 @@ requirements:
       (org/pack-name@version), scan the consumer's codebase against the
       new version, generate a remediation bundle scoping all new
       violations, and baseline those violations.
-    supports: pack-distribution-lifecycle:REQ-014
+    supports: pack-distribution-lifecycle:REQ-014@1.0.0
 
   - id: REQ-015
     text: >
       pack upgrade must run pack check and pack test on the new version
       before installing. If validation fails, the upgrade is aborted.
-    supports: pack-distribution-lifecycle:REQ-015
+    supports: pack-distribution-lifecycle:REQ-015@1.0.0
 
   - id: REQ-016
     text: >
@@ -159,13 +159,13 @@ requirements:
       version may have new or changed config requirements), with the same
       conflict escalation as pack add (REQ-004): non-zero exit and
       diagnostic listing on conflict, no interactive prompts.
-    supports: pack-distribution-lifecycle:REQ-016
+    supports: pack-distribution-lifecycle:REQ-016@1.0.0
 
   - id: REQ-017
     text: >
       pack upgrade must update backstop.yml with the new exact version pin
       and backstop.lock with the new content hash.
-    supports: pack-distribution-lifecycle:REQ-017
+    supports: pack-distribution-lifecycle:REQ-017@1.0.0
 
   - id: REQ-018
     text: >
@@ -173,7 +173,7 @@ requirements:
       violations. If remediation bundle generation fails, pack upgrade
       must roll back by restoring the previous version, backstop.yml,
       backstop.lock, and tool_config to their pre-upgrade state.
-    supports: pack-distribution-lifecycle:REQ-018
+    supports: pack-distribution-lifecycle:REQ-018@1.0.0
 
   - id: REQ-019
     text: >
@@ -181,7 +181,7 @@ requirements:
       (locked, stale, or missing), archetype, rule count, and scaffold
       count in a human-readable table by default. With --json, pack list
       must output the same data as structured JSON.
-    supports: pack-distribution-lifecycle:REQ-019
+    supports: pack-distribution-lifecycle:REQ-019@1.0.0
 
   - id: REQ-020
     text: >
@@ -189,7 +189,7 @@ requirements:
       entries with name, version, git ref (null for local packs), content
       hash (SHA-256), source type (git or local), and install date
       (RFC 3339).
-    supports: pack-distribution-lifecycle:REQ-020
+    supports: pack-distribution-lifecycle:REQ-020@1.0.0
 
   - id: REQ-021
     text: >
@@ -198,7 +198,7 @@ requirements:
       pack directory. Paths are sorted lexicographically. Each file is
       individually hashed, then the sorted path:hash manifest is hashed
       to produce the final content hash.
-    supports: pack-distribution-lifecycle:REQ-021
+    supports: pack-distribution-lifecycle:REQ-021@1.0.0
 
   - id: REQ-022
     text: >
@@ -209,13 +209,13 @@ requirements:
       must produce a gate failure identifying which pack is missing. Extra
       unlocked pack (present in .backstop/packs/ but not in backstop.lock)
       must produce a gate failure identifying the extra pack.
-    supports: pack-distribution-lifecycle:REQ-022
+    supports: pack-distribution-lifecycle:REQ-022@1.0.0
 
   - id: REQ-023
     text: >
       backstop gate must fail with a diagnostic error if backstop.lock is
       absent when packs are declared in backstop.yml.
-    supports: pack-distribution-lifecycle:REQ-023
+    supports: pack-distribution-lifecycle:REQ-023@1.0.0
 
   - id: REQ-024
     text: >
@@ -223,7 +223,7 @@ requirements:
       .gitignore. If .gitignore does not exist, pack add creates it. If
       .backstop/packs/ is not already in .gitignore, pack add appends it.
       Pack contents must never be committed to the consumer's repo.
-    supports: pack-distribution-lifecycle:REQ-024
+    supports: pack-distribution-lifecycle:REQ-024@1.0.0
 
   - id: REQ-025
     text: >
@@ -231,14 +231,14 @@ requirements:
       the same pack check and pack test validation as git packs, appear
       in backstop.lock with a content hash but null git ref, and be
       verified at gate time by content hash.
-    supports: pack-distribution-lifecycle:REQ-025
+    supports: pack-distribution-lifecycle:REQ-025@1.0.0
 
   - id: REQ-026
     text: >
       pack update must be a no-op with an informational message for local
       path packs since they update when their source files change. pack
       install must verify local pack content hash against the lockfile.
-    supports: pack-distribution-lifecycle:REQ-026
+    supports: pack-distribution-lifecycle:REQ-026@1.0.0
 
   - id: REQ-027
     text: >
@@ -247,14 +247,14 @@ requirements:
       explicitly added by the consumer via pack add. If a pack manifest
       references another pack, the system must not resolve or install it
       transitively.
-    supports: pack-distribution-lifecycle:REQ-027
+    supports: pack-distribution-lifecycle:REQ-027@1.0.0
 
   - id: REQ-028
     text: >
       backstop.yml must store exact version pins for every pack with no
       range syntax. pack update resolves the latest compatible version
       internally and writes the resolved exact pin.
-    supports: pack-distribution-lifecycle:REQ-028
+    supports: pack-distribution-lifecycle:REQ-028@1.0.0
 
   - id: REQ-029
     text: >
@@ -262,7 +262,7 @@ requirements:
       alongside backstop.yml and backstop.lock. It must track config file
       path, setting key/path, source pack name, and install-time value
       hash for every pack-contributed setting.
-    supports: pack-distribution-lifecycle:REQ-029
+    supports: pack-distribution-lifecycle:REQ-029@1.0.0
 
   - id: REQ-030
     text: >
@@ -271,7 +271,7 @@ requirements:
       handles major versions. pack update must refuse to apply a major
       version bump and must direct the consumer to use pack upgrade
       instead.
-    supports: pack-distribution-lifecycle:REQ-030
+    supports: pack-distribution-lifecycle:REQ-030@1.0.0
 
   - id: REQ-031
     text: >
@@ -279,27 +279,27 @@ requirements:
       in packs. SDK installation is the consumer's responsibility via
       native package managers. backstop tracks SDK references in the
       manifest and lockfile but does not distribute SDK code.
-    supports: pack-distribution-lifecycle:REQ-031
+    supports: pack-distribution-lifecycle:REQ-031@1.0.0
 
   - id: REQ-032
     text: >
       pack add for a pack already listed in backstop.yml must exit with a
       non-zero exit code and a diagnostic suggesting pack update or pack
       upgrade instead.
-    supports: pack-distribution-lifecycle:REQ-032
+    supports: pack-distribution-lifecycle:REQ-032@1.0.0
 
   - id: REQ-033
     text: >
       pack remove for a pack not listed in backstop.yml must exit with a
       non-zero exit code and a diagnostic identifying that the pack is
       not installed.
-    supports: pack-distribution-lifecycle:REQ-033
+    supports: pack-distribution-lifecycle:REQ-033@1.0.0
 
   - id: REQ-034
     text: >
       pack install must fail with a non-zero exit code and a diagnostic
       if backstop.lock does not exist.
-    supports: pack-distribution-lifecycle:REQ-034
+    supports: pack-distribution-lifecycle:REQ-034@1.0.0
 
   - id: REQ-035
     text: >
@@ -307,13 +307,13 @@ requirements:
       .backstop/packs/. If any pack clone or hash verification fails, the
       entire install fails and .backstop/packs/ is restored to its
       previous state (or left empty if it was a fresh install).
-    supports: pack-distribution-lifecycle:REQ-035
+    supports: pack-distribution-lifecycle:REQ-035@1.0.0
 
   - id: REQ-036
     text: >
       pack update when the installed version is already the latest
       compatible version must be a no-op with an informational message.
-    supports: pack-distribution-lifecycle:REQ-036
+    supports: pack-distribution-lifecycle:REQ-036@1.0.0
 
   - id: REQ-037
     text: >
@@ -324,7 +324,7 @@ requirements:
       entry instead of a version: entry, and compute a content hash for
       backstop.lock. Local path packs are not cloned to .backstop/packs/
       — they are loaded directly from their source path.
-    supports: pack-distribution-lifecycle:REQ-037
+    supports: pack-distribution-lifecycle:REQ-037@1.0.0
 
 claims:
   # --- pack add: git resolution and cloning ---

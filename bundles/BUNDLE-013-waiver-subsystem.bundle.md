@@ -72,6 +72,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       Backstop must define a waiver DSL token of the form
       `@waiver:<rule-id>:<reason-code>:<expiry>` with an optional trailing
@@ -79,6 +80,7 @@ requirements:
       `false-positive`, `accepted-risk`, `deferred`, `third-party`. The grammar
       must be specified precisely enough to parse and validate deterministically.
   - id: REQ-002
+    version: "1.0.0"
     text: >
       Waiver adjudication must be inline and engine-neutral: engines emit
       findings normally (no report-everything mode required), and backstop
@@ -88,12 +90,14 @@ requirements:
       reported and must NOT parse source or encode any language's comment
       syntax.
   - id: REQ-003
+    version: "1.0.0"
     text: >
       Waiver identity must be per-finding and location-based, not a stored
       content fingerprint. A waiver applies only to the specific finding at the
       token's associated location. There is no file-blanket or rule-blanket
       scope: a debt-heavy file that is touched is discharged finding-by-finding.
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Every waiver must carry a mandatory expiry; no waiver is permanent. Each
       reason-code sets a default duration (e.g. `false-positive` long-lived,
@@ -102,11 +106,13 @@ requirements:
       re-fires under normal enforcement. The gate must emit a loud heads-up
       BEFORE a waiver expires (the pre-expiry warning is the grace period).
   - id: REQ-005
+    version: "1.0.0"
     text: >
       The gate must detect and warn on unused/dangling waivers — a `@waiver`
       token whose associated location no longer has a matching live finding.
       An unused waiver is surfaced as a warning; it must not silently persist.
   - id: REQ-006
+    version: "1.0.0"
     text: >
       Backstop must support a declared non-waivable tier: a rule or severity
       self-declares itself un-waivable in its pack manifest / enforcement
@@ -115,11 +121,13 @@ requirements:
       non-waivable set. A `@waiver` token targeting a non-waivable rule is a
       gate ERROR, not a suppression.
   - id: REQ-007
+    version: "1.0.0"
     text: >
       Malformed `@waiver` tokens (bad grammar, unknown reason-code, missing or
       invalid expiry) must themselves be gate findings. The waiver grammar is
       enforced, not best-effort.
   - id: REQ-008
+    version: "1.0.0"
     text: >
       Token-to-finding location matching semantics must be defined: the line
       association rule (same-line trailing token vs token on the line above),
@@ -127,6 +135,7 @@ requirements:
       literal string `@waiver:...` appears inside a string literal or other
       non-suppressing context rather than as an author's waiver.
   - id: REQ-009
+    version: "1.0.0"
     text: >
       `rule-id` in the token must be a stable, ergonomic identifier for the
       rule being waived, and the subsystem must define behavior when a pack
@@ -134,6 +143,7 @@ requirements:
       unused/dangling per REQ-005, rather than silently waiving a different
       rule).
   - id: REQ-010
+    version: "1.0.0"
     text: >
       Waivers apply to CODE-LOCATED findings only. Artifact/structural gate
       dimensions (artifact_status_drift, contract_signature, test_verification)
@@ -141,6 +151,7 @@ requirements:
       (retire/replace/resolved-by/obsoleted). File-level coverage findings get
       a defined annotation convention rather than a source-location token.
   - id: REQ-011
+    version: "1.0.0"
     text: >
       The core CLI is read-only with respect to waivers: `backstop waiver list`
       must report active, expiring-soon, and unused/dangling waivers. Core
@@ -148,6 +159,7 @@ requirements:
       language comment-syntax = baked-language knowledge); authoring and
       re-certification belong to the human or the runtime agent.
   - id: REQ-012
+    version: "1.0.0"
     text: >
       Gate reporting must never be silent about waivers. A run that passes
       because of active waivers is a DISTINCT terminal state (e.g.
@@ -158,6 +170,7 @@ requirements:
       (e.g. semgrep's SARIF-reported suppressions) are reported on a separate
       line.
   - id: REQ-013
+    version: "1.0.0"
     text: >
       Waivers must interact correctly with the ISSUE-050 file-level ratchet:
       a valid ACTIVE waiver satisfies the ratchet for its finding (the
@@ -166,12 +179,14 @@ requirements:
       nothing. Baseline generation (machine snapshot) and waiver authoring
       (human decision) remain distinct operations.
   - id: REQ-014
+    version: "1.0.0"
     text: >
       When the gate blocks on a waivable finding, its output must hand the
       author a pre-filled, neutral `@waiver:<rule>:<reason>:<expiry>` token for
       that specific finding, so that acknowledging is at most as much friction
       as writing an engine-native `//nolint`.
   - id: REQ-015
+    version: "1.0.0"
     text: >
       The active-waiver set must be exposed to the gate's step-9 audit/ledger
       surface so that "what are we deliberately ignoring, why, and until when"

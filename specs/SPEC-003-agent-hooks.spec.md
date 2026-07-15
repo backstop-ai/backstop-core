@@ -2,7 +2,10 @@
 title: "SPEC-003: Agent File-Type Enforcement Hooks"
 number: SPEC-003
 created: "2026-03-31"
-status: draft
+status: deprecated
+reason: >
+  Legacy scaffolding-era cluster retired with the agent-definitions bundle. Per
+  terminal-state conventions, deprecated needs no successor pointer.
 schema_version: spec/v1
 spec_version: 1.0.0
 

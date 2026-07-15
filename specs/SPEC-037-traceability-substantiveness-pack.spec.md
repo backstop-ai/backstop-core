@@ -65,7 +65,7 @@ requirements:
       re-implemented per REQ-002/REQ-003); only the baked Go ANALYZER is eradicated.
       The deletion MUST NOT be vacuous: it is gated on the REQ-006 strangler-equivalence
       pass passing first.
-    supports: stack-aware-traceability:REQ-002
+    supports: stack-aware-traceability:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -82,7 +82,7 @@ requirements:
       finding, preserving the existing "test X has no assertions (hollow)" semantics on
       the report surface. The assertion vocabulary lives ONLY in the pack rule YAML;
       the backstop binary MUST carry no hardcoded assertion-selector list.
-    supports: stack-aware-traceability:REQ-002
+    supports: stack-aware-traceability:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -112,7 +112,7 @@ requirements:
       re-baked AST analysis. The Q2 extraction query MUST run REAL ast-grep through the
       production dispatch path (no stub) — multi-rule ast-grep dispatch (ISSUE-028) and
       sandboxed convert (ISSUE-029) make the real extraction genuinely runnable.
-    supports: stack-aware-traceability:REQ-003
+    supports: stack-aware-traceability:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -129,7 +129,7 @@ requirements:
       unconditionally runnable (no stub justified): multi-rule ast-grep packs dispatch for
       real (ISSUE-028) and convert scripts run under the real macOS sandbox (ISSUE-029), so
       the TS hollow-test rule MUST run real ast-grep through the production dispatch path.
-    supports: stack-aware-traceability:REQ-007
+    supports: stack-aware-traceability:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -153,7 +153,7 @@ requirements:
       dispatch invocations and the test asserts non-zero). The verification test_command
       MUST include ./cmd/backstop/ so the wiring locus is covered; this closes the known
       unit-green-but-unwired integration gap.
-    supports: stack-aware-traceability:REQ-002
+    supports: stack-aware-traceability:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -169,7 +169,7 @@ requirements:
       demonstrate the pack path produces the hollow-test finding (RED on a genuinely
       hollow test, GREEN on a substantive one) so the eradication does not trade
       enforcement for silence.
-    supports: stack-aware-traceability:REQ-008
+    supports: stack-aware-traceability:REQ-008@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -200,7 +200,7 @@ requirements:
       stays spec-unaware). If a mandated test produces NO extraction finding at all, its
       ReferencedSymbolSet is empty and the set-join's existing dispositions (empty-target
       skip / same-package satisfied / otherwise noTarget) apply unchanged.
-    supports: stack-aware-traceability:REQ-003
+    supports: stack-aware-traceability:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -237,7 +237,7 @@ requirements:
       dimensions do not re-key — REQ-009 / CLM-036). After this spec, NO test in pkg/gate OR
       cmd/backstop asserts the deleted baked-analyzer keying for the substantiveness
       dimension, and no claim is left orphaned by a silently-broken shipped test.
-    supports: stack-aware-traceability:REQ-002
+    supports: stack-aware-traceability:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-009
     text: >
@@ -275,7 +275,7 @@ requirements:
       its pack), because re-keying contracts now would break it before its pack exists.
       This aligns SPEC-036's derivation via implementation (per align-predating-artifacts);
       SPEC-036 itself is NOT revised by this spec.
-    supports: stack-aware-traceability:REQ-010
+    supports: stack-aware-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-010
     text: >
@@ -298,7 +298,7 @@ requirements:
       hollow + Q2 extraction) and convert scripts run under the real macOS sandbox
       (ISSUE-029), so the end-to-end path is no longer blocked. REQ-005's seam-spy claims
       are RETAINED (they prove wiring); this REQ ADDS the over-installed-pack proof on top.
-    supports: stack-aware-traceability:REQ-010
+    supports: stack-aware-traceability:REQ-010@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

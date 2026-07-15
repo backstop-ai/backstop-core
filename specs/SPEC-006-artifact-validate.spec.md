@@ -39,7 +39,7 @@ requirements:
       routes to validate.Bundle, "issue/" routes to validate.Issue, "standard/"
       routes to validate.Standard. An artifact with an unrecognized schema_version
       prefix must produce a config error (exit code 2), not a validation error.
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-002
     text: >
@@ -51,7 +51,7 @@ requirements:
       (e.g., --spec --plan validates all specs and plans). When no type flags
       are provided, the default behavior is to validate all artifacts (equivalent
       to --all).
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-003
     text: >
@@ -60,7 +60,7 @@ requirements:
       --all takes precedence and all artifacts are validated regardless of the
       type flags. The command must discover artifacts by scanning the project
       directory for files matching artifact filename patterns.
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-004
     text: >
@@ -70,7 +70,7 @@ requirements:
       Each violation object must include rule, file, message, and severity
       fields matching the validate.Violation struct. When --json is not set,
       the command must produce human-readable formatted text to stdout.
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-005
     text: >
@@ -80,7 +80,7 @@ requirements:
       failure, artifact parse failure, backstop.yml missing or invalid). Exit
       code 2 must take precedence over exit code 1 — if a config error is
       detected, the command must not report partial validation results.
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-006
     text: >
@@ -90,7 +90,7 @@ requirements:
       interface. The command must not access the real filesystem for schema
       files. If a schema cannot be loaded from the embedded filesystem, the
       command must produce a config error (exit code 2).
-    supports: cli:REQ-008
+    supports: cli:REQ-008@1.0.0
 
   - id: REQ-007
     text: >
@@ -102,7 +102,7 @@ requirements:
       *.standard.md. Files that do not match any pattern are ignored. Files
       that match a pattern but fail to parse produce a config error for that
       file (not a validation error).
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-008
     text: >
@@ -113,7 +113,7 @@ requirements:
       The ID match must use a per-type metadata field mapping: plan artifacts
       match on the plan_id field, all other artifact types match on the number
       field. The match must not use filename substring.
-    supports: cli:REQ-001
+    supports: cli:REQ-001@1.0.0
 
   - id: REQ-009
     text: >
@@ -123,7 +123,7 @@ requirements:
       human mode, violations must be grouped by file. The pass/fail
       determination is across all artifacts — if any artifact has violations,
       the overall result is fail (exit code 1).
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-010
     text: >
@@ -141,7 +141,7 @@ requirements:
       provides the project root directory used for artifact discovery. This
       is consistent with the CLI foundation prerequisite (SPEC-005 REQ-003)
       and bundle requirement cli:REQ-009.
-    supports: cli:REQ-009
+    supports: cli:REQ-009@1.0.0
 
   - id: REQ-012
     text: >

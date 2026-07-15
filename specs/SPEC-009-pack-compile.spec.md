@@ -33,7 +33,7 @@ requirements:
       directories to search are configured in backstop.yml (e.g., a
       standards_dirs field) or default to standards/ relative to the project
       root. Files not matching the *.standard.md glob pattern must be ignored.
-    supports: cli:REQ-004
+    supports: cli:REQ-004@1.0.0
 
   - id: REQ-002
     text: >
@@ -42,7 +42,7 @@ requirements:
       The output directory must be .backstop/rules/ relative to the project
       root. The command must not reimplement any compilation logic — it is
       a thin adapter over pkg/compile.
-    supports: cli:REQ-004
+    supports: cli:REQ-004@1.0.0
 
   - id: REQ-003
     text: >
@@ -51,7 +51,7 @@ requirements:
       a semgrep YAML config file (if the standard contains pattern or regex
       rules), and a native checks JSON file (if the standard contains metric
       rules). All output files are written to .backstop/rules/.
-    supports: cli:REQ-004
+    supports: cli:REQ-004@1.0.0
 
   - id: REQ-004
     text: >
@@ -65,7 +65,7 @@ requirements:
       PackCompileResult struct does not carry its own schema_version field —
       schema_version is added to all JSON responses by the SPEC-005 CLI output
       formatter, which wraps command results before writing to stdout.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-005
     text: >
@@ -78,7 +78,7 @@ requirements:
       compile from valid directories and emit a warning for each missing
       directory — this is not an exit 2 condition. Exit 2 for missing
       directories applies only when NO configured directories exist.
-    supports: cli:REQ-004
+    supports: cli:REQ-004@1.0.0
 
   - id: REQ-006
     text: >

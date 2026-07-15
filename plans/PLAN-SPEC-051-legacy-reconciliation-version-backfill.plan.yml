@@ -3,7 +3,7 @@ plan_id: PLAN-SPEC-051
 spec_id: SPEC-051
 spec_version: 1.3.0
 created: "2026-07-14"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
 test_command: "go test ./pkg/validate/... -race -coverprofile=cover.out"

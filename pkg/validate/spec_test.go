@@ -988,7 +988,7 @@ func TestSpec_RequirementNotAMap(t *testing.T) {
 func TestSpec_RequirementValidSupports(t *testing.T) {
 	art := validSpecArtifact()
 	reqs := art.Frontmatter["requirements"].([]interface{})
-	reqs[0].(map[string]interface{})["supports"] = "my-feature:REQ-001"
+	reqs[0].(map[string]interface{})["supports"] = "my-feature:REQ-001@1.0.0"
 	result := validate.Spec(art, specSchema())
 	for _, v := range result.Violations {
 		if v.Rule == "spec/requirement-supports-format" {
@@ -1037,5 +1037,33 @@ func TestSpec_RequirementNoSupports_OK(t *testing.T) {
 		if v.Rule == "spec/requirement-supports-format" {
 			t.Errorf("unexpected supports violation when field absent: %s", v.Message)
 		}
+	}
+}
+
+// --- REQ-002: mandatory exact-semver pin on supports refs ---
+
+func TestSpecSupportsFormat_PinnedRefValid(t *testing.T) {
+	art := validSpecArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = "bundle-name:REQ-001@1.0.0"
+	result := validate.Spec(art, specSchema())
+	assertNoViolationRule(t, result, "spec/requirement-supports-format")
+}
+
+func TestSpecSupportsFormat_UnpinnedRefErrors(t *testing.T) {
+	art := validSpecArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[0].(map[string]interface{})["supports"] = "bundle-name:REQ-001"
+	result := validate.Spec(art, specSchema())
+	assertHasViolation(t, result, "spec/requirement-supports-format")
+}
+
+func TestSpecSupportsFormat_NonSemverPinErrors(t *testing.T) {
+	for _, bad := range []string{"bundle-name:REQ-001@1.0", "bundle-name:REQ-001@v1.0.0"} {
+		art := validSpecArtifact()
+		reqs := art.Frontmatter["requirements"].([]interface{})
+		reqs[0].(map[string]interface{})["supports"] = bad
+		result := validate.Spec(art, specSchema())
+		assertHasViolation(t, result, "spec/requirement-supports-format")
 	}
 }

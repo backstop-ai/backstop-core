@@ -39,8 +39,16 @@ const (
 	StepArtifactStatusDriftAdvisory = "artifact_status_drift_advisory"
 )
 
+// StepRequirementTraceability is the BUNDLE-014 corpus-state invariant step. Like
+// status drift, it is dynamically wired and intentionally absent from AllStepNames.
+const StepRequirementTraceability = "requirement_traceability"
+
+// StepRequirementTraceabilityAdvisory is the non-policied WARN-only twin for in-flight
+// bundle requirement gaps; no enforcement.policy entry can upgrade it to blocking.
+const StepRequirementTraceabilityAdvisory = "requirement_traceability_advisory"
+
 // AllStepNames is the ordered list of nine canonical step names for iteration.
-var AllStepNames = [9]string{
+var AllStepNames = [9]string{ // nosemgrep: go.core.no-global-mutable-state — immutable canonical step-name contract array
 	StepArtifactValidation,
 	StepCodeCheck,
 	StepTestVerification,
@@ -77,7 +85,7 @@ type Violation struct {
 	// (json:"-") — identity stays line-INDEPENDENT (RegionHash) so a waiver-carrying
 	// line number never destabilizes baseline grandfathering. Zero when the engine
 	// reported no line (a locationless finding).
-	Line         int    `json:"-"`
+	Line int `json:"-"`
 	// WaiverHint is a pre-filled `@waiver:<rule>:<reason>:<expiry>` token (SPEC-049
 	// REQ-014) surfaced on a still-blocked WAIVABLE finding so acknowledging it is at
 	// most as much friction as an engine-native //nolint. Presentation only: like

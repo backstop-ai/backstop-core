@@ -63,7 +63,7 @@ requirements:
       gone. With the go-toolchain test globs declared, a `_test.go` file MUST still be
       discovered. Files matching no declared test glob are NOT discovered. The existing
       scope filtering (an out-of-scope test file is skipped) is retained.
-    supports: language-neutral-consumer-ts-toolchain:REQ-002
+    supports: language-neutral-consumer-ts-toolchain:REQ-002@1.0.0
   - id: REQ-002
     text: >
       Test-NAME extraction must come from pack-declared DATA, NOT a baked `func Test`
@@ -77,7 +77,7 @@ requirements:
       declared, a Go `func TestFoo(` line MUST extract NO name (the baked Go literal is
       gone); with the go pattern declared it extracts `TestFoo`. An INVALID declared
       regex MUST be a LOUD error (a returned construction error), NEVER a silent skip.
-    supports: language-neutral-consumer-ts-toolchain:REQ-002
+    supports: language-neutral-consumer-ts-toolchain:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -90,7 +90,7 @@ requirements:
       file read, no `package` clause, carrying no Go assumption. An empty `targetPkg`
       yields false (preserved). A TS `.test.ts` file co-located with its target MUST be
       reported same-unit WITHOUT any `package` clause existing.
-    supports: language-neutral-consumer-ts-toolchain:REQ-003
+    supports: language-neutral-consumer-ts-toolchain:REQ-003@1.0.0
   - id: REQ-004
     text: >
       The coverage spec-relevance derivation must use language-neutral directory
@@ -105,7 +105,7 @@ requirements:
       directory MUST NOT be. It is PROHIBITED for `coverageSpecRelevantToFile` /
       `packagePathMatches` to retain any baked `.go`, `_testdata.go`, or `./...` string
       literal.
-    supports: language-neutral-consumer-ts-toolchain:REQ-003
+    supports: language-neutral-consumer-ts-toolchain:REQ-003@1.0.0
   - id: REQ-005
     text: >
       When NO declared toolchain pack contributes test globs OR test-name patterns
@@ -117,7 +117,7 @@ requirements:
       gate to fail. CRUCIALLY, this MUST NOT mask real misses: when test globs/patterns
       ARE declared (capability present) and a specific mandated test is genuinely
       absent from the codebase, that MUST remain a LOUD blocking failure.
-    supports: language-neutral-consumer-ts-toolchain:REQ-002
+    supports: language-neutral-consumer-ts-toolchain:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -132,7 +132,7 @@ requirements:
       where a correct unit is never wired into the live gate. The merge MUST be a UNION
       across all declared toolchain packs (a go pack and a bun pack together discover
       both `_test.go` and `.test.ts` mandated tests).
-    supports: language-neutral-consumer-ts-toolchain:REQ-002
+    supports: language-neutral-consumer-ts-toolchain:REQ-002@1.0.0
 
 claims:
   # REQ-001 — test-FILE discovery via pack-declared test globs (the discovery matrix)

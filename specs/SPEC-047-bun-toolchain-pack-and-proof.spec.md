@@ -78,7 +78,7 @@ requirements:
       through the declared-engine TRUST substrate (the tools `oxlint`, `bun`, `tsc`,
       `prettier` allowlisted), NEVER as a baked-into-the-binary command string. The pack
       carries mechanism only — no opinionated coding-standards rules. (DD-2, DD-3)
-    supports: language-neutral-consumer-ts-toolchain:REQ-006
+    supports: language-neutral-consumer-ts-toolchain:REQ-006@1.0.0
   - id: REQ-002
     text: >
       The bun pack MUST declare the SPEC-043 `classification` block as DATA in its
@@ -92,7 +92,7 @@ requirements:
       a `.go` file is NOT measurable (the bun pack declares NO Go glob — proving no baked
       Go literal leaks across packs); and an unclassified file (e.g. `**/*.md`) is NOT
       measurable. (DD-1; consumes SPEC-043)
-    supports: language-neutral-consumer-ts-toolchain:REQ-006
+    supports: language-neutral-consumer-ts-toolchain:REQ-006@1.0.0
   - id: REQ-003
     text: >
       The bun coverage convert (`scripts/coverage-to-records.sh`) MUST implement the
@@ -108,7 +108,7 @@ requirements:
       key with NO collision. A file with no branchable code (lcov `BRF: 0`) MUST emit a
       `branch` record with `total: 0` (the N/A cell, never coerced to 0%) while its `line`
       record is still measured. (DD-3; consumes SPEC-044)
-    supports: language-neutral-consumer-ts-toolchain:REQ-006
+    supports: language-neutral-consumer-ts-toolchain:REQ-006@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -126,7 +126,7 @@ requirements:
       `.ts` source file with NO coverage record, OR a below-threshold record) MUST RED the
       gate — proving the consumer is NOT vacuous-green on a non-Go file. (DD-1, DD-2;
       consumes SPEC-043/044/046)
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -146,7 +146,7 @@ requirements:
       (the seeded-defect red, then the fixed green) recorded as run-evidence in the
       implementation's verification log — the executed proof, not the skipped Go-CI stub, is
       what closes REQ-005. (DD-1, DD-2)
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
   - id: REQ-006
     text: >
       The RATCHET → BLOCK flip (bundle REQ-008), sequenced AFTER and DEPENDENT ON the
@@ -167,7 +167,7 @@ requirements:
       flags (the flip is the closing step, gated on the others). A deliberately reintroduced
       baked `.go`/`_test.go`/Go-package literal on a neutral-spine site MUST RED the gate after
       the flip. (DD-1)
-    supports: language-neutral-consumer-ts-toolchain:REQ-008
+    supports: language-neutral-consumer-ts-toolchain:REQ-008@1.0.0
   - id: REQ-007
     text: >
       The enforcement policy MUST gain FINER-THAN-DIMENSION granularity — a per-PACK (or
@@ -192,7 +192,7 @@ requirements:
       extension MUST be backward compatible: an unscoped (dimension-only) policy entry keeps its
       current behavior. (DD-1; verified against `pkg/config/config.go` `Enforcement.Policy` +
       `pkg/gate/policy.go` `ApplyPolicy`)
-    supports: language-neutral-consumer-ts-toolchain:REQ-008
+    supports: language-neutral-consumer-ts-toolchain:REQ-008@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

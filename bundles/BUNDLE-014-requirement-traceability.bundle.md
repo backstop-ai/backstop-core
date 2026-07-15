@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: requirement-traceability
-  version: "0.8.0"
+  version: "0.9.0"
   created: "2026-07-14"
   updated: "2026-07-14"
   category: feature
 
 status:
-  maturity: ready
+  maturity: delivered
 
 problem:
   summary: >
@@ -274,7 +274,33 @@ requirements:
       `implemented`. (DD-12; RDQ-7.)
   - id: REQ-015
     version: "1.1.0"
-    text: >
+    versions:
+      - version: "1.0.0"
+        text: >
+          A one-time legacy reconciliation + version-stamp sweep must run so the corpus is
+          uniformly explicit and green when mandatory-pin validation turns on: BACKFILL the
+          delivered `agent-definitions` bundle by lifting its prose REQs into a formal
+          `requirements[]` array; re-state BUNDLE-011's REQ-004/007/010 supports onto live
+          `implemented` specs; terminally retire the stale draft specs SPEC-002/003/004; and
+          stamp `version: 1.0.0` + `@1.0.0` on every live REQ and supports ref. It must land
+          WITH or immediately before the REQ-002 enforcement flip, and be routed through the
+          artifact agents (never hand-edited). (RDQ-2/RDQ-9.)
+      - version: "1.1.0"
+        text: >-
+          A one-time legacy reconciliation + version-stamp sweep must run so the corpus is
+          uniformly explicit and green when mandatory-pin validation turns on: DEPRECATE the
+          `agent-definitions` cluster — take the `agent-definitions` bundle terminal (`deprecated`)
+          together with the stale draft specs SPEC-002/003/004, with NO backfill of its
+          `requirements[]` (a terminal bundle sits outside the delivered-gate by the same terminal
+          exclusion the gate already honors, so this is honest recording, not grandfathering;
+          backfilling would instead mint a delivered bundle with 18 REQs and zero implemented-spec
+          coverage that the gate step would block); re-state BUNDLE-011's REQ-007/010 supports via a
+          retroactive `implemented` spec (SPEC-053 — SPEC-039's work landed via ISSUE-018, and an
+          implemented retroactive spec archives it as coverage, since issues are lineage not
+          coverage); and stamp `version: 1.0.0` + `@1.0.0` on every REMAINING live REQ and supports
+          ref. It must land WITH or immediately before the REQ-002 enforcement flip, and be routed
+          through the artifact agents (never hand-edited). (RDQ-2 amended 2026-07-14; RDQ-9.)
+    text: >-
       A one-time legacy reconciliation + version-stamp sweep must run so the corpus is
       uniformly explicit and green when mandatory-pin validation turns on: DEPRECATE the
       `agent-definitions` cluster — take the `agent-definitions` bundle terminal (`deprecated`)
@@ -850,3 +876,10 @@ REQ-014. Depends on Seed 1 (version + log schema + resolution) and Seed 2 (green
   terminal-exclusion pointer). The factual "agent-definitions is delivered with no requirements[]"
   mentions (problem.summary, Current Thinking's holes) are left intact — they describe the drift,
   not the fix. `version` 0.7.0 → 0.8.0; `bundle.updated` → 2026-07-14. Maturity STAYS `ready`.
+- **0.9.0 (2026-07-14, ready)** — Gave REQ-015 an explicit `versions:` log now that Seed 1's
+  schema (SPEC-050) exists: entry `1.0.0` carries the ORIGINAL pre-amendment backfill wording,
+  entry `1.1.0` carries the current deprecate-not-backfill text, so its 0.8.0 meaning-change is
+  now recoverable from the artifact itself rather than only the Version History prose. Top-level
+  `version:` stays `1.1.0` and its `text` equals the newest entry (the two compared scalars use
+  strip-chomp `>-` so they normalize identically regardless of document position). No other REQ
+  touched. `version` 0.8.0 → 0.9.0; `bundle.updated` → 2026-07-14. Maturity STAYS `ready`.

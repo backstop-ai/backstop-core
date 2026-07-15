@@ -2,7 +2,7 @@
 title: "Requirement Versioning And Supports Resolution"
 number: SPEC-050
 created: "2026-07-14"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.2.1
 
@@ -65,7 +65,7 @@ requirements:
       bundle." The bundles for the catalog must therefore be loaded independently
       of the per-artifact validation scope, so a `--spec`-scoped run resolves
       identically to an unscoped run and to the gate.
-    supports: requirement-traceability:REQ-001
+    supports: requirement-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -79,7 +79,7 @@ requirements:
       issue requirements. The pin's semver notion is the same single strict
       MAJOR.MINOR.PATCH used by REQ-004's version-field validation — three
       dot-separated integers, no prerelease or build metadata.
-    supports: requirement-traceability:REQ-002
+    supports: requirement-traceability:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -89,7 +89,7 @@ requirements:
       fabricated version dies at `artifact validate` rather than surviving to the
       gate. A pin to an OLDER version that IS present in a multi-entry log resolves
       clean (historical pins stay resolvable).
-    supports: requirement-traceability:REQ-003
+    supports: requirement-traceability:REQ-003@1.0.0
     follows: STD-GO-001:GO-011
   - id: REQ-004
     text: >
@@ -109,7 +109,7 @@ requirements:
       MAJOR.MINOR.PATCH used by REQ-002's pin (no prerelease/build metadata). This
       makes the differences between versions recoverable from the artifact itself,
       not git archaeology.
-    supports: requirement-traceability:REQ-004
+    supports: requirement-traceability:REQ-004@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -121,7 +121,7 @@ requirements:
       statuses `replaced`, `canceled`, and `deprecated` stay exempt (they are
       skipped by the terminal-state exemption at pkg/validate/bundle.go and are not
       brought into scope by this change).
-    supports: requirement-traceability:REQ-005
+    supports: requirement-traceability:REQ-005@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

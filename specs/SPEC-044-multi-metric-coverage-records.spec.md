@@ -62,7 +62,7 @@ requirements:
       `(path, metric)` to silently collapse: a duplicate `(path, metric)` from the producer
       is a LOUD blocking error (a producer defect — two measurements of the same file under
       the same metric), never a silent last-wins.
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -81,7 +81,7 @@ requirements:
       `Metric` label ONLY as a threshold-lookup key and a report label — it is PROHIBITED to
       order, rank, compare, or otherwise semantically interpret a metric (the gate does not
       "know" branch is normally lower than line).
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -98,7 +98,7 @@ requirements:
       the threshold check (preserving the existing "no threshold declared in scope ⇒ pass"
       behavior, now per metric). It is PROHIBITED for a per-metric override declared for
       metric M to alter the threshold applied to any OTHER metric N.
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -112,7 +112,7 @@ requirements:
       NOT trigger a `(path, metric)` collision (one metric per path) and MUST NOT trigger
       the declared-metric-not-measured guard (REQ-005), because no per-metric threshold is
       explicitly declared. The scalar-only declaration path MUST remain fully supported.
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -129,7 +129,7 @@ requirements:
       SPEC-043 owns "the path has ZERO records at all"; THIS guard owns "the path has
       records but is missing an explicitly-required metric." The two are different
       granularities and both are loud.
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -145,7 +145,7 @@ requirements:
       record set (line + branch per file) MUST index without collision and threshold each
       metric independently through the same consumer path the `go-toolchain` `statement`
       records flow through.
-    supports: language-neutral-consumer-ts-toolchain:REQ-007
+    supports: language-neutral-consumer-ts-toolchain:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

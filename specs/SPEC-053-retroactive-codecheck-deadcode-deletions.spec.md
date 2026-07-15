@@ -65,7 +65,7 @@ requirements:
       pack capability: the live SARIF surface (`ParsePackFindings`, `parseSarif`) that the
       gate's `dispatchPackEngines` path consumes MUST survive and continue to stamp
       `CheckTypeFindings`. (Mirrors BUNDLE-011 REQ-007 / DD-3.)
-    supports: collapse-legacy-codecheck-into-packs:REQ-007
+    supports: collapse-legacy-codecheck-into-packs:REQ-007@1.0.0
   - id: REQ-010
     text: >
       The legacy standards-manifest READER MUST be absent from production source: the
@@ -82,7 +82,7 @@ requirements:
       `pkg/compile` producer, or a residual `--config` feed. The neutral `CheckType`
       pass-identity enum (deliberately kept) MUST survive. (Mirrors BUNDLE-011 REQ-010 /
       DD-5.)
-    supports: collapse-legacy-codecheck-into-packs:REQ-010
+    supports: collapse-legacy-codecheck-into-packs:REQ-010@1.0.0
 
 claims:
   # REQ-007 — baked non-Go catch-all / default routing deleted; findings preserved opt-in

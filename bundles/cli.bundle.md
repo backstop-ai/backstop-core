@@ -66,51 +66,62 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       backstop artifact validate must validate artifacts against embedded schemas,
       support --spec/--plan/--adr style scoping, and produce structured JSON (--json)
       or formatted human output with exit codes 0/1/2
   - id: REQ-002
+    version: "1.0.0"
     text: >
       backstop artifact new must scaffold artifacts for all seven types (spec, plan,
       issue, adr, directive, bundle, capability) with auto-assigned next-available ID
       via git annotated tag reservation
   - id: REQ-003
+    version: "1.0.0"
     text: >
       backstop code check must run implementation validation (lint, build, test,
       semgrep) with changed-files as default scope (--diff implicit), --all for full
       codebase, and --file for single-file hook dispatch within a 2-second budget
   - id: REQ-004
+    version: "1.0.0"
     text: >
       backstop pack compile must wrap pkg/compile to produce enforcement manifests
       (semgrep YAML, native checks, manifest JSON) from .standard.md files
   - id: REQ-005
+    version: "1.0.0"
     text: >
       backstop pack new must scaffold rule pack (--type rule) and code pack
       (--type code) directory structures with language-specific templates
   - id: REQ-006
+    version: "1.0.0"
     text: >
       backstop gate must run the full verification kill chain: artifact validation,
       pack rule enforcement, test verification, coverage thresholds, contract
       verification, baseline comparison, and ledger integrity (ADR-0010)
   - id: REQ-007
+    version: "1.0.0"
     text: >
       All commands must produce identical violation data in both JSON and human
       output modes, with JSON output including a schema_version field for
       independent contract evolution (D-070)
   - id: REQ-008
+    version: "1.0.0"
     text: >
       All artifact schemas and the baseline rule pack must be embedded via go:embed
       so the CLI binary has no runtime filesystem dependency for core enforcement
   - id: REQ-009
+    version: "1.0.0"
     text: >
       backstop.yml must be loaded and validated before any enforcement command
       executes, with invalid manifest producing exit code 2 (config error)
   - id: REQ-010
+    version: "1.0.0"
     text: >
       Changed-files detection must use git merge-base for PR scope, git diff for
       local scope, and fall back to --scope all in non-git environments
   - id: REQ-011
+    version: "1.0.0"
     text: >
       The CLI must expose backstop commands --json for full command tree discovery
       by agent runtimes and backstop version for schema cohort identification

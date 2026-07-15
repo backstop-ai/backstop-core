@@ -31,7 +31,7 @@ requirements:
       rubrics. An enforcement pack must not declare scaffolds or sdk in its
       content block. An enforcement pack with only a ruleset (no other content
       types) is valid.
-    supports: pack-manifest-authoring:REQ-006
+    supports: pack-manifest-authoring:REQ-006@1.0.0
 
   - id: REQ-002
     text: >
@@ -39,7 +39,7 @@ requirements:
       semgrep YAML file path) and a standard field (filepath to .standard.md
       or inline string). A layer 2 rule missing either field must be rejected.
       Layer 1 and layer 3 rules must not declare the rule field.
-    supports: pack-manifest-authoring:REQ-009
+    supports: pack-manifest-authoring:REQ-009@1.0.0
 
   - id: REQ-003
     text: >
@@ -49,7 +49,7 @@ requirements:
       justification field; omitting justification when category is other must
       be rejected. A layer 3 rule missing category must be rejected. Layer 1
       and layer 2 rules must not declare category.
-    supports: pack-manifest-authoring:REQ-010
+    supports: pack-manifest-authoring:REQ-010@1.0.0
 
   - id: REQ-004
     text: >
@@ -57,7 +57,7 @@ requirements:
       or multi-file, and a validator field pointing to the validator script
       path. A layer 3 rule missing input_scope or validator must be rejected.
       Layer 1 and layer 2 rules must not declare input_scope or validator.
-    supports: pack-manifest-authoring:REQ-011
+    supports: pack-manifest-authoring:REQ-011@1.0.0
 
   - id: REQ-005
     text: >
@@ -65,7 +65,7 @@ requirements:
       negative fixture with bypass_attempt: true, in addition to standard
       negative fixtures. A security-class rule where no negative fixture
       has bypass_attempt: true must be rejected.
-    supports: pack-manifest-authoring:REQ-014
+    supports: pack-manifest-authoring:REQ-014@1.0.0
 
   - id: REQ-006
     text: >
@@ -74,7 +74,7 @@ requirements:
       tool_config must reference at least one rule via required_by. A
       tool_config entry that is neither standalone nor supporting must be
       rejected.
-    supports: pack-manifest-authoring:REQ-024
+    supports: pack-manifest-authoring:REQ-024@1.0.0
 
 
   - id: REQ-008
@@ -82,7 +82,7 @@ requirements:
       Fixture directories must use lowercase naming matching rule IDs (e.g.,
       fixtures/rules/err-001/). Fixture directory names that do not match their
       rule ID in lowercase must be flagged.
-    supports: pack-manifest-authoring:REQ-016
+    supports: pack-manifest-authoring:REQ-016@1.0.0
 
   - id: REQ-009
     text: >
@@ -93,7 +93,7 @@ requirements:
       layer 3 rules exist). ValidateManifest must check that the manifest
       content is consistent with these directory expectations based on
       archetype and declared layers.
-    supports: pack-manifest-authoring:REQ-003
+    supports: pack-manifest-authoring:REQ-003@1.0.0
 
   - id: REQ-010
     text: >
@@ -101,7 +101,7 @@ requirements:
       input_scope and validator fields, which are required for the runtime
       to enforce process isolation. This is a constraint check, not a type
       definition — the types are defined in SPEC-013.
-    supports: pack-manifest-authoring:REQ-012
+    supports: pack-manifest-authoring:REQ-012@1.0.0
 
   - id: REQ-013
     text: >
@@ -111,7 +111,7 @@ requirements:
       pack scaffold without a paired rule, or a code pack rule without a
       paired scaffold or SDK, is a validation error. Enforcement packs must
       not declare scaffolds or sdk.
-    supports: pack-manifest-authoring:REQ-005
+    supports: pack-manifest-authoring:REQ-005@1.0.0
 
   - id: REQ-014
     text: >
@@ -119,7 +119,7 @@ requirements:
       tier's expected completeness level. No archetype is exempt from fixture
       requirements. Every rule (in both enforcement and code packs) must have
       at least one claim, and every claim must have fixtures.
-    supports: pack-manifest-authoring:REQ-035
+    supports: pack-manifest-authoring:REQ-035@1.0.0
 
 claims:
   # REQ-001: Content types and enforcement pack constraints

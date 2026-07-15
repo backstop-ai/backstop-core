@@ -71,12 +71,14 @@ func validReadyBundleArtifact() *artifact.ParsedArtifact {
 			},
 			"requirements": []interface{}{
 				map[string]interface{}{
-					"id":   "REQ-001",
-					"text": "System must support feature X",
+					"id":      "REQ-001",
+					"text":    "System must support feature X",
+					"version": "1.0.0",
 				},
 				map[string]interface{}{
-					"id":   "REQ-002",
-					"text": "Feature X must handle edge case Y",
+					"id":      "REQ-002",
+					"text":    "Feature X must handle edge case Y",
+					"version": "1.0.0",
 				},
 			},
 		},

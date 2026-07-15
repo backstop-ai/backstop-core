@@ -31,14 +31,14 @@ requirements:
       pack check must run phases 1 (structural), 2 (coherence), 4 (archetype),
       5 (layer), and 6 (risk_class). Phase 3 (fixture execution) must NOT run
       during pack check.
-    supports: pack-validation:REQ-001
+    supports: pack-validation:REQ-001@1.0.0
 
   - id: REQ-002
     text: >
       pack test must run all six phases (1 through 6) including phase 3 (fixture
       execution), which invokes external tools such as semgrep and language
       toolchains.
-    supports: pack-validation:REQ-002
+    supports: pack-validation:REQ-002@1.0.0
 
   - id: REQ-003
     text: >
@@ -50,13 +50,13 @@ requirements:
       rejected), layer 2 rules declare a rule field pointing to an existing
       file, all content type declarations are valid, and all referenced file
       paths exist on disk.
-    supports: pack-validation:REQ-003
+    supports: pack-validation:REQ-003@1.0.0
 
   - id: REQ-004
     text: >
       Phase 1 must exclude tool_config.file from file-existence checks because
       it is a consumer-side target path, not a pack-internal file.
-    supports: pack-validation:REQ-004
+    supports: pack-validation:REQ-004@1.0.0
 
   - id: REQ-005
     text: >
@@ -64,7 +64,7 @@ requirements:
       correctness, style, perf) on every rule, including standalone tool_config
       entries that have their own id. A missing risk_class is a structural
       error. An invalid risk_class value is a structural error.
-    supports: pack-validation:REQ-005
+    supports: pack-validation:REQ-005@1.0.0
 
   - id: REQ-006
     text: >
@@ -72,46 +72,46 @@ requirements:
       claim has both positive and negative fixtures (lists, at least one of
       each), every fixture file exists and is non-empty, and claim IDs are
       unique within the pack.
-    supports: pack-validation:REQ-006
+    supports: pack-validation:REQ-006@1.0.0
 
   - id: REQ-007
     text: >
       Phase 2 must enforce rule ID uniqueness spanning both
       content.ruleset.rules and tool_config entries that have their own id. A
       duplicate ID across these two sources is a hard error.
-    supports: pack-validation:REQ-007
+    supports: pack-validation:REQ-007@1.0.0
 
   - id: REQ-008
     text: >
       Phase 2 must verify that tool_config entries with their own rule ID also
       have claims and fixtures proving the tool catches the intended violation.
-    supports: pack-validation:REQ-008
+    supports: pack-validation:REQ-008@1.0.0
 
   - id: REQ-009
     text: >
       Phase 2 must check that pairs_with.rules entries in scaffold declarations
       resolve to actual rule IDs in the pack. Dangling references are a
       coherence warning, not a hard error.
-    supports: pack-validation:REQ-009
+    supports: pack-validation:REQ-009@1.0.0
 
   - id: REQ-010
     text: >
       Phase 2 must emit a warning (not hard error) for orphan fixture files in
       the fixture directory that are not referenced by any claim.
-    supports: pack-validation:REQ-010
+    supports: pack-validation:REQ-010@1.0.0
 
   - id: REQ-011
     text: >
       Phase 3 fixture execution for layer 1-2 semgrep rules must run semgrep
       --test requiring 100% pass rate: every positive fixture must NOT trigger
       the rule, every negative fixture MUST trigger the rule.
-    supports: pack-validation:REQ-011
+    supports: pack-validation:REQ-011@1.0.0
 
   - id: REQ-012
     text: >
       Phase 3 must verify that the pack rule ID exactly matches the semgrep rule
       ID in the referenced rule file. A mismatch is a hard error.
-    supports: pack-validation:REQ-012
+    supports: pack-validation:REQ-012@1.0.0
 
   - id: REQ-013
     text: >
@@ -120,7 +120,7 @@ requirements:
       file in, run the configured tool, and check results. Positive fixtures
       must pass clean. Every negative fixture must trigger the expected
       diagnostic.
-    supports: pack-validation:REQ-013
+    supports: pack-validation:REQ-013@1.0.0
 
   - id: REQ-014
     text: >
@@ -131,7 +131,7 @@ requirements:
       resolve deps is a Phase 3 pre-check error. Language-specific dependency
       resolution commands for other languages are defined when those languages
       are added to the supported set.
-    supports: pack-validation:REQ-014
+    supports: pack-validation:REQ-014@1.0.0
 
   - id: REQ-015
     text: >
@@ -140,14 +140,14 @@ requirements:
       the path is a file; for multi-file input_scope the path is a directory.
       Exit 0 = pass, exit non-zero = fail. Positive fixtures must exit 0.
       Every negative fixture must exit non-zero.
-    supports: pack-validation:REQ-015
+    supports: pack-validation:REQ-015@1.0.0
 
   - id: REQ-016
     text: >
       Phase 3 must validate complete scaffolds by rendering with sample_config
       from the manifest, then running the scaffold's test_command. Tests must
       pass.
-    supports: pack-validation:REQ-016
+    supports: pack-validation:REQ-016@1.0.0
 
   - id: REQ-017
     text: >
@@ -155,61 +155,61 @@ requirements:
       scaffold directory exists, expected files present, test function names
       present. Tests must NOT be run. test_command is only used for complete
       scaffolds.
-    supports: pack-validation:REQ-017
+    supports: pack-validation:REQ-017@1.0.0
 
   - id: REQ-018
     text: >
       Phase 3 must verify SDK references by checking that the provides surface
       is declared at the manifest level. SDK test suite execution is not in
       scope.
-    supports: pack-validation:REQ-018
+    supports: pack-validation:REQ-018@1.0.0
 
   - id: REQ-019
     text: >
       Phase 4 archetype enforcement must verify that code packs (declaring sdk
       or scaffolds) also declare rules, and every scaffold has at least one
       enforcement rule. A code pack without enforcement rules is a hard error.
-    supports: pack-validation:REQ-019
+    supports: pack-validation:REQ-019@1.0.0
 
   - id: REQ-020
     text: >
       Phase 4 must enforce bidirectional co-occurrence: in a code pack, every
       rule must reference at least one scaffold or SDK via pairs_with. A rule
       without code content pairing in a code pack is a hard error.
-    supports: pack-validation:REQ-020
+    supports: pack-validation:REQ-020@1.0.0
 
   - id: REQ-021
     text: >
       Phase 4 must verify that enforcement packs do not declare sdk or
       scaffolds. An enforcement pack with code content (sdk or scaffolds) is a
       hard error.
-    supports: pack-validation:REQ-021
+    supports: pack-validation:REQ-021@1.0.0
 
   - id: REQ-022
     text: >
       Phase 5 layer enforcement must verify every rule declares its layer (1,
       2, or 3) and that risk_class is a valid enum on all rules.
-    supports: pack-validation:REQ-022
+    supports: pack-validation:REQ-022@1.0.0
 
   - id: REQ-023
     text: >
       Phase 5 must check that category (presence, structural, other) is present
       ONLY on layer 3 rules. Layer 3 rules MUST declare a category field.
       category must NOT appear on layer 1 or layer 2 rules.
-    supports: pack-validation:REQ-023
+    supports: pack-validation:REQ-023@1.0.0
 
   - id: REQ-024
     text: >
       Phase 5 must auto-accept layer 3 rules with category presence or
       structural (no justification required). Category other requires a
       mandatory non-empty justification field.
-    supports: pack-validation:REQ-024
+    supports: pack-validation:REQ-024@1.0.0
 
   - id: REQ-025
     text: >
       Phase 5 must verify layer 3 rules declare input_scope (single-file or
       multi-file) and a validator field pointing to an executable file.
-    supports: pack-validation:REQ-025
+    supports: pack-validation:REQ-025@1.0.0
 
   - id: REQ-026
     text: >
@@ -218,21 +218,21 @@ requirements:
       negative fixture list accepts both plain path strings and objects with
       path and optional bypass_attempt boolean; pack test normalizes before
       checking.
-    supports: pack-validation:REQ-026
+    supports: pack-validation:REQ-026@1.0.0
 
   - id: REQ-027
     text: >
       Phase 6 must enforce independent fixture coverage per claim for
       security-class rules. No shared fixtures across security claims within
       the same rule.
-    supports: pack-validation:REQ-027
+    supports: pack-validation:REQ-027@1.0.0
 
   - id: REQ-028
     text: >
       The validation pipeline must run phases in strict dependency order
       (structural > coherence > fixtures > archetype > layer > risk_class). If
       phase N fails, phases N+1 through 6 must be skipped.
-    supports: pack-validation:REQ-028
+    supports: pack-validation:REQ-028@1.0.0
 
   - id: REQ-029
     text: >
@@ -241,7 +241,7 @@ requirements:
       the same errors, and the same warnings. Timing fields (duration_ms) are
       excluded from the idempotency guarantee. No files modified, no state
       persisted, no network calls.
-    supports: pack-validation:REQ-029
+    supports: pack-validation:REQ-029@1.0.0
 
   - id: REQ-030
     text: >
@@ -249,13 +249,13 @@ requirements:
       include: the failing phase, the specific check name, the offending item
       (rule ID, claim ID, file path), a human-readable message, a fix hint the
       agent can act on, and the manifest_path where the problem originates.
-    supports: pack-validation:REQ-030
+    supports: pack-validation:REQ-030@1.0.0
 
   - id: REQ-031
     text: >
       Validation must support a --format=text flag for human-readable output as
       a secondary format. The primary consumer is an agent.
-    supports: pack-validation:REQ-031
+    supports: pack-validation:REQ-031@1.0.0
 
   - id: REQ-032
     text: >
@@ -264,13 +264,13 @@ requirements:
       the fixture may represent a pattern the rule engine cannot detect and
       should be removed and documented rather than shipped as an untestable
       fixture.
-    supports: pack-validation:REQ-032
+    supports: pack-validation:REQ-032@1.0.0
 
   - id: REQ-033
     text: >
       Errors must be reported in pipeline phase order, then by manifest order
       within a phase, to enable the agent to work through them top-down.
-    supports: pack-validation:REQ-033
+    supports: pack-validation:REQ-033@1.0.0
 
   - id: REQ-034
     text: >
@@ -278,7 +278,7 @@ requirements:
       environment that prevents filesystem writes outside the pack directory,
       network access, and environment variable access. Sandbox violations are
       hard errors.
-    supports: pack-validation:REQ-034
+    supports: pack-validation:REQ-034@1.0.0
 
 claims:
   # --- REQ-001: pack check phases ---

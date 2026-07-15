@@ -75,7 +75,7 @@ func validClosedIssueArtifact() *artifact.ParsedArtifact {
 				map[string]interface{}{
 					"id":       "REQ-002",
 					"text":     "Parser must return error on empty string",
-					"supports": "my-feature:REQ-003",
+					"supports": "my-feature:REQ-003@1.0.0",
 				},
 			},
 			"claims": []interface{}{
@@ -863,4 +863,22 @@ func TestIssue_Open_ImplementationNotRequired(t *testing.T) {
 	art := validIssueArtifact()
 	result := validate.Issue(art, issueSchema())
 	assertNoViolationRule(t, result, "issue/implementation-required")
+}
+
+// --- REQ-002: mandatory exact-semver pin on issue supports refs ---
+
+func TestIssueSupportsFormat_PinnedRefValid(t *testing.T) {
+	art := validClosedIssueArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[1].(map[string]interface{})["supports"] = "my-feature:REQ-003@1.0.0"
+	result := validate.Issue(art, issueSchema())
+	assertNoViolationRule(t, result, "issue/requirement-supports-format")
+}
+
+func TestIssueSupportsFormat_UnpinnedRefErrors(t *testing.T) {
+	art := validClosedIssueArtifact()
+	reqs := art.Frontmatter["requirements"].([]interface{})
+	reqs[1].(map[string]interface{})["supports"] = "my-feature:REQ-003"
+	result := validate.Issue(art, issueSchema())
+	assertHasViolation(t, result, "issue/requirement-supports-format")
 }

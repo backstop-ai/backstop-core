@@ -10,14 +10,21 @@ bundle:
   category: feature
 
 status:
-  maturity: delivered
+  maturity: deprecated
   note: >
-    Delivered. The specialized agent roles this bundle defined (spec-author,
-    planner, implementer, spec/plan/impl reviewers, artifact authors) now exist
-    and are in active use. Its work shipped across SPEC-002 (plan-schema-evolution),
-    SPEC-003 (agent-hooks), and SPEC-004 (spec-schema-evolution); the plan-schema /
-    D-081 file-exclusivity enforcement is marked IMPLEMENTED in the bundle body.
-    Success terminal — not a retirement.
+    Deprecated (terminal) as part of the SPEC-051 legacy-reconciliation sweep. This
+    was scaffolding-era history: the specialized agent roles it defined shipped and
+    are now superseded by the living `.claude` agent roster (the durable source of
+    truth for agent definitions), enforced by the agent-guard hook and the ISSUE-044
+    roster-consistency check. The once-planned `requirements[]` backfill was
+    deliberately DROPPED — as a terminal bundle it is exempt from both the
+    requirements[] gate and SPEC-052's delivered-coverage gate, so deprecating
+    creates zero coverage debt, whereas keeping it `delivered` with a
+    backfilled-but-uncovered requirements[] would be blocked the moment SPEC-052
+    lands. Honest recording of superseded scaffolding, not a retirement of abandoned
+    work. Its original delivery shipped across SPEC-002 (plan-schema-evolution),
+    SPEC-003 (agent-hooks), and SPEC-004 (spec-schema-evolution), which retire to
+    `deprecated` alongside it as one legacy scaffolding cluster.
 
 problem:
   summary: >

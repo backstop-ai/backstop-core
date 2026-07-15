@@ -32,7 +32,7 @@ requirements:
       (backstop) and three namespace commands (artifact, code, pack) plus
       a top-level gate command. Each namespace command is a Cobra command
       group. The root command displays help when invoked without subcommands.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-002
     text: >
@@ -41,7 +41,7 @@ requirements:
       be accessible to pkg/schema for schema loading without any runtime
       filesystem dependency. Each CLI binary version constitutes a schema
       cohort — a locked set of schemas that the binary validates against.
-    supports: cli:REQ-008
+    supports: cli:REQ-008@1.0.0
 
   - id: REQ-003
     text: >
@@ -53,7 +53,7 @@ requirements:
       backstop.yml is not found, the CLI must exit with code 2 and an error
       message. If backstop.yml is found but fails schema validation, the CLI
       must exit with code 2 and a validation error message.
-    supports: cli:REQ-009
+    supports: cli:REQ-009@1.0.0
 
   - id: REQ-004
     text: >
@@ -64,7 +64,7 @@ requirements:
       formatter is presentation only, with zero logic. JSON output must
       include a schema_version field in every response for independent
       contract evolution.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-005
     text: >
@@ -74,7 +74,7 @@ requirements:
       missing schemas, bad flags). No other exit codes are used. Exit code
       2 takes precedence over exit code 1 — if config is invalid, the CLI
       must not attempt enforcement.
-    supports: cli:REQ-007
+    supports: cli:REQ-007@1.0.0
 
   - id: REQ-006
     text: >
@@ -83,7 +83,7 @@ requirements:
       schema versions), and the Go version used to build the binary. When
       --json is set, this information must be a JSON object with fields
       version, schema_cohort, and go_version.
-    supports: cli:REQ-011
+    supports: cli:REQ-011@1.0.0
 
   - id: REQ-007
     text: >
@@ -92,7 +92,7 @@ requirements:
       command name, full path (e.g. "artifact validate"), description,
       and available flags. This is the agent discovery endpoint — agents
       use it to learn what commands are available without parsing help text.
-    supports: cli:REQ-011
+    supports: cli:REQ-011@1.0.0
 
   - id: REQ-008
     text: >
@@ -120,7 +120,7 @@ requirements:
       being ignored. A JSON schema for backstop.yml must be defined at
       artifacts/backstop-yml/v1/schema.json and the loader must validate
       against it.
-    supports: cli:REQ-009
+    supports: cli:REQ-009@1.0.0
 
   - id: REQ-011
     text: >

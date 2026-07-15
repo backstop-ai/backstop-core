@@ -63,7 +63,7 @@ requirements:
       available to its rules with NO change to backstop Go. The generic dispatch
       (`runFindingsEngine` / `gatherEngineInputs`) already reads binding fields and
       must require ZERO change to consume a pack-declared binding.
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -94,7 +94,7 @@ requirements:
       other consumer). This spec adds the allowlist as the going-forward pin; ISSUE-018
       removes the superseded `SemgrepVersion`/`PinnedSemgrepVersion` path. See the Sharp
       Edges sequencing note.
-    supports: pluggable-pack-engines:REQ-019
+    supports: pluggable-pack-engines:REQ-019@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -136,7 +136,7 @@ requirements:
       survive as an incremental fallback the pack overrides; under option (ii) they are
       eradicated and shipped as default-pack data. They are NOT left as an unscoped
       baked map — they move with the registry under one resolution.
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -151,7 +151,7 @@ requirements:
       fail-loud). `ParseInputMode` must accept `pattern-arg` as a fifth valid value
       and continue to fail loud on any unrecognized value. This mode feeds the
       parameterized contract/absence queries BUNDLE-009 rides on.
-    supports: pluggable-pack-engines:REQ-020
+    supports: pluggable-pack-engines:REQ-020@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -189,7 +189,7 @@ requirements:
       the parsers.go stamp, the code_check.go `PassResult` sites). The ~11-site count is
       the CURRENT full grep; the post-ISSUE-018 rename footprint is smaller. This is an
       ORDERING dependency, not a conflict — see the Sharp Edges sequencing note.
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -212,7 +212,7 @@ requirements:
       as a DISPATCH/LAYOUT discriminator returns zero matches (string literals in
       default-pack data or documentation are exempt; the prohibition is on Go control
       flow keyed off a tool name).
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -229,7 +229,7 @@ requirements:
       bindings) and the allowlist gate in REQ-002 (every resolved binding's tool must
       be allowlisted before it runs) MUST hold identically — the allowlist is the
       trust floor regardless of where the binding is declared.
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -252,7 +252,7 @@ requirements:
       This is a KNOWN, STATED residual trust boundary documented in Sharp Edges, NOT a
       silent bypass; the spec must not over-claim the convert/validator paths as
       gated when they are sandbox-trusted.
-    supports: pluggable-pack-engines:REQ-019
+    supports: pluggable-pack-engines:REQ-019@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

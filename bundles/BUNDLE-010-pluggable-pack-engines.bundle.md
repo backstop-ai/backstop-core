@@ -74,6 +74,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       A pack rule must declare its execution engine as a first-class `engine` field,
       and the gate must dispatch on it through an explicit table
@@ -82,6 +83,7 @@ requirements:
       Adding a new engine must be a declaration (config plus, at most, a registered
       runner), never a surgical edit to the gate and fixture executor. (DD-1, DD-2)
   - id: REQ-002
+    version: "1.0.0"
     text: >
       The `layer` field (1/2/3) must retire as the execution selector. `engine`
       becomes the single first-class key; a rule carrying `layer` without `engine`
@@ -89,6 +91,7 @@ requirements:
       (config error). The hashmap has one key — `engine` and `layer` must not both
       encode it. (DD-1, DD-5)
   - id: REQ-003
+    version: "1.0.0"
     text: >
       Each layer's per-tier field requirements (`requires`/`forbids` — e.g. semgrep
       needs `rule_path`+`standard`, a sandbox validator needs `input_scope`+
@@ -97,12 +100,14 @@ requirements:
       engine (an honest engine-fit check). `validateLayer` (accepts 1/2/3) and the
       `layer`-keyed `validateLayerFields` get rewritten as engine-keyed. (DD-1)
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Engine-fit validation must only verify field-consistency with the author's
       declared engine; it must not guide or recommend engine choice via content
       analysis. The author asserts the engine; backstop enforces fit, never questions
       the assertion. (DD-1)
   - id: REQ-005
+    version: "1.0.0"
     text: >
       Engines must be open/declared, never enumerated in backstop's Go. The finite
       thing backstop owns is output formats, not engines: backstop owns exactly one
@@ -110,6 +115,7 @@ requirements:
       `lookupParser` fail-loud contract. Adding eslint/ruff/clippy/clj-kondo must be
       a declaration, not a code change. (DD-2)
   - id: REQ-006
+    version: "1.0.0"
     text: >
       The output contract for findings engines must be strict SARIF, not "SARIF or
       JSON." Any non-SARIF findings tool must convert to SARIF outside backstop. The
@@ -117,6 +123,7 @@ requirements:
       a SARIF-native engine is `{command}`, a non-SARIF engine is `{command, convert}`,
       and `parseSarif` is the contract (it already fail-louds on non-SARIF). (DD-2)
   - id: REQ-007
+    version: "1.0.0"
     text: >
       Conversion must run as a sandboxed, pack-declared `convert` executable: the
       gate pipes `tool stdout → convert stdin → SARIF → parseSarif` in Go (no shell),
@@ -124,6 +131,7 @@ requirements:
       `SandboxedRun` layer-3 validators already use (no new trust model). `convert`
       is empty for SARIF-native tools. Backstop embeds no transform engine. (DD-2)
   - id: REQ-008
+    version: "1.0.0"
     text: >
       Backstop must not build or host converters. It points pack authors at existing
       converters (Microsoft `sarif-js-sdk`/`sarif-tools`, GitHub `advanced-security`)
@@ -132,16 +140,19 @@ requirements:
       converter), ships its own stdin→SARIF converter authored as a standalone script.
       A backstop-owned x-to-sarif repo is rejected. (DD-2, DD-7)
   - id: REQ-009
+    version: "1.0.0"
     text: >
       The runner must capture stdout cleanly, separate from stderr, replacing the
       current `CombinedOutput()` (runner.go:30) which merges stderr into stdout and
       corrupts SARIF parsing. (DD-2)
   - id: REQ-010
+    version: "1.0.0"
     text: >
       ast-grep must be wired as the first new engine end-to-end through the gate,
       with a trivial proof rule demonstrating engine dispatch + the `convert` step
       working from declaration through to normalized violations. (DD-6)
   - id: REQ-011
+    version: "1.0.0"
     text: >
       Gate-time engine dispatch (locus A) must replace the single semgrep-only
       executor (`semgrepExecutor`, check.go:559) with "group rules by declared engine,
@@ -149,10 +160,12 @@ requirements:
       feeding ast-grep files into a semgrep-only executor does nothing — generalizing
       that executor is the ast-grep work. (DD-3)
   - id: REQ-012
+    version: "1.0.0"
     text: >
       Validation-time fixture execution (locus B, `pkg/packval`, the `pack validate`
       path) must receive the same engine generalization as the gate-time path. (DD-3)
   - id: REQ-013
+    version: "1.0.0"
     text: >
       The shared `EngineBinding` type must live where `pkg/check`, `pkg/packval`, and
       `cmd/backstop` can all use it without an import cycle. Pin this integration
@@ -160,6 +173,7 @@ requirements:
       emit records of the same `EngineBinding {command, convert?, format? = sarif}`
       shape — same schema, different containers; do not merge the containers. (DD-3)
   - id: REQ-014
+    version: "1.0.0"
     text: >
       `sandbox` (was layer 3) plus build/test passes are non-SARIF edges (exit-code /
       pass-fail, not located findings) and must not ride `parseSarif`. ISSUE-003's
@@ -168,6 +182,7 @@ requirements:
       (`golangci-json`, `eslint-json`) retire as migration debt (those tools emit SARIF
       natively); the bespoke parsers are removed, not extracted. (DD-2)
   - id: REQ-015
+    version: "1.0.0"
     text: >
       Migration of the one existing `layer: 2` pack must be a single sibling edit:
       bump `backstop-go-pack`'s 14 rules to `engine: semgrep` (mechanical). No silent
@@ -175,6 +190,7 @@ requirements:
       machinery. The pack migration is tied to pillar-1's layer→engine cutover (core's
       reader and the pack repo flip together), not pillar-2. (DD-5)
   - id: REQ-016
+    version: "1.0.0"
     text: >
       Pillar-2 must delete the `.standard.md → standards-compiler → manifestDir` arm,
       have backstop-core dogfood-consume the existing `backstop-go-pack`, drop
@@ -183,12 +199,14 @@ requirements:
       single-source foundation pillar-1 builds on (collapsing locus A's input to a
       single source: packs). (DD-6)
   - id: REQ-017
+    version: "1.0.0"
     text: >
       The BUNDLE-009 contract seam must be locked: this bundle ships engine machinery
       + ast-grep + a trivial proof rule; BUNDLE-009 authors the real
       substantiveness/contract rule packs on top. Neither spec absorbs the other's
       work. (DD-6)
   - id: REQ-018
+    version: "1.0.0"
     text: >
       The engine model must be engine-shape-agnostic, with Layer-0 native toolchain
       as the first-class foundation. It must handle BOTH config-driven linters
@@ -200,6 +218,7 @@ requirements:
       deterministic gates immediately") is a first-class goal of this bundle, NOT a
       deferred frontier. (DD-8, REQ-001)
   - id: REQ-019
+    version: "1.0.0"
     text: >
       Engine provisioning must split by who owns the tool. Layer-0 native toolchain is
       ASSUMED-PRESENT — fail loud if a project lacks its own linters (it is not
@@ -211,6 +230,7 @@ requirements:
       mechanism (another baked-in-tool anomaly removed). Trust surface equals the
       `convert` step's: pinned and verified. (DD-8, DD-2)
   - id: REQ-020
+    version: "1.0.0"
     text: >
       The engine binding must declare input injection via a structured `input_mode`
       enum (`config-file` — primary, the tool runs its own built-in rules tuned by an
@@ -221,6 +241,7 @@ requirements:
       `ToolchainEntry`/`ScopeKind` pattern (which declares how files attach) with the
       analogous declaration for how rules/config attach. (DD-9, DD-1)
   - id: REQ-021
+    version: "1.0.0"
     text: >
       Packs must follow an engine-organized layout convention: a directory per engine
       holds that engine's rules/config, and the layout corresponds to the engine's

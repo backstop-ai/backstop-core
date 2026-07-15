@@ -16,142 +16,177 @@ status:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: "The pack manifest file must be named pack.yml and contain required top-level fields: name, version, language, archetype, description, and content."
     traces: [DD-1, DD-7, DD-8]
 
   - id: REQ-002
+    version: "1.0.0"
     text: "Pack names must follow org/pack-name two-part format, accepting alphanumeric characters and hyphens, normalized to lowercase internally for namespacing and matching, with original casing preserved in display output."
     traces: [DD-50]
 
   - id: REQ-003
+    version: "1.0.0"
     text: "Pack directories must follow a canonical layout: pack.yml (required), go.mod (required), rules/ (required if layer 2 rules exist), fixtures/rules/ (required, one lowercase subdir per rule ID), standards/ (optional), scaffolds/ (required if archetype is code), validators/ (required if layer 3 rules exist). Deviations are rejected by pack check."
     traces: [DD-51, DD-36]
 
   - id: REQ-004
+    version: "1.0.0"
     text: "Every pack must declare exactly one archetype: enforcement (rules only, no code content) or code (ships SDKs/scaffolds AND rules enforcing correct usage). The archetype field is required in the manifest."
     traces: [DD-16]
 
   - id: REQ-005
+    version: "1.0.0"
     text: "Code packs must enforce bidirectional co-occurrence: every scaffold must have at least one enforcement rule, AND every rule must reference at least one scaffold or SDK via pairs_with. A rule without code content pairing in a code pack is a validation error."
     traces: [DD-16, DD-44]
 
   - id: REQ-006
+    version: "1.0.0"
     text: "The content block must declare typed content using the allowed types: rules, scaffolds, sdk, contracts, test_patterns, ast_checks, rubrics. A valid enforcement pack may contain only a ruleset (no scaffolds or SDK required). Enforcement packs must not declare scaffolds or sdk."
     traces: [DD-7, DD-9]
 
   - id: REQ-007
+    version: "1.0.0"
     text: "Every rule must declare a risk_class field with one of four allowed values: security, correctness, style, perf. risk_class appears on ALL rules regardless of layer."
     traces: [DD-6]
 
   - id: REQ-008
+    version: "1.0.0"
     text: "Rules are organized into three enforcement layers: layer 1 (built-in tool rules, highest trust), layer 2 (custom declarative semgrep rules, medium trust), and layer 3 (custom validators, lowest trust). Each rule must declare its layer."
     traces: [DD-13, DD-22]
 
   - id: REQ-009
+    version: "1.0.0"
     text: "Layer 2 rules must declare both a rule: field (pointing to the compiled semgrep YAML file) and a standard: field (filepath to .standard.md or inline string). The rule ID in pack.yml must be identical to the semgrep rule ID in the .yml file."
     traces: [DD-30, DD-31, DD-34]
 
   - id: REQ-010
+    version: "1.0.0"
     text: "Layer 3 rules must declare a category: field with one of three values: presence, structural, or other. Categories presence and structural are auto-accepted with no justification required. Category other requires a mandatory justification: field explaining why layers 1-2 cannot handle the check."
     traces: [DD-14, DD-29]
 
   - id: REQ-011
+    version: "1.0.0"
     text: "Layer 3 validators must declare input_scope (single-file or multi-file) and a validator: field pointing to the validator script. Validators are invoked as validator.sh <fixture-path> with exit 0 = pass, non-zero = fail."
     traces: [DD-15, DD-32]
 
   - id: REQ-012
+    version: "1.0.0"
     text: "Layer 3 validators must run in process isolation: separate process, no network access, no filesystem writes outside pack directory, no environment variable access."
     traces: [DD-26]
 
   - id: REQ-013
+    version: "1.0.0"
     text: "Every claim must declare at least one positive fixture (known-good, must not trigger the rule) and at least one negative fixture (known-bad, must trigger the rule). Fixture paths are relative to the pack root and declared inline on claims in pack.yml."
     traces: [DD-3, DD-25]
 
   - id: REQ-014
+    version: "1.0.0"
     text: "Security-class rules must include at least one bypass_attempt: true negative fixture in addition to standard negative fixtures. Bypass-attempt fixtures test adversarial or accidental circumvention, not just obvious violations."
     traces: [DD-40]
 
   - id: REQ-015
+    version: "1.0.0"
     text: "Fixtures are plain files in engine-native format. Semgrep fixtures must include engine-native annotations (// ruleid: and // ok: comments). Claim-to-fixture mapping is declared exclusively in pack.yml, not in fixture file metadata."
     traces: [DD-25]
 
   - id: REQ-016
+    version: "1.0.0"
     text: "Fixture directories must use lowercase naming matching rule IDs (e.g., fixtures/rules/err-001/), consistent with the rule ID convention of lowercase kebab-case."
     traces: [DD-36, DD-31]
 
   - id: REQ-017
+    version: "1.0.0"
     text: "Rule IDs must use lowercase kebab-case format (e.g., err-001, stripe-001). On load, rule IDs are namespaced with the pack name using slash delimiters: pack-name/rule-id."
     traces: [DD-31, DD-48]
 
   - id: REQ-018
+    version: "1.0.0"
     text: "Pack versioning uses three levels: pack version (semver, whole artifact), ruleset version (all rules as a cohort, defaults to pack version for enforcement packs if omitted), and item version (scaffolds and SDKs individually). Individual rules are unversioned."
     traces: [DD-27, DD-19, DD-37]
 
   - id: REQ-019
+    version: "1.0.0"
     text: "Scaffolds must declare a tier field with value complete or skeleton. Complete scaffolds have all functions implemented and tests passing. Skeleton scaffolds have at least one stub/TODO; tests exist structurally but are not executed."
     traces: [DD-17]
 
   - id: REQ-020
+    version: "1.0.0"
     text: "Every scaffold must declare test_command specifying how to run its tests. For complete tier, pack test executes this command. For skeleton tier, the command is declared but not executed during validation."
     traces: [DD-35]
 
   - id: REQ-021
+    version: "1.0.0"
     text: "Scaffolds must declare use_when (scenario list), assumes (preconditions), and pairs_with (related items as a single object with optional keys rules, scaffolds, sdk). sample_config values must be flat key-value strings matching environment variable naming conventions."
     traces: [DD-20, DD-17]
 
   - id: REQ-022
+    version: "1.0.0"
     text: "The sdk content type is a single optional entry with fields: module (canonical reference), version, and provides (list of public surface the SDK exposes). A pack ships at most one SDK."
     traces: [DD-11]
 
   - id: REQ-023
+    version: "1.0.0"
     text: "tool_config entries declare language-native tool configuration requirements. Each entry specifies tool, file (consumer-side target path), and settings. Entries may stand alone with their own rule ID as layer 1 enforcement (requiring risk_class and claims with fixtures) or support custom rules via required_by."
     traces: [DD-24, DD-33, DD-38]
 
   - id: REQ-024
+    version: "1.0.0"
     text: "Every tool_config entry must be traceable to at least one rule in the pack. No orphan tool config is allowed."
     traces: [DD-24]
 
   - id: REQ-025
+    version: "1.0.0"
     text: ".standard.md files are optional prose documentation, not required by pack check. The standard: field in the manifest is optional and accepts a filepath, inline string, or may be omitted. Semgrep rule YAML is the source of truth for rule patterns."
     traces: [DD-45, DD-34]
 
   - id: REQ-026
+    version: "1.0.0"
     text: "Pack directories must include a go.mod (or language equivalent) for fixture dependencies. The CLI manages this file: pack new creates it, pack test runs go mod tidy automatically before fixture execution if deps are stale."
     traces: [DD-46]
 
   - id: REQ-027
+    version: "1.0.0"
     text: "Claim IDs must be unique within the pack. Recommended format is rule-id-clm-NNN (e.g., err-001-clm-001) for composition safety."
     traces: [DD-39]
 
   - id: REQ-028
+    version: "1.0.0"
     text: "pack check runs instant structural verification: manifest parsing, field validation, coherence, archetype constraints, layer enforcement, risk class requirements. pack test runs fixture execution: semgrep --test, tool_config tool execution, layer 3 validators, scaffold rendering and test execution."
     traces: [DD-49]
 
   - id: REQ-029
+    version: "1.0.0"
     text: "pack try <project-path> runs the pack's rules against a real codebase for author exploration — no gate, no other packs, just this pack against that code."
     traces: [DD-52]
 
   - id: REQ-030
+    version: "1.0.0"
     text: "Each pack targets exactly one language. Cross-language capabilities are expressed as a family of single-language packs coordinated by convention (shared publisher, shared name prefix, lockstep version cadence)."
     traces: [DD-8]
 
   - id: REQ-031
+    version: "1.0.0"
     text: "The manifest must support versioned coordinate references from specs and plans using the format pack-name@pack-version:item-name@item-version."
     traces: [DD-21]
 
   - id: REQ-032
+    version: "1.0.0"
     text: "The embedded Go standards pack (SPEC-012) must be loaded through the same path as third-party packs. No special case."
     traces: [DD-4]
 
   - id: REQ-033
+    version: "1.0.0"
     text: "Scaffolds are copy-once templates rendered to the consumer's repo. Once rendered, the consumer owns the output and it is not updated by pack upgrades. SDKs are native-language modules tracked in the manifest but not distributed by backstop."
     traces: [DD-10]
 
   - id: REQ-034
+    version: "1.0.0"
     text: "A pack's rules may reference its own SDK surface via pairs_with. Rule + SDK + scaffold move as a single versioned unit. Rules can assume the SDK's provides surface exists."
     traces: [DD-12]
 
   - id: REQ-035
+    version: "1.0.0"
     text: "All pack archetypes require mechanical proof via fixtures at their tier's expected completeness level. No archetype is exempt from fixture requirements."
     traces: [DD-18]
 

@@ -85,7 +85,7 @@ requirements:
       their own dedicated steps and are not in this channel. The coverage-records channel
       MUST be a DISTINCT typed output (`[]check.CoverageRecord`), NEVER coverage tunneled
       through SARIF result `properties` or any other SARIF field.
-    supports: collapse-legacy-codecheck-into-packs:REQ-014
+    supports: collapse-legacy-codecheck-into-packs:REQ-014@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -102,7 +102,7 @@ requirements:
       record for measured-and-passing files (not only shortfalls): a coverage engine that
       emitted records ONLY for below-threshold files would be a SARIF-findings stream in
       disguise and is PROHIBITED.
-    supports: collapse-legacy-codecheck-into-packs:REQ-014
+    supports: collapse-legacy-codecheck-into-packs:REQ-014@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -117,7 +117,7 @@ requirements:
       producer emits and to which SPEC-041's DRAFT consumer `CoverageRecord` (a paper
       declaration, not landed on `main`) is reconciled (`Pct` → `Covered`/`Total`, plus
       `Metric`).
-    supports: collapse-legacy-codecheck-into-packs:REQ-015
+    supports: collapse-legacy-codecheck-into-packs:REQ-015@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -128,7 +128,7 @@ requirements:
       so the consumer's threshold check can skip it as N/A rather than red it. It is
       PROHIBITED for the producer channel to coerce a `Total == 0` file into a 0%
       coverage value.
-    supports: collapse-legacy-codecheck-into-packs:REQ-015
+    supports: collapse-legacy-codecheck-into-packs:REQ-015@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -140,7 +140,7 @@ requirements:
       only surfaces it. A record with an EMPTY `Metric` from an engine that produced
       measured records MUST be a fail-loud parse/produce error (an unlabeled measurement is
       a silent-comparison hazard), never a silently-accepted blank.
-    supports: collapse-legacy-codecheck-into-packs:REQ-015
+    supports: collapse-legacy-codecheck-into-packs:REQ-015@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -154,7 +154,7 @@ requirements:
       to ship TWO divergent `CoverageRecord` shapes (a producer one and a consumer one)
       that must be lossily translated between dispatch and the gate step. The reconciliation
       is flagged for producer↔consumer coherence review, not silently forked.
-    supports: collapse-legacy-codecheck-into-packs:REQ-015
+    supports: collapse-legacy-codecheck-into-packs:REQ-015@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -169,7 +169,7 @@ requirements:
       gate-type, baking no `go`/`-coverprofile`/Go-profile knowledge into the binary). The
       record SHAPE is language-agnostic so a future `typescript-toolchain` coverage engine
       (istanbul/nyc) emits the SAME records.
-    supports: collapse-legacy-codecheck-into-packs:REQ-016
+    supports: collapse-legacy-codecheck-into-packs:REQ-016@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -183,7 +183,7 @@ requirements:
       with testdata + a stubbed convert returning canned records, or with a parallel
       raw-exec path that bypasses the real convert script — the producer must be exercised
       over the real installed-pack convert, per the pack-provisioning integration gap.
-    supports: collapse-legacy-codecheck-into-packs:REQ-016
+    supports: collapse-legacy-codecheck-into-packs:REQ-016@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

@@ -61,7 +61,7 @@ requirements:
       baked language-specific or tool-specific branch. A dimension that is both
       declared AND has its capability present and working is NOT one of the three
       fail-loud classes and proceeds to its normal traceability step unchanged.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-002
     text: >
@@ -72,7 +72,7 @@ requirements:
       the gate halts and returns exit code 2 (the vacuous-green enemy). It MUST NOT
       return exit 0 and MUST NOT be downgraded to a warning. The blocking applies
       regardless of the project's language.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
     text: >
@@ -102,7 +102,7 @@ requirements:
       traceability dimension ("substantiveness needs a TypeScript pack you haven't
       pulled — declare or waive"). This derivation reads `cfg.Language` + baked-analyzer
       presence ONLY; it MUST NOT introduce a pack or engine (REQ-008).
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
     text: >
@@ -112,7 +112,7 @@ requirements:
       ConfigErr = true (exit 2), exactly like class 1. It MUST NOT be downgraded to a
       class-2 warn-and-pass; once a project has declared a dimension, a missing
       capability for it is a defect, not un-adopted capability.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-005
     text: >
@@ -130,7 +130,7 @@ requirements:
       cannot vanish from the summary surface a reviewer reads on a green run (a warning
       visible only as a per-step `formatStatus` marker but absent from the summary
       counts is non-compliant).
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-006
     text: >
@@ -143,7 +143,7 @@ requirements:
       carry EXPECTED-VS-GOT detail (the declared command/format and the observed
       failure). No traceability fail-loud path may surface a bare exit code or an
       unannotated "failed" with no cause and no fix.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-007
     text: >
@@ -155,7 +155,7 @@ requirements:
       class-3 DECLARED-INTENT-UNMET failure (those continue to block at exit 2), because
       a waive is an opt-out of un-adopted capability, never a license to hide a defect
       or a broken promise.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-008
     text: >
@@ -166,7 +166,7 @@ requirements:
       new engine (grep / ast-grep) and no pack authoring is in scope — this seed ships
       entirely on the existing binary. Their deletion and pack re-implementation are
       explicitly deferred to BUNDLE-009 Seeds 3 and 4.
-    supports: stack-aware-traceability:REQ-001
+    supports: stack-aware-traceability:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

@@ -16,16 +16,19 @@ status:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       pack check must run phases 1 (structural), 2 (coherence), 4 (archetype),
       5 (layer), and 6 (risk_class) — manifest-only checks that do not require
       external tool execution. [DD-1, DD-12]
   - id: REQ-002
+    version: "1.0.0"
     text: >
       pack test must run all six phases (1-6) including phase 3 (fixture
       execution), which invokes external tools such as semgrep and language
       toolchains. [DD-1, DD-3, DD-12]
   - id: REQ-003
+    version: "1.0.0"
     text: >
       Phase 1 structural validation must verify: manifest parses as valid YAML,
       all required fields present (name, version, language, archetype, content),
@@ -36,51 +39,61 @@ requirements:
       field pointing to an existing file, all content type declarations are
       valid, and all referenced file paths exist on disk. [DD-1]
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Phase 1 must exclude tool_config.file from file-existence checks because
       it is a consumer-side target path, not a pack-internal file. [DD-1]
   - id: REQ-005
+    version: "1.0.0"
     text: >
       Phase 1 must verify that risk_class is present and a valid enum (security,
       correctness, style, perf) on every rule, including standalone tool_config
       entries that have their own id. A missing risk_class is a structural
       error. [DD-4, DD-10]
   - id: REQ-006
+    version: "1.0.0"
     text: >
       Phase 2 coherence must verify: every rule has at least one claim, every
       claim has both positive and negative fixtures (lists, at least one of each),
       every fixture file exists and is non-empty, and claim IDs are unique within
       the pack. [DD-2, DD-16]
   - id: REQ-007
+    version: "1.0.0"
     text: >
       Phase 2 must enforce rule ID uniqueness spanning both
       content.ruleset.rules and tool_config entries that have their own id.
       A duplicate ID across these two sources is a hard error. [DD-14]
   - id: REQ-008
+    version: "1.0.0"
     text: >
       Phase 2 must verify that tool_config entries with their own rule ID also
       have claims and fixtures proving the tool catches the intended
       violation. [DD-14]
   - id: REQ-009
+    version: "1.0.0"
     text: >
       Phase 2 must check that pairs_with.rules entries in scaffold declarations
       resolve to actual rule IDs in the pack. Dangling references are a coherence
       warning, not a hard error. [DD-23]
   - id: REQ-010
+    version: "1.0.0"
     text: >
       Phase 2 must emit a warning (not hard error) for orphan fixture files in
       the fixture directory that are not referenced by any claim. [DD-2]
   - id: REQ-011
+    version: "1.0.0"
     text: >
       Phase 3 fixture execution for layer 1-2 semgrep rules must run semgrep
       --test requiring 100% pass rate: every positive fixture must NOT trigger
       the rule, every negative fixture MUST trigger the rule. [DD-3, DD-15,
       DD-16]
   - id: REQ-012
+    version: "1.0.0"
     text: >
       Phase 3 must verify that the pack rule ID exactly matches the semgrep rule
       ID in the referenced rule file. Mismatch is a hard error. [DD-18]
   - id: REQ-013
+    version: "1.0.0"
     text: >
       Phase 3 fixture execution for tool_config-dependent rules must create a
       temporary module environment (copying the pack's go.mod), copy the fixture
@@ -88,6 +101,7 @@ requirements:
       pass clean, every negative fixture must trigger the expected
       diagnostic. [DD-15, DD-21]
   - id: REQ-014
+    version: "1.0.0"
     text: >
       Phase 3 must run go mod tidy for Go packs in the pack directory before
       any fixture execution to ensure dependencies are resolved. Language-specific
@@ -95,6 +109,7 @@ requirements:
       languages are added to the supported set. Failure to resolve deps is a
       Phase 3 pre-check error. [DD-21]
   - id: REQ-015
+    version: "1.0.0"
     text: >
       Phase 3 fixture execution for layer 3 validators must invoke the validator
       as validator.sh <fixture-path>. For single-file input_scope the path is a
@@ -102,55 +117,66 @@ requirements:
       non-zero = fail. Positive fixtures must exit 0, every negative fixture must
       exit non-zero. [DD-6, DD-15, DD-19]
   - id: REQ-016
+    version: "1.0.0"
     text: >
       Phase 3 must validate complete scaffolds by rendering with sample_config
       from the manifest, then running the scaffold's test_command. Tests must
       pass. [DD-8, DD-9]
   - id: REQ-017
+    version: "1.0.0"
     text: >
       Phase 3 must validate skeleton scaffolds with structural checks only:
       scaffold directory exists, expected files present, test function names
       present. Tests must NOT be run. test_command is only used for complete
       scaffolds. [DD-8, DD-20]
   - id: REQ-018
+    version: "1.0.0"
     text: >
       Phase 3 must verify SDK references by checking that the provides surface
       is declared at the manifest level. SDK test suite execution is not in
       scope. [DD-9]
   - id: REQ-019
+    version: "1.0.0"
     text: >
       Phase 4 archetype enforcement must verify that code packs (declaring sdk
       or scaffolds) also declare rules, and every scaffold has at least one
       enforcement rule. A code pack without enforcement rules is a hard
       error. [DD-7]
   - id: REQ-020
+    version: "1.0.0"
     text: >
       Phase 4 must enforce bidirectional co-occurrence: in a code pack, every
       rule must reference at least one scaffold or SDK via pairs_with. A rule
       without code content pairing is a hard error. [DD-7]
   - id: REQ-021
+    version: "1.0.0"
     text: >
       Phase 4 must verify that enforcement packs do not declare sdk or scaffolds.
       An enforcement pack with code content is a hard error. [DD-7]
   - id: REQ-022
+    version: "1.0.0"
     text: >
       Phase 5 layer enforcement must verify every rule declares its layer (1, 2,
       or 3) and that risk_class is a valid enum on all rules. [DD-4, DD-5]
   - id: REQ-023
+    version: "1.0.0"
     text: >
       Phase 5 must check that category (presence, structural, other) is present
       ONLY on layer 3 rules. category must NOT appear on layer 1 or layer 2
       rules. [DD-5, DD-17]
   - id: REQ-024
+    version: "1.0.0"
     text: >
       Phase 5 must auto-accept layer 3 rules with category presence or
       structural (no justification required). Category other requires a mandatory
       non-empty justification field. [DD-5, DD-17]
   - id: REQ-025
+    version: "1.0.0"
     text: >
       Phase 5 must verify layer 3 rules declare input_scope (single-file or
       multi-file) and a validator field pointing to an executable file. [DD-6]
   - id: REQ-026
+    version: "1.0.0"
     text: >
       Phase 6 risk class enforcement must verify every security-class rule has
       at least one negative fixture with bypass_attempt true per claim. The
@@ -158,15 +184,18 @@ requirements:
       path and optional bypass_attempt boolean; pack test normalizes before
       checking. [DD-10, DD-22]
   - id: REQ-027
+    version: "1.0.0"
     text: >
       Phase 6 must enforce independent fixture coverage per claim for
       security-class rules — no shared fixtures across security claims. [DD-10]
   - id: REQ-028
+    version: "1.0.0"
     text: >
       The validation pipeline must run phases in strict dependency order
       (structural > coherence > fixtures > archetype > layer > risk_class).
       If phase N fails, phases N+1 through 6 must be skipped. [DD-12]
   - id: REQ-029
+    version: "1.0.0"
     text: >
       Validation must be idempotent and side-effect-free. Running pack check or
       pack test twice on the same pack must produce the same pass/fail result,
@@ -175,6 +204,7 @@ requirements:
       persisted, no network calls. The pack directory is read-only
       input. [DD-13]
   - id: REQ-030
+    version: "1.0.0"
     text: >
       Validation output must be JSON by default per ADR-0001. Every error must
       include: the failing phase, the specific check name, the offending item
@@ -182,10 +212,12 @@ requirements:
       agent can act on, and the manifest_path where the problem
       originates. [DD-11]
   - id: REQ-031
+    version: "1.0.0"
     text: >
       Validation must support a --format=text flag for human-readable output as
       a secondary format. The primary consumer is an agent. [DD-11]
   - id: REQ-032
+    version: "1.0.0"
     text: >
       When a negative fixture fails to trigger its rule in Phase 3, the error
       must include a fix hint with engine-limitation guidance: explaining that
@@ -193,11 +225,13 @@ requirements:
       should be removed and documented rather than shipped as an untestable
       fixture. [DD-16]
   - id: REQ-033
+    version: "1.0.0"
     text: >
       Errors must be reported in pipeline phase order, then by manifest order
       within a phase, to enable the agent to work through them
       top-down. [DD-11, DD-12]
   - id: REQ-034
+    version: "1.0.0"
     text: >
       Phase 3 must execute layer 3 validators in a restricted process
       environment that prevents filesystem writes outside the pack directory,

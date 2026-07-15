@@ -72,7 +72,7 @@ requirements:
       files (or `projectRoot` under a nil / GateScopeModeAll whole-repo scope). The
       go-toolchain engines all declare `ProjectTarget: "./..."` and are therefore
       UNAFFECTED — only empty-target project-wide findings engines change behavior.
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
   - id: REQ-002
     text: >
       `runFindingsEngine` MUST honor the binding's `StdoutArtifact` field exactly as
@@ -90,7 +90,7 @@ requirements:
       human summary with no `<testcase>`, so a failing suite reads as zero findings —
       vacuous green). `StdoutArtifact` is pack DATA (the filename); reading it
       introduces NO tool/language literal into the dispatch.
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
   - id: REQ-003
     text: >
       There MUST be a REAL end-to-end gate test over an INSTALLED-pack fixture that
@@ -110,7 +110,7 @@ requirements:
       seeded finding), the gate MUST go GREEN. This single test exercises BOTH fixes on
       the real dispatch path and MUST FAIL against the PRE-FIX dispatch (it is the test
       that would have caught both bugs) — it MUST be written failing-first (TDD).
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
   - id: REQ-004
     text: >
       Two pieces of pre-existing debt that enter diff scope when `pack_gate.go` is
@@ -128,7 +128,7 @@ requirements:
       contract for SPEC-040. Any edit to the SPEC-040 artifact MUST be routed through
       the spec-author agent, NOT hand-edited. It is PROHIBITED to make
       `contract_signature` green by adding the phantom symbol to a baseline/waiver.
-    supports: language-neutral-consumer-ts-toolchain:REQ-009
+    supports: language-neutral-consumer-ts-toolchain:REQ-009@1.0.0
     follows: STD-GO-001:GO-011
 
 claims:

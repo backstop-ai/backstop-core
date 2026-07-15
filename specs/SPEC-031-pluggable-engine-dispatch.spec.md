@@ -43,7 +43,7 @@ requirements:
       declared engine and runs each engine once. Adding a new engine must be a
       declaration (an EngineBinding record plus, at most, a registered convert
       script), never a surgical edit to the gate's executor.
-    supports: pluggable-pack-engines:REQ-001
+    supports: pluggable-pack-engines:REQ-001@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-002
@@ -55,7 +55,7 @@ requirements:
       silent default. A rule must not be required to carry both `layer` and
       `engine`; `layer` is removed from the Rule struct and its YAML key is no
       longer read.
-    supports: pluggable-pack-engines:REQ-002
+    supports: pluggable-pack-engines:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-003
@@ -81,7 +81,7 @@ requirements:
       returning a ValidationError naming the offending field and engine when they do
       not. The layer-keyed `validateLayer` and `validateLayerFields` are replaced by
       engine-keyed equivalents that preserve every existing per-layer check.
-    supports: pluggable-pack-engines:REQ-003
+    supports: pluggable-pack-engines:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-004
@@ -91,7 +91,7 @@ requirements:
       reclassify a rule onto a different engine. The author asserts the engine;
       backstop enforces field-fit against that assertion and never questions or
       overrides it.
-    supports: pluggable-pack-engines:REQ-004
+    supports: pluggable-pack-engines:REQ-004@1.0.0
 
   - id: REQ-005
     text: >
@@ -101,7 +101,7 @@ requirements:
       ISSUE-003's `formatParsers` registry and `lookupParser` fail-loud contract.
       Adding eslint/ruff/clippy/clj-kondo must be expressible as an EngineBinding
       declaration with no new Go in the dispatch path.
-    supports: pluggable-pack-engines:REQ-005
+    supports: pluggable-pack-engines:REQ-005@1.0.0
 
   - id: REQ-006
     text: >
@@ -111,7 +111,7 @@ requirements:
       `{command, convert}`. The gate always parses an engine's normalized output
       via `parseSarif`, which fail-louds on non-SARIF input. Raw per-tool JSON must
       not be parsed in the dispatch path.
-    supports: pluggable-pack-engines:REQ-006
+    supports: pluggable-pack-engines:REQ-006@1.0.0
 
   - id: REQ-007
     text: >
@@ -124,7 +124,7 @@ requirements:
       not `SandboxedRun`'s `CombinedOutput()`, so a converter's stderr cannot
       interleave into the SARIF bytes. When `convert` is empty, engine stdout goes
       directly to `parseSarif` with no pipe.
-    supports: pluggable-pack-engines:REQ-007
+    supports: pluggable-pack-engines:REQ-007@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-008
@@ -149,7 +149,7 @@ requirements:
       exercise the transform). Without this, "ast-grep wired end-to-end" (REQ-010)
       would be satisfiable by canned output rather than by a working JSON→SARIF
       transform.
-    supports: pluggable-pack-engines:REQ-008
+    supports: pluggable-pack-engines:REQ-008@1.0.0
 
   - id: REQ-009
     text: >
@@ -168,7 +168,7 @@ requirements:
       the non-SARIF sandbox-validator path (REQ-014), whose message body is allowed
       to include stderr; only the convert capture on the SARIF path switches to clean
       stdout.
-    supports: pluggable-pack-engines:REQ-009
+    supports: pluggable-pack-engines:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-010
@@ -179,7 +179,7 @@ requirements:
       pack must produce a normalized violation through the full path: declaration →
       group-by-engine → gather rule-dir → run ast-grep → convert → parseSarif →
       namespaced violation in gate output.
-    supports: pluggable-pack-engines:REQ-010
+    supports: pluggable-pack-engines:REQ-010@1.0.0
 
   - id: REQ-011
     text: >
@@ -189,7 +189,7 @@ requirements:
       source. Pack rules of different engines installed together must each be
       dispatched to their own engine; ast-grep rules must not be fed into a semgrep
       invocation, and semgrep rules must not be fed into ast-grep.
-    supports: pluggable-pack-engines:REQ-011
+    supports: pluggable-pack-engines:REQ-011@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-013
@@ -210,7 +210,7 @@ requirements:
       this requirement asserts only the shared leaf-package placement, the absence
       of an import cycle, the EngineBinding field shape, and the do-not-merge
       boundary between the two containers.
-    supports: pluggable-pack-engines:REQ-013
+    supports: pluggable-pack-engines:REQ-013@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-014
@@ -238,7 +238,7 @@ requirements:
       from that native path is owned by SPEC-030, not this spec. This requirement is
       therefore scoped to asserting their absence from pack engine dispatch, not to
       removing them from pkg/check.
-    supports: pluggable-pack-engines:REQ-014
+    supports: pluggable-pack-engines:REQ-014@1.0.0
 
   - id: REQ-015
     text: >
@@ -248,7 +248,7 @@ requirements:
       no alias machinery. Core's reader (this spec) and the pack repo flip to
       `engine` together; a `layer: 2`-only rule reaching the migrated reader is a
       blocking config error per REQ-002.
-    supports: pluggable-pack-engines:REQ-015
+    supports: pluggable-pack-engines:REQ-015@1.0.0
 
   - id: REQ-018
     text: >
@@ -259,7 +259,7 @@ requirements:
       EngineBinding with a rule-fed `input_mode` (`rule-flags`/`rule-dir`) supplies
       pack rule files. Adding a native config-driven linter must be an EngineBinding
       declaration with no new Go in the dispatch path.
-    supports: pluggable-pack-engines:REQ-018
+    supports: pluggable-pack-engines:REQ-018@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-019
@@ -272,7 +272,7 @@ requirements:
       `backstop.lock` / `VerifyLock` path — data-driven, with no per-engine Go.
       `EnsureSemgrep`'s bespoke install logic is retired into this declared
       mechanism.
-    supports: pluggable-pack-engines:REQ-019
+    supports: pluggable-pack-engines:REQ-019@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-020
@@ -286,7 +286,7 @@ requirements:
       executable is the logic). An unrecognized `input_mode` value is a blocking
       config error. Gathering and shaping inputs from the declared mode must be
       data-driven with no per-engine Go.
-    supports: pluggable-pack-engines:REQ-020
+    supports: pluggable-pack-engines:REQ-020@1.0.0
     follows: STD-GO-001:GO-010
 
   - id: REQ-021
@@ -298,7 +298,7 @@ requirements:
       an engine's inputs relative to the pack directory using the rule's declared
       paths; a rule whose declared input path is missing on disk is a blocking
       broken-pack error naming the pack and the missing path.
-    supports: pluggable-pack-engines:REQ-021
+    supports: pluggable-pack-engines:REQ-021@1.0.0
     follows: STD-GO-001:GO-010
 
 claims:

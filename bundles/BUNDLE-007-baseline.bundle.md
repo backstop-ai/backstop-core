@@ -68,6 +68,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       CI must run backstop gate after every merge to main, generate a
       portable JSON baseline artifact containing the full violation set,
@@ -75,6 +76,7 @@ requirements:
       includes git SHA, timestamp, backstop version, and per-step violation
       counts with rule IDs.
   - id: REQ-002
+    version: "1.0.0"
     text: >
       backstop gate must cache the baseline locally at
       .backstop/baseline.json (gitignored) with TTL-based freshness.
@@ -82,6 +84,7 @@ requirements:
       access. If expired, check GitHub for a newer artifact. If
       offline, use stale cache with a warning.
   - id: REQ-003
+    version: "1.0.0"
     text: >
       Gate step 7 (baseline comparison) must compute a differential
       between the current scoped violation set and the cached full-project
@@ -93,6 +96,7 @@ requirements:
       files they did not evaluate. The gate reports the differential, not
       absolute counts.
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Baselines must ratchet for developer changes: each post-merge
       baseline can only have equal or fewer violations than the previous
@@ -100,18 +104,21 @@ requirements:
       violations in changed code, the PR gate fails. If a PR fixes
       violations, the post-merge baseline reflects the improvement.
   - id: REQ-005
+    version: "1.0.0"
     text: >
       backstop baseline pull must fetch the latest baseline artifact
       from GitHub Actions, cache it locally at .backstop/baseline.json,
       and bypass TTL. This command is for explicit use at session start
       or after a known merge.
   - id: REQ-006
+    version: "1.0.0"
     text: >
       When no baseline exists (first run, no CI runs yet), gate step 7
       must skip baseline comparison and emit a warning indicating that
       CI needs to run first. The gate does not treat all violations as
       new and does not auto-generate a local baseline.
   - id: REQ-007
+    version: "1.0.0"
     text: >
       The baseline artifact must be a JSON file containing the full raw
       violation set from the gate's evaluating steps, git SHA of the merge commit,
@@ -120,6 +127,7 @@ requirements:
       region). The schema must be versioned and portable so upload/publish
       remains separable from baseline generation.
   - id: REQ-008
+    version: "1.0.0"
     text: >
       When a pack upgrade or other explicit rule-set change introduces new
       rules, the post-merge baseline may capture existing-code violations
@@ -127,18 +135,21 @@ requirements:
       existing violations enter the baseline and are remediated over time
       via the remediation bundle (BUNDLE-004 DD-42).
   - id: REQ-009
+    version: "1.0.0"
     text: >
       Baseline implementation must supersede SPEC-010 REQ-005. The v1
       cached baseline file is .backstop/baseline.json, not
       .backstop/baseline.yml, and violation matching uses stable identity
       fields rather than rule+file counts.
   - id: REQ-010
+    version: "1.0.0"
     text: >
       Gate must support baseline comparison with access to prior gate step
       results. The implementation may use an accumulated-results-aware step,
       a gate-run context, or a post-processing phase, but step 7 must compare
       against violations produced by steps 1-6 without rerunning them.
   - id: REQ-011
+    version: "1.0.0"
     text: >
       Gate violation output must add stable identity data required by
       baselines without breaking the existing gate/v1 contract. At minimum,
@@ -147,12 +158,14 @@ requirements:
       source-region hash. Existing consumers must continue to work with the
       additive fields.
   - id: REQ-012
+    version: "1.0.0"
     text: >
       CI baseline generation must run the full gate scope, equivalent to
       backstop gate --all. Local default diff mode and explicit --file mode
       compare only the current scoped violations against the full cached
       baseline.
   - id: REQ-013
+    version: "1.0.0"
     text: >
       DIR-003/BUNDLE-007 v1 baseline comparison must ignore waivers only
       because the waiver subsystem has not been built yet. This v1 behavior
@@ -161,6 +174,7 @@ requirements:
       baseline calculation semantics rather than being treated as permanent
       regressions.
   - id: REQ-014
+    version: "1.0.0"
     text: >
       GitHub Actions baseline retrieval must define and gracefully handle repo
       resolution, missing origin remotes, missing authentication, missing
@@ -170,6 +184,7 @@ requirements:
       no fresh or stale cached baseline is available may the gate skip
       comparison with a warning rather than treating all violations as new.
   - id: REQ-015
+    version: "1.0.0"
     text: >
       Pack or rule-set upgrades may explicitly seed new existing-code
       violations into the next full baseline. This is the only v1 exception

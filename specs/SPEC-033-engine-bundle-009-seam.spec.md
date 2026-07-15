@@ -36,7 +36,7 @@ requirements:
       normalizes to; (5) the structured `input_mode`/`input_flag` rule-injection
       seam and engine-organized pack layout convention. No additional artifact may
       be claimed as crossing this seam.
-    supports: pluggable-pack-engines:REQ-017
+    supports: pluggable-pack-engines:REQ-017@1.0.0
     follows: prompts-are-vibes-recipe
   - id: REQ-002
     text: >
@@ -45,7 +45,7 @@ requirements:
       from declaration through to normalized violations. The proof rule is NOT a
       real substantiveness or contract check and must not be presented, reused, or
       extended as one. It is a wiring witness, not domain logic.
-    supports: pluggable-pack-engines:REQ-017
+    supports: pluggable-pack-engines:REQ-017@1.0.0
   - id: REQ-003
     text: >
       The seam must explicitly enumerate what BUNDLE-010 does NOT deliver, and
@@ -58,7 +58,7 @@ requirements:
       BUNDLE-010 ships none of these.
       A finding that this spec or any sibling BUNDLE-010 spec contains a real
       substantiveness/contract rule is a seam violation.
-    supports: pluggable-pack-engines:REQ-017
+    supports: pluggable-pack-engines:REQ-017@1.0.0
   - id: REQ-004
     text: >
       The ast-grep→SARIF `convert` executable must be authored exactly once, by
@@ -67,7 +67,7 @@ requirements:
       author a second ast-grep converter. The converter is the one ast-grep gap
       BUNDLE-010 owns (DD-7); all other engines reach SARIF via native output or
       existing third-party converters.
-    supports: pluggable-pack-engines:REQ-017
+    supports: pluggable-pack-engines:REQ-017@1.0.0
   - id: REQ-005
     text: >
       The seam must declare directional ownership and the dependency edge: this
@@ -75,7 +75,7 @@ requirements:
       consumer. BUNDLE-009's query-pack layer is blocked on ast-grep being wired
       here; BUNDLE-010 carries no reciprocal dependency on BUNDLE-009 and must not
       block on it. Neither bundle's specs may absorb the other's requirements.
-    supports: pluggable-pack-engines:REQ-017
+    supports: pluggable-pack-engines:REQ-017@1.0.0
 
 claims:
   # REQ-001 — the delivered hand-off artifact set (every "Delivered" ledger row)

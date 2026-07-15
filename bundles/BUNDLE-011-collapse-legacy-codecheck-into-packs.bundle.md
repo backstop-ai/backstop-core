@@ -97,6 +97,7 @@ solution:
 
 requirements:
   - id: REQ-001
+    version: "1.0.0"
     text: >
       Gate Step 2 ("Code check") must STOP calling `pkg/check.Run`/`RunWith` as a
       baked enforcement engine. Lint/build/test must instead run as declared
@@ -104,6 +105,7 @@ requirements:
       (cmd/backstop/pack_gate.go), the same declared-engine substrate the rest of the
       gate uses. The replacement is WHOLESALE, not a surgical edit. (DD-1)
   - id: REQ-002
+    version: "1.0.0"
     text: >
       The legacy `pkg/check` Step-2 path (`realCodeChecker` → `pkg/check.Run`, the
       `CheckType` enum, `languageExtensions`, and `routeFileDefaults` in
@@ -111,12 +113,14 @@ requirements:
       in the SAME PR as the cutover. There is NO standing dual-run window and no
       "parity proven over time" exit criterion. (DD-1)
   - id: REQ-003
+    version: "1.0.0"
     text: >
       The deletion in REQ-002 must be gated on a ONE-SHOT golden-equivalence
       assertion: capture the legacy engine's violation set on the backstop repo as a
       golden fixture, assert the pack-engine path reproduces it, then delete. The
       fixture IS the equivalence evidence; no parity-gate apparatus is built. (DD-1)
   - id: REQ-004
+    version: "1.0.0"
     text: >
       Each language's native lint/build/test must be delivered as ONE
       `<lang>-toolchain` pack (e.g. `go-toolchain`, `typescript-toolchain`), per the
@@ -124,11 +128,13 @@ requirements:
       engine passes. Backstop must contain no opinion about which tools run, on which
       files, for which language; every such opinion lives in a toolchain pack. (DD-2)
   - id: REQ-005
+    version: "1.0.0"
     text: >
       The no-toolchain-pack baseline must be WARN-ONLY (no block, no forced opt-out) —
       enforcement is genuinely opt-in because backstop has legitimate non-enforcement
       postures (artifact-chain-only, recipe-packs-only). (DD-2)
   - id: REQ-006
+    version: "1.0.0"
     text: >
       The "no enforcement ran" state (0 toolchain packs) must be a LOUDLY and
       DISTINCTLY surfaced report state (e.g. "enforcement: not configured (0 toolchain
@@ -136,6 +142,7 @@ requirements:
       invisible in CI, the loudness lives on the REPORT surface. This is the
       anti-vacuous-green guardrail. (DD-2)
   - id: REQ-007
+    version: "1.0.0"
     text: >
       The dead non-Go semgrep catch-all in `routeFileDefaults` (`.go/.ts/.tsx` →
       all passes, everything else → semgrep) must be DELETED. Removal is
@@ -145,17 +152,20 @@ requirements:
       semgrep-on-arbitrary-files is an OPT-IN declared pack rule, never a baked
       default. (DD-3)
   - id: REQ-008
+    version: "1.0.0"
     text: >
       This bundle must ABSORB SPEC-034's unfinished deletion scope (its bridge
       `loadBridgedToolchainPacks` landed; its deletion of the bespoke Go path did not)
       and GENERALIZE the cutover beyond Go to any `<lang>-toolchain` pack. SPEC-034
       must be marked SUPERSEDED/absorbed. (DD-4)
   - id: REQ-009
+    version: "1.0.0"
     text: >
       This bundle must NOT regress the landed BUNDLE-009 traceability packs
       (substantiveness, contracts). Traceability and code-check are separate baked
       components; the seam is coordinate-don't-subsume, not a merge. (DD-4)
   - id: REQ-010
+    version: "1.0.0"
     text: >
       The dead standards-manifest reader in pkg/check/manifest.go
       (`compiledManifestFile`, `isCompiled`, `deriveRules`, `hasSemgrepSignal`,
@@ -165,24 +175,28 @@ requirements:
       rewrites. The adjacent `.standard.md` scaffolder is OUT of scope (ISSUE-030).
       (DD-5)
   - id: REQ-011
+    version: "1.0.0"
     text: >
       The test + coverage stack must migrate together as a unit: no baked shared `go
       test` runner survives, and `pkg/gate/step_coverage.go` (baked coverage, KEPT by
       SPEC-038 REQ-009) must be ERADICATED here, with coverage re-implemented
       language-agnostic over the toolchain test runner. (DD-6)
   - id: REQ-012
+    version: "1.0.0"
     text: >
       The build-pass project-wide-scope exemption (currently the baked
       `cv.Pass == check.CheckTypeBuild` enum check at gate.go:1173) must be
       re-expressed as a DECLARED gate-type/engine property, not a baked enum check.
       (DD-6)
   - id: REQ-013
+    version: "1.0.0"
     text: >
       The spec must produce a CheckType-consumer catalog: every site keying on
       lint/build/test/findings identity gets a documented post-cutover source. This is
       the "don't drop a gate step on the floor" guard against a wholesale (REQ-001)
       cutover silently stranding a consumer. (DD-6)
   - id: REQ-014
+    version: "1.0.0"
     text: >
       The engine model must gain a SECOND normalized output type — coverage-records —
       distinct from SARIF findings. SARIF remains the findings/OUTPUT lingua franca;
@@ -194,6 +208,7 @@ requirements:
       distinguishing measured-and-passed from not-measured — which SARIF-as-findings
       cannot express. (DD-7)
   - id: REQ-015
+    version: "1.0.0"
     text: >
       The coverage-record format the producer emits and Seed 3's `CoverageRecord`
       consumer contract must agree on is
@@ -205,6 +220,7 @@ requirements:
       under a single number. The gate stays metric-BLIND (compares `covered/total` ≥
       threshold); the pack declares both the numbers and what they measure. (DD-7)
   - id: REQ-016
+    version: "1.0.0"
     text: >
       The `go-toolchain` pack must gain a coverage engine — the first concrete
       producer — that runs `go test -coverprofile`, converts the profile to per-file
