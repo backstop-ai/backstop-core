@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-059
 spec_id: ISSUE-059
 created: "2026-07-15"
-status: draft
+status: completed
 coverage_threshold: 90
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -run Trace"
 
@@ -10,6 +10,10 @@ notes: |
   ─────────────────────────────────────────────────────────────────────────
   REVISIONS
   ─────────────────────────────────────────────────────────────────────────
+  2026-07-15 completed: delivered ISSUE-059 (delivered_by PLAN-ISSUE-059),
+    impl-reviewed APPROVE — all 10 claims, 21/21 mandated tests substantive and
+    passing, live gate green with trace objects + git_sha/generated_at
+    provenance, identity/hashes proven byte-stable, ratchet honest.
   2026-07-15 rev-2 (post plan-review tightening): coverage_lapsed detection
     constrained to a retired-terminal SPEC citer (citer.Kind == KindSpec) per
     DD-3 — a retired-terminal ISSUE citer classifies uncovered/author_spec, not

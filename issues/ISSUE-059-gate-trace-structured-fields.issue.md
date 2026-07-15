@@ -6,8 +6,11 @@ issue:
   id: ISSUE-059
   title: "Gate Trace Structured Fields"
   type: enhancement
-  status: ready
+  status: closed
   created: "2026-07-15"
+  closed: "2026-07-15"
+
+delivered_by: PLAN-ISSUE-059
 
 complexity:
   scope: contained
@@ -406,6 +409,59 @@ go test ./pkg/gate/... ./cmd/backstop/... -run Trace
   baseline artifact still `CompareBaseline`s correctly post-change.
 - `TestTrace_Vocabulary_NoDeliveredUsedForCoverageState`
 
+## Resolution
+
+Delivered via `PLAN-ISSUE-059`, impl-reviewed APPROVE: all 10 claims
+satisfied, 21/21 mandated tests passing, and the live gate now carries
+provenance (`git_sha`/`generated_at` on `GateResult`) plus a populated
+`trace` object on every `requirement_traceability` violation (both the block
+and advisory steps).
+
+The plan's own review pass tightened `coverage_lapsed` detection to a
+retired-terminal **spec** citer specifically (`citer.Kind == KindSpec`) —
+matching the DD-9-consistent scoping this issue's REQ-003 and the consumer
+sign-off (Version History) already called for — and added the
+retired-issue-citer fixture case to `TestTrace_GapKind_CoverageLapsedDistinctFromUncovered`
+to prove a retired-terminal *issue* citer stays `uncovered`/`author_spec`,
+never `coverage_lapsed`. `bundle_maturity` is sourced from
+`ArtifactStatusRecord.Status` (`fm.Status.Maturity`,
+`pkg/gate/artifact_status.go:197`), read at classification time, per REQ-002/
+REQ-005 and the consumer's classifier-sourcing agreement.
+
+`go test`, `artifact validate`, and gate all green at delivery. No waivers.
+
+## Version History
+
+- **2026-07-15 — Contract accepted (as amended) by the consumer.** The bclabs
+  portal agent reviewed this issue's design and signed off, with three
+  amendments folded into the accepted contract (no requirement/claim text
+  changed as a result — the amendments were already consistent with what
+  REQ-003/REQ-005/REQ-007 as written required):
+  - **`coverage_lapsed` tightened to spec-citer-only.** Accepted as the more
+    honest, DD-9-consistent semantics: DD-9 already establishes that only
+    `implemented` spec requirements can satisfy coverage (issue supports are
+    lineage-only, never coverage), so a retired-terminal **issue** citer must
+    never trigger `gap_kind: coverage_lapsed` — only a retired-terminal
+    **spec** citer does. REQ-003 already scoped detection to "a replaced/
+    retired-terminal spec"; this sign-off confirms that scoping is the
+    accepted semantics, not a looser "any retired-terminal citer" reading.
+  - **`git_sha` accepted with no `dirty` indicator.** A `dirty: bool` field
+    (whether the working tree had uncommitted changes at gate-run time) was
+    offered during review and declined by the consumer. Rationale recorded
+    near-verbatim: the portal ingests exclusively from attested CI runs where
+    tree cleanliness is structural, not self-reported — a self-reported dirty
+    bit is a field a future consumer might half-trust for a security-ish
+    decision it cannot actually support. Better absent than misleading. No
+    `dirty` field is added by this issue; REQ-007 stands as written (`git_sha`
+    + `generated_at` only).
+  - **`bundle_maturity` classifier-sourcing agreed, with consumer-side
+    failure-semantics noted.** The consumer confirmed `bundle_maturity` should
+    be sourced from the same `ArtifactStatusRecord` the classifier already
+    holds at violation-emission time (not re-fetched), and separately noted
+    (for its own client-side handling, not a change to this issue) how it will
+    treat a `trace` object where `bundle_maturity` and the corpus disagree
+    once `git_sha`/`generated_at` (REQ-007) reveal a stale parse.
+
 ## References
 
 - **BUNDLE-014** (Requirement Traceability) — DD-1 (`citing_spec_not_implemented`),
@@ -422,6 +478,14 @@ go test ./pkg/gate/... ./cmd/backstop/... -run Trace
   (`GateResult`) — the structs this issue extends additively.
 - **ISSUE-060** (backstop trace command) — proof attribution (which spec/tests
   prove a covered REQ) is explicitly out of scope here and belongs there.
+- **DD-9** (BUNDLE-014) — issue supports are lineage-only and never satisfy
+  coverage; the basis for the consumer sign-off's spec-citer-only tightening
+  of `coverage_lapsed`, see Version History.
 - CLAUDE.md "Loud ≠ blocking" — this is additive instrumentation on an
   existing block/warn step, not a new enforcement surface; severity and gating
   behavior are unchanged.
+- **Consumer sign-off (2026-07-15, bclabs portal agent)** — the contract in
+  this issue is accepted as amended; see Version History for the three
+  amendments (`coverage_lapsed` spec-citer-only, `git_sha` with no `dirty`
+  field, `bundle_maturity` classifier-sourcing). This is a provenance record
+  only — no requirement or claim text changed as a result.

@@ -92,7 +92,17 @@ type Violation struct {
 	// Line it is json:"-" and NOT part of baseline identity, so the expiry date it
 	// embeds never destabilizes grandfathering. Empty for non-waivable/structural
 	// findings and when no waiver step ran.
-	WaiverHint   string `json:"-"`
+	WaiverHint string `json:"-"`
+	// Trace is the ISSUE-059 structured companion to Message on requirement_traceability
+	// violations: the machine-readable gap_kind/remedy and the bundle/req coordinates a
+	// downstream consumer would otherwise have to parse out of the prose. Like Line,
+	// ProjectWide, and WaiverHint it is presentation-only and DELIBERATELY EXCLUDED from
+	// baseline identity/RegionHash (EnrichViolationIdentity folds only
+	// Rule|File|RegionHash(Message|Severity|SourcePack)), so a violation gaining or losing
+	// its trace never destabilizes baseline grandfathering. Additive under gate/v1 and
+	// omitempty, so consumers reading only rule/file/message/severity are unaffected. Nil
+	// for every violation outside the requirement_traceability step.
+	Trace        *Trace `json:"trace,omitempty"`
 	Identity     string `json:"identity"`
 	IdentityHash string `json:"identity_hash"`
 	RegionHash   string `json:"region_hash"`
@@ -113,7 +123,16 @@ type StepResult struct {
 
 // GateResult holds the unified gate output including all step results.
 type GateResult struct {
-	SchemaVersion   string     `json:"schema_version"`
+	SchemaVersion string `json:"schema_version"`
+	// GitSHA is the repository HEAD commit SHA at gate-run time and GeneratedAt the
+	// RFC 3339 wall-clock time the run completed (ISSUE-059). Together they are provenance:
+	// a corpus-parsing consumer can detect skew between a gate JSON blob and the corpus it
+	// parsed it against, which is what makes it safe for per-violation Trace.BundleMaturity
+	// to be denormalized rather than re-looked-up. Populated on the CLI runGate path (empty
+	// on a non-repo, mirroring the baseline artifact); omitempty so they are additive under
+	// the unchanged gate/v1 schema.
+	GitSHA          string     `json:"git_sha,omitempty"`
+	GeneratedAt     string     `json:"generated_at,omitempty"`
 	Scope           *GateScope `json:"scope,omitempty"`
 	Pass            bool       `json:"pass"`
 	TotalViolations int        `json:"total_violations"`

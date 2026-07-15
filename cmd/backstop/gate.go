@@ -140,6 +140,12 @@ func runGate(cmd *cobra.Command, args []string) error {
 	g := gate.New(opts...)
 	result, exitCode := g.Run(context.Background())
 
+	// ISSUE-059 provenance: stamp the HEAD SHA and completion time on the result before
+	// formatting, mirroring the baseline artifact (gitSHA returns "" on a non-repo, with no
+	// dirty check and no -dirty suffix). SchemaVersion stays "gate/v1" — this is additive.
+	result.GitSHA = gitSHA(projectRoot)
+	result.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+
 	// Format output based on --json flag.
 	jsonFlag, jsonErr := cmd.Flags().GetBool("json")
 	if jsonErr != nil {
