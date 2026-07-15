@@ -6,13 +6,24 @@ schema_version: bundle/v2
 
 bundle:
   name: requirement-traceability
-  version: "0.9.0"
+  version: "1.0.0"
   created: "2026-07-14"
-  updated: "2026-07-14"
+  updated: "2026-07-15"
   category: feature
 
 status:
   maturity: delivered
+  note: >
+    DELIVERED 2026-07-15. All four seeds shipped and gate-green: Seed 1 (versioning +
+    version-log schema + both-direction resolution in `artifact validate`) and Seed 3 (the
+    `requirement_traceability` gate step — state-invariant coverage + three-tier posture +
+    lifecycle/semver stale-pin model) landed via SPEC-050/051/052; Seed 2 (legacy reconciliation
+    — the `agent-definitions` cluster deprecated, BUNDLE-011's REQ-007/010 re-stated on the
+    retroactive `implemented` SPEC-053, `1.0.0` stamped on every remaining live REQ + ref) landed
+    via SPEC-053. The corpus is fully pinned and resolving; the `requirement_traceability` step is
+    live with block=0. This very promotion is judged by the delivered-gate this bundle specified
+    — every citing spec `implemented`, every REQ covered at its current version (including
+    REQ-015@1.1.0) — and passes.
 
 problem:
   summary: >
@@ -883,3 +894,17 @@ REQ-014. Depends on Seed 1 (version + log schema + resolution) and Seed 2 (green
   `version:` stays `1.1.0` and its `text` equals the newest entry (the two compared scalars use
   strip-chomp `>-` so they normalize identically regardless of document position). No other REQ
   touched. `version` 0.8.0 → 0.9.0; `bundle.updated` → 2026-07-14. Maturity STAYS `ready`.
+- **1.0.0 (2026-07-15, delivered)** — PROMOTED `ready` → `delivered` (founder-authorized; the
+  whole train shipped). All four seeds are implemented and gate-green: SPEC-050/051/052 delivered
+  Seed 1 (versioning + version-log schema + both-direction resolution in `artifact validate`) and
+  Seed 3 (the `requirement_traceability` gate step — state-invariant coverage, three-tier posture,
+  lifecycle/semver stale-pin model); SPEC-053 delivered Seed 2 (legacy reconciliation — the
+  `agent-definitions` cluster deprecated, BUNDLE-011's REQ-007/010 re-stated on retroactive
+  `implemented` SPEC-053, `1.0.0` stamped on every remaining live REQ + ref). The corpus is fully
+  pinned and resolving and the `requirement_traceability` step is live with block=0. This
+  promotion is judged by the very delivered-gate this bundle specified — every citing spec
+  `implemented`, every REQ covered at its current version (including REQ-015@1.1.0) — and passes
+  under `backstop gate`. Recorded the delivery in `status.note`; requirements[] (REQ-001…REQ-015)
+  and all ten resolved OQs unchanged. `version` 0.9.0 → 1.0.0; `bundle.updated` → 2026-07-15.
+  (Note: the on-disk `maturity` had already been flipped to `delivered` by a concurrent edit that
+  did not carry the version/updated/note/history; this entry completes and reconciles that record.)
