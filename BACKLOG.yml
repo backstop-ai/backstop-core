@@ -3,18 +3,18 @@
 # See artifacts/directive/v1/backlog-schema.json for format.
 
 directives:
-  - id: DIR-001
-    title: Release Workflow
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-019
     title: Pack Recipe Capability
   - id: DIR-002
     title: backstop init Command
-  - id: DIR-008
-    title: CLI Self-Update
+  - id: DIR-001
+    title: Release Workflow
   - id: DIR-021
     title: Traceability Hardening & Corpus Drain
+  - id: DIR-008
+    title: CLI Self-Update
   - id: DIR-022
     title: Contracts Engine Hardening
   - id: DIR-023
