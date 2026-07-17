@@ -518,6 +518,7 @@ func noToolchainPackMessage() string { return "enforcement not configured (0 too
 // backstop/typescript-toolchain, …). Routing is by the toolchain-pack naming
 // convention, not a hardcoded pack name, so any language's toolchain pack counts.
 func isToolchainPack(m *pack.Manifest) bool {
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-pack-name-keyed-capability:false-positive:2027-07-17 convention over configuration: the -toolchain suffix here drives only the COSMETIC stack label (declaredToolchainStackLabel, SPEC-046) and the WARN-ONLY toolchain-pack count (countToolchainPacks, SPEC-040) — never a capability or pass/fail decision, and the label is inherently name-derived. Revisit (fix by-declaration) if this ever gates behavior.
 	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
 }
 
