@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // SPEC-046 shared test fixtures + helpers. The four spec046-*.yml gate configs in
@@ -41,7 +42,16 @@ func goToolchainProjectRoot(t *testing.T) string {
 // path without a real on-disk pack — the polyglot bun-toolchain pack does not exist
 // until SPEC-047, so its dispatch/count/label behavior is proven over a stub here.
 func spec046ToolchainManifest(normalizedName string) *pack.Manifest {
-	return &pack.Manifest{Name: normalizedName, NormalizedName: normalizedName}
+	// A toolchain pack is now recognized BY DECLARATION (ISSUE-063 principle): it
+	// declares an enforcement-mechanism engine. Declare a build (typecheck) engine so
+	// countToolchainPacks counts it; the -toolchain name still drives the cosmetic label.
+	return &pack.Manifest{
+		Name:           normalizedName,
+		NormalizedName: normalizedName,
+		Engines: map[string]pack.EngineSpec{
+			"typecheck": {Binding: engine.EngineBinding{GateType: engine.GateTypeBuild}},
+		},
+	}
 }
 
 // spec046InstallGoToolchainProject builds a temp project root that DECLARES

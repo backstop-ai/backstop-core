@@ -513,12 +513,14 @@ func toolchainEnforcementStepName() string { return "toolchain_enforcement" }
 // for "everything passed."
 func noToolchainPackMessage() string { return "enforcement not configured (0 toolchain packs)" }
 
-// isToolchainPack reports whether a manifest is a <lang>-toolchain pack — the
-// convention is a normalized name ending in "-toolchain" (backstop/go-toolchain,
-// backstop/typescript-toolchain, …). Routing is by the toolchain-pack naming
-// convention, not a hardcoded pack name, so any language's toolchain pack counts.
+// isToolchainPack reports whether a manifest is a <lang>-toolchain pack by the
+// "-toolchain" naming convention. Its ONLY remaining use is deriving the COSMETIC
+// stack label (declaredToolchainStackLabel, SPEC-046) — the label is literally the
+// name with the suffix stripped ("backstop/go-toolchain" -> "go"), so it is
+// inherently name-derived and convention is correct here. The enforcement-configured
+// SIGNAL (countToolchainPacks / SPEC-040) is by-declaration, not by this convention.
 func isToolchainPack(m *pack.Manifest) bool {
-	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-pack-name-keyed-capability:false-positive:2027-07-17 convention over configuration: the -toolchain suffix here drives only the COSMETIC stack label (declaredToolchainStackLabel, SPEC-046) and the WARN-ONLY toolchain-pack count (countToolchainPacks, SPEC-040) — never a capability or pass/fail decision, and the label is inherently name-derived. Revisit (fix by-declaration) if this ever gates behavior.
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-pack-name-keyed-capability:false-positive:2027-07-17 convention over configuration: the -toolchain suffix drives ONLY the cosmetic stack label (declaredToolchainStackLabel, SPEC-046), never a capability, count, or pass/fail decision — and the label is inherently name-derived (strip the suffix off the name). The behavioral signal (countToolchainPacks) is by-declaration. Revisit only if this is ever used for a behavioral decision.
 	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
 }
 
@@ -561,16 +563,40 @@ func declaredToolchainStackLabel(packs []*pack.Manifest) string {
 	return strings.Join(stacks, ", ")
 }
 
-// countToolchainPacks counts the <lang>-toolchain packs DECLARED for the gate:
-// every DECLARED pack that is a toolchain pack by convention (normalized name
-// ending in `-toolchain`). A toolchain is an ordinary declared pack (SPEC-046
-// REQ-002) — there is no language-derived bridge set, so this keys on the
-// declared `packs:` set alone. It is the signal the no-toolchain-pack WARN-ONLY
-// loud state keys on (SPEC-040 REQ-005/REQ-006).
+// toolchainMechanismGateTypes returns the enforcement-MECHANISM dimensions a toolchain
+// pack provides (lint/typecheck/test/coverage). A pack declaring any of these IS a
+// toolchain pack, BY DECLARATION (the ISSUE-063 principle applied to the SPEC-040
+// enforcement-configured signal) — independent of its name or org, so a third-party
+// toolchain pack not named `*-toolchain` still counts. `findings` is deliberately
+// excluded: a standalone rules pack (secrets, standards) declares findings but is not
+// the enforcement mechanism.
+func toolchainMechanismGateTypes() []gate.TraceabilityDimension {
+	return []gate.TraceabilityDimension{"lint", "build", "test", "coverage"}
+}
+
+// declaresToolchainMechanism reports whether a manifest declares any enforcement-
+// mechanism engine, via the shared packsDeclaringGateType by-declaration primitive.
+func declaresToolchainMechanism(m *pack.Manifest) bool {
+	one := []*pack.Manifest{m}
+	for _, gt := range toolchainMechanismGateTypes() {
+		if packDeclaresGateType(one, gt) {
+			return true
+		}
+	}
+	return false
+}
+
+// countToolchainPacks counts the DECLARED packs that provide the enforcement
+// mechanism — every declared pack that DECLARES a lint/build/test/coverage engine
+// (declaresToolchainMechanism), NOT by the `-toolchain` name convention. A toolchain
+// is an ordinary declared pack (SPEC-046 REQ-002); this keys on the declared `packs:`
+// set alone. It is the signal the no-toolchain-pack WARN-ONLY loud state keys on
+// (SPEC-040 REQ-005/REQ-006) — "0 mechanism packs" means nothing actually ran, which
+// must never read as a real green.
 func countToolchainPacks(declared []*pack.Manifest) int {
 	n := 0
 	for _, m := range declared {
-		if isToolchainPack(m) {
+		if declaresToolchainMechanism(m) {
 			n++
 		}
 	}
