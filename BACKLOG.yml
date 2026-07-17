@@ -11,6 +11,8 @@ directives:
     title: backstop init Command
   - id: DIR-001
     title: Release Workflow
+  - id: DIR-025
+    title: Adoption Telemetry
   - id: DIR-021
     title: Traceability Hardening & Corpus Drain
   - id: DIR-008
