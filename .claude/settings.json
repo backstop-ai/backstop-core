@@ -38,6 +38,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/backstop-agent-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-no-cruft.sh"
           }
         ]
       },

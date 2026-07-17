@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-scaffolding-recipes
-  version: "0.5.0"
+  version: "0.6.0"
   created: "2026-07-14"
-  updated: "2026-07-16"
+  updated: "2026-07-17"
   category: feature
 
 status:
@@ -62,9 +62,14 @@ solution:
     environment; together with `transform` + enforcement these compose into
     MIGRATION-AS-A-DISTRIBUTABLE-ARTIFACT (author once, distribute, verify completeness). Core
     stays thin: a general engine runs a declared rule (data); language-awareness lives in the
-    engine, never in core (DD-3). The remaining open mechanism is chiefly how a pack DECLARES all of this in
-    its manifest (OQ-2) and the exact shape of the provenance ledger (OQ-11); the CI recipe
-    pack is the first canonical consumer and the invariant's acceptance test.
+    engine, never in core (DD-3). The 2026-07-17 founder session resolved the last open mechanisms:
+    a recipe is declared as its OWN DIRECTORY indexed from `pack.yml` (DD-18), enforcement is
+    ADOPTION-GATED with static path scope (DD-19), DD-15's ledger SPLITS into a thin tracked
+    ADOPTION RECORD here and a rich provenance ledger spun out to BUNDLE-017 (DD-20), and a
+    publish-time REV-GUARD keeps recipe versions trustworthy (DD-21). The dynamic-`transform`
+    output scoping and the rich forensic/fleet ledger are the downstream dependency owned by
+    BUNDLE-017. The CI recipe pack is the first canonical consumer and the invariant's acceptance
+    test — and ships on the thin adoption record alone.
 ---
 
 # Pack Scaffolding Recipes
@@ -78,10 +83,13 @@ the BLOCKING pack-recipe dependency init consumes but cannot be built without (B
 DD-12). Its model was then deepened across founder-driven design sessions: the 2026-07-14
 "two axes + waiver" brain-dump (DD-6/7/8), the 2026-07-16 session that reframed recipes as
 declarative OPERATIONS, versioned artifacts, two application modes, and a provenance-backed
-concurrency story (DD-9..DD-15), and a later 2026-07-16 session adding the compat matrix,
-version-keyed variants, and migration-as-a-distributable-artifact (DD-16/DD-17). The direction
-of travel: the model got MORE concrete and the thin-core thesis got STRONGER, not vaguer —
-generation is the only new primitive; everything else is existing substrate.
+concurrency story (DD-9..DD-15), a later 2026-07-16 session adding the compat matrix,
+version-keyed variants, and migration-as-a-distributable-artifact (DD-16/DD-17), and the
+2026-07-17 session that RESOLVED the last four open questions — the per-recipe-directory
+declaration shape, adoption-gated enforcement, the adoption-record/provenance-ledger split,
+and the version rev-guard (DD-18..DD-21). The direction of travel: the model got MORE concrete
+and the thin-core thesis got STRONGER, not vaguer — generation is the only new primitive;
+everything else is existing substrate.
 
 ### The thin-executor invariant (still the north star)
 
@@ -100,10 +108,18 @@ modes, DD-11), how it's cited (`pack:recipe@version`, DD-12), the honest injecti
 ledger is a load-bearing primitive (DD-15), the optional COMPAT MATRIX as the third drift axis
 (DD-16), and VERSION-KEYED VARIANTS resolved by environment (DD-17). These last two compose with
 `transform` + enforcement into MIGRATION-AS-A-DISTRIBUTABLE-ARTIFACT — the headline strength (see
-Notes). Still open: the MANIFEST DECLARATION shape (OQ-2, now the foundational open question, and
-now also carrying optional compat + variants), the residual distinct-recipes multiplicity (OQ-5,
-largely answered by DD-17 variants), enforcement scoping (OQ-10, anchored to the ledger), the
-provenance-ledger's exact form (OQ-11), and the recipe→pack version derivation mechanism (OQ-12).
+Notes).
+
+As of the 2026-07-17 founder session, ALL open questions are now resolved: the MANIFEST
+DECLARATION shape is a per-recipe DIRECTORY indexed from `pack.yml` (OQ-2 → DD-18), the residual
+distinct-recipes multiplicity is those directories addressed by stable id (OQ-5 → DD-17 variants +
+DD-18), enforcement is ADOPTION-GATED with static path scope (OQ-10 → DD-19), DD-15's ledger
+SPLITS into a thin tracked ADOPTION RECORD kept here and a rich provenance ledger (OQ-11 →
+DD-20), and a publish-time REV-GUARD keeps recipe versions trustworthy (OQ-12 → DD-21). TWO
+downstream pieces are DELEGATED to **BUNDLE-017 (recipe provenance ledger)**, not left open here:
+the dynamic-`transform` output scoping (the OQ-10 dynamic half) and the rich forensic/fleet
+provenance ledger (the OQ-11 rich half). Maturity stays `exploring` — the founder triggers
+promotion separately.
 
 ### Naming-collision hazard (load-bearing for OQ-2)
 
@@ -124,8 +140,9 @@ distinct from **scaffold**.
 ## Draft Design Decisions
 
 DD-1..DD-5 are the frame inherited from the BUNDLE-003 init session. DD-6..DD-8 are the
-2026-07-14 "two axes + waiver" model. DD-9..DD-15 are the 2026-07-16 deepening. All are
-founder-driven and recorded as decided.
+2026-07-14 "two axes + waiver" model. DD-9..DD-15 are the 2026-07-16 deepening; DD-16/DD-17 the
+later 2026-07-16 compat/variants session. DD-18..DD-21 are the 2026-07-17 session resolving the
+last four open questions. All are founder-driven and recorded as decided.
 
 ### Inherited frame (BUNDLE-003)
 
@@ -241,11 +258,15 @@ founder-driven and recorded as decided.
   apply-lock is belt-and-suspenders. This is the runtime thesis: the chaotic top is safe because
   the deterministic enforcement floor doesn't move.
 
-- **DD-15: The per-application PROVENANCE LEDGER (primitive).** A record of what a recipe
-  application actually DID (files/regions touched, `@version` applied). One primitive, THREE
-  payoffs: (a) scoping a dynamic `transform`'s enforcement (OQ-10 — scope = what the application
-  actually wrote); (b) `@version` traceability and the recipe-moved-on drift signal (DD-12); (c)
-  concurrency reconciliation (DD-14). Its exact form is OQ-11.
+- **DD-15: An application emits an ADOPTION RECORD; the rich provenance ledger is BUNDLE-017.**
+  (Narrowed by DD-20 on 2026-07-17 — originally "the per-application PROVENANCE LEDGER primitive.")
+  The thin, load-bearing contract that STAYS in this bundle: a recipe application emits a MINIMAL
+  tracked ADOPTION RECORD — `{recipe ref, @version, adopted}` (DD-20) — which is the
+  enforcement-activation primitive (DD-19) and carries the applied `@version` for the
+  recipe-moved-on drift signal (DD-12). The RICH per-op/per-region record — the thing that scopes a
+  dynamic `transform`'s enforcement (OQ-10 dynamic half), backs forensic replay, fleet/migration
+  dashboards, and the concurrency reconciliation record (DD-14) — is the downstream **BUNDLE-017**
+  provenance ledger. Its exact form is owned there, not here.
 
 ### Compat, variants, and migration-as-artifact (2026-07-16)
 
@@ -272,78 +293,150 @@ founder-driven and recorded as decided.
   resolved by environment. It extends the grail from "same way every time" (DD-11 Mode A) to
   "the RIGHT way for MY environment, automatically."
 
+### Declaration shape, adoption-gating, the ledger split, and the rev-guard (2026-07-17)
+
+- **DD-18: A recipe is declared as its OWN DIRECTORY; `pack.yml` carries a lightweight INDEX.**
+  (Resolves OQ-2 and the OQ-5 residual.) A recipe is a directory colocating a `recipe.yml`
+  manifest + its template payload + its `transform`-rule files. `pack.yml` carries a lightweight
+  `recipes:` INDEX mapping stable recipe-id → directory. Multiple DISTINCT recipes in one pack =
+  multiple directories, each addressed by a stable id in the pack namespace, each internally
+  variant-resolved (DD-17) — which is also the resolution of OQ-5's residual multiplicity.
+  Rationale: chosen OVER a single inline `recipes:` block in `pack.yml`. The two share the fact
+  that ops always point at on-disk payloads; the only thing that moves is where recipe METADATA
+  lives. Inline wins only for a handful of light `scaffolding` recipes; it TIPS OVER on the heavy
+  `implementing`/migration kind — DD-16/DD-17 variants + codemods + enforcement bloat a shared
+  `pack.yml` into a monolith and couple unrelated recipes into one review/diff surface. Per-recipe
+  dirs make recipe-own versioning (DD-12) physically true: a recipe that hasn't changed touches no
+  files. The founder's call: the heavy packs are where the real power is, so optimize the shape for
+  them. The `recipes:` index does NOT collide with `content.scaffolds` (a distinct top-level key)
+  or with `pack scaffold` / `artifact new` — the naming-collision hazard is respected.
+
+- **DD-19: Enforcement is ADOPTION-GATED, with static path scope from declared targets.**
+  (Resolves OQ-10, static scope.) A recipe's paired enforcement (DD-7) is ACTIVE only for ADOPTED
+  recipes — those present in the adoption record (DD-20). A recipe an installed pack merely SHIPS
+  but the consumer never applied is INERT (never red). Combined with enforcement being opt-in per
+  recipe (DD-7), this is a DOUBLE opt-in before anything can go red — the deliberate guard against
+  overly-eager enforcement. Static scope = the recipe's declared target paths, expressed via the
+  gate's EXISTING per-rule path-scoping — NO new gate primitive (confirm at spec time that the gate
+  can express per-rule include-globs over a declared path set; believed yes since pack rules
+  already scope this way — "verify, don't assert"). At gate time, for an ADOPTED recipe:
+  - declared output present/valid → GREEN.
+  - PARTIAL or misplaced output (e.g. 3/5 declared files present, or one moved so its declared path
+    is empty) → RED (broken promise), naming the absent paths — half-present is drift no one chose.
+  - TOTAL absence of ALL declared files → WARN + guide ("recipe X looks removed; run un-adopt to
+    clear it"), NOT red — the cautious default, because total absence reads as intent while partial
+    reads as breakage.
+  Deliberate divergence/removal is made accountable via a WAIVER (DD-8) or an explicit UN-ADOPT
+  (drop the adoption entry; files stay as the consumer's own code per the removal non-fork). The
+  declared file set is read from the ADOPTED @version's manifest, not the latest.
+  DEFERRED: dynamic-`transform` output scoping (injection site unknown until apply) requires
+  region-level provenance and is MOVED to BUNDLE-017 (provenance ledger). Only the static half is
+  resolved here.
+
+- **DD-20: The DD-15 ledger SPLITS — a thin ADOPTION RECORD here, the rich ledger → BUNDLE-017.**
+  (Resolves OQ-11 for this bundle.) DD-15's "per-application provenance ledger" is SPLIT. A
+  MINIMAL, tracked ADOPTION RECORD — `{recipe ref, @version, adopted}`, the recipe analog of
+  `backstop.lock` — STAYS in this bundle. It is the enforcement-activation primitive (DD-19) and
+  carries the applied @version for the recipe-moved-on drift signal (DD-12). The RICH provenance
+  ledger — per-op/per-region detail, dynamic-`transform` output, forensic replay, fleet/migration
+  dashboards, concurrency reconciliation record — SPINS OUT to **BUNDLE-017** as a downstream
+  dependency. DD-15's language narrows to the thin contract: "an application emits an adoption
+  record; the rich provenance ledger is BUNDLE-017." Consequence: the scaffolding kind (the CI-pack
+  acceptance test, init's first consumer) ships on the thin adoption record alone; the
+  `implementing`/migration kind and the dynamic-scope + fleet-dashboard payoffs depend on
+  BUNDLE-017.
+
+- **DD-21: A publish-time REV-GUARD forces a recipe version bump when its content changes.**
+  (Resolves OQ-12.) A publish-time GUARD in the pack-authoring tooling (OUTSIDE core) fails when a
+  recipe's content changed but its `@version` did not — forcing a rev, keeping the recipe-moved-on
+  drift signal (DD-12) trustworthy. The guard enforces THAT you rev; the SEMVER LEVEL
+  (patch/minor/major) is the author's judgment — the guard never polices magnitude (no tool
+  reliably infers breaking-ness). DEFERRED (not a promotion blocker): auto-ROLLING the containing
+  pack's version from recipe deltas (changesets-style) waits until a real multi-recipe pack informs
+  the diff-baseline (git tag / last-publish / snapshot) and the recipe-delta→pack-delta mapping
+  policy — building that policy now would be guessing in a vacuum. Spec-time knob: hash only
+  semantically-meaningful files so a whitespace-only edit doesn't force a rev.
+
 ## Open Questions
 
 Status index (numbers held stable across versions for traceability; resolved/dissolved OQs kept
 with their decision so the reasoning survives):
 
 - OQ-1 Recipe format — **RESOLVED** (DD-9, operation-set)
-- OQ-2 Manifest declaration — **OPEN** (foundational; now also optional compat + variants)
+- OQ-2 Manifest declaration — **RESOLVED** (DD-18, per-recipe directory + `recipes:` index)
 - OQ-3 Invocation — **RESOLVED** (DD-11, two modes; small ordering residual)
 - OQ-4 Conflict (recipe-vs-user-file) — **RESOLVED-via-waiver** (residual: apply-time mechanics)
-- OQ-5 Multiplicity & addressing — **RESOLVED-IN-PART** (DD-17 variants = primary form; distinct-recipes shape residual)
+- OQ-5 Multiplicity & addressing — **RESOLVED** (DD-17 variants = primary form; DD-18 distinct-recipe directories = the residual)
 - OQ-6 Is CI a distinct kind? — **RESOLVED** (DD-6, CI is scaffolding-kind)
 - OQ-7 Templating engine — **RESOLVED** (DD-9/DD-10; residual: exact substitution syntax)
 - OQ-8 Lifecycle on upgrade — **RESOLVED-via-waiver**
 - OQ-9 Cross-pack collision — **DISSOLVED** (sequential ordered apply + non-destructive)
-- OQ-10 Enforcement scoping — **OPEN** (now anchored to the provenance ledger)
-- OQ-11 Provenance-ledger shape — **NEW / OPEN**
-- OQ-12 Recipe→pack version derivation — **NEW / OPEN**
+- OQ-10 Enforcement scoping — **RESOLVED** (DD-19, static half; dynamic-transform output scoping → BUNDLE-017)
+- OQ-11 Provenance-ledger shape — **RESOLVED-via-split** (DD-20, thin adoption record here; rich ledger → BUNDLE-017)
+- OQ-12 Recipe→pack version derivation — **RESOLVED** (DD-21, rev-guard; auto-roll deferred)
 - Citation / traceability — **RESOLVED** (DD-12, `pack:recipe@version`)
 
-Maturity stays `exploring` — the founder drives the remaining resolutions and triggers
-promotion.
+ALL open questions are now resolved (with the OQ-10 dynamic half and the OQ-11 rich ledger
+delegated to **BUNDLE-017**). Maturity stays `exploring` — the founder triggers promotion
+separately.
 
 ### Open
 
-- **OQ-2 — Manifest DECLARATION. (OPEN — now the foundational mechanism question.)** How does a
-  pack declare a recipe? The declaration must now carry: the ordered OPS (DD-9), the KIND (DD-6),
-  the PARAM schema (placeholders + types/defaults), the TARGET paths (for `create`/`merge`), the
-  `transform` RULES, the paired ENFORCEMENT suite (DD-7 / OQ-10), the recipe VERSION (DD-12), and
-  — optionally — the COMPAT MATRIX (`{file, path, range}` selectors, DD-16) and VERSION-KEYED
-  VARIANTS (`{compat range → ops}` sets, DD-17).
-  Options: an explicit `recipes:` block in `pack.yml` vs a convention-based directory the applier
-  discovers. Must NOT collide with `content.scaffolds` or `pack scaffold`/`artifact new` (see the
-  naming-collision hazard). Lean: explicit block — every one of those facets is data the manifest
-  has to validate — but the exact shape is the open work everything else now rests on.
-
-- **OQ-5 — MULTIPLICITY & addressing. (RESOLVED-IN-PART, residual open.)** DD-17 answers the
-  PRIMARY multiplicity form: version-keyed VARIANTS of ONE logical recipe (`{compat range → ops}`
-  sets), addressed by one name and resolved by the consumer's environment. That handles the
-  most-important case (an SDK-integration recipe spanning stripe@12 / @15 / @19) without N
-  separately-addressed recipes. **Residual (still open):** the OTHER multiplicity — a single pack
-  shipping several DISTINCT logical recipes (a starter recipe AND N per-platform CI recipes AND an
-  HTTP-client implementing recipe). Their in-pack SHAPE (one block with N entries? N directories?
-  how selectors map to recipe ids) is open and couples to OQ-2. Lean: yes, multiple distinct
-  recipes; addressed by stable recipe id within the pack namespace, each internally
-  variant-resolved per DD-17.
-
-- **OQ-10 — Enforcement DECLARATION + SCOPING. (OPEN — anchored to the ledger.)** DD-7 says a
-  recipe may ship a paired enforcement suite reusing the gate; how is it declared and SCOPED to
-  the recipe's OUTPUT rather than repo-wide? For static targets, scope = the recipe's declared
-  paths. For a dynamic `transform` (injection site not known until apply), scope = what the
-  application actually WROTE — i.e. the provenance ledger (DD-15). Open: (a) manifest declaration
-  of which rules pair with the recipe (folds into OQ-2); (b) how scope survives the consumer
-  moving/renaming output; (c) whether output-scoped enforcement needs a gate change or is
-  expressible with existing path-scoping + the ledger. Lean: declared alongside the recipe;
-  static scope from declared paths, dynamic scope from the ledger; confirm the gate can express
-  output-scoped rules.
-
-- **OQ-11 — Provenance-ledger SHAPE. (NEW.)** DD-15 decides the ledger EXISTS; its form is open.
-  Where does it live (in-repo tracked? `.backstop/` gitignored? both, like baseline)? What does
-  each entry record (recipe `pack:recipe@version`, op list, files/regions touched, timestamp,
-  applying mode)? How is it READ — for enforcement-scoping (OQ-10), for the recipe-moved-on drift
-  signal (DD-12), and for concurrency reconciliation (DD-14)? Is it one ledger per repo or per
-  application? Lean: a tracked per-repo ledger of applications (durable traceability), but the
-  tracked-vs-gitignored question mirrors the baseline debate and needs the founder.
-
-- **OQ-12 — Recipe→pack version DERIVATION. (NEW, small.)** DD-12 wants a recipe rev to
-  auto-roll the containing pack's version (changesets-style) so authors don't hand-bump twice.
-  What's the mechanism — a tool/hook at pack-publish time that scans recipe version changes and
-  computes the pack bump? Where does it run (pack authoring CLI, CI)? Lean: a publish-time
-  derivation in the pack authoring tooling; small and mechanical, but unspecified.
+None. As of the 2026-07-17 founder session all open questions are resolved (see below); the
+OQ-10 dynamic-transform output scoping and the OQ-11 rich provenance ledger are DELEGATED to
+**BUNDLE-017**, not left open here.
 
 ### Resolved / dissolved (kept for the reasoning)
+
+- **OQ-2 — Manifest DECLARATION. (RESOLVED → DD-18.)** A recipe is declared as its OWN DIRECTORY
+  (`recipe.yml` manifest + template payload + `transform`-rule files, colocated); `pack.yml`
+  carries a lightweight `recipes:` INDEX mapping stable recipe-id → directory. The declaration
+  carries the ordered OPS (DD-9), the KIND (DD-6), the PARAM schema, the TARGET paths, the
+  `transform` RULES, the paired ENFORCEMENT suite (DD-7 / DD-19), the recipe VERSION (DD-12), and
+  — optionally — the COMPAT MATRIX (`{file, path, range}` selectors, DD-16) and VERSION-KEYED
+  VARIANTS (`{compat range → ops}` sets, DD-17). **Why the directory over an inline `pack.yml`
+  block:** the two share the fact that ops always point at on-disk payloads; the only thing that
+  moves is where recipe METADATA lives. Inline wins only for a handful of light `scaffolding`
+  recipes; it TIPS OVER on the heavy `implementing`/migration kind (variants + codemods +
+  enforcement bloat a shared `pack.yml` and couple unrelated recipes into one review/diff
+  surface), and per-recipe dirs make recipe-own versioning physically true (a recipe that hasn't
+  changed touches no files). Does NOT collide with `content.scaffolds` or `pack scaffold` /
+  `artifact new` (naming-collision hazard respected).
+
+- **OQ-5 — MULTIPLICITY & addressing. (RESOLVED → DD-17 + DD-18.)** DD-17 answers the PRIMARY
+  multiplicity form: version-keyed VARIANTS of ONE logical recipe (`{compat range → ops}` sets),
+  addressed by one name and resolved by the consumer's environment (an SDK-integration recipe
+  spanning stripe@12 / @15 / @19 without N separately-addressed recipes). DD-18 answers the
+  RESIDUAL: a single pack shipping several DISTINCT logical recipes is N per-recipe DIRECTORIES,
+  each addressed by a stable recipe id in the pack namespace, each internally variant-resolved per
+  DD-17. Both multiplicities are now resolved.
+
+- **OQ-10 — Enforcement DECLARATION + SCOPING. (RESOLVED → DD-19, static half; dynamic →
+  BUNDLE-017.)** A recipe's paired enforcement (DD-7) is ADOPTION-GATED — active only for recipes
+  present in the adoption record (DD-20), a DOUBLE opt-in with DD-7's per-recipe opt-in. STATIC
+  scope = the recipe's declared target paths, expressed via the gate's EXISTING per-rule
+  path-scoping (no new gate primitive; confirm at spec time). Gate outcomes for an adopted recipe:
+  declared output present/valid → green; PARTIAL/misplaced → RED (broken promise, names absent
+  paths); TOTAL absence → WARN + guide (reads as intent, not breakage). Divergence is accountable
+  via a WAIVER (DD-8) or explicit UN-ADOPT. **DEFERRED to BUNDLE-017:** dynamic-`transform` output
+  scoping (injection site unknown until apply) needs region-level provenance.
+
+- **OQ-11 — Provenance-ledger SHAPE. (RESOLVED-via-split → DD-20.)** DD-15's ledger SPLITS. A
+  MINIMAL, tracked ADOPTION RECORD — `{recipe ref, @version, adopted}`, the recipe analog of
+  `backstop.lock` — STAYS here; it is the enforcement-activation primitive (DD-19) and carries the
+  applied @version for the recipe-moved-on drift signal (DD-12). The RICH provenance ledger
+  (per-op/per-region detail, dynamic-`transform` output, forensic replay, fleet/migration
+  dashboards, concurrency reconciliation) SPINS OUT to **BUNDLE-017**. Consequence: the scaffolding
+  kind (CI-pack acceptance test, init's first consumer) ships on the thin adoption record alone.
+
+- **OQ-12 — Recipe→pack version DERIVATION. (RESOLVED → DD-21; auto-roll deferred.)** A
+  publish-time REV-GUARD in the pack-authoring tooling (outside core) fails when a recipe's content
+  changed but its `@version` did not — forcing a rev to keep the recipe-moved-on drift signal
+  (DD-12) trustworthy. The guard enforces THAT you rev; the SEMVER LEVEL is author's judgment (no
+  tool reliably infers breaking-ness). **DEFERRED (not a promotion blocker):** auto-ROLLING the
+  containing pack's version from recipe deltas (changesets-style) waits for a real multi-recipe
+  pack to inform the diff-baseline and the recipe-delta→pack-delta mapping policy. Spec-time knob:
+  hash only semantically-meaningful files so a whitespace-only edit doesn't force a rev.
 
 - **OQ-1 — Recipe FORMAT. (RESOLVED → DD-9.)** A recipe is a manifest of declarative operations
   (`create` / `merge` / `transform` / `insert`) with declarative `{{ }}` substitution, uniform
@@ -392,27 +485,39 @@ promotion.
 
 ## Spec Seeds
 
-Provisional until OQ-2 (declaration) and OQ-11 (ledger) firm up, but the decomposition is now
-clear.
+The decomposition is now clear; all OQs are resolved, with the dynamic-transform scoping and rich
+provenance ledger delegated to BUNDLE-017.
 
 - **Recipe apply mechanism (core)** — the generic executor: resolve a recipe by
   `pack:recipe@version`, run its declarative OPS (`create` / `merge` / `transform` / `insert`,
   DD-9) with declarative substitution (DD-9/OQ-7), across the two application MODES (direct +
   SDLC-mediated, DD-11), non-destructive toward user files with the regenerate/waiver model for
-  recipe-owned output (DD-4/DD-8), writing a per-application PROVENANCE LEDGER entry (DD-15).
-  `transform` dispatches to allowlisted general engines running declared rules (DD-10). Contains
-  ZERO language/platform literals (DD-3) — this seed is what `backstop/self` guards. The piece
-  BUNDLE-003 `backstop init` is blocked on.
+  recipe-owned output (DD-4/DD-8), writing an ADOPTION RECORD entry — `{recipe ref, @version,
+  adopted}` (DD-20), NOT the full ledger. `transform` dispatches to allowlisted general engines
+  running declared rules (DD-10). Contains ZERO language/platform literals (DD-3) — this seed is
+  what `backstop/self` guards. The piece BUNDLE-003 `backstop init` is blocked on. Dynamic-
+  `transform` enforcement scoping (region-level provenance) depends on BUNDLE-017.
 
-- **Manifest recipe declaration (schema)** — how a pack declares a recipe in `pack.yml` (OQ-2):
-  ops, kind (DD-6), param schema, target paths, transform rules, paired enforcement (DD-7/OQ-10),
-  and recipe version (DD-12). Validated by pack-manifest validation; distinct from
-  `content.scaffolds`.
+- **Manifest recipe declaration (schema)** — the per-recipe DIRECTORY shape (DD-18): a
+  `recipe.yml` manifest + template payload + `transform`-rule files, colocated, indexed from
+  `pack.yml`'s lightweight `recipes:` block (stable recipe-id → directory). The manifest declares
+  ops, kind (DD-6), param schema, target paths, transform rules, paired enforcement (DD-7/DD-19),
+  recipe version (DD-12), and optional compat (DD-16) + variants (DD-17). Validated by pack-manifest
+  validation; distinct from `content.scaffolds`.
 
 - **Recipe versioning + reference resolution** — the `<pack>:<recipe>@<recipe_version>` scheme
   (DD-12): recipe-own versioning distinct from pack version, reference resolution at apply time,
-  the recipe→pack version auto-derivation (OQ-12), and the THREE drift signals — enforcement
-  (code-diverged), recipe-moved-on, and compat (world-moved, DD-16) — read from the ledger.
+  the publish-time REV-GUARD forcing a rev when recipe content changes (DD-21; auto-roll of the
+  pack version deferred), and the THREE drift signals — enforcement (code-diverged), recipe-moved-on
+  (the adoption record carries the applied @version, DD-20), and compat (world-moved, DD-16). The
+  fuller drift/forensic surface depends on BUNDLE-017.
+
+- **Recipe enforcement scoping** — adoption-gated activation (DD-19): enforcement is active only
+  for adopted recipes (DD-20) — a double opt-in with DD-7. STATIC scope from the recipe's declared
+  target paths via the gate's existing per-rule path-scoping (no new gate primitive; confirm at
+  spec time). Gate outcomes: present/valid → green; partial/misplaced → red (broken promise);
+  total absence → warn + un-adopt guidance. Dynamic-`transform` output scoping depends on
+  BUNDLE-017.
 
 - **Compat + version-keyed variants + migration** — the optional compat matrix (DD-16:
   generic read-value-at-path + semver-compare over declared `{file, path, range}` selectors),
@@ -423,7 +528,7 @@ clear.
 
 - **CI recipe pack (backstop-packs, first consumer)** — the cross-cutting pack holding
   per-platform gate-workflow recipes as data (DD-5); the invariant's acceptance test. Lives in
-  backstop-packs, not core. Unchanged.
+  backstop-packs, not core. Ships on the thin adoption record alone (DD-20).
 
 ## Notes / Ideas
 
@@ -520,6 +625,30 @@ clear.
   now carries three drift signals; added a compat+variants+migration seed) and the "settled vs
   open" summary. No OQs pre-resolved by the author; maturity unchanged (exploring) — founder drives
   promotion.
+- 0.6.0 (2026-07-17): **Founder session — declaration shape, adoption-gating, the ledger split,
+  and the rev-guard; ALL open questions resolved.** Added DD-18 (a recipe is declared as its OWN
+  DIRECTORY — `recipe.yml` + template payload + transform-rule files — indexed from a lightweight
+  `pack.yml` `recipes:` block; per-recipe dirs over an inline block because the heavy
+  `implementing`/migration kind bloats and couples a shared `pack.yml`, and dirs make recipe-own
+  versioning physically true — RESOLVING OQ-2 and the OQ-5 residual), DD-19 (enforcement is
+  ADOPTION-GATED — active only for recipes in the adoption record, a double opt-in with DD-7 —
+  with STATIC scope from declared target paths via the gate's existing per-rule path-scoping;
+  present/valid → green, partial/misplaced → red, total-absence → warn+un-adopt — RESOLVING OQ-10's
+  static half), DD-20 (SPLITS DD-15's ledger: a thin tracked ADOPTION RECORD `{recipe ref, @version,
+  adopted}` stays here as the enforcement-activation primitive, the rich provenance ledger spins out
+  to BUNDLE-017 — RESOLVING-via-split OQ-11), and DD-21 (a publish-time REV-GUARD in the pack-
+  authoring tooling forces a recipe version bump when content changes, keeping the recipe-moved-on
+  signal trustworthy; guard enforces THAT you rev, not the semver level — RESOLVING OQ-12).
+  Narrowed DD-15's language to the thin adoption-record contract. Reconciled OQs: **OQ-2, OQ-5,
+  OQ-10, OQ-11, OQ-12 all RESOLVED** — ALL open questions now closed, with the OQ-10
+  dynamic-`transform` output scoping and the OQ-11 rich forensic/fleet ledger DEFERRED to
+  **BUNDLE-017 (recipe provenance ledger)**, added as a downstream dependency reference; auto-roll
+  of the pack version from recipe deltas (DD-21) also deferred. Refreshed the "settled vs open"
+  summary, the solution approach, the provenance/DD-header notes, and the spec seeds (apply
+  mechanism now writes an adoption record not the full ledger; manifest seed = per-recipe directory +
+  `recipes:` index; versioning seed adds the rev-guard; added a recipe-enforcement-scoping seed).
+  No OQs pre-resolved by the author (these are the founder's own decisions, recorded); maturity
+  unchanged (exploring) — founder triggers promotion separately.
 
 ## References
 
@@ -527,6 +656,13 @@ clear.
   scaffolding recipes), DD-13 (hard thin-executor invariant, inherited here as DD-3), OQ-6
   (converge-never-clobber), DD-14 (ecosystem-scaffolder composition), OQ-7 (CI wired via a recipe
   pack). Records this capability as a BLOCKING dependency.
+- **BUNDLE-017 (recipe provenance ledger)** — the DOWNSTREAM dependency spun out of DD-20. Owns
+  the RICH provenance ledger (per-op/per-region detail, forensic replay, fleet/migration
+  dashboards, concurrency reconciliation record), the dynamic-`transform` output scoping (the
+  OQ-10 dynamic half — region-level provenance so an injection-site transform can scope its
+  enforcement to what it actually wrote), and the fleet/migration visibility payoffs. This bundle
+  ships on the thin tracked ADOPTION RECORD alone (DD-20); the `implementing`/migration kind and the
+  dynamic-scope + dashboard payoffs depend on BUNDLE-017.
 - **backstop/self pack** — enforces the zero-baked-language boundary the apply mechanism and
   `transform` engines must respect (DD-3 / DD-10).
 - **Gate + AST engines** (`pkg/pack`, semgrep / ast-grep) — the existing engine substrate
