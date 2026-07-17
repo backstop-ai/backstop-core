@@ -17,6 +17,7 @@ import (
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 	"github.com/bmanson/backstop-core/pkg/validate"
 	"github.com/bmanson/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
@@ -350,140 +351,130 @@ func dimensionPolicyFromConfig(p config.DimensionPolicy) gate.DimensionPolicy {
 // wrapTraceabilityStep (the sole caller); pkg/gate renders it instead of the retired
 // language-derived stackLabel. The capability classification keys are
 // installed-pack-presence and are UNCHANGED by the rehome.
-func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension, stack string) gate.CapabilityState {
-	cap := capabilityStateForDimension(cfg, dim)
+func deriveCapabilityState(packs []*pack.Manifest, dim gate.TraceabilityDimension, stack string) gate.CapabilityState {
+	cap := capabilityStateForDimension(packs, dim)
 	cap.Stack = stack
 	return cap
 }
 
+// packDeclaresGateType reports whether any installed pack DECLARES an engine whose
+// gate_type equals the traceability dimension (ISSUE-063 REQ-001). Capability presence
+// is keyed on the DECLARATION — manifest.Engines[].Binding.GateType, the parsed
+// gate_type enum ParseManifest resolves — never on the pack's name or org. A pack from
+// ANY org (backstop, acme, a local pack) that declares a `gate_type: contracts` engine
+// provides the contracts capability (REQ-003/CLM-005). The dimension string and the
+// gate_type spelling are identical, but the map goes through ParseGateType so an
+// accidental drift fails closed (absent) rather than silently mis-detecting. A manifest
+// is counted at most once even when it declares several engines with the same gate_type.
+func packDeclaresGateType(packs []*pack.Manifest, dim gate.TraceabilityDimension) bool {
+	return len(packsDeclaringGateType(packs, dim)) > 0
+}
+
+// packsDeclaringGateType returns the installed packs that DECLARE an engine with the
+// dimension's gate_type (ISSUE-063 REQ-001/REQ-004), deduped to one entry per pack (a
+// pack declaring several engines with the same gate_type counts once) and sorted by
+// NormalizedName so resolution is deterministic. It is the shared primitive behind both
+// capability presence (packDeclaresGateType) and dispatch selection (resolveCapabilityPack).
+// The dimension string and the gate_type spelling are identical, but the map goes through
+// ParseGateType so an accidental drift yields no matches rather than a mis-selection.
+func packsDeclaringGateType(packs []*pack.Manifest, dim gate.TraceabilityDimension) []*pack.Manifest {
+	gt, err := engine.ParseGateType(string(dim))
+	if err != nil {
+		return nil
+	}
+	var out []*pack.Manifest
+	for _, m := range packs {
+		if m == nil {
+			continue
+		}
+		for _, spec := range m.Engines {
+			if spec.Binding.GateType == gt {
+				out = append(out, m)
+				break
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NormalizedName < out[j].NormalizedName })
+	return out
+}
+
+// resolveCapabilityPack selects THE installed pack that provides a dimension's capability
+// by its declared gate_type engine (ISSUE-063 REQ-004), never by name. Zero matches → nil
+// (capability-absent no-op, governed by the polarity classifier upstream). Exactly one →
+// that pack. More than one → a fail-loud config error naming the ambiguous packs, so a
+// multi-provider install can never silently pick one. The SAME by-declaration selection
+// drives both capability presence (REQ-001) and this engine dispatch (REQ-004).
+func resolveCapabilityPack(installed []*pack.Manifest, dim gate.TraceabilityDimension) (*pack.Manifest, error) {
+	matches := packsDeclaringGateType(installed, dim)
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, 0, len(matches))
+		for _, m := range matches {
+			names = append(names, m.NormalizedName)
+		}
+		return nil, fmt.Errorf(
+			"ambiguous %s capability: %d installed packs declare a %q gate_type engine (%s); exactly one pack may provide a given traceability dimension",
+			dim, len(matches), string(dim), strings.Join(names, ", "),
+		)
+	}
+}
+
 // capabilityStateForDimension computes the Present/Working/PackOrCommand capability
-// state for a dimension from installed-pack presence alone (SPEC-037/038/041). The
-// cosmetic Stack label is stamped by the caller (deriveCapabilityState).
-func capabilityStateForDimension(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState {
-	// SUBSTANTIVENESS RE-KEY (SPEC-037 REQ-009 / CLM-035 / CLM-036). The baked Go
-	// substantiveness analyzer is DELETED, so the substantiveness capability is now
-	// "the substantiveness pack is INSTALLED / resolvable" — NOT a baked language
-	// analyzer, and NOT a built-in tier. Present/Working iff the
-	// substantiveness pack is installed (declared in backstop.yml's packs map). As of
-	// SPEC-041 ALL THREE traceability dimensions (substantiveness, contracts, AND
-	// coverage) are installed-pack-keyed — no asymmetry fence remains; the baked Go
-	// analyzers for all three are eradicated.
-	if dim == gate.DimensionSubstantiveness {
-		if substantivenessPackInstalled(cfg) {
-			return gate.CapabilityState{
-				Present:       true,
-				Working:       true,
-				PackOrCommand: "the installed " + substantivenessPackName() + " pack",
-			}
-		}
-		return gate.CapabilityState{
-			Present:       false,
-			Working:       false,
-			PackOrCommand: "the " + substantivenessPackName() + " pack (install it: `backstop pack add`)",
-		}
-	}
-
-	// CONTRACTS RE-KEY (SPEC-038 REQ-015 / CLM-050 / CLM-051). The baked Go contract
-	// analyzer is DELETED, so the contracts capability is now "the contracts pack is
-	// INSTALLED / resolvable" — NOT a baked language analyzer, and NOT a
-	// built-in tier. Present/Working iff the contracts pack is installed (declared in
-	// backstop.yml's packs map). The COVERAGE arm below is ALSO installed-pack-keyed
-	// as of SPEC-041 (the baked Go coverage analyzer is eradicated) — symmetric with
-	// this arm, no fence. Absent+undeclared lands class-2 (warn, exit 0) and
-	// absent+declared class-3 (block) via the SPEC-036 classifier upstream.
-	if dim == gate.DimensionContracts {
-		if contractsPackInstalled(cfg) {
-			return gate.CapabilityState{
-				Present:       true,
-				Working:       true,
-				PackOrCommand: "the installed " + contractsPackName() + " pack",
-			}
-		}
-		return gate.CapabilityState{
-			Present:       false,
-			Working:       false,
-			PackOrCommand: "the " + contractsPackName() + " pack (install it: `backstop pack add`)",
-		}
-	}
-
-	// COVERAGE-ARM RE-KEY (SPEC-041 REQ-001). The baked Go coverage analyzer
-	// (pkg/gate/step_coverage.go's `go test -coverprofile` machinery) is ERADICATED,
-	// so the coverage capability is now "a coverage-producing toolchain pack is
-	// installed / in effect" — NOT a baked language analyzer (that arm
-	// claimed a deleted analyzer and would push an uninstalled Go project into a
-	// loud-block instead of the capability-absent warn). This MIRRORS the
-	// substantiveness (SPEC-037) and contracts (SPEC-038) re-keys: Present/Working iff
-	// a coverage toolchain pack is declared. Absent+undeclared lands class-2 (warn,
-	// exit 0) and absent+declared class-3 (block) via the SPEC-036 classifier upstream
-	// — never a vacuous green and never a vacuous loud-red.
-	if coverageToolchainPackInstalled(cfg) {
+// state for a dimension from what the installed packs DECLARE (ISSUE-063 REQ-001): a
+// dimension is present iff some installed pack declares an engine with the matching
+// gate_type (packDeclaresGateType). This replaces the three name-keyed re-keys
+// (SPEC-037/038/041) that bound each capability to a baked pack coordinate
+// (`backstop/contracts`, `backstop/substantiveness`) or a naming convention
+// (`*-toolchain`) — a pack from ANY org that declares the gate_type now fills the slot
+// (REQ-003). The PackOrCommand string is a human DISPLAY label only; it names the
+// declared capability, never a distribution coordinate. The cosmetic Stack label is
+// stamped by the caller (deriveCapabilityState). Absent+undeclared lands class-2 (warn,
+// exit 0) and absent+declared class-3 (block) via the SPEC-036 classifier upstream.
+func capabilityStateForDimension(packs []*pack.Manifest, dim gate.TraceabilityDimension) gate.CapabilityState {
+	if packDeclaresGateType(packs, dim) {
 		return gate.CapabilityState{
 			Present:       true,
 			Working:       true,
-			PackOrCommand: "the installed coverage toolchain pack",
+			PackOrCommand: "the installed pack declaring a " + string(dim) + " engine",
 		}
 	}
 	return gate.CapabilityState{
 		Present:       false,
 		Working:       false,
-		PackOrCommand: "a toolchain pack declaring a coverage engine (install it: `backstop pack add`)",
+		PackOrCommand: "a pack declaring a " + string(dim) + " engine (install it: `backstop pack add`)",
 	}
 }
 
-// coverageToolchainPackInstalled reports whether a coverage-producing toolchain
-// PACK is INSTALLED: a `<lang>-toolchain` pack is declared in backstop.yml's packs
-// map. It is the installed-pack-resolvable signal the coverage CAPABILITY keys on
-// after the baked Go coverage analyzer's eradication (SPEC-041 REQ-001), MIRRORING
-// contractsPackInstalled / substantivenessPackInstalled. It reads ONLY the packs
-// declaration surface — NOT enforcement.toolchain (that is the DECLARATION the
-// SPEC-036 classifier reads separately to tell class-2 capability-absent from
-// class-3 declared-intent-unmet; conflating the two would mask a declared-but-
-// unprovided coverage pass as capability-present). The coverage producer lives in
-// an installed pack, never compiled in.
-func coverageToolchainPackInstalled(cfg *config.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	for name := range cfg.Packs {
-		if strings.HasSuffix(name, "-toolchain") {
-			return true
-		}
-	}
-	return false
+// coverageToolchainPackInstalled reports whether the coverage capability is present:
+// some installed pack DECLARES a `gate_type: coverage` engine (ISSUE-063 REQ-002). It
+// no longer keys on a `*-toolchain` name suffix — the coverage producer is identified
+// by its declaration, not its pack name, so a coverage pack under any name/org fills
+// the slot. A thin delegator to packDeclaresGateType, kept as the named coverage-arm
+// entry point.
+func coverageToolchainPackInstalled(packs []*pack.Manifest) bool {
+	return packDeclaresGateType(packs, gate.DimensionCoverage)
 }
 
-// substantivenessPackInstalled reports whether the substantiveness pack is INSTALLED
-// (recorded in backstop.yml's packs map — a local pack records the value "local"). It
-// is the installed-pack-resolvable signal the substantiveness capability keys on after
-// the baked analyzer's deletion (REQ-009 / CLM-035). It reads ONLY the declaration
-// surface (cfg.Packs), not the binary — the rules live in an installed pack, never
-// compiled in.
-func substantivenessPackInstalled(cfg *config.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	_, ok := cfg.Packs[substantivenessPackName()]
-	return ok
+// substantivenessPackInstalled reports whether the substantiveness capability is
+// present: some installed pack DECLARES a `gate_type: substantiveness` engine
+// (ISSUE-063 REQ-002). It no longer matches the `backstop/substantiveness` coordinate;
+// capability keys on the declaration, so a substantiveness pack under any name/org
+// fills the slot. A thin delegator to packDeclaresGateType.
+func substantivenessPackInstalled(packs []*pack.Manifest) bool {
+	return packDeclaresGateType(packs, gate.DimensionSubstantiveness)
 }
 
-// contractsPackName is the stable normalized name of the contracts pack (SPEC-038).
-// It is the installed-pack key the contracts capability re-keys on after the baked
-// analyzer's deletion. A function (not a var/const) to keep the file free of
-// package-level mutable state.
-func contractsPackName() string { return "backstop/contracts" }
-
-// contractsPackInstalled reports whether the contracts pack is INSTALLED (recorded
-// in backstop.yml's packs map — a local pack records the value "local"). It is the
-// installed-pack-resolvable signal the contracts capability keys on after the baked
-// go/parser analyzer's deletion (REQ-015 / CLM-050), MIRRORING the live
-// substantivenessPackInstalled. It reads ONLY the declaration surface (cfg.Packs),
-// never the binary — the contract rules live in an installed pack, never compiled in.
-func contractsPackInstalled(cfg *config.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	_, ok := cfg.Packs[contractsPackName()]
-	return ok
+// contractsPackInstalled reports whether the contracts capability is present: some
+// installed pack DECLARES a `gate_type: contracts` engine (ISSUE-063 REQ-002). It no
+// longer matches the `backstop/contracts` coordinate; capability keys on the
+// declaration, so a contracts pack under any name/org fills the slot (REQ-003/CLM-005).
+// A thin delegator to packDeclaresGateType.
+func contractsPackInstalled(packs []*pack.Manifest) bool {
+	return packDeclaresGateType(packs, gate.DimensionContracts)
 }
 
 // wrapTraceabilityStep wraps a traceability analyzer step (the delegate) with
@@ -497,9 +488,9 @@ func contractsPackInstalled(cfg *config.Config) bool {
 // stack label (SPEC-046 REQ-004), threaded into deriveCapabilityState so the
 // rehomed classifier renders it on CapabilityState.Stack — deriveCapabilityState is
 // reached ONLY through this wrapper, so the label is stamped here, never past it.
-func wrapTraceabilityStep(cfg *config.Config, dim gate.TraceabilityDimension, stepName string, stack string, delegate gate.StepFunc) gate.StepFunc {
+func wrapTraceabilityStep(packs []*pack.Manifest, cfg *config.Config, dim gate.TraceabilityDimension, stepName string, stack string, delegate gate.StepFunc) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
-		cap := deriveCapabilityState(cfg, dim, stack)
+		cap := deriveCapabilityState(packs, dim, stack)
 		class := gate.ClassifyDimension(cfg, dim, cap)
 		if class != gate.ClassNone {
 			// Intercept — do NOT reach the analyzer.
@@ -707,9 +698,9 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// renders it on CapabilityState.Stack — no language read.
 	traceabilityCfg := gateConfig(projectRoot)
 	stackLabel := declaredToolchainStackLabel(packs)
-	testSubstantivenessStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, stackLabel, testSubstantivenessStep)
-	coverageStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, stackLabel, coverageStep)
-	contractStep = wrapTraceabilityStep(traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, stackLabel, contractStep)
+	testSubstantivenessStep = wrapTraceabilityStep(packs, traceabilityCfg, gate.DimensionSubstantiveness, gate.StepTestSubstantiveness, stackLabel, testSubstantivenessStep)
+	coverageStep = wrapTraceabilityStep(packs, traceabilityCfg, gate.DimensionCoverage, gate.StepCoverageThreshold, stackLabel, coverageStep)
+	contractStep = wrapTraceabilityStep(packs, traceabilityCfg, gate.DimensionContracts, gate.StepContractSignature, stackLabel, contractStep)
 
 	// SPEC-040 KEYSTONE CUTOVER (REQ-001/CLM-001/CLM-008): the bespoke code-check /
 	// gate.StepCodeCheckScopedFunc Step-2 entry is GONE from the step list. Lint,
@@ -1001,24 +992,15 @@ func collectTraceRefs(projectRoot string) ([]gate.TraceRef, error) {
 	return out, nil
 }
 
-// substantivenessPackName is the stable normalized name of the substantiveness pack
-// (SPEC-037). It is BOTH the routing anchor (the gate selects substantiveness findings
-// out of the flat pack_engines stream by this pack's namespaced rule IDs) AND the
-// installed-pack key: the substantiveness capability is INSTALLED-pack-resolvable, so
-// resolveSubstantivenessPacks filters loadInstalledPacks by this name. It is a function
-// (not a package-level var/const) to keep the file free of package-level mutable state.
-func substantivenessPackName() string { return "backstop/substantiveness" }
-
-// substantivenessHollowRuleID / substantivenessExtractionRuleID are the namespaced rule
-// IDs the substantiveness pack declares, used by RouteSubstantivenessFindings to
-// partition the flat pack_engines stream (REQ-007). Functions, not globals.
-func substantivenessHollowRuleID() string {
-	return pack.NamespacedRuleID(substantivenessPackName(), "hollow-test-go")
-}
-
-func substantivenessExtractionRuleID() string {
-	return pack.NamespacedRuleID(substantivenessPackName(), "referenced-symbol-go")
-}
+// substantivenessRuleName constants are the pack-declared rule NAMES the substantiveness
+// step routes on (REQ-007). They are rule IDENTITIES within whichever pack provides the
+// substantiveness capability — NOT a distribution coordinate. The namespace is derived at
+// route time from the RESOLVED pack's NormalizedName (resolveSubstantivenessPacks selects
+// it by declared gate_type, ISSUE-063), so no pack coordinate is baked here.
+const (
+	substantivenessHollowRuleName     = "hollow-test-go"
+	substantivenessExtractionRuleName = "referenced-symbol-go"
+)
 
 // resolveSubstantivenessPacksFn is a test seam: nil in production (the resolver below
 // returns the INSTALLED substantiveness pack manifest set), overridden by the wiring
@@ -1042,13 +1024,16 @@ func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving substantiveness packs: loading installed packs: %w", err)
 	}
-	out := make([]*pack.Manifest, 0, 1)
-	for _, m := range installed {
-		if m.NormalizedName == substantivenessPackName() {
-			out = append(out, m)
-		}
+	// Select the substantiveness pack by its DECLARED gate_type: substantiveness engine
+	// (ISSUE-063 REQ-004), not by NormalizedName — org-agnostic, fail-loud on ambiguity.
+	m, err := resolveCapabilityPack(installed, gate.DimensionSubstantiveness)
+	if err != nil {
+		return nil, fmt.Errorf("resolving substantiveness pack: %w", err)
 	}
-	return out, nil
+	if m == nil {
+		return []*pack.Manifest{}, nil
+	}
+	return []*pack.Manifest{m}, nil
 }
 
 // buildTestSubstantivenessStep re-implements the substantiveness step (SPEC-037 REQ-005)
@@ -1123,8 +1108,15 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
-		// Route the flat stream by namespaced rule ID (no gate_type field exists).
-		hollow, extraction := gate.RouteSubstantivenessFindings(flat, substantivenessHollowRuleID(), substantivenessExtractionRuleID())
+		// Route the flat stream by namespaced rule ID (no gate_type field exists). The
+		// namespace is the RESOLVED pack's NormalizedName (selected by declared gate_type,
+		// ISSUE-063), so the routing IDs carry no baked pack coordinate.
+		packName := packs[0].NormalizedName
+		hollow, extraction := gate.RouteSubstantivenessFindings(
+			flat,
+			pack.NamespacedRuleID(packName, substantivenessHollowRuleName),
+			pack.NamespacedRuleID(packName, substantivenessExtractionRuleName),
+		)
 
 		var violations []gate.Violation
 		// Q1 hollow → one test_substantiveness violation per routed hollow finding,
@@ -1343,13 +1335,17 @@ func resolveContractsPacks(projectRoot string) ([]*pack.Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading installed packs: %w", err)
 	}
-	out := make([]*pack.Manifest, 0, 1)
-	for _, m := range installed {
-		if m.NormalizedName == contractsPackName() {
-			out = append(out, m)
-		}
+	// Select the contracts pack by its DECLARED gate_type: contracts engine (ISSUE-063
+	// REQ-004), not by NormalizedName — so a contracts pack under any name/org dispatches,
+	// and a two-provider install fails loud rather than silently picking one.
+	m, err := resolveCapabilityPack(installed, gate.DimensionContracts)
+	if err != nil {
+		return nil, fmt.Errorf("resolving contracts pack: %w", err)
 	}
-	return out, nil
+	if m == nil {
+		return []*pack.Manifest{}, nil
+	}
+	return []*pack.Manifest{m}, nil
 }
 
 // dispatchContractEntry runs ONE contract entry through the REAL pack-engine dispatch

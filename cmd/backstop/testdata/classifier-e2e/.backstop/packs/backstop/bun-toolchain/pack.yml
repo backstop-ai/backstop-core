@@ -1,13 +1,21 @@
-# E2E fixture toolchain pack for a SECOND language with NO coverage engine — a
-# changed .ts file classified as measurable source therefore has NO coverage
-# record, so the anti-vacuous-green no-record guard fires through the real
-# assembled gate (CLM-020). Classification block only + minimal SDK content.
+# E2E fixture toolchain pack for a SECOND language. Declares a coverage engine
+# (gate_type: coverage) so coverage capability is present by declaration
+# (ISSUE-063), with NO rule bound to it — dispatchPackCoverage never runs it, so a
+# changed .ts file classified as measurable source has NO coverage record and the
+# anti-vacuous-green no-record guard fires through the real assembled gate (CLM-020).
 name: backstop/bun-toolchain
 version: 1.0.0
 language: typescript
 archetype: code
 description: >
-  E2E classifier fixture: bun-toolchain classification block only (no engines).
+  E2E classifier fixture: bun-toolchain classification block + a declared (unbound)
+  coverage engine.
+engines:
+  bun-coverage:
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: coverage
 classification:
   source:
     - "**/*.ts"

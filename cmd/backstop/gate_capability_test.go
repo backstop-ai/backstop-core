@@ -30,7 +30,7 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 	// pack installed, the dimension is capability-ABSENT regardless of language: a Go
 	// project with NO substantiveness pack installed is undeclared+absent -> class 2
 	// (NOT capability-present-via-a-baked-analyzer, which no longer exists).
-	goNoPack := deriveCapabilityState(goCfg, gate.DimensionSubstantiveness, "")
+	goNoPack := deriveCapabilityState(nil, gate.DimensionSubstantiveness, "")
 	if goNoPack.Present {
 		t.Errorf("substantiveness on go with NO pack installed: Present = true, want false (analyzer deleted, pack not installed)")
 	}
@@ -43,7 +43,7 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 	// dimension is capability-ABSENT regardless of language (the baked go/parser
 	// analyzer is deleted). A Go project with NO contracts pack installed is
 	// undeclared+absent -> class 2.
-	goNoContractsPack := deriveCapabilityState(goCfg, gate.DimensionContracts, "")
+	goNoContractsPack := deriveCapabilityState(nil, gate.DimensionContracts, "")
 	if goNoContractsPack.Present {
 		t.Errorf("contracts on go with NO pack installed: Present = true, want false (analyzer deleted, pack not installed)")
 	}
@@ -56,7 +56,7 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 	// toolchain pack, the dimension is capability-ABSENT regardless of language (the
 	// baked Go coverage analyzer is eradicated). A Go project with NO coverage pack is
 	// undeclared+absent -> class 2.
-	goNoCoveragePack := deriveCapabilityState(goCfg, gate.DimensionCoverage, "")
+	goNoCoveragePack := deriveCapabilityState(nil, gate.DimensionCoverage, "")
 	if goNoCoveragePack.Present {
 		t.Errorf("coverage on go with NO toolchain pack installed: Present = true, want false (analyzer eradicated, pack not installed)")
 	}
@@ -71,7 +71,7 @@ func TestCapabilityState_NonGoProject_DerivesAbsentClass2(t *testing.T) {
 func TestCapabilityState_NonGoUndeclared_NeverAutoPromotes(t *testing.T) {
 	tsCfg := &config.Config{Project: "rt"}
 	for i := 0; i < 5; i++ {
-		cap := deriveCapabilityState(tsCfg, gate.DimensionCoverage, "")
+		cap := deriveCapabilityState(nil, gate.DimensionCoverage, "")
 		got := gate.ClassifyDimension(tsCfg, gate.DimensionCoverage, cap)
 		if got != gate.ClassCapabilityAbsent {
 			t.Fatalf("run %d: class = %v, want ClassCapabilityAbsent (no auto-promotion)", i, got)

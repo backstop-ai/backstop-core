@@ -1,0 +1,179 @@
+---
+plan_id: PLAN-ISSUE-063
+spec_id: ISSUE-063
+created: "2026-07-17"
+status: completed
+target_module: cmd/backstop, pkg/gate, backstop-self-pack
+test_command: "go test ./cmd/backstop/... -run 'Capability|Dimension|PackDeclares|Resolve'"
+coverage_threshold: 90
+notes: >
+  TDD-ordered. P1 builds the by-declaration detector (scan installed manifests for an engine
+  whose gate_type matches the dimension). P2 swaps the three name-keyed detectors to use it
+  and deletes the hardcoded names + suffix. P3 swaps dispatch resolution (resolveContractsPacks
+  and friends) to the same by-declaration selection with fail-loud ambiguity. P4 adds the
+  self rule. P5 is the behavior-preserving regression + full gate. Independent of ISSUE-062.
+
+phases:
+  - id: P1
+    name: By-declaration capability detector
+    tasks:
+      - id: T-001
+        type: test
+        title: Test capability presence keys on a declared gate_type engine
+        description: >
+          Assert a helper reports a dimension present iff some installed pack manifest declares
+          an engine with gate_type == dimension, and absent otherwise. Table-drive contracts,
+          substantiveness, coverage.
+        files:
+          - cmd/backstop/capability_test.go
+        claims: [CLM-001, CLM-002]
+        depends_on: []
+        test_names: [TestCapability_PresentWhenPackDeclaresGateType, TestCapability_AbsentWhenNoPackDeclaresGateType]
+      - id: T-002
+        type: implementation
+        title: Implement packDeclaresGateType detection over installed manifests
+        description: >
+          Add a helper that loads the installed pack manifests and returns whether any declares
+          an engine with the given gate_type, reading manifest.Engines[].GateType.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [T-001]
+      - id: T-003
+        type: verification
+        title: Scoped gate on the detector
+        description: Run backstop gate scoped to the detector + its test green.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [T-002]
+
+  - id: P2
+    name: Swap the three name-keyed detectors; delete literals and suffix
+    tasks:
+      - id: T-004
+        type: test
+        title: Test name literals and suffix heuristic are gone and org-agnostic detection works
+        description: >
+          Assert contractsPackName/substantivenessPackName are removed, the -toolchain suffix
+          test is gone from coverage detection, and a non-backstop-org pack declaring a
+          contracts gate_type engine is detected present.
+        files:
+          - cmd/backstop/capability_test.go
+        claims: [CLM-003, CLM-004, CLM-005]
+        depends_on: [T-003]
+        test_names: [TestHardcodedCapabilityPackNamesRemoved, TestCoverageToolchainSuffixHeuristicRemoved, TestCapability_OrgAgnosticProvider]
+      - id: T-005
+        type: implementation
+        title: Route contracts/substantiveness/coverage capability through packDeclaresGateType
+        description: >
+          Rewrite contractsPackInstalled, substantivenessPackInstalled, coverageToolchainPackInstalled
+          to call packDeclaresGateType(cfg, <dimension>); delete contractsPackName/substantivenessPackName
+          and the -toolchain suffix test. Keep any name only as a display label.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-003, CLM-004, CLM-005]
+        depends_on: [T-004]
+      - id: T-006
+        type: verification
+        title: Scoped gate on the swapped detectors
+        description: Run backstop gate scoped to gate.go + capability_test.go green.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-003, CLM-004, CLM-005]
+        depends_on: [T-005]
+
+  - id: P3
+    name: Resolve dispatch pack by declaration; fail loud on ambiguity
+    tasks:
+      - id: T-007
+        type: test
+        title: Test dispatch pack resolution by gate_type and ambiguity fail-loud
+        description: >
+          Assert resolveContractsPacks (and the substantiveness equivalent) select the pack by its
+          declared gate_type engine, not NormalizedName; and that two installed packs declaring the
+          same dimension gate_type resolve deterministically or return a loud config error.
+        files:
+          - cmd/backstop/gate_test.go
+        claims: [CLM-006, CLM-007]
+        depends_on: [T-006]
+        test_names: [TestResolveContractsPack_ByGateTypeNotName, TestResolveCapabilityPack_AmbiguityFailsLoud]
+      - id: T-008
+        type: implementation
+        title: Select dispatch pack by declared gate_type engine
+        description: >
+          Change resolveContractsPacks (and the substantiveness dispatch pack resolution) to match
+          on a declared gate_type engine instead of NormalizedName == backstop/contracts; add
+          deterministic ordering + a fail-loud config error on ambiguity.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-006, CLM-007]
+        depends_on: [T-007]
+      - id: T-009
+        type: verification
+        title: Scoped gate on dispatch resolution
+        description: Run backstop gate scoped to gate.go + gate_test.go green.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-006, CLM-007]
+        depends_on: [T-008]
+
+  - id: P4
+    name: backstop/self rule for baked pack-name capability detection
+    tasks:
+      - id: T-010
+        type: test
+        title: Fixtures for the pack-name-keyed-capability self rule
+        description: >
+          Add a positive fixture (cfg.Packs["backstop/contracts"] map-key detection, or a
+          strings.HasSuffix on a pack name used to decide a capability) and a negative fixture
+          (a gate_type-declaration scan) under the self pack.
+        files:
+          - backstop-self-pack/fixtures/rules/invalid/pack-name-keyed-capability.go
+          - backstop-self-pack/fixtures/rules/valid/gate-type-declaration-scan.go
+        claims: [CLM-008]
+        depends_on: []
+        test_names: [TestSelfRule_FlagsPackNameKeyedCapabilityDetection]
+      - id: T-011
+        type: implementation
+        title: Add the no-pack-name-keyed-capability rule to backstop/self
+        description: >
+          Add a semgrep rule (Family B6) to backstop-self-pack/rules/no-baked.yml flagging a
+          pack-name string literal used as a cfg.Packs map key or a HasSuffix/HasPrefix/Contains
+          test on a pack name for capability/behavior decisions; register in pack.yml with fixtures.
+        files:
+          - backstop-self-pack/rules/no-baked.yml
+          - backstop-self-pack/pack.yml
+        claims: [CLM-008]
+        depends_on: [T-010]
+      - id: T-012
+        type: verification
+        title: Pack test for backstop/self
+        description: Run backstop pack test in backstop-self-pack green.
+        files:
+          - backstop-self-pack/rules/no-baked.yml
+        claims: [CLM-008]
+        depends_on: [T-011]
+
+  - id: P5
+    name: Behavior-preserving regression + full gate
+    tasks:
+      - id: T-013
+        type: test
+        title: Current backstop-first install resolves every dimension unchanged
+        description: >
+          Regression test: with the present backstop-named packs installed, contracts,
+          substantiveness, and coverage all resolve present exactly as before the swap.
+        files:
+          - cmd/backstop/capability_regression_test.go
+        claims: [CLM-009]
+        depends_on: [T-006, T-009]
+        test_names: [TestCapability_CurrentInstallUnchanged]
+      - id: T-014
+        type: verification
+        title: Full gate + validate
+        description: Run backstop gate --all and backstop artifact validate --all green.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-009]
+        depends_on: [T-013, T-002, T-005, T-008, T-011]

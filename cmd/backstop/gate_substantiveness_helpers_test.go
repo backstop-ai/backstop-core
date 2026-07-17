@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // gate_substantiveness_helpers_test.go covers the cmd/backstop-side substantiveness
@@ -21,20 +22,24 @@ import (
 // old package-clause fixtures are NOT portable 1:1 — directory-leaf is a deliberate
 // behavior change (Sharp Edge), so the obsolete assertions are removed, not ported.
 
-// TestSubstantivenessPackInstalled_ReadsPacksMap — the installed-pack signal keys on the
-// backstop.yml packs map: declared → true, absent/nil → false.
+// TestSubstantivenessPackInstalled_ReadsPacksMap — MIGRATED FOR ISSUE-063: the
+// substantiveness capability signal keys on a DECLARED gate_type engine, not the pack
+// name. Empty/nil pack set → false; a pack declaring only some other gate_type → false; a
+// pack (any name/org) declaring a substantiveness engine → true.
 func TestSubstantivenessPackInstalled_ReadsPacksMap(t *testing.T) {
 	if substantivenessPackInstalled(nil) {
-		t.Errorf("nil config must report the pack as NOT installed")
+		t.Errorf("nil pack set must report the capability as NOT present")
 	}
-	if substantivenessPackInstalled(&config.Config{}) {
-		t.Errorf("a config with no packs map must report NOT installed")
+	if substantivenessPackInstalled([]*pack.Manifest{}) {
+		t.Errorf("an empty pack set must report NOT present")
 	}
-	if substantivenessPackInstalled(&config.Config{Packs: config.Packs{"other/pack": "1.0.0"}}) {
-		t.Errorf("a config without the substantiveness pack must report NOT installed")
+	otherOnly := []*pack.Manifest{packDeclaringGateType("other/pack", engine.GateTypeLint)}
+	if substantivenessPackInstalled(otherOnly) {
+		t.Errorf("a pack declaring no substantiveness engine must report NOT present")
 	}
-	if !substantivenessPackInstalled(&config.Config{Packs: config.Packs{"backstop/substantiveness": "local"}}) {
-		t.Errorf("a config declaring the substantiveness pack must report INSTALLED")
+	declaring := []*pack.Manifest{packDeclaringGateType("any/name", engine.GateTypeSubstantiveness)}
+	if !substantivenessPackInstalled(declaring) {
+		t.Errorf("a pack declaring a substantiveness engine must report present regardless of name")
 	}
 }
 

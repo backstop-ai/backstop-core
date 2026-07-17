@@ -5,132 +5,124 @@ import (
 
 	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
-// gate_capability_rekey_test.go pins the SUBSTANTIVENESS-ONLY capability re-key at the
-// live locus deriveCapabilityState (SPEC-037 REQ-009 / CLM-035 / CLM-036). The
-// substantiveness arm keys on "the substantiveness pack is INSTALLED" (not the deleted
-// baked Go analyzer); the coverage and contracts arms are UNCHANGED.
+// gate_capability_rekey_test.go pins the SUBSTANTIVENESS capability signal at the live
+// locus deriveCapabilityState. MIGRATED FOR ISSUE-063: the capability is no longer keyed
+// on the installed pack's NAME (backstop/substantiveness) — it keys on whether some
+// installed pack DECLARES a `gate_type: substantiveness` engine (packDeclaresGateType).
+// The provider's name/org is irrelevant; only the declaration matters.
 
-// goCfgWithSubstPack returns a Go config that has the substantiveness pack installed
-// (declared in the packs map, value "local" — the dogfood local install).
-func goCfgWithSubstPack() *config.Config {
-	return &config.Config{
-		Project: "rt",
-		Packs:   config.Packs{"backstop/substantiveness": "local"},
-	}
+// substPacks returns an installed-pack set declaring a substantiveness engine. The
+// pack name is a backstop coordinate here only for readability — detection keys on the
+// declared gate_type, proven org-agnostic by TestCapability_OrgAgnosticProvider.
+func substPacks() []*pack.Manifest {
+	return []*pack.Manifest{packDeclaringGateType("backstop/substantiveness", engine.GateTypeSubstantiveness)}
 }
 
-// TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer (CLM-035) — the
-// substantiveness dimension's CapabilityState source is "the substantiveness pack is
-// installed/resolvable": installed -> Present/Working (gate RUNS it); absent+undeclared
+// goToolchainCoveragePacks returns an installed-pack set declaring a coverage engine
+// (the go-toolchain's role) — the coverage capability provider.
+func goToolchainCoveragePacks() []*pack.Manifest {
+	return []*pack.Manifest{packDeclaringGateType("backstop/go-toolchain", engine.GateTypeCoverage)}
+}
+
+// TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer — the
+// substantiveness dimension's CapabilityState source is "some installed pack declares a
+// substantiveness engine": declared -> Present/Working (gate RUNS it); absent+undeclared
 // -> class-2 (capability-absent, warn, exit 0); absent+declared -> class-3 (declared-
 // intent-unmet, block).
 func TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer(t *testing.T) {
 	const dim = gate.DimensionSubstantiveness
+	undeclaredCfg := &config.Config{Project: "rt"}
 
-	// Pack installed -> Present/Working, and the PackOrCommand names the PACK, not a
-	// baked Go analyzer.
-	installed := deriveCapabilityState(goCfgWithSubstPack(), dim, "")
+	// A pack declaring the substantiveness engine -> Present/Working, and PackOrCommand
+	// names the declared capability, not a baked Go analyzer.
+	installed := deriveCapabilityState(substPacks(), dim, "")
 	if !installed.Present || !installed.Working {
-		t.Errorf("pack installed: want Present+Working, got %+v", installed)
+		t.Errorf("pack declaring substantiveness engine: want Present+Working, got %+v", installed)
 	}
 	if installed.PackOrCommand == "the baked Go substantiveness analyzer" {
 		t.Errorf("substantiveness must NOT key on the deleted baked analyzer; got %q", installed.PackOrCommand)
 	}
-	// Installed + undeclared -> none/proceed (the gate runs the pack step).
-	if got := gate.ClassifyDimension(goCfgWithSubstPack(), dim, installed); got != gate.ClassNone {
-		t.Errorf("installed + undeclared: class = %v, want ClassNone (proceed)", got)
+	// Present + undeclared -> none/proceed (the gate runs the pack step).
+	if got := gate.ClassifyDimension(undeclaredCfg, dim, installed); got != gate.ClassNone {
+		t.Errorf("present + undeclared: class = %v, want ClassNone (proceed)", got)
 	}
 
-	// Pack absent + undeclared -> capability-absent (class 2).
-	absentCfg := &config.Config{Project: "rt"}
-	absent := deriveCapabilityState(absentCfg, dim, "")
+	// No provider + undeclared -> capability-absent (class 2).
+	absent := deriveCapabilityState(nil, dim, "")
 	if absent.Present {
-		t.Errorf("pack absent: want Present=false, got %+v", absent)
+		t.Errorf("no provider: want Present=false, got %+v", absent)
 	}
-	if got := gate.ClassifyDimension(absentCfg, dim, absent); got != gate.ClassCapabilityAbsent {
+	if got := gate.ClassifyDimension(undeclaredCfg, dim, absent); got != gate.ClassCapabilityAbsent {
 		t.Errorf("absent + undeclared: class = %v, want ClassCapabilityAbsent", got)
 	}
 
-	// Pack absent + DECLARED -> declared-intent-unmet (class 3, block).
+	// No provider + DECLARED -> declared-intent-unmet (class 3, block).
 	declaredCfg := &config.Config{Project: "rt"}
 	declaredCfg.Enforcement.Toolchain = map[string]config.ToolchainPass{
 		"substantiveness": {GateType: string(dim)},
 	}
-	if got := gate.ClassifyDimension(declaredCfg, dim, deriveCapabilityState(declaredCfg, dim, "")); got != gate.ClassDeclaredIntentUnmet {
+	if got := gate.ClassifyDimension(declaredCfg, dim, deriveCapabilityState(nil, dim, "")); got != gate.ClassDeclaredIntentUnmet {
 		t.Errorf("absent + declared: class = %v, want ClassDeclaredIntentUnmet (block)", got)
 	}
 }
 
-// TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged (CLM-036) —
-// UPDATED FOR SPEC-041 (align-predating-artifacts): SPEC-041 ERADICATES the baked Go
-// coverage analyzer and re-keys COVERAGE onto the installed coverage toolchain pack,
-// so ALL THREE traceability dimensions are now pack-keyed (no asymmetry fence). This
-// test now verifies that the COVERAGE arm is capability-ABSENT when no coverage
-// toolchain pack is installed (the old "coverage stays baked-Go-present" invariant is
-// overturned — that was coverage's deferred re-impl, now landed).
+// TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged — each dimension's
+// capability is driven by its OWN declared gate_type: a coverage provider grants coverage
+// only, a substantiveness provider grants substantiveness only. No dimension leaks into
+// another, and none is baked-Go-present.
 func TestCapability_RekeyIsSubstantivenessOnly_CoverageContractsUnchanged(t *testing.T) {
-	// No packs installed.
-	goCfg := &config.Config{Project: "rt"}
-
-	// COVERAGE arm RE-KEYED — pack-resolvable, NOT the deleted baked analyzer: absent
-	// without a coverage toolchain pack.
-	covCap := deriveCapabilityState(goCfg, gate.DimensionCoverage, "")
+	// COVERAGE — absent without a coverage-declaring pack, present with one.
+	covCap := deriveCapabilityState(nil, gate.DimensionCoverage, "")
 	if covCap.Present || covCap.Working {
-		t.Errorf("coverage on go with no toolchain pack must be capability-absent (baked analyzer eradicated); got %+v", covCap)
+		t.Errorf("coverage with no coverage-declaring pack must be capability-absent; got %+v", covCap)
 	}
 	if covCap.PackOrCommand == "the baked Go coverage analyzer" {
 		t.Errorf("coverage must NOT key on the deleted baked analyzer; got %q", covCap.PackOrCommand)
 	}
-
-	// With a go-toolchain pack installed, coverage flips to Present.
-	covCfg := &config.Config{Project: "rt", Packs: config.Packs{"backstop/go-toolchain": "local"}}
-	covInstalled := deriveCapabilityState(covCfg, gate.DimensionCoverage, "")
+	covInstalled := deriveCapabilityState(goToolchainCoveragePacks(), gate.DimensionCoverage, "")
 	if !covInstalled.Present || !covInstalled.Working {
-		t.Errorf("coverage with a go-toolchain pack installed must be Present+Working; got %+v", covInstalled)
+		t.Errorf("coverage with a coverage-declaring pack installed must be Present+Working; got %+v", covInstalled)
 	}
 
-	// SUBSTANTIVENESS arm — keyed on the installed pack: absent without it.
-	subCap := deriveCapabilityState(goCfg, gate.DimensionSubstantiveness, "")
+	// SUBSTANTIVENESS — absent without a substantiveness-declaring pack, present with.
+	subCap := deriveCapabilityState(nil, gate.DimensionSubstantiveness, "")
 	if subCap.Present {
-		t.Errorf("substantiveness on go with no pack must be capability-absent; got %+v", subCap)
+		t.Errorf("substantiveness with no provider must be capability-absent; got %+v", subCap)
 	}
-	subInstalled := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness, "")
+	subInstalled := deriveCapabilityState(substPacks(), gate.DimensionSubstantiveness, "")
 	if !subInstalled.Present {
-		t.Errorf("substantiveness with the pack installed must be Present; got %+v", subInstalled)
+		t.Errorf("substantiveness with a provider installed must be Present; got %+v", subInstalled)
 	}
-	// Coverage keying is invariant to the SUBSTANTIVENESS pack (it reads only the
-	// toolchain/coverage declaration, not the substantiveness pack).
-	covWithSubstPack := deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionCoverage, "")
-	if covWithSubstPack != covCap {
-		t.Errorf("coverage keying must be invariant to the substantiveness pack; with=%+v without=%+v", covWithSubstPack, covCap)
+
+	// Coverage keying is invariant to the SUBSTANTIVENESS provider — a substantiveness
+	// pack declares no coverage engine, so it grants no coverage.
+	covWithSubstPack := deriveCapabilityState(substPacks(), gate.DimensionCoverage, "")
+	if covWithSubstPack.Present {
+		t.Errorf("a substantiveness-only pack must not grant coverage; got %+v", covWithSubstPack)
 	}
 }
 
-// TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey (CLM-037) —
-// UPDATED FOR SPEC-041: ALL THREE traceability dimensions are now INSTALLED-pack
-// keyed (substantiveness, contracts, and now coverage — the baked Go coverage
-// analyzer is eradicated). This guards that the shipped test was migrated, not
-// silently broken, and ./cmd/backstop/ stays green.
+// TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey — guards that ALL
+// THREE dimensions are declaration-keyed: absent without a declaring pack, present with
+// the matching gate_type declaration. No dimension is baked-Go-present.
 func TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey(t *testing.T) {
-	goCfg := &config.Config{Project: "rt"}
-	goCfgWithToolchain := &config.Config{Project: "rt", Packs: config.Packs{"backstop/go-toolchain": "local"}}
-
-	// Coverage arm: INSTALLED-pack keying (absent without a coverage toolchain pack,
-	// present with). No longer the deleted baked-Go analyzer.
-	if deriveCapabilityState(goCfg, gate.DimensionCoverage, "").Present {
-		t.Errorf("migrated test: coverage on go with NO toolchain pack must be Absent (re-keyed, analyzer eradicated)")
+	// Coverage arm: declaration keying.
+	if deriveCapabilityState(nil, gate.DimensionCoverage, "").Present {
+		t.Errorf("migrated test: coverage with NO coverage-declaring pack must be Absent")
 	}
-	if !deriveCapabilityState(goCfgWithToolchain, gate.DimensionCoverage, "").Present {
-		t.Errorf("migrated test: coverage with a go-toolchain pack installed must be Present (re-keyed)")
+	if !deriveCapabilityState(goToolchainCoveragePacks(), gate.DimensionCoverage, "").Present {
+		t.Errorf("migrated test: coverage with a coverage-declaring pack installed must be Present")
 	}
 
-	// Substantiveness arm: INSTALLED-pack keying (absent without the pack, present with).
-	if deriveCapabilityState(goCfg, gate.DimensionSubstantiveness, "").Present {
-		t.Errorf("migrated test: substantiveness on go with NO pack must be Absent (re-keyed)")
+	// Substantiveness arm: declaration keying.
+	if deriveCapabilityState(nil, gate.DimensionSubstantiveness, "").Present {
+		t.Errorf("migrated test: substantiveness with NO provider must be Absent")
 	}
-	if !deriveCapabilityState(goCfgWithSubstPack(), gate.DimensionSubstantiveness, "").Present {
-		t.Errorf("migrated test: substantiveness with the pack installed must be Present (re-keyed)")
+	if !deriveCapabilityState(substPacks(), gate.DimensionSubstantiveness, "").Present {
+		t.Errorf("migrated test: substantiveness with a provider installed must be Present")
 	}
 }

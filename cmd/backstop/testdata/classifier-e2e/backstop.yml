@@ -1,8 +1,9 @@
 # REQ-005 e2e fixture: drives the FULL gate assembly (buildGateSteps/runGate) so
 # the live mergeSourceClassifier(packs) call site is exercised. Declares TWO
 # toolchain packs so the merge is proven as a UNION across declared packs
-# (CLM-021); both end in "-toolchain" so the coverage capability is present and
-# the traceability wrapper falls through to the real coverage step.
+# (CLM-021); each declares a coverage engine (gate_type: coverage) so the coverage
+# capability is present by declaration (ISSUE-063) and the traceability wrapper
+# falls through to the real coverage step.
 project: classifier-e2e-fixture
 language: go
 packs:

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
 	"github.com/bmanson/backstop-core/pkg/gate"
 	"github.com/bmanson/backstop-core/pkg/pack"
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
 
 // gate_contract_wiring_test.go (SPEC-038 TASK-024, REQ-006): the contract step consumes
@@ -204,16 +204,22 @@ type errTest string
 
 func (e errTest) Error() string { return string(e) }
 
-// TestContractsPackInstalled_NilAndAbsent covers the nil-config and absent branches.
+// TestContractsPackInstalled_NilAndAbsent covers the nil/empty and declaration branches.
+// MIGRATED FOR ISSUE-063: the contracts capability keys on a DECLARED gate_type engine,
+// not the pack name — a pack under any name/org declaring a contracts engine reports
+// present.
 func TestContractsPackInstalled_NilAndAbsent(t *testing.T) {
 	if contractsPackInstalled(nil) {
-		t.Error("nil config must report not installed")
+		t.Error("nil pack set must report not present")
 	}
-	if contractsPackInstalled(&config.Config{}) {
-		t.Error("config with no packs must report not installed")
+	if contractsPackInstalled([]*pack.Manifest{}) {
+		t.Error("empty pack set must report not present")
 	}
-	if !contractsPackInstalled(&config.Config{Packs: config.Packs{"backstop/contracts": "local"}}) {
-		t.Error("config declaring the contracts pack must report installed")
+	if contractsPackInstalled([]*pack.Manifest{packDeclaringGateType("other/pack", engine.GateTypeLint)}) {
+		t.Error("a pack declaring no contracts engine must report not present")
+	}
+	if !contractsPackInstalled([]*pack.Manifest{packDeclaringGateType("any/name", engine.GateTypeContracts)}) {
+		t.Error("a pack declaring a contracts engine must report present regardless of name")
 	}
 }
 

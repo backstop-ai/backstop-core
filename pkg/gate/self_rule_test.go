@@ -82,3 +82,28 @@ func TestSelfRuleFlagsStructuralNameSplitOnSpine(t *testing.T) {
 		t.Errorf("a structured-property read must NOT be flagged by %s; got check_ids %v", ruleID, gotClean)
 	}
 }
+
+// TestSelfRule_FlagsPackNameKeyedCapabilityDetection (ISSUE-063 CLM-008): the B6 self rule
+// flags capability detection keyed on a pack-name literal — an org/pack coordinate used as
+// a cfg.Packs map key, or a HasSuffix on a pack name — and leaves a gate_type-declaration
+// scan clean. Runs the REAL semgrep engine over the testdata copy of the rule + its two
+// fixtures; a semgrep-absent Skip is a Fatal (a skip is the vacuous green the rule kills).
+func TestSelfRule_FlagsPackNameKeyedCapabilityDetection(t *testing.T) {
+	const ruleID = "no-pack-name-keyed-capability"
+	rule := filepath.Join("testdata", "self-rule", "no-baked.yml")
+
+	// Negative fixture (a cfg.Packs coordinate-literal detector + a -toolchain suffix
+	// test) MUST trigger the rule.
+	violation := filepath.Join("testdata", "self-rule", "pack-name-keyed-capability.go")
+	got := runSelfRule(t, rule, violation)
+	if !containsRule(got, ruleID) {
+		t.Errorf("a pack-name-keyed capability detector must be flagged by %s; got check_ids %v", ruleID, got)
+	}
+
+	// Positive fixture (a gate_type-declaration scan) must be CLEAN of this rule.
+	clean := filepath.Join("testdata", "self-rule", "gate-type-declaration-scan.go")
+	gotClean := runSelfRule(t, rule, clean)
+	if containsRule(gotClean, ruleID) {
+		t.Errorf("a gate_type-declaration scan must NOT be flagged by %s; got check_ids %v", ruleID, gotClean)
+	}
+}

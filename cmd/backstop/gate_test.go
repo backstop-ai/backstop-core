@@ -12,7 +12,59 @@ import (
 	"time"
 
 	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/bmanson/backstop-core/pkg/pack/engine"
 )
+
+// TestResolveContractsPack_ByGateTypeNotName (CLM-006): resolveCapabilityPack — the
+// selection primitive resolveContractsPacks delegates to — picks the contracts pack by
+// its DECLARED gate_type: contracts engine, NOT by name. A pack literally named
+// backstop/contracts that declares NO contracts engine is passed over in favor of a pack
+// under a different name/org that DOES declare one. If selection were name-keyed the
+// backstop-named pack would win; by declaration, the actual provider does.
+func TestResolveContractsPack_ByGateTypeNotName(t *testing.T) {
+	named := &pack.Manifest{
+		NormalizedName: "backstop/contracts",
+		Engines:        map[string]pack.EngineSpec{"lint": {Binding: engine.EngineBinding{GateType: engine.GateTypeLint}}},
+	}
+	provider := &pack.Manifest{
+		NormalizedName: "acme/ts-contracts",
+		Engines:        map[string]pack.EngineSpec{"sig": {Binding: engine.EngineBinding{GateType: engine.GateTypeContracts}}},
+	}
+	got, err := resolveCapabilityPack([]*pack.Manifest{named, provider}, gate.DimensionContracts)
+	if err != nil {
+		t.Fatalf("resolveCapabilityPack: unexpected error %v", err)
+	}
+	if got == nil || got.NormalizedName != "acme/ts-contracts" {
+		t.Fatalf("contracts pack must be selected by declared gate_type, not name; got %v", got)
+	}
+}
+
+// TestResolveCapabilityPack_AmbiguityFailsLoud (CLM-007): when MORE THAN ONE installed
+// pack declares the same dimension's gate_type, resolution fails loud (returns an error
+// naming the ambiguous packs) rather than silently picking one.
+func TestResolveCapabilityPack_AmbiguityFailsLoud(t *testing.T) {
+	a := &pack.Manifest{
+		NormalizedName: "acme/contracts-a",
+		Engines:        map[string]pack.EngineSpec{"sig": {Binding: engine.EngineBinding{GateType: engine.GateTypeContracts}}},
+	}
+	b := &pack.Manifest{
+		NormalizedName: "beta/contracts-b",
+		Engines:        map[string]pack.EngineSpec{"sig": {Binding: engine.EngineBinding{GateType: engine.GateTypeContracts}}},
+	}
+	got, err := resolveCapabilityPack([]*pack.Manifest{a, b}, gate.DimensionContracts)
+	if err == nil {
+		t.Fatalf("two packs declaring the same gate_type must fail loud; got pack %v, nil error", got)
+	}
+	if got != nil {
+		t.Errorf("on ambiguity, no pack must be selected; got %v", got)
+	}
+	for _, want := range []string{"acme/contracts-a", "beta/contracts-b", "ambiguous"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ambiguity error must name %q; got %q", want, err.Error())
+		}
+	}
+}
 
 func makePassStep(name string) gate.StepFunc {
 	return func(_ context.Context) gate.StepResult {

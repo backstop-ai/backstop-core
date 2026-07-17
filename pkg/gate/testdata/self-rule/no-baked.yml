@@ -166,3 +166,40 @@ rules:
           - pattern: strings.IndexAny($X, " ")
           - pattern: strings.IndexAny($X, " \t")
           - pattern: strings.LastIndexAny($X, " \t\n")
+
+  # ---- Family B6: baked distribution identity in capability logic (ISSUE-063) ----
+  # Test-harness copy. Same rule as the source pack, but the LIVE `*testdata*` exclude is
+  # omitted so the fixtures under pkg/gate/testdata/self-rule/ ARE scanned by the real
+  # semgrep run (mirrors the B5 harness copy).
+  - id: no-pack-name-keyed-capability
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked distribution identity in capability logic: a capability is keyed on a pack-NAME
+      literal — an org/pack coordinate used as a cfg.Packs map key, or a
+      HasSuffix/HasPrefix/Contains test on a pack name (e.g. a "-toolchain" convention).
+      Derive the capability from a DECLARED gate_type engine, never from the pack's name.
+    paths:
+      include:
+        - "pkg/gate/*.go"
+        - "cmd/backstop/gate.go"
+        - "cmd/backstop/pack_gate*.go"
+        - "*pack-name-keyed-capability*.go"
+        - "*gate-type-declaration-scan*.go"
+      exclude:
+        - "*_test.go"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: $CFG.Packs["$NAME"]
+              - metavariable-regex:
+                  metavariable: $NAME
+                  regex: '^"?[A-Za-z0-9-]+/[A-Za-z0-9-]+"?$'
+          - patterns:
+              - pattern-either:
+                  - pattern: strings.HasSuffix($X, "$LIT")
+                  - pattern: strings.HasPrefix($X, "$LIT")
+                  - pattern: strings.Contains($X, "$LIT")
+              - metavariable-regex:
+                  metavariable: $LIT
+                  regex: '^"?(-toolchain|[A-Za-z0-9-]+/[A-Za-z0-9-]+)"?$'
