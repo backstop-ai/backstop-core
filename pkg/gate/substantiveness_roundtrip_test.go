@@ -81,9 +81,9 @@ func TestSubstantiveness_SpacedQuotedNameRoundTrips(t *testing.T) {
 		})
 	}
 
-	hollow, extraction := RouteSubstantivenessFindings(flat,
-		pack.NamespacedRuleID(packName, "hollow-test-go"),
-		pack.NamespacedRuleID(packName, "referenced-symbol-go"))
+	// Route by the pack-declared substantiveness_role property the convert stamped
+	// (ISSUE-064) — no rule-name routing key.
+	hollow, extraction := RouteSubstantivenessFindings(flat)
 
 	mt := MandatedTest{FuncName: spacedQuoted, FilePath: file}
 

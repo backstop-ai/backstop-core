@@ -40,9 +40,12 @@ func packVerdict(packDir, filePath, funcName, targetPkg string) (hollow, noTarge
 	}
 
 	// RouteSubstantivenessFindings returns (hollow, extraction); the discarded side is a
-	// []Violation, not an error — these `_` are deliberate value discards.
-	hollowPart, _ := RouteSubstantivenessFindings(hollowFindings, "backstop/substantiveness/hollow-test-go", "")     // nosemgrep: go.core.no-ignored-errors — discards a []Violation, not an error
-	_, extractionPart := RouteSubstantivenessFindings(extractionFindings, "", "backstop/substantiveness/referenced-symbol-go") // nosemgrep: go.core.no-ignored-errors — discards a []Violation, not an error
+	// []Violation, not an error — these `_` are deliberate value discards. Routing is by
+	// the pack-declared substantiveness_role property the convert stamps (ISSUE-064): the
+	// hollow-rule dispatch carries role=hollow, the extraction-rule dispatch
+	// role=referenced-symbol, so each partition populates its own side.
+	hollowPart, _ := RouteSubstantivenessFindings(hollowFindings)     // nosemgrep: go.core.no-ignored-errors — discards a []Violation, not an error
+	_, extractionPart := RouteSubstantivenessFindings(extractionFindings) // nosemgrep: go.core.no-ignored-errors — discards a []Violation, not an error
 
 	test := MandatedTest{FuncName: funcName, FilePath: filePath, TargetPkg: targetPkg}
 	hollow = IsTestHollow(hollowPart, test)

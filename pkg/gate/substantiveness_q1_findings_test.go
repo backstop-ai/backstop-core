@@ -62,7 +62,7 @@ func TestQ1_Go_HollowTest_ProducesFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (Go hollow): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+	hollow, _ := RouteSubstantivenessFindings(findings)
 	if len(hollow) == 0 {
 		t.Fatalf("a hollow Go test must produce a hollow-test finding (RED); got none — a stub/empty pack would fail here")
 	}
@@ -83,7 +83,7 @@ func TestQ1_Go_SubstantiveTest_ProducesNoFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (Go substantive): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+	hollow, _ := RouteSubstantivenessFindings(findings)
 	if len(hollow) != 0 {
 		t.Fatalf("a substantive Go test must produce NO hollow-test finding (GREEN); got %d: %+v", len(hollow), hollow)
 	}
@@ -106,7 +106,7 @@ func TestQ1_Go_TestMain_ProducesNoHollowFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (TestMain fixture): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+	hollow, _ := RouteSubstantivenessFindings(findings)
 
 	mtMain := MandatedTest{FuncName: "TestMain", FilePath: fixture}
 	if IsTestHollow(hollow, mtMain) {
@@ -127,7 +127,7 @@ func TestQ1_Go_TestMainExemption_StillFlagsGenuineHollow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (TestMain fixture): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+	hollow, _ := RouteSubstantivenessFindings(findings)
 
 	if len(hollow) == 0 {
 		t.Fatalf("the genuine hollow stub must still produce a hollow finding even with the TestMain exemption; got none")
@@ -150,7 +150,7 @@ func TestTS_HollowTestTs_ProducesFinding_RealAstGrep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (TS hollow): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, tsProofHollowRuleID, "")
+	hollow, _ := RouteSubstantivenessFindings(findings)
 	if len(hollow) == 0 {
 		t.Fatalf("a hollow .test.ts must produce a hollow-test finding via real ast-grep; got none")
 	}
@@ -167,7 +167,7 @@ func TestTS_SubstantiveTestTs_ProducesNoFinding_RealAstGrep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (TS substantive): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, tsProofHollowRuleID, "")
+	hollow, _ := RouteSubstantivenessFindings(findings)
 	if len(hollow) != 0 {
 		t.Fatalf("a substantive .test.ts must produce NO hollow-test finding; got %d: %+v", len(hollow), hollow)
 	}
@@ -192,8 +192,8 @@ func TestTS_SubstantivenessRidesSharedDispatch_NotStub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (TS substantive, shared path): %v", err)
 	}
-	hollowH, _ := RouteSubstantivenessFindings(hf, tsProofHollowRuleID, "")
-	hollowS, _ := RouteSubstantivenessFindings(sf, tsProofHollowRuleID, "")
+	hollowH, _ := RouteSubstantivenessFindings(hf)
+	hollowS, _ := RouteSubstantivenessFindings(sf)
 
 	// Both polarities must hold — a stub cannot satisfy RED-on-hollow AND GREEN-on-
 	// substantive simultaneously through the same shared dispatch.

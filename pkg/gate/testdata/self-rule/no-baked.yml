@@ -203,3 +203,55 @@ rules:
               - metavariable-regex:
                   metavariable: $LIT
                   regex: '^"?(-toolchain|[A-Za-z0-9-]+/[A-Za-z0-9-]+)"?$'
+
+  # ---- Family B7: baked routing identity in finding routing/selection (ISSUE-064) ----
+  # Test-harness copy. Same rule as the source pack, but the LIVE `*testdata*` exclude is
+  # omitted so the fixtures under pkg/gate/testdata/self-rule/ ARE scanned by the real
+  # semgrep run (mirrors the B5/B6 harness copies). Keying finding ROUTING/selection on a
+  # baked NAME literal — a hardcoded namespaced rule-id compared against a finding's Rule
+  # field, or an engine-KEY literal used to select a dispatch — bakes routing identity into
+  # the spine (a consuming pack must then name its rule EXACTLY the baked string to route).
+  # Route by a DECLARED role carried in the finding's structured Properties, never a
+  # rule-name/engine-key literal — the sibling of B6 (B6 catches PACK-name keying; B7
+  # catches rule-id/engine-key keying one level down).
+  - id: no-rule-id-keyed-routing
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked routing identity: finding routing/selection is keyed on a hardcoded rule-id /
+      rule-name string or an engine-KEY literal — a namespaced rule-id compared against a
+      finding's Rule field, or an engine key used to select a dispatch — instead of a
+      DECLARED role/capability property carried in the finding
+      (Violation.Properties, the ISSUE-062 channel). A pack may name its rules anything;
+      route on the declared role, never a baked rule-name/engine-key literal (ISSUE-064).
+    paths:
+      include:
+        - "pkg/gate/*.go"
+        - "cmd/backstop/gate.go"
+        - "cmd/backstop/pack_gate*.go"
+        - "*rule-id-keyed-routing*.go"
+        - "*role-property-routing*.go"
+      exclude:
+        - "*_test.go"
+    patterns:
+      - pattern-either:
+          # Form 1: a finding's Rule field compared against a NAMESPACED rule-id literal
+          # (org/pack/rule) — the baked routing partition.
+          - patterns:
+              - pattern-either:
+                  - pattern: $V.Rule == "$LIT"
+                  - pattern: $V.Rule != "$LIT"
+                  - pattern: '"$LIT" == $V.Rule'
+              - metavariable-regex:
+                  metavariable: $LIT
+                  regex: '^"?[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"?$'
+          # Form 2: an engine-KEY literal used to select a dispatch — a map-key access on an
+          # Engines map, or an == test against an engine-key literal (e.g. ast-grep-contracts).
+          - patterns:
+              - pattern-either:
+                  - pattern: $M.Engines["$KEY"]
+                  - pattern: $X == "$KEY"
+                  - pattern: '"$KEY" == $X'
+              - metavariable-regex:
+                  metavariable: $KEY
+                  regex: '^"?ast-grep-[a-z][a-z-]*"?$'

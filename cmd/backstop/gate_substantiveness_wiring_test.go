@@ -202,11 +202,14 @@ func TestWiring_NoBakedAnalyzerDelegateInvoked(t *testing.T) {
 	t.Cleanup(func() { dispatchPackEnginesFn = orig })
 	dispatchPackEnginesFn = func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error) {
 		// The dispatch seam is the SOLE source of the hollow verdict: emit a hollow
-		// finding for the mandated test in the pinned format.
+		// finding for the mandated test in the pinned format. Post-ISSUE-064 the routing
+		// keys on the pack-declared role property (not the namespaced rule id), so the seam
+		// stamps substantiveness_role=hollow exactly as the real pack's convert now does.
 		return []gate.Violation{{
-			Rule:    substantivenessHollowNamespacedID(),
-			File:    testFile,
-			Message: "test function TestSubjectHollow has no assertions (hollow) func=TestSubjectHollow",
+			Rule:       substantivenessHollowNamespacedID(),
+			File:       testFile,
+			Message:    "test function TestSubjectHollow has no assertions (hollow) func=TestSubjectHollow",
+			Properties: map[string]string{"substantiveness_role": "hollow"},
 		}}, nil
 	}
 

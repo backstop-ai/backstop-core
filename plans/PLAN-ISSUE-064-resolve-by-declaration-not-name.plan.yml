@@ -1,0 +1,221 @@
+---
+plan_id: PLAN-ISSUE-064
+spec_id: ISSUE-064
+created: "2026-07-17"
+status: completed
+target_module: cmd/backstop, pkg/gate, backstop-self-pack
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... -run 'Substantiveness|ToolchainStackLabel|IsToolchainPack|ByDeclaration|SelfRule'"
+coverage_threshold: 90
+notes: >
+  TDD-ordered, one phase per baked-name site plus the self rule and the behavior-preserving
+  pass. P1 routes substantiveness findings by the declared `substantiveness_role` property
+  (ISSUE-062 channel) and deletes the rule-name constants; the versioned LOCAL pack
+  `packs/substantiveness` stamps the role and is reinstalled, and every existing caller of the
+  old rule-id signature is updated/retired so both packages compile. P2 labels toolchain stacks
+  by `declaresToolchainMechanism` + declared `manifest.Language`, deletes `isToolchainPack`, and
+  reconciles the existing name-derived label assertions + shared stub. P3 adds backstop/self
+  Family B7 (rule-id/engine-key/role-name routing literals) in BOTH the in-repo self-rule harness
+  and the installed pack copy, authored-not-activated. P4 is the behavior-preserving regression +
+  full gate. Reuses ISSUE-062's `Violation.Properties` channel and ISSUE-063's by-declaration
+  primitives (`declaresToolchainMechanism`, `manifest.Language`). The contracts signature-engine
+  site is deferred to ISSUE-065 (needs a new declared engine capability); B7 flags it but is not
+  activated live, so no waiver. GUARD: T-010 commits B7 into the ../backstop-self-pack source but
+  does NOT install it into .backstop/packs — do NOT re-sync backstop/self into .backstop/packs
+  until ISSUE-065 removes the live `ast-grep-contracts` key literal, or a routine sync would
+  activate B7 and red `gate --all` on that still-present site.
+
+phases:
+  - id: P1
+    name: Route substantiveness findings by declared role; delete rule-name constants
+    tasks:
+      - id: T-001
+        type: test
+        title: Test routing partitions by the substantiveness_role property, ignoring rule names
+        description: >
+          Feed RouteSubstantivenessFindings synthetic violations carrying
+          Properties["substantiveness_role"] = hollow / referenced-symbol with rule ids that do
+          NOT match the old hollow-test-go / referenced-symbol-go names. Assert findings partition
+          by role property, not rule id. Include a case whose rule name is hollow-test-ts to prove
+          name-independence. Uses the new (violations-only) signature.
+        files:
+          - pkg/gate/substantiveness_join_test.go
+        claims: [CLM-001, CLM-002]
+        depends_on: []
+        test_names: [TestRouteSubstantivenessFindings_PartitionsByRoleProperty, TestRouteSubstantivenessFindings_RoutesRegardlessOfRuleName]
+      - id: T-002
+        type: implementation
+        title: Partition by the declared role property; stamp it in the local pack; update all callers
+        description: >
+          Rewrite RouteSubstantivenessFindings to partition on
+          Violation.Properties["substantiveness_role"] (values hollow / referenced-symbol),
+          dropping the hollowRuleID / extractionRuleID parameters. Stamp
+          properties.substantiveness_role in the versioned LOCAL pack source
+          packs/substantiveness/ast-grep/to-sarif.sh (source_type local; NOT the gitignored
+          .backstop/packs copy) and reinstall so the installed copy carries it. Update the prod
+          call site (cmd/backstop/gate.go, stops passing rule ids) and every pkg/gate caller of the
+          old signature to the new violations-only signature IN PLACE (signature migration only), so
+          both packages compile. DO NOT delete substantiveness_migration_test.go (holds five
+          SPEC-037 mandated tests) or substantiveness_roundtrip_test.go (holds an ISSUE-062 mandated
+          test) — edit their calls only; deleting them would silently dangle those claims (ISSUE-014).
+          substantiveness_strangler_harness_test.go is helpers-only (no func Test) — signature-update
+          only. If any individual mandated test is genuinely obsolete, repoint or retire its owning
+          claim in the same change.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - packs/substantiveness/ast-grep/to-sarif.sh
+          - cmd/backstop/gate.go
+          - pkg/gate/substantiveness_q1_findings_test.go
+          - pkg/gate/substantiveness_roundtrip_test.go
+          - pkg/gate/substantiveness_migration_test.go
+          - pkg/gate/substantiveness_strangler_harness_test.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [T-001]
+      - id: T-003
+        type: test
+        title: Test the substantiveness rule-name routing constants are removed
+        description: >
+          Assert substantivenessHollowRuleName and substantivenessExtractionRuleName no longer
+          exist in cmd/backstop (contract absent:true), and that the call site no longer passes
+          namespaced rule ids into the routing function.
+        files:
+          - cmd/backstop/substantiveness_routing_test.go
+        claims: [CLM-003]
+        depends_on: [T-001]
+        test_names: [TestSubstantivenessRuleNameConstantsRemoved]
+      - id: T-004
+        type: implementation
+        title: Delete the rule-name constants
+        description: >
+          Remove substantivenessHollowRuleName / substantivenessExtractionRuleName from
+          cmd/backstop/gate.go (the call site already stopped using them in T-002).
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-003]
+        depends_on: [T-002, T-003]
+      - id: T-005
+        type: verification
+        title: Scoped gate on substantiveness routing
+        description: Run backstop gate scoped to the routing files + their tests green; confirm packages compile.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: [T-004]
+
+  - id: P2
+    name: Label toolchain stacks by declaration; delete isToolchainPack
+    tasks:
+      - id: T-006
+        type: test
+        title: Test the stack label uses declared language and mechanism membership
+        description: >
+          Assert declaredToolchainStackLabel derives each token from manifest.Language (a pack
+          named acme/rust-tooling declaring language:rust + a test engine labels "rust") and
+          determines membership via declaresToolchainMechanism (a -toolchain-named pack with no
+          mechanism engine contributes nothing; a mechanism pack not named *-toolchain does). Empty
+          set → "unspecified". Also assert isToolchainPack is removed (contract absent:true), and
+          update the existing name-derived assertion in gate_stack_label_test.go to the
+          declared-language premise (go-toolchain declaring language:go → "go").
+        files:
+          - cmd/backstop/toolchain_label_test.go
+          - cmd/backstop/gate_stack_label_test.go
+        claims: [CLM-004, CLM-005, CLM-006]
+        depends_on: [T-005]
+        test_names: [TestToolchainStackLabel_ByDeclaredLanguageNotName, TestToolchainStackLabel_MembershipByMechanismDeclaration, TestIsToolchainPackRemoved]
+      - id: T-007
+        type: implementation
+        title: Derive the label from declaresToolchainMechanism + manifest.Language; add Language to the stub
+        description: >
+          Rewrite declaredToolchainStackLabel to filter packs by declaresToolchainMechanism and
+          emit strings.TrimSpace(m.Language) per pack (deduped + sorted, "unspecified" when empty).
+          Delete isToolchainPack, its -toolchain suffix test, and its B6 waiver. Add Language:"go"
+          to the shared spec046ToolchainManifest stub (it already declares a build engine) so the
+          declared-language label assertions hold; verify the stub's other consumers
+          (gate_declared_dispatch_test.go) still pass.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/spec046_fixtures_test.go
+        claims: [CLM-004, CLM-005, CLM-006]
+        depends_on: [T-006]
+      - id: T-008
+        type: verification
+        title: Scoped gate on the stack label
+        description: Run backstop gate scoped to gate.go + the label tests green.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-004, CLM-005, CLM-006]
+        depends_on: [T-007]
+
+  - id: P3
+    name: backstop/self Family B7 — baked routing-identity literals
+    tasks:
+      - id: T-009
+        type: test
+        title: Add the B7 test + fixtures to the in-repo self-rule harness
+        description: >
+          Add TestSelfRule_FlagsRuleIDKeyedRouting to pkg/gate/self_rule_test.go (mirroring the B6
+          test TestSelfRule_FlagsPackNameKeyedCapabilityDetection), running semgrep over the
+          in-repo testdata. Add a positive fixture (a finding partition keyed on a hardcoded rule-id
+          or engine-key string literal / == comparison) and a negative fixture (a partition on a
+          declared role / gate_type property) under pkg/gate/testdata/self-rule/.
+        files:
+          - pkg/gate/self_rule_test.go
+          - pkg/gate/testdata/self-rule/rule-id-keyed-routing.go
+          - pkg/gate/testdata/self-rule/role-property-routing.go
+        claims: [CLM-007]
+        depends_on: []
+        test_names: [TestSelfRule_FlagsRuleIDKeyedRouting]
+      - id: T-010
+        type: implementation
+        title: Add the no-rule-id-keyed-routing rule (B7) to the in-repo testdata and the installed pack
+        description: >
+          Add a semgrep rule (Family B7) flagging a hardcoded rule-id / engine-key / finding-role
+          string literal used to partition, route, or select findings (map key, ==, or
+          HasSuffix/HasPrefix/Contains where a declared role/gate_type property is the correct
+          source) to BOTH pkg/gate/testdata/self-rule/no-baked.yml (what the Go test runs) and the
+          installed ../backstop-self-pack/rules/no-baked.yml + pack.yml (the shipped pack copy);
+          *testdata* excluded from live scope as B5/B6. Do NOT install into .backstop/packs
+          (authored-not-activated, as B5/B6).
+        files:
+          - pkg/gate/testdata/self-rule/no-baked.yml
+          - backstop-self-pack/rules/no-baked.yml
+          - backstop-self-pack/pack.yml
+        claims: [CLM-007]
+        depends_on: [T-009]
+      - id: T-011
+        type: verification
+        title: Self-rule test + pack test green
+        description: >
+          Run go test pkg/gate -run SelfRule and backstop pack test in backstop-self-pack green
+          (B7 positive fixture flagged, negative clean).
+        files:
+          - pkg/gate/testdata/self-rule/no-baked.yml
+        claims: [CLM-007]
+        depends_on: [T-010]
+
+  - id: P4
+    name: Behavior-preserving regression + full gate
+    tasks:
+      - id: T-012
+        type: test
+        title: Current install routes and labels unchanged
+        description: >
+          Regression over the real installed packs: substantiveness findings route to the same
+          hollow/subject-join verdicts, and the stack label renders the same string as before the
+          swap (go-toolchain declares language:go → "go").
+        files:
+          - cmd/backstop/by_declaration_regression_test.go
+        claims: [CLM-008]
+        depends_on: [T-005, T-008]
+        test_names: [TestByDeclaration_CurrentInstallUnchanged]
+      - id: T-013
+        type: verification
+        title: Full gate + validate + self acid test
+        description: >
+          Run backstop gate --all and backstop artifact validate --all green; run the
+          substantiveness acid test (hollow a real mandated test, confirm caught via the role
+          property) to prove end-to-end routing holds without the rule-name constants.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-008]
+        depends_on: [T-012, T-004, T-007, T-010]

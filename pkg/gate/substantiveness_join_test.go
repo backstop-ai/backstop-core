@@ -132,17 +132,21 @@ func TestQ2_NoTargetIsGateSetTest_NotBakedAnalyzer(t *testing.T) {
 
 // TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream (CLM-024) — a FLAT
 // stream of substantiveness hollow + extraction findings INTERLEAVED with unrelated
-// pack-rule findings is partitioned to ONLY the hollow + extraction findings, matched
-// by namespaced rule ID; no gate_type field is consulted (none exists).
+// pack-rule findings is partitioned to ONLY the hollow + extraction findings, by the
+// pack-declared substantiveness_role property (ISSUE-064 — no longer by rule ID); no
+// gate_type field is consulted (none exists).
 func TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream(t *testing.T) {
 	flat := []Violation{
 		{Rule: "some-other-pack/lint-rule", File: "a.go", Message: "unrelated"},
-		{Rule: testHollowRuleID, File: "h_test.go", Message: "test function TestH has no assertions (hollow) func=TestH"},
+		{Rule: testHollowRuleID, File: "h_test.go", Message: "test function TestH has no assertions (hollow) func=TestH",
+			Properties: map[string]string{"substantiveness_role": "hollow", "func": "TestH"}},
 		{Rule: "another/rule", File: "b.go", Message: "noise"},
-		{Rule: testExtractionRuleID, File: "h_test.go", Message: "referenced-symbol func=TestH symbol=gate"},
-		{Rule: testHollowRuleID, File: "h2_test.go", Message: "test function TestH2 has no assertions (hollow) func=TestH2"},
+		{Rule: testExtractionRuleID, File: "h_test.go", Message: "referenced-symbol func=TestH symbol=gate",
+			Properties: map[string]string{"substantiveness_role": "referenced-symbol", "func": "TestH", "symbol": "gate"}},
+		{Rule: testHollowRuleID, File: "h2_test.go", Message: "test function TestH2 has no assertions (hollow) func=TestH2",
+			Properties: map[string]string{"substantiveness_role": "hollow", "func": "TestH2"}},
 	}
-	hollow, extraction := RouteSubstantivenessFindings(flat, testHollowRuleID, testExtractionRuleID)
+	hollow, extraction := RouteSubstantivenessFindings(flat)
 	if len(hollow) != 2 {
 		t.Errorf("hollow partition len = %d, want 2; got %+v", len(hollow), hollow)
 	}
@@ -150,14 +154,82 @@ func TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream(t *testing.T) {
 		t.Errorf("extraction partition len = %d, want 1; got %+v", len(extraction), extraction)
 	}
 	for _, v := range hollow {
-		if v.Rule != testHollowRuleID {
-			t.Errorf("hollow partition contains non-hollow rule %q", v.Rule)
+		if v.Properties["substantiveness_role"] != "hollow" {
+			t.Errorf("hollow partition contains non-hollow role %q", v.Properties["substantiveness_role"])
 		}
 	}
 	for _, v := range extraction {
-		if v.Rule != testExtractionRuleID {
-			t.Errorf("extraction partition contains non-extraction rule %q", v.Rule)
+		if v.Properties["substantiveness_role"] != "referenced-symbol" {
+			t.Errorf("extraction partition contains non-extraction role %q", v.Properties["substantiveness_role"])
 		}
+	}
+}
+
+// TestRouteSubstantivenessFindings_PartitionsByRoleProperty (CLM-001) — the flat
+// pack_engines stream is partitioned by the pack-declared substantiveness_role property
+// (the ISSUE-062 structured channel), values `hollow` and `referenced-symbol`. Findings
+// carrying NEITHER role (an unrelated pack rule, or a substantiveness finding with no role
+// stamped) fall into neither partition. The rule IDs here deliberately do NOT match the
+// old `hollow-test-go`/`referenced-symbol-go` names — routing keys purely on the role.
+func TestRouteSubstantivenessFindings_PartitionsByRoleProperty(t *testing.T) {
+	flat := []Violation{
+		{Rule: "acme/subst/no-assert", File: "a_test.go",
+			Properties: map[string]string{"substantiveness_role": "hollow", "func": "TestA"}},
+		{Rule: "acme/subst/refs", File: "a_test.go",
+			Properties: map[string]string{"substantiveness_role": "referenced-symbol", "func": "TestA", "symbol": "gate"}},
+		// An unrelated pack finding with no role — ignored by both partitions.
+		{Rule: "some/lint/rule", File: "b.go", Properties: map[string]string{"severity": "high"}},
+		// A finding with no Properties at all — ignored.
+		{Rule: "acme/subst/no-assert", File: "c_test.go"},
+	}
+	hollow, extraction := RouteSubstantivenessFindings(flat)
+	if len(hollow) != 1 {
+		t.Fatalf("hollow partition len = %d, want 1 (only the role=hollow finding); got %+v", len(hollow), hollow)
+	}
+	if hollow[0].Properties["substantiveness_role"] != "hollow" {
+		t.Errorf("routed a non-hollow finding into the hollow partition: %+v", hollow[0])
+	}
+	if len(extraction) != 1 {
+		t.Fatalf("extraction partition len = %d, want 1 (only the role=referenced-symbol finding); got %+v", len(extraction), extraction)
+	}
+	if extraction[0].Properties["substantiveness_role"] != "referenced-symbol" {
+		t.Errorf("routed a non-extraction finding into the extraction partition: %+v", extraction[0])
+	}
+	// A finding with no role property must land in NEITHER partition (proving routing is
+	// keyed on the declared role, not on the rule id or mere pack membership).
+	for _, v := range append(append([]Violation{}, hollow...), extraction...) {
+		if v.File == "b.go" || v.File == "c.go" {
+			t.Errorf("a finding with no substantiveness_role must not be routed; got %+v", v)
+		}
+	}
+}
+
+// TestRouteSubstantivenessFindings_RoutesRegardlessOfRuleName (CLM-002) — routing ignores
+// the rule id entirely: a finding whose rule is named `hollow-test-ts` (a TS pack) and one
+// named a wholly org-specific string both route by their declared role, exactly as the
+// `-go` defaults would. This is the case that FORCED the TS pack to mis-name its rule
+// `hollow-test-go` under the old rule-id routing (ISSUE-064).
+func TestRouteSubstantivenessFindings_RoutesRegardlessOfRuleName(t *testing.T) {
+	flat := []Violation{
+		// A TS pack naming its hollow rule `hollow-test-ts` — routes as hollow by role.
+		{Rule: "backstop/ts-substantiveness/hollow-test-ts", File: "x.test.ts",
+			Properties: map[string]string{"substantiveness_role": "hollow", "func": "renders the widget"}},
+		// A wholly org-specific extraction rule name — routes as extraction by role.
+		{Rule: "megacorp/quality/symbol-usage-check", File: "x.test.ts",
+			Properties: map[string]string{"substantiveness_role": "referenced-symbol", "func": "renders the widget", "symbol": "widget"}},
+	}
+	hollow, extraction := RouteSubstantivenessFindings(flat)
+	if len(hollow) != 1 {
+		t.Fatalf("a `hollow-test-ts`-named finding must route as hollow BY ROLE; got %d hollow: %+v", len(hollow), hollow)
+	}
+	if hollow[0].Rule != "backstop/ts-substantiveness/hollow-test-ts" {
+		t.Errorf("the routed hollow finding must be the ts-named one, proving name-independence; got %q", hollow[0].Rule)
+	}
+	if len(extraction) != 1 {
+		t.Fatalf("an org-named extraction finding must route as extraction BY ROLE; got %d extraction: %+v", len(extraction), extraction)
+	}
+	if extraction[0].Rule != "megacorp/quality/symbol-usage-check" {
+		t.Errorf("the routed extraction finding must be the org-named one; got %q", extraction[0].Rule)
 	}
 }
 

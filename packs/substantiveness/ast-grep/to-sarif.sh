@@ -11,7 +11,13 @@
 # test name containing spaces or quotes survives intact instead of being parsed out of
 # the prose message and truncated at the first space (ISSUE-062). The human-readable
 # `message` is retained for the report surface but carries NO machine-parsed contract.
-# A finding whose rule captured neither metavariable emits no `properties` object.
+# A finding whose rule captured neither metavariable emits no `func`/`symbol` property.
+#
+# The pack also STAMPS a `substantiveness_role` property declaring what each finding IS —
+# `hollow` (hollow-test rule) or `referenced-symbol` (referenced-symbol rule) — mapping
+# its OWN rule names to the role vocabulary the gate routes on (ISSUE-064). The gate
+# partitions purely on this declared role, so the pack's rule NAMES are no longer a
+# routing key; only the pack knows (and declares) which of its rules plays which role.
 #
 # ast-grep reports 0-indexed lines; SARIF startLine is 1-indexed, so we add 1. A stderr
 # banner exercises clean-stdout capture.
@@ -36,6 +42,9 @@ jq '{
           (
             (if .metaVariables.single.FN then { func: .metaVariables.single.FN.text } else {} end)
             + (if .metaVariables.single.PKG then { symbol: .metaVariables.single.PKG.text } else {} end)
+            + (if (.ruleId | test("hollow")) then { substantiveness_role: "hollow" }
+               elif (.ruleId | test("referenced-symbol")) then { substantiveness_role: "referenced-symbol" }
+               else {} end)
           ) as $props
           | if ($props | length) > 0 then { properties: $props } else {} end
         )

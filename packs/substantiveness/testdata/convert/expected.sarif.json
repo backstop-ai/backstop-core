@@ -23,7 +23,8 @@
           ],
           "properties": {
             "func": "TestReferencesSymbol",
-            "symbol": "strings"
+            "symbol": "strings",
+            "substantiveness_role": "referenced-symbol"
           }
         },
         {
@@ -45,7 +46,8 @@
             }
           ],
           "properties": {
-            "func": "surfaces a plan \"spec_id\" in the response"
+            "func": "surfaces a plan \"spec_id\" in the response",
+            "substantiveness_role": "hollow"
           }
         }
       ]

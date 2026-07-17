@@ -29,9 +29,9 @@ packs:
         source_type: local
         version: null
     backstop/substantiveness:
-        content_hash: a9ae16c951f068bbf8dfdd1880cef8e5f4aa9fa31e58cbce550f55a7d8011b69
+        content_hash: 97336fdd81ee0675cfbb78931b8c134119077cdd22016afa17e1f7d60f6c3834
         git_ref: null
-        install_date: 2026-07-17T16:25:14Z
+        install_date: 2026-07-17T20:02:43Z
         name: backstop/substantiveness
         source_type: local
         version: null

@@ -149,7 +149,7 @@ func TestSubstantiveness_InvariantSurvivesDeletion_HollowStillFails(t *testing.T
 	if err != nil {
 		t.Fatalf("dispatchAstGrepRule (hollow): %v", err)
 	}
-	hollow, _ := RouteSubstantivenessFindings(findings, substHollowRuleID, substExtractionRuleID)
+	hollow, _ := RouteSubstantivenessFindings(findings)
 	violations := HollowFindingsToViolations(hollow)
 	if len(violations) == 0 {
 		t.Fatalf("the substantiveness invariant must survive deletion: a hollow test must still fail via the pack path; got no violations")

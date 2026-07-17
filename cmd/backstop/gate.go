@@ -513,48 +513,36 @@ func toolchainEnforcementStepName() string { return "toolchain_enforcement" }
 // for "everything passed."
 func noToolchainPackMessage() string { return "enforcement not configured (0 toolchain packs)" }
 
-// isToolchainPack reports whether a manifest is a <lang>-toolchain pack by the
-// "-toolchain" naming convention. Its ONLY remaining use is deriving the COSMETIC
-// stack label (declaredToolchainStackLabel, SPEC-046) — the label is literally the
-// name with the suffix stripped ("backstop/go-toolchain" -> "go"), so it is
-// inherently name-derived and convention is correct here. The enforcement-configured
-// SIGNAL (countToolchainPacks / SPEC-040) is by-declaration, not by this convention.
-func isToolchainPack(m *pack.Manifest) bool {
-	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-pack-name-keyed-capability:false-positive:2027-07-17 convention over configuration: the -toolchain suffix drives ONLY the cosmetic stack label (declaredToolchainStackLabel, SPEC-046), never a capability, count, or pass/fail decision — and the label is inherently name-derived (strip the suffix off the name). The behavioral signal (countToolchainPacks) is by-declaration. Revisit only if this is ever used for a behavioral decision.
-	return m != nil && strings.HasSuffix(m.NormalizedName, "-toolchain")
-}
-
 // declaredToolchainStackLabel derives the cosmetic traceability stack label from the
-// SET of declared toolchain packs (SPEC-046 REQ-004 / SQ-1). Each declared toolchain
-// pack's normalized name has its namespace prefix and the "-toolchain" suffix
-// stripped (e.g. "backstop/go-toolchain" -> "go", "backstop/bun-toolchain" -> "bun"),
-// and the resulting stack names are joined as a SET (deduped + sorted, NO precedence
-// and NO overlap winner) — a polyglot repo's label names EVERY declared stack.
+// SET of DECLARED toolchain packs (SPEC-046 REQ-004 / SQ-1, rehomed by ISSUE-064 REQ-003).
+// Membership is by declaresToolchainMechanism — the SAME by-declaration primitive
+// countToolchainPacks uses — so the label set and the count set share one membership
+// source and can never disagree. Each label VALUE is the pack's DECLARED
+// manifest.Language (e.g. a pack declaring language: go -> "go"), NOT the name with a
+// "-toolchain" suffix stripped; a mechanism pack that declares no language contributes
+// no token. The resulting stack names are joined as a SET (deduped + sorted, NO
+// precedence and NO overlap winner) — a polyglot repo's label names EVERY declared stack.
 //
-// Returns "unspecified" when the declared toolchain-pack-NAME set is empty — the
-// SINGLE authoritative empty-fallback signal (the label is name-derived). SPEC-043's
-// SourceClassifier.HasSourceGlobs() is CORROBORATING ONLY and MUST NOT drive this
-// fallback: it can diverge from the pack-name set (a declared toolchain pack with no
-// `classification` source globs has a non-empty pack-name set yet HasSourceGlobs()
-// == false). This is a NAME-set helper, NOT a glob classifier — SPEC-043's single
-// gate.SourceClassifier remains the ONLY glob classifier (no fork, CLM-019).
+// Returns "unspecified" when the declared-language set is empty — the SINGLE
+// authoritative empty-fallback signal. SPEC-043's SourceClassifier.HasSourceGlobs() is
+// CORROBORATING ONLY and MUST NOT drive this fallback: it can diverge from the declared
+// set (a mechanism pack with no `classification` source globs still labels its declared
+// language yet HasSourceGlobs() == false). This is a declared-language-set helper, NOT a
+// glob classifier — SPEC-043's single gate.SourceClassifier remains the ONLY glob
+// classifier (no fork, CLM-019).
 func declaredToolchainStackLabel(packs []*pack.Manifest) string {
 	seen := map[string]bool{}
 	var stacks []string
 	for _, m := range packs {
-		if !isToolchainPack(m) {
+		if !declaresToolchainMechanism(m) {
 			continue
 		}
-		name := m.NormalizedName
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
-		name = strings.TrimSuffix(name, "-toolchain")
-		if name == "" || seen[name] {
+		lang := strings.TrimSpace(m.Language)
+		if lang == "" || seen[lang] {
 			continue
 		}
-		seen[name] = true
-		stacks = append(stacks, name)
+		seen[lang] = true
+		stacks = append(stacks, lang)
 	}
 	if len(stacks) == 0 {
 		return "unspecified"
@@ -1019,16 +1007,6 @@ func collectTraceRefs(projectRoot string) ([]gate.TraceRef, error) {
 	return out, nil
 }
 
-// substantivenessRuleName constants are the pack-declared rule NAMES the substantiveness
-// step routes on (REQ-007). They are rule IDENTITIES within whichever pack provides the
-// substantiveness capability — NOT a distribution coordinate. The namespace is derived at
-// route time from the RESOLVED pack's NormalizedName (resolveSubstantivenessPacks selects
-// it by declared gate_type, ISSUE-063), so no pack coordinate is baked here.
-const (
-	substantivenessHollowRuleName     = "hollow-test-go"
-	substantivenessExtractionRuleName = "referenced-symbol-go"
-)
-
 // resolveSubstantivenessPacksFn is a test seam: nil in production (the resolver below
 // returns the INSTALLED substantiveness pack manifest set), overridden by the wiring
 // tests that inject a manifest set so the dispatch-seam spy can observe routing without
@@ -1135,15 +1113,11 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
-		// Route the flat stream by namespaced rule ID (no gate_type field exists). The
-		// namespace is the RESOLVED pack's NormalizedName (selected by declared gate_type,
-		// ISSUE-063), so the routing IDs carry no baked pack coordinate.
-		packName := packs[0].NormalizedName
-		hollow, extraction := gate.RouteSubstantivenessFindings(
-			flat,
-			pack.NamespacedRuleID(packName, substantivenessHollowRuleName),
-			pack.NamespacedRuleID(packName, substantivenessExtractionRuleName),
-		)
+		// Route the flat stream by the pack-DECLARED substantiveness_role property (the
+		// ISSUE-062 structured channel), not by matching a baked rule-name literal
+		// (ISSUE-064). The pack stamps `hollow`/`referenced-symbol` on each finding, so
+		// core carries no rule-name — or pack-name — routing key.
+		hollow, extraction := gate.RouteSubstantivenessFindings(flat)
 
 		var violations []gate.Violation
 		// Q1 hollow → one test_substantiveness violation per routed hollow finding,

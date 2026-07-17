@@ -9,14 +9,15 @@ import (
 )
 
 // TestPolarity_StackLabelFromDeclaredToolchainPacksNotLanguage (CLM-016): the
-// traceability stack label for a repo declaring backstop/go-toolchain is derived
-// from the declared toolchain-pack SET (name-derived: "go"), with NO `language:`
-// field present — proving the label is rehomed off `language:`. The rendered
-// fail-loud message names the "go" stack via the CapabilityState.Stack carrier.
+// traceability stack label for a repo declaring backstop/go-toolchain is derived from
+// the declared toolchain-pack SET (membership by declared mechanism engine), and its
+// VALUE is the pack's DECLARED language (go-toolchain declares language: go -> "go";
+// ISSUE-064 rehomed the value onto manifest.Language, off the "-toolchain" name suffix).
+// The rendered fail-loud message names the "go" stack via the CapabilityState.Stack carrier.
 func TestPolarity_StackLabelFromDeclaredToolchainPacksNotLanguage(t *testing.T) {
 	label := declaredToolchainStackLabel([]*pack.Manifest{spec046ToolchainManifest("backstop/go-toolchain")})
 	if label != "go" {
-		t.Fatalf("the stack label for a declared backstop/go-toolchain must be the name-derived \"go\", got %q", label)
+		t.Fatalf("the stack label for a declared backstop/go-toolchain must be the declared-language \"go\", got %q", label)
 	}
 
 	// The label flows to the rendered fail-loud message via CapabilityState.Stack
@@ -55,27 +56,27 @@ func TestPolarity_PolyglotStackLabelIsUnionNoPrecedence(t *testing.T) {
 
 // TestPolarity_NoToolchainPackStackLabelUnspecified (CLM-018): a repo declaring NO
 // toolchain pack yields "unspecified", driven by the SINGLE authoritative signal —
-// the empty DECLARED toolchain-pack-NAME set — NOT by SourceClassifier.HasSourceGlobs()
-// (corroborating only, and divergent). The divergence case is asserted: a declared
-// toolchain pack shipping NO `classification` source globs has HasSourceGlobs()==false
-// yet still labels its stack (non-empty pack-name set).
+// the empty declared-language set (membership by declared mechanism engine) — NOT by
+// SourceClassifier.HasSourceGlobs() (corroborating only, and divergent). The divergence
+// case is asserted: a mechanism pack shipping NO `classification` source globs has
+// HasSourceGlobs()==false yet still labels its declared-language stack.
 func TestPolarity_NoToolchainPackStackLabelUnspecified(t *testing.T) {
 	// Empty declared toolchain-pack set -> "unspecified" (the authoritative signal).
 	if got := declaredToolchainStackLabel(nil); got != "unspecified" {
 		t.Fatalf("an empty declared toolchain-pack set must yield \"unspecified\", got %q", got)
 	}
-	// A declared NON-toolchain pack does not count toward the toolchain-name set.
+	// A declared NON-mechanism pack does not count toward the label set (no mechanism engine).
 	nonToolchain := &pack.Manifest{Name: "backstop/go-standards", NormalizedName: "backstop/go-standards"}
 	if got := declaredToolchainStackLabel([]*pack.Manifest{nonToolchain}); got != "unspecified" {
-		t.Fatalf("a non-toolchain declared pack must not produce a stack label, got %q", got)
+		t.Fatalf("a non-mechanism declared pack must not produce a stack label, got %q", got)
 	}
 
-	// DIVERGENCE: a declared toolchain pack with NO classification source globs has a
-	// NON-empty pack-name set (label "go") but HasSourceGlobs()==false — proving the
-	// label keys on the pack-name set, NOT on HasSourceGlobs (corroborating only).
+	// DIVERGENCE: a mechanism pack with NO classification source globs has a non-empty
+	// declared-language set (label "go") but HasSourceGlobs()==false — proving the label
+	// keys on the declared-language set, NOT on HasSourceGlobs (corroborating only).
 	noGlobs := spec046ToolchainManifest("backstop/go-toolchain") // no Classification block
 	if got := declaredToolchainStackLabel([]*pack.Manifest{noGlobs}); got != "go" {
-		t.Fatalf("a declared toolchain pack with no source globs must STILL label its stack (name-derived), got %q", got)
+		t.Fatalf("a mechanism pack with no source globs must STILL label its declared-language stack, got %q", got)
 	}
 	if mergeSourceClassifier([]*pack.Manifest{noGlobs}).HasSourceGlobs() {
 		t.Fatal("test premise broken: the stub toolchain pack must declare NO source globs (HasSourceGlobs must be false) to prove the divergence")

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmanson/backstop-core/pkg/pack"
@@ -42,16 +43,34 @@ func goToolchainProjectRoot(t *testing.T) string {
 // path without a real on-disk pack — the polyglot bun-toolchain pack does not exist
 // until SPEC-047, so its dispatch/count/label behavior is proven over a stub here.
 func spec046ToolchainManifest(normalizedName string) *pack.Manifest {
-	// A toolchain pack is now recognized BY DECLARATION (ISSUE-063 principle): it
-	// declares an enforcement-mechanism engine. Declare a build (typecheck) engine so
-	// countToolchainPacks counts it; the -toolchain name still drives the cosmetic label.
+	// A toolchain pack is recognized BY DECLARATION (ISSUE-063 principle): it declares an
+	// enforcement-mechanism engine. Declare a build (typecheck) engine so
+	// countToolchainPacks counts it, and DECLARE the pack's language so the cosmetic stack
+	// label reads it by declaration (ISSUE-064) — no longer name-derived. A real toolchain
+	// pack ships `language:`; this stub simulates that by declaring the language the pack's
+	// name implies (backstop/go-toolchain -> "go", backstop/bun-toolchain -> "bun"), so the
+	// polyglot label union stays meaningful while the VALUE now flows from manifest.Language.
 	return &pack.Manifest{
 		Name:           normalizedName,
 		NormalizedName: normalizedName,
+		Language:       spec046StubLanguage(normalizedName),
 		Engines: map[string]pack.EngineSpec{
 			"typecheck": {Binding: engine.EngineBinding{GateType: engine.GateTypeBuild}},
 		},
 	}
+}
+
+// spec046StubLanguage returns the language a stub toolchain pack DECLARES, simulating a
+// real pack's `language:` field. It derives the value from the pack name only to keep the
+// stub convenient — production reads manifest.Language directly and never inspects the
+// name (proven by TestToolchainStackLabel_ByDeclaredLanguageNotName, which declares a
+// language that diverges from the name).
+func spec046StubLanguage(normalizedName string) string {
+	name := normalizedName
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	return strings.TrimSuffix(name, "-toolchain")
 }
 
 // spec046InstallGoToolchainProject builds a temp project root that DECLARES

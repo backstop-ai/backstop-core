@@ -11,8 +11,8 @@ import (
 // extraction rule); this file consumes the FLAT pack-dispatch SARIF
 // ([]Violation with only {Rule, File, Message, Severity, SourcePack} — Line/region
 // dropped, no GateType field) and performs:
-//   - routing substantiveness findings out of the flat pack_engines stream by
-//     NAMESPACED rule ID (RouteSubstantivenessFindings),
+//   - routing substantiveness findings out of the flat pack_engines stream by the
+//     pack-declared substantiveness_role property (RouteSubstantivenessFindings, ISSUE-064),
 //   - keying extraction findings back to a MandatedTest by (FilePath, func) read
 //     from the finding's structured SARIF Properties (ReferencedSetForTest),
 //   - the noTarget SET-JOIN decision table (NoTargetViolation),
@@ -85,17 +85,33 @@ func NoTargetViolationForTest(mt MandatedTest, referenced ReferencedSymbolSet, s
 	return NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage)
 }
 
-// RouteSubstantivenessFindings partitions the FLAT pack_engines []Violation stream
-// into the substantiveness hollow-findings and extraction-findings by matching the
-// pack's stable NAMESPACED rule IDs (pack.NamespacedRuleID form) on each violation's
-// Rule. All other pack rules are ignored. NO gate_type field is consulted — the
-// Violation carries none (Sharp Edge 5 / REQ-007 / CLM-024).
-func RouteSubstantivenessFindings(violations []Violation, hollowRuleID, extractionRuleID string) (hollow, extraction []Violation) {
+// substantiveness role vocabulary (ISSUE-064). The consuming pack STAMPS one of these
+// role values into each substantiveness finding's structured Properties channel (the
+// ISSUE-062 `Violation.Properties` lift), declaring what the finding IS — a `hollow`
+// finding (a test with no assertion) or a `referenced-symbol` finding (a symbol the test
+// references, used for the subject-join). Core routes purely on this DECLARED role, so a
+// pack may name its rules anything (`hollow-test-ts`, `hollow-test-go`, an org-specific
+// name); the language-suffixed rule NAME is no longer a routing key (REQ-001/REQ-002).
+const (
+	substantivenessRoleProperty   = "substantiveness_role"
+	substantivenessRoleHollow     = "hollow"
+	substantivenessRoleReferenced = "referenced-symbol"
+)
+
+// RouteSubstantivenessFindings partitions the FLAT pack_engines []Violation stream into
+// the substantiveness hollow-findings and extraction-findings by the pack-DECLARED role
+// carried in each finding's structured Properties (`substantiveness_role`, the ISSUE-062
+// channel) — NOT by matching a baked namespaced rule-id literal (ISSUE-064). A finding
+// whose role is `hollow` joins the hollow partition; `referenced-symbol` joins the
+// extraction partition; any other role (or no role property) is ignored, exactly as a
+// non-substantiveness pack rule is. NO gate_type field is consulted — the Violation
+// carries none (Sharp Edge 5 / REQ-007 / CLM-024).
+func RouteSubstantivenessFindings(violations []Violation) (hollow, extraction []Violation) {
 	for _, v := range violations {
-		switch v.Rule {
-		case hollowRuleID:
+		switch v.Properties[substantivenessRoleProperty] {
+		case substantivenessRoleHollow:
 			hollow = append(hollow, v)
-		case extractionRuleID:
+		case substantivenessRoleReferenced:
 			extraction = append(extraction, v)
 		}
 	}

@@ -107,3 +107,29 @@ func TestSelfRule_FlagsPackNameKeyedCapabilityDetection(t *testing.T) {
 		t.Errorf("a gate_type-declaration scan must NOT be flagged by %s; got check_ids %v", ruleID, gotClean)
 	}
 }
+
+// TestSelfRule_FlagsRuleIDKeyedRouting (ISSUE-064 CLM-007): the B7 self rule flags finding
+// routing keyed on a baked NAME literal — a hardcoded namespaced rule-id compared against a
+// finding's Rule field, or an engine-KEY literal used to select a dispatch — and leaves a
+// declared-role-property partition clean. Runs the REAL semgrep engine over the testdata
+// copy of the rule + its two fixtures; a semgrep-absent Skip is a Fatal (a skip is the
+// vacuous green the rule kills). Mirrors the B6 test above.
+func TestSelfRule_FlagsRuleIDKeyedRouting(t *testing.T) {
+	const ruleID = "no-rule-id-keyed-routing"
+	rule := filepath.Join("testdata", "self-rule", "no-baked.yml")
+
+	// Negative fixture (a rule-id-keyed partition + an engine-key-keyed dispatch select)
+	// MUST trigger the rule.
+	violation := filepath.Join("testdata", "self-rule", "rule-id-keyed-routing.go")
+	got := runSelfRule(t, rule, violation)
+	if !containsRule(got, ruleID) {
+		t.Errorf("a rule-id-keyed finding partition must be flagged by %s; got check_ids %v", ruleID, got)
+	}
+
+	// Positive fixture (a declared substantiveness_role property partition) must be CLEAN.
+	clean := filepath.Join("testdata", "self-rule", "role-property-routing.go")
+	gotClean := runSelfRule(t, rule, clean)
+	if containsRule(gotClean, ruleID) {
+		t.Errorf("a declared-role-property partition must NOT be flagged by %s; got check_ids %v", ruleID, gotClean)
+	}
+}
