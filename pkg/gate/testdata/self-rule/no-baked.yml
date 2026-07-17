@@ -1,0 +1,168 @@
+rules:
+  # ---- Family A: call-shape rule (language-agnostic backbone) ----
+  # A tool name passed as a STRING LITERAL to exec.Command is baked knowledge.
+  # Tool names must come from pack-declared data (a variable). Only backstop's
+  # own VCS/shell infra may be literal: git, gh, sh, /bin/sh, sandbox-exec.
+  - id: no-baked-tool-exec
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked tool invocation: tool name is a string literal passed to exec.Command.
+      Language/tool commands must come from pack-declared data, not the binary.
+      Allowed literal infra only: git, gh, sh, /bin/sh, sandbox-exec. Route the
+      tool through the parametric dispatch (exec.CommandContext(ctx, name, args...)).
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("$TOOL", ...)
+          - pattern: exec.CommandContext($CTX, "$TOOL", ...)
+      - metavariable-regex:
+          metavariable: $TOOL
+          regex: '^(?!(git|gh|sh|/bin/sh|sandbox-exec)$).+'
+
+  # ---- Family B1: baked command string in an engine Command field ----
+  # An engine's command line must come from a pack-declared engines: block, not
+  # a built-in Command field baked into DefaultRegistry.
+  - id: no-baked-tool-command
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked tool command string in a built-in engine Command field. An engine's
+      command must come from a pack-declared engines: block, never the binary.
+    patterns:
+      - pattern: 'Command: "$CMD"'
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '^(go (build|test|vet|run|mod|install)\b|gofmt|golangci-lint\b|eslint\b|tsc\b|prettier\b|npm\b|yarn\b|pnpm\b|cargo\b|rustc\b|pytest\b|pip\b|ruff\b|mypy\b|mvn\b|gradle\b)'
+
+  # ---- Family B2: foreign-language / manifest token literal (textual) ----
+  # AST string-literal patterns are blind to case-clause & call-arg positions,
+  # so this uses pattern-regex to catch the token in ANY position. ".go" is
+  # deliberately OMITTED: backstop is written in Go, so .go literals are usually
+  # legit self-operations — the documented mechanical-check gap (a .go-based
+  # router/filter must still be caught by review).
+  - id: no-baked-language-token
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked foreign-language token. Language extensions, tool-format names, and
+      project-manifest filenames must not be hardcoded — routing/parsing comes
+      from pack declarations, never the binary.
+    patterns:
+      - pattern-regex: '"(\.(ts|tsx|jsx|js|mjs|cjs|py|rs|rb|java|kt|swift|cs|cpp|cc|php|scala|clj)|eslint-json|tsc|eslint|go\.mod|package\.json|tsconfig(\.json)?|Cargo\.toml|requirements\.txt|pom\.xml|build\.gradle)"'
+
+  # ---- Family B3: location-scoped strict zone (the neutral gate spine) ----
+  # On the language-neutral spine (gate steps, dispatch, routing core), NO language
+  # literal is allowed — INCLUDING .go / _test.go / ./... which the global token rule
+  # (B2) deliberately omits as ambiguous. The neutrality contract is made DATA here:
+  # the include list IS the spine; anything not listed is allowed (the allow-by-location
+  # inversion). This catches baked assumptions that wear an ambiguous token (a .go-only
+  # coverage filter, a baked _test.go convention, a Go ./... glob in the registry) —
+  # Layer 2 of the mechanical-check gap, made catchable by declaring the contract.
+  - id: no-language-literal-on-neutral-spine
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Language literal on the language-neutral gate spine. Files on the spine
+      (gate steps, dispatch, routing core) must carry ZERO language/tool literals,
+      including .go/_test.go/./... — measurement and routing come from pack
+      declarations, never the binary. Move the assumption into a toolchain pack.
+    paths:
+      include:
+        - "pkg/gate/*.go"
+        - "pkg/check/manifest.go"
+        - "pkg/check/parsers.go"
+        - "pkg/validate/plan.go"
+        - "cmd/backstop/gate.go"
+        - "cmd/backstop/pack_gate*.go"
+        - "pkg/pack/engine/binding.go"
+        - "*neutral_spine_*.go"
+      exclude:
+        - "*_test.go"
+    patterns:
+      - pattern-either:
+          - pattern-regex: '"(\.go|_test\.go|_testdata\.go)"'
+          - pattern: '"./..."'
+
+  # ---- Family B4: baked repo-layout classification (the ISSUE-047 gap) ----
+  # Inferring meaning from a hardcoded "cmd/"/"pkg/"/"internal/" path prefix bakes
+  # this-repo (and Go project) LAYOUT into the binary — the exact defect ISSUE-047
+  # removed from TargetPackageName (which used strings.HasPrefix(x, "cmd/"/"pkg/") to
+  # decide an empty vs. leaf target). The spine must treat paths as OPAQUE tokens
+  # (reduce/compare without inferring structure); layout facts come from pack data.
+  # AST-based (matches the string-literal ARGUMENT, not comments/path-fixtures) so the
+  # de-baked spine — which still MENTIONS "pkg/"/"cmd/" only in comments — stays green.
+  - id: no-baked-repo-layout-classification
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Baked repo-layout classification: a path is classified by a hardcoded
+      "cmd/"/"pkg/"/"internal/"/"vendor/" prefix. Repo/package layout is language-
+      and project-specific knowledge — the binary must treat the path as an opaque
+      token (reduce/compare without inferring meaning from layout). Derive layout
+      facts from pack declarations, not baked prefixes.
+    paths:
+      include:
+        - "pkg/gate/*.go"
+        - "pkg/check/manifest.go"
+        - "pkg/check/parsers.go"
+        - "pkg/validate/plan.go"
+        - "cmd/backstop/gate.go"
+        - "cmd/backstop/pack_gate*.go"
+        - "pkg/pack/engine/binding.go"
+        - "*repo_layout_*.go"
+      exclude:
+        - "*_test.go"
+    patterns:
+      - pattern-either:
+          - pattern: strings.HasPrefix($X, "$P")
+          - pattern: strings.TrimPrefix($X, "$P")
+      - metavariable-regex:
+          metavariable: $P
+          regex: '^(cmd|pkg|internal|vendor)/$'
+
+  # ---- Family B5: structural name/identifier extraction on the neutral spine ----
+  # Slicing a value out of a message/string by WHITESPACE — strings.Fields,
+  # strings.Split on a whitespace literal, or IndexAny/Index on a whitespace-class
+  # literal — bakes a whitespace-FREE-identifier assumption (Go identifiers have no
+  # spaces; other languages' test names do). This is the tokenValue defect (ISSUE-062):
+  # correct for a Go TestXxx func name, silently WRONG for a string-named it()/test()
+  # description whose "name" is a natural-language phrase with spaces. Machine-data must
+  # ride a STRUCTURED channel (SARIF result properties), never be parsed out of prose.
+  # Scoped to the same neutral-spine paths B3 lists; the literal-only rules cannot see
+  # this call-shape (a whitespace-class literal / Fields / Split is not a language token).
+  - id: no-structural-name-split-on-spine
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Structural name/identifier extraction on the language-neutral gate spine: a value
+      is sliced out of a message/string by whitespace (strings.Fields, strings.Split on
+      a whitespace literal, or IndexAny/LastIndexAny on a whitespace-class literal). This
+      bakes the whitespace-free-identifier assumption that made tokenValue wrong for
+      string-named tests (ISSUE-062). Carry machine-data in a structured channel (SARIF
+      result properties), never parse it out of prose.
+    paths:
+      include:
+        - "pkg/gate/*.go"
+        - "pkg/check/manifest.go"
+        - "pkg/check/parsers.go"
+        - "pkg/validate/plan.go"
+        - "cmd/backstop/gate.go"
+        - "cmd/backstop/pack_gate*.go"
+        - "pkg/pack/engine/binding.go"
+        - "*structural-name-split*.go"
+        - "*structured-property-read*.go"
+      exclude:
+        - "*_test.go"
+    patterns:
+      # REQ-005's enumerated trigger forms only: strings.Fields, strings.Split on a
+      # single SPACE, and Index/LastIndexAny on a whitespace-CLASS literal. Splitting on
+      # a bare "\n" (line iteration over newline-delimited records) is deliberately NOT
+      # matched — that is record iteration, not slicing a name/identifier out of a token.
+      - pattern-either:
+          - pattern: strings.Fields($X)
+          - pattern: strings.Split($X, " ")
+          - pattern: strings.SplitN($X, " ", $N)
+          - pattern: strings.IndexAny($X, " \t\n")
+          - pattern: strings.IndexAny($X, " ")
+          - pattern: strings.IndexAny($X, " \t")
+          - pattern: strings.LastIndexAny($X, " \t\n")

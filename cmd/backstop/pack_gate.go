@@ -751,6 +751,12 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			SourcePack:  manifest.NormalizedName,
 			ProjectWide: exempt,
 			RegionHash:  v.Fingerprint,
+			// Carry the pack's structured SARIF properties across (ISSUE-062). This is
+			// the production check.Violation -> gate.Violation mapping; the
+			// substantiveness join reads func/symbol from Properties (not the message),
+			// so a pack finding's typed data must survive this bridge. Additive and
+			// excluded from baseline identity (see gate.Violation.Properties).
+			Properties: v.Properties,
 		})
 	}
 	return out, nil
@@ -879,6 +885,7 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 // splitCommand splits a binding's Command string ("semgrep", "ast-grep scan")
 // into the executable name and its leading subcommand args.
 func splitCommand(command string) (string, []string) {
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine:false-positive:2027-07-17 legitimate command->argv tokenization (a command line IS whitespace-delimited by shell semantics), not name-from-message extraction (ISSUE-062)
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return "", nil

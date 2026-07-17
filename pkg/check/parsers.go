@@ -84,6 +84,13 @@ type sarifLog struct {
 			Suppressions []struct {
 				Kind string `json:"kind"`
 			} `json:"suppressions"`
+			// Properties is the SARIF result-level `properties` object (ISSUE-062):
+			// the generic structured channel a pack uses to hand the gate machine-data
+			// (e.g. the substantiveness func/symbol) WITHOUT tunnelling it through the
+			// human message. v1 preserves string-valued entries only; a result with no
+			// properties yields a nil map (no error). Additive — every existing field
+			// is unchanged and property-less findings behave exactly as before.
+			Properties map[string]string `json:"properties"`
 		} `json:"results"`
 	} `json:"runs"`
 }
@@ -124,6 +131,7 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 				Severity:    sarifSeverity(r.Level),
 				Rule:        r.RuleID,
 				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet),
+				Properties:  r.Properties,
 			})
 		}
 	}

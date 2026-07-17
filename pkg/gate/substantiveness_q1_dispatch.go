@@ -70,6 +70,9 @@ func dispatchAstGrepRule(packDir, rulePath, ruleID, packName, scanTarget string)
 			Message:    v.Message,
 			Severity:   nonEmptySeverity(v.Severity),
 			SourcePack: packName,
+			// Carry the pack's structured properties across (ISSUE-062): the join now
+			// reads func/symbol from here rather than parsing the message.
+			Properties: v.Properties,
 		})
 	}
 	return out, nil

@@ -1,0 +1,27 @@
+[
+  {
+    "ruleId": "referenced-symbol-go",
+    "severity": "error",
+    "message": "test TestReferencesSymbol references package strings",
+    "file": "x_test.go",
+    "range": { "start": { "line": 4, "column": 0 } },
+    "metaVariables": {
+      "single": {
+        "FN": { "text": "TestReferencesSymbol" },
+        "PKG": { "text": "strings" }
+      }
+    }
+  },
+  {
+    "ruleId": "hollow-test-go",
+    "severity": "error",
+    "message": "test function surfaces a plan spec_id in the response has no assertions (hollow)",
+    "file": "read_model.test.ts",
+    "range": { "start": { "line": 9, "column": 0 } },
+    "metaVariables": {
+      "single": {
+        "FN": { "text": "surfaces a plan \"spec_id\" in the response" }
+      }
+    }
+  }
+]

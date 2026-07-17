@@ -3,9 +3,11 @@ language: go
 # Q1 hollow-test rule. A Go test-declaration node (func Test*) that does NOT `has`
 # a descendant assertion-shaped call is hollow -> finding (RED). The assertion
 # vocabulary lives ENTIRELY in this rule YAML — the binary carries no hardcoded
-# assertion-selector list (CLM-006). The message embeds the enclosing test func name
-# in the pinned `func=<FN>` shape so the gate keys the routed finding back to its
-# mandated test, preserving the "test X has no assertions (hollow)" semantics (CLM-005).
+# assertion-selector list (CLM-006). The enclosing test func name is captured as the
+# $FN metavariable and lifted into the SARIF result `properties.func` by the convert
+# (ISSUE-062), so the gate keys the routed finding back to its mandated test from
+# structured data; the message stays the human-readable "test X has no assertions
+# (hollow)" report surface (CLM-005) and carries no machine-parsed contract.
 #
 # TestMain(m *testing.M) is Go's harness entry point and is BY DESIGN never
 # assertion-bearing (it only sets up/tears down and delegates to m.Run). It is
@@ -30,4 +32,4 @@ rule:
           has:
             stopBy: end
             regex: "require|assert|check|verify|expect|must|Fatal|Fatalf|Error|Errorf|Fail|FailNow|Skip|Skipf"
-message: "test function $FN has no assertions (hollow) func=$FN"
+message: "test function $FN has no assertions (hollow)"

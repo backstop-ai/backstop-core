@@ -116,6 +116,7 @@ func provisionEngines(packs []*pack.Manifest) error {
 // ("golangci-lint run ..." -> "golangci-lint", "go build" -> "go"). An empty
 // command yields "" (the sandbox engine ships its own executable).
 func engineToolName(command string) string {
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine:false-positive:2027-07-17 legitimate executable-name extraction from a command line (argv[0] is a whitespace-free token by shell semantics), not name-from-message extraction (ISSUE-062)
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return ""

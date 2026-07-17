@@ -1,0 +1,220 @@
+---
+plan_id: PLAN-ISSUE-062
+spec_id: ISSUE-062
+created: "2026-07-17"
+status: completed
+target_module: pkg/check, pkg/gate, packs/substantiveness, backstop-self-pack
+test_command: "go test ./pkg/check/... ./pkg/gate/... -run 'Properties|Substantiveness'"
+coverage_threshold: 90
+notes: >
+  TDD-ordered. Phases 1->2->3 are the core plumbing chain (check parser -> gate.Violation
+  -> substantiveness join) and are strictly sequential: each layer consumes the previous
+  layer's new field. Phase 4 (pack convert) and Phase 5 (self rule) are independent of
+  each other and of Phase 3's ordering, but Phase 6's round-trip proof depends on both the
+  join (Phase 3) and the convert (Phase 4). Follow the ISSUE-059 Trace precedent for the
+  additive/omitempty/excluded-from-baseline-identity field shape.
+
+phases:
+  - id: P1
+    name: Generic SARIF properties pass-through in the check parser
+    tasks:
+      - id: T-001
+        type: test
+        title: Test the SARIF parser preserves and defaults result properties
+        description: >
+          Add tests asserting parseSarif copies a SARIF result's string properties
+          onto check.Violation.Properties, and that a result with no properties yields an
+          empty/nil map with no error.
+        files:
+          - pkg/check/parsers_test.go
+        claims: [CLM-001, CLM-002]
+        depends_on: []
+        test_names: [TestParseSarif_CarriesResultProperties, TestParseSarif_NoPropertiesIsEmptyNotError]
+      - id: T-002
+        type: implementation
+        title: Add Properties to sarifLog result and check.Violation; populate in parseSarif
+        description: >
+          Add a Properties map[string]string field to the sarifLog result struct and to
+          check.Violation; in parseSarif, copy the result's string-valued properties onto
+          the Violation. Additive — no existing field changes.
+        files:
+          - pkg/check/parsers.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [T-001]
+      - id: T-003
+        type: verification
+        title: Scoped gate on pkg/check
+        description: Run backstop gate scoped to pkg/check/parsers.go and parsers_test.go green.
+        files:
+          - pkg/check/parsers.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [T-002]
+
+  - id: P2
+    name: Carry Properties onto gate.Violation (additive, excluded from baseline identity)
+    tasks:
+      - id: T-004
+        type: test
+        title: Test gate.Violation carries Properties and they are identity-excluded
+        description: >
+          Assert gate.Violation carries Properties across from check.Violation additively,
+          and that EnrichViolationIdentity/RegionHash ignore Properties (a violation gaining
+          or losing Properties yields the same identity/hash).
+        files:
+          - pkg/gate/result_test.go
+        claims: [CLM-003, CLM-004]
+        depends_on: [T-003]
+        test_names: [TestGateViolation_CarriesProperties, TestProperties_ExcludedFromBaselineIdentity]
+      - id: T-005
+        type: implementation
+        title: Add gate.Violation.Properties (omitempty), carry from check, exclude from identity
+        description: >
+          Add Properties map[string]string json:"properties,omitempty" to gate.Violation
+          following the ISSUE-059 Trace precedent; populate it wherever check.Violation is
+          mapped to gate.Violation; ensure EnrichViolationIdentity continues to fold only
+          Rule|File|RegionHash(Message|Severity|SourcePack).
+        files:
+          - pkg/gate/result.go
+        claims: [CLM-003, CLM-004]
+        depends_on: [T-004]
+      - id: T-006
+        type: verification
+        title: Scoped gate on pkg/gate result
+        description: Run backstop gate scoped to pkg/gate/result.go and result_test.go green.
+        files:
+          - pkg/gate/result.go
+        claims: [CLM-003, CLM-004]
+        depends_on: [T-005]
+
+  - id: P3
+    name: Rewrite the substantiveness join to read Properties; delete the prose parsers
+    tasks:
+      - id: T-007
+        type: test
+        title: Test the join reads Properties, handles spaced names, and the parsers are gone
+        description: >
+          Assert ReferencedSetForTest/IsTestHollow read func/symbol from Properties (not the
+          message); assert a MandatedTest whose FuncName contains spaces joins correctly; and
+          assert tokenValue/parseExtractionMessage/funcNameFromMessage no longer exist.
+        files:
+          - pkg/gate/substantiveness_join_test.go
+        claims: [CLM-005, CLM-006, CLM-007]
+        depends_on: [T-006]
+        test_names: [TestSubstantivenessJoin_ReadsPropertiesNotMessage, TestSubstantivenessJoin_SpacedTestNameJoins, TestTokenValueParsersRemoved]
+      - id: T-008
+        type: implementation
+        title: Join on Properties func/symbol; delete tokenValue and friends
+        description: >
+          Rewrite ReferencedSetForTest and IsTestHollow to read Properties[func] and
+          Properties[symbol] and compare to MandatedTest.FuncName verbatim; delete tokenValue,
+          parseExtractionMessage, and funcNameFromMessage.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims: [CLM-005, CLM-006, CLM-007]
+        depends_on: [T-007]
+      - id: T-009
+        type: verification
+        title: Scoped gate on the substantiveness join
+        description: Run backstop gate scoped to substantiveness_join.go and its test green.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims: [CLM-005, CLM-006, CLM-007]
+        depends_on: [T-008]
+
+  - id: P4
+    name: Substantiveness pack convert emits properties from ast-grep metaVariables
+    tasks:
+      - id: T-010
+        type: test
+        title: Test the convert lifts metaVariables into SARIF properties
+        description: >
+          Feed the convert a sample ast-grep scan --json payload with metaVariables.single
+          FN/PKG and assert the emitted SARIF result carries properties func/symbol with the
+          verbatim values, while retaining the human-readable message.
+        files:
+          - packs/substantiveness/testdata/convert/metavars.json
+          - packs/substantiveness/testdata/convert/expected.sarif.json
+        claims: [CLM-008]
+        depends_on: []
+        test_names: [TestSubstantivenessConvertEmitsPropertiesFromMetavars]
+      - id: T-011
+        type: implementation
+        title: Update to-sarif.sh to emit properties from metaVariables
+        description: >
+          Rewrite packs/substantiveness/ast-grep/to-sarif.sh to read
+          .metaVariables.single.FN.text and .PKG.text from each ast-grep finding and emit them
+          as SARIF result properties func/symbol; keep message for humans.
+        files:
+          - packs/substantiveness/ast-grep/to-sarif.sh
+        claims: [CLM-008]
+        depends_on: [T-010]
+      - id: T-012
+        type: verification
+        title: Pack test for substantiveness
+        description: Run backstop pack test in packs/substantiveness green.
+        files:
+          - packs/substantiveness/ast-grep/to-sarif.sh
+        claims: [CLM-008]
+        depends_on: [T-011]
+
+  - id: P5
+    name: backstop/self rule catching structural name-extraction on the spine
+    tasks:
+      - id: T-013
+        type: test
+        title: Fixtures for the structural-name-split self rule
+        description: >
+          Add a positive fixture (a whitespace-split name extractor, e.g. strings.IndexAny(x,
+          " \t\n") slicing a value out of a message) and a negative fixture (a structured
+          Properties read) under the self pack, wired to a new rule claim.
+        files:
+          - backstop-self-pack/fixtures/rules/invalid/structural-name-split.go
+          - backstop-self-pack/fixtures/rules/valid/structured-property-read.go
+        claims: [CLM-009]
+        depends_on: []
+        test_names: [TestSelfRuleFlagsStructuralNameSplitOnSpine]
+      - id: T-014
+        type: implementation
+        title: Add the no-structural-name-split rule to backstop/self
+        description: >
+          Add a semgrep rule to backstop-self-pack/rules/no-baked.yml (Family B5) scoped to the
+          neutral-spine paths B3 already lists, flagging a whitespace-class string literal or
+          strings.Fields/strings.Split(x, " ") used to slice a value; register it in pack.yml
+          with the two fixtures.
+        files:
+          - backstop-self-pack/rules/no-baked.yml
+          - backstop-self-pack/pack.yml
+        claims: [CLM-009]
+        depends_on: [T-013]
+      - id: T-015
+        type: verification
+        title: Pack test for backstop/self
+        description: Run backstop pack test in backstop-self-pack green (new rule fixtures pass).
+        files:
+          - backstop-self-pack/rules/no-baked.yml
+        claims: [CLM-009]
+        depends_on: [T-014]
+
+  - id: P6
+    name: Adversarial round-trip proof + full gate
+    tasks:
+      - id: T-016
+        type: test
+        title: Spaced+quoted name round-trips convert -> parse -> join
+        description: >
+          Integration test: a substantiveness finding whose func property is a real
+          vitest-style description (spaces AND quotes) survives from the convert output through
+          parseSarif and the join to the correct per-test hollow/referenced verdict.
+        files:
+          - pkg/gate/substantiveness_roundtrip_test.go
+        claims: [CLM-010]
+        depends_on: [T-009, T-012]
+        test_names: [TestSubstantiveness_SpacedQuotedNameRoundTrips]
+      - id: T-017
+        type: verification
+        title: Full gate + validate
+        description: Run backstop gate --all and backstop artifact validate --all green.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims: [CLM-010]
+        depends_on: [T-016, T-002, T-005, T-008, T-011, T-014]

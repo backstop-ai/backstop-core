@@ -290,3 +290,83 @@ func TestGateResult_BaselineComparisonStep_AdditiveDiagnosticsContract(t *testin
 		t.Errorf("expected additive baseline diagnostics field %q", "new_violations")
 	}
 }
+
+// TestGateViolation_CarriesProperties pins CLM-003: gate.Violation carries the
+// structured Properties map additively — it round-trips through the struct and
+// serializes under `properties` (omitempty) only when populated, so a consumer
+// reading only rule/file/message/severity is unaffected (additive under gate/v1).
+func TestGateViolation_CarriesProperties(t *testing.T) {
+	v := Violation{
+		Rule:     StepTestSubstantiveness,
+		File:     "a_test.go",
+		Message:  "test X has no assertions (hollow)",
+		Severity: "error",
+		Properties: map[string]string{
+			"func":   "surfaces a plan spec_id in the response",
+			"symbol": "readmodel",
+		},
+	}
+	if v.Properties["func"] != "surfaces a plan spec_id in the response" {
+		t.Fatalf("Properties[func] = %q, want the verbatim spaced value", v.Properties["func"])
+	}
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back struct {
+		Properties map[string]string `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Properties["func"] != "surfaces a plan spec_id in the response" || back.Properties["symbol"] != "readmodel" {
+		t.Errorf("properties did not round-trip through JSON: %v", back.Properties)
+	}
+
+	// omitempty: a violation with no properties omits the key entirely.
+	bare, err := json.Marshal(Violation{Rule: "r", Message: "m", Severity: "error"})
+	if err != nil {
+		t.Fatalf("marshal bare: %v", err)
+	}
+	if strings.Contains(string(bare), "\"properties\"") {
+		t.Errorf("empty Properties must be omitted (omitempty), got %s", string(bare))
+	}
+}
+
+// TestProperties_ExcludedFromBaselineIdentity pins CLM-004: Properties is
+// DELIBERATELY excluded from baseline identity and RegionHash, exactly like Trace —
+// a violation gaining or losing Properties yields the SAME Identity/IdentityHash/
+// RegionHash, so it never destabilizes baseline grandfathering.
+func TestProperties_ExcludedFromBaselineIdentity(t *testing.T) {
+	base := Violation{
+		Rule:       "backstop/substantiveness/referenced-symbol-go",
+		File:       "pkg/x/x_test.go",
+		Message:    "test X has no assertions (hollow)",
+		Severity:   "error",
+		SourcePack: "backstop/substantiveness",
+	}
+	withProps := base
+	withProps.Properties = map[string]string{"func": "TestX", "symbol": "x"}
+
+	a := EnrichViolationIdentity(base)
+	b := EnrichViolationIdentity(withProps)
+
+	if a.IdentityHash != b.IdentityHash {
+		t.Errorf("IdentityHash changed when Properties were added: %q vs %q", a.IdentityHash, b.IdentityHash)
+	}
+	if a.Identity != b.Identity {
+		t.Errorf("Identity changed when Properties were added: %q vs %q", a.Identity, b.Identity)
+	}
+	if a.RegionHash != b.RegionHash {
+		t.Errorf("RegionHash changed when Properties were added: %q vs %q", a.RegionHash, b.RegionHash)
+	}
+
+	// And a DIFFERENT properties map must not move identity either.
+	withOther := base
+	withOther.Properties = map[string]string{"func": "a b c", "symbol": "other"}
+	c := EnrichViolationIdentity(withOther)
+	if c.IdentityHash != a.IdentityHash {
+		t.Errorf("IdentityHash moved with a different Properties map: %q vs %q", c.IdentityHash, a.IdentityHash)
+	}
+}

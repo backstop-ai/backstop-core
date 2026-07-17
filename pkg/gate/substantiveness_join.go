@@ -13,8 +13,8 @@ import (
 // dropped, no GateType field) and performs:
 //   - routing substantiveness findings out of the flat pack_engines stream by
 //     NAMESPACED rule ID (RouteSubstantivenessFindings),
-//   - keying extraction findings back to a MandatedTest by (FilePath, FuncName)
-//     parsed from the SARIF Message (ReferencedSetForTest),
+//   - keying extraction findings back to a MandatedTest by (FilePath, func) read
+//     from the finding's structured SARIF Properties (ReferencedSetForTest),
 //   - the noTarget SET-JOIN decision table (NoTargetViolation),
 //   - the relocated, behavior-preserving target-package derivation
 //     (TargetPackageName).
@@ -103,40 +103,43 @@ func RouteSubstantivenessFindings(violations []Violation, hollowRuleID, extracti
 }
 
 // ReferencedSetForTest joins the routed Q2 extraction findings to a MandatedTest by
-// (FilePath, FuncName) and assembles that test's ReferencedSymbolSet. FuncName and the
-// referenced symbol are parsed from each finding's PINNED Message
-// ("referenced-symbol func=<TestFuncName> symbol=<pkg>") — NOT from Line/region
-// (dropped by the flat conversion) and NOT by re-walking the test AST (Sharp Edge 2).
-// A test with no matching finding yields an empty set, which the decision table
-// handles unchanged (CLM-025/CLM-026).
+// (FilePath, func) and assembles that test's ReferencedSymbolSet. The enclosing test
+// name and the referenced symbol come from each finding's STRUCTURED Properties
+// (`func`/`symbol`, ISSUE-062) — NOT parsed out of the free-text Message, NOT from
+// Line/region (dropped by the flat conversion), and NOT by re-walking the test AST
+// (Sharp Edge 2). Properties["func"] is compared to MandatedTest.FuncName VERBATIM, so
+// the join is correct for a name containing spaces or quotes (a string-named it()/test()
+// description), not only a single-token Go TestXxx name. A test with no matching finding
+// yields an empty set, which the decision table handles unchanged (CLM-025/CLM-026).
 func ReferencedSetForTest(extraction []Violation, test MandatedTest) ReferencedSymbolSet {
 	set := ReferencedSymbolSet{}
 	for _, v := range extraction {
 		if !sameFile(v.File, test.FilePath) {
 			continue
 		}
-		fn, symbol := parseExtractionMessage(v.Message)
-		if fn != test.FuncName {
+		if v.Properties["func"] != test.FuncName {
 			continue
 		}
-		if symbol != "" {
+		if symbol := v.Properties["symbol"]; symbol != "" {
 			set[symbol] = true
 		}
 	}
 	return set
 }
 
-// IsTestHollow turns the routed hollow partition into the per-test hollow verdict
-// the substantiveness step raises: it maps each routed hollow finding to its mandated
-// test by (File, FuncName parsed from the finding's PINNED `func=<FN>` Message) and
-// reports whether the given test is hollow. Language-agnostic — Go and TS hollow
-// findings flow identically through the same `func=` shape (CLM-003/004/012/013/014).
+// IsTestHollow turns the routed hollow partition into the per-test hollow verdict the
+// substantiveness step raises: it maps each routed hollow finding to its mandated test
+// by (File, Properties["func"]) — the enclosing test name read VERBATIM from the
+// finding's structured Properties (ISSUE-062), never parsed from the message — and
+// reports whether the given test is hollow. Language-agnostic and whitespace-safe: Go
+// and TS hollow findings flow identically, and a spaced/quoted test name matches
+// exactly (CLM-003/004/012/013/014, CLM-006).
 func IsTestHollow(hollow []Violation, test MandatedTest) bool {
 	for _, v := range hollow {
 		if !sameFile(v.File, test.FilePath) {
 			continue
 		}
-		if funcNameFromMessage(v.Message) == test.FuncName {
+		if v.Properties["func"] == test.FuncName {
 			return true
 		}
 	}
@@ -179,37 +182,6 @@ func stripFuncToken(message string) string {
 		}
 	}
 	return strings.TrimRight(message, " \t")
-}
-
-// funcNameFromMessage parses the enclosing test function name out of a routed
-// finding's PINNED message (both the hollow and extraction rules embed `func=<FN>`).
-// It is the gate-side per-test key that replaces the dropped Line/region identity.
-func funcNameFromMessage(message string) string {
-	// parseExtractionMessage returns (funcName, symbol); the discarded symbol is a
-	// string, not an error.
-	fn, _ := parseExtractionMessage(message) // nosemgrep: go.core.no-ignored-errors — discards a string, not an error
-	return fn
-}
-
-// parseExtractionMessage extracts the func= and symbol= tokens from a pinned
-// substantiveness SARIF message. Both tokens are whitespace-delimited; a missing
-// token yields "". This is a pure string operation over pack SARIF.
-func parseExtractionMessage(message string) (funcName, symbol string) {
-	return tokenValue(message, "func="), tokenValue(message, "symbol=")
-}
-
-// tokenValue returns the whitespace-delimited value following the first occurrence
-// of key (e.g. "func=") in s, or "" if absent.
-func tokenValue(s, key string) string {
-	idx := strings.Index(s, key)
-	if idx < 0 {
-		return ""
-	}
-	rest := s[idx+len(key):]
-	if end := strings.IndexAny(rest, " \t\n"); end >= 0 {
-		return rest[:end]
-	}
-	return rest
 }
 
 // sameFile compares two file paths for the (FilePath, FuncName) join. Extraction

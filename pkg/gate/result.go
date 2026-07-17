@@ -102,10 +102,20 @@ type Violation struct {
 	// its trace never destabilizes baseline grandfathering. Additive under gate/v1 and
 	// omitempty, so consumers reading only rule/file/message/severity are unaffected. Nil
 	// for every violation outside the requirement_traceability step.
-	Trace        *Trace `json:"trace,omitempty"`
-	Identity     string `json:"identity"`
-	IdentityHash string `json:"identity_hash"`
-	RegionHash   string `json:"region_hash"`
+	Trace *Trace `json:"trace,omitempty"`
+	// Properties is the ISSUE-062 generic structured channel carried from a pack's
+	// SARIF result (check.Violation.Properties) — typed machine-data (e.g. the
+	// substantiveness `func`/`symbol`) the gate reads instead of parsing it out of
+	// the free-text Message. It follows the Trace precedent EXACTLY: additive,
+	// omitempty, and DELIBERATELY EXCLUDED from baseline identity/RegionHash
+	// (EnrichViolationIdentity folds only Rule|File|RegionHash(Message|Severity|
+	// SourcePack)), so a violation gaining or losing Properties never destabilizes
+	// baseline grandfathering. Consumers reading only rule/file/message/severity are
+	// unaffected (additive under gate/v1). Nil for a finding that carries none.
+	Properties   map[string]string `json:"properties,omitempty"`
+	Identity     string            `json:"identity"`
+	IdentityHash string            `json:"identity_hash"`
+	RegionHash   string            `json:"region_hash"`
 }
 
 // StepResult holds the result of a single gate step.

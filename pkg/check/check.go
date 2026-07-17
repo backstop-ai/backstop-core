@@ -24,6 +24,14 @@ type Violation struct {
 	// in one file distinct and survives unrelated line shifts. Empty when the
 	// engine emits neither, leaving the coarse message-level fallback.
 	Fingerprint string
+	// Properties carries the SARIF result-level `properties` object (ISSUE-062):
+	// the generic structured channel a pack uses to hand the gate typed machine-data
+	// (e.g. the substantiveness `func`/`symbol`) instead of tunnelling it through the
+	// free-text Message. Populated by parseSarif from the result's string-valued
+	// properties; nil for a finding that carries none. Flows to
+	// gate.Violation.Properties additively and is DELIBERATELY excluded from baseline
+	// identity, mirroring how the message-parsed contract used to be invisible to it.
+	Properties map[string]string
 }
 
 // PassResult holds the result of a single validation pass. It is retained as the

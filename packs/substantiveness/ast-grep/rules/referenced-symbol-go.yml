@@ -2,8 +2,9 @@ id: referenced-symbol-go
 language: go
 # Q2 referenced-symbol EXTRACTION rule. A positive query: for each package-qualified
 # call (pkg.Func()) inside a test declaration, emit one SARIF result carrying the
-# enclosing test function name AND the referenced package symbol in the PINNED,
-# machine-parseable message `referenced-symbol func=<TestFuncName> symbol=<pkg>`.
+# enclosing test function name ($FN) AND the referenced package symbol ($PKG) as
+# STRUCTURED SARIF result `properties` (func/symbol), lifted from the matched
+# metavariables by the convert (ISSUE-062) — never parsed out of the prose message.
 # The pack is spec-UNAWARE — it only reports what the test references; the gate alone
 # knows the spec's target package and performs the set-membership join (Sharp Edge 2).
 utils:
@@ -27,4 +28,4 @@ rule:
 constraints:
   PKG:
     kind: identifier
-message: "referenced-symbol func=$FN symbol=$PKG"
+message: "test $FN references package $PKG"

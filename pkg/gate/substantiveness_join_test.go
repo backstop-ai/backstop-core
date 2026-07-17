@@ -1,6 +1,9 @@
 package gate
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // substantiveness_join_test.go drives the language-agnostic gate-side half of the
 // SPEC-037 substantiveness pack split: the relocated TargetPackageName, the
@@ -158,16 +161,16 @@ func TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream(t *testing.T) {
 	}
 }
 
-// TestRoute_KeysExtractionFindingsToMandatedTest (CLM-025) — PINS the extraction
-// message format (func=<FN> symbol=<pkg>); FuncName is parsed from Message (NOT
-// Line/region, which is dropped), and findings join to a MandatedTest by
-// (FilePath, FuncName) so a finding for test X contributes only to X's set.
+// TestRoute_KeysExtractionFindingsToMandatedTest (CLM-025) — keys extraction findings
+// to a MandatedTest by (FilePath, func) where func/symbol come from the structured
+// Properties (ISSUE-062), NOT the free-text Message; a finding for test X contributes
+// only to X's set.
 func TestRoute_KeysExtractionFindingsToMandatedTest(t *testing.T) {
 	extraction := []Violation{
-		{Rule: testExtractionRuleID, File: "x_test.go", Message: "referenced-symbol func=TestX symbol=gate"},
-		{Rule: testExtractionRuleID, File: "x_test.go", Message: "referenced-symbol func=TestX symbol=other"},
+		{Rule: testExtractionRuleID, File: "x_test.go", Properties: map[string]string{"func": "TestX", "symbol": "gate"}},
+		{Rule: testExtractionRuleID, File: "x_test.go", Properties: map[string]string{"func": "TestX", "symbol": "other"}},
 		// A finding for a DIFFERENT test in the same file must not leak into TestX.
-		{Rule: testExtractionRuleID, File: "x_test.go", Message: "referenced-symbol func=TestY symbol=leak"},
+		{Rule: testExtractionRuleID, File: "x_test.go", Properties: map[string]string{"func": "TestY", "symbol": "leak"}},
 	}
 	testX := MandatedTest{FuncName: "TestX", FilePath: "x_test.go"}
 	set := ReferencedSetForTest(extraction, testX)
@@ -187,7 +190,7 @@ func TestRoute_KeysExtractionFindingsToMandatedTest(t *testing.T) {
 // (here: empty set + non-empty target + not same-package → noTarget).
 func TestRoute_NoExtractionFinding_EmptySetFlowsToSetJoin(t *testing.T) {
 	extraction := []Violation{
-		{Rule: testExtractionRuleID, File: "other_test.go", Message: "referenced-symbol func=TestOther symbol=gate"},
+		{Rule: testExtractionRuleID, File: "other_test.go", Properties: map[string]string{"func": "TestOther", "symbol": "gate"}},
 	}
 	testX := MandatedTest{FuncName: "TestX", FilePath: "x_test.go"}
 	set := ReferencedSetForTest(extraction, testX)
@@ -198,5 +201,92 @@ func TestRoute_NoExtractionFinding_EmptySetFlowsToSetJoin(t *testing.T) {
 	// same-package → noTarget.
 	if _, raised := NoTargetViolation(testX.FuncName, "gate", set, false); !raised {
 		t.Fatalf("empty set + non-empty target + not same-package must raise noTarget unchanged")
+	}
+}
+
+// TestSubstantivenessJoin_ReadsPropertiesNotMessage pins CLM-005: ReferencedSetForTest
+// and IsTestHollow key on Properties["func"]/["symbol"], NOT the free-text Message. A
+// finding whose Message carries a STALE/misleading func= token but whose Properties name
+// the real test still joins by Properties — proving the message is no longer the machine
+// channel.
+func TestSubstantivenessJoin_ReadsPropertiesNotMessage(t *testing.T) {
+	extraction := []Violation{
+		{
+			Rule:       testExtractionRuleID,
+			File:       "x_test.go",
+			Message:    "referenced-symbol func=WRONG symbol=WRONG", // stale prose — must be ignored
+			Properties: map[string]string{"func": "TestX", "symbol": "gate"},
+		},
+	}
+	testX := MandatedTest{FuncName: "TestX", FilePath: "x_test.go"}
+	set := ReferencedSetForTest(extraction, testX)
+	if !set["gate"] {
+		t.Errorf("expected symbol from Properties (gate); got %+v", set)
+	}
+	if set["WRONG"] {
+		t.Errorf("join read the message instead of Properties: %+v", set)
+	}
+
+	hollow := []Violation{
+		{
+			Rule:       testHollowRuleID,
+			File:       "x_test.go",
+			Message:    "test function WRONG has no assertions (hollow) func=WRONG",
+			Properties: map[string]string{"func": "TestX"},
+		},
+	}
+	if !IsTestHollow(hollow, testX) {
+		t.Errorf("IsTestHollow must key on Properties[func]=TestX, not the message's WRONG token")
+	}
+}
+
+// TestSubstantivenessJoin_SpacedTestNameJoins pins CLM-006: a MandatedTest whose FuncName
+// contains spaces (a string-named it()/test() description, not a single-token Go
+// TestXxx) joins correctly. This is the case the deleted whitespace-delimited parsers
+// silently truncated (func=surfaces a plan… → "surfaces").
+func TestSubstantivenessJoin_SpacedTestNameJoins(t *testing.T) {
+	const spaced = "surfaces a plan spec_id in the response"
+	mt := MandatedTest{FuncName: spaced, FilePath: "read_model.test.ts"}
+
+	extraction := []Violation{
+		{Rule: testExtractionRuleID, File: "read_model.test.ts",
+			Properties: map[string]string{"func": spaced, "symbol": "readmodel"}},
+	}
+	set := ReferencedSetForTest(extraction, mt)
+	if !set["readmodel"] {
+		t.Errorf("spaced test name must join to its symbol; got %+v (whitespace-truncation regression?)", set)
+	}
+
+	hollow := []Violation{
+		{Rule: testHollowRuleID, File: "read_model.test.ts",
+			Properties: map[string]string{"func": spaced}},
+	}
+	if !IsTestHollow(hollow, mt) {
+		t.Errorf("IsTestHollow must match a spaced FuncName verbatim via Properties[func]")
+	}
+	// A DIFFERENT spaced name in the same file must NOT match — no prefix/truncation join.
+	other := MandatedTest{FuncName: "surfaces a different thing", FilePath: "read_model.test.ts"}
+	if IsTestHollow(hollow, other) {
+		t.Errorf("a different spaced name must not spuriously match")
+	}
+}
+
+// TestTokenValueParsersRemoved pins CLM-007 (kind: absence): the whitespace-delimited
+// message parsers tokenValue / parseExtractionMessage / funcNameFromMessage are DELETED
+// from pkg/gate — no non-comment line defines or references them.
+func TestTokenValueParsersRemoved(t *testing.T) {
+	deleted := []string{"tokenValue", "parseExtractionMessage", "funcNameFromMessage"}
+	for name, src := range gateGoSources(t) {
+		for _, sym := range deleted {
+			for _, line := range strings.Split(src, "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "//") {
+					continue
+				}
+				if strings.Contains(line, sym) {
+					t.Errorf("%s still references deleted message parser %q (CLM-007): %s", name, sym, trimmed)
+				}
+			}
+		}
 	}
 }

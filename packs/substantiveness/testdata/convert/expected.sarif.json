@@ -1,0 +1,54 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "results": [
+        {
+          "ruleId": "referenced-symbol-go",
+          "level": "error",
+          "message": {
+            "text": "test TestReferencesSymbol references package strings"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "x_test.go"
+                },
+                "region": {
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "properties": {
+            "func": "TestReferencesSymbol",
+            "symbol": "strings"
+          }
+        },
+        {
+          "ruleId": "hollow-test-go",
+          "level": "error",
+          "message": {
+            "text": "test function surfaces a plan spec_id in the response has no assertions (hollow)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "read_model.test.ts"
+                },
+                "region": {
+                  "startLine": 10
+                }
+              }
+            }
+          ],
+          "properties": {
+            "func": "surfaces a plan \"spec_id\" in the response"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -94,3 +94,98 @@ func TestCodeCheck_Parsers_FormatRegistryResolution(t *testing.T) {
 		}
 	}
 }
+
+// TestParseSarif_CarriesResultProperties pins CLM-001: parseSarif copies a SARIF
+// result's string-valued `properties` object verbatim onto
+// check.Violation.Properties, preserving values that contain spaces and quotes
+// (the structured channel that replaces machine-data parsed out of the message).
+func TestParseSarif_CarriesResultProperties(t *testing.T) {
+	const in = `{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "results": [
+        {
+          "ruleId": "referenced-symbol-go",
+          "level": "error",
+          "message": { "text": "test X has no assertions (hollow)" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "a_test.go" },
+                "region": { "startLine": 5 }
+              }
+            }
+          ],
+          "properties": {
+            "func": "surfaces a plan spec_id in the response",
+            "symbol": "readmodel"
+          }
+        }
+      ]
+    }
+  ]
+}`
+	violations, err := parseSarif([]byte(in), CheckTypeFindings)
+	if err != nil {
+		t.Fatalf("parseSarif: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("got %d violations, want 1", len(violations))
+	}
+	v := violations[0]
+	if v.Properties == nil {
+		t.Fatalf("v.Properties = nil, want the result's properties map")
+	}
+	if got := v.Properties["func"]; got != "surfaces a plan spec_id in the response" {
+		t.Errorf("v.Properties[func] = %q, want the verbatim spaced value", got)
+	}
+	if got := v.Properties["symbol"]; got != "readmodel" {
+		t.Errorf("v.Properties[symbol] = %q, want readmodel", got)
+	}
+	// Additive: existing fields are unchanged by the new channel.
+	if v.Rule != "referenced-symbol-go" || v.File != "a_test.go" || v.Line != 5 {
+		t.Errorf("existing fields changed: Rule=%q File=%q Line=%d", v.Rule, v.File, v.Line)
+	}
+	if v.Message != "test X has no assertions (hollow)" {
+		t.Errorf("v.Message = %q, want the human message unchanged", v.Message)
+	}
+}
+
+// TestParseSarif_NoPropertiesIsEmptyNotError pins CLM-002: a SARIF result with no
+// `properties` object yields a nil/empty Properties map and NO error — the change
+// is additive and a property-less finding behaves exactly as before.
+func TestParseSarif_NoPropertiesIsEmptyNotError(t *testing.T) {
+	const in = `{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "results": [
+        {
+          "ruleId": "EXAMPLE001",
+          "level": "error",
+          "message": { "text": "a finding with no properties" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "b.go" },
+                "region": { "startLine": 9 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`
+	violations, err := parseSarif([]byte(in), CheckTypeFindings)
+	if err != nil {
+		t.Fatalf("parseSarif returned an error for a property-less result: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("got %d violations, want 1", len(violations))
+	}
+	if len(violations[0].Properties) != 0 {
+		t.Errorf("v.Properties = %v, want nil/empty for a result with no properties", violations[0].Properties)
+	}
+}
