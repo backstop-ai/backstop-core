@@ -134,7 +134,12 @@ func resolveGateScopeDiff(projectRoot string) ([]string, []string, error) {
 		files, warnings, allErr := resolveGateScopeAll(projectRoot)
 		return files, append(warnings, fmt.Sprintf("git diff failed: %v; falling back to full codebase scan", err)), allErr
 	}
-	untracked, _ := gitLines(projectRoot, "ls-files", "--others", "--exclude-standard")
+	untracked, untrackedErr := gitLines(projectRoot, "ls-files", "--others", "--exclude-standard")
+	if untrackedErr != nil {
+		// Untracked enumeration failed; the tracked diff is still authoritative, so
+		// proceed with tracked-only rather than aborting the scope computation.
+		untracked = nil
+	}
 	return append(tracked, untracked...), []string{"no remote branch (origin/main or origin/master) found; using local changes only"}, nil
 }
 
@@ -166,7 +171,7 @@ func gitOK(dir string, args ...string) bool {
 func gitLines(dir string, args ...string) ([]string, error) {
 	out, err := gitOutput(dir, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	var lines []string
 	for _, line := range strings.Split(out, "\n") {
@@ -182,7 +187,7 @@ func gitOutput(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return string(out), nil
 }
@@ -211,4 +216,16 @@ func filterViolations(scope *GateScope, violations []Violation) []Violation {
 		return []Violation{}
 	}
 	return filtered
+}
+
+// FilterViolations is the exported wrapper over filterViolations so out-of-package
+// callers — specifically cmd/backstop's pack_engines step (packValidatorStep) — apply
+// the SAME diff-scope filter the delegate and baseline paths already use. ISSUE-070:
+// packValidatorStep set status on the raw dispatch output WITHOUT filtering, so
+// project-wide NON-exempt lint violations (golangci errcheck/unused/…) on UNCHANGED
+// files leaked past diff-scope and redded the gate on any change. A nil or ModeAll
+// scope returns the violations unchanged (whole-repo sweep); ProjectWide (exempt)
+// violations are still kept regardless of scope.
+func (s *GateScope) FilterViolations(violations []Violation) []Violation {
+	return filterViolations(s, violations)
 }

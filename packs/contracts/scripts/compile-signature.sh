@@ -109,8 +109,22 @@ case "$sig" in
     esac
     ;;
   *)
-    # Fallback: treat as a bare func-shaped body (back-compat with an
-    # unprefixed "<name>(<params>)<rest>" signature).
-    emit_func "$sig"
+    # No leading keyword. Two shapes reach here:
+    #   - STRUCT FIELD ("<Name> <Type> [`tag`]", no parens) — ISSUE-036: a bare field
+    #     is an ast-grep ERROR node (not valid Go at top level), so wrap it in struct
+    #     context to match the field within any struct in the target file.
+    #   - bare func-shaped body ("<name>(<params>)<rest>", has parens) — back-compat.
+    case "$sig" in
+      *"("*)
+        emit_func "$sig"
+        ;;
+      *)
+        # NEWLINES + UNNAMED $$$ are load-bearing: ast-grep parses a struct field
+        # list by line/semicolon, so `$$$ <field> $$$` on one line does NOT match, and
+        # NAMED metavars over-match every field position. `$$$\n<field>\n$$$` matches
+        # the containing struct exactly once.
+        printf 'struct {\n$$$\n%s\n$$$\n}' "$(trim "$sig")"
+        ;;
+    esac
     ;;
 esac

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -98,9 +99,16 @@ type EngineSpec struct {
 	// ExemptFromScopeFilter marks an engine whose violations bypass diff-scope
 	// filtering (the go-build declared build-exemption, SPEC-041 CLM-011). Declared
 	// as pack DATA so the exemption travels with the pack, not a baked binding.
-	ExemptFromScopeFilter bool                  `yaml:"exempt_from_scope_filter"`
-	Provision             *engine.Provision     `yaml:"provision"`
-	FieldContract         *engine.FieldContract `yaml:"field_contract"`
+	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
+	// RunGroup is the opaque declared shared-run key (ISSUE-068 Option C): two
+	// engines declaring the same non-empty key share ONE memoized run. Declared as
+	// pack DATA and converted to engine.EngineBinding.RunGroup at load; a missing
+	// key leaves it empty (the safe default — unchanged two-run behavior). Wired
+	// through parseEngineSpec so a pack.yml run_group: key is not silently dropped by
+	// the non-strict YAML decode (the same drop-hazard the Producer field guards).
+	RunGroup      string                `yaml:"run_group"`
+	Provision     *engine.Provision     `yaml:"provision"`
+	FieldContract *engine.FieldContract `yaml:"field_contract"`
 	// Binding is the engine.EngineBinding the spec converts to at load. It is
 	// populated by parseEngineSpec during ParseManifest, not parsed directly from
 	// yaml, so the string-enum spellings resolve through the fail-loud parsers.
@@ -277,13 +285,13 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	}
 
 	if err := validateName(manifest.Name); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate name: %w", err)
 	}
 	if err := validateLanguageField(manifest.Language); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate language: %w", err)
 	}
 	if err := validateArchetype(manifest.Archetype); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate archetype: %w", err)
 	}
 	if err := validateSemver(manifest.Version); err != nil {
 		return nil, fmt.Errorf("invalid version: %w", err)
@@ -303,6 +311,13 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		manifest.Engines[name] = spec
 	}
 
+	// Validate run-group coherence (ISSUE-068 Option C): engines sharing a declared
+	// run_group promise to share ONE memoized run, so their run-shaping fields must
+	// match or the memoized payload would silently mismatch one member's convert.
+	if err := validateRunGroups(&manifest); err != nil {
+		return nil, fmt.Errorf("validate run groups: %w", err)
+	}
+
 	if manifest.Content.Ruleset.Version == "" && manifest.Archetype == "enforcement" {
 		manifest.Content.Ruleset.Version = manifest.Version
 	}
@@ -319,7 +334,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("invalid rule id %q: %w", rule.ID, err)
 		}
 		if err := validateRiskClass(rule.RiskClass); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("rule %q risk_class: %w", rule.ID, err)
 		}
 		if err := validateEngine(rule.Engine, declaredBindings); err != nil {
 			return nil, fmt.Errorf("rule %q: %w", rule.ID, err)
@@ -329,7 +344,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 				rule.Claims[j].Fixtures.Positive[k].BypassAttempt = false
 			}
 			if err := validateFixtures(rule.Claims[j].Fixtures); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("rule %q claim %q fixtures: %w", rule.ID, rule.Claims[j].ID, err)
 			}
 		}
 	}
@@ -342,12 +357,12 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			}
 		}
 		if err := validateScaffold(scaffold); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scaffold %q: %w", scaffold.ID, err)
 		}
 	}
 	if manifest.Content.SDK != nil {
 		if err := validateSDK(manifest.Content.SDK); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("validate sdk: %w", err)
 		}
 		if err := validateSemver(manifest.Content.SDK.Version); err != nil {
 			return nil, fmt.Errorf("invalid sdk version: %w", err)
@@ -355,14 +370,14 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	}
 	for _, tc := range manifest.ToolConfig {
 		if err := validateToolConfig(tc); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("validate tool_config: %w", err)
 		}
 		for i := range tc.Claims {
 			for j := range tc.Claims[i].Fixtures.Positive {
 				tc.Claims[i].Fixtures.Positive[j].BypassAttempt = false
 			}
 			if err := validateFixtures(tc.Claims[i].Fixtures); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("tool_config claim %q fixtures: %w", tc.Claims[i].ID, err)
 			}
 		}
 	}
@@ -455,6 +470,80 @@ func declaredEngineBindings(m *Manifest) map[string]engine.EngineBinding {
 	return declared
 }
 
+// validateRunGroups enforces run-group coherence (ISSUE-068 Option C). Engines that
+// declare the SAME non-empty run_group share ONE memoized run at dispatch: the
+// command/producer runs ONCE and its payload is fanned into EACH member's own
+// convert. For that memoized payload to be what BOTH converts expect, every member
+// must agree on the fields that shape the actual run — Command, Producer,
+// StdoutArtifact, ScopeKind, AND ProjectTarget. It compares the RAW declared fields
+// by byte-equality; it NEVER parses or normalizes what a command MEANS
+// (thin-executor / DD-3). A group of ONE participant is a documented no-op (dedupes
+// nothing, behaves as if unset). A divergence is a fail-loud broken-pack error
+// naming the pack, the run_group key, the divergent engines, and the field.
+//
+// The ScopeKind/ProjectTarget parity is what makes the run-once premise hold: it
+// forces run-group members to be the same project-wide toolchain pass so the
+// memoized payload is what BOTH converts would have gotten. The parity rule covers
+// the declared binding fields but NOT the rule-derived gatherEngineInputs output;
+// ScopeKind=project-wide parity keeps that input path inert for the only coherent
+// use, so no gatherEngineInputs comparison is warranted.
+func validateRunGroups(m *Manifest) error {
+	groups := map[string][]string{}
+	for name := range m.Engines {
+		key := m.Engines[name].Binding.RunGroup
+		if key == "" {
+			continue
+		}
+		groups[key] = append(groups[key], name)
+	}
+
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		members := groups[key]
+		if len(members) < 2 {
+			// Singleton run-group: dedupes nothing, behaves as if unset — a documented
+			// no-op. Only groups of >1 need the coherence parity check.
+			continue
+		}
+		sort.Strings(members)
+		ref := m.Engines[members[0]].Binding
+		for _, name := range members[1:] {
+			if field, ok := runGroupFieldMismatch(ref, m.Engines[name].Binding); ok {
+				return fmt.Errorf(
+					"pack %s: run_group %q is incoherent: engines %q and %q diverge on %s — run-group members must share identical command, producer, stdout_artifact, scope_kind, and project_target so the single memoized run's payload matches every member's convert",
+					m.Name, key, members[0], name, field,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// runGroupFieldMismatch reports the FIRST run-shaping field on which two run-group
+// members diverge (raw byte-equality of the declared fields — never normalized),
+// and whether they diverge at all. ScopeKind is compared as the declared enum value.
+func runGroupFieldMismatch(a, b engine.EngineBinding) (string, bool) {
+	switch {
+	case a.Command != b.Command:
+		return "command", true
+	case a.Producer != b.Producer:
+		return "producer", true
+	case a.StdoutArtifact != b.StdoutArtifact:
+		return "stdout_artifact", true
+	case a.ScopeKind != b.ScopeKind:
+		return "scope_kind", true
+	case a.ProjectTarget != b.ProjectTarget:
+		return "project_target", true
+	default:
+		return "", false
+	}
+}
+
 // validateEngine fail-louds on a rule whose engine is empty (a layer-only rule
 // under the migrated reader) and, for an engine the pack DECLARES in its own
 // engines: block, enforces the validation-time half of the trusted-tool trust gate
@@ -519,30 +608,31 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 		ProjectTarget:         spec.ProjectTarget,
 		CrashGuard:            spec.CrashGuard,
 		ExemptFromScopeFilter: spec.ExemptFromScopeFilter,
+		RunGroup:              spec.RunGroup,
 		Provision:             spec.Provision,
 	}
 
 	inputMode, err := engine.ParseInputMode(spec.InputMode)
 	if err != nil {
-		return engine.EngineBinding{}, err
+		return engine.EngineBinding{}, fmt.Errorf("parse input_mode: %w", err)
 	}
 	binding.InputMode = inputMode
 
 	scopeKind, err := parseScopeKind(spec.ScopeKind)
 	if err != nil {
-		return engine.EngineBinding{}, err
+		return engine.EngineBinding{}, fmt.Errorf("parse scope_kind: %w", err)
 	}
 	binding.ScopeKind = scopeKind
 
 	category, err := parseEngineCategory(spec.Category)
 	if err != nil {
-		return engine.EngineBinding{}, err
+		return engine.EngineBinding{}, fmt.Errorf("parse category: %w", err)
 	}
 	binding.Category = category
 
 	gateType, err := engine.ParseGateType(spec.GateType)
 	if err != nil {
-		return engine.EngineBinding{}, err
+		return engine.EngineBinding{}, fmt.Errorf("parse gate_type: %w", err)
 	}
 	binding.GateType = gateType
 

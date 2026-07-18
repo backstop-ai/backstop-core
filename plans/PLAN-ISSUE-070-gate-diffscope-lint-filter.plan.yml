@@ -1,0 +1,503 @@
+---
+plan_id: PLAN-ISSUE-070
+spec_id: ISSUE-070
+created: "2026-07-18"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... -run \"TestGate_PackEngines_DiffScope|TestGateScope_FilterViolations|TestDiag_PackEngines\" -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-070 — in default diff mode (`backstop gate`, no `--all`) the
+  `golangci` lint engine's violations are reported on files NOT in the change
+  unit, redding the gate on pre-existing debt in untouched files. Measured on
+  ISSUE-068's 19-file change: 113 pack_engines violations across 30 files, of
+  which 28 are entirely outside the diff. This makes diff-scope untrustworthy —
+  the whole gate-hardening / ratchet story depends on it.
+
+  ── DIAGNOSTIC-FIRST (founder mandate: pin, do not assume) ──────────────────
+  Phase 1 is a DIAGNOSTIC that pins the exact root cause with EVIDENCE before any
+  fix. Two hypotheses are on the table (issue §"Leading hypothesis"): (a) a path
+  normalization mismatch defeating scope.Contains, or (b) the violations wrongly
+  stamped ProjectWide=true. The diagnostic must LOG the actual stamped violation
+  File paths vs the scope's Files list and confirm which mechanism is responsible.
+
+  ── ROOT CAUSE (authored hypothesis — Phase 1 CONFIRMS this with evidence) ───
+  Neither (a) nor (b). The `pack_engines` gate step NEVER APPLIES THE DIFF-SCOPE
+  FILTER to its dispatched violations. Read the code:
+
+    * pkg/gate/scope.go `filterViolations(scope, violations)` is CORRECT and
+      already unit-proven (TestGate_FilterViolations_BuildPassExemptFromScopeFilter):
+      a ProjectWide==true violation is exempt (build break anywhere still reds); a
+      ProjectWide==false violation on an out-of-scope file IS filtered.
+    * pkg/gate/step_delegate.go (code_check, artifact) and pkg/gate/baseline.go
+      (CompareBaseline) BOTH call filterViolations on their violation streams.
+    * cmd/backstop/gate.go `packValidatorStep` (~801-853) does NOT. It takes the
+      raw `dispatchPackEnginesWithCache(...)` output and sets `status = "fail"`
+      directly on `len(violations) > 0` — no filterViolations, no scope.Contains.
+
+  golangci is `scope_kind: project-wide` with `ProjectTarget: ./...` (Go
+  whole-package analysis cannot be file-scoped at the tool level — ISSUE-010
+  intentionally left the project-wide `if` branch pointing at `./...`), so it
+  legitimately PRODUCES findings across the whole repo. It is NOT
+  `exempt_from_scope_filter`, so its bridged violations carry ProjectWide==false
+  (pack_gate.go:830 stamps ProjectWide from binding.ExemptFromScopeFilter). Those
+  out-of-scope, non-exempt findings are SUPPOSED to be filtered down to the
+  change unit after the project-wide run — but because packValidatorStep skips
+  filterViolations entirely, they pass straight through and red the gate.
+
+  Contrast that localizes it (issue §"Contrast"): artifact_status_drift and
+  code_check DO scope correctly — because they route through
+  StepArtifactValidationScopedFunc / StepCodeCheckScopedFunc, which call
+  filterViolations. The pack_engines step is the ONE dimension that forgot to.
+
+  Why the normalization hypothesis is (almost certainly) a red herring at this
+  layer, to be CONFIRMED not assumed: pack_gate.go:821 already stamps each
+  bridged violation File via `gate.NormalizePath(projectRoot, v.File)` (rel-ifies
+  an absolute golangci path against projectRoot), and scope.Contains
+  (scope.go:64-70) tests `s.fileSet[NormalizePath(s.ProjectRoot, path)]` — both
+  sides run through the SINGLE NormalizePath with the SAME projectRoot. So once
+  the filter is actually CALLED, membership matches. The diagnostic logs both
+  forms to prove this rather than trust it.
+
+  ── THE FIX (general, thin-executor-clean — NO golangci-by-name) ────────────
+  Apply the scope filter at the pack_engines step, keyed on the STRUCTURAL
+  ProjectWide + scope.Contains properties the filter already uses — so ANY
+  project-wide non-exempt engine is filtered, never golangci specifically.
+
+    1. pkg/gate/scope.go — EXPORT a ProjectWide-aware scope filter so the
+       cmd/backstop step (package main) can reuse the exact same logic
+       step_delegate/baseline use. Add a thin method:
+
+           func (s *GateScope) FilterViolations(violations []Violation) []Violation {
+               return filterViolations(s, violations)
+           }
+
+       filterViolations stays unexported and UNCHANGED (its other callers are
+       untouched). The method is nil-safe and returns all violations for
+       GateScopeModeAll / nil scope (so `gate --all` and code_check's full-scope
+       reporting are preserved).
+
+    2. cmd/backstop/gate.go — in packValidatorStep, filter BEFORE computing
+       status:
+
+           violations = activeScope.FilterViolations(violations)
+
+       inserted immediately after the successful
+       `dispatchPackEnginesWithCache(...)` return (~844), before the
+       `len(violations) > 0` status check. Everything else in the step is
+       unchanged.
+
+  This is the SYMMETRIC fix to ISSUE-010: ISSUE-010 scoped the rule-fed FILE-ARGS
+  engines (semgrep/ast-grep) by pointing them at changed files so they never
+  PRODUCE out-of-scope findings; project-wide engines (golangci/go-build) MUST
+  keep scanning `./...`, so their out-of-scope findings must be FILTERED after the
+  fact — the half ISSUE-010 left undone for the project-wide path.
+
+  ── WHAT MUST NOT REGRESS ──────────────────────────────────────────────────
+    * go-build is exempt_from_scope_filter → ProjectWide==true → filterViolations
+      keeps its out-of-scope violations. An unchanged-file BUILD BREAK still reds
+      (CLM-005). This is the whole reason the filter keys on the structural
+      ProjectWide field and not on a rule/tool name.
+    * A CHANGED (in-scope) file's golangci violation still reds — you-touch-it-
+      you-fix-it (CLM-004). scope.Contains(changed_file) == true keeps it.
+    * `gate --all` (GateScopeModeAll) and `backstop code check` keep FULL-scope
+      reporting — filterViolations returns everything for All/nil scope (CLM-006).
+    * filterViolations, step_delegate, baseline, and every other dimension are
+      untouched — only the pack_engines step gains the (already-existing) filter
+      call (CLM-006).
+
+  ── DISPATCH OUTPUT STAYS UNFILTERED (why the diagnostic assertion is durable) ─
+  The fix filters in the STEP, AFTER dispatch. dispatchPackEnginesWithCache keeps
+  returning the raw project-wide violation set (unchanged). So the diagnostic's
+  assertion — "dispatch output still contains the out-of-scope non-exempt
+  violation, proving the leak is the absent step-level filter, not dispatch" —
+  remains TRUE after the fix. That is deliberate: it lets Phase 1's diagnostic
+  file stay green forever while Phase 2's regression tests guard the STEP.
+
+  ── FILE SCOPE (tight) ──────────────────────────────────────────────────────
+    Production (2 files):
+      • pkg/gate/scope.go        — exported FilterViolations method (wrapper only)
+      • cmd/backstop/gate.go     — packValidatorStep applies the filter
+    Tests:
+      • cmd/backstop/pack_gate_diffscope_diagnostic_test.go — diagnostic evidence
+      • cmd/backstop/gate_scope_test.go — step-level regression tests
+      • pkg/gate/scope_test.go          — exported-method + normalization tests
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Acceptance) ──
+    REQ-001: Under default diff, the pack_engines step filters project-wide
+             NON-EXEMPT engine violations on files NOT in the change unit.
+      CLM-001  an out-of-scope non-exempt (project-wide, e.g. golangci) violation
+               is filtered from the pack_engines StepResult and does NOT red.
+      CLM-002  scope membership matches because violation.File and scope.Files are
+               compared in the SAME repo-relative form (scope.Contains via the
+               single NormalizePath on both sides) — the normalization hypothesis
+               is confirmed a red herring at this layer, with evidence.
+      CLM-003  the fix is general/structural — keyed on the ProjectWide field +
+               scope.Contains, NOT a golangci-by-name special case (thin-executor).
+    REQ-002: Changed-file violations still red (you-touch-it-you-fix-it).
+      CLM-004  a non-exempt violation on a CHANGED (in-scope) file survives the
+               filter and reds the gate.
+    REQ-003: The exempt path is not regressed.
+      CLM-005  a ProjectWide==true (go-build/exempt) violation on an UNCHANGED
+               file survives the filter and still reds project-wide.
+    REQ-004: Other dimensions unaffected; root cause pinned.
+      CLM-006  only the pack_engines step gains the filter call; filterViolations,
+               step_delegate, baseline, and every other dimension are unchanged;
+               `gate --all` / code_check keep full-scope reporting.
+      CLM-007  the exact root cause is empirically pinned with logged evidence
+               (dispatch output retains the out-of-scope non-exempt violation → the
+               leak is the absent STEP-LEVEL filter; stamped File paths are already
+               repo-relative → normalization ruled out) BEFORE the fix.
+
+  Structure:
+    Phase 1: Diagnostic — reproduce the leak, log stamped-File vs scope.Files,
+             pin the root cause (missing step filter) with evidence.
+    Phase 2: TDD red — failing regression tests at the step layer (filter
+             applied) and the pkg/gate layer (exported method + normalization).
+    Phase 3: TDD green — export FilterViolations; packValidatorStep applies it;
+             backstop code check.
+    Phase 4: Comprehensive verification — full backstop gate kill chain.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Diagnostic — Pin the Root Cause with Evidence
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Diagnostic — Pin the Root Cause Before Fixing"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Reproduce the diff-scope lint leak and pin its root cause with logged evidence"
+        description: |
+          Founder mandate: pin the EXACT root cause with evidence before touching
+          the fix — do not assume the leading (path-normalization) hypothesis.
+
+          Add a diagnostic test cmd/backstop/pack_gate_diffscope_diagnostic_test.go
+          that drives the REAL dispatch path (resolveDispatchPackEngines() /
+          dispatchPackEngines) for a project-wide, NON-exempt engine binding
+          shaped like golangci (ScopeKind == engine.ScopeKindProjectWide,
+          ProjectTarget "./...", ExemptFromScopeFilter == false) using the
+          existing SARIF-emitting fixture harness (scopeTargetRunner /
+          fixtureRunner + stubSandboxedRunStdout from
+          cmd/backstop/pack_gate_scope_test.go and
+          cmd/backstop/pack_gate_gotoolchain_test.go). The engine's canned SARIF
+          reports findings on BOTH an in-scope changed file and an out-of-scope
+          untouched file. Also emit one finding from an EXEMPT (go-build-shaped,
+          ExemptFromScopeFilter == true) binding on an out-of-scope file.
+
+          Build a GateScopeModeDiff GateScope (gate.ComputeGateScope-shaped, or
+          newGateScope-equivalent via the exported constructor path) whose Files is
+          a NARROW changed-file set containing ONLY the in-scope file.
+
+          The test must LOG (t.Logf), as the evidence the founder asked for:
+            - each dispatched violation's stamped File (post pack_gate.go:821
+              gate.NormalizePath) AND its ProjectWide flag;
+            - the scope's Files list;
+            - for each violation, the result of scope.Contains(v.File).
+
+          Then ASSERT the durable root-cause facts (these stay TRUE after the fix
+          because the fix lives in the STEP, not in dispatch):
+            - the raw dispatch output CONTAINS the out-of-scope non-exempt
+              violation (proving the leak originates from the ABSENT step-level
+              filter, not from dispatch or from a wrong ProjectWide stamp) — this
+              is CLM-007;
+            - the out-of-scope non-exempt violation's stamped File is already in
+              repo-relative form and scope.Contains returns FALSE for it, while it
+              returns TRUE for the in-scope file — proving the normalization
+              hypothesis is a red herring: once the filter is CALLED, membership
+              resolves correctly (CLM-002 evidence);
+            - the out-of-scope EXEMPT violation carries ProjectWide == true
+              (ruling out hypothesis (b): non-exempt engines are correctly stamped
+              false, exempt ones true).
+
+          Mandated test name (exact):
+            - TestDiag_PackEngines_DispatchOutputRetainsOutOfScopeNonExemptViolation
+
+          This is a diagnostic probe, not the regression guard — Phase 2 writes
+          the behavioral tests. Do NOT modify any production file in this task.
+          Reuse the existing runner/stub helpers; do not stand up live
+          golangci-lint or go build.
+        files:
+          - cmd/backstop/pack_gate_diffscope_diagnostic_test.go
+        claims:
+          - CLM-002
+          - CLM-007
+        test_names:
+          - TestDiag_PackEngines_DispatchOutputRetainsOutOfScopeNonExemptViolation
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Red — Failing Regression Tests (step layer + pkg/gate layer)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Failing Regression Tests for the pack_engines Scope Filter"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write failing step-level tests that the pack_engines step diff-scope-filters its violations"
+        description: |
+          Add failing regression tests to cmd/backstop/gate_scope_test.go pinning
+          that the packValidatorStep closure built by buildGateSteps FILTERS its
+          dispatched violations against the gate's activeScope before deciding
+          pass/fail. Drive the pack_engines step through the dispatchPackEnginesFn
+          seam (set it to return a fixed violation set) so the assertions are
+          hermetic and do not need a live tool — the same seam the existing
+          gate-wiring test in this file uses. Build the gate steps with a
+          GateScopeModeDiff GateScope whose Files is a narrow changed-file set.
+
+          The seam returns FOUR violations:
+            * IN-scope changed file, ProjectWide==false (golangci-shaped)  → kept
+            * OUT-of-scope file,     ProjectWide==false (golangci-shaped)  → filtered
+            * OUT-of-scope file,     ProjectWide==false, DIFFERENT SourcePack /
+              rule id (a non-golangci-named engine)                        → filtered
+            * OUT-of-scope file,     ProjectWide==true  (go-build/exempt)  → kept
+
+          These tests fail today because packValidatorStep sets status="fail" on
+          the raw dispatch output (~844-853) with no filterViolations call, so the
+          out-of-scope non-exempt violations survive.
+
+          Mandated test names (exact):
+
+            - TestGate_PackEngines_DiffScope_FiltersOutOfScopeNonExemptViolation
+              (CLM-001): assert the pack_engines StepResult does NOT contain the
+              out-of-scope ProjectWide==false violation, and (with only a DIFFERENT
+              file changed) the step Status is "pass".
+
+            - TestGate_PackEngines_DiffScope_RedsOnChangedFileViolation (CLM-004):
+              assert the IN-scope (changed) file's ProjectWide==false violation IS
+              retained and the step Status is "fail" — you-touch-it-you-fix-it is
+              intact (no-vacuous-green: real in-scope findings are never dropped).
+
+            - TestGate_PackEngines_DiffScope_ExemptProjectWideViolationStillReds
+              (CLM-005): assert the OUT-of-scope ProjectWide==true (go-build/exempt)
+              violation IS retained and reds the step — the exempt path is not
+              regressed, an unchanged-file build break still fails.
+
+            - TestGate_PackEngines_DiffScope_FilterKeyedStructurallyNotByToolName
+              (CLM-003): assert the SECOND out-of-scope non-exempt violation (a
+              differently-named engine / SourcePack, NOT golangci) is ALSO filtered
+              — proving the filter keys on the structural ProjectWide field +
+              scope, not on any tool/rule name (thin-executor).
+
+          Reuse the harness conventions already in gate_scope_test.go
+          (recordingRunner/scopeTargetRunner, temp project root, the
+          dispatchPackEnginesFn seam). Include an out-of-scope violation whose
+          File arrives in a "./"-prefixed textual form to also pin CLM-002 at the
+          step layer (scope.Contains must still recognize it as out-of-scope).
+        files:
+          - cmd/backstop/gate_scope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestGate_PackEngines_DiffScope_FiltersOutOfScopeNonExemptViolation
+          - TestGate_PackEngines_DiffScope_RedsOnChangedFileViolation
+          - TestGate_PackEngines_DiffScope_ExemptProjectWideViolationStillReds
+          - TestGate_PackEngines_DiffScope_FilterKeyedStructurallyNotByToolName
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Write failing pkg/gate tests for the exported scope filter and path normalization"
+        description: |
+          Add failing tests to pkg/gate/scope_test.go pinning the new EXPORTED
+          scope-filter entry point (the seam the cmd/backstop pack_engines step
+          will call) and the normalization invariant that makes membership match.
+          These fail to COMPILE until TASK-004 adds the exported method — that is
+          the intended red state.
+
+          Mandated test names (exact):
+
+            - TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership
+              (CLM-002): build a GateScopeModeDiff scope whose Files is
+              {"pkg/x.go"}. Pass in a ProjectWide==false violation whose File is an
+              ABSOLUTE path under the project root for an UNTOUCHED file (e.g.
+              filepath.Join(projectRoot, "pkg/other.go")) and another whose File is
+              a "./"-prefixed form of the IN-scope file ("./pkg/x.go"). Assert via
+              the exported GateScope.FilterViolations method that the untouched
+              absolute-path violation is FILTERED and the in-scope "./"-form
+              violation is KEPT — proving both sides normalize to the one
+              repo-relative form before the scope.Contains membership test, so a
+              differently-rooted engine path can never leak.
+
+            - TestGateScope_FilterViolations_PreservesProjectWideExemption
+              (CLM-006): assert the exported method delegates to the SAME logic as
+              the internal filter — a ProjectWide==true out-of-scope violation is
+              KEPT (exempt) while a ProjectWide==false out-of-scope violation is
+              filtered, and GateScopeModeAll / a nil scope return every violation
+              unchanged (full-scope reporting for `gate --all` and code_check).
+
+          Reuse newGateScope and the existing scope_test.go conventions; do not
+          duplicate TestGate_FilterViolations_BuildPassExemptFromScopeFilter —
+          these tests target the EXPORTED wrapper and the normalization edge.
+        files:
+          - pkg/gate/scope_test.go
+        claims:
+          - CLM-002
+          - CLM-006
+        test_names:
+          - TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership
+          - TestGateScope_FilterViolations_PreservesProjectWideExemption
+        depends_on:
+          - TASK-001
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD Green — Export the Filter and Apply It at the pack_engines Step
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — Apply the Diff-Scope Filter to the pack_engines Step"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Export a ProjectWide-aware scope filter and apply it in packValidatorStep"
+        description: |
+          Make the Phase 2 tests pass with the minimal, general, thin-executor fix.
+          Verify the exact seams against the code before editing.
+
+          1. pkg/gate/scope.go — EXPORT a thin wrapper over the existing,
+             already-correct filterViolations so the cmd/backstop step (package
+             main) can reuse the SAME ProjectWide-aware logic step_delegate and
+             baseline use:
+
+                 func (s *GateScope) FilterViolations(violations []Violation) []Violation {
+                     return filterViolations(s, violations)
+                 }
+
+             Leave the unexported filterViolations UNCHANGED (its step_delegate /
+             baseline callers must not shift). The method must be nil-safe and, for
+             GateScopeModeAll or a nil scope, return every violation unchanged
+             (filterViolations already does this) — preserving `gate --all` and
+             code_check full-scope reporting (CLM-006).
+
+          2. cmd/backstop/gate.go — in the packValidatorStep closure (~801-853),
+             filter the dispatched violations against activeScope BEFORE computing
+             status. Immediately after the successful
+             `dispatchPackEnginesWithCache(...)` return (~844, before the
+             `len(violations) > 0` check), insert:
+
+                 violations = activeScope.FilterViolations(violations)
+
+             This removes out-of-scope, project-wide, NON-exempt engine findings
+             (golangci lint on untouched files) while — via the structural
+             ProjectWide exemption inside filterViolations — KEEPING exempt
+             (go-build) out-of-scope findings and all in-scope findings. No
+             golangci-by-name branch, no rule/tool string match: the fix is keyed
+             entirely on the ProjectWide field + scope.Contains (CLM-001/003/004/005).
+
+          Do NOT touch: filterViolations' body, step_delegate, baseline,
+          runFindingsEngine, the project-wide arg-shaping branch, or any other gate
+          step. This is a two-line behavioral change plus a wrapper.
+
+          The implementer runs `backstop code check` after this task per the
+          implementer contract; this plan does not duplicate that per-task check.
+        files:
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Run backstop code check on the pack_engines scope-filter fix"
+        description: |
+          Fast inner-loop verification of the Phase 3 implementation. Run:
+
+              backstop code check
+
+          to confirm pkg/gate/scope.go and cmd/backstop/gate.go pass lint, build,
+          test, and semgrep with no violations, and that the Phase 2 mandated tests
+          now pass:
+            - TestGate_PackEngines_DiffScope_FiltersOutOfScopeNonExemptViolation
+            - TestGate_PackEngines_DiffScope_RedsOnChangedFileViolation
+            - TestGate_PackEngines_DiffScope_ExemptProjectWideViolationStillReds
+            - TestGate_PackEngines_DiffScope_FilterKeyedStructurallyNotByToolName
+            - TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership
+            - TestGateScope_FilterViolations_PreservesProjectWideExemption
+
+          Confirm the whole cmd/backstop and pkg/gate packages still compile and
+          their existing tests pass — in particular that
+          TestGate_FilterViolations_BuildPassExemptFromScopeFilter and the
+          ISSUE-010 pack_gate_scope tests remain green (the exempt path and the
+          rule-fed diff-scoping are unregressed). A failure here most likely means
+          the exempt/in-scope retention was over-broad or the wrapper shifted a
+          filterViolations caller — fix before proceeding.
+        files:
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_scope_test.go
+          - pkg/gate/scope_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive Verification — Full Gate Kill Chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Full Gate"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Run the full backstop gate over the diff-scope filter fix"
+        description: |
+          Final comprehensive verification. The plan touches only .go files
+          (pkg/gate/scope.go, cmd/backstop/gate.go and their test files, plus the
+          Phase 1 diagnostic test), so the full kill chain runs via:
+
+              backstop gate
+
+          This covers artifact validation, code check, test verification,
+          substantiveness, coverage (>= 90 per coverage_threshold), and contract
+          verification. Confirm that:
+            - the pack_engines step now reports ONLY in-scope findings on a
+              diff-scoped run — the 28-of-30-untouched-files leak is gone
+              (CLM-001);
+            - a CHANGED file's golangci violation still reds the gate (CLM-004);
+            - `backstop gate` still reds project-wide on an unchanged-file BUILD
+              break (go-build exempt path intact, CLM-005);
+            - `backstop gate --all` still performs the whole-repo sweep and
+              `backstop code check` still reports pack engines at FULL scope
+              (CLM-006);
+            - other dimensions (artifact_status_drift, coverage, contracts,
+              code_check) are unchanged (CLM-006);
+            - this branch's own diff-scoped gate is green, unblocking
+              gate-on-implement.
+
+          No artifact files (.spec.md / .plan.yml / etc.) are modified by the
+          implementation work, so no separate `backstop artifact validate` step is
+          required beyond what the gate runs.
+        files:
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_scope_test.go
+          - pkg/gate/scope_test.go
+          - cmd/backstop/pack_gate_diffscope_diagnostic_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005

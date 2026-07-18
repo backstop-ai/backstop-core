@@ -68,7 +68,7 @@ func TestRunFindingsEngine_StdoutArtifactFileFeedsConvertNotStdout(t *testing.T)
 		StdoutArtifact: "findings.sarif",
 	}
 
-	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner)
+	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner, newSharedRunCache())
 	if err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestRunFindingsEngine_StdoutArtifactFileFeedsStrictSarifShapeGuard(t *testi
 		StdoutArtifact: "findings.sarif",
 	}
 
-	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner)
+	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner, newSharedRunCache())
 	if err != nil {
 		t.Fatalf("the shape guard must validate the SARIF artifact FILE (not the noise stdout), got err: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestRunFindingsEngine_StdoutArtifactMissingFailsLoud(t *testing.T) {
 		StdoutArtifact: "missing.sarif",
 	}
 
-	_, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, emptySarifRunner{})
+	_, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, emptySarifRunner{}, newSharedRunCache())
 	if err == nil {
 		t.Fatal("a declared-but-missing stdout_artifact must fail loud, not silently fall back to stdout (DEFECT-2)")
 	}
@@ -165,7 +165,7 @@ func TestRunFindingsEngine_NoStdoutArtifactUsesStdoutPayload(t *testing.T) {
 		StdoutArtifact: "", // no artifact: keep stdout as the payload
 	}
 
-	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner)
+	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner, newSharedRunCache())
 	if err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRunCoverageEngine_StdoutArtifactMissingWrapsReadError(t *testing.T) {
 
 	// emptySarifRunner writes no artifact file, so the declared stdout_artifact is
 	// missing and the fail-loud branch fires before the convert.
-	_, err := runCoverageEngine(&pack.Manifest{NormalizedName: "test-org/coverage"}, packRoot, projectRoot, binding, nil, emptySarifRunner{})
+	_, err := runCoverageEngine(&pack.Manifest{NormalizedName: "test-org/coverage"}, packRoot, projectRoot, binding, nil, emptySarifRunner{}, newSharedRunCache())
 	if err == nil {
 		t.Fatal("a declared-but-missing coverage stdout_artifact must fail loud")
 	}

@@ -11,40 +11,6 @@ import (
 	"github.com/bmanson/backstop-core/pkg/pack"
 )
 
-// recordingRunner is a check.CommandRunner that records every invocation
-// (command name + args) and returns empty output (a clean, finding-free run).
-// It never shells out to a live tool.
-type recordingRunner struct {
-	calls []recordedCall
-}
-
-type recordedCall struct {
-	name string
-	args []string
-}
-
-func (r *recordingRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
-	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
-	return nil, nil
-}
-
-// RunStdout records the call like Run; the recordingRunner only needs to
-// satisfy the CommandRunner interface for executors that call RunStdout.
-func (r *recordingRunner) RunStdout(_ context.Context, name string, args ...string) ([]byte, error) {
-	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
-	return nil, nil
-}
-
-func (r *recordingRunner) callsFor(name string) []recordedCall {
-	var out []recordedCall
-	for _, c := range r.calls {
-		if c.name == name {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // TestGate_PackEngines_DiffScopeExcludesUntouchedFindings (CLM-006/CLM-007) pins
 // the GATE-WIRING integration seam: the packValidatorStep closure built by
 // buildGateSteps must thread the activeScope through to dispatchPackEngines so a
@@ -112,10 +78,16 @@ content:
 	changedTracked := files["changedTracked"]
 	changedUntracked := files["changedUntracked"]
 	untouched := files["untouched"]
-	scope := &gate.GateScope{
-		Mode:        gate.GateScopeModeDiff,
-		Files:       []string{changedTracked, changedUntracked},
-		ProjectRoot: projectRoot,
+	// Build the scope via the real constructor so its unexported fileSet is
+	// populated — packValidatorStep now applies scope.FilterViolations (ISSUE-070),
+	// and Contains() keys on fileSet. A raw struct literal leaves fileSet nil, so
+	// Contains would drop every finding. File mode takes the explicit files without a
+	// git diff (Diff mode ignores the files arg and shells git, which a TempDir lacks);
+	// the FilterViolations path is mode-agnostic (both File and Diff filter via fileSet),
+	// so this exercises the same filter, plus the diff-scope THREADING assertions below.
+	scope, scopeErr := gate.ComputeGateScope(projectRoot, gate.GateScopeModeFile, []string{changedTracked, changedUntracked})
+	if scopeErr != nil {
+		t.Fatal(scopeErr)
 	}
 
 	// Override the dispatch seam to simulate a rule-fed engine: it produces a
@@ -167,8 +139,8 @@ content:
 	if gotScope == nil {
 		t.Fatal("activeScope did not reach dispatchPackEngines — gate wiring dropped the scope")
 	}
-	if gotScope.Mode != gate.GateScopeModeDiff {
-		t.Errorf("engine received scope mode %q, want diff", gotScope.Mode)
+	if gotScope.Mode != gate.GateScopeModeFile {
+		t.Errorf("engine received scope mode %q, want file", gotScope.Mode)
 	}
 
 	// No out-of-scope untouched-file finding may appear.
