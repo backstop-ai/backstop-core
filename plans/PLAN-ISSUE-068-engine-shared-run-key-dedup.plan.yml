@@ -1,0 +1,360 @@
+---
+plan_id: PLAN-ISSUE-068
+spec_id: ISSUE-068
+created: "2026-07-18"
+status: draft
+target_module: pkg/pack, pkg/pack/engine, cmd/backstop
+test_command: "go test ./pkg/pack/... ./cmd/backstop/... -run 'RunGroup|SharedRun|SharedRunKey'"
+coverage_threshold: 90
+notes: >
+  ISSUE-068 Option C (founder-locked): a DECLARED shared run-key on the engine binding lets two
+  DISTINCT engines (test + coverage) SHARE ONE run. Core memoizes the underlying command/producer
+  output by the OPAQUE declared key and fans that single run's payload into EACH engine's own
+  convert — test convert -> test findings, coverage convert -> coverage records. Core dedupes SOLELY
+  by the declared key; it NEVER inspects, parses, or normalizes commands (thin-executor / DD-3).
+
+  Scope is backstop-CORE only. The typescript-toolchain pack declaring the shared key + unifying its
+  test/coverage command is a SEPARATE backstop-packs follow-on (the downstream consumer), NOT planned
+  here. There is NO serialize work: the gate is already fully sequential (pkg/gate/gate.go:146 is a
+  plain for; zero goroutines in pkg/). gate_type stays a scalar per engine — engines remain distinct
+  and keep their own convert; they merely share a RUN.
+
+  SAFE DEFAULT: no run_group declared => completely unchanged two-run behavior (no regression for
+  separate-build toolchains like Rust/C++).
+
+  Claims CLM-001..CLM-009 are derived from the issue Acceptance + Fix direction sections (the issue
+  carries no formal claims block, same convention as PLAN-ISSUE-010).
+
+  SEAM MECHANISM (the cross-step wiring blocker): the coverage path is a DIRECT call
+  (coverageRecordsProducer -> dispatchPackCoverage, gate.go:~1217) so a cache threads in cleanly, but
+  the test path routes through the resolveDispatchPackEngines()/dispatchPackEnginesFn SEAM
+  (gate.go:~820, seam defined pack_gate.go:~256) that ~15 tests across 5 files spy on AND that the
+  substantiveness/contracts steps also use — the seam signature MUST NOT change. The test step runs
+  FIRST in gate order, so it is the cache WRITER; the cache MUST reach it. Chosen mechanism: a
+  parallel dispatchPackEnginesWithCache(cache, ...) entry point in pack_gate.go that INTERNALLY checks
+  the existing dispatchPackEnginesFn seam first (delegating to the spy when set, so every hermetic
+  spy still compiles AND fires) and otherwise runs the concrete cache-aware dispatch. The gate's
+  pack_engines step (writer) and the coverage producer (reader) both call the WithCache variants
+  sharing ONE per-gate sharedRunCache; the plain dispatchPackEngines / resolveDispatchPackEngines()
+  seam stays byte-identical for the code-check / substantiveness / contracts callers (they delegate
+  with a fresh throwaway cache = today's behavior). No seam-signature widening, no package-global
+  mutable state.
+
+  Parallelism: P2 (manifest validation, pkg/pack) and P3 (dispatch memoization, cmd/backstop) both
+  fan out from P1 and touch DISJOINT files, so they are parallel-eligible; P4 joins them.
+
+phases:
+  - id: P1
+    name: "Phase 1: Declared run_group field on the engine binding"
+    tasks:
+      - id: T-001
+        type: test
+        title: "run_group parses from the engines: block onto EngineBinding"
+        description: >
+          Assert a pack.yml declaring `run_group: <key>` on an engine parses through
+          parseEngineSpec onto engine.EngineBinding.RunGroup and is NOT silently dropped by the
+          non-strict YAML decode (the same drop-hazard the Producer field guards against). Cover:
+          a declared key lands on the binding; an absent key leaves RunGroup empty (the safe
+          default). Fixture manifests declared inline or under testdata. (CLM-001)
+        files:
+          - pkg/pack/manifest_rungroup_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+        test_names:
+          - TestRunGroup_FieldParsesFromEngineSpec
+          - TestRunGroup_AbsentKeyLeavesBindingEmpty
+      - id: T-002
+        type: implementation
+        title: "Add RunGroup to EngineBinding + EngineSpec and thread through parse"
+        description: >
+          Add a `RunGroup string` field (yaml:"run_group") to engine.EngineBinding
+          (pkg/pack/engine/binding.go) documented as the OPAQUE declared shared-run key — core
+          dedupes runs by it and never inspects commands. Add the matching `RunGroup string`
+          (yaml:"run_group") to pack.EngineSpec and copy it in parseEngineSpec so a pack.yml
+          run_group: key is not dropped by the non-strict decode (pkg/pack/manifest.go). No
+          behavior change yet — the field is inert until dispatch reads it. (CLM-001)
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-001
+        depends_on:
+          - T-001
+      - id: T-003
+        type: verification
+        title: "Scoped check on the run_group field wiring"
+        description: >
+          Run `backstop code check` (diff-scoped) to confirm the field addition builds, lints, and
+          the P1 parse tests pass. (CLM-001)
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-001
+        depends_on:
+          - T-002
+
+  - id: P2
+    name: "Phase 2: Manifest validation of run-group coherence"
+    tasks:
+      - id: T-004
+        type: test
+        title: "Run-group coherence validation: incoherent fails loud, singleton is a no-op"
+        description: >
+          Assert ParseManifest validates run-group coherence per the pack fail-loud convention. A
+          coherent group requires PARITY across ALL of: Command, Producer, StdoutArtifact, ScopeKind,
+          AND ProjectTarget — because the actual run also depends on scope/target shaping (a findings
+          engine appends diff-scoped file inputs while a coverage engine appends ProjectTarget), so
+          identical Command alone does NOT guarantee identical runs; without ScopeKind/ProjectTarget
+          parity whichever engine executes first shapes a payload the other wrongly reuses (latent
+          verdict drift). Cover: a group diverging on command/producer/stdout_artifact is a blocking
+          broken-pack error naming pack + run_group; a group diverging on ScopeKind or ProjectTarget
+          is ALSO rejected; a fully-parity group is accepted; a run-group of ONE participant is
+          accepted as a documented no-op (dedupes nothing — behaves as if unset). Byte-equality on
+          the raw declared fields, never normalized. (CLM-002, CLM-003)
+        files:
+          - pkg/pack/manifest_rungroup_validation_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - T-003
+        test_names:
+          - TestRunGroup_IncoherentCommandRejected
+          - TestRunGroup_MismatchedScopeOrTargetRejected
+          - TestRunGroup_CoherentGroupAccepted
+          - TestRunGroup_SingletonGroupIsNoOp
+      - id: T-005
+        type: implementation
+        title: "Implement validateRunGroups in ParseManifest"
+        description: >
+          Add validateRunGroups(manifest) called from ParseManifest after the engines-parse loop.
+          Group engines by binding.RunGroup (skip empty); for each group of >1, require every
+          participant's Command, Producer, StdoutArtifact, ScopeKind, AND ProjectTarget to be
+          identical (raw byte-equality of the declared fields — never parsing/normalizing what the
+          command means, thin-executor), else return a fail-loud broken-pack error naming the pack +
+          key + the divergent engines and the field that diverged. The ScopeKind/ProjectTarget parity
+          is what makes the run-once premise hold: it forces run-group members to be the same
+          project-wide toolchain pass so the memoized payload is what BOTH converts would have gotten.
+          A singleton group is a no-op (accepted). Documented assumption (not a new check): run-group
+          members are rules-input-free project-wide passes — the parity rule covers the declared
+          binding fields (Command/Producer/StdoutArtifact/ScopeKind/ProjectTarget) but not the
+          rule-derived gatherEngineInputs output; ScopeKind=ProjectWide parity keeps that input path
+          inert for the only coherent use, so no gatherEngineInputs comparison is warranted.
+          (CLM-002, CLM-003)
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - T-004
+      - id: T-006
+        type: verification
+        title: "Scoped check on run-group validation"
+        description: >
+          Run `backstop code check` (diff-scoped) to confirm validateRunGroups builds, lints, and
+          the P2 validation tests pass. (CLM-002, CLM-003)
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - T-005
+
+  - id: P3
+    name: "Phase 3: Dispatch memoization — one run, fanned to both converts"
+    tasks:
+      - id: T-007
+        type: test
+        title: "Shared-run cache memoizes by the declared key and fans output to each convert"
+        description: >
+          Drive runFindingsEngine + runCoverageEngine through a shared run-cache with a spy runner
+          counting RunStdout invocations. Assert: two engines declaring the SAME run_group cause the
+          underlying command/producer to execute ONCE, and BOTH engines' own converts receive that
+          single run's payload (test convert -> findings, coverage convert -> coverage records);
+          absent run_group => the command runs TWICE (unchanged safe default); the cache key is the
+          declared RunGroup field ALONE — engines with different commands but the same declared key
+          still dedupe, and engines with identical commands but no declared key do NOT (proving core
+          never inspects command strings, thin-executor / DD-3). Fixture bindings + convert scripts
+          under testdata. (CLM-004, CLM-005, CLM-006, CLM-008)
+        files:
+          - cmd/backstop/pack_gate_runcache_test.go
+          - cmd/backstop/testdata/rungroup/pack.yml
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - T-003
+        test_names:
+          - TestSharedRunCache_SharedKeyRunsCommandOnce
+          - TestSharedRunCache_BothConvertsReceiveSharedOutput
+          - TestSharedRunCache_AbsentKeyRunsTwice
+          - TestSharedRunCache_DedupKeysOnDeclaredFieldNotCommand
+      - id: T-008
+        type: implementation
+        title: "Add sharedRunCache and honor run_group in the engine dispatch"
+        description: >
+          Add a sharedRunCache type (map[string][]byte, keyed by the opaque run_group, storing the
+          post-stdout_artifact PAYLOAD bytes) in a new cmd/backstop/pack_gate_runcache.go. Thread a
+          *sharedRunCache into runFindingsEngine and runCoverageEngine: when binding.RunGroup != ""
+          and the key is cached, REUSE the stored payload and SKIP running the command/producer;
+          otherwise run as today, then store the payload under the key. Each engine still runs its
+          OWN convert on the (possibly cached) payload. Keep the dispatchPackEnginesFn SEAM signature
+          and resolveDispatchPackEngines() STABLE (15 spies across 5 files + the substantiveness/
+          contracts steps depend on them). Add parallel dispatchPackEnginesWithCache(cache, ...) and
+          dispatchPackCoverageWithCache(cache, ...) entry points: dispatchPackEnginesWithCache checks
+          the existing dispatchPackEnginesFn seam FIRST and delegates to the spy when set (so hermetic
+          test spies still compile AND fire, cache unused on that path), else runs the concrete
+          cache-aware dispatch. The plain dispatchPackEngines / dispatchPackCoverage delegate with a
+          fresh per-call cache, preserving today's two-run behavior for every existing caller/test.
+          Dedup keys off binding.RunGroup ONLY — no command string comparison anywhere.
+          (CLM-004, CLM-005, CLM-006, CLM-008)
+        files:
+          - cmd/backstop/pack_gate_runcache.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - T-007
+      - id: T-009
+        type: verification
+        title: "Scoped check on dispatch memoization"
+        description: >
+          Run `backstop code check` (diff-scoped) to confirm the run-cache + dispatch changes build,
+          lint, and the P3 memoization tests pass. (CLM-004, CLM-005, CLM-006, CLM-008)
+        files:
+          - cmd/backstop/pack_gate_runcache.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - T-008
+
+  - id: P4
+    name: "Phase 4: Cross-step shared-cache wiring in the gate"
+    tasks:
+      - id: T-010
+        type: test
+        title: "One shared cache spans the test + coverage steps; verdicts are unchanged"
+        description: >
+          End-to-end over a fixture pack whose test + coverage engines are PROJECT-WIDE passes
+          (ScopeKind project-wide, same ProjectTarget) declaring the same run_group and one superset
+          command — project-wide so the run-once proof is meaningful (a diff-scoped member would shape
+          different args). Assert the shared command executes ONCE across the WHOLE gate with a spy
+          runner counting invocations — the cross-step integration the unit tests cannot prove.
+          Assert WRITER/READER ordering explicitly: the pack_engines/test-verify step (which runs
+          first) is the run that EXECUTES the command (cache writer) and the coverage step REUSES the
+          cached payload (zero additional command invocations during the coverage step) — proving the
+          seam-routed test step reaches the cache, not just the direct coverage call. Assert the
+          dispatchPackEnginesFn spy still fires (the WithCache bridge preserves the spy point). Assert
+          verdict INVARIANCE: gate pass/fail AND per-file coverage results are byte-for-byte identical
+          between the shared-key run and the no-key two-run baseline over the same fixture (pure
+          de-dup, zero verdict drift). Assert A3: a SECOND fixture pack that ships a test engine but
+          NO coverage engine still emits the graceful coverage_capability_absent WARN (the run-group
+          mechanism does not disturb the coverage-absent path). Fixtures under testdata.
+          (CLM-004, CLM-007, CLM-009)
+        files:
+          - cmd/backstop/gate_shared_run_e2e_test.go
+          - cmd/backstop/testdata/rungroup-gate/pack.yml
+        claims:
+          - CLM-004
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - T-006
+          - T-009
+        test_names:
+          - TestGate_SharedRunKey_SuiteRunsOncePerGate
+          - TestGate_SharedRunKey_TestStepWritesCacheCoverageStepReuses
+          - TestGate_SharedRunKey_VerdictsUnchangedVsTwoRun
+          - TestGate_SharedRunKey_CoverageAbsentStillWarns
+      - id: T-011
+        type: implementation
+        title: "Construct one sharedRunCache per gate and thread it into both steps"
+        description: >
+          Construct ONE sharedRunCache per gate invocation (in gate.go, where the step closures are
+          built) and share the SAME instance between the two dispatch call-sites. Test side
+          (gate.go:~820): call dispatchPackEnginesWithCache(sharedCache, ...) instead of
+          resolveDispatchPackEngines()(...) — the WithCache bridge in pack_gate.go still routes
+          through the dispatchPackEnginesFn seam internally so the gate-wiring/scope spy tests stay
+          green; no source-string guard pins this call form. Coverage side (OPTION B — thread at the
+          coverageRecordsFn INVOCATION, not producer construction): widen coverageRecordsFn to accept
+          the cache and pass sharedCache into buildCoverageStep so its records(scope, sharedCache)
+          call reaches dispatchPackCoverageWithCache; the coverageRecordsProducer(packs, projectRoot)
+          CONSTRUCTION literal at gate.go:~688 stays UNCHANGED, preserving the pinned source-string
+          guard TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication
+          (gate_transitional_seams_test.go) — do NOT alter that guard or its string. This is the
+          load-bearing cross-step wiring: the test step (first in gate order) is the writer, the
+          coverage step the reader — without a single shared instance each step builds its own cache
+          and the suite still runs twice (vacuous fix). Touch pack_gate.go for the WithCache bridge
+          keeping the dispatchPackEnginesFn spy point firing. Existing seam-spy wiring/scope tests
+          must remain green (the regression guard that the spy point is preserved). (CLM-004, CLM-007)
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - T-010
+      - id: T-012
+        type: verification
+        title: "Scoped check on the gate wiring"
+        description: >
+          Run `backstop code check` (diff-scoped) to confirm the gate wiring builds, lints, and the
+          P4 cross-step + verdict-invariance tests pass. (CLM-004, CLM-007)
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - T-011
+
+  - id: P5
+    name: "Phase 5: Comprehensive verification"
+    tasks:
+      - id: T-013
+        type: verification
+        title: "Full gate over core — dedup correct, default behavior unchanged"
+        description: >
+          Run the full kill chain with `backstop gate` over backstop-core: artifact validation, code
+          check, test verification, substantiveness, coverage, and contracts all green. Confirms the
+          run_group field, run-group validation, dispatch memoization, and cross-step cache wiring
+          land together with the safe default intact (no run_group declared => unchanged two-run
+          behavior), no verdict drift, and the coverage-absent path still emitting the graceful
+          coverage_capability_absent WARN (A3). All work is Go source (no artifact files modified
+          beyond this plan), so the gate's code path is the comprehensive check. (CLM-001..CLM-009)
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/manifest.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_runcache.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - T-002
+          - T-005
+          - T-008
+          - T-011
+          - T-012

@@ -52,80 +52,82 @@ mistaken for check-filtering (see [[feedback_no_check_filtering]]).
 
 ## Root cause
 
-`vitest run --coverage` already produces BOTH per-test results AND coverage in one pass. Running
-a separate `vitest run` (the `ts-test` engine) for test results is redundant. The `ts-test` and
-`ts-coverage` engines (in the `backstop/typescript-toolchain` pack) don't share a run, and the
-gate dispatches them independently/concurrently.
+**Corrected 2026-07-18 by code-grounded investigation — the original "serialize / concurrency"
+framing below was WRONG and is replaced, not extended.**
+
+The gate runs FULLY SEQUENTIALLY. There is ZERO concurrency anywhere in `pkg/` — no goroutines,
+no `errgroup`, no `WaitGroup`; the gate step loop (`pkg/gate/gate.go:146`) is a plain sequential
+`for`. So there is no concurrent double-run and nothing to "serialize" — that framing was an
+incorrect inference and is dropped entirely.
+
+The portal's vitest fork-cap (`maxForks = 2`) addresses vitest's OWN within-run parallelism (many
+workers each booting pglite), which is independent of this issue. It is not evidence of a backstop
+concurrency bug.
+
+The double-run is redundant WORK forced by the engine MODEL, not by orchestration. Engines are
+declared as a name-keyed map (`Engines map[string]EngineSpec`, `pkg/pack/manifest.go:29`), each
+carrying a scalar `gate_type` (`pkg/pack/engine/binding.go`). The `test` dimension
+(`pack_engines`/test-verification) and the `coverage` dimension (`coverage_threshold`) are
+therefore filled by TWO DISTINCT engines — e.g. `ts-test` runs `vitest run`, `ts-coverage`'s
+producer runs `vitest run --coverage` — and EACH runs the full suite. One engine = one command =
+one run; two engines = two runs. That is the whole cause.
 
 ## Generality
 
-NOT a single "one run feeds both" principle — that framing over-generalizes a TS-specific fact
-into core. Backstop shells engines out to packs; core sees `ts-test` and `ts-coverage` (or any
-other toolchain's equivalents) as two independently-declared commands. Core CANNOT know they are
-"the same tool" without encoding that relationship, which is exactly the baked language/tool
-knowledge the thin-executor rule forbids (see [[feedback_zero_baked_checks]]).
-
-Whether test and coverage can share one invocation depends on the toolchain, and splits into three
-buckets:
-
-- **Same tool, one invocation** (Go `go test -coverprofile`, TS/JS `vitest --coverage`, .NET
-  `dotnet test --collect`) — consolidation is possible; where a pack declares it, that pack gets
-  the full ~2x win.
-- **Separate tool composed into one run** (Python pytest + coverage.py, Java + a JaCoCo agent,
-  Ruby + SimpleCov) — often declared as two engines; consolidation only happens if the pack wires
-  one invocation that emits both.
-- **Genuinely separate invocation or build** (Rust `cargo llvm-cov` re-runs instrumented; C/C++
-  needs an instrumented BUILD then a run) — coverage cannot be folded into the plain test run at
-  all.
-
-Coverage may also be ABSENT entirely — the gate already models coverage as a dimension that can be
-`capability_absent` when a pack ships a test engine and no coverage engine. "Both exist and share a
-run" is never a safe assumption core can make.
+Language-agnostic and OPT-IN. Any toolchain whose test results and coverage come from ONE tool
+invocation (Go `go test -coverprofile`, TS vitest, .NET `dotnet test --collect`) can declare the
+shared run-key described in Fix direction below. Toolchains where coverage needs a genuinely
+separate build/run (Rust `cargo llvm-cov` re-runs instrumented; C/C++ instrumented build) simply
+don't declare it and keep two runs — no regression. Coverage-absent packs are unaffected (graceful
+WARN); the gate already models coverage as a dimension that can be `capability_absent` when a pack
+ships a test engine and no coverage engine.
 
 ## Fix direction
 
-The fix SPLITS across two layers because only one of them is safe to bake into core:
+**Option C — declared shared run-key (founder-chosen 2026-07-18).**
 
-1. **Core-universal, assumes nothing — SERIALIZE.** Core controls step concurrency in the gate, so
-   it can run the test and coverage engines sequentially instead of overlapping, for EVERY
-   toolchain, regardless of whether test and coverage share a tool. This removes the concurrency
-   thrash (and the need for a consumer-side workaround like a vitest fork-cap) universally. It does
-   NOT remove the redundant work — it's the safe floor, not the full win, but it is the part that
-   is genuinely general.
-2. **Pack-declared, opt-in, tool-specific — ONE COMBINED ENGINE FEEDS BOTH.** Where a toolchain
-   genuinely produces test-results AND coverage from a single invocation (Go, TS, .NET — see
-   Generality above), the PACK declares a single engine whose one run's output splits into (a) the
-   test-results SARIF/findings that `test_verification`/`pack_engines` consumes and (b) the
-   coverage-records `coverage_threshold` consumes. This is the real ~2x win — but it is a pack
-   capability available only where genuinely true, never a core assumption. Backstop-core stays
-   ignorant of which toolchains can do this; it only runs what the pack declares.
+Add a small DECLARED field to the engine binding letting two engines state they SHARE ONE run (a
+`run_group`/shared-run key). At dispatch, core MEMOIZES the run by that declared key: run the
+command ONCE, then feed that single run's output to EACH participating engine's own convert
+script — the test engine's convert extracts test findings, the coverage engine's convert extracts
+coverage records, both from the one output. Core dedupes by the OPAQUE declared key and NEVER
+inspects or understands the commands (thin-executor / DD-3 — no command-string sniffing, no tool
+comprehension). A pack opts in by declaring the shared key on its test + coverage engines and
+pointing them at one superset command (e.g. `vitest run --coverage --reporter=json`).
 
-**Locus (partly resolved):** SERIALIZE is core — gate step-concurrency orchestration between the
-`pack_engines` and `coverage_threshold` steps. CONSOLIDATION is pack — the toolchain pack declaring
-a combined engine (e.g. `backstop/typescript-toolchain`'s `ts-test`/`ts-coverage`, as a candidate
-first adopter once the core serialize fix exists). The remaining open diagnostic is HOW the
-double-run/concurrency is produced today — core step-orchestration dispatching two engines
-concurrently, vs. the pack declaring two independent engines with no shared-run option — resolve
-this at plan time so the serialize fix lands on the actual concurrency control point. Look at:
+Explicitly NOT:
 
-- backstop-core gate orchestration: how the `pack_engines` and `coverage_threshold` steps dispatch
-  their engines, and whether/where that dispatch is concurrent.
-- `backstop/typescript-toolchain` pack: the `ts-test` and `ts-coverage` engine definitions
-  (commands, `producer`/`convert` scripts, `coverage-produce.sh`) — the candidate for a
-  pack-declared combined engine, once core's serialize fix exists.
+- NOT serialize — nothing is concurrent, so there's nothing to serialize.
+- NOT widening `gate_type` to a set — the engines stay DISTINCT, each keeps its own `gate_type`
+  and convert; they merely share a RUN. Chosen over command-string equality (fragile,
+  whitespace-sensitive, and the commands genuinely differ) because engines already have declared
+  identity, so dedupe by DECLARED identity, not by sniffing commands — explicit, whitespace-proof,
+  can't silently rot.
+- Still pure de-duplication: same tests run once, same pass/fail/coverage verdicts;
+  coverage-absent stays a graceful WARN. Never check-filtering.
+
+**Scope split:**
+
+- **backstop-core** (this issue's plannable slice): the new binding field + run-memoization at the
+  dispatch layer + fan-out of one run's output to multiple converts + manifest validation + tests.
+- **backstop-packs** (separate follow-on in that repo): `backstop/typescript-toolchain` (and
+  analogously `go-toolchain`) declares the shared run-key on its test + coverage engines and
+  unifies their command. This is a dependent follow-on, not part of the core plan.
+- **Timing note:** doing this schema change now is deliberately cheap — the pack surface is still
+  small, so few packs need migrating.
 
 ## Acceptance
 
-- Core serialization removes the concurrency thrash for ALL toolchains, packs-only: consumers can
-  drop test-parallelism caps (e.g. a vitest fork-cap) without hitting timeouts. This is the
-  universal, always-delivered outcome — it ships once in core and applies to every pack.
-- For toolchains whose pack declares a combined test+coverage engine, the suite runs ONCE per gate
-  (gate test-time ≈ a single combined invocation, not two) — the ~2x wall-clock win, delivered
-  per-pack as packs adopt it, not globally guaranteed by core.
-- No change to which tests run or to pass/fail/coverage verdicts in either layer — pure
-  de-duplication/de-thrash, never check-filtering (see [[feedback_no_check_filtering]]).
-- Coverage-absent (a pack with a test engine and no coverage engine) stays a graceful
-  `capability_absent` WARN, not an error — core must not assume coverage exists.
+- With the shared run-key declared, a toolchain's suite runs ONCE per gate (gate test-time ≈ a
+  single `vitest run --coverage`, not two), output fanned to both the test-verification and
+  coverage paths.
+- No shared key declared ⇒ unchanged two-run behavior (safe default; no regression for
+  separate-build toolchains).
+- Unchanged invariants: same tests run, same pass/fail/coverage verdicts (pure de-dup, not
+  check-filtering); coverage-absent stays a graceful WARN.
+- Core dedupes only by the opaque declared key — no command inspection (thin-executor preserved).
+- Consuming projects (e.g. bclabs-portal) can drop their vitest fork-cap once the redundant run is
+  gone.
 
 ## Impact
 
