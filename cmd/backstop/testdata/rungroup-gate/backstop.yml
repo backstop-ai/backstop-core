@@ -1,7 +1,0 @@
-# ISSUE-068 full-gate fixture: test + coverage engines share one declared run_group,
-# so the gate must run the suite ONCE across the pack_engines (writer) and coverage
-# (reader) steps. Drives buildGateSteps end-to-end with a real counting command.
-project: rungroup-gate-fixture
-language: typescript
-packs:
-  backstop/rungroup-gate: local

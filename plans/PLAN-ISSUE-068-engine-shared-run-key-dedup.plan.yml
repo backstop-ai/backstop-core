@@ -2,7 +2,8 @@
 plan_id: PLAN-ISSUE-068
 spec_id: ISSUE-068
 created: "2026-07-18"
-status: completed
+status: obsoleted
+obsoleted-by: ISSUE-048
 target_module: pkg/pack, pkg/pack/engine, cmd/backstop
 test_command: "go test ./pkg/pack/... ./cmd/backstop/... -run 'RunGroup|SharedRun|SharedRunKey'"
 coverage_threshold: 90
@@ -42,6 +43,16 @@ notes: >
 
   Parallelism: P2 (manifest validation, pkg/pack) and P3 (dispatch memoization, cmd/backstop) both
   fan out from P1 and touch DISJOINT files, so they are parallel-eligible; P4 joins them.
+
+  RETIRED 2026-07-18 (status obsoleted, obsoleted-by ISSUE-048): the run_group mechanism this plan
+  delivered was REMOVED from core. It was validated only against a fabricated fixture; the real
+  consumer (typescript-toolchain's ts-test / ts-coverage — different commands, producer asymmetry,
+  file artifacts) could never satisfy its identical-command coherence check, and no real toolchain
+  has the shared-stdout shape it assumed. The double-run problem was solved PACK-SIDE instead
+  (typescript-toolchain v1.1.0 single-run convention: the test command carries the coverage flags;
+  the coverage producer reuses the fresh summary). The plan's mandated tests were deleted with the
+  mechanism — obsoleted (retired terminal) excludes them from status_drift, honestly recording
+  delivered-then-removed with no 1:1 successor.
 
 phases:
   - id: P1

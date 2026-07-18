@@ -6,8 +6,11 @@ issue:
   id: ISSUE-068
   title: "Gate Double Runs Test Suite"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-18"
+  closed: "2026-07-18"
+
+resolved-by: 60a1316
 
 complexity:
   scope: cross-cutting
@@ -134,6 +137,90 @@ Explicitly NOT:
 Roughly halves gate wall-clock on test-heavy TypeScript projects and removes the concurrency
 thrash that currently forces consumers to cap test parallelism.
 
+## Resolution
+
+The double-run defect is FIXED, but NOT by this issue's own fix-direction (Option C, the declared
+`run_group` shared-run-key mechanism). That core mechanism was built, shipped green, then REMOVED
+on 2026-07-18. The actual fix lives entirely pack-side.
+
+**Core mechanism (Option C) — built, then removed:**
+
+The `run_group` shared-run-key + memoized-fan-out mechanism described in Fix direction was
+implemented in backstop-core and its own tests passed. It was validated only against a FABRICATED
+fixture shaped to fit the design: two engines with byte-identical commands sharing one stdout
+payload. That fixture never resembled a real toolchain.
+
+The real consumer — `backstop/typescript-toolchain`'s `ts-test` and `ts-coverage` engines —
+exposed the gap immediately: the two engines have DIFFERENT commands (`vitest run` vs `vitest run
+--coverage`), a producer asymmetry (only the coverage side runs a producer step), and emit TWO
+DISTINCT FILE artifacts (a test report and a coverage summary), not one shared stdout payload. The
+mechanism's own coherence check rejected the real pairing on the FIRST field it inspected.
+
+A survey across other real toolchains (Go `go test -coverprofile`, pytest, JaCoCo, .NET `dotnet
+test --collect`) found NONE with the shared-stdout shape the mechanism was built for — every one
+of them emits distinct FILE artifacts from a single run, not a shared stdout stream. The fixture
+that validated the mechanism was fictional; no real consumer would ever satisfy it.
+
+Root lesson: WHICH flags combine into one command and WHICH files a run produces is TOOLCHAIN
+knowledge. A tool-blind core structurally cannot recognize "same tool, combinable flags,
+extractable from these two files" — that is exactly the class of fact the thin-executor rule
+(DD-3, [[feedback_zero_baked_checks]]) reserves for packs. Baking a generalized shared-run
+mechanism into core, even one that dedupes only by an opaque declared key, still required core to
+model a *shape* of tool relationship (shared stdout) that doesn't hold for any real toolchain. The
+mechanism was removed from backstop-core on 2026-07-18 rather than reshaped to fit files, because
+the fix that actually fits belongs entirely in the pack.
+
+**Actual fix — pack-side, `backstop/typescript-toolchain` v1.1.0 (commit 60a1316, that pack's own
+repo):**
+
+- The `ts-test` engine's command now carries the coverage flags directly, so a SINGLE `vitest run`
+  invocation emits BOTH the test report and the coverage summary as its two file artifacts — no
+  second full-suite run for coverage.
+- The `ts-coverage` engine's producer gained a reuse-if-fresh check: if the coverage summary file
+  is not older than the test report file, it reuses the existing summary instead of re-running
+  vitest. If the freshness check fails (e.g. the coverage step runs standalone, out of gate order),
+  it falls back to running vitest itself — a degraded-but-correct path, never a silent gap.
+- Proven on bclabs-portal's real gate: `coverage_threshold` step time collapsed from ~174s to
+  ~0.75s, the gate PASSES, and there is zero change in violations/verdicts. The portal's
+  `vitest.config.ts` `poolOptions.forks.maxForks = 2` fork-cap — the workaround this issue names as
+  removable — is eliminated as a result.
+
+**Follow-on (not scoped here):** the same combined-run convention (one native run emits both
+artifacts + a freshness-reuse check on the second consumer) can be adopted by `go-toolchain`
+(`go test -json -coverprofile=...` feeding both `go-test`'s test results and the existing
+`coverage-produce.sh` reuse check). Not filed as a separate issue; noted for whoever next touches
+go-toolchain's coverage path.
+
+**Acceptance — met, via the pack convention, not the core mechanism originally proposed:**
+
+- Suite runs ONCE per gate on the real consumer (bclabs-portal): confirmed, ~0.75s vs ~174s.
+- Same tests run, same pass/fail/coverage verdicts: confirmed — zero change in gate violations.
+- No core assumption about tool relationships: confirmed — core carries NO run_group/shared-run
+  mechanism; the convention (one combined command + freshness-reuse on the second consumer) lives
+  entirely in the pack's own engine bindings and producer script.
+- Separate-build toolchains unaffected: confirmed by construction — the convention is a per-pack
+  opt-in (a pack chooses to combine its own commands and add its own reuse check); no unrelated
+  pack changed shape.
+
+**Backing plan:** `PLAN-ISSUE-068-engine-shared-run-key-dedup.plan.yml` is `obsoleted`
+(delivered-then-removed) — it built and proved the core Option C mechanism this issue originally
+specified, which was then removed per the post-mortem above. No backing core plan delivers this
+close; the real fix has no backstop-core commit at all — see `resolved-by`, which points at the
+pack-side commit instead.
+
+**Accepted residual:** the go-toolchain follow-on noted above is real but small and unscoped;
+tracked here as a note, not filed as a separate issue, since it is optional per-pack adoption with
+no forcing deadline.
+
+## Verification
+
+- bclabs-portal real gate run: `coverage_threshold` step ~174s → ~0.75s, gate PASS, zero change in
+  violations.
+- `backstop/typescript-toolchain` v1.1.0 (commit 60a1316 in that pack's own repo) is the resolving
+  change; its verification lives in that pack's repo/tests, not backstop-core's.
+- `./bin/backstop artifact validate issues/ISSUE-068-gate-double-runs-test-suite.issue.md` —
+  schema-valid.
+
 ## Notes / references
 
 - Related (context only, already handled portal-side): bclabs-portal ISSUE-001 shared one pglite
@@ -142,3 +229,8 @@ thrash that currently forces consumers to cap test parallelism.
   core fix is what would let the portal drop its cap.
 - Ties to the recipe/portal capture-first work (BUNDLE-015/016) as the first non-Go consumer
   surfacing a defect that's general across toolchains, not TS-specific.
+- Surfaced ISSUE-069 (ast-grep null-ruleId jq crash) incidentally while verifying this issue on
+  jq 1.8.1 — unrelated defect, fixed separately.
+- Resolved by `backstop/typescript-toolchain` v1.1.0, commit 60a1316 (that pack's own repo, not
+  backstop-core). Backing core plan `PLAN-ISSUE-068-engine-shared-run-key-dedup.plan.yml` is
+  `obsoleted` — see Resolution.

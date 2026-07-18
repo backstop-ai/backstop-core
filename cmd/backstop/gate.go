@@ -679,26 +679,13 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
 	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope, classifier, matcher)
 
-	// ISSUE-068 Option C: ONE sharedRunCache per gate, threaded into BOTH the
-	// pack_engines (writer, first in gate order) and coverage (reader) dispatch
-	// call-sites below, so a run_group-shared toolchain suite runs ONCE across the
-	// whole gate instead of twice. A single instance is what makes the de-dup hold:
-	// each step building its own cache would still run the suite twice (a vacuous
-	// fix). Engines that declare NO run_group are unaffected (the safe default —
-	// unchanged two-run behavior).
-	sharedCache := newSharedRunCache()
-
 	// Step 5: Coverage threshold consumes the canonical per-FILE
 	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
 	// DECLARED toolchain packs — NOT a binary-resident `go test` runner (re-baking one
 	// would re-violate REQ-002). The records are sourced lazily at step-run time so the
 	// producer is exercised inside the gate (CLM-003). The merged classifier (above) is
-	// also threaded into the coverage step (SPEC-043 REQ-005). The sharedCache is
-	// threaded at the coverageRecordsFn INVOCATION (buildCoverageStep -> records(scope,
-	// sharedCache)); the coverageRecordsProducer(packs, projectRoot) CONSTRUCTION
-	// literal is deliberately UNCHANGED so the pinned SPEC-041 source-string guard stays
-	// green (ISSUE-068 Option B).
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(packs, projectRoot), sharedCache)
+	// also threaded into the coverage step (SPEC-043 REQ-005).
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(packs, projectRoot))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStep(specDir, projectRoot, activeScope)
@@ -826,14 +813,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		// Thread the gate's diff scope (activeScope) so rule-fed findings engines
 		// scan only the changed files, not the whole repository (ISSUE-010). A nil
 		// activeScope or GateScopeModeAll restores the whole-repo sweep; the
-		// project-wide toolchain passes stay project-wide regardless. Routed through
-		// dispatchPackEnginesWithCache — the WithCache bridge checks the
-		// dispatchPackEnginesFn seam FIRST and delegates to the spy when set (so the
-		// gate-wiring test still asserts activeScope reaches the engine without a live
-		// tool AND every hermetic seam spy still fires), else runs the concrete
-		// cache-aware dispatch. This is the WRITER: it populates sharedCache so the
-		// coverage step (reader) reuses a run_group-shared suite ONCE (ISSUE-068).
-		violations, err := dispatchPackEnginesWithCache(sharedCache, dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
+		// project-wide toolchain passes stay project-wide regardless.
+		violations, err := resolveDispatchPackEngines()(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
 		if err != nil {
 			return gate.StepResult{
 				StepName:   "pack_engines",
@@ -1220,7 +1201,7 @@ func mergeTestNameMatcher(packSets ...[]*pack.Manifest) (gate.TestNameMatcher, e
 // coverageRecordsFn produces the canonical per-FILE []check.CoverageRecord the
 // coverage step consumes (SPEC-041 CLM-003). It is the typed seam between the gate
 // and SPEC-042's dispatchPackCoverage producer.
-type coverageRecordsFn func(scope *gate.GateScope, cache *sharedRunCache) ([]check.CoverageRecord, error)
+type coverageRecordsFn func(scope *gate.GateScope) ([]check.CoverageRecord, error)
 
 // coverageRecordsProducer returns a coverageRecordsFn that sources the canonical
 // per-FILE []check.CoverageRecord from SPEC-042's dispatchPackCoverage producer
@@ -1230,17 +1211,13 @@ type coverageRecordsFn func(scope *gate.GateScope, cache *sharedRunCache) ([]che
 // ordinary declared pack (SPEC-046), so it keys on the declared `packs:` set alone
 // — there is no language-derived bridge set.
 func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
-	return func(scope *gate.GateScope, cache *sharedRunCache) ([]check.CoverageRecord, error) {
+	return func(scope *gate.GateScope) ([]check.CoverageRecord, error) {
 		if len(declared) == 0 {
 			return nil, nil
 		}
 		runner := &check.ExecCommandRunner{Dir: projectRoot}
 		packDir := filepath.Join(projectRoot, ".backstop", "packs")
-		// dispatchPackCoverageWithCache reuses the payload the pack_engines step's
-		// same-run_group engine already memoized in `cache` (the READER side of
-		// ISSUE-068 Option C); an engine with no run_group produces its payload as
-		// before (unchanged two-run behavior).
-		return dispatchPackCoverageWithCache(cache, declared, packDir, projectRoot, scope, runner)
+		return dispatchPackCoverage(declared, packDir, projectRoot, scope, runner)
 	}
 }
 
@@ -1272,7 +1249,7 @@ func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier {
 // dispatchPackCoverage) — NOT a binary-resident `go test` runner (REQ-002). The
 // records are produced lazily inside the step so the producer is exercised in the
 // gate (CLM-003).
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn, cache *sharedRunCache) gate.StepFunc {
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
@@ -1285,7 +1262,7 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, class
 
 		var coverage []check.CoverageRecord
 		if records != nil {
-			coverage, err = records(scope, cache)
+			coverage, err = records(scope)
 			if err != nil {
 				return gate.StepResult{
 					StepName:   gate.StepCoverageThreshold,

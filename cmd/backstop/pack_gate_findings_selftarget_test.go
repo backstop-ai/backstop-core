@@ -54,7 +54,7 @@ func TestRunFindingsEngine_ProjectWideEmptyTargetSelfTargetsNoRootAppended(t *te
 	}
 	runner := emptySarifCapturingRunner()
 
-	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, nil, binding, nil, runner, newSharedRunCache()); err != nil {
+	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, nil, binding, nil, runner); err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
 	if runner.calls != 1 {
@@ -88,7 +88,7 @@ func TestRunFindingsEngine_ProjectWideWithTargetAppendsProjectTarget(t *testing.
 	}
 	runner := emptySarifCapturingRunner()
 
-	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, nil, binding, nil, runner, newSharedRunCache()); err != nil {
+	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, nil, binding, nil, runner); err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
 	if !argsContain(runner.lastArgs, "./...") {
@@ -116,7 +116,7 @@ func TestRunFindingsEngine_FileArgsScopeAppendsScopeFilesUnchanged(t *testing.T)
 	}
 	runner := emptySarifCapturingRunner()
 
-	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, scope, binding, nil, runner, newSharedRunCache()); err != nil {
+	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, scope, binding, nil, runner); err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
 	if !argsContain(runner.lastArgs, "pkg/a/x.go") || !argsContain(runner.lastArgs, "pkg/b/y.go") {
@@ -150,7 +150,7 @@ func TestRunFindingsEngine_FileModeGoTestPackageScopingPreserved(t *testing.T) {
 	}
 	runner := emptySarifCapturingRunner()
 
-	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, scope, binding, nil, runner, newSharedRunCache()); err != nil {
+	if _, err := runFindingsEngine(selfTargetManifest(), t.TempDir(), projectRoot, scope, binding, nil, runner); err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}
 	if !argsContain(runner.lastArgs, "./pkg/foo") {

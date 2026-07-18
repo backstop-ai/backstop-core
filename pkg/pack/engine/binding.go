@@ -259,19 +259,6 @@ type EngineBinding struct {
 	// arg-shaping-only): the go-build engine declares it true; golangci and go-test
 	// declare it false/unset (CLM-017). Resolution is per-violation (REQ-007).
 	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
-	// RunGroup is the OPAQUE declared shared-run key (ISSUE-068 Option C). Two
-	// DISTINCT engines (e.g. a test engine and a coverage engine) that declare the
-	// SAME non-empty RunGroup SHARE ONE run: the dispatch memoizes the underlying
-	// command/producer payload by this key and fans that single run's output into
-	// EACH engine's OWN convert (test convert -> findings, coverage convert ->
-	// coverage records). Core dedupes SOLELY by this declared key — it NEVER
-	// inspects, parses, or normalizes the commands (thin-executor / DD-3). The safe
-	// default is empty: no key => unchanged two-run behavior, no memoization (so a
-	// separate-build toolchain like Rust `cargo llvm-cov` never regresses). Members
-	// of one run-group must declare identical run-shaping fields (Command, Producer,
-	// StdoutArtifact, ScopeKind, ProjectTarget) — validateRunGroups enforces that
-	// coherence at parse time so the memoized payload is what BOTH converts expect.
-	RunGroup string `yaml:"run_group"`
 }
 
 // Registry maps an engine name to its EngineBinding. The gate looks up a rule's

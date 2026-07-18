@@ -265,30 +265,6 @@ func resolveDispatchPackEngines() func([]*pack.Manifest, string, string, *gate.G
 }
 
 func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
-	// A fresh throwaway cache preserves today's two-run behavior for every existing
-	// caller and test: nothing shares memoized runs across separate dispatch calls
-	// unless the gate wiring explicitly threads ONE cache via the WithCache variants.
-	return dispatchPackEnginesCached(newSharedRunCache(), packs, packDir, projectRoot, scope, runner)
-}
-
-// dispatchPackEnginesWithCache is the cache-threaded entry point the gate's
-// pack_engines (test-verify) step calls so a run_group-shared suite runs ONCE
-// across the whole gate (ISSUE-068 Option C). It checks the dispatchPackEnginesFn
-// test seam FIRST and delegates to the spy when set — so every hermetic seam spy
-// (the ~15 across the wiring/scope tests, and the substantiveness/contracts steps
-// that reuse resolveDispatchPackEngines) still compiles AND fires unchanged, with
-// the cache simply unused on that path. In production (no spy) it runs the concrete
-// cache-aware dispatch, memoizing each engine's payload by its opaque declared
-// run_group. The plain dispatchPackEngines / resolveDispatchPackEngines() seam stays
-// byte-identical for the code-check / substantiveness / contracts callers.
-func dispatchPackEnginesWithCache(cache *sharedRunCache, packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
-	if dispatchPackEnginesFn != nil {
-		return dispatchPackEnginesFn(packs, packDir, projectRoot, scope, runner)
-	}
-	return dispatchPackEnginesCached(cache, packs, packDir, projectRoot, scope, runner)
-}
-
-func dispatchPackEnginesCached(cache *sharedRunCache, packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 	violations := []gate.Violation{}
 	for _, manifest := range packs {
 		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
@@ -327,7 +303,7 @@ func dispatchPackEnginesCached(cache *sharedRunCache, packs []*pack.Manifest, pa
 			}
 
 			// Findings engine: gather inputs, run, convert, parseSarif.
-			vs, err := runFindingsEngine(manifest, packRoot, projectRoot, scope, binding, rules, runner, cache)
+			vs, err := runFindingsEngine(manifest, packRoot, projectRoot, scope, binding, rules, runner)
 			if err != nil {
 				return nil, fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
@@ -361,22 +337,6 @@ func dispatchPackEnginesCached(cache *sharedRunCache, packs []*pack.Manifest, pa
 // are project-wide toolchain passes (ScopeKindProjectWide + ProjectTarget), so the
 // engine shapes its OWN target and the project root is never appended.
 func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
-	// Fresh throwaway cache: unchanged two-run behavior for every existing caller.
-	return dispatchPackCoverageCached(newSharedRunCache(), packs, packDir, projectRoot, scope, runner)
-}
-
-// dispatchPackCoverageWithCache is the cache-threaded coverage entry point the
-// gate's coverage step calls with the SAME per-gate sharedRunCache the pack_engines
-// step wrote to (ISSUE-068 Option C). When a coverage engine shares a run_group with
-// the test engine that already ran (the WRITER, first in gate order), it REUSES the
-// memoized payload and runs only its OWN convert — no second suite execution. The
-// coverage path is a DIRECT call (no dispatchPackEnginesFn-style seam), so there is
-// no spy to delegate to here.
-func dispatchPackCoverageWithCache(cache *sharedRunCache, packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
-	return dispatchPackCoverageCached(cache, packs, packDir, projectRoot, scope, runner)
-}
-
-func dispatchPackCoverageCached(cache *sharedRunCache, packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
 	_ = scope
 	records := []check.CoverageRecord{}
 	for _, manifest := range packs {
@@ -404,7 +364,7 @@ func dispatchPackCoverageCached(cache *sharedRunCache, packs []*pack.Manifest, p
 				continue
 			}
 			rules := grouped[engineName]
-			recs, err := runCoverageEngine(manifest, packRoot, projectRoot, binding, rules, runner, cache)
+			recs, err := runCoverageEngine(manifest, packRoot, projectRoot, binding, rules, runner)
 			if err != nil {
 				return nil, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
@@ -432,7 +392,7 @@ func configErrorPassthrough(err error) error {
 // ParsePackFindings. A coverage engine declaring no convert is a broken-pack error:
 // the engine's native profile is not coverage-records, so a convert is required to
 // normalize it.
-func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, cache *sharedRunCache) ([]check.CoverageRecord, error) {
+func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering coverage engine inputs for pack %s: %w", manifest.NormalizedName, err)
@@ -442,81 +402,64 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 	// un-allowlisted/unpinned provisioned tool's command is never handed to the runner.
 	// The gate returns a *check.ConfigError (exit 2) that MUST pass through with its
 	// concrete type intact (code_check.go type-asserts it), so it is returned UNWRAPPED
-	// — never %w-wrapped, which would defeat the exit-code type assertion. This runs
-	// BEFORE the shared-run-cache check so an un-allowlisted tool is rejected even when
-	// a prior engine already memoized a payload — trust is never short-circuited.
+	// — never %w-wrapped, which would defeat the exit-code type assertion.
 	if gateErr := checkEngineToolAllowed(manifest, binding); gateErr != nil {
 		return nil, configErrorPassthrough(gateErr)
 	}
 
-	// Shared run-cache (ISSUE-068 Option C). When this coverage engine shares a
-	// run_group with an engine that already ran (typically the test engine, first in
-	// gate order = the WRITER), REUSE its memoized payload and SKIP the producer/command
-	// — the single run's output is fanned into THIS engine's OWN coverage convert below.
-	// Dedup keys SOLELY on the opaque declared RunGroup field (thin-executor / DD-3). No
-	// key, or a cold key, produces the payload exactly as before (the safe default).
-	var payload []byte
-	if cached, ok := cache.get(manifest.NormalizedName, binding.RunGroup); ok {
-		payload = cached
+	// PRODUCER vs plain-command split (ISSUE-045 option (ii)). The producer runs
+	// UN-SANDBOXED (via the runner, full toolchain — it resolves the module + gofile
+	// list and folds them into the payload); the convert below runs SANDBOXED (parse
+	// only). This split is what keeps BOTH the executor language-blind AND the convert
+	// toolchain-free: the producer path is pack DATA (binding.Producer), never a
+	// language/tool literal in the dispatch.
+	var stdout []byte
+	if binding.Producer != "" {
+		// A pack-declared producer resolved under packRoot (the SAME
+		// filepath.Join(packRoot, …)+os.Stat pattern Convert uses) and run
+		// UN-SANDBOXED via the runner (cwd = projectRoot, so its `go test`/`go list`
+		// see the project). It shapes its OWN invocation — no inputs/ProjectTarget
+		// bolted on. A declared-but-missing producer is a fail-loud broken-pack error
+		// naming pack + path, mirroring the convert-missing error.
+		producerPath := filepath.Join(packRoot, filepath.FromSlash(binding.Producer))
+		if info, statErr := os.Stat(producerPath); statErr != nil || info.IsDir() {
+			return nil, fmt.Errorf("broken pack %s: missing coverage producer script %s", manifest.NormalizedName, producerPath)
+		}
+		out, runErr := runner.RunStdout(context.Background(), producerPath)
+		// A coverage producer may exit non-zero when tests fail yet still emit a usable
+		// profile, so runErr is not fatal on its own — the convert+parser contract is
+		// what matters. A convert failure below fails loud.
+		_ = runErr
+		stdout = out
 	} else {
-		// PRODUCER vs plain-command split (ISSUE-045 option (ii)). The producer runs
-		// UN-SANDBOXED (via the runner, full toolchain — it resolves the module + gofile
-		// list and folds them into the payload); the convert below runs SANDBOXED (parse
-		// only). This split is what keeps BOTH the executor language-blind AND the convert
-		// toolchain-free: the producer path is pack DATA (binding.Producer), never a
-		// language/tool literal in the dispatch.
-		var stdout []byte
-		if binding.Producer != "" {
-			// A pack-declared producer resolved under packRoot (the SAME
-			// filepath.Join(packRoot, …)+os.Stat pattern Convert uses) and run
-			// UN-SANDBOXED via the runner (cwd = projectRoot, so its `go test`/`go list`
-			// see the project). It shapes its OWN invocation — no inputs/ProjectTarget
-			// bolted on. A declared-but-missing producer is a fail-loud broken-pack error
-			// naming pack + path, mirroring the convert-missing error.
-			producerPath := filepath.Join(packRoot, filepath.FromSlash(binding.Producer))
-			if info, statErr := os.Stat(producerPath); statErr != nil || info.IsDir() {
-				return nil, fmt.Errorf("broken pack %s: missing coverage producer script %s", manifest.NormalizedName, producerPath)
-			}
-			out, runErr := runner.RunStdout(context.Background(), producerPath)
-			// A coverage producer may exit non-zero when tests fail yet still emit a usable
-			// profile, so runErr is not fatal on its own — the convert+parser contract is
-			// what matters. A convert failure below fails loud.
-			_ = runErr
-			stdout = out
-		} else {
-			cmdName, cmdArgs := splitCommand(binding.Command)
-			cmdArgs = append(cmdArgs, inputs...)
-			// A coverage engine is a project-wide toolchain pass: it shapes its OWN target
-			// (ProjectTarget) and the project root is never bolted on, exactly as the
-			// project-wide branch of runFindingsEngine does.
-			if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
-				cmdArgs = append(cmdArgs, binding.ProjectTarget)
-			}
-			out, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-			_ = runErr
-			stdout = out
+		cmdName, cmdArgs := splitCommand(binding.Command)
+		cmdArgs = append(cmdArgs, inputs...)
+		// A coverage engine is a project-wide toolchain pass: it shapes its OWN target
+		// (ProjectTarget) and the project root is never bolted on, exactly as the
+		// project-wide branch of runFindingsEngine does.
+		if binding.ScopeKind == engine.ScopeKindProjectWide && binding.ProjectTarget != "" {
+			cmdArgs = append(cmdArgs, binding.ProjectTarget)
 		}
+		out, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
+		_ = runErr
+		stdout = out
+	}
 
-		// Select the bytes to feed the convert. By default the engine's payload IS its
-		// stdout. When the binding declares a stdout_artifact, the engine instead writes
-		// its real output to that FILE (relative to the run's working dir = projectRoot)
-		// and prints only summary/noise to stdout — so read the FILE and feed THAT. The
-		// filename is pack DATA; this stays tool/language-blind (no coverage/profile
-		// literal here). A declared-but-missing artifact is a fail-loud broken run, not a
-		// silent fall-back to the noise stdout (which would re-introduce the bug).
-		payload = stdout
-		if binding.StdoutArtifact != "" {
-			artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
-			body, readErr := os.ReadFile(artifactPath)
-			if readErr != nil {
-				return nil, fmt.Errorf("pack %s coverage engine %q: declared stdout_artifact %q not produced (read %s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
-			}
-			payload = body
+	// Select the bytes to feed the convert. By default the engine's payload IS its
+	// stdout. When the binding declares a stdout_artifact, the engine instead writes
+	// its real output to that FILE (relative to the run's working dir = projectRoot)
+	// and prints only summary/noise to stdout — so read the FILE and feed THAT. The
+	// filename is pack DATA; this stays tool/language-blind (no coverage/profile
+	// literal here). A declared-but-missing artifact is a fail-loud broken run, not a
+	// silent fall-back to the noise stdout (which would re-introduce the bug).
+	payload := stdout
+	if binding.StdoutArtifact != "" {
+		artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
+		body, readErr := os.ReadFile(artifactPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("pack %s coverage engine %q: declared stdout_artifact %q not produced (read %s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
 		}
-
-		// Memoize the post-stdout_artifact payload so a later same-run_group engine
-		// reuses it (a no-op put when RunGroup is empty).
-		cache.put(manifest.NormalizedName, binding.RunGroup, payload)
+		payload = body
 	}
 
 	if binding.Convert == "" {
@@ -627,7 +570,7 @@ func resolveRulePath(manifest *pack.Manifest, packRoot string, rule pack.Rule) (
 // the clean-stdout runner, pipe through the sandboxed convert when declared, and
 // parse the normalized SARIF (REQ-006/REQ-007/REQ-009). Violations are
 // namespaced to the pack.
-func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, cache *sharedRunCache) ([]gate.Violation, error) {
+func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering engine inputs for pack %s: %w", manifest.NormalizedName, err)
@@ -645,110 +588,89 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		return nil, fmt.Errorf("pack %s engine trust gate: %w", manifest.NormalizedName, gateErr)
 	}
 
-	// Shared run-cache (ISSUE-068 Option C). When this engine declares a run_group
-	// AND a prior engine in the SAME group already produced the payload, REUSE it and
-	// SKIP re-running the command — the one run's output fans into every participant's
-	// OWN convert below (this engine's convert -> its own output type). Dedup keys
-	// SOLELY on the opaque declared RunGroup field; the command is never inspected
-	// (thin-executor / DD-3). No key, or a cold key, runs the command exactly as
-	// before and memoizes the payload — the safe default: unchanged two-run behavior
-	// for separate-build toolchains. On a cache hit runErr stays nil: the WRITER's
-	// actual run already fired the CrashGuard check on its real exit status.
-	var payload []byte
-	var runErr error
-	if cached, ok := cache.get(manifest.NormalizedName, binding.RunGroup); ok {
-		payload = cached
-	} else {
-		cmdName, cmdArgs := splitCommand(binding.Command)
-		cmdArgs = append(cmdArgs, inputs...)
-		// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
-		// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
-		// --config sgconfig.yml <targets>) and config-file engines with no self-declared target
-		// scan the files they are pointed at. A project-wide toolchain pass (go build
-		// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
-		// ProjectTarget and must NOT have a scan target bolted on — appending <root>
-		// to `go build ./...` is wrong (CLM-005, Ratified Design Constraint 3).
-		if binding.ScopeKind == engine.ScopeKindProjectWide {
-			// A project-wide toolchain pass shapes its OWN target and must NOT have a
-			// scan target bolted on. When it declares a ProjectTarget (go build ./...,
-			// golangci-lint run ./...), append that. When it declares NONE, the engine
-			// self-targets — tsc --noEmit reads tsconfig.json, `bun test` discovers its
-			// own tests — and appending <projectRoot> is WRONG: `tsc --noEmit <dir>`
-			// treats the path as a file and IGNORES tsconfig, silently typechecking
-			// nothing (vacuous green). So append nothing for an empty ProjectTarget
-			// (SPEC-048 REQ-001/CLM-001, DEFECT-1 fix).
-			if binding.ProjectTarget != "" {
-				// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
-				// `code check --file` hook scopes `go test` to the changed file's package,
-				// not ./..., to stay within its tight budget. fileModeTestTarget returns the
-				// package selector ONLY for the native go-test engine under a file-mode
-				// scope (pack_gate_filemode.go); every other project-wide pass keeps its
-				// ProjectTarget so unchanged-file breakage still fails a full run.
-				if target, ok := fileModeTestTarget(binding, scope); ok {
-					cmdArgs = append(cmdArgs, target)
-				} else {
-					cmdArgs = append(cmdArgs, binding.ProjectTarget)
-				}
-			}
-		} else {
-			// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
-			// A nil scope or GateScopeModeAll is the explicit whole-repo escape hatch
-			// (gate --all, code check) — scan projectRoot exactly as before (CLM-004).
-			// Otherwise point the engine at ONLY the in-scope changed files (untracked
-			// included, project-relative as they arrive from the gate scope) so it
-			// never produces out-of-scope findings (CLM-001/CLM-002/CLM-007). When the
-			// resulting target list is empty, append NOTHING — the engine scans
-			// nothing and yields zero findings; it must NOT silently fall back to the
-			// whole repo (CLM-003).
-			if scope == nil || scope.Mode == gate.GateScopeModeAll {
-				cmdArgs = append(cmdArgs, projectRoot)
+	cmdName, cmdArgs := splitCommand(binding.Command)
+	cmdArgs = append(cmdArgs, inputs...)
+	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
+	// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
+	// --config sgconfig.yml <targets>) and config-file engines with no self-declared target
+	// scan the files they are pointed at. A project-wide toolchain pass (go build
+	// ./..., go test ./..., golangci-lint run ./...) shapes its OWN target via
+	// ProjectTarget and must NOT have a scan target bolted on — appending <root>
+	// to `go build ./...` is wrong (CLM-005, Ratified Design Constraint 3).
+	if binding.ScopeKind == engine.ScopeKindProjectWide {
+		// A project-wide toolchain pass shapes its OWN target and must NOT have a
+		// scan target bolted on. When it declares a ProjectTarget (go build ./...,
+		// golangci-lint run ./...), append that. When it declares NONE, the engine
+		// self-targets — tsc --noEmit reads tsconfig.json, `bun test` discovers its
+		// own tests — and appending <projectRoot> is WRONG: `tsc --noEmit <dir>`
+		// treats the path as a file and IGNORES tsconfig, silently typechecking
+		// nothing (vacuous green). So append nothing for an empty ProjectTarget
+		// (SPEC-048 REQ-001/CLM-001, DEFECT-1 fix).
+		if binding.ProjectTarget != "" {
+			// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
+			// `code check --file` hook scopes `go test` to the changed file's package,
+			// not ./..., to stay within its tight budget. fileModeTestTarget returns the
+			// package selector ONLY for the native go-test engine under a file-mode
+			// scope (pack_gate_filemode.go); every other project-wide pass keeps its
+			// ProjectTarget so unchanged-file breakage still fails a full run.
+			if target, ok := fileModeTestTarget(binding, scope); ok {
+				cmdArgs = append(cmdArgs, target)
 			} else {
-				// Drop any changed path under a `testdata` directory before it becomes
-				// an engine scan target (ISSUE-040). Standard tooling convention treats a
-				// `testdata` directory as inert data — deliberately-hollow negative
-				// fixtures and planted rule-violations live there and are NOT real
-				// findings. This narrows the diff-scoped target list; it does NOT widen
-				// it. If the result is empty (a testdata-only diff), NOTHING is appended
-				// and the engine scans nothing — it must NEVER fall through to the
-				// projectRoot whole-repo branch above (the ISSUE-010 CLM-003
-				// anti-fallback contract, preserved).
-				cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)
+				cmdArgs = append(cmdArgs, binding.ProjectTarget)
 			}
 		}
-
-		stdout, err := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-		runErr = err
-		// A rule-fed/config-file findings engine exits non-zero when it reports
-		// findings; the SARIF on stdout is the contract, so runErr is not fatal on
-		// its own. A CrashGuard engine (native build/test) is different: a non-zero
-		// exit that yields NO parseable findings is a tool/infra crash, not a
-		// finding-free pass, and must fail loud rather than read as a silent green
-		// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
-
-		// Select the bytes the convert/shape-guard see (mirrors runCoverageEngine). By
-		// default a findings engine's payload IS its stdout. When the binding declares a
-		// stdout_artifact, the engine writes its real machine-readable output to that FILE
-		// (relative to the run's working dir = projectRoot) and prints only summary/noise
-		// to stdout — e.g. `bun test` writes JUnit XML to a --reporter-outfile while its
-		// stdout is a human summary, and reading stdout would find no <testcase> and
-		// silently green a failing test suite. Read the FILE and feed THAT. The filename
-		// is pack DATA; this stays tool/language-blind. A declared-but-missing artifact is
-		// a fail-loud broken run, not a silent fall-back to the noise stdout (SPEC-048
-		// REQ-002/CLM-005..008, DEFECT-2 fix).
-		payload = stdout
-		if binding.StdoutArtifact != "" {
-			artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
-			body, readErr := os.ReadFile(artifactPath)
-			if readErr != nil {
-				return nil, fmt.Errorf("pack %s findings engine %q: declared stdout_artifact %q not produced (%s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
-			}
-			payload = body
+	} else {
+		// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
+		// A nil scope or GateScopeModeAll is the explicit whole-repo escape hatch
+		// (gate --all, code check) — scan projectRoot exactly as before (CLM-004).
+		// Otherwise point the engine at ONLY the in-scope changed files (untracked
+		// included, project-relative as they arrive from the gate scope) so it
+		// never produces out-of-scope findings (CLM-001/CLM-002/CLM-007). When the
+		// resulting target list is empty, append NOTHING — the engine scans
+		// nothing and yields zero findings; it must NOT silently fall back to the
+		// whole repo (CLM-003).
+		if scope == nil || scope.Mode == gate.GateScopeModeAll {
+			cmdArgs = append(cmdArgs, projectRoot)
+		} else {
+			// Drop any changed path under a `testdata` directory before it becomes
+			// an engine scan target (ISSUE-040). Standard tooling convention treats a
+			// `testdata` directory as inert data — deliberately-hollow negative
+			// fixtures and planted rule-violations live there and are NOT real
+			// findings. This narrows the diff-scoped target list; it does NOT widen
+			// it. If the result is empty (a testdata-only diff), NOTHING is appended
+			// and the engine scans nothing — it must NEVER fall through to the
+			// projectRoot whole-repo branch above (the ISSUE-010 CLM-003
+			// anti-fallback contract, preserved).
+			cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)
 		}
+	}
 
-		// Memoize the post-stdout_artifact payload under the opaque declared key so a
-		// later engine in the same run_group reuses this single run's output (a no-op
-		// put when RunGroup is empty).
-		cache.put(manifest.NormalizedName, binding.RunGroup, payload)
+	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
+	// A rule-fed/config-file findings engine exits non-zero when it reports
+	// findings; the SARIF on stdout is the contract, so runErr is not fatal on
+	// its own. A CrashGuard engine (native build/test) is different: a non-zero
+	// exit that yields NO parseable findings is a tool/infra crash, not a
+	// finding-free pass, and must fail loud rather than read as a silent green
+	// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
+
+	// Select the bytes the convert/shape-guard see (mirrors runCoverageEngine). By
+	// default a findings engine's payload IS its stdout. When the binding declares a
+	// stdout_artifact, the engine writes its real machine-readable output to that FILE
+	// (relative to the run's working dir = projectRoot) and prints only summary/noise
+	// to stdout — e.g. `bun test` writes JUnit XML to a --reporter-outfile while its
+	// stdout is a human summary, and reading stdout would find no <testcase> and
+	// silently green a failing test suite. Read the FILE and feed THAT. The filename
+	// is pack DATA; this stays tool/language-blind. A declared-but-missing artifact is
+	// a fail-loud broken run, not a silent fall-back to the noise stdout (SPEC-048
+	// REQ-002/CLM-005..008, DEFECT-2 fix).
+	payload := stdout
+	if binding.StdoutArtifact != "" {
+		artifactPath := filepath.Join(projectRoot, filepath.FromSlash(binding.StdoutArtifact))
+		body, readErr := os.ReadFile(artifactPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("pack %s findings engine %q: declared stdout_artifact %q not produced (%s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
+		}
+		payload = body
 	}
 
 	// Strict-SARIF guard for a config-file engine that assumes a NATIVE SARIF tool

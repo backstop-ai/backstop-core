@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -100,13 +99,6 @@ type EngineSpec struct {
 	// filtering (the go-build declared build-exemption, SPEC-041 CLM-011). Declared
 	// as pack DATA so the exemption travels with the pack, not a baked binding.
 	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
-	// RunGroup is the opaque declared shared-run key (ISSUE-068 Option C): two
-	// engines declaring the same non-empty key share ONE memoized run. Declared as
-	// pack DATA and converted to engine.EngineBinding.RunGroup at load; a missing
-	// key leaves it empty (the safe default — unchanged two-run behavior). Wired
-	// through parseEngineSpec so a pack.yml run_group: key is not silently dropped by
-	// the non-strict YAML decode (the same drop-hazard the Producer field guards).
-	RunGroup      string                `yaml:"run_group"`
 	Provision     *engine.Provision     `yaml:"provision"`
 	FieldContract *engine.FieldContract `yaml:"field_contract"`
 	// Binding is the engine.EngineBinding the spec converts to at load. It is
@@ -311,13 +303,6 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		manifest.Engines[name] = spec
 	}
 
-	// Validate run-group coherence (ISSUE-068 Option C): engines sharing a declared
-	// run_group promise to share ONE memoized run, so their run-shaping fields must
-	// match or the memoized payload would silently mismatch one member's convert.
-	if err := validateRunGroups(&manifest); err != nil {
-		return nil, fmt.Errorf("validate run groups: %w", err)
-	}
-
 	if manifest.Content.Ruleset.Version == "" && manifest.Archetype == "enforcement" {
 		manifest.Content.Ruleset.Version = manifest.Version
 	}
@@ -470,80 +455,6 @@ func declaredEngineBindings(m *Manifest) map[string]engine.EngineBinding {
 	return declared
 }
 
-// validateRunGroups enforces run-group coherence (ISSUE-068 Option C). Engines that
-// declare the SAME non-empty run_group share ONE memoized run at dispatch: the
-// command/producer runs ONCE and its payload is fanned into EACH member's own
-// convert. For that memoized payload to be what BOTH converts expect, every member
-// must agree on the fields that shape the actual run — Command, Producer,
-// StdoutArtifact, ScopeKind, AND ProjectTarget. It compares the RAW declared fields
-// by byte-equality; it NEVER parses or normalizes what a command MEANS
-// (thin-executor / DD-3). A group of ONE participant is a documented no-op (dedupes
-// nothing, behaves as if unset). A divergence is a fail-loud broken-pack error
-// naming the pack, the run_group key, the divergent engines, and the field.
-//
-// The ScopeKind/ProjectTarget parity is what makes the run-once premise hold: it
-// forces run-group members to be the same project-wide toolchain pass so the
-// memoized payload is what BOTH converts would have gotten. The parity rule covers
-// the declared binding fields but NOT the rule-derived gatherEngineInputs output;
-// ScopeKind=project-wide parity keeps that input path inert for the only coherent
-// use, so no gatherEngineInputs comparison is warranted.
-func validateRunGroups(m *Manifest) error {
-	groups := map[string][]string{}
-	for name := range m.Engines {
-		key := m.Engines[name].Binding.RunGroup
-		if key == "" {
-			continue
-		}
-		groups[key] = append(groups[key], name)
-	}
-
-	keys := make([]string, 0, len(groups))
-	for key := range groups {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		members := groups[key]
-		if len(members) < 2 {
-			// Singleton run-group: dedupes nothing, behaves as if unset — a documented
-			// no-op. Only groups of >1 need the coherence parity check.
-			continue
-		}
-		sort.Strings(members)
-		ref := m.Engines[members[0]].Binding
-		for _, name := range members[1:] {
-			if field, ok := runGroupFieldMismatch(ref, m.Engines[name].Binding); ok {
-				return fmt.Errorf(
-					"pack %s: run_group %q is incoherent: engines %q and %q diverge on %s — run-group members must share identical command, producer, stdout_artifact, scope_kind, and project_target so the single memoized run's payload matches every member's convert",
-					m.Name, key, members[0], name, field,
-				)
-			}
-		}
-	}
-	return nil
-}
-
-// runGroupFieldMismatch reports the FIRST run-shaping field on which two run-group
-// members diverge (raw byte-equality of the declared fields — never normalized),
-// and whether they diverge at all. ScopeKind is compared as the declared enum value.
-func runGroupFieldMismatch(a, b engine.EngineBinding) (string, bool) {
-	switch {
-	case a.Command != b.Command:
-		return "command", true
-	case a.Producer != b.Producer:
-		return "producer", true
-	case a.StdoutArtifact != b.StdoutArtifact:
-		return "stdout_artifact", true
-	case a.ScopeKind != b.ScopeKind:
-		return "scope_kind", true
-	case a.ProjectTarget != b.ProjectTarget:
-		return "project_target", true
-	default:
-		return "", false
-	}
-}
-
 // validateEngine fail-louds on a rule whose engine is empty (a layer-only rule
 // under the migrated reader) and, for an engine the pack DECLARES in its own
 // engines: block, enforces the validation-time half of the trusted-tool trust gate
@@ -608,7 +519,6 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 		ProjectTarget:         spec.ProjectTarget,
 		CrashGuard:            spec.CrashGuard,
 		ExemptFromScopeFilter: spec.ExemptFromScopeFilter,
-		RunGroup:              spec.RunGroup,
 		Provision:             spec.Provision,
 	}
 
