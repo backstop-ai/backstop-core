@@ -36,8 +36,8 @@ jq '{
           (
             (if .metaVariables.single.FN then { func: .metaVariables.single.FN.text } else {} end)
             + (if .metaVariables.single.PKG then { symbol: .metaVariables.single.PKG.text } else {} end)
-            + (if (.ruleId | test("hollow")) then { substantiveness_role: "hollow" }
-               elif (.ruleId | test("referenced-symbol")) then { substantiveness_role: "referenced-symbol" }
+            + (if ((.ruleId // "") | test("hollow")) then { substantiveness_role: "hollow" }
+               elif ((.ruleId // "") | test("referenced-symbol")) then { substantiveness_role: "referenced-symbol" }
                else {} end)
           ) as $props
           | if ($props | length) > 0 then { properties: $props } else {} end
