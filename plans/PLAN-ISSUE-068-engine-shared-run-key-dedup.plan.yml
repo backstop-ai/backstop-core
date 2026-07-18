@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-068
 spec_id: ISSUE-068
 created: "2026-07-18"
-status: draft
+status: completed
 target_module: pkg/pack, pkg/pack/engine, cmd/backstop
 test_command: "go test ./pkg/pack/... ./cmd/backstop/... -run 'RunGroup|SharedRun|SharedRunKey'"
 coverage_threshold: 90

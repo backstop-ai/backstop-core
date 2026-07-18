@@ -303,3 +303,89 @@ func TestGate_FilterViolations_BuildPassExemptFromScopeFilter(t *testing.T) {
 		t.Error("in-scope lint violation was filtered out; in-scope violations must be retained")
 	}
 }
+
+// TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership (ISSUE-070
+// CLM-002) pins the normalization invariant that makes membership match through the
+// EXPORTED (*GateScope).FilterViolations entry point: violation.File and the scope's
+// files are BOTH run through the single NormalizePath before the scope.Contains
+// test. An UNTOUCHED file whose violation arrives as an ABSOLUTE path under the
+// project root normalizes to a repo-relative form NOT in scope and is FILTERED; an
+// IN-scope file whose violation arrives in "./"-prefixed form normalizes to the same
+// repo-relative form and is KEPT. So a differently-rooted engine path can never leak.
+func TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership(t *testing.T) {
+	projectRoot := "/repo"
+	scope := newGateScope(projectRoot, GateScopeModeDiff, []string{"pkg/x.go"}, nil)
+
+	untouchedAbs := filepath.Join(projectRoot, "pkg/other.go") // absolute, UNTOUCHED (out of scope)
+	inScopeDotSlash := "./pkg/x.go"                            // "./"-prefixed IN-scope form
+
+	got := scope.FilterViolations([]Violation{
+		{Rule: "no-foo", File: untouchedAbs, ProjectWide: false},
+		{Rule: "no-foo", File: inScopeDotSlash, ProjectWide: false},
+	})
+
+	var keptUntouchedAbs, keptInScope bool
+	for _, v := range got {
+		switch v.File {
+		case untouchedAbs:
+			keptUntouchedAbs = true
+		case inScopeDotSlash:
+			keptInScope = true
+		}
+	}
+	if keptUntouchedAbs {
+		t.Errorf("an ABSOLUTE-path violation for an UNTOUCHED file must be filtered — it normalizes to a repo-relative form NOT in scope; survivors=%#v", got)
+	}
+	if !keptInScope {
+		t.Errorf("a './'-prefixed violation for the IN-scope file must be KEPT — both sides normalize to the one repo-relative form before the membership test; survivors=%#v", got)
+	}
+}
+
+// TestGateScope_FilterViolations_PreservesProjectWideExemption (ISSUE-070 CLM-006)
+// pins that the EXPORTED method delegates to the SAME logic as the internal filter:
+// a ProjectWide==true out-of-scope violation is KEPT (exempt) while a
+// ProjectWide==false out-of-scope violation is filtered and an in-scope violation is
+// kept; and GateScopeModeAll / a nil scope return EVERY violation unchanged
+// (full-scope reporting for `gate --all` and code_check).
+func TestGateScope_FilterViolations_PreservesProjectWideExemption(t *testing.T) {
+	scope := newGateScope("/repo", GateScopeModeDiff, []string{"a.go"}, nil)
+	mixed := []Violation{
+		{Rule: "TS2304", File: "z.go", ProjectWide: true},  // exempt, out of scope -> keep
+		{Rule: "no-foo", File: "z.go", ProjectWide: false}, // non-exempt, out of scope -> drop
+		{Rule: "no-foo", File: "a.go", ProjectWide: false}, // in scope -> keep
+	}
+
+	got := scope.FilterViolations(mixed)
+	var keptExempt, keptInScope, droppedNonExempt bool
+	for _, v := range got {
+		switch {
+		case v.Rule == "TS2304":
+			keptExempt = true
+		case v.Rule == "no-foo" && v.File == "a.go":
+			keptInScope = true
+		case v.Rule == "no-foo" && v.File == "z.go":
+			droppedNonExempt = true
+		}
+	}
+	if !keptExempt {
+		t.Error("a ProjectWide (exempt) out-of-scope violation must be retained by the exported method — same logic as the internal filter")
+	}
+	if !keptInScope {
+		t.Error("an in-scope violation must be retained by the exported method")
+	}
+	if droppedNonExempt {
+		t.Error("an out-of-scope non-exempt violation must be dropped by the exported method")
+	}
+
+	// Full-scope reporting: ModeAll and a nil scope return every violation unchanged.
+	all, err := ComputeGateScope(t.TempDir(), GateScopeModeAll, nil)
+	if err != nil {
+		t.Fatalf("compute all scope: %v", err)
+	}
+	if got := all.FilterViolations(mixed); len(got) != len(mixed) {
+		t.Errorf("ModeAll scope must return every violation unchanged (full-scope reporting), got %d of %d", len(got), len(mixed))
+	}
+	if got := (*GateScope)(nil).FilterViolations(mixed); len(got) != len(mixed) {
+		t.Errorf("a nil scope must return every violation unchanged (full-scope reporting), got %d of %d", len(got), len(mixed))
+	}
+}
