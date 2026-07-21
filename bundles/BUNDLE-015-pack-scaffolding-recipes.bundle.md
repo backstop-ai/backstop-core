@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-scaffolding-recipes
-  version: "0.6.0"
+  version: "0.7.0"
   created: "2026-07-14"
-  updated: "2026-07-17"
+  updated: "2026-07-20"
   category: feature
 
 status:
@@ -69,7 +69,19 @@ solution:
     publish-time REV-GUARD keeps recipe versions trustworthy (DD-21). The dynamic-`transform`
     output scoping and the rich forensic/fleet ledger are the downstream dependency owned by
     BUNDLE-017. The CI recipe pack is the first canonical consumer and the invariant's acceptance
-    test — and ships on the thin adoption record alone.
+    test — and ships on the thin adoption record alone. The 2026-07-20 founder session, driven by
+    the arrival of the real-world standup capture (the bclabs-portal go-live fixture), extended the
+    model to full-system STANDUP: recipes decompose into PROVIDER packs (supabase / vercel / nextjs /
+    the CI pack), each on its own version clock (DD-22); a recipe may declare an EXECUTABLE RUNBOOK
+    of ordered platform-state STEPS with paired verify-checks ("a checklist with receipts"), each
+    step carrying an execution MODE (auto / assisted / consent / decision) whose EFFECTIVE value is
+    COMPUTED against current standing state via precondition receipts — the bootstrap ladder (DD-23 /
+    DD-24). The surface is DIAGNOSE-FIRST: a silent probe pass renders only unmet steps with their
+    fix attached, escalating automation API > CLI > deep-link > click-instruction, where receipts are
+    law and click-instructions are best-effort vibes (DD-25). A standup recipe treats the
+    COMPOSITION/framework-wiring step as first-class — provisioned infra without it is a vacuous
+    standup (DD-26). Core still only RENDERS/sequences declared steps and runs receipts; it NEVER
+    performs a platform operation itself (thin executor holds).
 ---
 
 # Pack Scaffolding Recipes
@@ -84,12 +96,41 @@ DD-12). Its model was then deepened across founder-driven design sessions: the 2
 "two axes + waiver" brain-dump (DD-6/7/8), the 2026-07-16 session that reframed recipes as
 declarative OPERATIONS, versioned artifacts, two application modes, and a provenance-backed
 concurrency story (DD-9..DD-15), a later 2026-07-16 session adding the compat matrix,
-version-keyed variants, and migration-as-a-distributable-artifact (DD-16/DD-17), and the
+version-keyed variants, and migration-as-a-distributable-artifact (DD-16/DD-17), the
 2026-07-17 session that RESOLVED the last four open questions — the per-recipe-directory
 declaration shape, adoption-gated enforcement, the adoption-record/provenance-ledger split,
-and the version rev-guard (DD-18..DD-21). The direction of travel: the model got MORE concrete
+and the version rev-guard (DD-18..DD-21) — and the 2026-07-20 session (triggered by the arrival of
+the bclabs-portal standup capture) that extended the model to full-system STANDUP: provider-pack
+decomposition, the executable runbook, the bootstrap ladder, the diagnose-first UX, and the
+composition step (DD-22..DD-26). The direction of travel: the model got MORE concrete
 and the thin-core thesis got STRONGER, not vaguer — generation is the only new primitive;
 everything else is existing substrate.
+
+### THE CAPTURE ARRIVED (2026-07-20)
+
+The capture-first decision (2026-07-18) delivered. **"Portal Go-Live: Physical Scaffolding &
+Admin/Setup Reference"** — a full standup capture of bclabs-portal on Supabase + Vercel + GitHub +
+PostHog, explicitly authored as the real-life recipe fixture (its §6 splits fixture-data vs
+generalizable patterns). It lives at
+`~/.claude/uploads/3826af56-28a4-484f-975c-492a561591c4/eaeae70d-golivescaffolding.md` (persistent;
+slices move into the born packs' `fixtures/captured/` per the captured-fixtures convention). It was
+CROSS-CHECKED against the portal repo, with corrections:
+
+- **(a) The code gap is the DEPLOYMENT SUBSTRATE, not just a composition root.** `package.json` has
+  no `next` / `react` / `@supabase/supabase-js` at all — route handlers exist in Next App Router
+  shape but the framework is uninstalled, with no app shell / build scripts.
+- **(b) The 4 `POSTHOG_*` env vars are ASPIRATIONAL** — nothing reads them (config for the missing
+  composition layer), so env surfaces must be DERIVED POST-COMPOSITION, not from a static scan.
+- **(c) `PORTAL_OIDC_SIGNING_KEY` is dead** (the removed HMAC path) — drop it.
+- **(d) `PORTAL_REPO_PATH` is actively wired** (cwd fallback); its vestigiality is unresolved.
+
+Empirics from the capture: ~**9/11** standup steps are scriptable via the `supabase` / `vercel` /
+`gh` CLIs + PostHog REST; the irreducible human core is **token supply + naming decisions +
+explicit-go on real-money provisioning**; the §5 gotchas (Supavisor transaction-pooler + `prepare=false`,
+`storage.objects` ownership, OIDC audience parity, prod/preview split) are verify-check candidates
+nearly verbatim. **Platform-state dominance CONFIRMED:** a standup is almost entirely external
+platform state, with few file ops — which is what forces the runbook/step-op model below (DD-23) and
+the provider-pack decomposition (DD-22). This capture is the concrete forcing function for DD-22..DD-26.
 
 ### The thin-executor invariant (still the north star)
 
@@ -121,6 +162,15 @@ the dynamic-`transform` output scoping (the OQ-10 dynamic half) and the rich for
 provenance ledger (the OQ-11 rich half). Maturity stays `exploring` — the founder triggers
 promotion separately.
 
+The 2026-07-20 founder session (triggered by the arrived capture) EXTENDED the model to full-system
+standup and recorded DD-22..DD-26 as DECIDED — provider-pack decomposition (DD-22), the executable
+runbook of step-ops with modes and receipts (DD-23), the bootstrap ladder of preconditions and
+computed effective mode (DD-24), the diagnose-first UX + automation escalation ladder (DD-25), and
+the composition/framework step as first-class (DD-26). These do NOT reopen any resolved OQ; the open
+mechanism details they surface (step-op as a fifth op family, exact step shape, precondition receipt
+form) are recorded as SPEC-TIME RESIDUALS, not new OQs. Maturity still stays `exploring` — the
+founder's walkthrough of the standup model precedes promotion.
+
 ### Naming-collision hazard (load-bearing for OQ-2)
 
 The word "scaffold" is already overloaded in this codebase and MUST NOT be conflated with this
@@ -142,7 +192,8 @@ distinct from **scaffold**.
 DD-1..DD-5 are the frame inherited from the BUNDLE-003 init session. DD-6..DD-8 are the
 2026-07-14 "two axes + waiver" model. DD-9..DD-15 are the 2026-07-16 deepening; DD-16/DD-17 the
 later 2026-07-16 compat/variants session. DD-18..DD-21 are the 2026-07-17 session resolving the
-last four open questions. All are founder-driven and recorded as decided.
+last four open questions. DD-22..DD-26 are the 2026-07-20 standup session, driven by the arrived
+capture. All are founder-driven and recorded as decided.
 
 ### Inherited frame (BUNDLE-003)
 
@@ -357,6 +408,96 @@ last four open questions. All are founder-driven and recorded as decided.
   policy — building that policy now would be guessing in a vacuum. Spec-time knob: hash only
   semantically-meaningful files so a whitespace-only edit doesn't force a rev.
 
+### Full-system standup — decomposition, runbook, bootstrap ladder, diagnose-first UX (2026-07-20)
+
+The arrived capture (see Current Thinking) is the forcing function for DD-22..DD-26. All are
+founder-decided; open mechanism details are recorded as SPEC-TIME RESIDUALS, not new OQs.
+
+- **DD-22: Recipes decompose into PROVIDER packs, not a monolithic standup pack.** The standup
+  capability splits along providers: `supabase` (migrations/RLS patterns, private bucket + path-RLS,
+  Supavisor pooler-posture check, local-stack script), `vercel` (provision / env / cron / deploy
+  runbook + the `vercel.json` file op), `nextjs` (framework adoption + app-shell scaffolding), and
+  the existing **github-actions CI pack** (= DD-5's canonical pack; the OIDC emitter workflow slots
+  in). **PostHog is DEFERRED** — too thin to stand alone; wait for a second observability consumer.
+  Rationale: providers evolve on INDEPENDENT version clocks → DD-16 compat + DD-17 variants apply
+  PER PROVIDER; a monolith couples unrelated churn (the same tipping-over logic as DD-18, one level
+  up); composable-by-default (a consumer installs only what it uses). **vercel vs nextjs split
+  specifically** because they are different KINDS (DD-6): provisioning-runbook-dominant vs
+  scaffolding-dominant. Cross-pack concerns: (a) ORDERING — the consumer's declared recipe sequence
+  IS the order (extends the OQ-9 sequential-apply dissolution to runbook steps; steps may declare
+  dependencies); (b) PARITY CHECKS spanning packs (e.g. OIDC audience must match between Vercel env
+  and a GitHub repo var) — owned by the pack shipping the recipe for ONE side, with the OTHER side's
+  location as a declared PARAMETER (the check stays declarative: read-at-A / read-at-B / assert-equal,
+  DD-16-shaped); (c) shared config surfaces (`.env.example`) compose via `merge` ops (already
+  covered). **RESTRAINT:** exactly one fixture exists — no finer splits until a SECOND consumer
+  demands them (decomposition derives from consumers, not from symmetry).
+
+- **DD-23: The EXECUTABLE RUNBOOK — step ops with modes and receipts.** (Promotes the 2026-07-18
+  candidate runbook DD to decided, upgraded by the capture.) A recipe MAY declare RUNBOOK STEPS:
+  ordered, declared platform-state operations with paired verify-checks — "a checklist with
+  receipts." Capture-driven upgrades: (1) each step carries an EXECUTION MODE — `auto` (command
+  declared, runnable) → `assisted` (machine does everything but the click; DD-25) → `consent`
+  (runnable only on explicit-go: real money / real secrets — the consent gate NEVER dissolves
+  regardless of automation; answering≠go as recipe data) → `decision` (human choice, collapsed to
+  one prompt + a sane default). (2) Receipts are validated verbatim by the capture (the §5 gotchas)
+  and span declared-read-and-compare (DD-16-shaped selectors) to run-a-check-command (the existing
+  engine model) — NO new verification primitive. (3) Core RENDERS / sequences declared steps and
+  runs receipts; it NEVER performs a platform operation itself (thin executor; a human or agent
+  executes with their own tools). (4) Step STATE is DERIVED from receipts at evaluation time, never
+  stored (consistent with DD-20's thin adoption record; rich history stays BUNDLE-017). **LEAN
+  (spec-time residual):** steps are likely a FIFTH OP FAMILY (`step`, alongside
+  create / merge / transform / insert) rather than a separate manifest section — real standup
+  interleaves file ops and platform steps (write `vercel.json` → provision → set env → deploy);
+  shape `{description, command?, mode, preconditions, verify}` to be confirmed at spec time.
+
+- **DD-24: The BOOTSTRAP LADDER — preconditions and computed effective mode.** Scriptability is a
+  FUNCTION OF STANDING STATE, not a static step property. Three tiers: **Tier 0 — ACCOUNT
+  EXISTENCE** (create account / org / billing / ToS — NEVER scriptable, deliberately human-gated by
+  providers via CAPTCHAs / payment / legal; once per provider); **Tier 1 — AUTH BOOTSTRAP**
+  (`vercel login` / `gh auth login` / supabase token / PostHog key — human DOES, machine VERIFIES
+  via receipts like `gh auth status` / `vercel whoami` / token-validity probes; once per machine or
+  credential-expiry); **Tier 2 — PROVISIONING** (the scriptable majority, reachable only when
+  T0/T1 receipts are green). Steps declare PRECONDITIONS (receipts); the EFFECTIVE mode is COMPUTED
+  against current state — the same step is `auto` for an established operator and blocked-on-human
+  for a greenfield user. **Honest value framing:** the recipe does not make standup scriptable — it
+  makes the human core EXPLICIT, MINIMAL, VERIFIABLE, and ONE-TIME. The one-time-ness IS the
+  economics: an agency operator holds standing T0/T1 state, so every subsequent client standup is
+  the scripted path (the amortization is the agency edge). Cross-bundle tie: Tier-1 outputs (tokens)
+  land in **Stash (BUNDLE-018)** — future precondition receipts read presence-in-stash, later
+  `use`-brokered so tokens never surface.
+
+- **DD-25: DIAGNOSE-FIRST UX + the AUTOMATION ESCALATION LADDER ("the user almost never has to
+  know").** The runbook's entry point is a SILENT PROBE PASS (all receipts); ONLY unmet steps
+  render, each with its fix attached ("↳ run: X" / "↳ needs you: <exact URL + click-level
+  instructions>") — the gate's violations+waiver-hint shape pointed at world-state. Green is
+  invisible; a fully-set-up machine sees NO runbook at all (probes → consent gate → done); route to
+  the greenfield ladder only when probes say greenfield. **PROBE LAW:** receipts must be
+  read-only / idempotent (never provision-to-test), cheap (local checks before network; runs on
+  every invocation), and fail-soft (provider outage = "unknown, can't verify," never a false red).
+  **ASSISTED-rung mechanics** (the `gh auth` device-flow as canonical model): deep-link to the exact
+  page (pre-filled params where supported), stage paste-values (from params / Stash; clipboard
+  auto-clear for secrets), click-level instructions for the remainder, and POLL THE RECEIPT so the
+  step completes ITSELF — never "press enter when done." **AUTOMATION ESCALATION LADDER** (mirrors
+  the engine escalation ladder): API > CLI > deep-link URL > click-instructions — always take the
+  highest available rung; every click-instruction is a STANDING PROMOTION CANDIDATE (future: a
+  scheduled maintenance-agent sweep asks "did this provider grow an API/CLI yet?"). **CLICK-
+  INSTRUCTIONS ARE DECLARED BEST-EFFORT** (founder-explicit): the most rot-prone data in the system;
+  staleness is a WARN-AND-REV (DD-17 variants version the instructions), NEVER a red, never a
+  blocking defect — "instructions are vibes, receipts are law": a rotted click-path degrades UX but
+  cannot produce false-green because the receipt polls the OUTCOME, not the path. Guardrail: invisible
+  ≠ uninspectable — an `--explain` / action-log face records everything probed and executed (receipts
+  behind, consent in front = the trust envelope). Horizon (noted, not scoped): agent-driven browser
+  clicking would live permanently behind consent mode.
+
+- **DD-26: The COMPOSITION/FRAMEWORK step is first-class.** (New standup insight from the capture.)
+  Provisioned infra + implemented components ≠ a running app. The portal proves it: a fully-
+  provisioned Supabase would still 500 because the deployment substrate (framework deps, shell, build
+  config) and the composition root (construct real clients from env, register adapters, wire call
+  sites) are absent. A standup recipe MUST include the code-wiring step as first-class: **Mode B**
+  (SDLC-mediated, DD-11 — the recipe supplies the adapter template WHAT + an acceptance-check
+  GUARANTEE, e.g. "app boots; ingest route returns non-500"; the plan supplies the WHERE), with the
+  acceptance check as the step's RECEIPT. Infra provisioning without this step is a VACUOUS standup.
+
 ## Open Questions
 
 Status index (numbers held stable across versions for traceability; resolved/dissolved OQs kept
@@ -486,7 +627,9 @@ OQ-10 dynamic-transform output scoping and the OQ-11 rich provenance ledger are 
 ## Spec Seeds
 
 The decomposition is now clear; all OQs are resolved, with the dynamic-transform scoping and rich
-provenance ledger delegated to BUNDLE-017.
+provenance ledger delegated to BUNDLE-017. The 2026-07-20 standup session adds two seeds (the
+runbook/step-op + probe/receipt engine, and the provider standup packs) and extends three existing
+ones.
 
 - **Recipe apply mechanism (core)** — the generic executor: resolve a recipe by
   `pack:recipe@version`, run its declarative OPS (`create` / `merge` / `transform` / `insert`,
@@ -496,7 +639,23 @@ provenance ledger delegated to BUNDLE-017.
   adopted}` (DD-20), NOT the full ledger. `transform` dispatches to allowlisted general engines
   running declared rules (DD-10). Contains ZERO language/platform literals (DD-3) — this seed is
   what `backstop/self` guards. The piece BUNDLE-003 `backstop init` is blocked on. Dynamic-
-  `transform` enforcement scoping (region-level provenance) depends on BUNDLE-017.
+  `transform` enforcement scoping (region-level provenance) depends on BUNDLE-017. **Extended
+  (2026-07-20):** gains STEP-OP SEQUENCING (interleaving file ops and runbook steps in one ordered
+  apply, DD-23) and PRECONDITION EVALUATION (compute a step's effective mode against current standing
+  state via receipts, DD-24) — likely the fifth `step` op family.
+
+- **Runbook / step-op + probe/receipt engine (core)** — the executable-runbook mechanism (DD-23):
+  render / sequence declared STEPS (`{description, command?, mode, preconditions, verify}`), each
+  carrying an execution MODE (auto / assisted / consent / decision, DD-23) whose EFFECTIVE value is
+  COMPUTED against current standing state via precondition RECEIPTS (the bootstrap ladder, DD-24).
+  The PROBE/RECEIPT engine runs read-only / idempotent / cheap / fail-soft checks (probe law, DD-25),
+  DERIVES step state from receipts (never stored, DD-20/DD-23), and drives the DIAGNOSE-FIRST surface
+  (only unmet steps render with their fix attached; automation escalation API > CLI > deep-link >
+  click-instruction; `--explain` action-log; DD-25). Core NEVER performs a platform op itself —
+  receipts reuse the DD-16 read-and-compare selectors + the existing check-command engine, so NO new
+  verification primitive and ZERO baked provider knowledge (DD-3). The CONSENT gate (real-money / real
+  secrets) is recipe DATA, never dissolved (DD-23). Click-instruction staleness is WARN-AND-REV, never
+  red (DD-25).
 
 - **Manifest recipe declaration (schema)** — the per-recipe DIRECTORY shape (DD-18): a
   `recipe.yml` manifest + template payload + `transform`-rule files, colocated, indexed from
@@ -528,7 +687,20 @@ provenance ledger delegated to BUNDLE-017.
 
 - **CI recipe pack (backstop-packs, first consumer)** — the cross-cutting pack holding
   per-platform gate-workflow recipes as data (DD-5); the invariant's acceptance test. Lives in
-  backstop-packs, not core. Ships on the thin adoption record alone (DD-20).
+  backstop-packs, not core. Ships on the thin adoption record alone (DD-20). **Extended (2026-07-20):**
+  now also carries the OIDC EMITTER WORKFLOW pattern (`.github/workflows/backstop-ingest.yml` — the
+  captured portal's CI-ingest side) and one side of the cross-pack OIDC-audience parity check (DD-22).
+
+- **Provider standup packs (backstop-packs)** — the provider-pack decomposition (DD-22): `supabase`
+  (migrations / RLS patterns, private bucket + path-folder RLS, Supavisor transaction-pooler posture
+  check, scripted local stack), `vercel` (provision / env / cron / deploy runbook + the `vercel.json`
+  file op), and `nextjs` (framework adoption + app-shell scaffolding). Each is its own pack on an
+  independent version clock (per-provider compat + variants); vercel vs nextjs split because they are
+  different KINDS (provisioning-runbook-dominant vs scaffolding-dominant, DD-6). The §5 gotchas become
+  verify-checks nearly verbatim; the COMPOSITION step (DD-26) is a first-class Mode-B step. Sourced
+  from the bclabs-portal capture (the standing fixture; slices land in each pack's `fixtures/captured/`).
+  PostHog DEFERRED until a second observability consumer (DD-22). RESTRAINT: no finer splits until a
+  second consumer demands them.
 
 ## Notes / Ideas
 
@@ -649,9 +821,47 @@ provenance ledger delegated to BUNDLE-017.
   `recipes:` index; versioning seed adds the rev-guard; added a recipe-enforcement-scoping seed).
   No OQs pre-resolved by the author (these are the founder's own decisions, recorded); maturity
   unchanged (exploring) — founder triggers promotion separately.
+- 0.7.0 (2026-07-20): **Founder standup session — the capture arrived; full-system standup model.**
+  The 2026-07-18 capture-first bet paid off: the bclabs-portal go-live capture (Supabase + Vercel +
+  GitHub + PostHog), explicitly authored as the real-life recipe fixture, arrived and was
+  CROSS-CHECKED against the portal repo (deployment-substrate gap, aspirational `POSTHOG_*`, dead
+  `PORTAL_OIDC_SIGNING_KEY`, live `PORTAL_REPO_PATH`). Recorded DD-22 (recipes decompose into PROVIDER
+  packs — supabase / vercel / nextjs / the CI pack, each on its own version clock; PostHog deferred;
+  vercel vs nextjs split on KIND; cross-pack ordering / parity-checks / merge-composed config;
+  one-fixture restraint), DD-23 (the EXECUTABLE RUNBOOK — ordered step-ops with modes
+  auto / assisted / consent / decision + paired receipts, "checklist with receipts," step state
+  derived not stored, likely a fifth `step` op family — promoting the 2026-07-18 candidate runbook DD),
+  DD-24 (the BOOTSTRAP LADDER — Tier-0 account / Tier-1 auth / Tier-2 provisioning, preconditions +
+  computed effective mode; one-time-ness IS the agency economics; Stash tie), DD-25 (DIAGNOSE-FIRST
+  UX + the automation escalation ladder API > CLI > deep-link > click-instruction; probe law;
+  receipts-are-law / instructions-are-vibes; `--explain` action-log), and DD-26 (the
+  COMPOSITION/framework step is first-class — infra without it is a vacuous standup). Added two spec
+  seeds (runbook / step-op + probe/receipt engine; provider standup packs) and extended three (apply
+  mechanism gains step-op sequencing + precondition eval; CI-pack gains the OIDC emitter workflow;
+  the standup packs carry the §5 gotchas as verify-checks). Wove the standup model into the solution
+  approach, Current Thinking ("THE CAPTURE ARRIVED"), and the settled-vs-open summary. Added the
+  capture doc + portal cross-check and BUNDLE-018 (Stash) to References. NO resolved OQ reopened;
+  open mechanism details recorded as SPEC-TIME RESIDUALS, not new OQs. Maturity unchanged
+  (exploring) — the founder's walkthrough of the standup model precedes promotion.
 
 ## References
 
+- **The standup capture — bclabs-portal go-live (THE fixture, 2026-07-20)** —
+  `~/.claude/uploads/3826af56-28a4-484f-975c-492a561591c4/eaeae70d-golivescaffolding.md`. A full
+  standup capture of bclabs-portal on Supabase + Vercel + GitHub + PostHog, explicitly authored as the
+  real-life recipe fixture (§6 splits fixture-data vs generalizable patterns). The forcing function
+  for DD-22..DD-26; persistent, with slices moving into each born pack's `fixtures/captured/`.
+  **Portal cross-check findings (corrections to the capture):** (a) the code gap is the DEPLOYMENT
+  SUBSTRATE, not just a composition root (`package.json` has no `next` / `react` /
+  `@supabase/supabase-js`; framework uninstalled); (b) the 4 `POSTHOG_*` vars are ASPIRATIONAL
+  (nothing reads them → derive env surfaces post-composition); (c) `PORTAL_OIDC_SIGNING_KEY` is dead
+  (drop); (d) `PORTAL_REPO_PATH` is actively wired (cwd fallback), vestigiality unresolved. Empirics:
+  ~9/11 steps CLI/API-scriptable; irreducible human core = token supply + naming + explicit-go on
+  real-money provisioning; §5 gotchas are near-verbatim verify-checks; platform-state dominance
+  confirmed.
+- **BUNDLE-018 (Stash — credential custody)** — the credential-custody tie for the bootstrap ladder
+  (DD-24): Tier-1 auth outputs (provider tokens) land in Stash; future precondition receipts read
+  presence-in-stash, later `use`-brokered so tokens never surface.
 - **BUNDLE-003 (onboarding / `backstop init`)** — the consumer and origin. DD-12 (packs carry
   scaffolding recipes), DD-13 (hard thin-executor invariant, inherited here as DD-3), OQ-6
   (converge-never-clobber), DD-14 (ecosystem-scaffolder composition), OQ-7 (CI wired via a recipe
