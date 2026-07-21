@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-scaffolding-recipes
-  version: "0.8.0"
+  version: "0.9.0"
   created: "2026-07-14"
   updated: "2026-07-20"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: defined
 
 problem:
   summary: >
@@ -87,6 +87,163 @@ solution:
     DD-1..DD-4; lineage stubs remain here. BUNDLE-015 retains provider-pack decomposition (DD-22),
     the op schema + apply sequencing the `step` op rides on, and the provider packs' FILE recipes,
     and RETURNS to its core job: the file-op recipe capability `backstop init` is blocked on.
+
+requirements:
+  # --- Seed 1: Recipe apply mechanism (core) ---
+  - id: REQ-001
+    version: "1.0.0"
+    text: >
+      Core must provide a GENERIC applier that resolves a recipe by
+      `<pack>:<recipe>@<recipe_version>` and executes its manifest's declared, ORDERED
+      operations in sequence. The applier carries no path or target knowledge — the recipe
+      declares its own target(s); the applier only runs what the recipe declares.
+      (DD-1, DD-2, DD-9.)
+  - id: REQ-002
+    version: "1.0.0"
+    text: >
+      The applier must support four language-neutral OP families: `create` (drop a templated
+      file/tree), `merge` (deep-merge a fragment into a structured file — json/yaml/toml/.env),
+      `transform` (a declarative AST rewrite dispatched to an allowlisted GENERAL engine running
+      a declared rule), and `insert` (a snippet at a declared anchor). Value substitution is a
+      declarative `{{ }}`-style convention that is explicitly NOT Turing-complete. (DD-9,
+      DD-10; OQ-1/OQ-7.)
+  - id: REQ-003
+    version: "1.0.0"
+    text: >
+      The applier must support two application MODES from the SAME recipe artifact: DIRECT
+      (self-applies its ops identically every run from recipe-declared defaults/params) and
+      SDLC-MEDIATED (applied through a spec/plan that supplies only the WHERE for bespoke
+      injection while the recipe supplies the WHAT + the enforcement GUARANTEE). (DD-11; OQ-3.)
+  - id: REQ-004
+    version: "1.0.0"
+    text: >
+      Application must be non-destructive toward USER-OWNED files (never clobber a consumer's
+      own file). For RECIPE-OWNED output the model is regenerate-by-default, with any divergence
+      recorded as an accountable WAIVER via the existing `@waiver:<rule>:<reason>:<expiry>`
+      subsystem — never a bespoke merge. (DD-4, DD-8; OQ-4/OQ-8.)
+  - id: REQ-005
+    version: "1.0.0"
+    text: >
+      Each application must write a MINIMAL, tracked ADOPTION RECORD entry —
+      `{recipe ref, @version, adopted}`, the recipe analog of `backstop.lock` — which is the
+      enforcement-activation primitive and carries the applied `@version` for the
+      recipe-moved-on drift signal. It must NOT emit the rich per-op/per-region provenance
+      ledger (owned by BUNDLE-017). (DD-15, DD-20.)
+  - id: REQ-006
+    version: "1.0.0"
+    text: >
+      The applier and its `transform`-engine dispatch must contain ZERO language/platform/CI
+      literals — they resolve and run declared DATA only, with language-awareness living in the
+      allowlisted engine, never in core. `backstop/self` guards this seam. (DD-3, DD-10.)
+  - id: REQ-007
+    version: "1.0.0"
+    text: >
+      The apply sequencing must RESERVE a `step` op slot as a fifth op family so file ops and
+      runbook steps can interleave in one ordered apply. This bundle owns only the op-schema /
+      sequencing SEAM the step op rides on; the step EXECUTOR and probe-receipt/precondition
+      engine are out of scope here (owned by BUNDLE-019). (DD-22; DD-23 lineage stub.)
+
+  # --- Seed 2: Manifest recipe declaration (schema) ---
+  - id: REQ-008
+    version: "1.0.0"
+    text: >
+      A recipe must be declared as its OWN DIRECTORY colocating a `recipe.yml` manifest, its
+      template payload, and its `transform`-rule files. `pack.yml` must carry a lightweight
+      `recipes:` INDEX mapping a stable recipe-id → directory. Multiple distinct recipes in one
+      pack are multiple directories, each addressed by a stable id in the pack namespace. The
+      `recipes:` index must not collide with `content.scaffolds` or with `pack scaffold` /
+      `artifact new`. (DD-18; OQ-2/OQ-5.)
+  - id: REQ-009
+    version: "1.0.0"
+    text: >
+      The `recipe.yml` manifest must declare the ordered ops, the KIND
+      (scaffolding / implementing / templating), the param schema, the target paths, the
+      `transform` rules, the paired enforcement suite, the recipe VERSION, and — optionally —
+      the compat matrix and version-keyed variants. Pack-manifest validation must validate the
+      manifest's structure. (DD-6, DD-18.)
+
+  # --- Seed 3: Recipe versioning + reference resolution ---
+  - id: REQ-010
+    version: "1.0.0"
+    text: >
+      A recipe must carry its OWN semver version, distinct from and not redundant with the pack
+      version (distribution snapshot vs capability/injection contract). References must resolve
+      `<pack>:<recipe>@<recipe_version>` at apply time to the pinned recipe version. (DD-12.)
+  - id: REQ-011
+    version: "1.0.0"
+    text: >
+      A publish-time REV-GUARD in the pack-authoring tooling (OUTSIDE core) must FAIL when a
+      recipe's content changed but its `@version` did not, forcing a rev so the recipe-moved-on
+      drift signal stays trustworthy. The guard enforces THAT a rev happens; the semver LEVEL is
+      the author's judgment and is never policed. (DD-21; OQ-12.)
+  - id: REQ-012
+    version: "1.0.0"
+    text: >
+      The capability must surface THREE independent drift signals: code-diverged-from-recipe
+      (the paired enforcement suite), recipe-moved-on (the adoption record's applied `@version`
+      vs the current recipe version), and world-moved (the compat matrix). (DD-12, DD-16, DD-20.)
+
+  # --- Seed 4: Recipe enforcement scoping ---
+  - id: REQ-013
+    version: "1.0.0"
+    text: >
+      A recipe's paired enforcement must be ADOPTION-GATED — active only for recipes present in
+      the adoption record — which, combined with enforcement being opt-in per recipe, is a DOUBLE
+      opt-in before anything can go red. A recipe an installed pack merely SHIPS but the consumer
+      never applied must be INERT (never red). (DD-7, DD-19.)
+  - id: REQ-014
+    version: "1.0.0"
+    text: >
+      For an adopted recipe, enforcement STATIC scope must be the recipe's declared target paths
+      (read from the ADOPTED `@version`'s manifest) expressed via the gate's EXISTING per-rule
+      path-scoping — no new gate primitive. Gate outcomes: declared output present/valid → GREEN;
+      partial or misplaced output → RED (broken promise, naming the absent paths); total absence
+      of all declared files → WARN + un-adopt guidance. (Dynamic-`transform` output scoping is
+      deferred to BUNDLE-017.) (DD-19.)
+
+  # --- Seed 5: Compat + version-keyed variants + migration ---
+  - id: REQ-015
+    version: "1.0.0"
+    text: >
+      A recipe MAY declare an optional COMPAT MATRIX as a set of `{file, path, range}` selectors.
+      Core must read the consumer's actual installed version at the declared path and
+      semver-compare it to the declared range, FAILING LOUD when out of range. Core does only
+      generic read-value-at-path + generic semver-compare; the ecosystem-specific "where the
+      version lives" is declared data. (DD-16.)
+  - id: REQ-016
+    version: "1.0.0"
+    text: >
+      A recipe MAY carry VERSION-KEYED VARIANTS — internal `{compat range → ops}` pairings of ONE
+      logical recipe. Apply must RESOLVE the variant whose compat range matches the consumer's
+      actual environment and FAIL LOUD when no variant matches. Adding a variant REVS the recipe
+      version (versions the whole variant set). Resolution is generic — pick the variant whose
+      declared range matches the read version. (DD-17.)
+  - id: REQ-017
+    version: "1.0.0"
+    text: >
+      Compat matrix (REQ-015) + version-keyed variants (REQ-016) + `transform` (REQ-002) +
+      enforcement (REQ-013/REQ-014) must compose into MIGRATION-AS-A-DISTRIBUTABLE-ARTIFACT: a
+      dependency bump drives compat RED → re-apply resolves the new variant whose `transform`
+      carries the codemod → enforcement guarantees completeness (stays red until fully migrated).
+      Authored once by the pack author, distributed, and verified for completeness. (DD-16, DD-17;
+      migration note.)
+
+  # --- Seed 6: CI recipe pack + provider standup packs (first consumers / acceptance test) ---
+  - id: REQ-018
+    version: "1.0.0"
+    text: >
+      A CI recipe pack (in backstop-packs, NOT core) must ship per-platform gate-workflow recipes
+      (github / gitlab / bitbucket / jenkins) as DATA of the scaffolding kind, and must gate a
+      project packs-only — with NO baked language/platform branch in core. It is the invariant's
+      acceptance test and ships on the thin adoption record alone. (DD-5, DD-20.)
+  - id: REQ-019
+    version: "1.0.0"
+    text: >
+      The provider standup packs — `supabase`, `vercel`, `nextjs` — must ship their FILE recipes
+      (e.g. `vercel.json`, shell scripts, workflows, migrations, app shells) as data, each pack on
+      its own independent version clock so per-provider compat + variants apply. Their RUNBOOK
+      fragments are out of scope here (owned by BUNDLE-019). Sourced from the bclabs-portal
+      capture; no finer splits until a second consumer demands them. (DD-22.)
 ---
 
 # Pack Scaffolding Recipes
@@ -207,6 +364,38 @@ capability:
 Neither is the "pack ships a recipe that init materializes into a consumer repo" concept here.
 OQ-2 must pick a name/shape that does not collide. The working term is **recipe**, deliberately
 distinct from **scaffold**.
+
+## Draft Requirements
+
+The authoritative, machine-readable requirements live in the `requirements:` frontmatter array
+(REQ-001…REQ-019). They FORMALIZE the slimmed 6-seed file-op scope resolved across the
+2026-07-14 → 2026-07-20 founder sessions — every REQ is derived from a decided DD / resolved OQ,
+none invents new scope. They map one-to-one onto the Spec Seeds and feed the
+`requirement_traceability` gate (delivered ⇒ every REQ covered by an implemented spec). The
+runbook-capability requirements (step executor, probe/receipt engine, bootstrap ladder,
+diagnose-first surface) are deliberately ABSENT — they were carved out to BUNDLE-019; this bundle
+reserves only the `step` op sequencing seam (REQ-007).
+
+Grouped by spec seed:
+
+- **Recipe apply mechanism (core)** — REQ-001 (generic resolve-and-run of ordered ops),
+  REQ-002 (the four op families + declarative non-Turing-complete substitution), REQ-003 (two
+  application modes from one artifact), REQ-004 (non-destructive + regenerate/waiver for
+  recipe-owned output), REQ-005 (write the thin adoption record, not the rich ledger), REQ-006
+  (zero language/platform literals — the `backstop/self`-guarded seam), REQ-007 (reserve the
+  `step` op slot; executor is BUNDLE-019's). This is the piece `backstop init` (BUNDLE-003) is
+  blocked on.
+- **Manifest recipe declaration (schema)** — REQ-008 (per-recipe directory + `pack.yml`
+  `recipes:` index), REQ-009 (the `recipe.yml` manifest fields + pack-manifest validation).
+- **Recipe versioning + reference resolution** — REQ-010 (recipe-own version + `pack:recipe@version`
+  resolution), REQ-011 (publish-time rev-guard), REQ-012 (the three drift signals).
+- **Recipe enforcement scoping** — REQ-013 (adoption-gated double opt-in), REQ-014 (static path
+  scope + partial-red / total-warn semantics).
+- **Compat + version-keyed variants + migration** — REQ-015 (compat matrix, generic read +
+  semver-compare, fail-loud), REQ-016 (version-keyed variant resolution, fail-loud on no match),
+  REQ-017 (composition into migration-as-a-distributable-artifact).
+- **CI recipe pack + provider standup packs** — REQ-018 (the CI recipe pack as the packs-only
+  acceptance test), REQ-019 (the supabase / vercel / nextjs provider packs' FILE recipes).
 
 ## Draft Design Decisions
 
@@ -851,6 +1040,20 @@ ones.
   "Carve-out" note to Current Thinking (runbooks generalized beyond standup → 019; 015 returns to
   the file-op recipe capability init is blocked on) and BUNDLE-019 to References. No OQs reopened or
   resolved; maturity unchanged (exploring) — promotion is the founder's next step, imminent.
+- 0.9.0 (2026-07-20): **Promotion to `defined` — requirements formalized.** Founder-triggered
+  promotion after the full standup/file-op-scope walkthrough. Advanced `status.maturity`
+  `exploring` → `defined` and added the required `requirements:` frontmatter array (REQ-001…
+  REQ-019) plus a `Draft Requirements` section indexing it. The 19 requirements FORMALIZE the
+  slimmed 6-seed file-op scope — each derived from a decided DD / resolved OQ (no new scope
+  invented): the generic apply mechanism (REQ-001…007, incl. the reserved `step` op seam),
+  per-recipe-directory manifest declaration + `recipes:` index (REQ-008/009), recipe-own
+  versioning + `pack:recipe@version` resolution + rev-guard + three drift signals (REQ-010…012),
+  adoption-gated enforcement with static path scope and partial-red / total-warn semantics
+  (REQ-013/014), the optional compat matrix + version-keyed variants composing into
+  migration-as-a-distributable-artifact (REQ-015…017), and the CI recipe pack + provider standup
+  packs as the packs-only acceptance test / first consumers (REQ-018/019). No DDs or OQs changed;
+  the runbook-capability requirements stay OUT (carved to BUNDLE-019, with only the `step` op
+  sequencing seam reserved here). No advance past `defined`.
 
 ## References
 
