@@ -6,7 +6,7 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-scaffolding-recipes
-  version: "0.10.0"
+  version: "0.11.0"
   created: "2026-07-14"
   updated: "2026-07-21"
   category: feature
@@ -142,6 +142,28 @@ requirements:
       runbook steps can interleave in one ordered apply. This bundle owns only the op-schema /
       sequencing SEAM the step op rides on; the step EXECUTOR and probe-receipt/precondition
       engine are out of scope here (owned by BUNDLE-019). (DD-22; DD-23 lineage stub.)
+  - id: REQ-021
+    version: "1.0.0"
+    text: >
+      Where a `transform` CANNOT reach its target — no convention to pattern against, or a bespoke
+      composition — apply must FAIL LOUD with the exact, actionable manual instruction, NEVER silently
+      skipping and NEVER guessing a site, and the recipe's paired enforcement must stay RED until the
+      manual wiring is actually correct. "When generation can't reach, enforcement does." (DD-13.)
+  - id: REQ-023
+    version: "1.0.0"
+    text: >
+      Applying a TEMPLATING-kind recipe is ONE-SHOT: after initial application the output is fully
+      CONSUMER-OWNED and must NEVER be regenerated or re-applied over the consumer's changes (on
+      re-apply or pack upgrade). Its optional paired enforcement suite (DD-7) remains available as
+      opt-in "guided freedom," but the regenerate-by-default model (REQ-004) applies ONLY to the
+      recipe-owned / config-owned kinds (scaffolding / implementing), NEVER to templating. (DD-6.)
+  - id: REQ-024
+    version: "1.0.0"
+    text: >
+      Applying MULTIPLE recipes — within one pack or across packs — must be STRICTLY SEQUENTIAL and
+      DETERMINISTIC in the consumer's DECLARED order; co-writes to the same structured file compose
+      via `merge` (REQ-002) in that order as NORMAL composition, not a conflict to arbitrate. The
+      applier must NEVER interleave or reorder recipes. (OQ-9 dissolution; DD-22 cross-pack ordering.)
 
   # --- Seed 2: Manifest recipe declaration (schema) ---
   - id: REQ-008
@@ -200,6 +222,13 @@ requirements:
       partial or misplaced output → RED (broken promise, naming the absent paths); total absence
       of all declared files → WARN + un-adopt guidance. (Dynamic-`transform` output scoping is
       deferred to BUNDLE-017.) (DD-19.)
+  - id: REQ-022
+    version: "1.0.0"
+    text: >
+      An UN-ADOPT operation must exist that REMOVES a recipe's adoption-record entry (REQ-005) —
+      thereby DEACTIVATING its enforcement per REQ-013 — while LEAVING all generated files IN PLACE:
+      they became the consumer's own code the moment they landed. Pack removal likewise must NEVER
+      delete generated output. (DD-19, DD-20; removal non-fork.)
 
   # --- Seed 5: Compat + version-keyed variants + migration ---
   - id: REQ-015
@@ -378,13 +407,20 @@ distinct from **scaffold**.
 ## Draft Requirements
 
 The authoritative, machine-readable requirements live in the `requirements:` frontmatter array
-(REQ-001…REQ-020). They FORMALIZE the slimmed 6-seed file-op scope resolved across the
+(REQ-001…REQ-024). They FORMALIZE the slimmed 6-seed file-op scope resolved across the
 2026-07-14 → 2026-07-20 founder sessions — every REQ is derived from a decided DD / resolved OQ,
 none invents new scope. They map one-to-one onto the Spec Seeds and feed the
 `requirement_traceability` gate (delivered ⇒ every REQ covered by an implemented spec). The
 runbook-capability requirements (step executor, probe/receipt engine, bootstrap ladder,
 diagnose-first surface) are deliberately ABSENT — they were carved out to BUNDLE-019; this bundle
 reserves only the `step` op sequencing seam (REQ-007).
+
+The 2026-07-21 founder-directed requirements AUDIT closed the last gaps in the DD→REQ mapping:
+four behaviors that were DECIDED in the design decisions but never formalized as requirements —
+the injection limit (DD-13), the un-adopt operation (DD-19/DD-20 + the removal non-fork), the
+one-shot templating-kind semantics (DD-6), and strictly-sequential multi-recipe apply (OQ-9
+dissolution + DD-22) — were added as REQ-021…REQ-024. The mapping is now complete (REQ-001…024);
+no new scope was introduced, each new REQ derives strictly from existing DD/OQ content.
 
 Grouped by spec seed:
 
@@ -393,14 +429,18 @@ Grouped by spec seed:
   application modes from one artifact), REQ-004 (non-destructive + regenerate/waiver for
   recipe-owned output), REQ-005 (write the thin adoption record, not the rich ledger), REQ-006
   (zero language/platform literals — the `backstop/self`-guarded seam), REQ-007 (reserve the
-  `step` op slot; executor is BUNDLE-019's). This is the piece `backstop init` (BUNDLE-003) is
-  blocked on.
+  `step` op slot; executor is BUNDLE-019's), REQ-021 (the injection limit — fail loud with the
+  manual instruction, enforcement stays red), REQ-023 (templating-kind apply is one-shot /
+  consumer-owned; regenerate-by-default is only for scaffolding / implementing), REQ-024 (multiple
+  recipes apply strictly sequentially in declared order, co-writes compose via `merge`). This is
+  the piece `backstop init` (BUNDLE-003) is blocked on.
 - **Manifest recipe declaration (schema)** — REQ-008 (per-recipe directory + `pack.yml`
   `recipes:` index), REQ-009 (the `recipe.yml` manifest fields + pack-manifest validation).
 - **Recipe versioning + reference resolution** — REQ-010 (recipe-own version + `pack:recipe@version`
   resolution), REQ-011 (publish-time rev-guard), REQ-012 (the three drift signals).
 - **Recipe enforcement scoping** — REQ-013 (adoption-gated double opt-in), REQ-014 (static path
-  scope + partial-red / total-warn semantics).
+  scope + partial-red / total-warn semantics), REQ-022 (the un-adopt operation — drop the adoption
+  record, deactivate enforcement, leave generated files in place; pack removal never deletes output).
 - **Compat + version-keyed variants + migration** — REQ-015 (compat matrix, generic read +
   semver-compare, fail-loud), REQ-016 (version-keyed variant resolution, fail-loud on no match),
   REQ-017 (composition into migration-as-a-distributable-artifact), REQ-020 (ordered chain
@@ -1113,6 +1153,21 @@ ones.
   call-site idioms; one day of agent-assisted synthesis against guides + fleet replaces N teams ×
   months). Precedent: `nx migrate` / OpenRewrite chain semantics; divergence: each hop is
   gate-verified for completeness. No other DDs or OQs changed; maturity stays `defined`.
+- 0.11.0 (2026-07-21): **Requirements audit — four decided-but-unformalized behaviors added as
+  REQ-021…024; no new scope.** A founder-directed requirements audit found four design decisions
+  that were DECIDED but had no requirement coverage, and formalized each strictly from its existing
+  DD/OQ content: REQ-021 (from DD-13 — the injection limit: where a `transform` can't reach, apply
+  FAILS LOUD with the exact manual instruction, never silently skipping or guessing, and the paired
+  enforcement stays RED until the wiring is correct), REQ-022 (from DD-19/DD-20 + the removal
+  non-fork — an UN-ADOPT operation that drops the adoption-record entry, deactivating enforcement
+  per REQ-013, while LEAVING generated files in place; pack removal likewise never deletes output),
+  REQ-023 (from DD-6 — templating-kind apply is ONE-SHOT / consumer-owned and never regenerated;
+  the regenerate-by-default model of REQ-004 applies only to scaffolding / implementing), and
+  REQ-024 (from the OQ-9 dissolution + DD-22 ordering clause — applying multiple recipes is STRICTLY
+  SEQUENTIAL and DETERMINISTIC in the consumer's declared order, co-writes composing via `merge`,
+  never interleaved or reordered). Completes the DD→REQ mapping (REQ-001…024); added a Draft
+  Requirements audit note and filed the new REQs into the apply-mechanism (REQ-021/023/024) and
+  enforcement-scoping (REQ-022) seed groupings. No DDs or OQs changed; maturity stays `defined`.
 
 ## References
 
