@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-scaffolding-recipes
-  version: "0.9.0"
+  version: "0.10.0"
   created: "2026-07-14"
-  updated: "2026-07-20"
+  updated: "2026-07-21"
   category: feature
 
 status:
@@ -227,6 +227,16 @@ requirements:
       carries the codemod → enforcement guarantees completeness (stays red until fully migrated).
       Authored once by the pack author, distributed, and verified for completeness. (DD-16, DD-17;
       migration note.)
+  - id: REQ-020
+    version: "1.0.0"
+    text: >
+      When a recipe's version-keyed variants (REQ-016) form an ordered MIGRATION LINEAGE, apply must
+      support ORDERED CHAIN TRAVERSAL, not only single-variant resolution: probe the consumer's
+      current position via the compat read (DD-16), compute its distance along the variant lineage,
+      and apply the intermediate variants IN ORDER (each hop's `transform` carrying that hop's
+      codemod) with PER-HOP verification — enforcement green, or at minimum the hop's receipts,
+      before the next hop. FAIL LOUD on a gap in the lineage (no variant covers a needed hop).
+      Single-variant resolution (REQ-016) is the degenerate one-hop case. (DD-17 as amended, DD-16.)
 
   # --- Seed 6: CI recipe pack + provider standup packs (first consumers / acceptance test) ---
   - id: REQ-018
@@ -368,7 +378,7 @@ distinct from **scaffold**.
 ## Draft Requirements
 
 The authoritative, machine-readable requirements live in the `requirements:` frontmatter array
-(REQ-001…REQ-019). They FORMALIZE the slimmed 6-seed file-op scope resolved across the
+(REQ-001…REQ-020). They FORMALIZE the slimmed 6-seed file-op scope resolved across the
 2026-07-14 → 2026-07-20 founder sessions — every REQ is derived from a decided DD / resolved OQ,
 none invents new scope. They map one-to-one onto the Spec Seeds and feed the
 `requirement_traceability` gate (delivered ⇒ every REQ covered by an implemented spec). The
@@ -393,7 +403,9 @@ Grouped by spec seed:
   scope + partial-red / total-warn semantics).
 - **Compat + version-keyed variants + migration** — REQ-015 (compat matrix, generic read +
   semver-compare, fail-loud), REQ-016 (version-keyed variant resolution, fail-loud on no match),
-  REQ-017 (composition into migration-as-a-distributable-artifact).
+  REQ-017 (composition into migration-as-a-distributable-artifact), REQ-020 (ordered chain
+  traversal of a variant lineage — probe position, walk intermediate variants in order, per-hop
+  verification, fail-loud on lineage gaps).
 - **CI recipe pack + provider standup packs** — REQ-018 (the CI recipe pack as the packs-only
   acceptance test), REQ-019 (the supabase / vercel / nextjs provider packs' FILE recipes).
 
@@ -553,6 +565,22 @@ capture. All are founder-driven and recorded as decided.
   form of multiplicity is version-keyed variants of ONE logical recipe, addressed by one name,
   resolved by environment. It extends the grail from "same way every time" (DD-11 Mode A) to
   "the RIGHT way for MY environment, automatically."
+
+  - **ADDENDUM (2026-07-21, founder — variants form a MIGRATION LINEAGE; resolution supports
+    ORDERED CHAIN TRAVERSAL).** From lived enterprise experience (months of Angular upgrade churn
+    across teams sitting 2-6 versions behind), a recipe's version-keyed variants are not only a flat
+    `{range → ops}` lookup — they can form an ordered LINEAGE, and the applier must support MULTI-HOP
+    CHAIN TRAVERSAL, not just single-variant resolution. Concretely: probe the consumer's current
+    position via the compat read (DD-16), compute its DISTANCE along the variant lineage, and apply
+    the intermediate variants IN ORDER (v12→13, v13→14, …) — each hop's `transform` carrying that
+    hop's codemod — with PER-HOP verification (enforcement green, or at minimum the hop's receipts)
+    before the next hop. FAIL LOUD on a gap in the lineage (no variant covers a needed hop). Single-
+    variant resolution (the original DD-17 body above) remains the DEGENERATE one-hop case. This is
+    the diagnose-first "remaining distance" shape (DD-25, now BUNDLE-019 DD-3) applied to VERSION
+    distance. Precedent: `nx migrate` / OpenRewrite chain semantics; DIVERGENCE: each hop is
+    gate-verified for completeness, not fire-and-forget. Fleet payoff: one synthesized recipe
+    executes against a whole fleet at staggered versions; the dashboard shows who is on which rung
+    (the fleet-visibility half depends on BUNDLE-017). Formalized as REQ-020.
 
 ### Declaration shape, adoption-gating, the ledger split, and the rev-guard (2026-07-17)
 
@@ -859,7 +887,11 @@ ones.
   version-keyed variant resolution (DD-17: pick the variant whose range matches the environment,
   fail loud on no match), and the migration-as-artifact flow they compose into (see the strategic
   note): bump SDK → compat red → re-apply → new variant's `transform` carries the codemod →
-  enforcement guarantees completeness. Most relevant to the `implementing` kind.
+  enforcement guarantees completeness. Most relevant to the `implementing` kind. **Extended
+  (2026-07-21):** when the variants form an ordered MIGRATION LINEAGE, apply must support ORDERED
+  CHAIN TRAVERSAL — probe the consumer's position (DD-16), compute the distance, and walk the
+  intermediate variants IN ORDER (v12→13, v13→14, …) with per-hop verification, failing loud on a
+  lineage gap; single-variant resolution is the degenerate one-hop case (DD-17 addendum, REQ-020).
 
 - **CI recipe pack (backstop-packs, first consumer)** — the cross-cutting pack holding
   per-platform gate-workflow recipes as data (DD-5); the invariant's acceptance test. Lives in
@@ -899,6 +931,18 @@ ones.
   way. This COMPLETES the rot grail — a recipe doesn't just DETECT drift across three axes, it
   carries the deterministic PATH to fix it; the integrated capability maintains itself across the
   SDK's lifetime with effort centralized once.
+- **Chain-traversal migration lineage — the fleet/enterprise synthesis story (2026-07-21).** Once
+  variants form an ordered lineage (DD-17 addendum, REQ-020), the enterprise upgrade problem
+  inverts. The raw materials of a synthesized lineage: the version GUIDES are the DELTA (what
+  changed hop-to-hop), the FIXTURES are ground truth (the canonical before/after per hop), and the
+  TARGET REPOS across the fleet are the DISTRIBUTION of real call-site idioms (every messy way the
+  API is actually used). One day of agent-assisted synthesis against the guides + the fleet
+  produces the variant+transform+enforcement lineage ONCE — then every team migrates by re-applying,
+  walking their own remaining distance with per-hop gate-verification. That replaces N teams ×
+  months of hand-migrating across 2-6 versions of drift (the Angular-churn shape that motivated the
+  decision). The dashboard shows who is on which rung (fleet-visibility half depends on BUNDLE-017);
+  the codemod know-how is centralized once and distributed, same "integrate-don't-build / the bundle
+  is the product" leverage as the migration note above.
 - **Three drift axes = complete rot detection (DD-16).** (1) code diverged from recipe →
   enforcement; (2) recipe moved on → `@version` comparison; (3) the world moved (deps drifted) →
   compat matrix. All three read from / feed the provenance ledger.
@@ -1054,6 +1098,21 @@ ones.
   packs as the packs-only acceptance test / first consumers (REQ-018/019). No DDs or OQs changed;
   the runbook-capability requirements stay OUT (carved to BUNDLE-019, with only the `step` op
   sequencing seam reserved here). No advance past `defined`.
+- 0.10.0 (2026-07-21): **Founder decision — variants form a MIGRATION LINEAGE; ordered chain
+  traversal.** From lived enterprise experience (months of Angular upgrade churn across teams
+  sitting 2-6 versions behind), the founder EXTENDED DD-17's semantics: version-keyed variants can
+  form an ordered LINEAGE, and the applier must support MULTI-HOP CHAIN TRAVERSAL — probe the
+  consumer's position via the compat read (DD-16), compute its distance along the lineage, walk the
+  intermediate variants IN ORDER (v12→13, v13→14, …) with per-hop verification (enforcement green or
+  the hop's receipts) before the next hop, failing loud on a lineage gap; single-variant resolution
+  is the degenerate one-hop case. Recorded as a dated ADDENDUM to DD-17 (the original body is
+  untouched) and formalized as **REQ-020** (traced to DD-17-as-amended + DD-16), bringing the
+  requirements array to REQ-001…REQ-020. Extended the "Compat + version-keyed variants + migration"
+  spec seed with the chain-traversal semantics. Added the fleet/enterprise synthesis note to
+  Notes / Ideas (guides = delta, fixtures = ground truth, target repos = the distribution of real
+  call-site idioms; one day of agent-assisted synthesis against guides + fleet replaces N teams ×
+  months). Precedent: `nx migrate` / OpenRewrite chain semantics; divergence: each hop is
+  gate-verified for completeness. No other DDs or OQs changed; maturity stays `defined`.
 
 ## References
 
