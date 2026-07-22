@@ -1,10 +1,10 @@
 ---
-title: "Sub-Artifact Retirement Primitive + Finding-Resolved-By-Retirement Close Path"
+title: "Sub-Artifact Lifecycle: Retirement + Claim Versioning + Finding-Resolved-By-Retirement Close Path"
 schema_version: issue/v1
 
 issue:
   id: ISSUE-072
-  title: "Sub-Artifact Retirement Primitive + Finding-Resolved-By-Retirement Close Path"
+  title: "Sub-Artifact Lifecycle: Retirement + Claim Versioning + Finding-Resolved-By-Retirement Close Path"
   type: enhancement
   status: open
   created: "2026-07-21"
@@ -15,13 +15,15 @@ complexity:
   risk: moderate
 ---
 
-# Sub-Artifact Retirement Primitive + Finding-Resolved-By-Retirement Close Path
+# Sub-Artifact Lifecycle: Retirement + Claim Versioning + Finding-Resolved-By-Retirement Close Path
 
 ## Problem
 
-The traceability model is **add-only at the requirement/claim level**, and **whole-artifact-only**
-at the retirement level. There is no first-class way to retire *part* of a still-live artifact, and
-no clean way to close an issue whose resolution *is* such a retirement. Two intertwined gaps:
+The traceability model is **add-only at the requirement/claim level**, **whole-artifact-only**
+at the retirement level, and **whole-spec-only at the version level**. There is no first-class way to
+retire *part* of a still-live artifact, no clean way to close an issue whose resolution *is* such a
+retirement, and no per-claim version to detect claim-grain semantic drift across the plan→claim edge.
+Three facets of one under-modeled thing — the **sub-artifact lifecycle**:
 
 ### Gap 1 — no sub-artifact retirement primitive
 
@@ -54,6 +56,29 @@ This is the same missing-primitive showing up as a loose end, and it is adjacent
 from [[ISSUE-071]] (vacuous *closed*): ISSUE-071 is "closed with no proof at all"; this is "the proof
 is a deletion + a cross-artifact amendment, which the close path has no shape for."
 
+### Gap 3 — no claim-grain version; claim semantic-drift on the plan→claim edge is undetectable
+
+**Requirements are effectively versioned** (the `supports: bundle:REQ-NNN@X.Y.Z` pin is a cross-artifact
+consumer-invalidation signal — when the bundle requirement revs, the pin goes stale and the gate reds).
+**Claims carry no version field** (spec schema `claims` item keys: `id`, `requirement`, `text`, `tests`,
+optional `kind`/`subject` — no `version`). The only version signal covering a claim is the whole-spec
+`spec_version` bump.
+
+That is too coarse in one specific, mechanical way. Plans reference claims heavily by **bare id**
+(e.g. PLAN-SPEC-009 has ~109 `CLM-NNN` refs), never `CLM-NNN@X.Y.Z` — so the **plan→claim edge is
+version-blind**. Concretely: if a claim's `text` changes what it *asserts* while its mandated test
+**name** stays the same, there is **zero mechanical signal**. `artifact_status_drift` stays green (the
+test still exists), `contract_signature` is unaffected (different surface), and `spec_version` bumped
+but nothing re-checks the plan against the changed claim. The completed plan and its already-green test
+now satisfy a claim they were **not written against** — a **silent semantic drift**. A per-claim version
+plus a plan-side pin (`CLM-NNN@X.Y.Z`) would invalidate on rev and force a re-affirm, exactly as the
+requirement `supports` pin does.
+
+Note the design guardrail (so this does not become decorative metadata): a version field is only worth
+adding **if something mechanically pins it**. Git diff already gives a human "which claim changed"; the
+version integer earns its place ONLY as a consumer-invalidation signal on the plan→claim (and test→claim)
+edge, not as documentation. Add the field together with the pin + the re-check, or not at all.
+
 ## Surfacing evidence (real case)
 
 bclabs-portal, 2026-07-21. A real-Supabase deploy of SPEC-010 (evidence storage) proved its
@@ -85,10 +110,18 @@ Explore a **sub-artifact retirement** concept and its close path. Candidate shap
   self-contained implementation/claims block it doesn't have — analogous to the existing
   `resolved-by` / `delivered_by` relaxations, extended to the retirement case.
 
+- An **optional per-claim `version`** (`CLM-NNN@X.Y.Z`) plus a **plan-side (and/or test-side) pin**, so a
+  claim-text change that keeps the same mandated test name invalidates the pin and forces a re-affirm —
+  closing the silent plan→claim semantic drift (Gap 3). Gate it on the guardrail above: ship the field
+  ONLY with the pin + the re-check dimension, so it is never inert metadata. Likely opt-in (a claim
+  without a version behaves exactly as today), to avoid forcing version ceremony on every claim edit.
+
 Open questions for the plan: excise-vs-mark (does keeping retired items bloat artifacts over time?);
 whether this reuses `obsoleted-by` semantics at a finer grain or needs a distinct field; interaction
 with `spec_version` bumps and requirement versioning (`REQ-NNN@X.Y.Z`); whether a bundle requirement
-revision (portal REQ-013 mechanism→guarantee) needs the same treatment.
+revision (portal REQ-013 mechanism→guarantee) needs the same treatment; for claim versioning — whether
+the pin lives on the plan, the test, or both, and whether a `spec_version` bump should auto-imply a claim
+version bump or they are independent.
 
 ## Impact
 
@@ -109,14 +142,23 @@ Worth designing before sub-artifact retirement becomes common, but not blocking 
   regression test proving the portal ISSUE-002 shape (finding → ADR → retired requirements, code
   deleted) closes cleanly, while a bare vacuous close still trips [[ISSUE-071]]'s check.
 - Whole-artifact retirement (`replaced`/`obsoleted`/etc.) behavior is unchanged.
+- An unversioned/unpinned claim behaves exactly as today (no forced version ceremony); a versioned +
+  pinned claim whose `text` changes reds the pinning plan/test until re-affirmed, with a regression test
+  proving the silent-semantic-drift case (same test name, changed claim assertion) is now caught.
 
 ## Notes / references
 
 - Surfaced 2026-07-21 from the bclabs-portal ISSUE-002 / SPEC-010 amendment / ADR-0001 change:
   a deploy-blocker finding resolved by retiring two requirements of a still-live spec.
+- Gap 3 (claim versioning) surfaced 2026-07-22 amending bclabs-portal SPEC-009 (`spec_version 1.0.0 →
+  1.0.1` for a single `maxDuration` contract-signature change): the founder observed a bare `spec_version`
+  bump is coarse — it says "something changed" but nothing pins *which* claim, and the plan→claim edge
+  (~109 bare `CLM-NNN` refs in PLAN-SPEC-009) cannot detect a claim whose meaning changed under it.
 - Verified against the model: `pkg/validate/terminal.go` (artifact-level retirement statuses +
   typed `replaced-by`/`obsoleted-by` refs); no per-requirement/claim `status` field in the spec
-  schema; `artifacts/issue/v1/schema.json` `closed-requires-traceability`.
+  schema; spec schema `claims` item keys are `id`/`requirement`/`text`/`tests`/`kind`/`subject` — **no
+  `version`**; requirement versioning rides only the `supports: REQ-NNN@X.Y.Z` pin;
+  `artifacts/issue/v1/schema.json` `closed-requires-traceability`.
 - Related: [[ISSUE-071]] (vacuous done issue) — complementary; this is the retirement-shaped close
   path, that is the zero-proof close hole.
 - Backlog capture only. Will receive a PLAN when prioritized; mandated test names deferred to that
