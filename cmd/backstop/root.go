@@ -13,7 +13,7 @@ import (
 )
 
 // version is set at build time via -ldflags.
-var version = "dev"
+var version = "dev" // nosemgrep: go.core.no-global-mutable-state — link-time build stamp; -ldflags -X can only write a package-level var, and it is never mutated at runtime
 
 // NewRootCommand builds the Cobra command tree with all namespaces and
 // top-level commands.
@@ -141,7 +141,10 @@ backstop by shelling out to CLI commands.`,
 	// --- Top-level: waiver (read-only) ---
 	waiverCmd := newWaiverCommand()
 
-	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd)
+	// --- Namespace: recipe ---
+	recipeCmd := newRecipeCommand()
+
+	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd, recipeCmd)
 
 	return rootCmd
 }

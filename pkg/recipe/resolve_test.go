@@ -59,6 +59,13 @@ func TestRecipeDir_ParsesColocatedManifestAndPayload(t *testing.T) {
 	if resolved.Dir != wantDir {
 		t.Errorf("resolved Dir = %q, want %q", resolved.Dir, wantDir)
 	}
+	// The PACK ROOT is carried alongside the recipe directory because the two bases
+	// are not interchangeable: a payload is colocated with the recipe, while a
+	// transform's rule is declared PACK-relative. Losing this field would send every
+	// rule through the recipe directory, doubling the recipe segment.
+	if resolved.PackDir != packDir {
+		t.Errorf("resolved PackDir = %q, want the pack root %q", resolved.PackDir, packDir)
+	}
 	if resolved.Manifest == nil {
 		t.Fatalf("resolved Manifest is nil; the colocated recipe.yml was not parsed")
 	}

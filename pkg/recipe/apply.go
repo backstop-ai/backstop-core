@@ -479,9 +479,11 @@ func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
 
 // applyTransform hands the op's declared rule and its declared target to the injected
 // dispatch, both resolved against the bases they are declared relative to — the rule
-// under the recipe directory, the target under the project root. Nothing else about
-// the rewrite is known here: the rule is the recipe's, the engine is the caller's, and
-// the applier carries no rewrite of its own.
+// under the PACK ROOT (a rule file is declared pack-relative, so a pack can share one
+// rule across several recipes; resolving it under the recipe directory instead doubles
+// the recipe segment and reaches nothing), the target under the project root. Nothing
+// else about the rewrite is known here: the rule is the recipe's, the engine is the
+// caller's, and the applier carries no rewrite of its own.
 //
 // A nil dispatch is a fail-loud CONFIGURATION error, not a no-op: silently skipping
 // the rewrite would let every transform assertion pass while nothing happened, which
@@ -501,7 +503,7 @@ func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *
 		return missingSite(op, "target")
 	}
 
-	rule, err := resolveUnder(resolved.Dir, op.Rule)
+	rule, err := resolveUnder(resolved.PackDir, op.Rule)
 	if err != nil {
 		return fmt.Errorf("resolve declared rule: %w", err)
 	}

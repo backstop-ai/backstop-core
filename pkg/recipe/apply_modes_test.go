@@ -372,7 +372,11 @@ func TestApply_SDLCMediatedMode_AppliesAtSuppliedInjectionSite(t *testing.T) {
 	byID := opsByID(resolved)
 	writeUnder(t, recipeDir, byID["op-create"].Payload, mediatedCreatePayload)
 	writeUnder(t, recipeDir, byID["op-merge"].Fragment, mediatedFragment)
-	rulePath := writeUnder(t, recipeDir, byID["op-transform"].Rule, mediatedRuleBody)
+	// A payload and a fragment are COLOCATED with the recipe; a transform's RULE is
+	// declared PACK-relative and resolves under the pack root instead. Keeping the two
+	// bases distinct is what makes the dispatched-rule assertion below load-bearing.
+	resolved.PackDir = t.TempDir()
+	rulePath := writeUnder(t, resolved.PackDir, byID["op-transform"].Rule, mediatedRuleBody)
 
 	alpha := runMediated(t, resolved, "alpha", suppliedInsertSite("alpha"))
 	beta := runMediated(t, resolved, "beta", suppliedInsertSite("beta"))

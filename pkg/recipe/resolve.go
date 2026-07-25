@@ -35,12 +35,19 @@ func (r RecipeRef) String() string {
 }
 
 // ResolvedRecipe is a ref resolved to its per-recipe DIRECTORY plus the parsed
-// colocated recipe.yml. Dir is retained because every op resolves its payload and
-// rule paths RELATIVE to the recipe directory — the applier itself contributes no
-// path, which is what keeps core free of any layout knowledge.
+// colocated recipe.yml, alongside the PACK ROOT that directory sits under.
+//
+// Both bases are retained because a recipe declares paths against BOTH, and they are
+// not interchangeable: a payload and a fragment are COLOCATED with the recipe and
+// resolve under Dir, while a transform's rule file is declared PACK-relative and
+// resolves under PackDir — which is what lets one pack share a rule across several of
+// its recipes. Resolving a pack-relative rule under Dir doubles the recipe segment and
+// points at nothing. The applier itself contributes no path either way, which is what
+// keeps core free of any layout knowledge.
 type ResolvedRecipe struct {
 	Ref      RecipeRef
 	Dir      string
+	PackDir  string
 	Manifest *RecipeManifest
 }
 
@@ -120,7 +127,7 @@ func ResolveRecipe(ref RecipeRef, packs map[string]*pack.Manifest, packDir strin
 		return nil, fmt.Errorf("resolve recipe %q: ref pins version %q, but recipe %q in pack %q declares version %q", ref, ref.Version, ref.Recipe, ref.Pack, parsed.Version)
 	}
 
-	return &ResolvedRecipe{Ref: ref, Dir: dir, Manifest: parsed}, nil
+	return &ResolvedRecipe{Ref: ref, Dir: dir, PackDir: packDir, Manifest: parsed}, nil
 }
 
 // sortedPackNames renders the corpus's pack names in a stable order so a
