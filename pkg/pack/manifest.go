@@ -3,7 +3,9 @@ package pack
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bmanson/backstop-core/pkg/pack/engine"
@@ -50,6 +52,15 @@ type Manifest struct {
 	// thin-executor first principle: no baked language/test convention in the
 	// binary).
 	TestNamePatterns []string `yaml:"test_name_patterns"`
+	// Recipes holds the OPTIONAL top-level `recipes:` index parsed from pack.yml
+	// (SPEC-054 REQ-008/CLM-032..035): a stable recipe id mapped to the
+	// pack-relative directory holding that recipe's recipe.yml and payload. It is
+	// a DISTINCT top-level key from Content.Scaffolds (a rule's paired test
+	// scaffold) and unrelated to pack authoring; declaring both is valid and the
+	// two never populate each other (CLM-033). Zero-value (nil) when absent.
+	// validateRecipesIndex checks each entry structurally at ParseManifestFile,
+	// where the pack root is known.
+	Recipes map[string]string `yaml:"recipes"`
 }
 
 // Classification is the pack-declared file-classification DATA (SPEC-043
@@ -393,13 +404,56 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	return &manifest, nil
 }
 
-// ParseManifestFile reads and parses a manifest file.
+// ParseManifestFile reads and parses a manifest file. It is the only production
+// entry point that knows where the pack lives, so the `recipes:` index — whose
+// entries are pack-relative directories — is validated here against the pack
+// root. ParseManifest([]byte) has no root and therefore parses the index without
+// checking it.
 func ParseManifestFile(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read manifest file: %w", err)
 	}
-	return ParseManifest(data)
+	manifest, err := ParseManifest(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRecipesIndex(manifest, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+// validateRecipesIndex fail-louds on a `recipes:` entry pointing at a directory
+// that does not exist under packRoot or that carries no recipe.yml (CLM-035).
+// The check is STRUCTURAL only: the recipe.yml itself is parsed at resolve time
+// by the recipe package, which imports this one — validating its contents here
+// would invert that dependency.
+func validateRecipesIndex(m *Manifest, packRoot string) error {
+	if len(m.Recipes) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(m.Recipes))
+	for id := range m.Recipes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		dir := m.Recipes[id]
+		if dir == "" {
+			return fmt.Errorf("recipes index: recipe %q declares an empty directory", id)
+		}
+		full := filepath.Join(packRoot, dir)
+		info, err := os.Stat(full)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("recipes index: recipe %q: directory %q does not exist", id, dir)
+		}
+		manifestPath := filepath.Join(full, "recipe.yml")
+		if info, err := os.Stat(manifestPath); err != nil || info.IsDir() {
+			return fmt.Errorf("recipes index: recipe %q: directory %q contains no recipe.yml", id, dir)
+		}
+	}
+	return nil
 }
 
 var namePartPattern = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
