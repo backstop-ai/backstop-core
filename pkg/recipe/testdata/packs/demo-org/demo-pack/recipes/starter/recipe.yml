@@ -1,0 +1,38 @@
+kind: scaffolding
+version: 1.2.0
+params:
+  - name: app_name
+    required: true
+  - name: config_dir
+    required: false
+    default: config
+transform_rules:
+  - recipes/starter/rules/rename-config-key.yml
+ops:
+  - id: create-config
+    kind: create
+    target: "{{ config_dir }}/app.config.json"
+    payload: payload/app.config.json
+  - id: merge-settings
+    kind: merge
+    target: "{{ config_dir }}/settings.json"
+    format: json
+    fragment: |
+      {"adopted_by": "{{ app_name }}"}
+  - id: rename-config-key
+    kind: transform
+    target: "{{ config_dir }}/app.config.json"
+    rule: recipes/starter/rules/rename-config-key.yml
+    manual: >-
+      Could not reach the rewrite site. Open the generated config and rename the
+      top-level "legacy_name" entry to "name" by hand, keeping its existing value.
+  - id: register-app
+    kind: insert
+    target: "{{ config_dir }}/settings.json"
+    anchor: '"registrations": ['
+    snippet: '"{{ app_name }}"'
+    manual: >-
+      Could not find the registrations anchor. Add "{{ app_name }}" to the
+      "registrations" list in the settings file by hand.
+  - id: confirm-adoption
+    kind: step

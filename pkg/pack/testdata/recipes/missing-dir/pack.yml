@@ -1,0 +1,19 @@
+name: acme/recipe-pack-missing
+version: 1.0.0
+language: any
+archetype: code
+description: Pack whose recipes index points at a directory that does not exist
+recipes:
+  ghost: recipes/ghost
+content:
+  scaffolds:
+    - id: service-base
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/service-base
+      test_command: make test
+      description: Service base scaffold, declared independently of the recipes index.
+      use_when: [services]
+      assumes: [project-manifest]
+      pairs_with:
+        scaffolds: [service-base-extras]

@@ -1,0 +1,15 @@
+kind: templating
+version: 2.0.0
+params:
+  - name: project_name
+    required: false
+    default: demo
+ops:
+  - id: insert-header
+    kind: insert
+    target: README.md
+    anchor: "<!-- backstop:recipe-anchor -->"
+    snippet: Generated for {{ project_name }}
+    manual: >
+      Paste "Generated for {{ project_name }}" beneath the
+      <!-- backstop:recipe-anchor --> line in README.md.

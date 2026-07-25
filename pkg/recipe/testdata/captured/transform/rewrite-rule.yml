@@ -1,0 +1,6 @@
+id: legacy-helper-to-modern-helper
+language: go
+rule:
+  pattern: legacyHelper($$$ARGS)
+fix: modernHelper($$$ARGS)
+message: legacyHelper is superseded by modernHelper

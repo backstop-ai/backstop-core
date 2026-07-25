@@ -1,0 +1,23 @@
+name: demo-org/demo-pack
+version: 0.1.0
+language: any
+archetype: code
+description: Demo pack carrying two recipe directories plus an independent scaffold.
+# The recipes: index is a DISTINCT top-level key from content.scaffolds below —
+# declaring both is valid and independent (SPEC-054 REQ-008). Each id maps to a
+# per-recipe DIRECTORY colocating recipe.yml + payload + transform rules.
+recipes:
+  starter: recipes/starter
+  second: recipes/second
+content:
+  scaffolds:
+    - id: baseline
+      version: 0.1.0
+      tier: skeleton
+      path: scaffolds/baseline
+      test_command: ./scripts/verify.sh
+      description: Independent scaffold entry — proves recipes/ does not collide with content.scaffolds.
+      use_when: [demo]
+      assumes: [none]
+      pairs_with:
+        scaffolds: [baseline]

@@ -1,0 +1,42 @@
+name: demo-org/reject-pack
+version: 1.0.0
+language: any
+archetype: code
+description: >
+  E2E REJECT fixture (SPEC-054 CLM-025): its single provisioned engine binding
+  names a tool ABSENT from engine.TrustedToolAllowlist(), so the dispatch-time
+  trust gate must reject the run before any command is built. NO RULE CITES
+  THIS ENGINE — parse-time validateEngine runs CheckToolAllowed only for engines
+  a RULE references, so a rule citing it would make ParseManifest fail and the
+  pack would never load; the rejection would happen at PARSE and the
+  dispatch-gate assertion would pass for the wrong reason. content: is therefore
+  scaffolds-only.
+engines:
+  structural-rewriter:
+    command: structural-rewriter rewrite --in-place
+    input_mode: rule-flags
+    input_flag: "--rule"
+    scope_kind: file-args
+    gate_type: lint
+    category: mechanism
+    provision:
+      tool: structural-rewriter
+      version: 1.8.1
+recipes:
+  reject: recipes/reject
+content:
+  scaffolds:
+    - id: reject-companion
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/reject-companion
+      test_command: make test
+      description: >
+        Scaffolds-only content block. It exists to satisfy the "content is
+        required" check WITHOUT any rule, because a rule citing the
+        un-allowlisted engine above would move the rejection from the dispatch
+        gate to manifest parse.
+      use_when: [trust-gate fixture only]
+      assumes: [project source tree]
+      pairs_with:
+        scaffolds: [reject-companion-extras]

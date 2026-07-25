@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true
+  },
+  "extends": "./tsconfig.base.json"
+}

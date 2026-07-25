@@ -1,0 +1,47 @@
+name: demo-org/recipe-pack
+version: 1.0.0
+language: any
+archetype: code
+description: >
+  E2E fixture pack for `backstop recipe apply` (SPEC-054 CLM-063). It declares
+  EXACTLY ONE provisioned engine binding — the allowlisted ast-grep at the
+  version engine.TrustedToolAllowlist() pins — so the CLI's engine selection
+  ("the single Manifest.Engines entry with a non-nil Provision") is
+  deterministic and the dispatch-time trust gate has a real tool+version to
+  compare. This is the PASS half of the trust-gate fixture set; reject-pack and
+  mismatch-pack are the two reject halves.
+engines:
+  # The rule-applying invocation: `ast-grep scan --update-all --rule <rule file>
+  # <target>`. The dispatch appends the declared input_flag + the op's rule file,
+  # then the target, to this command prefix — so `--update-all` (apply the rule's
+  # fix: in place, no confirmation) must live in the prefix. provision.version is
+  # the ONLY source of the version the trust gate compares: backstop.lock carries
+  # no tool version at all.
+  ast-grep:
+    command: ast-grep scan --update-all
+    input_mode: rule-flags
+    input_flag: "--rule"
+    scope_kind: file-args
+    gate_type: lint
+    category: mechanism
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+recipes:
+  rewrite: recipes/rewrite
+content:
+  scaffolds:
+    - id: rewrite-companion
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/rewrite-companion
+      test_command: make test
+      description: >
+        Independent content.scaffolds entry. It exists so the fixture satisfies
+        the "content is required" check on its own terms instead of leaning on
+        the engines: OR-arm, and so the recipes: index is proven to be a
+        DISTINCT top-level key from content.scaffolds.
+      use_when: [adopting the rewrite recipe]
+      assumes: [project source tree]
+      pairs_with:
+        scaffolds: [rewrite-companion-extras]

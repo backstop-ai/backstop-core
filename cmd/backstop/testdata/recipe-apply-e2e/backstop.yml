@@ -1,0 +1,5 @@
+project: recipe-apply-e2e
+packs:
+  demo-org/recipe-pack: "1.0.0"
+  demo-org/reject-pack: "1.0.0"
+  demo-org/mismatch-pack: "1.0.0"

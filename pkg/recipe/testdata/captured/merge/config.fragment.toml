@@ -1,0 +1,14 @@
+# Fragment a deploy recipe merges into an existing fly.io app config.
+#
+# Falsifiability: [http_service.concurrency] sets exactly ONE key. A deep merge
+# leaves the target's `type` and `hard_limit` intact; a shallow overwrite of the
+# nested table drops them.
+
+kill_timeout = "30s"
+
+[http_service.concurrency]
+  soft_limit = 24
+
+[metrics]
+  port = 9091
+  path = "/metrics"

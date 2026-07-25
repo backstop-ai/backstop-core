@@ -1,0 +1,2380 @@
+---
+plan_id: PLAN-SPEC-054
+spec_id: SPEC-054
+spec_version: "1.1.1"
+created: "2026-07-25"
+status: draft
+test_command: "backstop gate"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS (BUNDLE-015 spec one — the coupled apply+manifest
+  surface `backstop init` is blocked on)
+  ─────────────────────────────────────────────────────────────────────────
+  A NEW `pkg/recipe` package (manifest.go, substitute.go, resolve.go,
+  apply.go, adoption.go), a `recipes:` index field + validator on the
+  EXISTING pkg/pack manifest, and a thin `backstop recipe apply` CLI in
+  cmd/backstop that wires the production transform dispatch and waiver
+  reader. Exactly the five NEW pkg/recipe files the spec's Package Layout
+  declares — no extra helper files, so the declared contracts and the
+  shipped file set agree.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ZERO BAKED LANGUAGE/TOOL KNOWLEDGE (the standing invariant, REQ-006)
+  ─────────────────────────────────────────────────────────────────────────
+  Nothing in pkg/recipe or cmd/backstop may name a language, framework, CI
+  platform, or tool. Every WHERE and WHAT is read from declared data:
+    • The injection-limit failure text is the op's declared `manual:` string
+      emitted VERBATIM. Core NEVER synthesizes an instruction.
+    • The engine tool, its command, its rule file, and its target are all
+      DECLARED DATA (pack `engines:` block + recipe manifest). Nothing in
+      pkg/recipe or cmd/backstop names a tool.
+
+  WHAT backstop/self ACTUALLY ENFORCES OVER THIS CODE (verified against
+  .backstop/packs/backstop/self/rules/no-baked.yml — do not overstate it):
+    • GLOBAL, apply to every .go file INCLUDING _test.go and testdata/*.go:
+      Family A no-baked-tool-exec (a string-literal tool name passed to
+      exec.Command / exec.CommandContext; only git/gh/sh//bin/sh/sandbox-exec
+      are allowed literals), Family B1 no-baked-tool-command (a baked
+      `Command: "..."` engine command string), Family B2
+      no-baked-language-token (a whole-token literal such as ".ts", ".py",
+      "tsc", "eslint", "go.mod", "package.json", "tsconfig.json",
+      "Cargo.toml", "requirements.txt", "pom.xml", "build.gradle").
+    • `.go` / `_test.go` / `./...` are DELIBERATELY OMITTED from B2 and are
+      caught only by Family B3, which is PATH-SCOPED to the neutral spine
+      (pkg/gate/*.go, pkg/check/manifest.go, pkg/check/parsers.go,
+      pkg/validate/plan.go, cmd/backstop/gate.go, cmd/backstop/pack_gate*.go,
+      pkg/pack/engine/binding.go) and EXCLUDES *_test.go. Families B4/B5/B6
+      are scoped to the same spine. NONE of them cover pkg/recipe/*.go or
+      cmd/backstop/recipe_apply.go.
+    ⇒ CONSEQUENCES for this plan: (1) a Go fixture or a ".go" path literal in
+      a recipe test is NOT a self-pack violation; (2) a ".ts"/"package.json"
+      literal anywhere in a .go file (test source included) IS one — hence the
+      neutral fixture names in Phase 1; (3) any test that runs an engine must
+      read the tool name from fixture DATA into a variable and call
+      exec.CommandContext(ctx, name, args...) — a literal tool name trips
+      Family A even in a _test.go.
+    ⇒ NOT COVERED, stated honestly: pkg/recipe and recipe_apply.go get
+      A/B1/B2 coverage only, not spine-grade B3. Extending B3's include list
+      to the recipe applier is a PACK change in the backstop/self repo (packs
+      are external by design) and is out of scope here — name it as a
+      follow-up, do not claim coverage this plan does not have.
+
+  ─────────────────────────────────────────────────────────────────────────
+  IMPORT-CYCLE HAZARD — RESOLVE IT IN THE pkg/pack DIRECTION (Phase 3)
+  ─────────────────────────────────────────────────────────────────────────
+  The spec's contracts declare BOTH edges: pkg/recipe/resolve.go consumes
+  pack.Manifest (ResolveRecipe's signature takes map[string]*pack.Manifest),
+  AND pkg/pack/manifest.go's validateRecipesIndex consumes
+  recipe.ParseRecipeManifest. Those two together are an import CYCLE — Go
+  will not compile it. Break it on the pack side: `validateRecipesIndex`
+  performs the STRUCTURAL existence check ONLY (the indexed directory exists
+  and contains a `recipe.yml`), which is exactly and entirely what CLM-035
+  requires, and it MUST NOT import pkg/recipe. pkg/recipe keeps its import of
+  pkg/pack (the declared ResolveRecipe signature). Deep recipe.yml parsing
+  stays where it belongs — in pkg/recipe at resolve/apply time. The gate's
+  contracts dimension verifies declared PROVIDES signatures, not consumes
+  edges, so this does not break contract verification; flag the stale
+  `consumes: pkg/recipe ParseRecipeManifest` edge for a spec touch-up rather
+  than creating the cycle.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHERE THE TRUST GATE LIVES: cmd/backstop, NOT pkg/recipe
+  ─────────────────────────────────────────────────────────────────────────
+  engine.CheckToolAllowed(allowlist, tool, lockedVersion) needs a TOOL and a
+  LOCKED VERSION. Neither `ResolvedRecipe`, `ApplyOptions`, nor `Op` carries
+  either — and inventing fields on them would contradict the spec's declared
+  contracts. Those two values live where the pack manifests' `engines:` block
+  (Manifest.Engines[name].Provision.Tool / .Version) and backstop.lock are
+  reachable: the CLI layer. So:
+    • pkg/recipe keeps `opts.Dispatch TransformDispatch` as the ONLY seam and
+      calls it with (rule, target) read from the recipe manifest. pkg/recipe
+      does NOT import pkg/pack/engine and runs NO trust check — it cannot, and
+      pretending otherwise is how a gate ships dark. A transform op with a NIL
+      Dispatch is a FAIL-LOUD configuration error, never a silent no-op.
+    • cmd/backstop/recipe_apply.go BUILDS the dispatch: it resolves the pack's
+      declared engine binding, runs
+      engine.CheckToolAllowed(resolveTrustedToolAllowlist(),
+      binding.Provision.Tool, binding.Provision.Version) — the identical
+      resolver + gate checkEngineToolAllowed (cmd/backstop/pack_gate.go:812-826)
+      runs before an enforcement engine — wraps a rejection in
+      *check.ConfigError (exit 2), and only then returns a closure that runs
+      the declared command. This is exactly where spec:925-928 puts it.
+    • ENGINE SELECTION, pinned so it is not co-invented: the `Op` contract has
+      no engine field, so the CLI uses the pack's declared provisioned engine
+      binding. The pack MUST declare EXACTLY ONE binding with a non-nil
+      Provision for recipe transform dispatch; zero or more than one is a
+      fail-loud ConfigError naming the pack and the count (Manifest.Engines is
+      a map — picking one of several would be nondeterministic). A per-op
+      engine selector is a SPEC follow-up (TASK-043), not an invented field.
+    ⇒ CLM-025 (un-allowlisted engine rejected) is therefore a cmd/backstop
+      test (TASK-040), not a pkg/recipe one. Its fixture pack declares BOTH an
+      allowlisted binding (ast-grep, Provision version 0.43.0, matching
+      engine.TrustedToolAllowlist) and an un-allowlisted one. Note
+      pkg/pack's parse-time validateEngine only runs CheckToolAllowed for
+      engines a RULE references (manifest.go:324), so a pack can legitimately
+      declare an un-allowlisted binding no rule cites — which is precisely the
+      hole the dispatch-time gate closes, and why the fixture parses.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE WAIVER SEAM AND ITS LINE CONTRACT (REQ-004)
+  ─────────────────────────────────────────────────────────────────────────
+  opts.ReadWaivers == nil → apply.go's own reader, which builds
+  waiver.Finding values for the divergence (RuleID = the recipe's declared
+  enforcement rule for that path, File = the diverged path) and runs
+  waiver.Adjudicate over a waiver.LineReader on the consumer's on-disk file.
+  This satisfies apply.go's declared `consumes` edges on pkg/waiver and makes
+  CLM-021/061 real-path tests.
+
+  LINE CONTRACT — pin it, do not let test and impl co-invent one.
+  waiver.Adjudicate's association window is exactly {Line, Line-1}
+  (pkg/waiver/adjudicate.go:220-230 windowLines), so a synthesized finding at
+  a single fixed line would only ever see a token on that line or the one
+  above. Recipe-owned output includes formats with NO comment syntax at a
+  fixed position (JSON), so a line-1-only convention is unworkable. THE
+  CONTRACT: on divergence the applier synthesizes ONE finding PER LINE of the
+  diverged file (Line = 1..N) and adjudicates the whole set in ONE
+  waiver.Adjudicate call; the divergence is COVERED iff at least one finding
+  lands in Result.Suppressed. A covering token may therefore appear on ANY
+  line the consumer's file format permits. Tests MUST place the token on a
+  NON-FIRST line so a line-1-only implementation fails.
+
+  The seams exist for INJECTION SITES the unit tests need (a recorded
+  dispatch, a fake runner), never to stub the allowlist or the waiver read
+  open.
+
+  ─────────────────────────────────────────────────────────────────────────
+  RECIPES-ONLY PACKS ARE OUT OF SCOPE (do not widen the emptiness checks)
+  ─────────────────────────────────────────────────────────────────────────
+  "content is required" is asserted in THREE independent places —
+  pkg/pack/manifest.go:271-276 (which already ORs in `len(manifest.Engines)`),
+  pkg/pack/validate_manifest.go:122 (ValidateManifest, which has no production
+  callers), and pkg/packval/phase1.go:45 (the `pack check`/`pack test`
+  pipeline). Making `recipes:` alone sufficient means changing all three
+  consistently, which is a separate behavior change no claim in SPEC-054 asks
+  for. THIS PLAN DOES NOT TOUCH THEM: every recipe-bearing fixture pack also
+  declares a `content:` and/or `engines:` block (the trust-gate fixture needs
+  `engines:` anyway), so `recipes:` rides alongside existing content exactly
+  as CLM-033 describes. A recipes-only pack is named as a follow-up in
+  TASK-043, not smuggled in here.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ANTI-VACUOUS-GREEN GUARDS (the three ways this ships dark)
+  ─────────────────────────────────────────────────────────────────────────
+  1. A wired-but-NO-OP TransformDispatch passes every op-level test while
+     doing nothing. CLM-063's E2E — real ast-grep, captured before/after,
+     through the actual `backstop recipe apply` CLI, asserting transformed
+     file BYTES — is the only test that can falsify it. Phase 10 is not
+     optional polish.
+  2. A FABRICATED fixture that happens to match the applier's own output is a
+     mirror, not a test. Every create payload, merge target/fragment, and
+     transform before/after in Phase 1 MUST be CAPTURED from real output
+     (cite the capture source in that task's own CAPTURE-SOURCE-<area>.md
+     fragment — one per capture task, never a shared appended file) — the
+     transform AFTER-state specifically is captured by RUNNING ast-grep, not
+     typed by hand.
+  3. Silently skipping an unrecognized op kind, or EXECUTING a reserved
+     `step`, both look green. CLM-028/029/030 pin all three behaviors.
+
+  ─────────────────────────────────────────────────────────────────────────
+  COMPILE-CLOSURE (why the phase ordering is what it is)
+  ─────────────────────────────────────────────────────────────────────────
+  A Go package's _test.go files compile as a unit, so each phase introduces
+  only tests whose referenced symbols exist by the end of that phase:
+  P2 = ParseRecipeManifest + Substitute (leaves, no Apply symbol referenced);
+  P3 = pack.Manifest.Recipes; P4 = ParseRecipeRef/ResolveRecipe; P5 = the
+  FULL Apply type surface (ApplyOptions/ApplyResult/PreservedDivergence/
+  TransformDispatch/WaiverReader/ApplyMode) lands in ONE task so every later
+  phase's tests compile against a stable signature while the BEHAVIOR is
+  filled in phase by phase; P6 merge; P7 transform+injection limit; P8
+  ownership model + adoption; P9 modes + multi; P10 CLI + E2E + final gate.
+
+  ALL gate dimensions run at EVERY verification step (the no-check-filtering
+  razor) — verification tasks never scope or categorize what was touched.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: The CAPTURED fixture corpus (setup only — no impl, no gate)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Capture the fixture corpus (create payload, merge matrix, transform before/after, recipe dirs, E2E project)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Capture the create-op payload fixture + the unsupported-merge-format target"
+        description: |
+          Create pkg/recipe/testdata/captured/create/ holding a REAL captured
+          templated payload and its expected materialization, plus the
+          unstructured target the merge-format matrix rejects.
+
+            - payload.json.tmpl — the captured payload, taken from the
+              bclabs-portal go-live capture (SPEC References / BUNDLE-015
+              standing recipe fixture) with one or two real values replaced by
+              `{{ param }}` placeholders. Do NOT hand-author a synthetic file.
+            - payload.expected.json — the expected materialized output for the
+              params the test supplies. It is the captured file with the
+              placeholders resolved, NOT a re-derivation of the applier's
+              output.
+            - unsupported-target.md — an unstructured (non json/yaml/toml/.env)
+              file used as a `merge` target so CLM-009's fail-loud is driven
+              against a real unstructured file.
+            - CAPTURE-SOURCE-create.md — one line per fixture THIS task owns,
+              naming WHERE it was captured from (the real filename it was
+              captured AS, plus the project/commit). A fixture without a cited
+              source is a fabricated fixture (Sharp Edge: "Fixtures must be
+              CAPTURED").
+
+          ONE CAPTURE-SOURCE FRAGMENT PER TASK, NEVER A SHARED FILE. TASK-001
+          through TASK-004 have no dependencies on each other and are meant to
+          run in parallel; a single appended CAPTURE-SOURCE.md would be a
+          concurrent-write race AND a file two tasks touch without declaring it
+          (a D-081 violation). Each capture task writes its OWN
+          CAPTURE-SOURCE-<area>.md, declared in its own file scope. A reader
+          globs the fragments.
+
+          FIXTURE NAMING IS NEUTRAL ON PURPOSE: the fixture keeps the captured
+          CONTENT but not the platform-specific FILENAME, because the test that
+          consumes it must name the path in Go source and backstop/self's
+          Family B2 (no-baked-language-token — global, blocking, matches whole
+          tokens like "package.json"/"tsconfig.json") would flag that literal.
+          Capture fidelity lives in the bytes + the capture-source fragment,
+          not the name.
+
+          These are DATA. No Go source is added here.
+        files:
+          - pkg/recipe/testdata/captured/create/payload.json.tmpl
+          - pkg/recipe/testdata/captured/create/payload.expected.json
+          - pkg/recipe/testdata/captured/merge/unsupported-target.md
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-create.md
+        claims:
+          - CLM-004
+          - CLM-009
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Capture the JSON + YAML merge fixtures (target + fragment pairs)"
+        description: |
+          Create the json and yaml halves of the merge-format matrix under
+          pkg/recipe/testdata/captured/merge/. Each pair is a CAPTURED real
+          target file plus the fragment a real recipe would deep-merge into it:
+
+            - target.json — captured from the bclabs-portal go-live capture (a
+              real project manifest, not a minimal synthetic stub: it must
+              contain nested maps and arrays so "deep" merge is actually
+              exercised). NEUTRAL FILENAME REQUIRED: the real captured file is
+              a `package.json`, but that exact token is matched by
+              backstop/self Family B2 (no-baked-language-token — global and
+              blocking) the moment a Go test names the path, so the fixture is
+              stored as target.json with the true origin recorded in this
+              task's CAPTURE-SOURCE-merge-structured.md. The BYTES are the
+              capture; the name is not.
+            - fragment.json — the fragment to merge (adds a nested key inside
+              an existing object AND a new top-level key, so a shallow
+              overwrite is falsifiable).
+            - target.yml — a captured real structured YAML file with nested
+              maps (same neutral-name rule).
+            - fragment.yml — the YAML fragment, same deep/shallow
+              falsifiability property.
+            - CAPTURE-SOURCE-merge-structured.md — this task's OWN capture-source
+              fragment (see TASK-001: one fragment per task, never a shared
+              appended file — TASK-001..004 run in parallel).
+
+          Do NOT write the expected merged result by copying what the merger
+          produces — derive it from the two captured inputs.
+        files:
+          - pkg/recipe/testdata/captured/merge/target.json
+          - pkg/recipe/testdata/captured/merge/fragment.json
+          - pkg/recipe/testdata/captured/merge/target.yml
+          - pkg/recipe/testdata/captured/merge/fragment.yml
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-merge-structured.md
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Capture the TOML + .env merge fixtures (target + fragment pairs)"
+        description: |
+          Create the toml and .env halves of the merge-format matrix under
+          pkg/recipe/testdata/captured/merge/, captured from real project files.
+          Cite each source in this task's OWN CAPTURE-SOURCE-merge-keyvalue.md —
+          do NOT append to another task's fragment (TASK-001..004 run in
+          parallel; a shared appended file is a write race and an undeclared
+          cross-task file):
+
+            - config.toml — a captured real TOML file carrying at least one
+              nested table so deep-merge is exercised.
+            - config.fragment.toml — the fragment (nested-table addition + new
+              top-level key).
+            - dotenv.env — a captured real .env file (KEY=VALUE lines,
+              including one commented line so comment handling is pinned).
+            - dotenv.fragment.env — the fragment (one overriding KEY, one new
+              KEY).
+        files:
+          - pkg/recipe/testdata/captured/merge/config.toml
+          - pkg/recipe/testdata/captured/merge/config.fragment.toml
+          - pkg/recipe/testdata/captured/merge/dotenv.env
+          - pkg/recipe/testdata/captured/merge/dotenv.fragment.env
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-merge-keyvalue.md
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-004
+        type: setup
+        title: "Capture the transform before/after fixture by RUNNING a real ast-grep rewrite rule"
+        description: |
+          Create pkg/recipe/testdata/captured/transform/ for the unit-level
+          transform dispatch (CLM-010). The AFTER state must be CAPTURED from
+          the real tool, never typed:
+
+            - rewrite-rule.yml — an ast-grep rule declaring `language: go`, a
+              `rule.pattern`, and a `fix:` (match -> fix), modeled on the
+              existing cmd/backstop/testdata/astgrep-multirule/.backstop/packs/
+              test-org/multirule-pack/ast-grep/rules/rule-one.yml. The rule is
+              pack DATA; core never names its language.
+            - before.go — a captured real source snippet the rule's pattern
+              matches.
+            - after.go — produced by ACTUALLY RUNNING the allowlisted ast-grep
+              (0.43.0 per engine.TrustedToolAllowlist) with the rule and
+              --update-all over a copy of before.go, then committing the tool's
+              output verbatim.
+            - CAPTURE-SOURCE-transform.md — this task's OWN capture-source
+              fragment (one per task, never a shared appended file — see
+              TASK-001), recording the exact ast-grep command and version used.
+
+          EXTENSION MUST BE REAL AND MUST MATCH THE RULE'S DECLARED LANGUAGE.
+          ast-grep selects its parser from the file extension — a neutral
+          extension like `.src` parses as nothing, the rewrite silently
+          no-ops, and before==after makes the whole transform suite vacuous.
+          `.go` is chosen because (a) it matches the existing astgrep-multirule
+          precedent, and (b) backstop/self's Family B2 token rule DELIBERATELY
+          omits ".go", so naming this path in Go test source is not a
+          baked-token violation (B3, which does cover ".go", is path-scoped to
+          the neutral spine and excludes _test.go — it does not reach
+          pkg/recipe). Any other language would need either a real matching
+          extension or an sgconfig.yml declaring languageGlobs; `.go` needs
+          neither.
+
+          The fixture content itself is scanned by the GLOBAL self-pack
+          families (testdata/*.go is not excluded from A/B1/B2), so pick a
+          snippet that contains no exec.Command literal and no foreign-language
+          token — otherwise the fixture trips the very rules CLM-027 asserts.
+
+          before.go and after.go MUST differ.
+        files:
+          - pkg/recipe/testdata/captured/transform/rewrite-rule.yml
+          - pkg/recipe/testdata/captured/transform/before.go
+          - pkg/recipe/testdata/captured/transform/after.go
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-transform.md
+        claims:
+          - CLM-010
+          - CLM-026
+        depends_on: []
+
+      - id: TASK-005
+        type: setup
+        title: "Build the pkg/recipe pack+recipe-directory corpus for reference resolution"
+        description: |
+          Create pkg/recipe/testdata/packs/ — a small pack whose pack.yml
+          carries a `recipes:` index pointing at TWO per-recipe directories,
+          each colocating recipe.yml + payload + transform rules. This is the
+          corpus ParseRecipeRef/ResolveRecipe and the recipe-directory parse
+          test drive.
+
+            - demo-org/demo-pack/pack.yml — name, version, and a top-level
+              `recipes:` block mapping `starter -> recipes/starter` and
+              `second -> recipes/second`. It ALSO declares a
+              `content.scaffolds` entry so the non-collision property has real
+              material (the pkg/pack half of that assertion is TASK-006's).
+            - recipes/starter/recipe.yml — kind scaffolding, version 1.2.0
+              (the pinned version the resolution tests match and mismatch
+              against), ordered ops, declared params, declared transform rules,
+              per-op manual text on transform/insert.
+            - recipes/starter/payload/app.config.json — the colocated template
+              payload proving directory colocation (CLM-031).
+            - recipes/second/recipe.yml — a DIFFERENT recipe at a different
+              version, so "multiple distinct recipes are multiple directories"
+              is falsifiable.
+        files:
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/pack.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/payload/app.config.json
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml
+        claims:
+          - CLM-031
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on: []
+
+      - id: TASK-006
+        type: setup
+        title: "Build the pkg/pack recipes-index fixtures (valid, both-declared, missing-dir)"
+        description: |
+          Create pkg/pack/testdata/recipes/ — the manifest-validation corpus
+          for the `recipes:` index, alongside the existing pkg/pack/testdata
+          fixtures:
+
+            - valid/pack.yml — a `recipes:` index mapping two ids to two
+              directories, AND a `content.scaffolds` block declared
+              independently (the non-collision fixture, CLM-033/CLM-034).
+            - valid/recipes/alpha/recipe.yml, valid/recipes/beta/recipe.yml —
+              the two indexed directories, each containing a recipe.yml so the
+              structural existence check passes.
+            - missing-dir/pack.yml — a `recipes:` index whose entry points at a
+              directory that does not exist (or exists without a recipe.yml),
+              the fail-loud fixture for CLM-035.
+
+          BOTH pack.yml files MUST also declare a `content:` block (the
+          scaffolds entry above suffices for valid/; give missing-dir/ one
+          too). Recipes-only packs are OUT OF SCOPE — "content is required" is
+          asserted in three independent places this plan does not touch (see
+          notes), so a recipes-only fixture would fail parse for an unrelated
+          reason and mask the assertion under test.
+
+          These fixtures are consumed through pack.ParseManifestFile (the
+          production entry point that knows the pack root), so they must live
+          at a real on-disk path — an in-memory []byte cannot exercise the
+          directory-existence check.
+        files:
+          - pkg/pack/testdata/recipes/valid/pack.yml
+          - pkg/pack/testdata/recipes/valid/recipes/alpha/recipe.yml
+          - pkg/pack/testdata/recipes/valid/recipes/beta/recipe.yml
+          - pkg/pack/testdata/recipes/missing-dir/pack.yml
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on: []
+
+      - id: TASK-007
+        type: setup
+        title: "Build the E2E fixture project: installed packs with an ALLOWLISTED and an UN-allowlisted engines: binding"
+        description: |
+          Create cmd/backstop/testdata/recipe-apply-e2e/ — a self-contained
+          consumer project the CLI tests drive, modeled on the existing
+          cmd/backstop/testdata/astgrep-multirule fixture project layout
+          (installed pack under .backstop/packs/<org>/<pack>/ + tracked
+          backstop.lock). It must supply BOTH the trust-gate PASS and the
+          trust-gate REJECT material, because the gate lives at this layer.
+
+            - backstop.yml / backstop.lock — declare/record the installed packs
+              (name, version, content_hash, source_type: local) so pack loading
+              and lock verification succeed. NOTE WHAT THE LOCK DOES *NOT*
+              CARRY: `LockEntry` (pkg/pack/distribution/lockfile.go:17-29) has
+              NO tool-version field — its `Version` is the PACK's version. The
+              value `checkEngineToolAllowed` feeds to CheckToolAllowed as
+              `lockedVersion` is `binding.Provision.Version`, read from the
+              PACK.YML `engines.<name>.provision.version` (pack_gate.go:817-820).
+              Do not author a lock entry pretending to pin a tool version; it
+              would be inert.
+            - .backstop/packs/demo-org/recipe-pack/pack.yml — declares:
+                • an `engines:` block with EXACTLY ONE provisioned binding —
+                  engine name `ast-grep`, `provision.tool: ast-grep`,
+                  `provision.version: 0.43.0` (matching
+                  engine.TrustedToolAllowlist()) — plus the `command` and
+                  `input_flag`/input_mode fields that shape a rule-applying
+                  invocation. This block is the ONLY source of the tool name and
+                  the compared version; without it the gate has nothing to check.
+                • a `recipes:` index mapping `rewrite -> recipes/rewrite`.
+                • a `content:` block (recipes-only packs are out of scope —
+                  see notes; the engines: block alone also satisfies
+                  manifest.go:271-276, but declare content: so the fixture does
+                  not depend on that one site's OR-arm).
+            - .../recipes/rewrite/recipe.yml — version-pinned, kind
+              scaffolding, ONE `transform` op declaring its rule file
+              (pack-relative, listed in the recipe's declared transform rules),
+              its target, and its `manual:` text.
+            - .../recipes/rewrite/rules/rewrite-rule.yml — the real ast-grep
+              rewrite rule (`language: go`, pattern + fix).
+            - .../recipes/rewrite/fixtures/before.go and after.go — the
+              CAPTURED before-state the test copies into a temp project root
+              and the ast-grep-produced after-state it asserts against. Real
+              `.go` extension for the same parser-selection reason as TASK-004;
+              capture after.go by running the tool.
+            - .backstop/packs/demo-org/reject-pack/pack.yml — the REJECT
+              fixture for CLM-025: an `engines:` block whose single provisioned
+              binding names a tool that is NOT on
+              engine.TrustedToolAllowlist(), plus a `recipes:` index mapping
+              `reject -> recipes/reject`.
+              PIN THE content: SHAPE — NO RULE MAY CITE THAT ENGINE. Parse-time
+              validateEngine runs CheckToolAllowed for every engine a RULE
+              references (manifest.go:324 → 481-503), so a rule citing the
+              un-allowlisted binding makes ParseManifest fail and the pack never
+              loads — the rejection would happen at PARSE, the dispatch gate
+              would never run, and CLM-025's asserted *check.ConfigError from
+              the dispatch gate would never fire (the test would pass for the
+              wrong reason). So: declare `content:` with SCAFFOLDS ONLY, or a
+              rule citing a DIFFERENT (allowlisted or nil-Provision) engine, or
+              omit `content:` entirely — the `engines:` block alone already
+              satisfies the emptiness check (manifest.go:272-277 ORs in
+              len(Engines)).
+            - .../recipes/reject/recipe.yml — one transform op citing a
+              declared rule, so the run reaches the dispatch build and is
+              rejected there rather than earlier.
+            - .backstop/packs/demo-org/mismatch-pack/pack.yml +
+              .../recipes/mismatch/recipe.yml — the VERSION-MISMATCH fixture:
+              an `engines:` block whose provisioned tool IS `ast-grep` (on the
+              allowlist) but whose `provision.version` is NOT 0.43.0, so
+              CheckToolAllowed's second arm (allowlisted-but-wrong-pin) is
+              driven by real declared data rather than an in-test mutation.
+              Same no-rule-cites-that-engine rule as reject-pack: a rule citing
+              it would fail at parse instead of at the gate.
+
+          NOTE: `.backstop/packs/` is gitignored by pattern; commit these with
+          `git add -f`, exactly as the tracked astgrep-multirule fixture pack
+          is. An untracked fixture makes the tests pass locally and vanish in CI.
+
+          FILE COUNT (11) IS DELIBERATE, NOT SCOPE CREEP: this is ONE fixture
+          consumer project containing three installed packs — the pass case, the
+          un-allowlisted-tool case, and the version-mismatch case. They share a
+          single backstop.yml/backstop.lock and must be authored together to be
+          mutually consistent; splitting them across tasks would create a
+          fixture project no single task can validate.
+        files:
+          - cmd/backstop/testdata/recipe-apply-e2e/backstop.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/backstop.lock
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/pack.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/rewrite/recipe.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/rewrite/rules/rewrite-rule.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/rewrite/fixtures/before.go
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/rewrite/fixtures/after.go
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/reject-pack/pack.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/reject-pack/recipes/reject/recipe.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/mismatch-pack/pack.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/mismatch-pack/recipes/mismatch/recipe.yml
+        claims:
+          - CLM-025
+          - CLM-063
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The pure leaves — recipe.yml parse+validation, {{ }} substitution
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: ParseRecipeManifest structural validation (REQ-009) + non-Turing Substitute (REQ-002)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Failing manifest tests: required fields, semver, and the three-kind matrix"
+        description: |
+          Add pkg/recipe/manifest_test.go driving ParseRecipeManifest over
+          in-test recipe.yml literals (structural cases are legitimately
+          hand-authored — the CAPTURED-fixture rule governs op PAYLOADS, not
+          validation inputs). Each error case asserts the message NAMES the
+          offending field, not just that an error occurred.
+
+          Mandated test names (exact):
+            - TestRecipeManifest_WellFormedValid (CLM-036): a manifest with
+              ops, kind scaffolding, a param schema, target paths, declared
+              transform rules and a semver version parses clean and round-trips
+              its ops IN DECLARED ORDER.
+            - TestRecipeManifest_MissingVersionErrors (CLM-037).
+            - TestRecipeManifest_MissingOpsErrors (CLM-038).
+            - TestRecipeManifest_MalformedVersionErrors (CLM-039): a non-semver
+              version (e.g. "1.2", "v1.2.3", "latest") errors.
+            - TestRecipeManifest_KindScaffoldingValid (CLM-040),
+              TestRecipeManifest_KindImplementingValid (CLM-041),
+              TestRecipeManifest_KindTemplatingValid (CLM-042): each of the
+              three kinds parses clean and the parsed Kind equals the declared
+              one (so a kind that parses but is silently coerced fails).
+            - TestRecipeManifest_InvalidKindErrors (CLM-043): a kind outside
+              the three errors.
+            - TestRecipeManifest_OptionalCompatVariantsValidateStructurally
+              (CLM-044): a manifest declaring an optional compat matrix and
+              version-keyed variants parses clean and populates Compat/Variants
+              structurally — assert NO apply-time resolution behavior (the
+              variant is not selected, resolved, or applied; that is REQ-015/016,
+              out of scope).
+
+          All FAIL to compile/pass until TASK-011.
+        files:
+          - pkg/recipe/manifest_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+        depends_on: []
+        test_names:
+          - TestRecipeManifest_WellFormedValid
+          - TestRecipeManifest_MissingVersionErrors
+          - TestRecipeManifest_MissingOpsErrors
+          - TestRecipeManifest_MalformedVersionErrors
+          - TestRecipeManifest_KindScaffoldingValid
+          - TestRecipeManifest_KindImplementingValid
+          - TestRecipeManifest_KindTemplatingValid
+          - TestRecipeManifest_InvalidKindErrors
+          - TestRecipeManifest_OptionalCompatVariantsValidateStructurally
+
+      - id: TASK-009
+        type: test
+        title: "Failing op-level cross-check tests: manual-required, rule-declared, unique/non-empty op ids"
+        description: |
+          Add pkg/recipe/manifest_opchecks_test.go for the three op-level
+          cross-checks ParseRecipeManifest runs at parse time. Each is a
+          MATCHED PAIR (negative errors, positive validates clean) so a
+          validator that rejects everything cannot pass.
+
+          Mandated test names (exact):
+            - TestRecipeManifest_TransformInsertMissingManualErrors (CLM-064): a
+              transform op with no/empty `manual:` errors, AND an insert op with
+              no/empty `manual:` errors. The message names the offending op id.
+            - TestRecipeManifest_CreateMergeManualOptional (CLM-065): create and
+              merge ops with NO manual field parse clean — manual is required
+              only on the injection-limit families.
+            - TestRecipeManifest_TransformOpUndeclaredRuleErrors (CLM-066): a
+              transform op whose `rule` is not among the recipe's declared
+              transform rules errors, naming the op and the undeclared rule.
+            - TestRecipeManifest_TransformOpDeclaredRuleValid (CLM-067): the
+              same op with its rule PRESENT in the declared list parses clean.
+            - TestRecipeManifest_DuplicateOrEmptyOpIdErrors (CLM-068): two ops
+              sharing an id errors naming the recipe + duplicate id; AND a
+              transform/insert op with an EMPTY id errors naming the recipe +
+              the offending op. (Both sub-cases in one test — they are one
+              validation rule, and both must name the recipe.)
+            - TestRecipeManifest_UniqueOpIdsValid (CLM-069): unique ids, with
+              non-empty ids on every transform/insert op, parses clean.
+
+          WHY these matter: op `id` is the key ApplyOptions.InjectionSites
+          routes the SDLC-mediated WHERE by (REQ-003) — a duplicate misroutes
+          and an empty id makes routing ambiguous.
+
+          All FAIL until TASK-011.
+        files:
+          - pkg/recipe/manifest_opchecks_test.go
+        claims:
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+        depends_on: []
+        test_names:
+          - TestRecipeManifest_TransformInsertMissingManualErrors
+          - TestRecipeManifest_CreateMergeManualOptional
+          - TestRecipeManifest_TransformOpUndeclaredRuleErrors
+          - TestRecipeManifest_TransformOpDeclaredRuleValid
+          - TestRecipeManifest_DuplicateOrEmptyOpIdErrors
+          - TestRecipeManifest_UniqueOpIdsValid
+
+      - id: TASK-010
+        type: test
+        title: "Failing substitution tests: declared-param interpolation, no logic evaluation, undeclared fails loud"
+        description: |
+          Add pkg/recipe/substitute_test.go driving Substitute(template,
+          params) directly — the pure, NOT-Turing-complete `{{ }}` value
+          interpolation.
+
+          Mandated test names (exact):
+            - TestSubstitute_ResolvesDeclaredParam (CLM-012): `{{ name }}`
+              resolves from params; whitespace variants (`{{name}}`,
+              `{{  name  }}`) resolve identically; a repeated placeholder
+              resolves at every occurrence.
+            - TestSubstitute_NotTuringComplete_NoLogicEvaluated (CLM-013): a
+              logic/expression construct inside a placeholder — e.g.
+              `{{ if x }}`, `{{ range .Items }}`, `{{ 1 + 1 }}`,
+              `{{ a.b | upper }}` — is NEVER evaluated as code. The assertion
+              is positive and falsifiable: the construct either fails loud as an
+              undeclared param OR is left literally untouched, and in NO case
+              does the output contain an EVALUATED result ("2", a looped
+              expansion, a conditional branch). A Go text/template-backed
+              implementation would fail this — do not reach for text/template.
+            - TestSubstitute_UndeclaredParamFailsLoud (CLM-014): a placeholder
+              naming a param the recipe did not declare returns an error naming
+              the placeholder, and the output is NOT emitted with a blank in
+              its place (assert no silently-blanked string is produced).
+
+          All FAIL until TASK-012.
+        files:
+          - pkg/recipe/substitute_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on: []
+        test_names:
+          - TestSubstitute_ResolvesDeclaredParam
+          - TestSubstitute_NotTuringComplete_NoLogicEvaluated
+          - TestSubstitute_UndeclaredParamFailsLoud
+
+      - id: TASK-011
+        type: implementation
+        title: "Implement pkg/recipe/manifest.go — types, kind/op-kind constants, ParseRecipeManifest + structural validation"
+        description: |
+          Create pkg/recipe/manifest.go with exactly the declared contract
+          surface:
+
+            - type RecipeManifest struct { Kind string; Version string;
+              Params []ParamSpec; Ops []Op; TransformRules []string;
+              Enforcement *EnforcementDecl; Compat []CompatSelector;
+              Variants []Variant }
+            - type Op struct { ID, Kind, Target, Payload, Fragment, Format,
+              Rule, Anchor, Snippet, Manual string }
+            - type ParamSpec struct { Name string; Required bool; Default string }
+            - const ( KindScaffolding = "scaffolding"; KindImplementing =
+              "implementing"; KindTemplating = "templating" )
+            - const ( OpCreate = "create"; OpMerge = "merge"; OpTransform =
+              "transform"; OpInsert = "insert"; OpStep = "step" )
+            - func ParseRecipeManifest(data []byte) (*RecipeManifest, error)
+
+          ParseRecipeManifest decodes via gopkg.in/yaml.v3 (non-strict — see
+          the reserved-step-payload Sharp Edge: unknown keys are DROPPED, which
+          is the deliberate choice, and BUNDLE-019 will extend Op with the step
+          payload) and then fail-louds on: missing/empty ops; missing version;
+          non-semver version (MAJOR.MINOR.PATCH numeric components); a kind
+          outside the three constants; a transform/insert op with an empty
+          Manual; a transform op whose Rule is not present in TransformRules; a
+          duplicate op ID anywhere; an empty ID on a transform/insert op.
+          Duplicate/empty-id errors NAME the recipe and the offending id.
+          Compat/Variants decode and validate STRUCTURALLY only — no selection,
+          no resolution.
+
+          Ops keep their DECLARED ORDER — never sort, dedupe-by-reorder, or
+          map-ify the slice; determinism downstream depends on it.
+
+          ZERO language/tool nouns: this file reads declared data only.
+        files:
+          - pkg/recipe/manifest.go
+        claims:
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+        depends_on:
+          - TASK-008
+          - TASK-009
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement pkg/recipe/substitute.go — declarative, non-Turing {{ param }} interpolation"
+        description: |
+          Create pkg/recipe/substitute.go providing:
+
+            func Substitute(template string, params map[string]string) (string, error)
+
+          A hand-rolled scanner over `{{ ... }}` spans: trim the span, treat it
+          as a PARAM NAME, and look it up. There is NO expression parser, NO
+          conditional, NO loop, NO pipeline, NO function map — and explicitly
+          NOT text/template (which would smuggle a Turing-complete evaluator in
+          and fail CLM-013). An unresolvable name returns an error naming the
+          placeholder; the partially-substituted string is NOT returned as a
+          usable result (fail loud, never silently blank).
+
+          Substitution is pure value interpolation over declared params only —
+          the code-in-data door DD-3/DD-10 forbid stays shut.
+        files:
+          - pkg/recipe/substitute.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-010
+
+      - id: TASK-013
+        type: verification
+        title: "backstop code check — manifest validation matrix + substitution suite green"
+        description: |
+          Inner-loop verification via `backstop code check` (build, lint, test,
+          semgrep — the full unfiltered set, never scoped to what was touched).
+          Confirm the manifest field/kind matrix, all three op-level
+          cross-check pairs, and the three substitution tests pass, and that
+          the new pkg/recipe package introduces no baked language/tool noun
+          (the pack_engines dimension over backstop/self runs here like every
+          other dimension).
+        files:
+          - pkg/recipe/manifest.go
+          - pkg/recipe/substitute.go
+          - pkg/recipe/manifest_test.go
+          - pkg/recipe/manifest_opchecks_test.go
+          - pkg/recipe/substitute_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-036
+          - CLM-064
+          - CLM-066
+          - CLM-068
+        depends_on:
+          - TASK-011
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The pack.yml `recipes:` index (REQ-008)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Manifest.Recipes index + validateRecipesIndex on pkg/pack (no import cycle)"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Failing pack-manifest tests: recipes index maps id→dir, coexists with content.scaffolds, missing dir errors"
+        description: |
+          Add pkg/pack/manifest_recipes_test.go driving pack.ParseManifestFile
+          over the TASK-006 fixtures.
+
+          DRIVE THE PRODUCTION ENTRY POINT, NOT THE HELPER. ParseManifest takes
+          []byte and has no filesystem root, so it cannot validate that an
+          indexed directory exists; ParseManifestFile has the path and is where
+          the root is derived (filepath.Dir(path)). CLM-035's test MUST go
+          through ParseManifestFile — calling the unexported validateRecipesIndex
+          directly would prove the helper works while leaving it unreachable in
+          production (the exact dark-ship this project has paid for). Note
+          pkg/pack/validate_manifest.go's ValidateManifest is NOT the call site:
+          it has no production callers.
+
+          Mandated test names (exact):
+            - TestPackManifest_RecipesIndexMapsIdToDir (CLM-032):
+              ParseManifestFile on the valid fixture yields Manifest.Recipes
+              with the stable recipe-id keys mapped to their declared
+              directories (assert both the key set and the values, so a
+              nil/empty map cannot pass).
+            - TestPackManifest_RecipesIndexDistinctFromScaffolds (CLM-033): the
+              same manifest declares BOTH `recipes:` and `content.scaffolds`;
+              both survive parsing independently and neither is populated from
+              the other. Also assert a manifest declaring ONLY
+              content.scaffolds leaves Recipes nil (zero-value when absent) —
+              the index is optional.
+            - TestPackManifest_MultipleRecipesMultipleDirs (CLM-034): two ids
+              map to two DIFFERENT directories in the pack namespace.
+            - TestPackManifest_RecipesIndexMissingDirErrors (CLM-035):
+              ParseManifestFile on the missing-dir fixture returns an error
+              naming the recipe id and the missing directory — covering BOTH
+              the directory-absent and the directory-present-without-recipe.yml
+              cases. Add the falsifying twin: ParseManifestFile on the VALID
+              fixture returns no error, so a validator that rejects every
+              recipes: index cannot pass.
+
+          All FAIL until TASK-015.
+
+          PARALLEL WITH PHASE 2: this task shares no compile unit with
+          pkg/recipe and deliberately does NOT depend on Phase 2 — pkg/pack
+          must not import pkg/recipe (see the import-cycle note), so there is
+          nothing to wait for.
+        files:
+          - pkg/pack/manifest_recipes_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-006
+        test_names:
+          - TestPackManifest_RecipesIndexMapsIdToDir
+          - TestPackManifest_RecipesIndexDistinctFromScaffolds
+          - TestPackManifest_MultipleRecipesMultipleDirs
+          - TestPackManifest_RecipesIndexMissingDirErrors
+
+      - id: TASK-015
+        type: implementation
+        title: "Add Manifest.Recipes + validateRecipesIndex to pkg/pack/manifest.go"
+        description: |
+          Extend the EXISTING pkg/pack/manifest.go:
+
+            - Add a `Recipes map[string]string` field with the yaml tag
+              `recipes` to the Manifest struct — a DISTINCT top-level key,
+              deliberately NOT nested under
+              `content:` and NOT related to Content.Scaffolds (which is a
+              rule's paired TEST scaffold) or to `pack scaffold` / `artifact new`
+              (pack authoring). Optional: nil when absent.
+            - Add `func validateRecipesIndex(m *Manifest, packRoot string) error`.
+              For each entry: the directory must exist under packRoot and must
+              contain a `recipe.yml`. Errors name the recipe id and the
+              offending path.
+            - PIN THE CALL SITE: invoke it from `ParseManifestFile`, deriving
+              `packRoot := filepath.Dir(path)`. That is the only production
+              entry point that knows where the pack lives. ParseManifest([]byte)
+              cannot validate the index (no root) and must keep parsing the map
+              without checking it — an unrooted parse is not a defect, it is the
+              honest limit of a byte-slice API. Do NOT put the call in
+              pkg/pack/validate_manifest.go's ValidateManifest: that function
+              has no production callers, so the check would never run.
+            - SCOPE GUARD — do NOT widen the emptiness checks. A recipes-only
+              pack (no content:, no engines:) is OUT OF SCOPE: "content is
+              required" is asserted independently at pkg/pack/manifest.go:271-276,
+              pkg/pack/validate_manifest.go:122 and pkg/packval/phase1.go:45,
+              and changing one without the others creates a pack that parses in
+              one path and fails in another. No SPEC-054 claim asks for it, and
+              every fixture in this plan declares content:/engines: alongside
+              recipes:. Leave all three sites alone; TASK-043 names the
+              follow-up.
+
+          IMPORT-CYCLE RULE (non-negotiable): validateRecipesIndex performs the
+          STRUCTURAL existence check ONLY and MUST NOT import pkg/recipe.
+          pkg/recipe imports pkg/pack (ResolveRecipe's declared signature takes
+          map[string]*pack.Manifest); importing back would not compile. Deep
+          recipe.yml parsing happens in pkg/recipe at resolve time. The spec's
+          `consumes: pkg/recipe ParseRecipeManifest` edge on this file is
+          therefore not implementable as written — implement the existence check
+          (all CLM-035 asks for) and flag the stale consumes edge for a spec
+          touch-up; do NOT create the cycle and do NOT weaken ResolveRecipe's
+          declared signature to dodge it.
+
+          No language/tool noun enters pkg/pack.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "backstop code check — recipes index parses, coexists with scaffolds, missing dir blocks, no import cycle"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm:
+            - The four recipes-index tests pass, driven through
+              pack.ParseManifestFile (grep the test for the entry point — a
+              direct validateRecipesIndex call means the check is unreachable
+              in production).
+            - The existing pkg/pack manifest / validate suites show NO
+              regression from the additive field (especially the
+              empty-manifest and content-validation paths, which this task
+              deliberately did not touch).
+            - `go build ./...` succeeds — i.e. pkg/pack did NOT acquire an
+              import of pkg/recipe (the cycle would surface here).
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_recipes_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Apply-time reference resolution (REQ-010) + recipe-dir discovery
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: ParseRecipeRef + ResolveRecipe — pack:recipe@version resolves or fails loud"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Failing resolution tests: colocated recipe dir parses; the four ref-resolution failure modes"
+        description: |
+          Add pkg/recipe/resolve_test.go driving ParseRecipeRef + ResolveRecipe
+          over the TASK-005 pack/recipe-directory corpus. Build the packs map
+          from the fixture pack.yml via pack.ParseManifestFile so the test
+          exercises the REAL pack manifest type, not a hand-built stand-in.
+
+          Mandated test names (exact):
+            - TestRecipeDir_ParsesColocatedManifestAndPayload (CLM-031): the
+              per-recipe DIRECTORY is discovered and parsed — the returned
+              ResolvedRecipe carries the recipe Dir, the parsed Manifest, AND
+              the colocated payload file is reachable at the resolved Dir
+              (assert the payload is readable relative to Dir, proving
+              colocation rather than a manifest-only read).
+            - TestResolveRef_ResolvesPinnedRecipe (CLM-045): `demo-org/demo-pack:
+              starter@1.2.0` resolves to the starter directory + its parsed
+              manifest, and Ref round-trips Pack/Recipe/Version.
+            - TestResolveRef_MissingPackFailsLoud (CLM-046): a ref naming a pack
+              absent from the corpus errors naming the pack.
+            - TestResolveRef_UndeclaredRecipeFailsLoud (CLM-047): a recipe id
+              absent from the pack's `recipes:` index errors naming the id —
+              distinct from the missing-pack message.
+            - TestResolveRef_NonexistentVersionFailsLoud (CLM-048): a @version
+              that does not match the recipe's DECLARED version errors naming
+              both the pinned and the declared version.
+            - TestResolveRef_UnpinnedRefFailsLoud (CLM-049): table-driven over
+              malformed shapes — no `@` at all, `@` with a non-semver tail,
+              missing `:`, empty pack, empty recipe — each errors. An unpinned
+              ref must NEVER silently resolve to "whatever version is there".
+
+          SCOPE GUARD: no publish-time rev-guard and no drift comparison is
+          tested or built here (bundle REQ-011/012, later specs).
+
+          All FAIL until TASK-018.
+        files:
+          - pkg/recipe/resolve_test.go
+        claims:
+          - CLM-031
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-005
+          - TASK-013
+          - TASK-016
+        test_names:
+          - TestRecipeDir_ParsesColocatedManifestAndPayload
+          - TestResolveRef_ResolvesPinnedRecipe
+          - TestResolveRef_MissingPackFailsLoud
+          - TestResolveRef_UndeclaredRecipeFailsLoud
+          - TestResolveRef_NonexistentVersionFailsLoud
+          - TestResolveRef_UnpinnedRefFailsLoud
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement pkg/recipe/resolve.go — RecipeRef, ParseRecipeRef, ResolvedRecipe, ResolveRecipe"
+        description: |
+          Create pkg/recipe/resolve.go with exactly the declared contract
+          surface:
+
+            - type RecipeRef struct { Pack string; Recipe string; Version string }
+            - func ParseRecipeRef(raw string) (RecipeRef, error) — parses
+              `<pack>:<recipe>@<recipe_version>`. The version must be
+              well-formed semver; an unpinned or malformed ref is an error
+              (there is no "latest", no default, no tolerance branch).
+            - type ResolvedRecipe struct { Ref RecipeRef; Dir string;
+              Manifest *RecipeManifest }
+            - func ResolveRecipe(ref RecipeRef, packs map[string]*pack.Manifest,
+              packDir string) (*ResolvedRecipe, error) — looks the pack up in
+              the supplied corpus, reads its Recipes index for the recipe id,
+              joins packDir + the indexed directory, parses the colocated
+              recipe.yml via ParseRecipeManifest, and requires
+              manifest.Version == ref.Version. Each failure is a distinct
+              fail-loud error naming what was missing/mismatched.
+
+          Dir is retained on the result because every op resolves its payload
+          and rule paths RELATIVE to the recipe directory — the applier itself
+          contributes no path.
+
+          APPLY-TIME HALF ONLY: no rev-guard, no drift comparison, no version
+          negotiation. No language/tool noun.
+        files:
+          - pkg/recipe/resolve.go
+        claims:
+          - CLM-031
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "backstop code check — reference resolution matrix green over the real pack manifest type"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm all six resolution tests pass, that
+          the corpus is built from pack.ParseManifestFile (not a hand-built
+          fake), and that no rev-guard/drift logic leaked into resolve.go.
+        files:
+          - pkg/recipe/resolve.go
+          - pkg/recipe/resolve_test.go
+        claims:
+          - CLM-031
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-018
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: The applier core — ordered dispatch, create, insert, step,
+  #          closed allowlist, user-owned protection (the full type surface)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Apply — declared-order op dispatch, create/insert/step, closed allowlist, never clobber user files"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Failing applier-core tests: declared order, target-from-recipe, empty no-op, create from captured payload, user-owned protection"
+        description: |
+          Add pkg/recipe/apply_core_test.go driving Apply over recipes built in
+          -test (or read from testdata) against a t.TempDir project root.
+
+          Mandated test names (exact):
+            - TestApply_RunsOpsInDeclaredOrder (CLM-001): a recipe whose ops
+              write observable, order-revealing output (e.g. successive inserts
+              into one file, or creates whose ordering is recorded) produces the
+              DECLARED order. Falsifiability: reverse the declared order in a
+              second sub-case and assert the output order reverses with it — a
+              sorted or map-iterated implementation fails.
+            - TestApply_TargetComesFromRecipeNotApplier (CLM-002): a create op
+              writes at EXACTLY the recipe-declared target and nowhere else —
+              walk the whole temp root and assert the written set equals
+              {declared target} (no sibling, no default location, no implied
+              directory convention).
+            - TestApply_EmptyOpsNoop (CLM-003): a recipe with zero ops returns
+              no error and writes NOTHING (walk the root: unchanged file set and
+              unchanged contents).
+            - TestApply_CreateOp_MaterializesCapturedFixture (CLM-004): the
+              TASK-001 captured payload materializes to the captured expected
+              output with `{{ }}` params resolved. Compare BYTES.
+            - TestApply_UserOwnedFileNeverClobbered (CLM-018): a create op whose
+              target already holds a consumer-owned file (one this recipe does
+              not own — no prior adoption/recipe-owned provenance) leaves the
+              file's bytes untouched, and the result reports it rather than
+              silently succeeding as if written.
+
+          Read every fixture path from the recipe DATA, never as a typed
+          language-shaped literal in Go source (self-pack guard).
+
+          All FAIL until TASK-022.
+        files:
+          - pkg/recipe/apply_core_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-018
+        depends_on:
+          - TASK-001
+          - TASK-019
+        test_names:
+          - TestApply_RunsOpsInDeclaredOrder
+          - TestApply_TargetComesFromRecipeNotApplier
+          - TestApply_EmptyOpsNoop
+          - TestApply_CreateOp_MaterializesCapturedFixture
+          - TestApply_UserOwnedFileNeverClobbered
+
+      - id: TASK-021
+        type: test
+        title: "Failing op-family tests: insert at anchor, step recognized-but-deferred, unknown kind fails loud"
+        description: |
+          Add pkg/recipe/apply_opfamily_test.go for the CLOSED op-family
+          allowlist (REQ-002/REQ-007).
+
+          Mandated test names (exact):
+            - TestApply_InsertOp_AtAnchor (CLM-011): an insert op places its
+              declared snippet at the declared anchor — assert the resulting
+              bytes AND the position relative to the anchor (appending at EOF
+              must fail the test).
+            - TestApply_StepOp_RecognizedAndSequenced (CLM-028): a recipe whose
+              ops are [create, step, insert] applies cleanly — the step neither
+              errors as an unknown kind nor aborts the run — and the file ops
+              on BOTH sides of it execute in declared order (proving the step
+              occupied its sequence position rather than being filtered out).
+            - TestApply_StepOp_NotExecutedReservedSeam (CLM-029): the step op is
+              NOT executed — no command runs, no file is written on its account,
+              and the result marks it deferred/reserved. Drive this positively:
+              a step op declaring a would-be side effect produces NO side
+              effect. (The executor is BUNDLE-019's.)
+            - TestApply_UnknownOpKindFailsLoud (CLM-030): an op whose kind is
+              outside {create,merge,transform,insert,step} returns an error
+              naming the kind and the op id — never silently skipped, and Apply
+              does NOT report success. Assert on the RESULT too: no partial
+              success verdict.
+
+          All FAIL until TASK-022.
+        files:
+          - pkg/recipe/apply_opfamily_test.go
+        claims:
+          - CLM-011
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-019
+        test_names:
+          - TestApply_InsertOp_AtAnchor
+          - TestApply_StepOp_RecognizedAndSequenced
+          - TestApply_StepOp_NotExecutedReservedSeam
+          - TestApply_UnknownOpKindFailsLoud
+
+      - id: TASK-022
+        type: implementation
+        title: "Create pkg/recipe/apply.go — the FULL declared type surface + ordered dispatch, create/insert/step/unknown"
+        description: |
+          Create pkg/recipe/apply.go. Land the ENTIRE declared type surface in
+          this one task so every later phase's tests compile against a stable
+          signature (compile-closure), even where the behavior arrives later:
+
+            - const ( ModeDirect ApplyMode = "direct"; ModeSDLCMediated
+              ApplyMode = "sdlc-mediated" )
+            - type ApplyOptions struct { Mode ApplyMode; Params map[string]string;
+              InjectionSites map[string]string; ProjectRoot string;
+              Dispatch TransformDispatch; ReadWaivers WaiverReader }
+            - type TransformDispatch func(rule string, target string) error
+            - type WaiverReader func(rule string, file string) (covered bool)
+            - type ApplyResult struct { Written []string;
+              Preserved []PreservedDivergence; Adoption AdoptionEntry }
+            - type PreservedDivergence struct { Path, Rule, CoveringWaiver string }
+            - func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error)
+            - func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, error)
+
+          BEHAVIOR IN THIS TASK: Apply iterates resolved.Manifest.Ops IN SLICE
+          ORDER (never sorted, never map-ranged) and switches on Op.Kind:
+            • create — resolve the payload relative to resolved.Dir, run it
+              through Substitute with the declared params/defaults, and write at
+              Op.Target resolved under opts.ProjectRoot. If a file already
+              exists at the target and is NOT recipe-owned, do NOT clobber it.
+            • insert — read the target, locate Op.Anchor, splice Op.Snippet at
+              it, write back.
+            • step — RECOGNIZE, keep its sequence position, execute NOTHING,
+              record it as deferred/reserved.
+            • merge / transform — leave as explicit not-yet-implemented branches
+              this task does not claim (filled by TASK-025 / TASK-029). Do not
+              stub them as silent no-ops.
+            • default — fail loud naming the kind and op id.
+
+          THE DISPATCH SEAM IS INJECTED-ONLY. `Dispatch` has no in-package
+          default: pkg/recipe does NOT import pkg/pack/engine and runs NO trust
+          check, because neither ResolvedRecipe nor ApplyOptions nor Op carries
+          an engine tool or a locked version to check (inventing such a field
+          would contradict the declared contracts). Consequently a `transform`
+          op reached with a NIL opts.Dispatch is a FAIL-LOUD configuration
+          error naming the op — never a silent success. The real gate is built
+          one layer up, in cmd/backstop/recipe_apply.go (TASK-042), where the
+          pack's engines: block and backstop.lock are reachable.
+          ApplyAll may be a straight sequential loop here; its determinism
+          claims land in TASK-038.
+
+          Op targets and anchors come ONLY from the manifest; Apply contributes
+          no path, no extension, no default location, and no language noun.
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-011
+          - CLM-018
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-020
+          - TASK-021
+
+      - id: TASK-023
+        type: verification
+        title: "backstop code check — ordered dispatch, create/insert/step, closed allowlist, user-file protection green"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm the nine core + op-family
+          assertions pass, that the reversed-order sub-case actually reverses
+          (no sorting crept in), that the empty-ops run writes nothing, and
+          that pkg/recipe still carries zero language/tool nouns.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_core_test.go
+          - pkg/recipe/apply_opfamily_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-011
+          - CLM-018
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-022
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: The merge op family + format matrix (REQ-002)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: merge — deep-merge json/yaml/toml/.env, fail loud on any other format"
+    tasks:
+      - id: TASK-024
+        type: test
+        title: "Failing merge tests: the four structured formats over captured fixtures + unsupported-format fail-loud"
+        description: |
+          Add pkg/recipe/apply_merge_test.go driving Apply with a single merge
+          op per case, over the TASK-002/TASK-003 CAPTURED target+fragment
+          pairs copied into a t.TempDir.
+
+          Mandated test names (exact):
+            - TestApply_MergeOp_Json (CLM-005): the fragment DEEP-merges into
+              the captured JSON target — assert (a) the pre-existing sibling
+              keys survive, (b) the nested addition landed INSIDE the existing
+              object (a shallow overwrite that replaces the object fails), and
+              (c) the new top-level key exists.
+            - TestApply_MergeOp_Yaml (CLM-006): same three properties over the
+              captured YAML pair.
+            - TestApply_MergeOp_Toml (CLM-007): same three properties over the
+              captured TOML pair, including the nested table.
+            - TestApply_MergeOp_DotEnv (CLM-008): the fragment merges into the
+              captured .env — an overriding KEY takes the fragment's value, a
+              new KEY is appended, untouched KEYS and the comment line survive.
+            - TestApply_MergeOp_UnsupportedFormatFailsLoud (CLM-009): a merge op
+              targeting the captured unstructured file errors naming the target
+              and the unsupported format; the target file is left BYTE-IDENTICAL
+              (no partial write) and Apply does not report success.
+
+          Every expectation is derived from the two captured inputs, never
+          copied from the merger's own output.
+
+          All FAIL until TASK-025.
+        files:
+          - pkg/recipe/apply_merge_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-023
+        test_names:
+          - TestApply_MergeOp_Json
+          - TestApply_MergeOp_Yaml
+          - TestApply_MergeOp_Toml
+          - TestApply_MergeOp_DotEnv
+          - TestApply_MergeOp_UnsupportedFormatFailsLoud
+
+      - id: TASK-025
+        type: implementation
+        title: "Implement the merge executor in apply.go — format-routed deep merge, closed format allowlist"
+        description: |
+          Fill the `merge` branch in pkg/recipe/apply.go:
+
+            - Route on the op's declared Format (falling back to the target's
+              extension only if the recipe declares none) across a CLOSED set:
+              json, yaml, toml, .env. ANY other format is a fail-loud error
+              naming the target and format — never a text append, never a
+              best-effort write.
+            - Deep-merge semantics: decode both sides into a generic tree,
+              recursively merge maps (fragment wins on scalar conflict, nested
+              maps merge rather than replace), and re-encode. For .env, merge by
+              KEY over the line set, preserving untouched lines and comments.
+            - The fragment is substituted through Substitute before decoding, so
+              `{{ param }}` works in fragments too.
+            - Write only on success — a decode/encode failure must leave the
+              target byte-identical.
+
+          DEPENDENCY NOTE: yaml.v3 is already a direct require; TOML is present
+          only as an INDIRECT dependency (via the golangci-lint tool
+          dependency). Promote a TOML codec to a direct require with
+          `go get` (github.com/pelletier/go-toml/v2 or github.com/BurntSushi/toml
+          — both are already in go.sum) and commit go.mod/go.sum. A TOML codec is
+          a FORMAT codec, not language/tool knowledge: json/yaml/toml/.env are
+          the universal structured-config formats REQ-002 names as data shapes.
+        files:
+          - pkg/recipe/apply.go
+          - go.mod
+          - go.sum
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-024
+
+      - id: TASK-026
+        type: verification
+        title: "backstop code check — merge format matrix green, deep (not shallow), unsupported blocks"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm all five merge cases pass, the
+          deep-vs-shallow assertions actually discriminate, the
+          unsupported-format target is left byte-identical, and the promoted
+          TOML dependency did not disturb `go mod tidy` cleanliness or the
+          existing suites.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_merge_test.go
+          - go.mod
+          - go.sum
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-025
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: transform via the SHARED engine trust gate + the injection limit
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: transform dispatch through engine.CheckToolAllowed + fail-loud with the DECLARED manual text"
+    tasks:
+      - id: TASK-027
+        type: test
+        title: "Failing transform tests: captured before→after through a real engine run, declared-rule-only, nil dispatch fails loud"
+        description: |
+          Add pkg/recipe/apply_transform_test.go. These cover the LIBRARY half
+          of transform: that the op reaches the dispatch with the DECLARED rule
+          and target, and that a real engine run over the captured fixture
+          actually rewrites bytes. The TRUST-GATE half (CLM-025) is NOT here —
+          it lives at cmd/backstop (TASK-040), because the tool name and locked
+          version come from the pack's engines: block and backstop.lock, neither
+          of which pkg/recipe can see.
+
+          Mandated test names (exact):
+            - TestApply_TransformOp_DispatchesToAllowlistedEngine_CapturedFixture
+              (CLM-010): a transform op declaring the TASK-004 rule runs against
+              a copy of the CAPTURED before.go and the target's bytes equal the
+              CAPTURED after.go. Drive it through a test dispatch that actually
+              runs the engine command. RUN IT WITHOUT A LITERAL TOOL NAME: read
+              the command/tool from fixture DATA into a variable and invoke
+              exec.CommandContext(ctx, name, args...) — a literal
+              exec.Command("ast-grep", ...) trips backstop/self Family A, which
+              is global and DOES apply to _test.go. If the engine is not
+              runnable the test must FAIL loudly rather than skip (the
+              CLI-level proof is CLM-063).
+            - TestApply_TransformOp_RunsDeclaredRuleNotBakedLogic (CLM-026): the
+              rule file path and target handed to the dispatch come VERBATIM
+              from the recipe manifest — capture them via an injected recorder
+              dispatch and assert they equal the declared values. Then swap the
+              declared rule for a second rule file and assert the recorded rule
+              changes with it: core resolves declared data, it does not carry
+              the rewrite.
+            - Also assert (no separate claim, but it is the guard that keeps the
+              seam honest): a transform op applied with a NIL opts.Dispatch
+              returns a fail-loud error naming the op and writes nothing. A
+              nil-dispatch no-op would make every other transform assertion
+              satisfiable by doing nothing.
+
+          All FAIL until TASK-029.
+        files:
+          - pkg/recipe/apply_transform_test.go
+        claims:
+          - CLM-010
+          - CLM-026
+        depends_on:
+          - TASK-004
+          - TASK-026
+        test_names:
+          - TestApply_TransformOp_DispatchesToAllowlistedEngine_CapturedFixture
+          - TestApply_TransformOp_RunsDeclaredRuleNotBakedLogic
+
+      - id: TASK-028
+        type: test
+        title: "Failing injection-limit tests: unreachable transform / missing insert anchor emit the DECLARED manual text verbatim"
+        description: |
+          Add pkg/recipe/apply_injection_limit_test.go (REQ-011).
+
+          Mandated test names (exact):
+            - TestApply_TransformUnreachable_MessageEqualsDeclaredManualVerbatim
+              (CLM-050): a transform whose rule matches nothing / whose target
+              cannot be reached fails, and the error message CONTAINS the op's
+              declared `manual:` string EXACTLY as declared (assert
+              strings.Contains against the literal declared value read from the
+              manifest — a paraphrase, a re-wrap, or a synthesized instruction
+              fails). Also assert the locator: the op id and intended target
+              appear.
+            - TestApply_TransformUnreachable_NeverSilentSkip (CLM-051): the same
+              run returns a NON-nil error and the ApplyResult does NOT report
+              success — assert on both, so an implementation that logs and
+              continues fails.
+            - TestApply_TransformUnreachable_NeverGuessesSite (CLM-052): walk the
+              whole temp project root and assert NO file was written or modified
+              on the unreachable op's account — no fallback site, no nearest
+              match, no created directory.
+            - TestApply_InsertMissingAnchor_MessageEqualsDeclaredManualVerbatim
+              (CLM-053): an insert whose declared anchor is absent from the
+              target fails with its declared manual text verbatim + locator, and
+              the target file stays byte-identical.
+
+          Prove the verbatim property is falsifiable: use a distinctive declared
+          manual string and assert the exact substring.
+
+          All FAIL until TASK-029.
+        files:
+          - pkg/recipe/apply_injection_limit_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+        depends_on:
+          - TASK-026
+        test_names:
+          - TestApply_TransformUnreachable_MessageEqualsDeclaredManualVerbatim
+          - TestApply_TransformUnreachable_NeverSilentSkip
+          - TestApply_TransformUnreachable_NeverGuessesSite
+          - TestApply_InsertMissingAnchor_MessageEqualsDeclaredManualVerbatim
+
+      - id: TASK-029
+        type: implementation
+        title: "Implement the transform executor (dispatch-seam only) + manual-verbatim injection-limit errors"
+        description: |
+          Fill the `transform` branch in pkg/recipe/apply.go:
+
+            - NO in-package trust gate and NO EngineTransformDispatch
+              constructor. pkg/recipe does not import pkg/pack/engine: the
+              tool name and locked version the gate needs are not on any
+              declared type here, and adding them would contradict the spec's
+              Op/ApplyOptions contracts. `opts.Dispatch` is the whole seam; a
+              transform op reached with a nil Dispatch is a fail-loud
+              configuration error naming the op. The concrete
+              engine.CheckToolAllowed gate is built in
+              cmd/backstop/recipe_apply.go (TASK-042) — the layer that can see
+              the pack's engines: block and backstop.lock, exactly as
+              checkEngineToolAllowed (pack_gate.go:812-826) does.
+            - transform execution: resolve Op.Rule relative to resolved.Dir
+              (already cross-checked against the declared TransformRules at
+              parse time), resolve Op.Target under opts.ProjectRoot, and hand
+              both to the dispatch.
+            - INJECTION LIMIT: when the transform cannot reach its target (no
+              match / absent target) or an insert's declared anchor is absent,
+              return an error whose text embeds Op.Manual VERBATIM plus a
+              locator (op id + intended target). Core NEVER composes,
+              paraphrases, or templates the instruction — that text is DATA the
+              recipe supplies precisely because an actionable instruction is
+              language/framework-specific and would violate REQ-006 if built
+              here. Never write a fallback/guessed site; never continue past the
+              failure reporting success.
+
+          REQ-006 acceptance for this task: grep the diff for any language,
+          framework, CI, or tool name — there must be none.
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-010
+          - CLM-026
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+        depends_on:
+          - TASK-027
+          - TASK-028
+
+      - id: TASK-030
+        type: verification
+        title: "backstop code check — captured fixture actually transforms, dispatch carries declared data, injection limit fails loud"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm:
+            - The captured before→after transform actually changes the file
+              (before.go != after.go in the fixture, and the result equals
+              after.go) — the anti-no-op check. A `.src`-style neutral
+              extension would silently no-op here; the fixture must use the
+              extension the rule's declared language parses.
+            - The recorder-dispatch test shows the rule/target arriving verbatim
+              from the manifest, and a nil dispatch fails loud.
+            - All four injection-limit assertions pass, including the verbatim
+              manual substring and the no-write walk.
+            - pkg/recipe does NOT import pkg/pack/engine (the trust gate is a
+              cmd/backstop concern) and no test hardcodes a tool name into
+              exec.Command (self-pack Family A applies to test source).
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_transform_test.go
+          - pkg/recipe/apply_injection_limit_test.go
+        claims:
+          - CLM-010
+          - CLM-026
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+        depends_on:
+          - TASK-029
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: The ownership model — regenerate/waiver, templating one-shot,
+  #          and the THIN adoption record
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: kind-gated regenerate-vs-preserve through the REAL waiver read path + one-shot templating + thin adoption record"
+    tasks:
+      - id: TASK-031
+        type: test
+        title: "Failing regenerate/waiver tests: scaffolding+implementing regenerate; covered diverges preserve via waiver.Adjudicate; never authors a token"
+        description: |
+          Add pkg/recipe/apply_regenerate_test.go (REQ-004). These drive the
+          REAL pkg/waiver read path by leaving opts.ReadWaivers NIL — a stubbed
+          reader would bypass exactly the mechanism under test.
+
+          THE LINE CONTRACT (identical wording in TASK-034 — test and impl must
+          NOT co-invent one). waiver.Adjudicate associates a token with a
+          finding through a {Line, Line-1} window only
+          (pkg/waiver/adjudicate.go:220-230 windowLines), so the synthesized
+          divergence finding's Line decides where a covering token may live.
+          Recipe-owned output includes formats with no comment slot at a fixed
+          position (JSON), so the contract is: ONE finding PER LINE of the
+          diverged file (Line = 1..N), all adjudicated in ONE waiver.Adjudicate
+          call, and the divergence is COVERED iff at least one lands in
+          Result.Suppressed. TESTS MUST PLACE THE TOKEN ON A NON-FIRST LINE
+          (and on a line that is not line 2 either, so neither a line-1-only
+          nor a first-window-only implementation passes).
+
+          Mandated test names (exact):
+            - TestApply_Scaffolding_RegeneratesRecipeOwnedOutput (CLM-019): a
+              SCAFFOLDING recipe applied twice — with the recipe-owned output
+              edited between runs and NO waiver present — regenerates the file
+              back to the would-be output on re-apply.
+            - TestApply_Implementing_RegeneratesRecipeOwnedOutput (CLM-020): the
+              same for kind IMPLEMENTING.
+            - TestApply_DivergedWithActiveWaiver_PreservedViaRealWaiverReadPath
+              (CLM-021): the consumer edits recipe-owned output AND adds a real,
+              ACTIVE `@waiver:<rule>:<reason>:<expiry>` token (rule = the
+              recipe's declared enforcement rule for that path) into the file
+              FIRST, on a line well below the top per the line contract above.
+              Re-apply PRESERVES the on-disk bytes and records the covering
+              waiver in ApplyResult.Preserved (Path/Rule/CoveringWaiver
+              populated). Leave opts.ReadWaivers nil so the divergence findings
+              are adjudicated by waiver.Adjudicate over a waiver.LineReader on
+              the real file. Two falsifying twins: (a) the SAME edit with an
+              EXPIRED token is NOT preserved (proving adjudication, not a
+              substring match); (b) a token whose RULE is a different rule id
+              than the recipe's declared enforcement rule is NOT preserved
+              (proving the rule key is real).
+            - TestApply_DivergedNoWaiver_Regenerates (CLM-061): diverged with no
+              covering waiver → the file is OVERWRITTEN with the regenerated
+              bytes and is NOT listed in Preserved.
+            - TestApply_NeverAuthorsWaiverToken (CLM-062): after a divergence
+              with no pre-existing waiver, NO `@waiver` token exists anywhere
+              under the project root — walk the tree and assert the token count
+              is zero (and unchanged where one already existed). The applier
+              calls no waiver-authoring API; `<reason>`/`<expiry>` are human
+              judgments.
+
+          All FAIL until TASK-034.
+        files:
+          - pkg/recipe/apply_regenerate_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-061
+          - CLM-062
+        depends_on:
+          - TASK-030
+        test_names:
+          - TestApply_Scaffolding_RegeneratesRecipeOwnedOutput
+          - TestApply_Implementing_RegeneratesRecipeOwnedOutput
+          - TestApply_DivergedWithActiveWaiver_PreservedViaRealWaiverReadPath
+          - TestApply_DivergedNoWaiver_Regenerates
+          - TestApply_NeverAuthorsWaiverToken
+
+      - id: TASK-032
+        type: test
+        title: "Failing templating one-shot tests: consumer-owned output survives re-apply and pack upgrade"
+        description: |
+          Add pkg/recipe/apply_templating_test.go (REQ-012) — the kind-gated
+          other half of the ownership model.
+
+          Mandated test names (exact):
+            - TestApply_Templating_OutputConsumerOwned (CLM-054): applying a
+              TEMPLATING recipe once produces the output AND marks it
+              consumer-owned (no recipe-owned regeneration obligation recorded).
+            - TestApply_Templating_NotRegeneratedOnReapply (CLM-055): a second
+              apply — including one simulating a pack UPGRADE where the recipe's
+              would-be output has CHANGED — does not rewrite the file.
+            - TestApply_Templating_ConsumerEditSurvivesReapply (CLM-056): a
+              consumer edit to templating output is byte-identical after
+              re-apply, with NO waiver present. This is the discriminating case
+              against the scaffolding/implementing model — an implementation
+              that applies regenerate-by-default uniformly fails it.
+
+          All FAIL until TASK-034.
+        files:
+          - pkg/recipe/apply_templating_test.go
+        claims:
+          - CLM-054
+          - CLM-055
+          - CLM-056
+        depends_on:
+          - TASK-030
+        test_names:
+          - TestApply_Templating_OutputConsumerOwned
+          - TestApply_Templating_NotRegeneratedOnReapply
+          - TestApply_Templating_ConsumerEditSurvivesReapply
+
+      - id: TASK-033
+        type: test
+        title: "Failing adoption-record tests: entry written, carries the applied @version, stays THIN"
+        description: |
+          Add pkg/recipe/adoption_test.go (REQ-005) — the tracked,
+          backstop.lock-shaped record.
+
+          Mandated test names (exact):
+            - TestApply_WritesAdoptionRecord (CLM-022): Apply writes an adoption
+              entry {recipe ref, @version, adopted} to the tracked project-root
+              record; a missing record file is created, and re-apply UPDATES the
+              existing entry rather than duplicating it. Also assert
+              ReadAdoptions on a missing file yields an empty record and NO
+              error (the ReadLockfile shape).
+            - TestApply_AdoptionRecordCarriesAppliedVersion (CLM-023): the entry
+              carries the recipe's APPLIED @version — apply the same recipe id
+              at a different pinned version and assert the recorded version
+              follows.
+            - TestApply_AdoptionRecordIsThin_NoRichLedger (CLM-024): the
+              serialized entry contains ONLY the thin fields — assert the
+              written record's key set for an entry is exactly {recipe ref,
+              version, adopted}, and that NO per-op, per-region, per-file, hash,
+              or forensic-replay field appears. That ledger is BUNDLE-017's;
+              smuggling it here couples this spec to a downstream bundle.
+            - Also assert WriteAdoptions is DETERMINISTIC: writing the same
+              record twice yields byte-identical output (sorted keys), rhyming
+              with distribution.WriteLockfile.
+
+          All FAIL until TASK-034.
+        files:
+          - pkg/recipe/adoption_test.go
+        claims:
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-030
+        test_names:
+          - TestApply_WritesAdoptionRecord
+          - TestApply_AdoptionRecordCarriesAppliedVersion
+          - TestApply_AdoptionRecordIsThin_NoRichLedger
+
+      - id: TASK-034
+        type: implementation
+        title: "Implement adoption.go + the kind-gated ownership model in apply.go (compute → diff → adjudicate → preserve/regenerate)"
+        description: |
+          TWO files, one coherent unit — the adoption record is written by the
+          same Apply pass the ownership model runs in.
+
+          pkg/recipe/adoption.go (NEW), exactly the declared contract:
+            - type AdoptionEntry struct { Recipe string; Version string;
+              Adopted string }
+            - type AdoptionRecord struct { Recipes map[string]AdoptionEntry }
+            - func ReadAdoptions(path string) (*AdoptionRecord, error) — a
+              missing file yields an EMPTY record, not an error (ReadLockfile
+              shape).
+            - func WriteAdoptions(path string, rec *AdoptionRecord) error —
+              deterministic, sorted keys (WriteLockfile shape).
+          THIN ONLY: no per-op, per-region, hash, or provenance fields. Do not
+          add "just one more" field for a downstream consumer.
+
+          pkg/recipe/apply.go — the ownership hinge, gated on
+          resolved.Manifest.Kind:
+            - templating → ONE-SHOT. If the output already exists, it is
+              consumer-owned: do not regenerate, do not diff, do not waiver.
+            - scaffolding / implementing → regenerate-by-default with the
+              accountable-divergence hinge, computed MECHANICALLY:
+                1. compute the would-be-regenerated bytes for the recipe-owned
+                   target;
+                2. diff against on-disk. Not diverged → nothing to do.
+                3. Diverged → ask opts.ReadWaivers. When it is nil, use
+                   apply.go's own reader, which implements THE LINE CONTRACT
+                   (stated identically in TASK-031, because
+                   waiver.Adjudicate's association window is only {Line,
+                   Line-1} — pkg/waiver/adjudicate.go:220-230): build ONE
+                   waiver.Finding PER LINE of the diverged file (RuleID = the
+                   recipe's declared enforcement rule for that path, File = the
+                   diverged path, Line = 1..N), pass the whole slice to
+                   waiver.Adjudicate(findings, lineReader, policy, now) with a
+                   waiver.LineReader over the consumer file's raw lines, and
+                   treat the divergence as COVERED iff at least one finding
+                   lands in Result.Suppressed. A single fixed-line finding is
+                   WRONG: it would only ever see a token on that line or the
+                   one above, and formats like JSON have no comment slot there.
+                4. Covered → PRESERVE the on-disk file and append a
+                   PreservedDivergence{Path, Rule, CoveringWaiver} — the token
+                   that was READ.
+                5. Uncovered → REGENERATE (overwrite).
+            - USER-OWNED files (targets the recipe does not own) are never
+              clobbered by any kind — that check from TASK-022 stands, and is
+              DISTINCT from recipe-owned regeneration.
+            - NEVER author a waiver token. Call no waiver-writing API; there is
+              no bespoke merge/upgrade path.
+            - At the end of a successful apply, upsert the AdoptionEntry
+              {recipe ref, applied @version, adopted} into the tracked
+              project-root record and return it in ApplyResult.Adoption.
+        files:
+          - pkg/recipe/adoption.go
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-061
+          - CLM-062
+        depends_on:
+          - TASK-031
+          - TASK-032
+          - TASK-033
+
+      - id: TASK-035
+        type: verification
+        title: "backstop code check — kind matrix (regenerate vs one-shot), real waiver adjudication, thin adoption record"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm:
+            - Both sides of the kind gate hold: scaffolding/implementing
+              regenerate, templating never does (the discriminating consumer-edit
+              case passes).
+            - The preserve path ran through waiver.Adjudicate — the expired-token
+              twin does NOT preserve, proving adjudication rather than substring
+              matching.
+            - No `@waiver` token is ever authored by apply.
+            - The adoption record's key set is exactly the thin triple and its
+              writes are byte-deterministic.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/adoption.go
+          - pkg/recipe/apply_regenerate_test.go
+          - pkg/recipe/apply_templating_test.go
+          - pkg/recipe/adoption_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-061
+          - CLM-062
+        depends_on:
+          - TASK-034
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: The two application modes + strictly sequential multi-recipe
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: ModeDirect / ModeSDLCMediated (InjectionSites keyed by op id) + deterministic ApplyAll"
+    tasks:
+      - id: TASK-036
+        type: test
+        title: "Failing mode tests: direct-from-defaults, byte-deterministic, SDLC site routing by op id, missing site fails loud"
+        description: |
+          Add pkg/recipe/apply_modes_test.go (REQ-003).
+
+          Mandated test names (exact):
+            - TestApply_DirectMode_SelfAppliesFromDefaults (CLM-015): with
+              ModeDirect and no supplied params, the recipe's DECLARED defaults
+              drive the output; InjectionSites (if any) are ignored.
+            - TestApply_DirectMode_Deterministic (CLM-016): the same
+              recipe+params applied into two fresh temp roots yields
+              BYTE-IDENTICAL output (compare full file bytes across both roots,
+              including any adoption record modulo its adopted timestamp field —
+              hold time fixed or exclude that one field explicitly).
+            - TestApply_SDLCMediatedMode_AppliesAtSuppliedInjectionSite
+              (CLM-017): with ModeSDLCMediated, InjectionSites[op-id] supplies
+              the WHERE for a transform/insert op and the write lands THERE.
+              Falsifiability: run the SAME recipe twice with DIFFERENT supplied
+              sites and assert the write location DIFFERS accordingly, while the
+              WHAT (the snippet/rule from the recipe) is identical. Also assert
+              create/merge/step IGNORE InjectionSites (a supplied site for a
+              create op does not move it).
+            - TestApply_SDLCMediatedMode_MissingInjectionSiteFailsLoud (CLM-060):
+              a transform/insert op with NEITHER a recipe-declared target/anchor
+              NOR a supplied injection site fails loud — and NOTHING is written
+              (walk the root). No guessed site, no fallback (REQ-011).
+
+          All FAIL until TASK-038.
+        files:
+          - pkg/recipe/apply_modes_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-060
+        depends_on:
+          - TASK-035
+        test_names:
+          - TestApply_DirectMode_SelfAppliesFromDefaults
+          - TestApply_DirectMode_Deterministic
+          - TestApply_SDLCMediatedMode_AppliesAtSuppliedInjectionSite
+          - TestApply_SDLCMediatedMode_MissingInjectionSiteFailsLoud
+
+      - id: TASK-037
+        type: test
+        title: "Failing multi-recipe tests: declared order, same-file co-writes compose via merge, never reorders"
+        description: |
+          Add pkg/recipe/apply_multi_test.go (REQ-013) driving ApplyAll.
+
+          Mandated test names (exact):
+            - TestApplyMulti_AppliesInDeclaredOrder (CLM-057): three recipes
+              (spanning more than one pack) apply in the consumer's declared
+              order — assert the observable order, then reverse the input slice
+              and assert the observable order reverses with it.
+            - TestApplyMulti_SameFileCoWritesComposeViaMerge (CLM-058): two
+              recipes merging fragments into the SAME structured file compose —
+              the final file carries BOTH contributions, with the later
+              declared recipe winning on a direct scalar conflict. This is
+              normal composition, not a conflict to arbitrate: no error, no
+              prompt, no arbitration.
+            - TestApplyMulti_NeverReordersOrInterleaves (CLM-059): with recipes
+              whose ops are individually order-revealing, the full observable
+              sequence is recipe-1's ops in order, THEN recipe-2's — never
+              interleaved and never sorted. Feed an input slice that is NOT in
+              lexical/version order so a sorting implementation is caught.
+
+          All FAIL until TASK-038.
+        files:
+          - pkg/recipe/apply_multi_test.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-035
+        test_names:
+          - TestApplyMulti_AppliesInDeclaredOrder
+          - TestApplyMulti_SameFileCoWritesComposeViaMerge
+          - TestApplyMulti_NeverReordersOrInterleaves
+
+      - id: TASK-038
+        type: implementation
+        title: "Implement the two modes + deterministic sequential ApplyAll in apply.go"
+        description: |
+          Complete pkg/recipe/apply.go:
+
+            - MODES: the mode selects ONLY where the WHERE comes from; both
+              modes drive the SAME op executors over the SAME recipe artifact.
+              ModeDirect resolves each op's target/anchor from the recipe's
+              declarations and its params from opts.Params over the declared
+              defaults. ModeSDLCMediated additionally consults
+              opts.InjectionSites[op.ID] for the INJECTION-ACCEPTING families
+              ONLY (transform, insert); create, merge and step ignore it
+              entirely. A transform/insert op with neither a declared
+              target/anchor nor a supplied site FAILS LOUD (no guessed site).
+            - DETERMINISM: identical recipe+params must yield byte-identical
+              output across runs — no map iteration in write order, no
+              timestamps in generated content (the adoption record's `adopted`
+              field is the only time-bearing value and it lives in the record,
+              not in generated files), no randomized ordering anywhere.
+            - ApplyAll: strictly sequential over the supplied slice IN THE GIVEN
+              ORDER. Never sort, never dedupe-by-reorder, never parallelize,
+              never interleave. Same-file co-writes compose because order is
+              preserved and `merge` is additive; a co-write is composition, not
+              a conflict — do not add arbitration. An error from recipe N
+              returns immediately with the results accumulated so far (partial
+              results are reported, never silently discarded).
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+        depends_on:
+          - TASK-036
+          - TASK-037
+
+      - id: TASK-039
+        type: verification
+        title: "backstop code check — mode routing, byte-determinism, and sequential multi-recipe order green"
+        description: |
+          Inner-loop verification via `backstop code check` (full unfiltered
+          build/lint/test/semgrep). Confirm:
+            - The different-supplied-site sub-case actually moves the write
+              (CLM-017 is falsifiable, not a tautology).
+            - The reversed-input sub-cases reverse the observable order in both
+              the single-recipe and multi-recipe suites — nothing sorts.
+            - Two runs into fresh roots are byte-identical.
+            - The whole pkg/recipe suite is green together (no cross-phase
+              regression), and pkg/recipe still names no language or tool.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_modes_test.go
+          - pkg/recipe/apply_multi_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+        depends_on:
+          - TASK-038
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: The dogfood CLI + the REAL-ENGINE E2E + backstop/self + full gate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: backstop recipe apply — real ast-grep E2E through the shipped CLI, self-pack green, full kill chain"
+    tasks:
+      - id: TASK-040
+        type: test
+        title: "Failing CLI tests: REAL-engine E2E over a captured fixture + the trust gate rejecting an un-allowlisted engine"
+        description: |
+          Two test files at the layer where the trust gate actually lives.
+
+          cmd/backstop/recipe_apply_e2e_test.go — THE anti-stub-green guard: a
+          wired-but-no-op dispatch passes every op-level test in phases 5–9
+          while doing nothing, and only this test can falsify it.
+            - TestRecipeApply_E2E_RealEngineTransform_CapturedFixture (CLM-063):
+              copy the TASK-007 fixture project (installed packs under
+              .backstop/packs/, whose recipe-pack declares
+              `provision.version: 0.43.0` — the value the trust gate compares,
+              read from pack.yml, NOT from backstop.lock) into a t.TempDir,
+              copy the CAPTURED before.go
+              to the recipe's declared target, and run the actual CLI command
+              `backstop recipe apply demo-org/recipe-pack:rewrite@<v>` through
+              the assembled root command (the shipped path, not an internal
+              helper). Assert:
+                • exit/return is success;
+                • the target file's BYTES now equal the CAPTURED after.go (the
+                  assertion a no-op dispatch cannot satisfy — before != after
+                  in the fixture);
+                • the adoption record was written at the project root carrying
+                  the applied @version.
+              If ast-grep is unavailable the test must FAIL, never skip — a skip
+              recreates the vacuous green this claim exists to close. (This is
+              a TOOL the allowlist provisions at a pinned version, not an
+              optional pack; unavailability is an environment defect.)
+
+          cmd/backstop/recipe_apply_trustgate_test.go — the trust gate, moved
+          here from pkg/recipe because the tool name and locked version come
+          from the pack's engines: block and backstop.lock:
+            - TestApply_TransformOp_UnallowlistedEngineRejected (CLM-025): run
+              the same CLI over `demo-org/reject-pack:reject@<v>`, whose
+              engines: block declares a provisioned tool absent from
+              engine.TrustedToolAllowlist(). Assert the run is REJECTED before
+              any command executes — the error is a *check.ConfigError (exit-2
+              shape) naming the tool, and the target file is byte-untouched.
+              The allowlist must be the REAL engine.TrustedToolAllowlist()
+              (via the production resolveTrustedToolAllowlist path); do NOT
+              inject a permissive map. Add the VERSION-MISMATCH twin: run
+              `demo-org/mismatch-pack:mismatch@<v>`, whose engines: binding
+              names an ALLOWLISTED tool (ast-grep) at a `provision.version`
+              other than 0.43.0, and assert CheckToolAllowed's second arm
+              rejects it. The compared value is the pack.yml
+              `engines.<name>.provision.version` — backstop.lock carries no
+              tool version at all (LockEntry has no such field), so do not
+              phrase this as a lock pin. Add the passing twin too: the
+              recipe-pack run clears the gate, so a gate that rejects
+              everything cannot pass.
+
+          Read the target path from the recipe manifest DATA rather than typing
+          it; keep any tool name out of exec.Command literals (self-pack
+          Family A applies to test source).
+
+          FAILS until TASK-042 adds the command.
+        files:
+          - cmd/backstop/recipe_apply_e2e_test.go
+          - cmd/backstop/recipe_apply_trustgate_test.go
+        claims:
+          - CLM-025
+          - CLM-063
+        depends_on:
+          - TASK-007
+          - TASK-039
+        test_names:
+          - TestRecipeApply_E2E_RealEngineTransform_CapturedFixture
+          - TestApply_TransformOp_UnallowlistedEngineRejected
+
+      - id: TASK-041
+        type: test
+        title: "Failing self-pack test: backstop/self stays GREEN over the applier + transform-dispatch code"
+        description: |
+          Add cmd/backstop/recipe_selfpack_test.go — the absence claim
+          (CLM-027, kind: absence, subject cmd/backstop) that the new surface
+          introduces ZERO language/platform/CI literals.
+
+          Mandated test name (exact):
+            - TestSelfPack_GreenOverRecipeApplier (CLM-027): locate the
+              INSTALLED backstop/self pack (.backstop/packs/backstop/self),
+              dispatch its rules over the newly added source — pkg/recipe/*.go
+              including _test.go, and cmd/backstop/recipe_apply.go — and assert
+              ZERO findings.
+
+          BUILD IT FROM SCRATCH — there is NO existing in-repo helper for this.
+          The nearest relatives are recording-runner tests such as
+          cmd/backstop/pack_gate_findings_selftarget_test.go; read one for the
+          dispatch shape, but do not expect a reusable harness. Do not cite a
+          pattern that does not exist.
+
+          CAPABILITY-ABSENT IS A SKIP, NOT A RED. `.backstop/packs/` is
+          gitignored and packs are external by design — an absent pack is NOT a
+          defect and must never fail a clean checkout. If the backstop/self pack
+          is not installed, t.Skip with a LOUD message naming the pack and the
+          `pack add` needed to restore coverage (the warn-with-guidance posture:
+          block defects, warn un-adopted capability). What must never happen is
+          a silent PASS from "no rules ran" — the skip must be visible in test
+          output, and the full `backstop gate` in TASK-044 is where the same
+          rules run for real.
+
+          STATE THE SCOPE HONESTLY IN THE TEST DOC COMMENT — this test proves
+          less than its name suggests, and pretending otherwise is its own
+          vacuous green. Verified against
+          .backstop/packs/backstop/self/rules/no-baked.yml: only the GLOBAL
+          families reach these paths — A (no-baked-tool-exec), B1
+          (no-baked-tool-command), B2 (no-baked-language-token). Families B3
+          (no-language-literal-on-neutral-spine, the one that catches
+          ".go"/"_test.go"/"./..."), B4, B5 and B6 are PATH-SCOPED to the
+          neutral spine (pkg/gate/*.go, pkg/check/manifest.go,
+          pkg/check/parsers.go, pkg/validate/plan.go, cmd/backstop/gate.go,
+          cmd/backstop/pack_gate*.go, pkg/pack/engine/binding.go) and exclude
+          *_test.go — they do NOT cover pkg/recipe or recipe_apply.go. So the
+          guarantee is: no literal tool name in an exec call, no baked engine
+          command string, no foreign-language/manifest token. Extending B3's
+          include list to the recipe applier is a change to the backstop/self
+          PACK REPO (packs are external) — record it as the follow-up in
+          TASK-043, do not claim spine-grade coverage here.
+
+          If a finding is genuine, FIX the code (make the value declared data),
+          do not waive it. A waiver here would be waiving the standing invariant.
+
+          FAILS until TASK-042 (and stays green thereafter).
+        files:
+          - cmd/backstop/recipe_selfpack_test.go
+        claims:
+          - CLM-027
+        depends_on:
+          - TASK-039
+        test_names:
+          - TestSelfPack_GreenOverRecipeApplier
+
+      - id: TASK-042
+        type: implementation
+        title: "Wire cmd/backstop/recipe_apply.go — the thin CLI that builds the production dispatch + waiver reader"
+        description: |
+          Add cmd/backstop/recipe_apply.go providing:
+
+            func runRecipeApply(ref string, projectRoot string) error
+
+          It is THIN and load-bearing — and it is THE HOME OF THE TRUST GATE,
+          because this is the only layer that can see the pack's `engines:`
+          block and backstop.lock:
+            - ParseRecipeRef → load the installed pack manifests from
+              .backstop/packs (the existing installed-pack loading path
+              buildGateSteps uses — reuse it, do not re-walk) → ResolveRecipe.
+            - SELECT THE ENGINE from DECLARED DATA: `Op` has no engine field, so
+              use the resolved pack's declared provisioned engine binding —
+              the single entry of Manifest.Engines whose Binding.Provision is
+              non-nil. EXACTLY ONE is required: zero or more than one is a
+              fail-loud *check.ConfigError naming the pack and the count
+              (Manifest.Engines is a map, so choosing among several would be
+              nondeterministic). Do NOT invent an engine field on Op or
+              ApplyOptions to dodge this — the per-op engine selector is a spec
+              follow-up recorded in TASK-043.
+            - RUN THE GATE, then build the dispatch: call
+              engine.CheckToolAllowed(resolveTrustedToolAllowlist(),
+              binding.Provision.Tool, binding.Provision.Version) — the identical
+              resolver (pack_gate.go:46) and check checkEngineToolAllowed
+              (pack_gate.go:812-826) runs before an enforcement engine — and on
+              rejection return a *check.ConfigError (exit 2) naming tool+pack,
+              wrapping exactly as checkEngineToolAllowed does. The gate must sit
+              BEFORE any command construction, exactly as it does in
+              runFindingsEngine (pack_gate.go:586-588), so an un-allowlisted
+              tool's command is never even built.
+            - RUN IT WITH THE UN-SANDBOXED RUNNER. Only on gate success, return
+              a TransformDispatch closure that shapes argv the way
+              runFindingsEngine does — `cmdName, cmdArgs :=
+              splitCommand(binding.Command)`, then the declared `input_flag` +
+              the rule file, then the target — and executes it via
+              `check.CommandRunner` (`check.ExecCommandRunner` with
+              `Dir = projectRoot`), the SAME runner path
+              pack_gate.go:648 uses for engine commands.
+              DO NOT use packval.SandboxedRun/SandboxedRunStdout here: that is
+              the CONVERT-step runner, and its darwin profile
+              (pkg/packval/sandbox.go:36-60) is `(deny file-write*)` with reads
+              restricted to packDir + system paths. A `transform` WRITES to a
+              file in the consumer project — structurally impossible under that
+              profile, so CLM-063's E2E could never pass. And do NOT relax the
+              sandbox profile to make it fit: that is a security regression, and
+              the enforcement dispatch does not run engine commands sandboxed
+              either. NO second dispatch path, NO hardcoded tool or command
+              string, and no path where a command runs before the gate.
+            - Build the production WaiverReader over the real pkg/waiver read
+              path (the per-line finding contract from TASK-034), or leave it
+              nil to use apply.go's real-path default — whichever keeps ONE
+              implementation, never two.
+            - Call Apply, write the adoption record, and surface errors with the
+              established exit-code shape (*check.ConfigError → exit 2; an apply
+              failure → exit 1 with the fail-loud message, including the op's
+              declared `manual:` text verbatim).
+            - Register the `recipe` parent command with its `apply` subcommand
+              in cmd/backstop/root.go's rootCmd.AddCommand(...) line so it
+              appears in the `backstop commands` agent-discovery tree. BOTH the
+              `recipe` parent AND the `apply` subcommand MUST set Short AND
+              Long: cmd/backstop/root_test.go:254-271
+              (TestCLI_Help_AllCommandsHaveDescriptions, CLM-029) walks the
+              whole command tree and fails any command missing either — a
+              parent command added with Short only turns that existing test red.
+
+          Zero language/platform/CI literals in this file — REQ-006 applies to
+          the CLI exactly as to the library. The tool name arrives from
+          binding.Provision.Tool (pack data); it is never typed here.
+        files:
+          - cmd/backstop/recipe_apply.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-063
+        depends_on:
+          - TASK-040
+          - TASK-041
+
+      - id: TASK-043
+        type: documentation
+        title: "Route the SPEC-054 corrections this build surfaced back through the spec-authoring flow"
+        description: |
+          Implementation contact with the code invalidated three details in
+          SPEC-054's frontmatter. Artifacts are NEVER hand-edited — route these
+          through `/spec` (the spec-author agent), which re-validates and bumps
+          spec_version, then re-run artifact validation. Do NOT edit the spec
+          file directly, and do NOT leave the drift unrecorded: a stale contract
+          is a broken promise the gate will eventually surface.
+
+          Corrections to hand the spec author:
+            1. `pkg/pack/manifest.go`'s declared `consumes: pkg/recipe
+               ParseRecipeManifest` (spec:749-752) is UNIMPLEMENTABLE — it forms
+               an import cycle with resolve.go's declared dependency on
+               pack.Manifest. The shipped validateRecipesIndex does a structural
+               existence check (directory present + contains recipe.yml), which
+               is exactly what CLM-035 requires. Drop or retarget the consumes
+               edge.
+            2. `pkg/recipe/apply.go`'s declared `consumes: pkg/pack/engine
+               CheckToolAllowed` is likewise wrong: the trust gate cannot live
+               in pkg/recipe (no type there carries a tool or a locked version),
+               and the spec's own Implementation section (spec:925-928) already
+               puts the concrete gate in cmd/backstop/recipe_apply.go. Move the
+               consumes edge to the cmd/backstop contract, where it is real.
+            3. The TOML codec promoted to a direct dependency for the `merge`
+               format matrix should appear in the spec's dependency/consumes
+               surface rather than arriving silently in go.mod.
+            4. CLM-025 NEEDS `subject: cmd/backstop` (BLOCKING — without it the
+               gate goes red on landing). The claim currently inherits
+               `implementation.subject: pkg/recipe`, but its test
+               (TestApply_TransformOp_UnallowlistedEngineRejected) now lives in
+               cmd/backstop and drives the root command, because that is the
+               only layer that can see the pack's engines: block. The
+               substantiveness noTarget join
+               (pkg/gate/substantiveness_join.go:55-70) would emit "test
+               function ... does not call package recipe" — the subject is
+               reduced to its base name by TargetPackageName
+               (substantiveness_join.go:38-43, filepath.Base), so `pkg/recipe`
+               surfaces as `recipe` in the message — a real violation from a
+               correctly-placed test. The spec already uses
+               exactly this escape for cmd-level claims: CLM-027 and CLM-063
+               both carry a per-claim `subject: cmd/backstop`. Add the same to
+               CLM-025. This is not cosmetic — it is the difference between a
+               green and a red gate in TASK-044.
+
+          Also record — as NAMED follow-ups, not as work done here:
+            • A per-op ENGINE SELECTOR on `Op` (this build requires the pack to
+              declare exactly one provisioned engine binding for recipe
+              transform dispatch, and fail-louds otherwise).
+            • RECIPES-ONLY PACKS: making `recipes:` alone satisfy "content is
+              required" means changing pkg/pack/manifest.go:271-276,
+              pkg/pack/validate_manifest.go:122 and pkg/packval/phase1.go:45
+              together.
+            • Extending backstop/self Family B3's include list to
+              pkg/recipe/*.go and cmd/backstop/recipe_apply.go so the applier
+              gets spine-grade (not just global A/B1/B2) neutrality coverage —
+              a change in the backstop/self PACK repo, external by design.
+
+          Deliverable: an updated, validating SPEC-054 produced by the spec
+          agent. If the spec author declines a change, record why here rather
+          than silently dropping it.
+        files:
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-005
+          - CLM-025
+          - CLM-035
+        depends_on:
+          - TASK-042
+
+      - id: TASK-044
+        type: verification
+        title: "Final gate: backstop gate (full kill chain) + backstop artifact validate --plan PLAN-SPEC-054"
+        description: |
+          Comprehensive final verification — ALL gate dimensions, no filtering,
+          no scoping to what was touched (the founder razor):
+
+            1. backstop gate — pack lock verification, artifact validation,
+               pack_engines (INCLUDING backstop/self over the new pkg/recipe +
+               cmd/backstop code), test verification, substantiveness, coverage
+               (≥80 on pkg/recipe, pkg/pack, cmd/backstop per the spec),
+               contracts (every declared provides signature in
+               pkg/recipe/manifest.go, resolve.go, apply.go, substitute.go,
+               adoption.go, pkg/pack/manifest.go and cmd/backstop/recipe_apply.go
+               exists as declared), status drift, requirement traceability,
+               waiver resolution, baseline comparison.
+            2. backstop artifact validate --plan PLAN-SPEC-054 --spec SPEC-054
+               — both this plan AND the TASK-043-corrected spec validate. (The
+               change touches .go files, testdata fixtures, go.mod/go.sum and
+               one artifact; `backstop gate` subsumes code verification, and the
+               artifact validate covers the artifact half.)
+
+          Confirm the ACCEPTANCE invariants before declaring done:
+            - The E2E actually transformed file bytes with a REAL allowlisted
+              engine through the shipped CLI (CLM-063) — the dispatch is not a
+              no-op.
+            - An un-allowlisted engine is REJECTED at the CLI trust gate as a
+              ConfigError before any command runs (CLM-025), and no command path
+              bypasses engine.CheckToolAllowed. The transform command runs
+              through check.CommandRunner with Dir = projectRoot — NOT through
+              packval.SandboxedRun* (whose deny-all-writes profile would make
+              the transform impossible), and the sandbox profile is unchanged.
+            - CLM-025 carries `subject: cmd/backstop` after TASK-043, so the
+              substantiveness dimension is GREEN for its relocated test. If the
+              substantiveness step reports "does not call package recipe"
+              (the message carries the BASE name — TargetPackageName reduces
+              `pkg/recipe` via filepath.Base — so grep for that exact string,
+              not for the full path), the spec correction did not land — fix
+              the spec, do NOT move the
+              test back into pkg/recipe (it cannot see the engines: block
+              there) and do NOT waive it.
+            - backstop/self is GREEN over every new file including tests
+              (CLM-027) — over the families that actually reach these paths
+              (A/B1/B2); the gate's own pack_engines run is the authority here,
+              and TASK-041's unit-level skip-when-absent does not substitute
+              for it.
+            - Every fixture cites a real capture source; none was fabricated to
+              match the applier.
+            - The adoption record is exactly {recipe ref, @version, adopted} —
+              no rich ledger leaked in from BUNDLE-017's scope.
+            - `step` is recognized and sequenced but never executed; unknown op
+              kinds fail loud.
+            - Nothing out-of-scope was built: no rev-guard, no drift signals, no
+              enforcement activation/un-adopt, no compat/variant RESOLUTION, no
+              step executor, no rich provenance ledger.
+          Report the final gate status per dimension, the E2E byte-comparison
+          result, and the artifact-validate result.
+        files:
+          - cmd/backstop/recipe_apply.go
+          - cmd/backstop/recipe_apply_e2e_test.go
+          - cmd/backstop/recipe_apply_trustgate_test.go
+          - cmd/backstop/recipe_selfpack_test.go
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+          - plans/PLAN-SPEC-054-recipe-apply-and-manifest.plan.yml
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-063
+        depends_on:
+          - TASK-042
+          - TASK-043

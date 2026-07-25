@@ -1,0 +1,5 @@
+{
+  "legacy_name": "{{ app_name }}",
+  "config_dir": "{{ config_dir }}",
+  "registrations": []
+}

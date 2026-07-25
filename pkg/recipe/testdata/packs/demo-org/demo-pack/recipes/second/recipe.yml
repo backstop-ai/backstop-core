@@ -1,0 +1,23 @@
+kind: templating
+version: 2.0.1
+params:
+  - name: owner
+    required: true
+  - name: doc_path
+    required: false
+    default: docs/OVERVIEW.md
+ops:
+  - id: merge-ownership
+    kind: merge
+    target: metadata.json
+    format: json
+    fragment: |
+      {"owner": "{{ owner }}", "overview": "{{ doc_path }}"}
+  - id: link-overview
+    kind: insert
+    target: README.md
+    anchor: "<!-- overview -->"
+    snippet: "See {{ doc_path }} (owned by {{ owner }})."
+    manual: >-
+      Could not find the overview anchor in README.md. Add a link to
+      {{ doc_path }} by hand under a heading of your choosing.

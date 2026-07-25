@@ -1,5 +1,6 @@
 project: backstop-core
 packs:
+    backstop/cobra-cli: local
     backstop/contracts: local
     backstop/go-standards: local
     backstop/go-toolchain: local

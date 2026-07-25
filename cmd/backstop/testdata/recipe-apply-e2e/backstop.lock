@@ -1,0 +1,22 @@
+packs:
+    demo-org/mismatch-pack:
+        content_hash: 32b7fbc28778576aed4438fa527af1aa757edf68aa0a90f81fd8c3c1aac1c5b5
+        git_ref: null
+        install_date: 2026-07-25T00:00:00Z
+        name: demo-org/mismatch-pack
+        source_type: local
+        version: 1.0.0
+    demo-org/recipe-pack:
+        content_hash: cb1a3d6ae2e681e23ea75306931e58a6a40691057359469bc02abb469bb62d9b
+        git_ref: null
+        install_date: 2026-07-25T00:00:00Z
+        name: demo-org/recipe-pack
+        source_type: local
+        version: 1.0.0
+    demo-org/reject-pack:
+        content_hash: a1673e6413d73b056ef66066c2dfeba26a1a694a1873401ce1f3ca12bf052851
+        git_ref: null
+        install_date: 2026-07-25T00:00:00Z
+        name: demo-org/reject-pack
+        source_type: local
+        version: 1.0.0

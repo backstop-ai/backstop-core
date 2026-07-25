@@ -1,0 +1,7 @@
+concurrency:
+  group: backstop-ingest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate-and-ingest:
+    timeout-minutes: 20

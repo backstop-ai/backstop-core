@@ -1,0 +1,16 @@
+kind: scaffolding
+version: 1.0.0
+# Same as reject-pack: the cited rule file is not shipped because the
+# allowlisted-but-mis-pinned engine is rejected by the dispatch-time trust gate
+# before any command is built, so the rule is never resolved or read.
+transform_rules:
+  - recipes/mismatch/rules/mismatch-rule.yml
+ops:
+  - id: mismatch-transform
+    kind: transform
+    target: src/label.go
+    rule: recipes/mismatch/rules/mismatch-rule.yml
+    manual: >
+      This recipe is a trust-gate fixture: its engine names an allowlisted tool
+      at a version backstop does not pin. There is no manual fallback — the pack
+      must pin the allowlisted version instead.

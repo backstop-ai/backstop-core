@@ -1,0 +1,18 @@
+kind: scaffolding
+version: 1.0.0
+params:
+  - name: target_package
+    required: false
+# Pack-relative rule-file paths this recipe is allowed to run. A transform op
+# citing a path absent from this list is a manifest validation error.
+transform_rules:
+  - recipes/rewrite/rules/rewrite-rule.yml
+ops:
+  - id: rewrite-deprecated-format
+    kind: transform
+    target: src/label.go
+    rule: recipes/rewrite/rules/rewrite-rule.yml
+    manual: >
+      Replace every deprecatedFormat(...) call in src/label.go with
+      standardFormat(...), keeping the argument list unchanged. Leave the
+      deprecatedFormat and standardFormat declarations themselves alone.

@@ -1,0 +1,6 @@
+id: deprecated-format-to-standard-format
+language: go
+rule:
+  pattern: deprecatedFormat($$$ARGS)
+fix: standardFormat($$$ARGS)
+message: deprecatedFormat is superseded by standardFormat

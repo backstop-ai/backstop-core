@@ -1,0 +1,41 @@
+name: demo-org/mismatch-pack
+version: 1.0.0
+language: any
+archetype: code
+description: >
+  E2E VERSION-MISMATCH fixture (SPEC-054 CLM-025, second arm): its single
+  provisioned engine binding names an ALLOWLISTED tool (ast-grep) but pins a
+  provision.version other than the allowlisted 0.43.0, so CheckToolAllowed's
+  allowlisted-but-wrong-pin arm is driven by real declared data instead of an
+  in-test mutation. The compared value is THIS pack.yml's
+  engines.<name>.provision.version — backstop.lock has no tool-version field.
+  Same constraint as reject-pack: NO RULE CITES THIS ENGINE, or the rejection
+  would fire at parse rather than at the dispatch gate.
+engines:
+  ast-grep:
+    command: ast-grep scan --update-all
+    input_mode: rule-flags
+    input_flag: "--rule"
+    scope_kind: file-args
+    gate_type: lint
+    category: mechanism
+    provision:
+      tool: ast-grep
+      version: 0.38.2
+recipes:
+  mismatch: recipes/mismatch
+content:
+  scaffolds:
+    - id: mismatch-companion
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/mismatch-companion
+      test_command: make test
+      description: >
+        Scaffolds-only content block, for the same reason as reject-pack: a rule
+        citing the mis-pinned engine would fail at manifest parse and the
+        dispatch gate would never run.
+      use_when: [trust-gate fixture only]
+      assumes: [project source tree]
+      pairs_with:
+        scaffolds: [mismatch-companion-extras]

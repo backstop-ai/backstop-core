@@ -1,0 +1,14 @@
+kind: scaffolding
+version: 1.0.0
+params:
+  - name: service_name
+    required: true
+ops:
+  - id: insert-registration
+    kind: insert
+    target: src/registry
+    anchor: "# backstop:recipe-anchor"
+    snippet: register("{{ service_name }}")
+    manual: >
+      Add register("{{ service_name }}") beneath the # backstop:recipe-anchor
+      line in src/registry.

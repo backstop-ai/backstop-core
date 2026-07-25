@@ -1,0 +1,19 @@
+kind: scaffolding
+version: 1.0.0
+# The rule file this op cites is DELIBERATELY not shipped: the un-allowlisted
+# engine in reject-pack/pack.yml is rejected by the dispatch-time trust gate
+# BEFORE any command is built, so the rule is never resolved or read. Shipping
+# one would only invite the mistaken belief that the run got far enough to need
+# it. The op still cites a DECLARED rule so the run reaches the dispatch build
+# rather than failing earlier on manifest validation.
+transform_rules:
+  - recipes/reject/rules/reject-rule.yml
+ops:
+  - id: reject-transform
+    kind: transform
+    target: src/label.go
+    rule: recipes/reject/rules/reject-rule.yml
+    manual: >
+      This recipe is a trust-gate fixture: it declares an engine backstop will
+      not run. There is no manual fallback — the pack must declare an
+      allowlisted engine instead.
