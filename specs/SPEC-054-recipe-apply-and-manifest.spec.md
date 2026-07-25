@@ -4,7 +4,7 @@ number: SPEC-054
 created: "2026-07-21"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 1.2.1
 
 implementation:
   summary: >
@@ -628,23 +628,15 @@ contracts:
       - name: RecipeManifest
         kind: type
         signature: "type RecipeManifest struct { Kind string; Version string; Params []ParamSpec; Ops []Op; TransformRules []string; Enforcement *EnforcementDecl; Compat []CompatSelector; Variants []Variant }"
-        notes: "Parsed recipe.yml. Kind is one of scaffolding/implementing/templating (REQ-009). Compat/Variants are OPTIONAL and validated STRUCTURALLY only here — their apply-time behavior (REQ-015..017/020) is out of scope. Enforcement is the paired-suite DECLARATION (activation/scoping is REQ-013/014, out of scope)."
+        notes: "Parsed recipe.yml. Kind is one of scaffolding/implementing/templating (REQ-009), carried in source as the grouped untyped consts KindScaffolding/KindImplementing/KindTemplating. Those consts carry NO separate `provides` entry: a member of a grouped `const (…)` block is structurally inexpressible to the contracts pack's signature compiler, which handles only a standalone `const NAME = value` (the ast-grep pattern it emits does not bind a grouped block member) — the capability gap is ISSUE-078 (extending ISSUE-036's kind-aware compiler to const blocks), and the same disposition SPEC-035 v1.1.2 took for `CheckTypeFindings` applies: declaring an unverifiable entry buys a red, not a guarantee. The kind set is enforced BEHAVIORALLY and completely by the kind matrix — CLM-040/041/042 (each of the three kinds validates clean), CLM-043 (a kind outside the set is a validation error) — plus the ownership split CLM-019/CLM-020 (scaffolding+implementing regenerate) and CLM-054/055/056 (templating is one-shot). Compat/Variants are OPTIONAL and validated STRUCTURALLY only here — their apply-time behavior (REQ-015..017/020) is out of scope. Enforcement is the paired-suite DECLARATION (activation/scoping is REQ-013/014, out of scope)."
       - name: Op
         kind: type
         signature: "type Op struct { ID string; Kind string; Target string; Payload string; Fragment string; Format string; Rule string; Anchor string; Snippet string; Manual string }"
-        notes: "One declared operation. ID is the stable op key SDLC-mediated InjectionSites is keyed by (REQ-003). Kind is a CLOSED allowlist: create/merge/transform/insert/step (REQ-002/REQ-007). Rule (transform only) is a pack-relative rule-file path that MUST appear in the recipe's declared TransformRules — an op citing an undeclared rule is a manifest validation error (REQ-009/CLM-066). Manual is the human-actionable fallback instruction emitted VERBATIM when the injection limit is hit (REQ-011); it is REQUIRED for transform/insert and validated absent-is-error (CLM-064). A step op carries only its ID+Kind here and is never executed — its future payload schema is NOT round-tripped by the current non-strict YAML decode (unknown keys are dropped); BUNDLE-019 (which owns the step executor) will EXTEND this Op contract with the step payload fields (or a raw-passthrough), so this spec deliberately does not model them (Sharp Edges)."
+        notes: "One declared operation. ID is the stable op key SDLC-mediated InjectionSites is keyed by (REQ-003). Kind is a CLOSED allowlist: create/merge/transform/insert/step (REQ-002/REQ-007), carried in source as the grouped untyped consts OpCreate/OpMerge/OpTransform/OpInsert/OpStep. Those consts carry NO separate `provides` entry for the same reason RecipeManifest's kind consts do not — a grouped `const (…)` member is inexpressible to the contracts-pack signature compiler (ISSUE-078). The allowlist is enforced BEHAVIORALLY and exhaustively across every family: CLM-004 (create), CLM-005/006/007/008 (merge over the json/yaml/toml/.env matrix), CLM-010 (transform), CLM-011 (insert), CLM-028/029 (step recognized and sequenced, never executed), and CLM-030 (an op kind outside the set fails loud, never silently skipped). Rule (transform only) is a pack-relative rule-file path that MUST appear in the recipe's declared TransformRules — an op citing an undeclared rule is a manifest validation error (REQ-009/CLM-066). Manual is the human-actionable fallback instruction emitted VERBATIM when the injection limit is hit (REQ-011); it is REQUIRED for transform/insert and validated absent-is-error (CLM-064). A step op carries only its ID+Kind here and is never executed — its future payload schema is NOT round-tripped by the current non-strict YAML decode (unknown keys are dropped); BUNDLE-019 (which owns the step executor) will EXTEND this Op contract with the step payload fields (or a raw-passthrough), so this spec deliberately does not model them (Sharp Edges)."
       - name: ParamSpec
         kind: type
         signature: "type ParamSpec struct { Name string; Required bool; Default string }"
         notes: "One entry in the recipe's declared param schema; feeds {{ }} substitution (REQ-002) and direct-mode defaults (REQ-003)."
-      - name: RecipeKind constants
-        kind: constant
-        signature: "const ( KindScaffolding = \"scaffolding\"; KindImplementing = \"implementing\"; KindTemplating = \"templating\" )"
-        notes: "The three valid recipe kinds (REQ-009); regenerate-by-default (REQ-004) applies to scaffolding+implementing, one-shot (REQ-012) to templating."
-      - name: OpKind constants
-        kind: constant
-        signature: "const ( OpCreate = \"create\"; OpMerge = \"merge\"; OpTransform = \"transform\"; OpInsert = \"insert\"; OpStep = \"step\" )"
-        notes: "The closed op-family allowlist (REQ-002/REQ-007). An op kind outside this set fails loud (CLM-030)."
       - name: ParseRecipeManifest
         kind: function
         signature: "func ParseRecipeManifest(data []byte) (*RecipeManifest, error)"
@@ -677,10 +669,10 @@ contracts:
         kind: type
   - file: pkg/recipe/apply.go
     provides:
-      - name: ApplyMode constants
-        kind: constant
-        signature: "const ( ModeDirect ApplyMode = \"direct\"; ModeSDLCMediated ApplyMode = \"sdlc-mediated\" )"
-        notes: "The two application modes (REQ-003)."
+      - name: ApplyMode
+        kind: type
+        signature: "type ApplyMode string"
+        notes: "The mode selector (REQ-003) — it selects only WHERE an op's WHERE comes from (recipe-declared defaults vs supplied InjectionSites); both modes drive the same op executors. Declared here as the named TYPE rather than as its two grouped value consts (ModeDirect = \"direct\", ModeSDLCMediated = \"sdlc-mediated\"), because a grouped `const (…)` member is structurally inexpressible to the contracts-pack signature compiler while `type ApplyMode string` is verifiable — this is the same shape/ISSUE-078 disposition the RecipeManifest and Op kind consts take, except that here a verifiable form of the surface exists, so the type is declared rather than the entry dropped. The two VALUES are enforced BEHAVIORALLY: CLM-015 (direct self-applies from recipe-declared defaults) and CLM-016 (direct is byte-identical across runs) for ModeDirect; CLM-017 (an injection-accepting op applies at the supplied InjectionSites[op-id], falsifiably) and CLM-060 (a transform/insert with neither a declared target/anchor nor a supplied site fails loud) for ModeSDLCMediated."
       - name: ApplyOptions
         kind: type
         signature: "type ApplyOptions struct { Mode ApplyMode; Params map[string]string; InjectionSites map[string]string; ProjectRoot string; Dispatch TransformDispatch; ReadWaivers WaiverReader }"
@@ -917,7 +909,12 @@ divergence from *recipe-owned* output is an accountable `@waiver`, never a bespo
 ### Package layout
 
 - `pkg/recipe/manifest.go` (NEW) — `RecipeManifest`, `Op`, `ParamSpec`, kind/op-kind
-  constants, and `ParseRecipeManifest` with structural validation (REQ-009).
+  constants, and `ParseRecipeManifest` with structural validation (REQ-009). The kind and
+  op-kind constants ship as grouped `const (…)` blocks and therefore carry no standalone
+  contract `provides` entry (ISSUE-078 — the contracts-pack signature compiler binds only a
+  standalone `const NAME = value`); both sets are enforced behaviorally by the kind and
+  op-family matrices, and the reasoning is recorded on the `RecipeManifest` and `Op` contract
+  notes rather than as an unverifiable declaration.
 - `pkg/recipe/resolve.go` (NEW) — `RecipeRef`, `ParseRecipeRef`, `ResolveRecipe`
   (apply-time reference resolution, REQ-010), reading `pack.Manifest.Recipes`. `ResolvedRecipe`
   carries BOTH the recipe directory (`Dir`) and the enclosing pack root (`PackDir`), because
@@ -1362,3 +1359,23 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   extending `backstop/self` Family B3's include list to `pkg/recipe/*.go` +
   `cmd/backstop/recipe_apply.go` for spine-grade neutrality (a change in the external
   `backstop/self` pack repo). Now 13 requirements, 69 claims, 15 sharp edges, 13 review questions.
+- **1.2.1 (2026-07-25, implemented)** — Contract-declaration correction only: the three grouped
+  const-block `provides` entries were structurally unverifiable and were the sole residual
+  `contract_signature` reds. The source matches their declared values verbatim; the contracts
+  pack's signature compiler simply cannot bind a member of a grouped `const (…)` block — it
+  handles only a standalone `const NAME = value` — so the entries bought a red, never a
+  guarantee. Filed as ISSUE-078 (const-signature support, extending ISSUE-036's kind-aware
+  compiler) and dispositioned exactly as SPEC-035 v1.1.2 dispositioned `CheckTypeFindings`.
+  (1) RETIRED the `RecipeKind constants` and `OpKind constants` entries from
+  `pkg/recipe/manifest.go`, folding the constant names, the ISSUE-078 gap, and the naming of
+  the claims that enforce each set into the `RecipeManifest` and `Op` notes — no coverage is
+  lost: the kind set stays enforced by CLM-040/041/042/043 plus the ownership split
+  CLM-019/020 and CLM-054/055/056, and the op-family allowlist by CLM-004/005/006/007/008/
+  010/011/028/029/030, which cover every family and the outside-the-set failure.
+  (2) RESHAPED `ApplyMode constants` on `pkg/recipe/apply.go` into a VERIFIED entry — the
+  named type `type ApplyMode string`, which the compiler does bind — with the two values
+  (ModeDirect / ModeSDLCMediated) and their enforcing claims (CLM-015/016 and CLM-017/060)
+  named in the note. This is a reshape, not a retirement: net verified contract surface goes
+  up by one entry. (3) Aligned the Implementation "Package layout" bullet so the body states
+  the same grouped-const disposition as the frontmatter. No requirement, claim, mandated test,
+  or behavior changed; still 13 requirements, 69 claims, 15 sharp edges, 13 review questions.
