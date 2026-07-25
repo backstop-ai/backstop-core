@@ -1,11 +1,26 @@
 package recipe
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	toml "github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
+)
+
+// The CLOSED merge-format allowlist (REQ-002). These four are DATA SHAPES, not
+// language or tool knowledge: a codec for a universal structured-config format
+// carries no assumption about which language, framework, or toolchain wrote the
+// file, and the recipe still supplies every path, fragment, and format token.
+const (
+	mergeFormatJSON = "json"
+	mergeFormatYAML = "yaml"
+	mergeFormatTOML = "toml"
+	mergeFormatEnv  = "env"
 )
 
 // ApplyMode selects where an op's WHERE comes from (REQ-003). Both modes drive the
@@ -115,7 +130,7 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 			// contributes nothing to the result. Its payload is opaque here and is
 			// deliberately not round-tripped.
 		case OpMerge:
-			err = errors.New("the merge op family is not implemented yet")
+			err = applyMerge(resolved, op, opts, params, &result)
 		case OpTransform:
 			err = applyTransform(op, opts)
 		default:
@@ -240,6 +255,284 @@ func applyTransform(op Op, opts ApplyOptions) error {
 	}
 
 	return errors.New("the transform op family is not implemented yet")
+}
+
+// applyMerge merges the op's declared fragment into its declared target.
+//
+// The format is the op's DECLARED format, falling back to the target's extension only
+// when the recipe declares none, and it is checked against the closed allowlist FIRST
+// — before the fragment is even read — so an unsupported target fails on the format
+// rather than on some later symptom. There is no text-append fallback: silently
+// concatenating a fragment onto an unstructured document would corrupt it while
+// reporting success.
+//
+// Nothing is written until the whole merge has succeeded, so a decode or encode
+// failure leaves the target byte-identical.
+func applyMerge(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, result *ApplyResult) error {
+	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	if err != nil {
+		return fmt.Errorf("resolve declared target: %w", err)
+	}
+
+	format, err := mergeFormatFor(op)
+	if err != nil {
+		return err
+	}
+
+	fragmentPath, err := resolveUnder(resolved.Dir, op.Fragment)
+	if err != nil {
+		return fmt.Errorf("resolve declared fragment: %w", err)
+	}
+	rawFragment, err := os.ReadFile(fragmentPath)
+	if err != nil {
+		return fmt.Errorf("read declared fragment %q: %w", op.Fragment, err)
+	}
+
+	// The fragment is substituted before it is decoded, so a "{{ param }}" works in a
+	// fragment exactly as it does in a create payload.
+	fragment, err := Substitute(string(rawFragment), params)
+	if err != nil {
+		return fmt.Errorf("substitute declared fragment %q: %w", op.Fragment, err)
+	}
+
+	rawTarget, err := os.ReadFile(target)
+	if err != nil {
+		return fmt.Errorf("read declared target %q: %w", op.Target, err)
+	}
+
+	merged, err := mergeDocuments(format, string(rawTarget), fragment)
+	if err != nil {
+		return fmt.Errorf("merge declared fragment %q into %q as %s: %w", op.Fragment, op.Target, format, err)
+	}
+
+	if err := os.WriteFile(target, []byte(merged), 0o644); err != nil {
+		return fmt.Errorf("write declared target %q: %w", op.Target, err)
+	}
+
+	recordWritten(result, op.Target)
+
+	return nil
+}
+
+// mergeFormatFor resolves the op's merge format against the closed allowlist. An
+// unsupported format is a fail-loud error naming the target and the format it could
+// not handle, never a degraded write.
+func mergeFormatFor(op Op) (string, error) {
+	declared := strings.ToLower(strings.TrimSpace(op.Format))
+	if declared == "" {
+		declared = strings.ToLower(strings.TrimPrefix(filepath.Ext(op.Target), "."))
+	}
+
+	switch declared {
+	case mergeFormatJSON, mergeFormatTOML, mergeFormatEnv:
+		return declared, nil
+	case mergeFormatYAML, "yml":
+		return mergeFormatYAML, nil
+	}
+
+	return "", fmt.Errorf(
+		"merge target %q has format %q, which is outside the supported set {%s, %s, %s, %s}; a merge never falls back to a text append",
+		op.Target, declared, mergeFormatJSON, mergeFormatYAML, mergeFormatTOML, mergeFormatEnv,
+	)
+}
+
+// mergeDocuments merges fragment into target under an already-validated format. The
+// three structured formats share one tree merge; the key/value format is merged over
+// its LINE set instead, because its documents carry no tree to decode.
+func mergeDocuments(format string, target string, fragment string) (string, error) {
+	if format == mergeFormatEnv {
+		return mergeKeyValue(target, fragment), nil
+	}
+
+	targetTree, err := decodeStructured(format, []byte(target))
+	if err != nil {
+		return "", fmt.Errorf("decode target: %w", err)
+	}
+	fragmentTree, err := decodeStructured(format, []byte(fragment))
+	if err != nil {
+		return "", fmt.Errorf("decode fragment: %w", err)
+	}
+
+	encoded, err := encodeStructured(format, deepMerge(targetTree, fragmentTree))
+	if err != nil {
+		return "", fmt.Errorf("encode merged document: %w", err)
+	}
+
+	return string(encoded), nil
+}
+
+// decodeStructured decodes one document into a generic tree with the format's codec.
+func decodeStructured(format string, data []byte) (any, error) {
+	var tree any
+	var err error
+
+	switch format {
+	case mergeFormatJSON:
+		err = json.Unmarshal(data, &tree)
+	case mergeFormatYAML:
+		err = yaml.Unmarshal(data, &tree)
+	default:
+		// mergeFormatTOML, the remaining structured member of the closed allowlist.
+		// Its codec needs a concrete table to decode into rather than a bare any.
+		table := make(map[string]any)
+		err = toml.Unmarshal(data, &table)
+		tree = table
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("decode %s document: %w", format, err)
+	}
+
+	return tree, nil
+}
+
+// encodeStructured re-encodes the merged tree with the format's codec. The document
+// is rebuilt from the tree rather than patched textually, so the merged output is the
+// codec's canonical rendering of the union.
+func encodeStructured(format string, tree any) ([]byte, error) {
+	var encoded []byte
+	var err error
+
+	switch format {
+	case mergeFormatJSON:
+		encoded, err = json.MarshalIndent(tree, "", "  ")
+		encoded = append(encoded, '\n')
+	case mergeFormatYAML:
+		encoded, err = yaml.Marshal(tree)
+	default:
+		// mergeFormatTOML, the remaining structured member of the closed allowlist.
+		encoded, err = toml.Marshal(tree)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("encode %s document: %w", format, err)
+	}
+
+	return encoded, nil
+}
+
+// deepMerge merges overlay onto base RECURSIVELY: two tables merge name by name so a
+// nested addition lands inside the existing table with its siblings intact, and any
+// other pairing resolves to the overlay. A shallow overwrite of a nested table — the
+// most likely wrong-but-plausible implementation — would drop exactly the siblings
+// this recursion preserves.
+//
+// A list is replaced wholesale rather than concatenated or element-merged: a list has
+// no name to merge by, so any element-wise rule would be a guess about the document's
+// meaning that the recipe never declared.
+func deepMerge(base any, overlay any) any {
+	baseTable, baseIsTable := base.(map[string]any)
+	overlayTable, overlayIsTable := overlay.(map[string]any)
+	if !baseIsTable || !overlayIsTable {
+		return overlay
+	}
+
+	merged := make(map[string]any, len(baseTable)+len(overlayTable))
+	for name, value := range baseTable {
+		merged[name] = value
+	}
+	for name, value := range overlayTable {
+		if existing, present := merged[name]; present {
+			merged[name] = deepMerge(existing, value)
+			continue
+		}
+		merged[name] = value
+	}
+
+	return merged
+}
+
+// mergeKeyValue merges a key/value fragment into a key/value target by NAME over the
+// target's line set: an overriding name is rewritten IN PLACE, a new name is appended,
+// and every other line — comments and blanks included — is copied through verbatim.
+// Only the fragment's assignments merge; its own commentary is authoring text for the
+// recipe, not content for the target.
+func mergeKeyValue(target string, fragment string) string {
+	fragmentNames, fragmentValues := keyValueAssignments(fragment)
+
+	lines := keyValueLines(target)
+	applied := make(map[string]struct{}, len(fragmentNames))
+	for index, line := range lines {
+		name, _, isAssignment := splitKeyValueLine(line)
+		if !isAssignment {
+			continue
+		}
+		value, overrides := fragmentValues[name]
+		if !overrides {
+			continue
+		}
+		lines[index] = name + "=" + value
+		applied[name] = struct{}{}
+	}
+
+	for _, name := range fragmentNames {
+		if _, done := applied[name]; done {
+			continue
+		}
+		lines = append(lines, name+"="+fragmentValues[name])
+	}
+
+	merged := strings.Join(lines, "\n")
+	if endsWithNewline(target) {
+		merged += "\n"
+	}
+
+	return merged
+}
+
+// keyValueAssignments reads a key/value document's assignments in DECLARED order, so
+// several appended names land in the order the fragment wrote them.
+func keyValueAssignments(content string) ([]string, map[string]string) {
+	lines := keyValueLines(content)
+
+	names := make([]string, 0, len(lines))
+	values := make(map[string]string, len(lines))
+	for _, line := range lines {
+		name, value, isAssignment := splitKeyValueLine(line)
+		if !isAssignment {
+			continue
+		}
+		if _, seen := values[name]; !seen {
+			names = append(names, name)
+		}
+		values[name] = value
+	}
+
+	return names, values
+}
+
+// keyValueLines splits a document into its lines, dropping the empty tail a final
+// newline would otherwise produce.
+func keyValueLines(content string) []string {
+	return strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+// endsWithNewline reports whether a document ended with a newline, so the merged
+// document can end exactly as the target did.
+func endsWithNewline(content string) bool {
+	return strings.HasSuffix(content, "\n")
+}
+
+// splitKeyValueLine reports an assignment line's declared name and its OPAQUE value.
+//
+// The position this takes on trailing "#" text: "#" opens a comment only at the START
+// of a line. On an assignment, everything after the first "=" is the value, trailing
+// "#" text included. A thin executor has no dialect knowledge with which to tell a
+// comment apart from a value that legitimately contains "#", so overriding a name
+// replaces the WHOLE line; untouched lines are copied verbatim, so no comment is lost
+// anywhere the merge did not have to write.
+func splitKeyValueLine(line string) (string, string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", "", false
+	}
+
+	at := strings.Index(line, "=")
+	if at < 0 {
+		return "", "", false
+	}
+
+	return strings.TrimSpace(line[:at]), line[at+1:], true
 }
 
 // effectiveParams builds the substitution scope: the recipe's declared defaults,
