@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -233,8 +235,16 @@ ops:
 	}
 
 	tree := snapshotTree(t, projectRoot)
-	if len(tree) != 1 {
-		t.Fatalf("project root holds %d files (%v), want exactly 1 — the declared target and nothing else", len(tree), pathSet(tree))
+	// The apply also writes the tracked adoption record (REQ-005) — the applier's
+	// own record of what this project adopted, not a recipe-declared target. Both
+	// expected files are NAMED rather than filtered out by count, so a third file
+	// appearing anywhere under the root still fails this assertion.
+	wantFiles := []string{createOp.Target, AdoptionRecordName}
+	sort.Strings(wantFiles)
+	gotFiles := pathSet(tree)
+	sort.Strings(gotFiles)
+	if !reflect.DeepEqual(gotFiles, wantFiles) {
+		t.Fatalf("project root holds %v, want exactly the declared target + adoption record and nothing else (%v)", gotFiles, wantFiles)
 	}
 	if _, atDeclaredTarget := tree[createOp.Target]; !atDeclaredTarget {
 		t.Errorf("written file set = %v, want exactly the recipe-declared target %q", pathSet(tree), createOp.Target)

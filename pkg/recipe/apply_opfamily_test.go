@@ -1,6 +1,8 @@
 package recipe
 
 import (
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -151,8 +153,16 @@ ops:
 	if _, executed := tree[stepOp.Target]; executed {
 		t.Errorf("the step op's declared side effect %q exists; the step must be reserved, not executed", stepOp.Target)
 	}
-	if len(tree) != 2 {
-		t.Errorf("project root holds %v, want only the two file ops' targets", pathSet(tree))
+	// The apply also writes the tracked adoption record (REQ-005) — the applier's
+	// own record of what this project adopted, not an op's output. All three
+	// expected files are NAMED rather than filtered out by count, so the step's
+	// side effect (or any other undeclared write) still fails this assertion.
+	wantFiles := []string{beforeOp.Target, afterOp.Target, AdoptionRecordName}
+	sort.Strings(wantFiles)
+	gotFiles := pathSet(tree)
+	sort.Strings(gotFiles)
+	if !reflect.DeepEqual(gotFiles, wantFiles) {
+		t.Errorf("project root holds %v, want exactly the two file ops' targets + the adoption record and nothing else (%v)", gotFiles, wantFiles)
 	}
 
 	want := []string{beforeOp.Target, afterOp.Target}

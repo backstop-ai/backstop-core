@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/bmanson/backstop-core/pkg/waiver"
 	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +24,12 @@ const (
 	mergeFormatTOML = "toml"
 	mergeFormatEnv  = "env"
 )
+
+// waiverMarker is the literal prefix a waiver token starts with. It is used for
+// REPORTING only — to quote back the token that accounted for a preserved
+// divergence. Adjudication's own scan lives in pkg/waiver and is the only thing
+// that DECIDES anything.
+const waiverMarker = "@waiver:"
 
 // ApplyMode selects where an op's WHERE comes from (REQ-003). Both modes drive the
 // SAME op executors over the same recipe artifact: direct reads the recipe-declared
@@ -47,6 +55,11 @@ type TransformDispatch func(rule string, target string) error
 // declared enforcement rule and a diverged path, it reports whether a covering
 // @waiver is ACTIVE. It is a READ path only — the applier never authors a token,
 // because a waiver's reason and expiry are human judgments.
+//
+// A nil reader is not a disabled check: it selects adjudicateDivergence, this
+// package's own reader over the REAL pkg/waiver read path. The seam exists so a
+// caller can supply a different source, never so the mechanism can be stubbed
+// out of the tests that matter.
 type WaiverReader func(rule string, file string) (covered bool)
 
 // ApplyOptions carries everything the applier is allowed to know that the recipe
@@ -71,15 +84,6 @@ type PreservedDivergence struct {
 	Path           string
 	Rule           string
 	CoveringWaiver string
-}
-
-// AdoptionEntry is the thin, tracked adoption record entry {recipe ref, @version,
-// adopted} (REQ-005) — deliberately carrying none of the rich per-op or per-region
-// provenance that a downstream ledger owns.
-type AdoptionEntry struct {
-	Recipe  string
-	Version string
-	Adopted string
 }
 
 // ApplyResult records what one apply did: the files it WROTE (as the
@@ -114,15 +118,25 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 
 	params := effectiveParams(resolved.Manifest, opts.Params)
 
+	adoptions, err := ReadAdoptions(adoptionRecordPath(opts.ProjectRoot))
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply recipe %q: %w", resolved.Ref, err)
+	}
+	_, previouslyAdopted := adoptions.Recipes[adoptionKey(resolved.Ref)]
+
 	var result ApplyResult
-	owned := make(map[string]struct{}, len(resolved.Manifest.Ops))
+	own := &ownership{
+		kind:       resolved.Manifest.Kind,
+		adopted:    previouslyAdopted,
+		writtenNow: make(map[string]struct{}, len(resolved.Manifest.Ops)),
+	}
 
 	for index, op := range resolved.Manifest.Ops {
 		var err error
 
 		switch op.Kind {
 		case OpCreate:
-			err = applyCreate(resolved, op, opts, params, owned, &result)
+			err = applyCreate(resolved, op, opts, params, own, &result)
 		case OpInsert:
 			err = applyInsert(op, opts, &result)
 		case OpStep:
@@ -139,6 +153,24 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 
 		if err != nil {
 			return ApplyResult{}, opFailure(resolved, index, op, err)
+		}
+	}
+
+	result.Adoption = AdoptionEntry{
+		Recipe:  adoptionKey(resolved.Ref),
+		Version: resolved.Ref.Version,
+		Adopted: time.Now().UTC().Format(time.RFC3339),
+	}
+	// The record is written ONLY when this apply left recipe-owned output in
+	// place. The spec pins that Apply writes the entry, not when it declines to:
+	// a zero-op recipe, or one whose every target turned out to be the
+	// consumer's, has adopted nothing, and recording it anyway would tell the
+	// NEXT apply that a user's own file is recipe-owned and safe to regenerate
+	// over. The entry is still returned on the result either way, so a caller
+	// always sees what would have been recorded.
+	if own.materialized {
+		if err := recordAdoption(adoptions, opts.ProjectRoot, result.Adoption); err != nil {
+			return ApplyResult{}, fmt.Errorf("apply recipe %q: %w", resolved.Ref, err)
 		}
 	}
 
@@ -162,49 +194,239 @@ func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, err
 	return results, nil
 }
 
-// applyCreate materializes the op's payload at its declared target.
+// applyCreate materializes the op's payload at its declared target, gated on the
+// recipe's KIND — the hinge that decides whether re-applying reproduces the
+// recipe's output or leaves the consumer's.
 //
-// A file already present at the target that this apply did not itself write is
-// treated as USER-OWNED and is never clobbered (REQ-004): it is reported in the
-// result instead, so the caller sees a protected file rather than a phantom write.
-func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, owned map[string]struct{}, result *ApplyResult) error {
+// Three cases, in the order they are decided:
+//
+//  1. The target exists and NO previous apply of this recipe adopted it: it is
+//     USER-OWNED and is never clobbered by any kind (REQ-004). This is why the
+//     adoption record is read rather than inferred — a file the recipe DECLARES
+//     and a file the recipe PRODUCED are indistinguishable on disk, and only the
+//     tracked record tells them apart.
+//  2. The target is recipe-owned and the kind is TEMPLATING: one-shot. The output
+//     became consumer-owned the moment it was rendered, so it is not diffed, not
+//     adjudicated, and not rewritten — not even when a pack upgrade changed the
+//     would-be output (REQ-012).
+//  3. The target is recipe-owned and the kind is SCAFFOLDING or IMPLEMENTING:
+//     regenerate-by-default with the accountable-divergence hinge — compute the
+//     would-be bytes, diff, and on a divergence PRESERVE only if a covering
+//     @waiver is adjudicated ACTIVE, otherwise regenerate over it.
+func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, result *ApplyResult) error {
 	target, err := resolveUnder(opts.ProjectRoot, op.Target)
 	if err != nil {
 		return fmt.Errorf("resolve declared target: %w", err)
 	}
 
-	if _, statErr := os.Stat(target); statErr == nil {
-		if _, recipeOwned := owned[op.Target]; !recipeOwned {
-			result.Preserved = append(result.Preserved, PreservedDivergence{Path: op.Target})
-			return nil
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("inspect declared target %q: %w", op.Target, statErr)
+	_, writtenThisRun := own.writtenNow[op.Target]
+	present, err := targetExists(op.Target, target)
+	if err != nil {
+		return err
 	}
 
+	if present && !writtenThisRun {
+		preserved, done, err := preserveOrRegenerate(resolved, op, opts, params, own, target)
+		if err != nil {
+			return err
+		}
+		if done {
+			if preserved != nil {
+				result.Preserved = append(result.Preserved, *preserved)
+			}
+			return nil
+		}
+	}
+
+	rendered, err := renderPayload(resolved, op, params)
+	if err != nil {
+		return err
+	}
+	if err := writeRendered(op.Target, target, rendered); err != nil {
+		return err
+	}
+
+	own.writtenNow[op.Target] = struct{}{}
+	own.materialized = true
+	recordWritten(result, op.Target)
+
+	return nil
+}
+
+// preserveOrRegenerate decides what happens to a target that is ALREADY on disk.
+// It reports the divergence to record (nil when there is nothing to report) and
+// whether the decision is final — done=false means the caller regenerates.
+func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, target string) (*PreservedDivergence, bool, error) {
+	if !own.adopted {
+		// USER-OWNED: no apply of this recipe ever produced this file, so it is
+		// the consumer's outright. Rule and CoveringWaiver stay empty — nothing
+		// was adjudicated, and the applier never authors the token that would
+		// account for one.
+		return &PreservedDivergence{Path: op.Target}, true, nil
+	}
+
+	if own.kind == KindTemplating {
+		// ONE-SHOT / consumer-owned (REQ-012). Reached without reading the file
+		// or consulting the waiver seam: templating output carries no
+		// regeneration obligation, so there is no divergence to account for.
+		own.materialized = true
+		return &PreservedDivergence{Path: op.Target}, true, nil
+	}
+
+	rendered, err := renderPayload(resolved, op, params)
+	if err != nil {
+		return nil, false, fmt.Errorf("compute the would-be regenerated output for %q: %w", op.Target, err)
+	}
+	onDisk, err := os.ReadFile(target)
+	if err != nil {
+		return nil, false, fmt.Errorf("read recipe-owned target %q: %w", op.Target, err)
+	}
+	if string(onDisk) == rendered {
+		own.materialized = true
+		return nil, true, nil
+	}
+
+	if rule, covering, covered := coveredDivergence(resolved, opts, target); covered {
+		own.materialized = true
+		return &PreservedDivergence{Path: op.Target, Rule: rule, CoveringWaiver: covering}, true, nil
+	}
+
+	return nil, false, nil
+}
+
+// coveredDivergence adjudicates a diverged recipe-owned file against the recipe's
+// DECLARED enforcement rules and reports the rule and the covering token when one
+// of them is waived. A recipe that declares no enforcement rule has no rule id a
+// consumer could waive against, so its divergences are always regenerated.
+func coveredDivergence(resolved *ResolvedRecipe, opts ApplyOptions, target string) (string, string, bool) {
+	for _, rule := range enforcementRules(resolved) {
+		read := opts.ReadWaivers
+		if read == nil {
+			read = adjudicateDivergence
+		}
+		if !read(rule, target) {
+			continue
+		}
+		return rule, coveringWaiverText(target, rule), true
+	}
+
+	return "", "", false
+}
+
+// adjudicateDivergence is this package's own WaiverReader over the REAL
+// pkg/waiver read path, and it implements THE LINE CONTRACT.
+//
+// waiver.Adjudicate associates a token with a finding through a {Line, Line-1}
+// window ONLY (pkg/waiver/adjudicate.go windowLines). A divergence, unlike an
+// engine finding, has no single line — and recipe-owned output includes formats
+// with no comment slot at a fixed position (a JSON document cannot carry a token
+// on its first line). So the divergence becomes ONE finding PER LINE of the
+// diverged file, all adjudicated in a SINGLE call, and it is covered iff at least
+// one of them lands in Result.Suppressed. A single fixed-line finding would only
+// ever see a token on that line or the one above it.
+//
+// The Policy is nil (every rule waivable here): the declared non-waivable tier is
+// the GATE's adjudication to make, not the applier's.
+func adjudicateDivergence(rule string, file string) bool {
+	lines, err := rawFileLines(file)
+	if err != nil {
+		return false
+	}
+
+	findings := make([]waiver.Finding, 0, len(lines))
+	for index := range lines {
+		findings = append(findings, waiver.Finding{RuleID: rule, File: file, Line: index + 1})
+	}
+
+	read := func(named string, line int) (string, bool) {
+		if named != file || line < 1 || line > len(lines) {
+			return "", false
+		}
+		return lines[line-1], true
+	}
+
+	return len(waiver.Adjudicate(findings, read, nil, time.Now()).Suppressed) > 0
+}
+
+// coveringWaiverText re-reads the covering token's raw text so the result can
+// report the token that ACCOUNTED for the divergence.
+//
+// This is REPORTING ONLY. The decision to preserve was already made by
+// waiver.Adjudicate — expiry and rule-id identity included — and this scan
+// changes nothing about it; an expired or wrong-rule token never reaches here.
+func coveringWaiverText(file string, rule string) string {
+	lines, err := rawFileLines(file)
+	if err != nil {
+		return ""
+	}
+
+	marker := waiverMarker + rule + ":"
+	for _, line := range lines {
+		at := strings.Index(line, marker)
+		if at < 0 {
+			continue
+		}
+		return strings.TrimSpace(line[at:])
+	}
+
+	return ""
+}
+
+// enforcementRules returns the recipe's DECLARED enforcement rules — the rule ids
+// a consumer's divergence waiver must name. Nothing here invents one.
+func enforcementRules(resolved *ResolvedRecipe) []string {
+	if resolved.Manifest.Enforcement == nil {
+		return nil
+	}
+
+	return resolved.Manifest.Enforcement.Rules
+}
+
+// targetExists reports whether a declared target is already on disk. An
+// inspection failure other than absence is fail-loud: treating it as "absent"
+// would clobber a file the applier could not read.
+func targetExists(declared string, target string) (bool, error) {
+	if _, err := os.Stat(target); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect declared target %q: %w", declared, err)
+	}
+
+	return true, nil
+}
+
+// renderPayload reads the op's declared payload from the recipe directory and
+// substitutes the effective params, producing the WOULD-BE output bytes. Both the
+// fresh write and the divergence diff go through it, so what is compared is
+// exactly what would be written.
+func renderPayload(resolved *ResolvedRecipe, op Op, params map[string]string) (string, error) {
 	payload, err := resolveUnder(resolved.Dir, op.Payload)
 	if err != nil {
-		return fmt.Errorf("resolve declared payload: %w", err)
+		return "", fmt.Errorf("resolve declared payload: %w", err)
 	}
 	raw, err := os.ReadFile(payload)
 	if err != nil {
-		return fmt.Errorf("read declared payload %q: %w", op.Payload, err)
+		return "", fmt.Errorf("read declared payload %q: %w", op.Payload, err)
 	}
 
 	rendered, err := Substitute(string(raw), params)
 	if err != nil {
-		return fmt.Errorf("substitute declared payload %q: %w", op.Payload, err)
+		return "", fmt.Errorf("substitute declared payload %q: %w", op.Payload, err)
 	}
 
+	return rendered, nil
+}
+
+// writeRendered materializes rendered bytes at a declared target, creating the
+// parent directories the declared path implies.
+func writeRendered(declared string, target string, rendered string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("create parent directory for %q: %w", op.Target, err)
+		return fmt.Errorf("create parent directory for %q: %w", declared, err)
 	}
 	if err := os.WriteFile(target, []byte(rendered), 0o644); err != nil {
-		return fmt.Errorf("write declared target %q: %w", op.Target, err)
+		return fmt.Errorf("write declared target %q: %w", declared, err)
 	}
-
-	owned[op.Target] = struct{}{}
-	recordWritten(result, op.Target)
 
 	return nil
 }
@@ -495,7 +717,7 @@ func deepMerge(base any, overlay any) any {
 func mergeKeyValue(target string, fragment string) string {
 	fragmentNames, fragmentValues := keyValueAssignments(fragment)
 
-	lines := keyValueLines(target)
+	lines := rawLines(target)
 	applied := make(map[string]struct{}, len(fragmentNames))
 	for index, line := range lines {
 		name, _, isAssignment := splitKeyValueLine(line)
@@ -528,7 +750,7 @@ func mergeKeyValue(target string, fragment string) string {
 // keyValueAssignments reads a key/value document's assignments in DECLARED order, so
 // several appended names land in the order the fragment wrote them.
 func keyValueAssignments(content string) ([]string, map[string]string) {
-	lines := keyValueLines(content)
+	lines := rawLines(content)
 
 	names := make([]string, 0, len(lines))
 	values := make(map[string]string, len(lines))
@@ -546,10 +768,22 @@ func keyValueAssignments(content string) ([]string, map[string]string) {
 	return names, values
 }
 
-// keyValueLines splits a document into its lines, dropping the empty tail a final
-// newline would otherwise produce.
-func keyValueLines(content string) []string {
+// rawLines splits a document into its lines, dropping the empty tail a final
+// newline would otherwise produce. It is the one splitter behind both the
+// key/value merge's line set and the divergence scan's 1-indexed line view.
+func rawLines(content string) []string {
 	return strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+// rawFileLines reads a file as its raw lines, the view waiver adjudication is
+// given: no parse, no comment lexer, no language identifier anywhere.
+func rawFileLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %q: %w", path, err)
+	}
+
+	return rawLines(string(data)), nil
 }
 
 // endsWithNewline reports whether a document ended with a newline, so the merged
@@ -633,6 +867,48 @@ func recordWritten(result *ApplyResult, target string) {
 		}
 	}
 	result.Written = append(result.Written, target)
+}
+
+// ownership is one apply's ownership state: the recipe KIND (the
+// regenerate-vs-one-shot switch), whether a PREVIOUS apply of this recipe was
+// recorded as adopted, the declared targets THIS run wrote, and whether the run
+// left any recipe-owned output in place.
+type ownership struct {
+	kind         string
+	adopted      bool
+	writtenNow   map[string]struct{}
+	materialized bool
+}
+
+// adoptionKey is a recipe's VERSION-INDEPENDENT identity in the adoption record,
+// so re-applying at a new pin updates one entry instead of accumulating a row per
+// version.
+func adoptionKey(ref RecipeRef) string {
+	return ref.Pack + ":" + ref.Recipe
+}
+
+// adoptionRecordPath locates the tracked record at the caller-supplied project
+// root — the only root the applier ever writes beneath.
+func adoptionRecordPath(projectRoot string) string {
+	return filepath.Join(projectRoot, AdoptionRecordName)
+}
+
+// recordAdoption upserts one entry into the record already read at the start of
+// this apply and writes it back. It is reached only when the apply left
+// recipe-owned output in place: a run that produced none (a zero-op recipe, or
+// one whose every target turned out to be the consumer's) adopts nothing, and a
+// run that FAILED never reaches it at all.
+func recordAdoption(adoptions *AdoptionRecord, projectRoot string, entry AdoptionEntry) error {
+	if adoptions.Recipes == nil {
+		adoptions.Recipes = make(map[string]AdoptionEntry, 1)
+	}
+	adoptions.Recipes[entry.Recipe] = entry
+
+	if err := WriteAdoptions(adoptionRecordPath(projectRoot), adoptions); err != nil {
+		return fmt.Errorf("record adoption of %q: %w", entry.Recipe, err)
+	}
+
+	return nil
 }
 
 // opFailure names the recipe, the op's position, its id, and its kind on every
