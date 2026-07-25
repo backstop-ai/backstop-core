@@ -177,16 +177,23 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 	return result, nil
 }
 
-// ApplyAll applies several resolved recipes strictly SEQUENTIALLY in the given
-// order, never reordering or interleaving them. The first failure stops the run and
-// returns no partial verdict.
+// ApplyAll applies several resolved recipes strictly SEQUENTIALLY in the GIVEN
+// order (REQ-013). It never sorts, never dedupes by reordering, never parallelizes
+// and never interleaves: co-writes to one file compose precisely BECAUSE the order
+// is preserved and merge is additive, so a co-write is composition rather than a
+// conflict and there is no arbitration here.
+//
+// The first failure stops the run and returns the results accumulated SO FAR
+// alongside the error, so a caller can see how far the sequence got instead of being
+// told only that it failed. A run that fails on its FIRST recipe has accumulated
+// nothing and returns no results at all.
 func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, error) {
-	results := make([]ApplyResult, 0, len(resolved))
+	var results []ApplyResult
 
 	for index, one := range resolved {
 		result, err := Apply(one, opts)
 		if err != nil {
-			return nil, fmt.Errorf("apply recipe %d of %d: %w", index+1, len(resolved), err)
+			return results, fmt.Errorf("apply recipe %d of %d: %w", index+1, len(resolved), err)
 		}
 		results = append(results, result)
 	}
@@ -436,32 +443,36 @@ func writeRendered(declared string, target string, rendered string) error {
 // fail-loud error: the applier never guesses a site and never falls back to
 // appending at the end of the file.
 func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
-	if strings.TrimSpace(op.Anchor) == "" {
-		return errors.New("insert op declares no anchor; the applier contributes no insertion site")
+	site := siteFor(op, opts)
+	if strings.TrimSpace(site.target) == "" {
+		return missingSite(op, "target")
+	}
+	if strings.TrimSpace(site.anchor) == "" {
+		return missingSite(op, "anchor")
 	}
 
-	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	target, err := resolveUnder(opts.ProjectRoot, site.target)
 	if err != nil {
-		return fmt.Errorf("resolve declared target: %w", err)
+		return fmt.Errorf("resolve insertion site: %w", err)
 	}
 	raw, err := os.ReadFile(target)
 	if err != nil {
-		return fmt.Errorf("read declared target %q: %w", op.Target, err)
+		return fmt.Errorf("read insertion site %q: %w", site.target, err)
 	}
 
 	content := string(raw)
-	anchorAt := strings.Index(content, op.Anchor)
+	anchorAt := strings.Index(content, site.anchor)
 	if anchorAt < 0 {
-		return injectionLimit(op, fmt.Errorf("declared anchor %q is absent from the target", op.Anchor))
+		return injectionLimit(site.target, op, fmt.Errorf("anchor %q is absent from the target", site.anchor))
 	}
 
-	spliceAt := anchorAt + len(op.Anchor)
+	spliceAt := anchorAt + len(site.anchor)
 	updated := content[:spliceAt] + op.Snippet + content[spliceAt:]
 	if err := os.WriteFile(target, []byte(updated), 0o644); err != nil {
-		return fmt.Errorf("write declared target %q: %w", op.Target, err)
+		return fmt.Errorf("write insertion site %q: %w", site.target, err)
 	}
 
-	recordWritten(result, op.Target)
+	recordWritten(result, site.target)
 
 	return nil
 }
@@ -485,26 +496,92 @@ func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *
 		return errors.New("no transform dispatch was supplied; the transform seam is injected and has no default")
 	}
 
+	site := siteFor(op, opts)
+	if strings.TrimSpace(site.target) == "" {
+		return missingSite(op, "target")
+	}
+
 	rule, err := resolveUnder(resolved.Dir, op.Rule)
 	if err != nil {
 		return fmt.Errorf("resolve declared rule: %w", err)
 	}
-	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	target, err := resolveUnder(opts.ProjectRoot, site.target)
 	if err != nil {
-		return fmt.Errorf("resolve declared target: %w", err)
+		return fmt.Errorf("resolve rewrite site: %w", err)
 	}
 
 	if _, statErr := os.Stat(target); statErr != nil {
-		return injectionLimit(op, fmt.Errorf("the declared target could not be opened: %w", statErr))
+		return injectionLimit(site.target, op, fmt.Errorf("the target could not be opened: %w", statErr))
 	}
 
 	if dispatchErr := opts.Dispatch(rule, target); dispatchErr != nil {
-		return injectionLimit(op, dispatchErr)
+		return injectionLimit(site.target, op, dispatchErr)
 	}
 
-	recordWritten(result, op.Target)
+	recordWritten(result, site.target)
 
 	return nil
+}
+
+// injectionSite is the resolved WHERE for one injection-accepting op: the file the
+// write lands in and, for an insert, the anchor it splices at.
+type injectionSite struct {
+	target string
+	anchor string
+}
+
+// injectionSiteSeparator splits a supplied site into its target and anchor halves.
+// It is core-owned OPTION grammar, carrying no knowledge about the files a recipe
+// touches.
+const injectionSiteSeparator = "#"
+
+// siteFor resolves the WHERE for an injection-accepting op (REQ-003).
+//
+// In DIRECT mode the answer is ALWAYS the recipe declaration: opts.InjectionSites is
+// not consulted at all, so a caller that supplies one anyway cannot move a write.
+// In SDLC-MEDIATED mode a site keyed by the op id overrides the declaration, and the
+// value may carry either half: "<target>", "<target>#<anchor>", or "#<anchor>" to
+// keep the declared target and place only the anchor. An empty half falls back to
+// the declaration, so a supplied site never ERASES one.
+//
+// Only transform and insert reach here. create, merge and step are not
+// injection-accepting and never consult a site.
+func siteFor(op Op, opts ApplyOptions) injectionSite {
+	site := injectionSite{target: op.Target, anchor: op.Anchor}
+	if opts.Mode != ModeSDLCMediated {
+		return site
+	}
+
+	supplied, present := opts.InjectionSites[op.ID]
+	if !present {
+		return site
+	}
+
+	target, anchor := supplied, ""
+	if at := strings.Index(supplied, injectionSiteSeparator); at >= 0 {
+		target, anchor = supplied[:at], supplied[at+len(injectionSiteSeparator):]
+	}
+	if strings.TrimSpace(target) != "" {
+		site.target = target
+	}
+	if strings.TrimSpace(anchor) != "" {
+		site.anchor = anchor
+	}
+
+	return site
+}
+
+// missingSite renders the failure for an injection-accepting op that has NEITHER a
+// recipe-declared half NOR a supplied one (REQ-003). There is no fallback: the
+// applier never defaults a target, never appends at the end of a file, and never
+// guesses an anchor, because a guessed site writes into the consumer codebase. The
+// DECLARED manual instruction is relayed VERBATIM (REQ-011), so the operator is left
+// with the same actionable text an unreachable site would have produced.
+func missingSite(op Op, part string) error {
+	return fmt.Errorf(
+		"the op declares no %s and no injection site supplied one; the applier never guesses a site. Apply the declared instruction by hand: %s",
+		part, op.Manual,
+	)
 }
 
 // injectionLimit renders the failure for an op whose declared site could not be
@@ -517,10 +594,10 @@ func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *
 // invent, so the recipe supplies it as data and this only relays it. The target half of
 // the locator is here; the op id half comes from opFailure, which wraps every op
 // failure on the way out.
-func injectionLimit(op Op, cause error) error {
+func injectionLimit(target string, op Op, cause error) error {
 	return fmt.Errorf(
 		"the declared site in target %q could not be reached (%v); apply the recipe's declared instruction by hand: %s",
-		op.Target, cause, op.Manual,
+		target, cause, op.Manual,
 	)
 }
 
