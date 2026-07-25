@@ -2,7 +2,7 @@
 title: "Recipe Apply And Manifest"
 number: SPEC-054
 created: "2026-07-21"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.2.0
 

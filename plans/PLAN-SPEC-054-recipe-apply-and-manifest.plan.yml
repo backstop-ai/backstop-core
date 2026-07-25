@@ -1,9 +1,9 @@
 ---
 plan_id: PLAN-SPEC-054
 spec_id: SPEC-054
-spec_version: "1.1.1"
+spec_version: "1.2.0"
 created: "2026-07-25"
-status: draft
+status: completed
 test_command: "backstop gate"
 coverage_threshold: 80
 
