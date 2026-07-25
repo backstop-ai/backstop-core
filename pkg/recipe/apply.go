@@ -132,7 +132,7 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 		case OpMerge:
 			err = applyMerge(resolved, op, opts, params, &result)
 		case OpTransform:
-			err = applyTransform(op, opts)
+			err = applyTransform(resolved, op, opts, &result)
 		default:
 			err = fmt.Errorf("op kind %q is outside the closed allowlist {%s, %s, %s, %s, %s}", op.Kind, OpCreate, OpMerge, OpTransform, OpInsert, OpStep)
 		}
@@ -230,7 +230,7 @@ func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
 	content := string(raw)
 	anchorAt := strings.Index(content, op.Anchor)
 	if anchorAt < 0 {
-		return fmt.Errorf("declared anchor %q is absent from target %q", op.Anchor, op.Target)
+		return injectionLimit(op, fmt.Errorf("declared anchor %q is absent from the target", op.Anchor))
 	}
 
 	spliceAt := anchorAt + len(op.Anchor)
@@ -244,17 +244,62 @@ func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
 	return nil
 }
 
-// applyTransform hands the op's declared rule and target to the injected dispatch.
+// applyTransform hands the op's declared rule and its declared target to the injected
+// dispatch, both resolved against the bases they are declared relative to — the rule
+// under the recipe directory, the target under the project root. Nothing else about
+// the rewrite is known here: the rule is the recipe's, the engine is the caller's, and
+// the applier carries no rewrite of its own.
 //
 // A nil dispatch is a fail-loud CONFIGURATION error, not a no-op: silently skipping
 // the rewrite would let every transform assertion pass while nothing happened, which
 // is exactly the failure the injected seam exists to make impossible.
-func applyTransform(op Op, opts ApplyOptions) error {
+//
+// There is no trust check here. No type this package declares carries an engine tool
+// or a locked version to check one against, so the dispatch is the WHOLE seam, and the
+// production implementation gates the engine at the layer that can see the pack's
+// declared engines and the lock file.
+func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *ApplyResult) error {
 	if opts.Dispatch == nil {
 		return errors.New("no transform dispatch was supplied; the transform seam is injected and has no default")
 	}
 
-	return errors.New("the transform op family is not implemented yet")
+	rule, err := resolveUnder(resolved.Dir, op.Rule)
+	if err != nil {
+		return fmt.Errorf("resolve declared rule: %w", err)
+	}
+	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	if err != nil {
+		return fmt.Errorf("resolve declared target: %w", err)
+	}
+
+	if _, statErr := os.Stat(target); statErr != nil {
+		return injectionLimit(op, fmt.Errorf("the declared target could not be opened: %w", statErr))
+	}
+
+	if dispatchErr := opts.Dispatch(rule, target); dispatchErr != nil {
+		return injectionLimit(op, dispatchErr)
+	}
+
+	recordWritten(result, op.Target)
+
+	return nil
+}
+
+// injectionLimit renders the failure for an op whose declared site could not be
+// reached (REQ-011): the transform whose target or match is not there, and the insert
+// whose declared anchor is absent.
+//
+// The op's DECLARED manual instruction is emitted LAST and VERBATIM — never composed,
+// paraphrased, re-wrapped, or templated. An actionable "wire it in by hand like THIS"
+// is language- and framework-specific knowledge the applier does not have and must not
+// invent, so the recipe supplies it as data and this only relays it. The target half of
+// the locator is here; the op id half comes from opFailure, which wraps every op
+// failure on the way out.
+func injectionLimit(op Op, cause error) error {
+	return fmt.Errorf(
+		"the declared site in target %q could not be reached (%v); apply the recipe's declared instruction by hand: %s",
+		op.Target, cause, op.Manual,
+	)
 }
 
 // applyMerge merges the op's declared fragment into its declared target.
