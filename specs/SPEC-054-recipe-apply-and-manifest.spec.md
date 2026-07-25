@@ -4,7 +4,7 @@ number: SPEC-054
 created: "2026-07-21"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.1
+spec_version: 1.2.0
 
 implementation:
   summary: >
@@ -385,7 +385,14 @@ claims:
   # REQ-006 — zero literals; transform reuses the engine trust gate; backstop/self green
   - id: CLM-025
     requirement: REQ-006
-    text: Transform dispatch runs through the same engine.CheckToolAllowed trust gate — an un-allowlisted engine tool is rejected as a ConfigError
+    subject: cmd/backstop
+    text: >
+      Transform dispatch runs through the same engine.CheckToolAllowed trust gate — an
+      un-allowlisted engine tool is rejected as a ConfigError before any command is built.
+      Per-claim `subject: cmd/backstop` (like CLM-027/CLM-063): the trust gate is only
+      reachable from the layer that can see the pack's `engines:` block, so the test drives
+      the root command from cmd/backstop and would otherwise fail the substantiveness
+      noTarget join against the inherited `pkg/recipe` subject.
     tests:
       - TestApply_TransformOp_UnallowlistedEngineRejected
   - id: CLM-026
@@ -658,12 +665,12 @@ contracts:
         notes: "Parses the pinned ref shape; an unpinned or malformed ref (no @X.Y.Z) is an error (CLM-049)."
       - name: ResolvedRecipe
         kind: type
-        signature: "type ResolvedRecipe struct { Ref RecipeRef; Dir string; Manifest *RecipeManifest }"
-        notes: "A ref resolved to a recipe directory + parsed manifest (REQ-010)."
+        signature: "type ResolvedRecipe struct { Ref RecipeRef; Dir string; PackDir string; Manifest *RecipeManifest }"
+        notes: "A ref resolved to a recipe directory + parsed manifest (REQ-010). Dir is the RECIPE directory (recipe.yml + payloads); PackDir is the enclosing PACK root, carried because Op.Rule is a PACK-relative rule-file path (Op contract, REQ-009) — the transform executor resolves the rule under PackDir, which is what lets one pack share a rule file across several of its recipes. Both are set by ResolveRecipe; nothing downstream re-derives either."
       - name: ResolveRecipe
         kind: function
         signature: "func ResolveRecipe(ref RecipeRef, packs map[string]*pack.Manifest, packDir string) (*ResolvedRecipe, error)"
-        notes: "Apply-time resolution (REQ-010): fail-loud on a missing pack, a recipe id absent from the pack's recipes: index, or a @version mismatch with the recipe's declared version. Reads the pack.Manifest.Recipes index."
+        notes: "Apply-time resolution (REQ-010): fail-loud on a missing pack, a recipe id absent from the pack's recipes: index, or a @version mismatch with the recipe's declared version. Reads the pack.Manifest.Recipes index. Sets both ResolvedRecipe.Dir (packDir joined with the index's declared directory) and ResolvedRecipe.PackDir (the packDir argument verbatim)."
     consumes:
       - source: pkg/pack
         name: Manifest
@@ -681,7 +688,7 @@ contracts:
       - name: TransformDispatch
         kind: type
         signature: "type TransformDispatch func(rule string, target string) error"
-        notes: "The injected transform-engine dispatch seam; the production implementation runs the allowlisted general engine through engine.CheckToolAllowed (REQ-006). Kept as a seam so an un-allowlisted engine is rejected on the real path (CLM-025) without stubbing the allowlist open."
+        notes: "The injected transform-engine dispatch seam — and the ONLY transform-engine seam pkg/recipe has. pkg/recipe itself does NOT call engine.CheckToolAllowed: no type in this package carries a tool name or a locked version, so the trust gate is unimplementable here. The production Dispatch is built in cmd/backstop/recipe_apply.go, which runs the gate BEFORE constructing the closure, so an un-allowlisted tool's command is never built (REQ-006). Kept as a seam so the reject path is exercised on the real gate (CLM-025, a cmd/backstop test) without stubbing the allowlist open."
       - name: WaiverReader
         kind: type
         signature: "type WaiverReader func(rule string, file string) (covered bool)"
@@ -703,15 +710,21 @@ contracts:
         signature: "func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, error)"
         notes: "Strictly sequential, deterministic multi-recipe apply in the given declared order; never reorders/interleaves; same-file co-writes compose via merge in order (REQ-013)."
     consumes:
-      - source: pkg/pack/engine
-        name: CheckToolAllowed
-        kind: function
       - source: pkg/waiver
         name: Adjudicate
         kind: function
       - source: pkg/waiver
         name: LineReader
         kind: type
+      - source: encoding/json
+        name: Unmarshal
+        kind: function
+      - source: gopkg.in/yaml.v3
+        name: Unmarshal
+        kind: function
+      - source: github.com/pelletier/go-toml/v2
+        name: Unmarshal
+        kind: function
   - file: pkg/recipe/substitute.go
     provides:
       - name: Substitute
@@ -745,17 +758,17 @@ contracts:
       - name: validateRecipesIndex
         kind: function
         signature: "func validateRecipesIndex(m *Manifest, packRoot string) error"
-        notes: "Called from ParseManifest/pack validation: fail-loud on a recipes: entry pointing at a missing directory or one lacking a recipe.yml (CLM-035). Does not collide with the existing Content.Scaffolds validation."
+        notes: "Called from ParseManifest/pack validation: fail-loud on a recipes: entry pointing at a missing directory or one lacking a recipe.yml (CLM-035). The check is STRUCTURAL ONLY — directory exists under packRoot and contains a recipe.yml — and pkg/pack MUST NOT import pkg/recipe to do it: pkg/recipe imports pkg/pack (ResolveRecipe takes map[string]*pack.Manifest), so parsing recipe.yml here would invert that dependency into an import cycle. recipe.yml CONTENT is validated at resolve time by pkg/recipe.ParseRecipeManifest. Does not collide with the existing Content.Scaffolds validation."
     consumes:
-      - source: pkg/recipe
-        name: ParseRecipeManifest
+      - source: os
+        name: Stat
         kind: function
   - file: cmd/backstop/recipe_apply.go
     provides:
       - name: runRecipeApply
         kind: function
         signature: "func runRecipeApply(ref string, projectRoot string) error"
-        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, builds the production TransformDispatch that routes through engine.CheckToolAllowed via the concrete trusted-tool allowlist resolver (the SAME gate the enforcement dispatch uses — REQ-006) AND the production WaiverReader over the real pkg/waiver read path (REQ-004), runs Apply, and writes the adoption record. The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it."
+        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, selects the pack's single provisioned engine binding from declared data, RUNS THE TRUST GATE (checkEngineToolAllowed → engine.CheckToolAllowed over resolveTrustedToolAllowlist, the SAME gate the enforcement dispatch uses — REQ-006) and only then builds the production TransformDispatch, so an un-allowlisted tool's command is never constructed; runs Apply and writes the adoption record. THIS FILE IS WHERE THE TRUST GATE LIVES — pkg/recipe cannot host it (no type there carries a tool or a locked version). ReadWaivers is left nil so apply.go's own real pkg/waiver read path is used rather than forking adjudication into a second implementation (REQ-004). The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it."
     consumes:
       - source: pkg/recipe
         name: Apply
@@ -763,6 +776,15 @@ contracts:
       - source: pkg/recipe
         name: ResolveRecipe
         kind: function
+      - source: pkg/pack/engine
+        name: CheckToolAllowed
+        kind: function
+      - source: pkg/pack/engine
+        name: EngineBinding
+        kind: type
+      - source: pkg/check
+        name: ExecCommandRunner
+        kind: type
 ---
 
 # SPEC-054: Recipe Apply And Manifest
@@ -897,7 +919,9 @@ divergence from *recipe-owned* output is an accountable `@waiver`, never a bespo
 - `pkg/recipe/manifest.go` (NEW) — `RecipeManifest`, `Op`, `ParamSpec`, kind/op-kind
   constants, and `ParseRecipeManifest` with structural validation (REQ-009).
 - `pkg/recipe/resolve.go` (NEW) — `RecipeRef`, `ParseRecipeRef`, `ResolveRecipe`
-  (apply-time reference resolution, REQ-010), reading `pack.Manifest.Recipes`.
+  (apply-time reference resolution, REQ-010), reading `pack.Manifest.Recipes`. `ResolvedRecipe`
+  carries BOTH the recipe directory (`Dir`) and the enclosing pack root (`PackDir`), because
+  `Op.Rule` is pack-relative.
 - `pkg/recipe/apply.go` (NEW) — `Apply` (single recipe, REQ-001/002/004/005/006/007/011/012)
   and `ApplyAll` (sequential multi-recipe, REQ-013), the two `ApplyMode`s (REQ-003), and the
   `TransformDispatch` seam (REQ-006).
@@ -908,9 +932,10 @@ divergence from *recipe-owned* output is an accountable `@waiver`, never a bespo
 - `pkg/pack/manifest.go` (EXTEND) — add the `Recipes map[string]string` field (the
   `recipes:` index) and `validateRecipesIndex`, wired into `ParseManifest` next to (never
   colliding with) the existing `Content.Scaffolds` handling (REQ-008).
-- `cmd/backstop/recipe_apply.go` (NEW) — thin `backstop recipe apply` wiring that builds the
-  production `TransformDispatch` from the concrete trusted-tool allowlist resolver so the
-  transform dispatch runs the SAME `engine.CheckToolAllowed` gate as enforcement (REQ-006).
+- `cmd/backstop/recipe_apply.go` (NEW) — thin `backstop recipe apply` wiring that RUNS the
+  concrete trusted-tool allowlist gate and only then builds the production `TransformDispatch`,
+  so the transform dispatch clears the SAME `engine.CheckToolAllowed` gate as enforcement
+  (REQ-006). This file, not `pkg/recipe`, is where the trust gate lives.
 
 ### Transform dispatch reuses the existing engine trust gate (REQ-006)
 
@@ -922,10 +947,44 @@ introduce a second dispatch path — it routes through `engine.CheckToolAllowed`
 (cmd/backstop/pack_gate.go:812) runs before dispatching an enforcement engine, and the
 identical allowlist resolver (`resolveTrustedToolAllowlist`, cmd/backstop/pack_gate.go:46).
 An un-allowlisted or non-lock-pinned engine tool is rejected as a `*check.ConfigError`
-(exit 2) exactly as on the enforcement path. In `pkg/recipe` this is expressed as the
-injected `TransformDispatch` seam so unit tests can drive the allowlist matrix WITHOUT
-stubbing the gate open (mirrors the `sandboxedRun`/allowlist seams in pack_gate.go); the
-production seam in `cmd/backstop/recipe_apply.go` wires the concrete gate.
+(exit 2) exactly as on the enforcement path.
+
+**The gate lives at the CLI layer, and `pkg/recipe`'s only seam is `opts.Dispatch`.**
+`pkg/recipe` does NOT call `engine.CheckToolAllowed`: no type in that package carries a tool
+name or a locked version, so the gate is unimplementable there. `cmd/backstop/recipe_apply.go`
+selects the pack's single provisioned engine binding from declared data, runs
+`checkEngineToolAllowed` (→ `engine.CheckToolAllowed` over `resolveTrustedToolAllowlist`), and
+only THEN builds the `TransformDispatch` closure — the same gate-before-command-construction
+order `runFindingsEngine` uses, so an un-allowlisted tool's command is never constructed. The
+closure runs the engine through `check.CommandRunner` (`check.ExecCommandRunner` with
+`Dir = projectRoot`), the same runner the enforcement dispatch uses; it is NOT the
+convert-step sandbox runner, whose deny-all-writes profile would make a `transform` — which by
+definition writes a consumer file — structurally impossible. Keeping the dispatch injected
+lets `pkg/recipe`'s op-level tests drive transform behavior without stubbing any gate open,
+while the reject path itself (CLM-025) is tested at `cmd/backstop`, the only layer that can
+see the pack's `engines:` block.
+
+An op's `rule` is a PACK-relative path, so the transform executor resolves it under
+`ResolvedRecipe.PackDir` (the pack root `ResolveRecipe` carried through), not under the recipe
+directory — that is what lets one pack share a rule file across several of its recipes.
+
+### The `merge` format matrix and its codecs (REQ-002)
+
+The closed merge allowlist is {json, yaml, toml, .env}; anything else fails loud (never a text
+append). The three STRUCTURED members decode to a generic tree, deep-merge name by name, and
+re-encode with the same codec, so the merged file is the codec's canonical rendering of the
+union; `.env` has no tree to decode and is merged over its KEY/VALUE LINE set instead. The
+codecs are DATA-SHAPE readers, not language or tool knowledge (REQ-006): none of them implies
+which language or toolchain wrote the file, and the recipe still supplies every path, fragment,
+and format token.
+
+Two of the four codecs are already in core (`encoding/json` from the standard library,
+`gopkg.in/yaml.v3` from pack-manifest parsing) and `.env` needs none. TOML does — so this spec
+promotes **`github.com/pelletier/go-toml/v2` to a DIRECT dependency of the module** (it was
+previously only an indirect one, pulled in through the lint toolchain). That is recorded here
+and in `pkg/recipe/apply.go`'s declared `consumes` edges rather than arriving silently in
+`go.mod`: a new direct dependency is a contract-surface change, and the merge matrix's TOML
+cells (CLM-007 and the format matrix) are what require it.
 
 ### Adoption record (REQ-005)
 
@@ -1123,6 +1182,35 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   it, and REQ-007's recognition/sequencing/deferral is unaffected. Documented so the dropped-keys
   behavior is a known seam, not a silent defect.
 
+- **The transform engine is selected from the PACK, not the op — exactly one provisioned
+  binding is required.** An `Op` declares its `rule`, never its ENGINE, so the only source of
+  the engine is the pack's `engines:` block, and `cmd/backstop` requires the pack to declare
+  EXACTLY ONE provisioned binding: `Manifest.Engines` is a map, so picking among several would
+  be nondeterministic, and none means there is no tool to gate or run. Both are fail-loud
+  config errors naming the pack and the count — never a silently-chosen engine. The consequence
+  a pack author will hit: a pack that legitimately wants two provisioned engines cannot ship a
+  `transform` recipe today. NAMED FOLLOW-UP (not built here): a per-op ENGINE SELECTOR on `Op`,
+  which is a recipe.yml schema addition plus a resolution rule, not a change to this dispatch.
+
+- **A RECIPES-ONLY pack does not validate yet — `recipes:` alone is not "content".** "Content
+  is required" is asserted in THREE independent places (`pkg/pack/manifest.go`,
+  `pkg/pack/validate_manifest.go`'s `ValidateManifest`, and `pkg/packval`'s phase-1 structural
+  check), and NONE of them counts `recipes:`. So a pack shipping ONLY recipes fails pack
+  validation, and every recipe-bearing pack must also declare `content:` and/or `engines:` —
+  which is exactly how `recipes:` rides alongside existing content in CLM-033. This spec
+  deliberately does not widen those checks: making `recipes:` sufficient means changing all
+  three sites CONSISTENTLY (a half-change is a validator that accepts a pack one pipeline
+  rejects), and no claim here asks for it. NAMED FOLLOW-UP, not smuggled in.
+
+- **`backstop/self` covers the applier only at GLOBAL family strength (A/B1/B2), not
+  spine-grade B3.** The zero-baked-language guarantee over `pkg/recipe/*.go` and
+  `cmd/backstop/recipe_apply.go` currently rests on the globally-applied families; Family B3's
+  spine include-list does not yet name these paths, so the applier gets the general neutrality
+  sweep rather than the stricter spine treatment its position (a code path that WRITES consumer
+  files from pack data) arguably warrants. CLM-027 asserts what is actually enforced today.
+  NAMED FOLLOW-UP: extend Family B3's include list to these paths — a change in the
+  `backstop/self` PACK repo, external by design (packs live outside core), not a core edit.
+
 ## Review Questions
 
 1. Does the applier recognize exactly the five op families and FAIL LOUD on any other kind,
@@ -1242,3 +1330,35 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   the mirroring claim pair CLM-068 (duplicate/empty → error) and CLM-069 (unique → clean), the
   manifest-validation table row, the `ParseRecipeManifest` note, and Implementation step 1. Now 13
   requirements, 69 claims, 12 sharp edges, 13 review questions.
+- **1.2.0 (2026-07-25, draft)** — Implementation-contact corrections (PLAN-SPEC-054 TASK-043),
+  reconciling declared contracts to what was built and reviewer-settled through commit `3aee7db`.
+  No requirement or claim was added, removed, or retargeted; the behavior contract is unchanged.
+  (1) DROPPED the unimplementable `pkg/pack/manifest.go` → `pkg/recipe.ParseRecipeManifest`
+  consumes edge: `pkg/recipe` imports `pkg/pack`, so parsing recipe.yml inside pack validation
+  would invert that into an import cycle. The shipped `validateRecipesIndex` is STRUCTURAL only
+  (directory present + contains `recipe.yml`), which is exactly what CLM-035 requires; the edge is
+  retargeted to `os.Stat` and the import-cycle rule is stated in the contract note.
+  (2) MOVED the `engine.CheckToolAllowed` consumes edge off `pkg/recipe/apply.go` onto
+  `cmd/backstop/recipe_apply.go`, where the trust gate actually lives — no type in `pkg/recipe`
+  carries a tool name or a locked version, so the gate is unimplementable there, and `pkg/recipe`'s
+  only transform seam is `opts.Dispatch`. The CLI contract now also declares its
+  `engine.EngineBinding` and `check.ExecCommandRunner` edges, and the Implementation section pins
+  the gate-before-command-construction order plus the not-the-sandbox-runner constraint.
+  (3) RECORDED the TOML codec (`github.com/pelletier/go-toml/v2`) as a DIRECT module dependency in
+  a new "merge format matrix and its codecs" subsection and in `apply.go`'s consumes edges, rather
+  than letting it arrive silently in `go.mod`.
+  (4) ADDED per-claim `subject: cmd/backstop` to CLM-025 (BLOCKING): its test drives the root
+  command from `cmd/backstop` — the only layer that can see the pack's `engines:` block — so the
+  inherited `pkg/recipe` subject would trip the substantiveness noTarget join on a correctly-placed
+  test. Same escape CLM-027/CLM-063 already use.
+  (5) ADDED `PackDir` to the `ResolvedRecipe` contract (set by `ResolveRecipe` from its `packDir`
+  argument): `Op.Rule` is a PACK-relative path per this spec's own `Op` contract, so the transform
+  executor resolves the rule under the pack root — which is what lets one pack share a rule file
+  across several of its recipes.
+  (6) NAMED three follow-ups as sharp edges rather than building them: a per-op ENGINE SELECTOR on
+  `Op` (today the pack must declare exactly one provisioned binding, fail-loud otherwise);
+  RECIPES-ONLY PACKS (making `recipes:` satisfy "content is required" means changing
+  `pkg/pack/manifest.go`, `pkg/pack/validate_manifest.go` and `pkg/packval` phase 1 together); and
+  extending `backstop/self` Family B3's include list to `pkg/recipe/*.go` +
+  `cmd/backstop/recipe_apply.go` for spine-grade neutrality (a change in the external
+  `backstop/self` pack repo). Now 13 requirements, 69 claims, 15 sharp edges, 13 review questions.
