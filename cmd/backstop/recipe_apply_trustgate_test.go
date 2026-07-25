@@ -160,3 +160,85 @@ func TestApply_TransformOp_UnallowlistedEngineRejected(t *testing.T) {
 		}
 	})
 }
+
+// ENGINE SELECTION is the trust gate's precondition: the gate can only check a tool it
+// was handed, and the only place a tool name exists is the pack's `engines:` block. So
+// selection must be DETERMINISTIC and fail loud — a run that guessed which of several
+// bindings to use, or ran with none, would be gating something other than what it ran.
+
+// TestRecipeApply_EngineSelection_RequiresExactlyOneProvisionedBinding drives both
+// degenerate shapes through the shipped CLI. Each variant is DERIVED from the staged
+// fixture's own engines: block (duplicated under a second key, or removed outright), so
+// no tool name, version or command is retyped here.
+func TestRecipeApply_EngineSelection_RequiresExactlyOneProvisionedBinding(t *testing.T) {
+	t.Run("several provisioned bindings", func(t *testing.T) {
+		projectRoot, ref, targetPath, before := stageTrustGateRun(t, recipeE2EPassPack, recipeE2EPassID)
+
+		mutateFixtureYAML(t, stagedPackManifestPath(projectRoot, recipeE2EPassPack), func(doc map[string]any) {
+			engines, ok := doc["engines"].(map[string]any)
+			if !ok || len(engines) != 1 {
+				t.Fatalf("staged pack does not declare exactly one engine to duplicate: %#v", doc["engines"])
+			}
+			for name, spec := range engines {
+				engines[name+"-second"] = spec
+				break
+			}
+		})
+
+		output, err := runRecipeApplyCLI(t, projectRoot, ref)
+		requireConfigError(t, err, output, recipeE2EPassPack, "EXACTLY ONE")
+		requireTargetUntouched(t, targetPath, before)
+	})
+
+	t.Run("no provisioned binding", func(t *testing.T) {
+		projectRoot, ref, targetPath, before := stageTrustGateRun(t, recipeE2EPassPack, recipeE2EPassID)
+
+		mutateFixtureYAML(t, stagedPackManifestPath(projectRoot, recipeE2EPassPack), func(doc map[string]any) {
+			delete(doc, "engines")
+		})
+
+		output, err := runRecipeApplyCLI(t, projectRoot, ref)
+		requireConfigError(t, err, output, recipeE2EPassPack, "EXACTLY ONE")
+		requireTargetUntouched(t, targetPath, before)
+	})
+}
+
+// TestRecipeApply_EngineSelection_RejectsBindingWithNoCommand covers the shape that
+// clears the trust gate and still cannot run: a provisioned binding whose tool IS
+// allowlisted at the pinned version but which declares no command. There is nothing to
+// execute, and inventing one would be exactly the baked knowledge the applier must not
+// carry — so the dispatch refuses instead, and the target is left alone.
+func TestRecipeApply_EngineSelection_RejectsBindingWithNoCommand(t *testing.T) {
+	projectRoot, ref, targetPath, before := stageTrustGateRun(t, recipeE2EPassPack, recipeE2EPassID)
+
+	mutateFixtureYAML(t, stagedPackManifestPath(projectRoot, recipeE2EPassPack), func(doc map[string]any) {
+		engines, ok := doc["engines"].(map[string]any)
+		if !ok || len(engines) != 1 {
+			t.Fatalf("staged pack does not declare exactly one engine: %#v", doc["engines"])
+		}
+		for _, spec := range engines {
+			binding, ok := spec.(map[string]any)
+			if !ok {
+				t.Fatalf("staged engine spec is not a mapping: %#v", spec)
+			}
+			delete(binding, "command")
+		}
+	})
+
+	output, err := runRecipeApplyCLI(t, projectRoot, ref)
+	requireConfigError(t, err, output, "no command")
+	requireTargetUntouched(t, targetPath, before)
+}
+
+// requireTargetUntouched asserts a refused run left the declared target byte-identical.
+func requireTargetUntouched(t *testing.T, targetPath string, before []byte) {
+	t.Helper()
+
+	after, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read declared target %q: %v", targetPath, err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Errorf("the declared target was modified by a refused run:\n%s", after)
+	}
+}

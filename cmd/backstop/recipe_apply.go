@@ -94,15 +94,22 @@ func recipeProjectRoot() (string, error) {
 // a tool name and a declared version to check. The ordering below is load-bearing —
 // resolve, select the engine from declared data, GATE, and only then build the
 // dispatch — so an un-allowlisted tool's command is never even constructed.
+//
+// The exit-code split follows the boundary the operator cares about: everything that
+// happens BEFORE the apply — an unusable reference, an uninstalled pack, a recipe the
+// pack does not index, an engine backstop will not run — is a *check.ConfigError
+// (exit 2), because nothing was applied and the invocation or the installation is what
+// must change. Only a failure of the apply ITSELF is a violation (exit 1), and it
+// carries the op's declared manual instruction verbatim.
 func runRecipeApply(ref string, projectRoot string) error {
 	parsed, err := recipe.ParseRecipeRef(ref)
 	if err != nil {
-		return err
+		return &check.ConfigError{Message: err.Error()}
 	}
 
 	manifests, err := loadInstalledPacks(projectRoot)
 	if err != nil {
-		return err
+		return &check.ConfigError{Message: err.Error()}
 	}
 	corpus := make(map[string]*pack.Manifest, len(manifests))
 	for _, manifest := range manifests {
@@ -112,7 +119,7 @@ func runRecipeApply(ref string, projectRoot string) error {
 	packsDir := filepath.Join(projectRoot, ".backstop", "packs")
 	resolved, err := recipe.ResolveRecipe(parsed, corpus, filepath.Join(packsDir, filepath.FromSlash(parsed.Pack)))
 	if err != nil {
-		return err
+		return &check.ConfigError{Message: err.Error()}
 	}
 	// Resolution succeeded, so the pack IS in the corpus under this key.
 	packManifest := corpus[parsed.Pack]
@@ -170,11 +177,24 @@ func provisionedEngineBinding(manifest *pack.Manifest) (engine.EngineBinding, er
 		)}
 	}
 
-	return manifest.Engines[provisioned[0]].Binding, nil
+	binding := manifest.Engines[provisioned[0]].Binding
+	// A binding with no command is unrunnable, and inventing one would be precisely the
+	// baked tool knowledge the applier must not carry. Refuse HERE, with selection,
+	// rather than mid-apply: nothing has run yet, so this is a configuration defect the
+	// pack must fix, not a violation of the consumer's project.
+	if strings.TrimSpace(binding.Command) == "" {
+		return engine.EngineBinding{}, &check.ConfigError{Message: fmt.Sprintf(
+			"pack %s declares engine %q with no command, so it cannot run a transform",
+			manifest.NormalizedName, provisioned[0],
+		)}
+	}
+
+	return binding, nil
 }
 
 // transformDispatch builds the production transform seam over the pack's declared
-// binding. It is reached only AFTER the trust gate passed.
+// binding. It is reached only AFTER selection accepted the binding and the trust gate
+// passed, so the command is known to be present and its tool allowlisted.
 //
 // The argv is shaped exactly as the enforcement dispatch shapes it — the declared
 // command split into program + leading args, then the declared input flag, the rule
@@ -191,9 +211,6 @@ func transformDispatch(binding engine.EngineBinding, projectRoot string) recipe.
 
 	return func(rule string, target string) error {
 		name, args := splitCommand(binding.Command)
-		if name == "" {
-			return &check.ConfigError{Message: "the declared engine binding carries no command, so it cannot run a transform"}
-		}
 		if binding.InputFlag != "" {
 			args = append(args, binding.InputFlag)
 		}
