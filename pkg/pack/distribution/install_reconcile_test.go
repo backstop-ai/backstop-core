@@ -69,7 +69,9 @@ func TestInstall_ManifestDrivenIgnoresStaleLockEntry(t *testing.T) {
 	// Manifest declares ONLY the current pack, not the stale one.
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs:\n  "+declared+": local\n")
 
-	result, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -116,7 +118,9 @@ func TestInstall_ManifestPackMissingFromLockSurfaced(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs:\n  backstop/undeclared-in-lock: \"1.0.0\"\n")
 
-	result, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -140,7 +144,9 @@ func TestInstall_MalformedManifestErrors(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: [not: valid: {{{")
 
-	_, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err == nil {
 		t.Fatal("expected error for malformed backstop.yml")
 	}
@@ -163,7 +169,9 @@ func TestInstall_ManifestReadErrorSurfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err == nil {
 		t.Fatal("expected error when backstop.yml cannot be read")
 	}
@@ -195,7 +203,9 @@ func TestInstall_AbsentManifestInstallsNothing(t *testing.T) {
 	}
 	// Intentionally NO backstop.yml.
 
-	result, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

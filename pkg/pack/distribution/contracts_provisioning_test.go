@@ -92,7 +92,9 @@ func TestProvisioning_ContractsInstalledAsLocalPack_DeclaredAndLocked(t *testing
 	root := provRepoRoot(t)
 	ws := newProvWorkspace(t)
 
-	res, err := distribution.InstallContractsLocalPack(root, ws)
+	add := newTestAddCommand(t, distribution.NewExecGitCloner(), distribution.NewPackvalValidator())
+
+	res, err := distribution.InstallContractsLocalPack(add, root, ws)
 	if err != nil {
 		t.Fatalf("installing contracts local pack via real distribution.Add: %v", err)
 	}
@@ -175,7 +177,9 @@ func TestProvisioning_GoContractsPackIsTheNewInstallable_TSRulesShareProofPack(t
 // with no packs/contracts/ source).
 func TestInstallContractsLocalPack_ErrorPath(t *testing.T) {
 	ws := newProvWorkspace(t)
-	if _, err := distribution.InstallContractsLocalPack(t.TempDir(), ws); err == nil {
+	add := newTestAddCommand(t, distribution.NewExecGitCloner(), distribution.NewPackvalValidator())
+
+	if _, err := distribution.InstallContractsLocalPack(add, t.TempDir(), ws); err == nil {
 		t.Error("installing from a repo root with no contracts pack source must error")
 	}
 }
@@ -190,12 +194,14 @@ func TestInstallContractsLocalPack_ReinstallExercisesInstalledPath(t *testing.T)
 	root := provRepoRoot(t)
 	ws := newProvWorkspace(t)
 
-	if _, err := distribution.InstallContractsLocalPack(root, ws); err != nil {
+	add := newTestAddCommand(t, distribution.NewExecGitCloner(), distribution.NewPackvalValidator())
+
+	if _, err := distribution.InstallContractsLocalPack(add, root, ws); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
 	// A second install over the same workspace hits the installed-and-current branch ->
 	// honest no-op, not an error.
-	res, err := distribution.InstallContractsLocalPack(root, ws)
+	res, err := distribution.InstallContractsLocalPack(add, root, ws)
 	if err != nil {
 		t.Fatalf("re-installing an already-current pack must be an honest no-op, got error: %v", err)
 	}
@@ -209,26 +215,5 @@ func TestInstallContractsLocalPack_ReinstallExercisesInstalledPath(t *testing.T)
 	}
 	if _, ok := lf.Packs["backstop/contracts"]; !ok {
 		t.Error("contracts pack must remain locked after re-install")
-	}
-}
-
-// stubValidator records that the pack check/test phases ran.
-type stubValidator struct{ checked, tested bool }
-
-func (s *stubValidator) RunPackCheck(string) error { s.checked = true; return nil }
-func (s *stubValidator) RunPackTest(string) error  { s.tested = true; return nil }
-
-// TestInstallContractsLocalPackWithValidator_RunsCheckPhases installs the contracts pack
-// WITH a validator so the install runs the pack-check/test phases through the real Add
-// path, exercising the validator branch the dogfood contracts install relies on.
-func TestInstallContractsLocalPackWithValidator_RunsCheckPhases(t *testing.T) {
-	root := provRepoRoot(t)
-	ws := newProvWorkspace(t)
-	v := &stubValidator{}
-	if _, err := distribution.InstallContractsLocalPackWithValidator(root, ws, v); err != nil {
-		t.Fatalf("install with validator: %v", err)
-	}
-	if !v.checked || !v.tested {
-		t.Errorf("install with a validator must run pack check (%v) and test (%v) phases", v.checked, v.tested)
 	}
 }

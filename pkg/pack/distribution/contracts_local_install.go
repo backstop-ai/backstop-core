@@ -22,22 +22,20 @@ func ContractsPackSourceDir(repoRoot string) string {
 	return filepath.Join(repoRoot, "packs", "contracts")
 }
 
-// InstallContractsLocalPack installs the packs/contracts/ source as a LOCAL pack into
-// projectDir via the REAL distribution.Add path. A nil Validator skips the stale pack
-// check/test phases (the dogfood install does not gate on them) — the install path
-// itself is REAL, not mocked. It returns the AddResult so callers can assert the
-// installed path / content hash.
-func InstallContractsLocalPack(repoRoot, projectDir string) (*AddResult, error) {
-	return InstallContractsLocalPackWithValidator(repoRoot, projectDir, nil)
-}
-
-// InstallContractsLocalPackWithValidator is the validator-aware form: when validator is
-// non-nil, the install runs the pack-check / pack-test phases over the contracts pack via
-// the REAL Add path (the dogfood install of a contracts pack may gate on its own checks).
-// A nil validator skips those phases. It exists so a caller can install the contracts pack
-// AND assert the pack passes its own checks through the same real provisioning path.
-func InstallContractsLocalPackWithValidator(repoRoot, projectDir string, validator Validator) (*AddResult, error) {
-	res, err := Add(ContractsPackSourceDir(repoRoot), AddOptions{ProjectDir: projectDir, Validator: validator})
+// InstallContractsLocalPack installs the packs/contracts/ source as a LOCAL pack
+// into projectDir through the REAL pack add path, and returns the AddResult so
+// callers can assert the installed path and content hash.
+//
+// It RECEIVES the assembled command rather than building one. A library-layer
+// helper that constructed its own validator would be the internal defaulting
+// REQ-005 forbids, and it would leave a test double indistinguishable from
+// production wiring — the caller's choice of dependencies is the only thing that
+// distinguishes them, so the caller has to make it.
+//
+// Validation is unconditional: whatever validator the supplied command carries
+// runs over the contracts pack. There is no variant that skips it.
+func InstallContractsLocalPack(add *AddCommand, repoRoot, projectDir string) (*AddResult, error) {
+	res, err := add.Run(ContractsPackSourceDir(repoRoot), AddOptions{ProjectDir: projectDir})
 	if err != nil {
 		return nil, fmt.Errorf("installing contracts local pack: %w", err)
 	}

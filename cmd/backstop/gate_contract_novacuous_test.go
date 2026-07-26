@@ -71,7 +71,12 @@ func novacWorkspace(t *testing.T, fixtureName, contractsYAMLTemplate string) gat
 	if err := os.WriteFile(filepath.Join(specDir, "nv.spec.md"), []byte(spec), 0o644); err != nil {
 		t.Fatalf("write spec: %v", err)
 	}
-	if _, err := distribution.InstallContractsLocalPack(root, tmp); err != nil {
+	add, addErr := newProductionAddCommand()
+	if addErr != nil {
+		t.Fatalf("assembling the production add command: %v", addErr)
+	}
+
+	if _, err := distribution.InstallContractsLocalPack(add, root, tmp); err != nil {
 		t.Fatalf("install contracts pack: %v", err)
 	}
 	step := buildContractStep(specDir, tmp, nil)

@@ -74,7 +74,9 @@ func TestInstall_MaterializesLocalPackToDisk(t *testing.T) {
 	// No LocalPackDir override — the real/CLI resolution path from local_path.
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 
-	result, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -127,7 +129,9 @@ func TestInstall_LocalPackEmptyLocalPathFailsLoud(t *testing.T) {
 
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for local pack with empty local_path")
 	}
@@ -166,7 +170,9 @@ func TestInstall_LocalPackMissingSourceDirFailsLoud(t *testing.T) {
 
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for local pack with missing source dir")
 	}
@@ -205,7 +211,9 @@ func TestInstall_LocalPackSourceIsFileFailsLoud(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs:\n  "+packName+": local\n")
 
-	_, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err == nil {
 		t.Fatal("expected error when local source is a file")
 	}
@@ -246,7 +254,9 @@ func TestInstall_LocalPackDestMkdirFails(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs:\n  "+packName+": local\n")
 
-	_, err := distribution.Install(distribution.InstallOptions{ProjectDir: projectDir})
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(distribution.InstallOptions{ProjectDir: projectDir})
 	if err == nil {
 		t.Fatal("expected error when destination parent cannot be created")
 	}
@@ -286,9 +296,10 @@ func TestInstall_GitPackDestMkdirFails(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error when destination parent cannot be created")
 	}
@@ -325,10 +336,11 @@ func TestInstall_GitPathStillMaterializes(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

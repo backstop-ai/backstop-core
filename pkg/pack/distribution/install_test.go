@@ -71,12 +71,11 @@ func TestPackInstall_RestoresFromLockfile(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner: &mockGitCloner{
-			cloneDir: sourceDir,
-		},
 	}
 
-	result, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	result, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -94,10 +93,11 @@ func TestPackInstall_VerifiesContentHash(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -118,10 +118,11 @@ func TestPackInstall_SkipsValidation(t *testing.T) {
 	// Install should NOT call validator at all.
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install should succeed without validation: %v", err)
 	}
@@ -154,10 +155,11 @@ func TestPackInstall_HashMismatchFailsHard(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for hash mismatch")
 	}
@@ -181,7 +183,9 @@ func TestPackInstall_CacheReadsFromLocalDir(t *testing.T) {
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 	opts.CachePath = cacheDir
 
-	result, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install with cache: %v", err)
 	}
@@ -222,7 +226,9 @@ func TestPackInstall_CacheStillVerifiesHash(t *testing.T) {
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 	opts.CachePath = cacheDir
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected hash mismatch error even with cache")
 	}
@@ -256,10 +262,11 @@ func TestPackInstall_SkipsToolConfigMerge(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -297,7 +304,9 @@ func TestPackInstall_LocalPackHashVerification(t *testing.T) {
 		LocalPackDir: localDir,
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install with local pack: %v", err)
 	}
@@ -331,10 +340,11 @@ func TestPackInstall_SkipsSDKDependencies(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -348,7 +358,9 @@ func TestPackInstall_MissingLockfileExitsNonZero(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for missing lockfile")
 	}
@@ -381,10 +393,11 @@ func TestPackInstall_AtomicRollbackOnCloneFailure(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{failWith: &distribution.GitError{Message: "clone failed"}},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{failWith: &distribution.GitError{Message: "clone failed"}})
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for clone failure")
 	}
@@ -422,10 +435,11 @@ func TestPackInstall_AtomicRollbackOnHashFailure(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for hash mismatch")
 	}
@@ -471,44 +485,13 @@ func TestPackInstall_WithExistingPacksDir(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
-	}
-}
-
-func TestPackInstall_NoGitClonerForGitPack(t *testing.T) {
-	projectDir := t.TempDir()
-
-	ref := "v1.0.0"
-	lf := &distribution.Lockfile{
-		Packs: map[string]distribution.LockEntry{
-			"acme/pack": {
-				Name:        "acme/pack",
-				Version:     "1.0.0",
-				GitRef:      &ref,
-				ContentHash: "sha256:abc",
-				SourceType:  "git",
-				InstallDate: "2026-01-01T00:00:00Z",
-			},
-		},
-	}
-	if err := distribution.WriteLockfile(filepath.Join(projectDir, "backstop.lock"), lf); err != nil {
-		t.Fatal(err)
-	}
-	writeManifestForLock(t, projectDir, lf)
-
-	opts := distribution.InstallOptions{
-		ProjectDir: projectDir,
-		// No GitCloner provided.
-	}
-
-	_, err := distribution.Install(opts)
-	if err == nil {
-		t.Fatal("expected error when no git cloner provided")
 	}
 }
 
@@ -537,7 +520,9 @@ func TestPackInstall_CacheMissingPack(t *testing.T) {
 	opts := distribution.InstallOptions{ProjectDir: projectDir}
 	opts.CachePath = cacheDir
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error when pack not in cache")
 	}
@@ -570,7 +555,9 @@ func TestPackInstall_LocalPackNoLocalDir(t *testing.T) {
 		// No LocalPackDir provided and no recorded local_path — must fail loud.
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for local pack with no resolvable source")
 	}
@@ -611,7 +598,9 @@ func TestPackInstall_LocalPackHashMismatch(t *testing.T) {
 		LocalPackDir: localDir,
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected error for local pack hash mismatch")
 	}
@@ -636,7 +625,9 @@ func TestPackInstall_EmptyLockfile(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, defaultTestPackCloner())
+
+	result, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install with empty lockfile should succeed: %v", err)
 	}
@@ -680,10 +671,11 @@ func TestPackInstall_RollbackRestoresExistingPacks(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sourceDir},
 	}
 
-	_, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sourceDir})
+
+	_, err := install.Run(opts)
 	if err == nil {
 		t.Fatal("expected hash mismatch error")
 	}
@@ -739,7 +731,7 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 
 	// Mock cloner that copies the right source for each pack.
 	// Since map iteration order is random, use a single source that matches both hashes.
-	// Instead, just use one source dir for all.  
+	// Instead, just use one source dir for all.
 	// Actually, mockGitCloner uses the same cloneDir for all clones.
 	// But hashes will differ. We need to handle this differently.
 	// Let's use separate dirs and a special approach.
@@ -767,10 +759,11 @@ func TestPackInstall_MultiplePacks(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{cloneDir: sharedSource},
 	}
 
-	result, err := distribution.Install(opts)
+	install := newTestInstallCommand(t, &mockGitCloner{cloneDir: sharedSource})
+
+	result, err := install.Run(opts)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

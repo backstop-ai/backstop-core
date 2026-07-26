@@ -14,7 +14,6 @@ import (
 
 type mockVersionResolver struct {
 	latestMinor string
-	latestMajor string
 }
 
 func (m *mockVersionResolver) ResolveLatestCompatible(_, currentVersion string) (string, error) {
@@ -43,10 +42,10 @@ func setupUpdateProject(t *testing.T) string {
 		t.Fatal(err)
 	}
 	src := filepath.Join("testdata", "valid-pack", "pack.yml")
-	data, _ := os.ReadFile(src)
+	data := mustReadFile(t, src)
 	writeFile(t, filepath.Join(packDir, "pack.yml"), string(data))
 
-	hash, _ := distribution.ComputeContentHash(packDir)
+	hash := mustContentHash(t, packDir)
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -72,16 +71,11 @@ func TestPackUpdate_ResolvesLatestMinorPatch(t *testing.T) {
 
 	opts := distribution.UpdateOptions{
 		ProjectDir: projectDir,
-		GitCloner: &mockGitCloner{
-			cloneDir: filepath.Join("testdata", "valid-pack-v2"),
-		},
-		Validator: &mockValidator{},
-		VersionResolver: &mockVersionResolver{
-			latestMinor: "1.1.0",
-		},
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -96,14 +90,11 @@ func TestPackUpdate_ValidatesBeforeUpdate(t *testing.T) {
 
 	opts := distribution.UpdateOptions{
 		ProjectDir: projectDir,
-		GitCloner: &mockGitCloner{
-			cloneDir: filepath.Join("testdata", "valid-pack-v2"),
-		},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -113,18 +104,17 @@ func TestPackUpdate_WritesExactPin(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	content := string(data)
 
 	if !strings.Contains(content, "1.1.0") {
@@ -139,18 +129,17 @@ func TestPackUpdate_UpdatesLockfile(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	lf, _ := distribution.ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	lf := mustReadLock(t, filepath.Join(projectDir, "backstop.lock"))
 	entry := lf.Packs["acme/valid-pack"]
 	if entry.Version != "1.1.0" {
 		t.Errorf("lockfile version = %q, want %q", entry.Version, "1.1.0")
@@ -161,19 +150,18 @@ func TestPackUpdate_AbortsOnValidationFailure(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{checkFail: true},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{checkFail: true}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error when validation fails")
 	}
 
 	// Verify old version retained.
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	if !strings.Contains(string(data), "1.0.0") {
 		t.Error("should retain old version on validation failure")
 	}
@@ -183,14 +171,13 @@ func TestPackUpdate_AcknowledgeBypassesTamperBlock(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		Acknowledge:     true,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "tamper-pack-severity-downgrade")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.1"},
+		ProjectDir:  projectDir,
+		Acknowledge: true,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "tamper-pack-severity-downgrade")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.1"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update with --acknowledge should proceed: %v", err)
 	}
@@ -221,7 +208,9 @@ func TestPackUpdate_LocalPackNoOp(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("internal/local", opts)
+	update := newTestUpdateCommand(t, defaultTestPackCloner(), &mockValidator{}, &mockVersionResolver{})
+
+	result, err := update.Run("internal/local", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -235,13 +224,12 @@ func TestPackUpdate_WritesResolvedExactPin(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -255,13 +243,12 @@ func TestPackUpdate_AppliesPatchVersion(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.1"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.1"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -275,13 +262,12 @@ func TestPackUpdate_AppliesMinorVersion(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -295,13 +281,12 @@ func TestPackUpdate_RefusesMajorVersion(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "2.0.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "2.0.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error for major version bump")
 	}
@@ -315,11 +300,12 @@ func TestPackUpdate_AlreadyLatestNoOp(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.0"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, defaultTestPackCloner(), &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -333,14 +319,13 @@ func TestPackUpdate_TamperDetectedWithoutAcknowledge(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		Acknowledge:     false,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "tamper-pack-rule-removed")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.1"},
+		ProjectDir:  projectDir,
+		Acknowledge: false,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "tamper-pack-rule-removed")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.1"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error for tamper detection without --acknowledge")
 	}
@@ -350,30 +335,17 @@ func TestPackUpdate_TamperDetectedWithoutAcknowledge(t *testing.T) {
 	}
 }
 
-func TestPackUpdate_NoVersionResolver(t *testing.T) {
-	projectDir := setupUpdateProject(t)
-
-	opts := distribution.UpdateOptions{
-		ProjectDir: projectDir,
-		// No VersionResolver provided.
-	}
-
-	_, err := distribution.Update("acme/valid-pack", opts)
-	if err == nil {
-		t.Fatal("expected error when no version resolver provided")
-	}
-}
-
 func TestPackUpdate_PackNotFound(t *testing.T) {
 	projectDir := t.TempDir()
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: {}\n")
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/nonexistent", opts)
+	update := newTestUpdateCommand(t, defaultTestPackCloner(), &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.0"})
+
+	_, err := update.Run("acme/nonexistent", opts)
 	if err == nil {
 		t.Fatal("expected error for nonexistent pack")
 	}
@@ -384,13 +356,12 @@ func TestPackUpdate_NonTamperChangesAccepted(t *testing.T) {
 
 	// valid-pack-v2 adds a new rule and updates descriptions — non-tamper changes.
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update with non-tamper changes should proceed: %v", err)
 	}
@@ -411,11 +382,12 @@ func TestPackUpdate_VersionResolverError(t *testing.T) {
 	}
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		VersionResolver: resolver,
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, defaultTestPackCloner(), &mockValidator{}, resolver)
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error when version resolver fails")
 	}
@@ -429,19 +401,18 @@ func TestPackUpdate_GitCloneFailure(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{failWith: &distribution.GitError{Message: "clone failed"}},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{failWith: &distribution.GitError{Message: "clone failed"}}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error for clone failure")
 	}
 
 	// Verify old version retained.
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	if !strings.Contains(string(data), "1.0.0") {
 		t.Error("should retain old version on clone failure")
 	}
@@ -451,13 +422,12 @@ func TestPackUpdate_RunPackTestFailure(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{testFail: true},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{testFail: true}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error when pack test fails")
 	}
@@ -486,16 +456,17 @@ func TestPackUpdate_NilValidatorSkipsValidation(t *testing.T) {
 func TestPackUpdate_NoExistingPackDir(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 	// Remove the installed pack directory so tamper detection is skipped.
-	os.RemoveAll(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack"))
-
-	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	if err := os.RemoveAll(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")); err != nil {
+		t.Fatal(err)
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	opts := distribution.UpdateOptions{
+		ProjectDir: projectDir,
+	}
+
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update should succeed without existing pack dir: %v", err)
 	}
@@ -508,16 +479,17 @@ func TestPackUpdate_NoExistingPackDir(t *testing.T) {
 func TestPackUpdate_LockfileCreatedWhenMissing(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 	// Delete lockfile.
-	os.Remove(filepath.Join(projectDir, "backstop.lock"))
-
-	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+	if err := os.Remove(filepath.Join(projectDir, "backstop.lock")); err != nil {
+		t.Fatal(err)
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	opts := distribution.UpdateOptions{
+		ProjectDir: projectDir,
+	}
+
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update should succeed and create lockfile: %v", err)
 	}
@@ -538,13 +510,12 @@ func TestPackUpdate_ResultFields(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	result, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -565,11 +536,12 @@ func TestPackUpdate_BackstopYmlMalformed(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs: [invalid: yaml: {{{")
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		VersionResolver: &mockVersionResolver{latestMinor: "1.0.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/pack", opts)
+	update := newTestUpdateCommand(t, defaultTestPackCloner(), &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.0"})
+
+	_, err := update.Run("acme/pack", opts)
 	if err == nil {
 		t.Fatal("expected error for malformed backstop.yml")
 	}
@@ -583,13 +555,12 @@ func TestPackUpdate_TamperDetectionError(t *testing.T) {
 	writeFile(t, filepath.Join(packDir, "pack.yml"), "{{{invalid yaml")
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       &mockValidator{},
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
+		ProjectDir: projectDir,
 	}
 
-	_, err := distribution.Update("acme/valid-pack", opts)
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.1.0"})
+
+	_, err := update.Run("acme/valid-pack", opts)
 	if err == nil {
 		t.Fatal("expected error for tamper detection failure")
 	}

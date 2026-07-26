@@ -115,7 +115,11 @@ contracts:
 // a `local` lockfile entry). The installed pack's scripts land at
 // <root>/.backstop/packs/backstop/contracts/, which the production contract path resolves.
 func (w *contractE2EWorkspace) installContractsLocalPack(repoRoot string) error {
-	if _, err := distribution.InstallContractsLocalPack(repoRoot, w.root); err != nil {
+	add, err := newProductionAddCommand()
+	if err != nil {
+		return fmt.Errorf("assembling the production add command: %w", err)
+	}
+	if _, err := distribution.InstallContractsLocalPack(add, repoRoot, w.root); err != nil {
 		return err
 	}
 	w.installed = true

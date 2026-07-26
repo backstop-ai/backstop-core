@@ -45,6 +45,15 @@ func mustAbs(t *testing.T, path string) string {
 	return abs
 }
 
+func mustContentHash(t *testing.T, dir string) string {
+	t.Helper()
+	hash, err := distribution.ComputeContentHash(dir)
+	if err != nil {
+		t.Fatalf("ComputeContentHash %s: %v", dir, err)
+	}
+	return hash
+}
+
 func mustReadLock(t *testing.T, path string) *distribution.Lockfile {
 	t.Helper()
 	lf, err := distribution.ReadLockfile(path)
@@ -79,10 +88,6 @@ func newTestAddOptions(projectDir string) distribution.AddOptions {
 	return distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner: &mockGitCloner{
-			cloneDir: filepath.Join("testdata", "valid-pack"),
-		},
-		Validator: &mockValidator{},
 	}
 }
 
@@ -129,7 +134,9 @@ func TestPackAdd_ResolvesGitURL(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -143,7 +150,9 @@ func TestPackAdd_ClonesAtVersionTag(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -156,11 +165,10 @@ func TestPackAdd_ClonesAtVersionTag(t *testing.T) {
 func TestPackAdd_MissingTagExitsNonZero(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
-	opts.GitCloner = &mockGitCloner{
-		failWith: &distribution.GitError{Message: "tag not found: v9.9.9"},
-	}
 
-	_, err := distribution.Add("acme/valid-pack@9.9.9", opts)
+	add := newTestAddCommand(t, &mockGitCloner{failWith: &distribution.GitError{Message: "tag not found: v9.9.9"}}, &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@9.9.9", opts)
 	if err == nil {
 		t.Fatal("expected error for missing tag")
 	}
@@ -169,11 +177,10 @@ func TestPackAdd_MissingTagExitsNonZero(t *testing.T) {
 func TestPackAdd_CloneFailureExitsNonZero(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
-	opts.GitCloner = &mockGitCloner{
-		failWith: &distribution.GitError{Message: "network error"},
-	}
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{failWith: &distribution.GitError{Message: "network error"}}, &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error for clone failure")
 	}
@@ -184,7 +191,9 @@ func TestPackAdd_RunsPackCheckBeforeInstall(t *testing.T) {
 	opts := newTestAddOptions(projectDir)
 
 	// Success case — pack check passes.
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add should succeed when pack check passes: %v", err)
 	}
@@ -194,7 +203,9 @@ func TestPackAdd_RunsPackTestBeforeInstall(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add should succeed when pack test passes: %v", err)
 	}
@@ -203,9 +214,10 @@ func TestPackAdd_RunsPackTestBeforeInstall(t *testing.T) {
 func TestPackAdd_PackCheckFailureAbortsInstall(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
-	opts.Validator = &mockValidator{checkFail: true}
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{checkFail: true})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error when pack check fails")
 	}
@@ -220,9 +232,10 @@ func TestPackAdd_PackCheckFailureAbortsInstall(t *testing.T) {
 func TestPackAdd_PackTestFailureAbortsInstall(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
-	opts.Validator = &mockValidator{testFail: true}
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{testFail: true})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error when pack test fails")
 	}
@@ -232,7 +245,9 @@ func TestPackAdd_CopiesToPacksDir(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -252,7 +267,9 @@ func TestPackAdd_ComputesContentHash(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -266,7 +283,9 @@ func TestPackAdd_UpdatesBackstopYml(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -285,7 +304,9 @@ func TestPackAdd_UpdatesBackstopLock(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -310,9 +331,10 @@ func TestPackAdd_RollbackOnPostCloneFailure(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 	// Validator passes check but fails test — post-clone failure.
-	opts.Validator = &mockValidator{testFail: true}
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{testFail: true})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -334,7 +356,9 @@ func TestPackAdd_RecordsProvenance(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -354,7 +378,9 @@ func TestPackAdd_ProvenanceContainsAllFields(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -385,7 +411,9 @@ func TestPackAdd_CreatesGitignore(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -406,7 +434,9 @@ func TestPackAdd_AppendsToGitignore(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -428,7 +458,9 @@ func TestPackAdd_GitignoreAlreadyPresent(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -451,11 +483,11 @@ func TestPackAdd_NoTransitiveDependencies(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{cloneDir: packDir},
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add("acme/with-deps@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: packDir}, &mockValidator{})
+
+	result, err := add.Run("acme/with-deps@1.0.0", opts)
 
 	// Should succeed but not install transitive dependencies.
 	if err != nil {
@@ -477,7 +509,9 @@ func TestBackstopYml_ExactVersionPins(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -504,11 +538,11 @@ func TestPackAdd_SkipsSDKDependencies(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{cloneDir: packDir},
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add("acme/sdk-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: packDir}, &mockValidator{})
+
+	result, err := add.Run("acme/sdk-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -536,10 +570,11 @@ func TestPackAdd_DeclaredButNotMaterializedInstalls(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("declared-but-absent pack should install, got error: %v", err)
 	}
@@ -575,8 +610,10 @@ func TestPackAdd_EmptyMaterializedDirIsNotCurrent(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
 		"packs:\n  "+packName+": local\n")
 
-	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
-	result, err := distribution.Add(absPath, opts)
+	opts := distribution.AddOptions{ProjectDir: projectDir}
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("empty-dir pack should install, got error: %v", err)
 	}
@@ -601,8 +638,10 @@ func TestPackAdd_DivergedLockIsNotCurrent(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"),
 		"packs:\n  "+packName+": local\n")
 
-	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
-	result, err := distribution.Add(absPath, opts)
+	opts := distribution.AddOptions{ProjectDir: projectDir}
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("diverged-lock pack should install, got error: %v", err)
 	}
@@ -624,15 +663,17 @@ func TestPackAdd_GenuinelyInstalledReportsAlreadyCurrent(t *testing.T) {
 	absPath := mustAbs(t, filepath.Join("testdata", "local-pack"))
 	packName := "internal/local-rules"
 
-	opts := distribution.AddOptions{ProjectDir: projectDir, Validator: &mockValidator{}}
+	opts := distribution.AddOptions{ProjectDir: projectDir}
 
 	// First add: genuinely materialize + lock.
-	if _, err := distribution.Add(absPath, opts); err != nil {
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	if _, err := add.Run(absPath, opts); err != nil {
 		t.Fatalf("first Add: %v", err)
 	}
 
 	// Second add: honest no-op.
-	result, err := distribution.Add(absPath, opts)
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("genuinely-installed pack should be an honest no-op, got error: %v", err)
 	}
@@ -652,10 +693,11 @@ func TestPackAdd_LocalPathSkipsGit(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -673,10 +715,11 @@ func TestPackAdd_LocalPathValidatesInPlace(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -690,10 +733,11 @@ func TestPackAdd_LocalPathRegistersWithPathEntry(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -714,10 +758,11 @@ func TestPackAdd_LocalPathComputesHash(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -735,10 +780,11 @@ func TestPackAdd_LocalPathCopiedToPacksDir(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -760,10 +806,11 @@ func TestLocalPack_ValidatedSameAsGit(t *testing.T) {
 	// Validator that fails check — should abort for local packs too.
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{checkFail: true},
 	}
 
-	_, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{checkFail: true})
+
+	_, err := add.Run(absPath, opts)
 	if err == nil {
 		t.Fatal("expected error when pack check fails for local pack")
 	}
@@ -777,10 +824,11 @@ func TestPackAdd_LocalPathMissingPackYml(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(localDir, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(localDir, opts)
 	if err == nil {
 		t.Fatal("expected error for local path missing pack.yml")
 	}
@@ -798,10 +846,11 @@ func TestPackAdd_LocalPathMissingName(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(localDir, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(localDir, opts)
 	if err == nil {
 		t.Fatal("expected error for local pack missing name")
 	}
@@ -814,6 +863,7 @@ func TestPackAdd_LocalPathMissingName(t *testing.T) {
 func TestPackAdd_NilValidatorSkipsValidation(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
+	opts.GitCloner = defaultTestPackCloner()
 	opts.Validator = nil
 
 	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
@@ -832,7 +882,9 @@ func TestPackAdd_VersionOverridesPackRef(t *testing.T) {
 	opts.Version = "1.0.0"
 
 	// packRef has @2.0.0 but opts.Version is "1.0.0".
-	result, err := distribution.Add("acme/valid-pack@2.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -849,7 +901,9 @@ func TestPackAdd_GitignoreNoTrailingNewline(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -885,10 +939,11 @@ func TestPackAdd_LocalPathRelativeDot(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add("./testdata/local-pack", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("./testdata/local-pack", opts)
 	if err != nil {
 		t.Fatalf("Add with ./ prefix: %v", err)
 	}
@@ -906,10 +961,11 @@ func TestPackAdd_LocalPathMalformedManifest(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(localDir, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(localDir, opts)
 	if err == nil {
 		t.Fatal("expected error for malformed local manifest")
 	}
@@ -921,7 +977,9 @@ func TestPackAdd_ParsePackRefNoVersion(t *testing.T) {
 	opts.Version = "1.0.0"
 
 	// packRef without @version — version comes from opts.Version.
-	result, err := distribution.Add("acme/valid-pack", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -935,7 +993,9 @@ func TestPackAdd_LockfileEntryFields(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -979,10 +1039,11 @@ func TestPackAdd_LocalLockfileSourceType(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(absPath, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(absPath, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -1012,7 +1073,9 @@ func TestPackAdd_ToolConfigConflictRollsBack(t *testing.T) {
 	ymlPath := filepath.Join(projectDir, "backstop.yml")
 	ymlBefore := mustReadFile(t, ymlPath)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error for tool_config conflict")
 	}
@@ -1045,10 +1108,11 @@ func TestPackAdd_LocalPathRelativeParent(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	result, err := distribution.Add("../distribution/testdata/local-pack", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	result, err := add.Run("../distribution/testdata/local-pack", opts)
 	if err != nil {
 		t.Fatalf("Add with ../ prefix: %v", err)
 	}
@@ -1074,7 +1138,9 @@ func TestPackAdd_RollbackOnProvenanceReadError(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error for invalid provenance file")
 	}
@@ -1103,12 +1169,12 @@ func TestPackAdd_RollbackOnWriteProvenanceFail(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{cloneDir: packDir},
-		Validator:  &mockValidator{},
 	}
 
 	// First add should succeed to verify the pack works.
-	result, err := distribution.Add("acme/no-config-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: packDir}, &mockValidator{})
+
+	result, err := add.Run("acme/no-config-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1126,15 +1192,13 @@ func TestPackAdd_MalformedBackstopYmlReturnsInstallCheck(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner: &mockGitCloner{
-			cloneDir: filepath.Join("testdata", "valid-pack"),
-		},
-		Validator: &mockValidator{},
 	}
 
 	// isPackInstalled returns false for malformed YAML, so Add proceeds.
 	// But updateBackstopYml will then fail on the malformed YAML.
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack")}, &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	// We expect an error from updateBackstopYml, exercising the rollback.
 	if err != nil {
 		// Verify the rollback happened — pack should be cleaned up.
@@ -1156,12 +1220,12 @@ func TestPackAdd_WriteLockfileRollback(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{cloneDir: packDir},
-		Validator:  &mockValidator{},
 	}
 
 	// Add should succeed.
-	result, err := distribution.Add("acme/simple-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: packDir}, &mockValidator{})
+
+	result, err := add.Run("acme/simple-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1193,11 +1257,11 @@ func TestPackAdd_MergeToolConfigErrorRollsBack(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{cloneDir: badPackDir},
-		Validator:  nil, // Skip validation so it reaches MergeToolConfig.
 	}
 
-	_, err := distribution.Add("acme/bad-pack@1.0.0", opts)
+	add := newTestAddCommand(t, &mockGitCloner{cloneDir: badPackDir}, &mockValidator{})
+
+	_, err := add.Run("acme/bad-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error for invalid pack manifest during merge")
 	}
@@ -1242,7 +1306,9 @@ func TestPackAdd_ExistingLockfileIsPreserved(t *testing.T) {
 
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1279,7 +1345,9 @@ func TestPackAdd_WriteProvenanceFailRollsBack(t *testing.T) {
 	ymlBefore := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 
 	opts := newTestAddOptions(projectDir)
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error when provenance file is read-only")
 	}
@@ -1302,10 +1370,11 @@ func TestPackAdd_LocalPathRecordsRelativeSourcePath(t *testing.T) {
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
-		Validator:  &mockValidator{},
 	}
 
-	_, err := distribution.Add(absSource, opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run(absSource, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
 	}
@@ -1343,7 +1412,9 @@ func TestPackAdd_GitSourceLeavesLocalPathEmpty(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
 
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1369,7 +1440,9 @@ func TestPackAdd_PacksDirMkdirFails(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, ".backstop", "packs"), "not a dir")
 
 	opts := newTestAddOptions(projectDir)
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error when packs dir cannot be created")
 	}
@@ -1390,7 +1463,9 @@ func TestPackAdd_CopyToInstalledPathFails(t *testing.T) {
 	writeFile(t, filepath.Join(orgDir, "valid-pack"), "occupying file")
 
 	opts := newTestAddOptions(projectDir)
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error when install target cannot be created")
 	}
@@ -1405,7 +1480,9 @@ func TestPackAdd_ManifestWithoutPacksKey(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "project: myproj\n")
 
 	opts := newTestAddOptions(projectDir)
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1445,7 +1522,9 @@ func TestPackAdd_RollbackRestoresExistingLock(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, ".golangci.yml"), `{"linters.enable.revive": false}`)
 
 	opts := newTestAddOptions(projectDir)
-	_, err := distribution.Add("acme/valid-pack@1.0.0", opts)
+	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+
+	_, err := add.Run("acme/valid-pack@1.0.0", opts)
 	if err == nil {
 		t.Fatal("expected error for tool_config conflict")
 	}

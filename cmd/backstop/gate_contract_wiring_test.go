@@ -232,7 +232,12 @@ func TestDispatchContractEntry_UnscannedAndCompileError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "backstop.yml"), []byte("project: d\nlanguage: go\npacks: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := distribution.InstallContractsLocalPack(root, ws); err != nil {
+	add, addErr := newProductionAddCommand()
+	if addErr != nil {
+		t.Fatalf("assembling the production add command: %v", addErr)
+	}
+
+	if _, err := distribution.InstallContractsLocalPack(add, root, ws); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	packs, err := resolveContractsPacks(ws)
