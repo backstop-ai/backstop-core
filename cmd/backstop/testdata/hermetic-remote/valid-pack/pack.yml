@@ -1,0 +1,47 @@
+name: hermetic/valid-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Hermetic VALID pack fixture (SPEC-055 TASK-001). An ordinary enforcement pack
+  SOURCE that genuinely PASSES both `backstop pack check` and `backstop pack test`.
+  Later phases turn this directory into a real tagged git repository at test time;
+  it is not itself a repository and carries no .git.
+
+  HERMETIC BY CONSTRUCTION. The production `pack add` path validates every clone by
+  running the full pack check + pack test pipelines, so this fixture is exercised on
+  every E2E add. It therefore executes NO external tool: the rule declares no claims,
+  which is the ordinary shape of a mechanism-model rule (packval exempts a claimless
+  rule from the claims requirement exactly when its declared engine RESOLVES), so
+  phase3-fixtures runs its rule-file identity check and nothing else. No network, no
+  provisioned binary, no sandbox — the pipeline's verdict is pure and repeatable.
+
+  The pack's tool, engine, and rule names are DECLARED DATA here. No Go source names
+  them, and nothing in this file carries a foreign-language token.
+engines:
+  # Pack-DECLARED engine. It resolves (the pack declares it), which is what phase2
+  # and phase5 require of a claimless engine-model rule, and it carries NO provision,
+  # so no trusted-tool allowlist gate and no tool download is reachable from here.
+  #
+  # The command is deliberately EMPTY: this fixture's engine is never executed, and
+  # an empty command fails LOUD ("engine binding has no command to run") if some
+  # future change ever routes execution here. A fixture that silently ran a real
+  # binary would stop being hermetic without anyone noticing.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # phase3-fixtures reads rules/forbidden-marker.yml and asserts this rule's id
+      # appears in it. That check PASSES here and is the single bit that differs from
+      # the fixture-fail-pack sibling (TASK-002), whose rule file declares a
+      # different id.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/forbidden-marker.yml
+        risk_class: correctness

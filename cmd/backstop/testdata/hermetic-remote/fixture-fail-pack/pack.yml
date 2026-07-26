@@ -1,0 +1,42 @@
+name: hermetic/fixture-fail-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Hermetic FIXTURE-FAILURE pack fixture (SPEC-055 TASK-002). This pack SOURCE PASSES
+  `backstop pack check` and FAILS `backstop pack test` in phase3-fixtures, which is
+  the one behaviour that lets a consumer distinguish a check failure from a fixture
+  failure. Its sibling invalid-pack fails check; reusing that pack here would make
+  the two indistinguishable.
+
+  ONE BIT APART FROM THE VALID PACK. This manifest is the valid-pack manifest, and
+  rules/forbidden-marker.yml is the valid-pack rule file with its rule id changed.
+  phase3-fixtures — the only phase `pack test` adds over `pack check` — reads the
+  declared rule file and requires this rule's id to appear in it. It does not, so the
+  fixture phase fails and names both the id and the file. Every other phase is
+  identical to the passing pack, so the differing verdict is attributable to that one
+  datum and to nothing else.
+
+  Do not "fix" the rule id. The mismatch IS the fixture.
+engines:
+  # Same declared, never-executed engine as the valid pack: it resolves (so the
+  # claimless rule is well formed) and carries no provision and an empty command, so
+  # no external tool is reachable. The failure below is a manifest-versus-rule-file
+  # identity mismatch, not a tool result.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # rules/forbidden-marker.yml declares the id "some-other-marker", NOT
+      # "forbidden-marker". phase3-fixtures fails with check "semgrep-rule-id" and a
+      # message naming this id and that file.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/forbidden-marker.yml
+        risk_class: correctness

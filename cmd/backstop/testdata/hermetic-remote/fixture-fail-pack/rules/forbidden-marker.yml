@@ -1,0 +1,9 @@
+# The rule file for the fixture-failure pack. Its id DELIBERATELY does not match the
+# manifest rule id (forbidden-marker): that mismatch is what makes `pack test` fail in
+# phase3-fixtures while `pack check`, which does not run that phase, still passes.
+rules:
+  - id: some-other-marker
+    message: A forbidden marker is present in the scanned file.
+    severity: ERROR
+    patterns:
+      - pattern-regex: 'FORBIDDEN_MARKER'

@@ -1,0 +1,41 @@
+name: hermetic/invalid-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Hermetic INVALID pack fixture (SPEC-055 TASK-002). This pack SOURCE genuinely FAILS
+  `backstop pack check`, and the REASON is part of the fixture: it fails in
+  phase1-structural with a file-exists error, because its rule declares a rule file
+  that does not exist on disk.
+
+  THE FAILURE IS THE VALIDATOR'S, AND ONLY THE VALIDATOR'S. Everything here parses:
+  the manifest loader accepts this pack (name, version, language, archetype,
+  description, content, a declared engine, and a valid risk_class are all present and
+  well formed), so nothing on the add path rejects it except the pack check pipeline.
+  A pack that failed for an unrelated structural reason — an unparseable manifest, a
+  missing required field — would abort the add BEFORE validation ran and would prove
+  nothing about whether the validator is wired.
+
+  Do not "fix" this pack by creating the missing rule file. Its whole job is to fail.
+engines:
+  # Declared so the manifest loader's engine requirement is satisfied and the pack's
+  # rejection is attributable to the missing rule file alone. Never executed: the rule
+  # has no claims, and the pipeline stops at phase1 anyway.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # rules/deliberately-absent.yml is NOT present in this directory, and must not
+      # be. phase1-structural stats every rule's declared file and fails here with
+      # check "file-exists" / message "referenced file not found", naming rule
+      # forbidden-marker at manifest path content.ruleset.rules[0].file.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/deliberately-absent.yml
+        risk_class: correctness
