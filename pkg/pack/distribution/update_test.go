@@ -433,26 +433,6 @@ func TestPackUpdate_RunPackTestFailure(t *testing.T) {
 	}
 }
 
-func TestPackUpdate_NilValidatorSkipsValidation(t *testing.T) {
-	projectDir := setupUpdateProject(t)
-
-	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:       nil,
-		VersionResolver: &mockVersionResolver{latestMinor: "1.1.0"},
-	}
-
-	result, err := distribution.Update("acme/valid-pack", opts)
-	if err != nil {
-		t.Fatalf("Update with nil validator should succeed: %v", err)
-	}
-
-	if result.NewVersion != "1.1.0" {
-		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "1.1.0")
-	}
-}
-
 func TestPackUpdate_NoExistingPackDir(t *testing.T) {
 	projectDir := setupUpdateProject(t)
 	// Remove the installed pack directory so tamper detection is skipped.

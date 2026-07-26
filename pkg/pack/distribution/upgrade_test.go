@@ -322,51 +322,6 @@ func TestPackUpgrade_FailsWhenRunPackTestFails(t *testing.T) {
 	}
 }
 
-func TestPackUpgrade_SkipsValidationWhenValidatorNil(t *testing.T) {
-	projectDir := setupUpgradeProject(t)
-
-	opts := distribution.UpgradeOptions{
-		ProjectDir:           projectDir,
-		GitCloner:            &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:            nil,
-		RemediationGenerator: &mockRemediationGenerator{},
-		Scanner:              &mockScanner{},
-	}
-
-	result, err := distribution.Upgrade("acme/valid-pack@2.0.0", opts)
-	if err != nil {
-		t.Fatalf("Upgrade with nil validator should succeed: %v", err)
-	}
-
-	if result.NewVersion != "2.0.0" {
-		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "2.0.0")
-	}
-}
-
-func TestPackUpgrade_NoRemediationWhenGeneratorNil(t *testing.T) {
-	projectDir := setupUpgradeProject(t)
-
-	opts := distribution.UpgradeOptions{
-		ProjectDir:           projectDir,
-		GitCloner:            &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:            &mockValidator{},
-		RemediationGenerator: nil,
-		Scanner:              &mockScanner{violations: []string{"v1"}},
-	}
-
-	result, err := distribution.Upgrade("acme/valid-pack@2.0.0", opts)
-	if err != nil {
-		t.Fatalf("Upgrade: %v", err)
-	}
-
-	if result.RemediationBundle != "" {
-		t.Errorf("expected empty remediation bundle when generator is nil, got %q", result.RemediationBundle)
-	}
-	if result.BaselinedViolations != 1 {
-		t.Errorf("BaselinedViolations = %d, want 1", result.BaselinedViolations)
-	}
-}
-
 func TestPackUpgrade_NoRemediationWhenNoViolations(t *testing.T) {
 	projectDir := setupUpgradeProject(t)
 
@@ -456,30 +411,6 @@ func TestPackUpgrade_CreatesLockfileWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestPackUpgrade_SkipsScanningWhenScannerNil(t *testing.T) {
-	projectDir := setupUpgradeProject(t)
-
-	opts := distribution.UpgradeOptions{
-		ProjectDir:           projectDir,
-		GitCloner:            &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
-		Validator:            &mockValidator{},
-		RemediationGenerator: &mockRemediationGenerator{},
-		Scanner:              nil,
-	}
-
-	result, err := distribution.Upgrade("acme/valid-pack@2.0.0", opts)
-	if err != nil {
-		t.Fatalf("Upgrade with nil scanner should succeed: %v", err)
-	}
-
-	if result.BaselinedViolations != 0 {
-		t.Errorf("BaselinedViolations = %d, want 0", result.BaselinedViolations)
-	}
-	if result.RemediationBundle != "" {
-		t.Errorf("RemediationBundle = %q, want empty", result.RemediationBundle)
-	}
-}
-
 func TestPackUpgrade_FailsWhenBackstopYmlMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	// No backstop.yml.
@@ -554,6 +485,45 @@ func TestPackUpgrade_MergeToolConfigError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "merging tool_config") {
 		t.Errorf("error should mention merging tool_config, got: %v", err)
+	}
+}
+
+// mockScannerRemovingManifest deletes the consumer's backstop.yml as a side
+// effect of scanning, so the upgrade reaches its MANIFEST WRITE with the file
+// gone. The scan is the last step before any consumer mutation, which makes it
+// the only seam from which a late write failure can be staged.
+type mockScannerRemovingManifest struct{}
+
+func (m *mockScannerRemovingManifest) ScanViolations(projectDir, _ string) ([]string, error) {
+	if err := os.Remove(filepath.Join(projectDir, "backstop.yml")); err != nil {
+		return nil, fmt.Errorf("staging the scenario: removing the manifest mid-upgrade: %w", err)
+	}
+	return nil, nil
+}
+
+// TestPackUpgrade_ManifestWriteFailureNamesTheFile asserts a manifest write that
+// fails LATE — after validation, the scan, the merge, and the install have all
+// succeeded — surfaces a diagnostic naming backstop.yml.
+//
+// The write is the second-to-last step, so its failure is the easiest one to
+// return bare; a bare os.ReadFile error at that point tells an operator only
+// "no such file or directory" with no indication of which file or which command.
+func TestPackUpgrade_ManifestWriteFailureNamesTheFile(t *testing.T) {
+	projectDir := setupUpgradeProject(t)
+
+	upgrade := newTestUpgradeCommand(t,
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockValidator{},
+		&mockScannerRemovingManifest{},
+		&mockRemediationGenerator{},
+	)
+
+	_, err := upgrade.Run("acme/valid-pack@2.0.0", distribution.UpgradeOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("upgrade must fail when it cannot record the new version in the manifest")
+	}
+	if !strings.Contains(err.Error(), "backstop.yml") {
+		t.Errorf("error = %v, want it to name backstop.yml so an operator knows which file could not be written", err)
 	}
 }
 

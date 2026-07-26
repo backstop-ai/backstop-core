@@ -119,45 +119,6 @@ func spec015DeclaredInSuites(t *testing.T, root string) map[string]string {
 	return declared
 }
 
-// spec015AbsentDependencyPremiseTests returns the tests whose assertion SUBJECT
-// is that an absent dependency makes the pipeline skip something.
-//
-// The constructors make their premise unrepresentable, so they cannot be
-// migrated — but the skips they assert are STILL LIVE until REQ-008/REQ-009
-// delete them. Retiring them before then would leave live behavior untested.
-func spec015AbsentDependencyPremiseTests() []string {
-	return []string{
-		"TestPackAdd_NilValidatorSkipsValidation",
-		"TestPackUpdate_NilValidatorSkipsValidation",
-		"TestPackUpgrade_SkipsValidationWhenValidatorNil",
-		"TestPackUpgrade_NoRemediationWhenGeneratorNil",
-		"TestPackUpgrade_SkipsScanningWhenScannerNil",
-	}
-}
-
-// TestDistribution_AbsentDependencyPremiseTestsAwaitSkipRemoval asserts these
-// five tests are STILL PRESENT — their survival through the suite migration is a
-// deliberate decision, not an oversight.
-//
-// They ride the package-level entry points one phase longer so that they die in
-// the SAME change that deletes the skips they assert, with the inverse claims
-// (the validator, scanner, and remediation generator running unconditionally)
-// landing simultaneously. Coverage never has a window where the skip behavior is
-// live and untested.
-//
-// DELETE THIS GUARD together with the five, in the change that removes the
-// nil-dependency skips. Until then a failure here means someone retired them
-// early and took live behavior's only coverage with them.
-func TestDistribution_AbsentDependencyPremiseTestsAwaitSkipRemoval(t *testing.T) {
-	declared := spec015DeclaredInSuites(t, spec015RepoRoot(t))
-
-	for _, name := range spec015AbsentDependencyPremiseTests() {
-		if _, ok := declared[name]; !ok {
-			t.Errorf("%s is gone; it asserts a skip that is still live, and nothing else covers that behavior until the skip itself is deleted", name)
-		}
-	}
-}
-
 // spec015RepoRoot walks up from the working directory to the repository root so
 // the spec is located by structure rather than by a baked absolute path.
 func spec015RepoRoot(t *testing.T) string {

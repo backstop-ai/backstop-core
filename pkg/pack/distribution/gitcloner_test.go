@@ -39,6 +39,14 @@ const redirectedProductionURL = "https://github.com/backstop-ai/harness-pack.git
 // subprocess fails the run instead of hanging CI.
 const cloneTimeout = 60 * time.Second
 
+// promptGuardTimeout bounds the prompt-requiring stand-in. The PASS path never waits
+// on it — a cloner that disabled prompting gets an immediate clean exit — so the
+// margin only has to cover fork/exec under full-repo -race load, where 3s was not
+// enough and the timeout diagnostic masqueraded as a failure to complete. Only a
+// cloner that genuinely left prompting enabled waits the full duration, and the
+// promptGuardMarker check still identifies that case when it does.
+const promptGuardTimeout = 30 * time.Second
+
 func TestExecGitCloner_Clone_MaterializesTaggedRepo(t *testing.T) {
 	repo := newTaggedRepo(t, taggedRepoSpec{
 		Revisions: []repoRevision{
@@ -159,7 +167,7 @@ func TestExecGitCloner_Clone_RunsGitNonInteractively(t *testing.T) {
 	standIn := newPromptRequiringGitStandIn(t)
 
 	destDir := newCloneDestination(t)
-	cloner := &distribution.ExecGitCloner{GitBinary: standIn, Timeout: 3 * time.Second}
+	cloner := &distribution.ExecGitCloner{GitBinary: standIn, Timeout: promptGuardTimeout}
 
 	err := cloner.Clone("file:///harness/would-prompt", "v1.0.0", destDir)
 	if err != nil {

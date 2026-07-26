@@ -25,7 +25,7 @@ func setupRemoveProject(t *testing.T) string {
 	writeFile(t, filepath.Join(packDir, "pack.yml"), "name: acme/valid-pack\nversion: \"1.0.0\"\n")
 
 	// Create lockfile.
-	hash, _ := distribution.ComputeContentHash(packDir)
+	hash := mustContentHash(t, packDir)
 	ref := "v1.0.0"
 	lf := &distribution.Lockfile{
 		Packs: map[string]distribution.LockEntry{
@@ -113,7 +113,7 @@ func TestPackRemove_RemovesFromBackstopYml(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
+	data := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
 	if strings.Contains(string(data), "acme/valid-pack") {
 		t.Error("backstop.yml should not contain removed pack")
 	}
@@ -172,10 +172,51 @@ func TestPackRemove_NotInstalledExitsNonZero(t *testing.T) {
 	}
 }
 
+// TestPackRemove_AbsentManifestExitsNonZero asserts a project with no
+// backstop.yml at all refuses the removal rather than treating the missing
+// manifest as "nothing declares this pack, so removing it is a no-op".
+func TestPackRemove_AbsentManifestExitsNonZero(t *testing.T) {
+	projectDir := t.TempDir()
+
+	_, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected error when the project has no backstop.yml to read")
+	}
+
+	if !strings.Contains(err.Error(), "not installed") {
+		t.Errorf("error should mention 'not installed', got: %v", err)
+	}
+}
+
+// TestPackRemove_MalformedManifestExitsNonZero asserts an unparseable
+// backstop.yml is treated as declaring nothing, so the removal refuses instead
+// of proceeding to delete files on the strength of a manifest it could not read.
+func TestPackRemove_MalformedManifestExitsNonZero(t *testing.T) {
+	projectDir := setupRemoveProject(t)
+	writeFile(t, filepath.Join(projectDir, "backstop.yml"), "packs:\n  - this is not a mapping\n\t bad indent")
+
+	_, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected error when backstop.yml cannot be parsed")
+	}
+
+	if !strings.Contains(err.Error(), "not installed") {
+		t.Errorf("error should mention 'not installed', got: %v", err)
+	}
+
+	// The installed pack must survive: a removal that could not read the manifest
+	// must not delete content on the strength of it.
+	if _, statErr := os.Stat(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")); statErr != nil {
+		t.Errorf("installed pack was deleted despite the manifest being unreadable: %v", statErr)
+	}
+}
+
 func TestPackRemove_NoLockfile(t *testing.T) {
 	projectDir := setupRemoveProject(t)
 	// Delete the lockfile.
-	os.Remove(filepath.Join(projectDir, "backstop.lock"))
+	if err := os.Remove(filepath.Join(projectDir, "backstop.lock")); err != nil {
+		t.Fatalf("deleting the lockfile the scenario needs absent: %v", err)
+	}
 
 	result, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
 	if err != nil {
@@ -192,7 +233,7 @@ func TestPackRemove_PreservesOtherPackProvenance(t *testing.T) {
 
 	// Add a second pack's provenance entries.
 	provPath := filepath.Join(projectDir, ".backstop", "pack-config-provenance.json")
-	prov, _ := distribution.ReadProvenance(provPath)
+	prov := mustReadProvenance(t, provPath)
 	prov.Entries = append(prov.Entries, distribution.ProvenanceEntry{
 		ConfigFile: ".eslintrc.json",
 		SettingKey: "rules.no-console",
@@ -209,7 +250,7 @@ func TestPackRemove_PreservesOtherPackProvenance(t *testing.T) {
 	}
 
 	// Verify other pack's provenance entries survive.
-	prov, _ = distribution.ReadProvenance(provPath)
+	prov = mustReadProvenance(t, provPath)
 	found := false
 	for _, entry := range prov.Entries {
 		if entry.SourcePack == "other/pack" {
@@ -236,8 +277,7 @@ func TestPackRemove_MultiplePacksInYml(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
-	content := string(data)
+	content := string(mustReadFile(t, filepath.Join(projectDir, "backstop.yml")))
 
 	if strings.Contains(content, "acme/valid-pack") {
 		t.Error("removed pack should not be in backstop.yml")

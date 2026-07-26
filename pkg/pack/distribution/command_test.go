@@ -286,24 +286,19 @@ func TestNewUpgradeCommand_NilRemediationGeneratorNamesDependency(t *testing.T) 
 	assertMissingDependency(t, "NewUpgradeCommand(cloner, validator, scanner, nil)", cmd != nil, err, "UpgradeCommand", "remediation generator")
 }
 
-// --- Run reads the RECEIVER's dependencies (the strangler seam) ---
+// --- Run reads the RECEIVER's dependencies ---
 //
-// While the pipeline bodies still live in the package-level functions, each Run
-// copies its receiver's dependencies onto the options value before delegating.
-// The tests below hand Run an options value carrying SABOTAGED dependencies —
-// ones that fail on use — and assert the pipeline nonetheless succeeds, which is
-// only possible if the receiver's dependencies replaced them.
+// These tests once handed Run an options value carrying SABOTAGED dependencies
+// and asserted the pipeline succeeded anyway, which was the only way to tell
+// whether the transitional delegation had copied the receiver's dependencies
+// across. The options no longer HAVE dependency fields, so that sabotage is
+// unrepresentable and the delegation it guarded is gone.
 //
-// The sabotage is what makes these falsifiable: a Run that forgot to copy a
-// dependency (or copied it into the wrong field) fails here rather than quietly
-// running on whatever the caller happened to supply. That is the exact regression
-// the transitional delegation risks, and Phase 11's move of the bodies into these
-// methods must keep them green.
-
-// sabotage returns a fresh failure for a dependency that must NOT be reached. It
-// is a function rather than a package-level error value so this suite introduces
-// no shared mutable state.
-func sabotage() error { return errors.New("sabotaged dependency was used") }
+// What each test asserts is unchanged and still falsifiable: the assembled
+// dependency is the one that DROVE the outcome — the receiver's resolver decides
+// which version the update lands on, the receiver's scanner decides how many
+// violations are baselined. A Run reading dependencies from anywhere else
+// produces different values here.
 
 // TestAddCommandRun_UsesReceiverDependencies proves AddCommand.Run runs the add
 // pipeline on the cloner and validator the command was ASSEMBLED with.
@@ -321,13 +316,11 @@ func TestAddCommandRun_UsesReceiverDependencies(t *testing.T) {
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 		Version:    "1.0.0",
-		GitCloner:  &mockGitCloner{failWith: sabotage()},
-		Validator:  &mockValidator{checkFail: true},
 	}
 
 	result, err := cmd.Run("acme/valid-pack@1.0.0", opts)
 	if err != nil {
-		t.Fatalf("AddCommand.Run: %v — the pipeline ran on the options' dependencies instead of the command's", err)
+		t.Fatalf("AddCommand.Run: %v — the pipeline did not run on the command's own dependencies", err)
 	}
 	if result.PackName != "acme/valid-pack" {
 		t.Errorf("PackName = %q, want %q", result.PackName, "acme/valid-pack")
@@ -349,12 +342,11 @@ func TestInstallCommandRun_UsesReceiverCloner(t *testing.T) {
 
 	opts := distribution.InstallOptions{
 		ProjectDir: projectDir,
-		GitCloner:  &mockGitCloner{failWith: sabotage()},
 	}
 
 	result, err := cmd.Run(opts)
 	if err != nil {
-		t.Fatalf("InstallCommand.Run: %v — the pipeline ran on the options' cloner instead of the command's", err)
+		t.Fatalf("InstallCommand.Run: %v — the pipeline did not run on the command's own cloner", err)
 	}
 	if len(result.InstalledPacks) == 0 {
 		t.Error("InstallCommand.Run installed nothing; the restore did not run")
@@ -377,15 +369,12 @@ func TestUpdateCommandRun_UsesReceiverDependencies(t *testing.T) {
 	}
 
 	opts := distribution.UpdateOptions{
-		ProjectDir:      projectDir,
-		GitCloner:       &mockGitCloner{failWith: sabotage()},
-		Validator:       &mockValidator{checkFail: true},
-		VersionResolver: &mockVersionResolverWithError{err: sabotage()},
+		ProjectDir: projectDir,
 	}
 
 	result, err := cmd.Run("acme/valid-pack", opts)
 	if err != nil {
-		t.Fatalf("UpdateCommand.Run: %v — the pipeline ran on the options' dependencies instead of the command's", err)
+		t.Fatalf("UpdateCommand.Run: %v — the pipeline did not run on the command's own dependencies", err)
 	}
 	if result.NewVersion != "1.1.0" {
 		t.Errorf("NewVersion = %q, want %q — the command's resolver did not drive the resolution", result.NewVersion, "1.1.0")
@@ -409,16 +398,12 @@ func TestUpgradeCommandRun_UsesReceiverDependencies(t *testing.T) {
 	}
 
 	opts := distribution.UpgradeOptions{
-		ProjectDir:           projectDir,
-		GitCloner:            &mockGitCloner{failWith: sabotage()},
-		Validator:            &mockValidator{checkFail: true},
-		Scanner:              &mockScannerWithError{err: sabotage()},
-		RemediationGenerator: &mockRemediationGenerator{failWith: sabotage()},
+		ProjectDir: projectDir,
 	}
 
 	result, err := cmd.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
-		t.Fatalf("UpgradeCommand.Run: %v — the pipeline ran on the options' dependencies instead of the command's", err)
+		t.Fatalf("UpgradeCommand.Run: %v — the pipeline did not run on the command's own dependencies", err)
 	}
 	if result.NewVersion != "2.0.0" {
 		t.Errorf("NewVersion = %q, want %q", result.NewVersion, "2.0.0")

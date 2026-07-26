@@ -860,22 +860,6 @@ func TestPackAdd_LocalPathMissingName(t *testing.T) {
 	}
 }
 
-func TestPackAdd_NilValidatorSkipsValidation(t *testing.T) {
-	projectDir := setupAddProject(t)
-	opts := newTestAddOptions(projectDir)
-	opts.GitCloner = defaultTestPackCloner()
-	opts.Validator = nil
-
-	result, err := distribution.Add("acme/valid-pack@1.0.0", opts)
-	if err != nil {
-		t.Fatalf("Add with nil validator should succeed: %v", err)
-	}
-
-	if result.PackName != "acme/valid-pack" {
-		t.Errorf("PackName = %q, want %q", result.PackName, "acme/valid-pack")
-	}
-}
-
 func TestPackAdd_VersionOverridesPackRef(t *testing.T) {
 	projectDir := setupAddProject(t)
 	opts := newTestAddOptions(projectDir)
