@@ -2,11 +2,30 @@
 # Position = priority. First = highest. Reorder to reprioritize.
 # See artifacts/directive/v1/backlog-schema.json for format.
 
+# Reordered 2026-07-26 per founder direction: the three launch blockers
+# (recipes / remote pack consumption / Linux+CI viability) take positions
+# 1-3, ahead of everything else. Order among the three is "finish what's
+# already in flight" — argue with it if that's wrong. DIR-003 (Baseline)
+# moves to position 4, behind the pack work but not behind everything, per
+# the founder's own words ("it's definitely behind all of the pack issues
+# we're working through") — an earlier pass over-applied this to dead
+# last and was corrected back to just behind the three blockers. DIR-002
+# (backstop init) is explicitly tiered down out of the top-3 but otherwise
+# kept near its old neighbors. Everything else preserves its prior relative
+# order. See DIR-026 Notes for a caveat on the recipes/DIR-019 progress
+# claim underlying this ordering.
+
 directives:
-  - id: DIR-003
-    title: Baseline Implementation
   - id: DIR-019
     title: Pack Recipe Capability
+  - id: DIR-026
+    title: Remote Dependency Assembly
+  - id: DIR-027
+    title: Pack Fleet Publication & Migration
+  - id: DIR-024
+    title: Gate/Engine Quality
+  - id: DIR-003
+    title: Baseline Implementation
   - id: DIR-002
     title: backstop init Command
   - id: DIR-001
@@ -21,7 +40,24 @@ directives:
     title: Contracts Engine Hardening
   - id: DIR-023
     title: Pack Distribution Hardening
-  - id: DIR-024
-    title: Gate/Engine Quality
   - id: DIR-020
     title: Backstop Trace Command
+
+# Unhomed bundles — expressions of intent awaiting directive homes.
+# Position = priority within this tier. Ordering founder-ratified 2026-07-26
+# (001/002 held low deliberately); reorder to reprioritize.
+bundles:
+  - id: BUNDLE-020
+    title: Pack Core Version Compatibility
+  - id: BUNDLE-021
+    title: Pack Command Execution Governance
+  - id: BUNDLE-017
+    title: Recipe Provenance Ledger
+  - id: BUNDLE-019
+    title: Runbooks
+  - id: BUNDLE-001
+    title: Pack Distribution, Verification, and Review (ambitious — post-launch, held deliberately)
+  - id: BUNDLE-002
+    title: Pack Publishing Proxy (ambitious — post-launch, held deliberately)
+  - id: BUNDLE-018
+    title: Stash — Secure Local Resource Store (external repo)
