@@ -127,13 +127,35 @@ notes: |
   names FROM specs/SPEC-015-pack-distribution.spec.md, not from a hardcoded
   list that would drift (spec Review Question 12).
 
-  EXACTLY THREE TESTS ARE RETIRED, NOT MIGRATED — and they are all the same
-  failure class, so recognize the shape rather than memorizing the list:
-  A TEST WHOSE PREMISE IS AN ABSENT DEPENDENCY HAS NO MIGRATED FORM ONCE THE
-  CONSTRUCTOR MAKES THAT ABSENCE UNREPRESENTABLE. Each asserts a runtime
-  guard TASK-050 deletes; each is verified NOT among SPEC-015's 100 mandated
-  names, so no claim lineage is stranded; and each has its property fully
-  subsumed by a constructor claim this plan adds.
+  EXACTLY EIGHT TESTS ARE RETIRED REPO-WIDE, NOT MIGRATED — THREE IN PHASE
+  10 AND FIVE IN PHASE 11. They are all one failure class, so recognize the
+  SHAPE rather than memorizing the list: A TEST WHOSE PREMISE IS AN ABSENT
+  DEPENDENCY HAS NO MIGRATED FORM ONCE THE CONSTRUCTOR MAKES THAT ABSENCE
+  UNREPRESENTABLE. All eight are verified absent from SPEC-015's 100 mandated
+  names and from every other spec and plan in the corpus, so no claim lineage
+  is stranded, and each has its property subsumed by a claim this plan adds.
+
+  WHY THE SPLIT IS 3 + 5 AND NOT 8 IN ONE PLACE — this is the whole point,
+  and it is a sequencing rule, not a bookkeeping detail:
+
+    PHASE 10 retires the three whose premise the CONSTRUCTORS invalidate.
+    Those tests build an options value with a dependency missing and assert
+    an error. Once the migration routes every call through a fail-closed
+    constructor, that options value cannot be expressed — the test cannot be
+    written at all, so it goes when its callers are migrated.
+
+    PHASE 11 retires the five whose premise the GUARD DELETION invalidates.
+    Those tests assert that a nil dependency SKIPS work. The skip is real
+    and still observable right up until TASK-050 removes it, so retiring
+    them in phase 10 would delete coverage of behavior that still ships —
+    an uncovered window. Retiring them WITH the guard means the test dies
+    in the same change as the behavior it documents, and the inverse claims
+    (CLM-053/056/057) land in that same phase to replace them.
+
+  Net: no window exists in which a shipped behavior has no test, and no
+  window exists in which a test asserts a behavior that is gone.
+
+  THE PHASE 10 THREE (constructor-invalidated):
 
     1. TestInstallContractsLocalPackWithValidator_RunsCheckPhases
        (contracts_provisioning_test.go:224) — asserts that SUPPLYING a
@@ -154,18 +176,34 @@ notes: |
        by CLM-041 / TestNewUpdateCommand_NilVersionResolverNamesDependency.
        Retired in TASK-042.
 
-  CONSEQUENCE FOR THE LINEAGE RATCHET: the before/after `func Test…`
-  identifier sets in the SIX SUITES differ by exactly TWO names (#2 in
-  install_test.go and #3 in update_test.go); #1 lives in
-  contracts_provisioning_test.go, which is not one of the six. CLM-100's
-  guard (TASK-041) checks SPEC-015-MANDATED names only, and none of the three
-  is mandated, so the ratchet stays green through all three retirements
-  without a carve-out in the test itself. The carve-outs are in the TASK-042
-  and TASK-043 instructions, so an implementer does not read
-  "identical identifier sets" and conclude the retirement is forbidden.
+  THE PHASE 11 FIVE (guard-deletion-invalidated) — all retired by TASK-050
+  in the SAME change that removes the skips they assert:
 
-  IF YOU FIND A FOURTH, STOP AND REPORT IT. The edit set is supposed to be
-  closed (spec Review Question 11); a fourth means the enumeration missed a
+    4. TestPackAdd_NilValidatorSkipsValidation (add_test.go:814)
+    5. TestPackUpdate_NilValidatorSkipsValidation (update_test.go:466)
+    6. TestPackUpgrade_SkipsValidationWhenValidatorNil (upgrade_test.go:347)
+       → inverse is CLM-053 / TestUpgradeCommand_ValidatesBeforeInstall
+    7. TestPackUpgrade_NoRemediationWhenGeneratorNil (upgrade_test.go:368)
+       → inverse is CLM-057 / TestUpgradeCommand_RemediationFailureAbortsUpgrade
+    8. TestPackUpgrade_SkipsScanningWhenScannerNil (upgrade_test.go:487)
+       → inverse is CLM-056 / TestUpgradeCommand_ScannerInvokedUnconditionally
+
+  #4 and #5 have no bespoke successor: their residual POSITIVE property —
+  that add and update still succeed on the happy path — is already covered
+  by the mandated happy-path tests in their own files.
+
+  CONSEQUENCE FOR THE LINEAGE RATCHET: CLM-100's guard (TASK-041) checks
+  SPEC-015-MANDATED names only, and none of the eight is mandated, so the
+  ratchet stays green through every retirement without a carve-out in the
+  test itself. The carve-outs live in the TASK-042/043/050 instructions so an
+  implementer does not read "identical identifier sets" and conclude a
+  sanctioned retirement is forbidden. Concretely, the six suites' `func Test…`
+  identifier sets shrink by TWO at the end of phase 10 (#2 install_test.go,
+  #3 update_test.go — #1 lives in contracts_provisioning_test.go, not one of
+  the six) and by FIVE MORE at the end of phase 11.
+
+  IF YOU FIND A NINTH, STOP AND REPORT IT. The edit set is supposed to be
+  closed (spec Review Question 11); a ninth means the enumeration missed a
   class, which is worth knowing before it is absorbed silently.
 
   ─────────────────────────────────────────────────────────────────────────
@@ -2805,14 +2843,28 @@ phases:
               (update_test.go) and TestPackInstall_NoGitClonerForGitPack
               (install_test.go). Zero renames, zero merges, zero other drops.
               All 62 SPEC-015-mandated names present verbatim.
-            - Exactly THREE tests were retired repo-wide, all of the same
+            - THE PHASE-11 FIVE ARE STILL PRESENT AND UNTOUCHED. Grep for
+              TestPackAdd_NilValidatorSkipsValidation,
+              TestPackUpdate_NilValidatorSkipsValidation,
+              TestPackUpgrade_SkipsValidationWhenValidatorNil,
+              TestPackUpgrade_NoRemediationWhenGeneratorNil, and
+              TestPackUpgrade_SkipsScanningWhenScannerNil — all five must
+              still exist and still pass at the end of THIS phase. They
+              assert nil-skip behavior that STILL SHIPS until TASK-050
+              removes the guards, so retiring them here would delete coverage
+              of live behavior. They are TASK-050's to retire, not this
+              phase's. If they are already gone, phase 11 work leaked
+              backwards — stop and report it.
+            - Exactly THREE tests were retired IN THIS PHASE, all of the same
               absent-dependency-premise class:
               TestPackUpdate_NoVersionResolver (TASK-042),
               TestPackInstall_NoGitClonerForGitPack (TASK-043), and
               TestInstallContractsLocalPackWithValidator_RunsCheckPhases plus
               stubValidator (TASK-045, in contracts_provisioning_test.go,
-              which is not one of the six suites). A FOURTH deletion means
-              the edit set is not closed — report it, do not absorb it.
+              which is not one of the six suites). A FOURTH deletion IN THIS
+              PHASE means the edit set is not closed — report it, do not
+              absorb it. (Five MORE retire in phase 11 by TASK-050; that is
+              sanctioned and expected, and is not a phase-10 finding.)
             - Confirm each retirement's property is actually covered by its
               subsuming constructor test: CLM-041 for the resolver, CLM-037
               for the cloner. A retirement whose replacement does not exist
@@ -3062,6 +3114,46 @@ phases:
           fill a dependency a caller failed to supply (CLM-031). If a code
           path seems to need one, the caller is wrong, not the rule.
 
+          FIVE SANCTIONED RETIREMENTS, DELETED IN THIS SAME CHANGE. Each
+          asserts one of the nil-skip behaviors this task deletes, so each
+          dies WITH the behavior it documents — there is never a window where
+          the skip is gone but a test still claims it exists:
+
+            add_test.go:814     TestPackAdd_NilValidatorSkipsValidation
+            update_test.go:466  TestPackUpdate_NilValidatorSkipsValidation
+            upgrade_test.go:347 TestPackUpgrade_SkipsValidationWhenValidatorNil
+            upgrade_test.go:368 TestPackUpgrade_NoRemediationWhenGeneratorNil
+            upgrade_test.go:487 TestPackUpgrade_SkipsScanningWhenScannerNil
+
+          Same class as the phase-10 three: THE PREMISE IS AN ABSENT
+          DEPENDENCY, which the fail-closed constructors make
+          unrepresentable. All five verified absent from SPEC-015's mandated
+          set and from every other spec and plan in the corpus, so no claim
+          lineage is stranded.
+
+          WHAT REPLACES EACH — verify the replacement is green before you
+          consider the retirement done:
+            • SkipsValidationWhenValidatorNil → its INVERSE is CLM-053 /
+              TestUpgradeCommand_ValidatesBeforeInstall (TASK-047).
+            • SkipsScanningWhenScannerNil → CLM-056 /
+              TestUpgradeCommand_ScannerInvokedUnconditionally (TASK-048).
+            • NoRemediationWhenGeneratorNil → CLM-057 /
+              TestUpgradeCommand_RemediationFailureAbortsUpgrade (TASK-048).
+            • The two NilValidatorSkipsValidation tests have no inverse of
+              their own beyond CLM-050/051/052; their residual POSITIVE
+              property — that add and update still succeed on the happy path
+              — is already covered by the mandated happy-path tests in their
+              own files, which is why they retire without a bespoke
+              successor.
+
+          DELETE THEM IN THE SAME EDIT AS THE GUARD REMOVAL, not before and
+          not after. Delete them first and the suite reds against behavior
+          that still exists; delete them later and the suite reds against
+          behavior that no longer does.
+
+          THAT IS EIGHT RETIREMENTS REPO-WIDE ACROSS THE PLAN — three in
+          phase 10, five here. If you find a NINTH, stop and report it.
+
           EXPECT `pack upgrade` TO GET LOUDER. It now fails where it used to
           report a successful major upgrade with zero baselined violations.
           That is correct. Any existing test asserting `pack upgrade`
@@ -3118,6 +3210,23 @@ phases:
               (CLM-031).
             - `grep -n "!= nil" pkg/pack/distribution/{add,install,update,upgrade}.go`
               shows no surviving dependency-presence guard.
+            - THE PHASE-11 FIVE ARE GONE. Grep for
+              TestPackAdd_NilValidatorSkipsValidation,
+              TestPackUpdate_NilValidatorSkipsValidation,
+              TestPackUpgrade_SkipsValidationWhenValidatorNil,
+              TestPackUpgrade_NoRemediationWhenGeneratorNil, and
+              TestPackUpgrade_SkipsScanningWhenScannerNil — ZERO hits across
+              pkg/pack/distribution. A survivor means a nil-skip test outlived
+              the nil-skip it documents, which will red confusingly.
+            - THEIR THREE REPLACEMENTS ARE GREEN, not merely present:
+              TestUpgradeCommand_ValidatesBeforeInstall (CLM-053),
+              TestUpgradeCommand_ScannerInvokedUnconditionally (CLM-056), and
+              TestUpgradeCommand_RemediationFailureAbortsUpgrade (CLM-057).
+              Run them by name. A retirement whose inverse is red is a
+              coverage loss wearing a sanction.
+            - Eight retirements repo-wide total (three from phase 10, five
+              here) and no more. A NINTH means the enumeration missed a
+              class — report it.
             - The whole 139-test suite is still green, and CLM-100 still
               passes.
             - CLM-059 would FAIL if the scan and the tool-config merge were
