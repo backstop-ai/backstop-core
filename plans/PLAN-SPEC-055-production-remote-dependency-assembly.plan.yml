@@ -1,0 +1,3085 @@
+---
+plan_id: PLAN-SPEC-055
+spec_id: SPEC-055
+spec_version: "1.2.0"
+created: "2026-07-26"
+status: draft
+test_command: "go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS (BUNDLE-006 foundation reliability seed)
+  ─────────────────────────────────────────────────────────────────────────
+  Three concrete production implementations that do not exist anywhere in
+  the tree (ExecGitCloner, PackvalValidator, TagVersionResolver), four
+  constructor-assembled lifecycle command TYPES replacing four package-level
+  free functions, ONE production assembly file in cmd/backstop, the
+  cross-cutting error-surfacing repair (default-loud + an `Explained`
+  opt-out), a structured `--json` error envelope, and the two test MECHANISMS
+  (reportError seam + stream-separated CLI runner) without which the
+  error-surfacing claims cannot be asserted at all.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMAND REALITY — READ THIS BEFORE EVERY VERIFICATION TASK
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop code check` DOES NOT EXIST (ISSUE-076). Any instruction, agent
+  definition, or precedent plan telling you to run it is stale. The real
+  inner-loop verification in this corpus is:
+
+      go build -o bin/backstop ./cmd/backstop     # ALWAYS — see below
+      go test <the packages this phase touched> -race -count=1
+      ./bin/backstop gate                          # the full kill chain
+
+  THE REBUILD IS UNCONDITIONAL. Not "when cmd/ changed" — ALWAYS, in every
+  one of this plan's eleven verification tasks. bin/backstop is a BUILT
+  ARTIFACT that statically links everything under pkg/ as well as
+  cmd/backstop, so a phase that adds ONLY pkg/ code (gitcloner.go,
+  validator.go, versionresolver.go, command.go) still changes what the gate
+  binary would contain. Running the gate without rebuilding reports a verdict
+  about code that is not in the binary — ISSUE-077 is exactly this staleness
+  class. A stale-binary green is the most expensive kind of vacuous green in
+  this repo because it is indistinguishable from a real one.
+
+  ALL gate dimensions run at EVERY verification step (the no-check-filtering
+  razor). Verification tasks never scope or categorize what was touched.
+
+  ─────────────────────────────────────────────────────────────────────────
+  COMPILE-CLOSURE — WHY THE PHASE ORDER IS WHAT IT IS (non-negotiable)
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC-055 pass 4 deletes `distribution.Add/Install/Update/Upgrade`. Those
+  four free functions are the ONLY way the external package
+  `distribution_test` reaches the pipelines: 139 tests across six files
+  (add_test.go 58, update_test.go 25, upgrade_test.go 24, install_test.go
+  20, install_materialize_test.go 7, install_reconcile_test.go 5) make 138
+  free-function calls and set 190 dependency fields on options literals
+  (add 28, update 61, upgrade 88, install 11, materialize 2, reconcile 0).
+  Delete the functions and the whole test package stops compiling — so the
+  deletion and the migration cannot be two independent steps in the naive
+  order.
+
+  THIS PLAN SOLVES IT WITH A STRANGLER ORDER, so the tree compiles and the
+  suite is green at EVERY task boundary:
+
+    Phase 7  ADD the command types + constructors. Their Run methods
+             DELEGATE to the still-present free functions, copying the
+             receiver's dependencies onto the options value before the call.
+             Both APIs coexist. Nothing breaks.
+    Phase 8  Wire production (cmd/backstop) onto the NEW constructors.
+    Phase 10 MIGRATE all six suites + the helper call sites onto the new
+             constructors. Both APIs still coexist. Nothing breaks.
+    Phase 11 NOW delete the free functions, strip the dependency fields off
+             the four options structs, move the pipeline bodies into the
+             methods, and remove every nil guard. By this point NOTHING
+             calls the deleted API, so the deletion compiles clean.
+
+  DO NOT "optimize" this by deleting earlier. The delegation shim in Phase 7
+  is transitional by design and Phase 11 removes it; the end state is
+  identical to the spec's pass-4 description. What the ordering buys is that
+  no task ever hands off a red tree, which is what the spec means when it
+  says passes 4/5/8 cannot be split across separate MERGES — this is all one
+  merge, just ordered so each step is individually verifiable.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE 139-TEST MIGRATION IS PHASE 10, AND IT HAS A TRAP
+  ─────────────────────────────────────────────────────────────────────────
+  The migration is MECHANICAL — the mocks (mockGitCloner, mockValidator,
+  mockVersionResolver, mockScanner, mockRemediationGenerator,
+  mockScannerWithError, mockVersionResolverWithError) are UNCHANGED; only
+  their delivery moves from an options literal to a constructor call. One
+  shared command-building helper per command type collapses the work.
+
+  THE TRAP: the constructors FAIL CLOSED on nil, so every test that today
+  omits a dependency and rides the corresponding `!= nil` skip must be handed
+  a PASSING mock during migration. Measured against the current corpus,
+  helper-aware (a test counts as supplying a dependency if it sets the field
+  itself OR builds its options through a helper that does):
+
+    add_test.go        0 gaps. All 56 tests that call distribution.Add get a
+                       validator, because newTestAddOptions (add_test.go:78)
+                       sets `Validator: &mockValidator{}` for every caller
+                       that does not set one inline. add_test needs NO
+                       dependency-supplying edits — only call-site edits.
+    update_test.go     6 tests omit Validator, 2 omit VersionResolver.
+    upgrade_test.go    0 omit Validator; 4 omit Scanner and the same 4 omit
+                       RemediationGenerator.
+    install_test.go    9 omit GitCloner (the --cache and local-pack paths
+                       that never clone, plus the retirement below).
+
+  That is 25 call sites needing a mock supplied, not a whole-suite sweep.
+  DO NOT take these counts on faith — re-derive them before editing, because
+  the corpus moves and a helper added since would change them.
+
+  A test that silently starts running validation it never ran before will
+  fail for a reason that has nothing to do with what it asserts. Supply the
+  permissive mock; never weaken a constructor, and never edit an assertion to
+  accommodate newly-running validation — if a test genuinely breaks because
+  validation now runs, that is a finding to surface.
+
+  EVERY SPEC-015-MANDATED TEST NAME MUST SURVIVE VERBATIM. 62 of SPEC-015's
+  100 mandated names live in these six files (verified against the current
+  corpus: 100 names in SPEC-015, 139 test funcs across the six suites, 62 in
+  the intersection). BUNDLE-006 forbids rewriting SPEC-015's historical
+  `REQ-021@1.0.0` pin, and renaming a mandated test severs the same
+  claim-to-test lineage just as effectively. Change call sites and assembly
+  ONLY — never a `func TestX` identifier, never a merge of two tests, never
+  a "tidy". CLM-100 asserts this mechanically and its test MUST read the
+  names FROM specs/SPEC-015-pack-distribution.spec.md, not from a hardcoded
+  list that would drift (spec Review Question 12).
+
+  EXACTLY THREE TESTS ARE RETIRED, NOT MIGRATED — and they are all the same
+  failure class, so recognize the shape rather than memorizing the list:
+  A TEST WHOSE PREMISE IS AN ABSENT DEPENDENCY HAS NO MIGRATED FORM ONCE THE
+  CONSTRUCTOR MAKES THAT ABSENCE UNREPRESENTABLE. Each asserts a runtime
+  guard TASK-050 deletes; each is verified NOT among SPEC-015's 100 mandated
+  names, so no claim lineage is stranded; and each has its property fully
+  subsumed by a constructor claim this plan adds.
+
+    1. TestInstallContractsLocalPackWithValidator_RunsCheckPhases
+       (contracts_provisioning_test.go:224) — asserts that SUPPLYING a
+       validator makes the check/test phases run, a distinction that exists
+       only because a nil validator skipped them. REQ-008 removes the skip,
+       so the subject evaporates. Its `stubValidator`
+       (contracts_provisioning_test.go:215-219) goes with it, verified used
+       by no other test. Retired in TASK-045.
+    2. TestPackInstall_NoGitClonerForGitPack (install_test.go:483-513) —
+       builds an InstallOptions with "No GitCloner provided" and asserts the
+       install.go:165 nil-cloner guard errors. Subsumed by CLM-037 /
+       TestNewInstallCommand_NilGitClonerNamesDependency, which asserts the
+       same property EARLIER and with a NAMED dependency. Retired in
+       TASK-043.
+    3. TestPackUpdate_NoVersionResolver (update_test.go) — builds an
+       UpdateOptions with "No VersionResolver provided" and asserts the
+       update.go:55 "version resolver required for update" guard. Subsumed
+       by CLM-041 / TestNewUpdateCommand_NilVersionResolverNamesDependency.
+       Retired in TASK-042.
+
+  CONSEQUENCE FOR THE LINEAGE RATCHET: the before/after `func Test…`
+  identifier sets in the SIX SUITES differ by exactly TWO names (#2 in
+  install_test.go and #3 in update_test.go); #1 lives in
+  contracts_provisioning_test.go, which is not one of the six. CLM-100's
+  guard (TASK-041) checks SPEC-015-MANDATED names only, and none of the three
+  is mandated, so the ratchet stays green through all three retirements
+  without a carve-out in the test itself. The carve-outs are in the TASK-042
+  and TASK-043 instructions, so an implementer does not read
+  "identical identifier sets" and conclude the retirement is forbidden.
+
+  IF YOU FIND A FOURTH, STOP AND REPORT IT. The edit set is supposed to be
+  closed (spec Review Question 11); a fourth means the enumeration missed a
+  class, which is worth knowing before it is absorbed silently.
+
+  ─────────────────────────────────────────────────────────────────────────
+  HERMETICITY IS A STATED PROPERTY OF THIS SEED — DO NOT LEAK TO THE NETWORK
+  ─────────────────────────────────────────────────────────────────────────
+  The whole hermetic mechanism is that ExecGitCloner INHERITS the ambient
+  git configuration environment rather than clearing it. A test writes a
+  temporary gitconfig containing
+
+      [url "<file:///tmp/…/pack-repo.git>"]
+          insteadOf = https://github.com/<org>/<pack>.git
+
+  points GIT_CONFIG_GLOBAL at it, and the UNCHANGED production path —
+  including add.go:315's hardcoded `https://github.com/<name>.git`
+  construction — runs against a local repository, network-free. This is
+  load-bearing BEHAVIOR, not an oversight (Sharp Edge). Do not add an
+  env-sanitizing "hygiene" step to the cloner; it would silently turn every
+  hermetic test into a network call or a failure without any test going red
+  for the right reason.
+
+  `cmd/backstop/coverage_cli_test.go:97-108` TestCLI_PackAdd_NonexistentPack
+  is the one existing test that BECOMES a live network call the moment the
+  real cloner is wired (today it survives on `defer func(){ recover() }()`
+  catching the nil-cloner panic). It MUST be retargeted through the
+  insteadOf redirect in the same task that wires production, with the
+  `recover` dropped — there is no longer a panic to catch. If retargeting
+  would merely duplicate CLM-063, DELETE it. Leaving it as-is is a silent
+  regression from "hermetic" to "depends on GitHub being reachable and that
+  repository staying absent."
+
+  `pack add` is the ONLY one of the four commands so exposed:
+  TestCLI_PackUpdate_NonexistentPack and TestCLI_PackUpgrade_NonexistentPack
+  hit readPackVersion against a pack-less backstop.yml and error before any
+  clone; TestCLI_PackInstall_NoLockfile errors on the absent lock.
+  AddCommand.Run has no such precheck.
+
+  ─────────────────────────────────────────────────────────────────────────
+  STREAM SEPARATION IS NOT OPTIONAL (REQ-014 / spec Review Question 7)
+  ─────────────────────────────────────────────────────────────────────────
+  The existing helper `runBackstop` (pack_authoring_loop_test.go:27) returns
+  `CombinedOutput` — a MERGED stream. Against it, "prints its diagnostic to
+  stderr" passes for a command that printed to stdout, and "stdout holds
+  exactly one JSON document" passes for a run that also wrote a human line
+  to stderr. EVERY REQ-011 and REQ-012 claim would pass vacuously. This is
+  the exact blind spot that let the silent-exit-1 defect survive several
+  specs' worth of CLI tests.
+
+  NO claim under REQ-011 or REQ-012 may be driven by runBackstop. Each such
+  claim names its driving mechanism in its own text:
+    • reportError seam        — the per-site disposition claims (what prints,
+                                with which exit code, on a supplied writer)
+    • stream-separated runner — every claim asserting on a SPECIFIC stream of
+                                a real process
+    • direct unit tests       — writeJSONError's kind classification
+  runBackstop STAYS in the tree for its existing merged-output callers, which
+  legitimately do not care about streams.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ANTI-VACUOUS-GREEN GUARDS (the ways this ships dark)
+  ─────────────────────────────────────────────────────────────────────────
+  1. A MOCK-ONLY green. If every clone in the suite is a mock, this spec
+     delivered nothing it exists to deliver (Review Question 3). CLM-001/
+     CLM-029/CLM-062 each drive the REAL git binary; CLM-062 drives it
+     through the BUILT BINARY.
+  2. A HAND-WRITTEN fixture pack that happens to satisfy whatever the
+     validator accepts is a mirror, not a fixture. The hermetic pack must be
+     PROVEN to pass `pack check` + `pack test` by driving those commands
+     against it in the same test (Review Question 5). The INVALID fixture
+     must fail for the reason the test claims, not for an unrelated
+     structural reason (Review Question 6).
+  3. An EXIT-CODE-ONLY assertion. An exit-1-with-no-output failure passes
+     `if exitCode != 1`. Every error-surfacing claim asserts on the
+     DIAGNOSTIC TEXT, on the correct stream.
+  4. A constructor nil test that only asserts "an error occurred" passes
+     even when the constructor names the WRONG dependency. Every nil test
+     asserts the NAMED dependency appears in the message (Review Question 10).
+  5. CLM-030 is LOAD-BEARING and must not be dropped as redundant with the
+     AddOptions contract entry. The contracts pack's signature compiler
+     reduces any struct to `type AddOptions $$$` (compile-signature.sh's
+     leading-token `type ` branch) and NEVER compares field lists — a
+     reintroduced GitCloner field would still satisfy the contract. CLM-030's
+     source scan is the only thing that actually catches it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ZERO BAKED LANGUAGE/TOOL KNOWLEDGE (the standing invariant)
+  ─────────────────────────────────────────────────────────────────────────
+  `git` is distribution's TRANSPORT, declared by BUNDLE-006 DD-1 as the
+  distribution channel, and is on backstop/self Family A's allowed literal
+  list — so `exec.CommandContext(ctx, "git", …)` in gitcloner.go is
+  sanctioned. NOTHING ELSE is. No linter name, no rule name, no file
+  extension branch, no language token may appear in any file this plan
+  touches. Family B2 (no-baked-language-token) is GLOBAL and applies to
+  _test.go and testdata/*.go too, so a fixture pack must not carry a
+  ".ts"/"package.json"/"tsconfig.json"-class token in any Go source that
+  names it. Every fixture's tool/rule/target is DECLARED DATA read from the
+  pack manifest.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN DOES *NOT* DELIVER (do not widen scope to "make it work")
+  ─────────────────────────────────────────────────────────────────────────
+  • A GREEN remote add → install round trip. `pack add` copies the clone
+    INCLUDING its root `.git` and ComputeContentHash hashes it, so two
+    clones of the same tag produce different hashes (reflog timestamps
+    alone). CLM-065 claims a LOUD, READABLE hash mismatch naming both
+    hashes — that is the correct outcome here. Fixing the hash is bundle
+    REQ-021@1.1.0, a later seed. Do not "fix" it by excluding .git.
+  • The violation scanner or the remediation bundle generator. Those are
+    bundle REQ-014/REQ-018 and this spec deliberately does not pin them.
+    Production wires explicit implementations that RETURN
+    *CapabilityUnavailableError. `pack upgrade` therefore gets LOUDER, not
+    better: it fails where it used to report a successful major upgrade with
+    zero baselined violations. Any existing test asserting `pack upgrade`
+    succeeds must be RE-EXAMINED, not patched to expect success.
+  • `pack relock`'s argument shape (ISSUE-074's underlying defect). Phase 3
+    makes relock PRINT its real error instead of nothing; relock still takes
+    a filesystem PATH while every sibling takes a NAME. That is the
+    content-identity seed's work.
+  • RealGitExecutor in pkg/scaffold. It is NOT reusable (ListTags(pattern)
+    runs `git tag -l` against the LOCAL repo, a different operation; no
+    Clone at all) and this plan does not modify it.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Hermetic substrate — fixture pack sources + real-git harnesses
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Hermetic substrate — the fixture pack sources and the real-git test harnesses (setup only)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author the hermetic VALID pack fixture source that genuinely passes pack check and pack test"
+        description: |
+          Create cmd/backstop/testdata/hermetic-remote/valid-pack/ — an
+          ordinary, complete enforcement pack SOURCE. Later phases turn this
+          directory into a real tagged git repository at test time; it is not
+          itself a repository and carries no .git.
+
+            - pack.yml — name, version 1.0.0, and a `content:` and/or
+              `engines:` block sufficient for pack check phase 1's
+              "content is required" assertion (pkg/packval/phase1.go:45).
+            - whatever rule + paired fixture files the pack's declared
+              content requires so `pack test`'s fixture phase passes.
+
+          THIS FIXTURE IS PROVEN, NOT ASSERTED. The spec's Review Question 5
+          is explicit: a pack hand-written to satisfy whatever the validator
+          happened to accept cannot falsify anything. TASK-018/TASK-030
+          therefore drive `pack check` + `pack test` against THIS directory
+          inside the same test that uses it. Author it, then RUN
+          `./bin/backstop pack check cmd/backstop/testdata/hermetic-remote/valid-pack`
+          and `./bin/backstop pack test …` yourself and iterate until both
+          exit 0. Record nothing; the proof is the passing command, and the
+          test re-proves it on every run.
+
+          NEUTRAL CONTENT REQUIRED: backstop/self Family B2
+          (no-baked-language-token) is GLOBAL and blocking, and it matches
+          whole tokens in ANY .go file including testdata. The Go sources
+          that name these paths must therefore not carry a foreign-language
+          token, so keep the pack's declared globs/extensions off the B2
+          list. The pack's tool and rule names are DECLARED DATA in pack.yml,
+          never literals in core source.
+
+          These are DATA. No Go source is added by this task.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/valid-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/valid-pack/README.md
+        claims:
+          - CLM-062
+          - CLM-064
+          - CLM-066
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author the hermetic INVALID pack fixture source that fails validation for a NAMED, asserted reason"
+        description: |
+          Create cmd/backstop/testdata/hermetic-remote/invalid-pack/ — a pack
+          SOURCE that genuinely FAILS `pack check` (and, in a second
+          sub-fixture, genuinely fails `pack test`'s fixture phase).
+
+          THE FAILURE REASON IS PART OF THE FIXTURE. Review Question 6: a
+          pack that fails for an UNRELATED structural reason would pass the
+          assertion while proving nothing about whether the validator is
+          wired. So:
+            - invalid-pack/pack.yml must parse far enough to REACH the
+              validation phase under test and fail THERE, with a diagnostic
+              whose text the consuming tests (CLM-016, CLM-055) assert on.
+            - fixture-fail-pack/ is the second source: it passes `pack check`
+              but FAILS `pack test`'s fixture phase, so CLM-018 can
+              distinguish the two modes. If a pack that passes check but
+              fails fixtures cannot be constructed, say so in the task
+              handoff rather than reusing invalid-pack — a fixture that
+              fails both makes CLM-018 indistinguishable from CLM-016.
+
+          Verify by running `./bin/backstop pack check` and
+          `./bin/backstop pack test` against each directory and reading the
+          actual message; the consuming tests assert against THAT text.
+
+          These are DATA. No Go source is added by this task.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/invalid-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/fixture-fail-pack/pack.yml
+        claims:
+          - CLM-016
+          - CLM-018
+          - CLM-055
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Build the pkg/pack/distribution real-git test harness: tagged repos, peeled refs, and a fake git binary"
+        description: |
+          Create pkg/pack/distribution/hermetic_git_test.go — package
+          distribution_test helper source with NO `func Test…` in it. It is
+          the substrate the ExecGitCloner and TagVersionResolver suites drive.
+
+          Provide (names are the plan's, adjust only for collisions):
+            - newTaggedRepo(t, spec) — creates a real git repository in
+              t.TempDir() by invoking the real git binary: init, commit a
+              small pack tree, tag it, optionally add LATER commits past the
+              tag (CLM-002 needs a tag that is not HEAD), optionally create
+              ANNOTATED tags so `ls-remote` emits peeled `^{}` entries
+              (CLM-003 needs them to actually appear — a lightweight-tags-only
+              repo makes the peeled-ref filter untestable and CLM-003 passes
+              vacuously). Returns the repo path and a file:// URL.
+            - withGitConfigRedirect(t, from, to) — writes a temporary
+              gitconfig containing a `url.<to>.insteadOf = <from>` rewrite
+              and points GIT_CONFIG_GLOBAL at it for the test's lifetime via
+              t.Setenv. This is how the production URL is redirected WITHOUT
+              a rewriting seam in production code.
+            - newFakeGitBinary(t, behavior) — writes a tiny executable script
+              into a temp dir for the diagnostics that need a git that HANGS
+              (CLM-013's timeout) or that is ABSENT (CLM-012 points
+              ExecGitCloner.GitBinary at a nonexistent path — do NOT mutate
+              the test process's PATH; the GitBinary field exists precisely
+              so that is unnecessary).
+            - t.Skip with a clear message if the git binary is unavailable,
+              so the suite degrades honestly rather than failing opaquely.
+
+          BAKED-LITERAL NOTE: `git` and `sh`//bin/sh are on backstop/self
+          Family A's allowed exec literal list, so invoking them here is
+          sanctioned. Nothing else may be a literal tool name.
+
+          NETWORK: every repository this helper creates is local. No helper
+          in this file may reach a remote host.
+        files:
+          - pkg/pack/distribution/hermetic_git_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-012
+          - CLM-013
+        depends_on: []
+
+      - id: TASK-004
+        type: setup
+        title: "Build the cmd/backstop hermetic remote harness: fixture-pack repo, insteadOf redirect, built binary"
+        description: |
+          Create cmd/backstop/hermetic_remote_harness_test.go — package main
+          helper source with NO `func Test…` in it. It is the substrate every
+          end-to-end remote claim drives (CLM-055, CLM-060, CLM-062..066),
+          and per SPEC-055 it is also the substrate BUNDLE-006 REQ-042's
+          parity suite EXTENDS rather than rebuilds. Design it for that
+          reuse: one entry point, options-shaped, no per-claim special cases.
+
+          Provide:
+            - newHermeticRemote(t, packSourceDir, tags...) — copies the given
+              fixture pack SOURCE (TASK-001 / TASK-002) into a fresh
+              t.TempDir(), git-inits it, commits, and creates the requested
+              tags. For the multi-tag case (CLM-066's newer compatible
+              version) it commits a version bump between tags so the two tags
+              differ in content.
+            - redirectPackURL(t, org, name, repoPath) — writes the temporary
+              gitconfig with
+              `url.<file://repoPath>.insteadOf = https://github.com/<org>/<name>.git`
+              and t.Setenv's GIT_CONFIG_GLOBAL. The org/name pair must match
+              what distribution's resolveGitURL (add.go:315) constructs for
+              the pack ref the test passes, or the redirect silently misses
+              and the test reaches the network.
+            - newConsumerProject(t) — a temp project root with a backstop.yml
+              the lifecycle commands can read/write.
+            - The harness must PROPAGATE GIT_CONFIG_GLOBAL into the child
+              process it runs the built binary with. This is the single
+              easiest thing to get wrong: t.Setenv only affects the TEST
+              process, and if the runner builds a scrubbed env the child git
+              ignores the redirect and clones from GitHub. Assert the
+              redirect took effect (e.g. the clone succeeded against a repo
+              that cannot exist upstream) rather than trusting it.
+
+          Reuse the existing buildBackstopBinary helper
+          (pack_authoring_loop_test.go:15) so the tests drive the EXACT
+          command wiring shipped to consumers. Do NOT add a second binary
+          builder.
+
+          t.Skip with a clear message when git is unavailable.
+        files:
+          - cmd/backstop/hermetic_remote_harness_test.go
+        claims:
+          - CLM-062
+          - CLM-063
+          - CLM-065
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: REQ-014 — the two seams that make REQ-011/REQ-012 assertable
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: The reportError seam and the stream-separated CLI runner (REQ-014) — without these every stream claim passes vacuously"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Failing reportError tests: prints by default, silent when Explained, untyped maps to config exit"
+        description: |
+          Add cmd/backstop/report_error_test.go driving
+          `reportError(w io.Writer, err error) int` directly against a
+          bytes.Buffer. main() calls os.Exit and cannot be exercised by a
+          test, which is exactly why this seam exists — do not try to test
+          main().
+
+          Mandated test names (exact):
+            - TestReportError_WritesDiagnosticAndReturnsCode (CLM-096): an
+              *ExitCodeError{Code: ExitViolations, Message: "boom"} with
+              Explained UNSET writes a diagnostic containing "boom" to the
+              supplied writer AND returns ExitViolations. Assert BOTH — a
+              function that returns the right code while writing nothing is
+              precisely the defect under repair.
+            - TestReportError_ExplainedWritesNothing (CLM-097): the same
+              error with Explained SET writes NOTHING (assert the buffer is
+              empty, not merely that it lacks the message) and still returns
+              ExitViolations.
+            - TestReportError_UntypedErrorMapsToConfigExit (CLM-098): a plain
+              errors.New value returns ExitConfigError AND still prints its
+              message.
+
+          Add the falsifying twin inside CLM-096's test: an *ExitCodeError
+          with an EMPTY Message writes nothing, so "always print something"
+          is not a passing implementation.
+
+          These FAIL to compile until TASK-007.
+        files:
+          - cmd/backstop/report_error_test.go
+        claims:
+          - CLM-096
+          - CLM-097
+          - CLM-098
+        depends_on: []
+        test_names:
+          - TestReportError_WritesDiagnosticAndReturnsCode
+          - TestReportError_ExplainedWritesNothing
+          - TestReportError_UntypedErrorMapsToConfigExit
+
+      - id: TASK-006
+        type: test
+        title: "Failing stream-separation test: the runner returns stdout and stderr independently"
+        description: |
+          Add cmd/backstop/stream_runner_test.go with the single mandated
+          test that proves the new runner is not the old one in disguise.
+
+          Mandated test name (exact):
+            - TestRunBackstopStreams_SeparatesStdoutFromStderr (CLM-099):
+              run the BUILT binary on an invocation that writes to BOTH
+              streams, and assert the stdout-only content appears in the
+              stdout return value and NOT in stderr, and vice versa, plus the
+              exit code. The assertion must be one that the existing
+              runBackstop (CombinedOutput) would FAIL — the whole point of
+              CLM-099 is to demonstrate the capability the merged helper
+              lacks. If both halves of the assertion would pass against a
+              merged buffer, the test is not testing anything.
+
+          Use buildBackstopBinary; do not add a second binary builder.
+
+          This FAILS to compile until TASK-008.
+        files:
+          - cmd/backstop/stream_runner_test.go
+        claims:
+          - CLM-099
+        depends_on: []
+        test_names:
+          - TestRunBackstopStreams_SeparatesStdoutFromStderr
+
+      - id: TASK-007
+        type: implementation
+        title: "Extract reportError into main.go and add ExitCodeError.Explained"
+        description: |
+          Two edits, both small and both load-bearing.
+
+          1. cmd/backstop/artifact_validate.go:35 — add `Explained bool` to
+             ExitCodeError, documented as an explicit opt-OUT of printing,
+             NOT an opt-in. Only four sites may ever set it (TASK-012);
+             everything else leaves it zero and therefore prints.
+
+          2. cmd/backstop/main.go — add
+
+                 func reportError(w io.Writer, err error) int
+
+             carrying the whole print/suppress/exit-code decision:
+               • *ExitCodeError with Explained set  → write nothing, return Code
+               • *ExitCodeError with empty Message  → write nothing, return Code
+               • *ExitCodeError otherwise           → write "Error: <Message>"
+                                                      to w, return Code
+               • any other error                    → write "Error: <err>"
+                                                      to w, return ExitConfigError
+             Use errors.As, not a bare type assertion, so a wrapped
+             ExitCodeError is still classified.
+
+             Then reduce main() to
+                 os.Exit(reportError(os.Stderr, err))
+             keeping the existing SetOut(os.Stdout)/SetErr(os.Stderr) calls
+             untouched.
+
+          THE DEFAULT INVERTS HERE. main.go today suppresses the message for
+          EVERY ExitViolations error. After this task every ExitViolations
+          site that was silent starts printing — including pack relock
+          (ISSUE-074) and recipe apply (ISSUE-080). That is the fix. The four
+          legitimately-quiet sites are opted out in TASK-012, and until then
+          they double-print; that intermediate state is expected and TASK-012
+          closes it within this plan.
+
+          Cobra's own error printing is already suppressed by the root
+          command's SilenceErrors (root.go:30), so reportError remains the
+          sole printer and no double-print arises from that direction — do
+          not add another suppression.
+        files:
+          - cmd/backstop/main.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-082
+        depends_on:
+          - TASK-005
+
+      - id: TASK-008
+        type: implementation
+        title: "Add the stream-separated CLI runner alongside runBackstop"
+        description: |
+          Create cmd/backstop/run_backstop_streams_test.go providing
+
+              func runBackstopStreams(t *testing.T, bin, dir string, args ...string) (stdout, stderr string, exitCode int)
+
+          It runs the built binary with exec.Command, assigning SEPARATE
+          bytes.Buffer values to cmd.Stdout and cmd.Stderr, and extracts the
+          exit code from the *exec.ExitError. Mirror runBackstop's signature
+          shape (pack_authoring_loop_test.go:27) so migration between them is
+          obvious, but do NOT call CombinedOutput anywhere in it.
+
+          It MUST forward the caller's environment (os.Environ()) plus any
+          per-test overrides, so a test's GIT_CONFIG_GLOBAL redirect reaches
+          the child process. A runner that builds a scrubbed env silently
+          breaks every hermetic remote claim by sending the child to GitHub.
+
+          runBackstop STAYS. It is correct for its existing merged-output
+          callers who legitimately do not care about streams. Do not delete
+          or rewrite it — but note in the new runner's doc comment that no
+          REQ-011/REQ-012 claim may use the merged helper, because that is
+          the blind spot that let the silent-exit-1 defect survive several
+          specs' worth of CLI tests.
+        files:
+          - cmd/backstop/run_backstop_streams_test.go
+        claims:
+          - CLM-099
+        depends_on:
+          - TASK-006
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the reportError seam and the stream-separated runner"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+               (cmd/ changed; the gate must not run a stale binary)
+            2. go test ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All four REQ-014 tests pass.
+            - CLM-099's assertion genuinely distinguishes the streams: read
+              the test and confirm it would FAIL against runBackstop's merged
+              output. A stream-separated runner that is never actually
+              distinguished from the merged one leaves the whole REQ-011/012
+              suite able to ship vacuous.
+            - reportError is called by main() — grep main.go. A seam that
+              exists but is not the production path proves nothing.
+            - The suite may show DOUBLE-PRINTED diagnostics for gate /
+              pack check / pack test / artifact validate. That is the
+              expected intermediate state; TASK-012 closes it. Do not "fix"
+              it by re-adding a blanket ExitViolations suppression.
+        files:
+          - cmd/backstop/main.go
+          - cmd/backstop/report_error_test.go
+          - cmd/backstop/stream_runner_test.go
+          - cmd/backstop/run_backstop_streams_test.go
+        claims:
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-099
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: REQ-011 — every silent exit-1 becomes loud, four sites opt out
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Per-site error surfacing (REQ-011) — nine sites print, four declare themselves Explained"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Failing seam-driven surfacing tests: the six commands whose diagnostic is asserted through reportError"
+        description: |
+          Add cmd/backstop/exit_surfacing_seam_test.go. These claims are
+          driven through the reportError SEAM (each claim's own text names
+          its mechanism — honor it): construct or provoke the *ExitCodeError
+          the command returns, pass it to reportError with a bytes.Buffer,
+          and assert on what was written and what was returned.
+
+          Mandated test names (exact):
+            - TestExitSurfacing_PackInstall_PrintsDiagnostic (CLM-069)
+            - TestExitSurfacing_PackUpdate_PrintsDiagnostic (CLM-070)
+            - TestExitSurfacing_PackUpgrade_PrintsDiagnostic (CLM-071)
+            - TestExitSurfacing_PackRemove_PrintsDiagnostic (CLM-072)
+            - TestExitSurfacing_PackList_PrintsDiagnostic (CLM-073)
+            - TestExitSurfacing_ArtifactNew_PrintsDiagnostic (CLM-076): the
+              refusal-to-overwrite path at artifact_new.go:110.
+            - TestExitSurfacing_DefaultIsLoud (CLM-082): an *ExitCodeError
+              carrying a message with Explained UNSET ALWAYS prints through
+              reportError, whatever its code. This is the invariant the
+              opt-out direction rests on.
+
+          EACH TEST ASSERTS ON THE DIAGNOSTIC TEXT, NEVER ON THE EXIT CODE
+          ALONE. An exit-1-with-no-output failure passes an exit-code-only
+          assertion — that is exactly how these six survived until someone
+          dogfooded them. Assert the buffer CONTAINS the command's real
+          message, and assert the exit code is ExitViolations.
+
+          Drive the real command's RunE (in-process, via NewRootCommand with
+          args and a temp working directory) to OBTAIN the error rather than
+          hand-constructing an ExitCodeError where practical — a
+          hand-constructed error proves reportError works but not that the
+          command still populates Message.
+
+          These FAIL until TASK-012 (CLM-082 passes after TASK-007 and is
+          re-verified here).
+        files:
+          - cmd/backstop/exit_surfacing_seam_test.go
+        claims:
+          - CLM-069
+          - CLM-070
+          - CLM-071
+          - CLM-072
+          - CLM-073
+          - CLM-076
+          - CLM-082
+        depends_on:
+          - TASK-006
+        test_names:
+          - TestExitSurfacing_PackInstall_PrintsDiagnostic
+          - TestExitSurfacing_PackUpdate_PrintsDiagnostic
+          - TestExitSurfacing_PackUpgrade_PrintsDiagnostic
+          - TestExitSurfacing_PackRemove_PrintsDiagnostic
+          - TestExitSurfacing_PackList_PrintsDiagnostic
+          - TestExitSurfacing_ArtifactNew_PrintsDiagnostic
+          - TestExitSurfacing_DefaultIsLoud
+
+      - id: TASK-011
+        type: test
+        title: "Failing stream-driven surfacing tests: the two ISSUE victims, pack add, and the four already-explained sites"
+        description: |
+          Add cmd/backstop/exit_surfacing_streams_test.go. Every test here
+          drives the BUILT BINARY through runBackstopStreams (TASK-008) and
+          asserts on a SPECIFIC stream. NOT ONE of them may use runBackstop —
+          against a merged buffer every assertion below passes regardless of
+          which stream was written (spec Review Question 7).
+
+          Mandated test names (exact):
+            - TestExitSurfacing_PackAdd_PrintsDiagnostic (CLM-068): a failing
+              pack add writes its diagnostic to the separated STDERR and
+              exits 1.
+            - TestExitSurfacing_PackRelock_PrintsDiagnostic (CLM-074): closes
+              the ISSUE-074 SILENCE. Repro is `pack relock <name>` on an
+              installed local pack — today it exits 1 with no stderr at all.
+              Assert stderr is NON-EMPTY and names the failure. NOTE: this
+              claim fixes the SILENCE only; relock's path-vs-name argument
+              defect is NOT fixed here, so do not assert relock succeeds.
+            - TestExitSurfacing_RecipeApply_PrintsDiagnostic (CLM-075):
+              closes the ISSUE-080 silence, same shape, through
+              `recipe apply`.
+            - TestExitSurfacing_GateViolations_NoDuplicateErrorLine (CLM-077):
+              a gate run finding violations exits 1 with its findings on
+              stdout and NO added "Error:" line on the separated stderr.
+            - TestExitSurfacing_GateConfigError_StillPrints (CLM-078): a gate
+              CONFIG failure still prints and exits 2 — the Explained opt-out
+              is gated on `exitCode == ExitViolations` and must not swallow
+              the exit-2 message.
+            - TestExitSurfacing_PackCheck_NoDuplicateErrorLine (CLM-079)
+            - TestExitSurfacing_PackTest_NoDuplicateErrorLine (CLM-080)
+            - TestExitSurfacing_ArtifactValidate_NoDuplicateErrorLine (CLM-081)
+
+          THE FOUR NO-DUPLICATE TESTS ARE THE FALSIFIERS for the opt-out.
+          They must assert the REPORT/FINDINGS are present (so the command
+          really ran and really printed) AND that stderr carries no added
+          "Error:" line. A test that only asserts "stderr has no Error line"
+          would pass against a command that printed nothing at all.
+
+          CLM-077..081 FAIL until TASK-012; CLM-068/074/075 pass after
+          TASK-007 and are re-verified here.
+        files:
+          - cmd/backstop/exit_surfacing_streams_test.go
+        claims:
+          - CLM-068
+          - CLM-074
+          - CLM-075
+          - CLM-077
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+        depends_on:
+          - TASK-006
+          - TASK-009
+        test_names:
+          - TestExitSurfacing_PackAdd_PrintsDiagnostic
+          - TestExitSurfacing_PackRelock_PrintsDiagnostic
+          - TestExitSurfacing_RecipeApply_PrintsDiagnostic
+          - TestExitSurfacing_GateViolations_NoDuplicateErrorLine
+          - TestExitSurfacing_GateConfigError_StillPrints
+          - TestExitSurfacing_PackCheck_NoDuplicateErrorLine
+          - TestExitSurfacing_PackTest_NoDuplicateErrorLine
+          - TestExitSurfacing_ArtifactValidate_NoDuplicateErrorLine
+
+      - id: TASK-012
+        type: refactor
+        title: "Set Explained at exactly the four sanctioned sites — and nowhere else"
+        description: |
+          Set `Explained: true` on the ExitCodeError returned at EXACTLY
+          these four sites, each of which has already written structured
+          findings to the consumer before returning:
+
+            - cmd/backstop/gate.go:175 — GATED on exitCode == ExitViolations.
+              The exit-2 (config) construction at gate.go:63/79/82/94/99/112
+              must NOT set it, or a gate misconfiguration becomes silent
+              (CLM-078 is the falsifier).
+            - cmd/backstop/pack_check.go:44
+            - cmd/backstop/pack_test_cmd.go:41
+            - cmd/backstop/artifact_validate.go:356 — the "violations found"
+              return, NOT the ExitConfigError at :337.
+
+          LEAVE Explained UNSET everywhere else. Specifically unset at
+          pack_add.go:38, pack_install.go:21, pack_update.go:26,
+          pack_upgrade.go:23, pack_remove.go:21, pack_list.go:21,
+          pack_relock.go:20, recipe_apply.go:70, artifact_new.go:110 — those
+          nine need NO EDIT AT ALL, because Explained is a new field whose
+          zero value is the loud default. Do not "helpfully" annotate them.
+
+          BEFORE SETTING IT AT A SITE, VERIFY THE SITE ACTUALLY PRINTED on
+          the path that returns (spec Review Question 8). gate.go's
+          ExitViolations return must be reachable only after findings were
+          rendered; if any path returns ExitViolations without having printed,
+          that path becomes NEWLY SILENT and the fix is to narrow the
+          condition, not to widen it.
+
+          The opt-out direction is the point: a command added later that
+          forgets to declare itself explained produces a DUPLICATE
+          diagnostic, which a reviewer notices, rather than a silent failure,
+          which nobody notices until someone dogfoods it. Do not invert it.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_check.go
+          - cmd/backstop/pack_test_cmd.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-077
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+        depends_on:
+          - TASK-007
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify per-site error surfacing: nine loud, four quiet, gate exit-2 still prints"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All fifteen REQ-011 tests pass.
+            - GREP THE WHOLE OF cmd/backstop FOR `Explained` AND CONFIRM
+              EXACTLY FOUR PRODUCTION SITES SET IT (spec Review Question 8).
+              A fifth site is a regression to silence.
+            - The gate's own exit-2 message still prints (CLM-078) — this is
+              the single easiest thing to break by gating the opt-out on the
+              wrong condition.
+            - No REQ-011 test uses runBackstop. Grep
+              exit_surfacing_streams_test.go for `runBackstop(` — it must not
+              appear; only runBackstopStreams.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_check.go
+          - cmd/backstop/pack_test_cmd.go
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/exit_surfacing_seam_test.go
+          - cmd/backstop/exit_surfacing_streams_test.go
+        claims:
+          - CLM-068
+          - CLM-074
+          - CLM-075
+          - CLM-077
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+          - CLM-082
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: ExecGitCloner — the real git binary (REQ-001, REQ-002)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: ExecGitCloner — real clone, real remote tag listing, and a typed diagnostic on every failure path"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Failing ExecGitCloner behavior tests: tagged clone, peeled-ref filtering, non-interactive, ambient config, option-like rejection"
+        description: |
+          Add pkg/pack/distribution/gitcloner_test.go driving the REAL git
+          binary through the TASK-003 harness. If every clone in this suite
+          is a mock, this spec delivered nothing it exists to deliver (spec
+          Review Question 3).
+
+          Mandated test names (exact):
+            - TestExecGitCloner_Clone_MaterializesTaggedRepo (CLM-001):
+              Clone(url, version, destDir) against a real local tagged
+              repository leaves the pack tree ON DISK in destDir. Assert a
+              known file's CONTENT, not merely that the directory is
+              non-empty.
+            - TestExecGitCloner_Clone_ChecksOutRequestedTagNotHead (CLM-002):
+              the repo has commits AFTER the tag; the materialized tree must
+              match the TAG, not HEAD. Assert on a file whose content differs
+              between the two — a repo where tag == HEAD makes this vacuous.
+            - TestExecGitCloner_ListTags_ReturnsBareTagNamesWithoutPeeledRefs
+              (CLM-003): against a repo with ANNOTATED tags (so `^{}` entries
+              genuinely appear in the underlying output), the returned slice
+              holds bare names and NO entry ends in `^{}`. Assert the
+              expected names are all present too, so a filter that drops
+              everything cannot pass.
+            - TestExecGitCloner_Clone_RunsGitNonInteractively (CLM-004):
+              a credential or host-key prompt cannot block. Drive it against
+              a source that WOULD prompt and assert the call returns
+              (bounded) rather than hanging.
+            - TestExecGitCloner_Clone_HonorsAmbientGitConfigRedirect
+              (CLM-005): with GIT_CONFIG_GLOBAL pointing at a gitconfig
+              carrying a `url.<local>.insteadOf = https://github.com/…`
+              rewrite, cloning the PRODUCTION https URL materializes the
+              LOCAL repo. This is the load-bearing hermeticity test — it is
+              what proves the cloner inherits rather than clears the
+              environment.
+            - TestExecGitCloner_Clone_RejectsOptionLikeURL (CLM-006) and
+              TestExecGitCloner_Clone_RejectsOptionLikeRef (CLM-007) and
+              TestExecGitCloner_ListTags_RejectsOptionLikeURL (CLM-008): a
+              leading `-` is rejected BEFORE git is invoked. Assert the
+              rejection happens without a subprocess (e.g. point GitBinary at
+              a path that would fail loudly if executed), so a test that
+              passes because git happened to reject it too cannot mask a
+              missing guard.
+            - TestNewExecGitCloner_DoesNotProbeForGitBinary (CLM-009):
+              construction succeeds where git is absent. This is what keeps
+              an airgapped `pack install --cache` assembling.
+
+          These FAIL until TASK-016.
+        files:
+          - pkg/pack/distribution/gitcloner_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestExecGitCloner_Clone_MaterializesTaggedRepo
+          - TestExecGitCloner_Clone_ChecksOutRequestedTagNotHead
+          - TestExecGitCloner_ListTags_ReturnsBareTagNamesWithoutPeeledRefs
+          - TestExecGitCloner_Clone_RunsGitNonInteractively
+          - TestExecGitCloner_Clone_HonorsAmbientGitConfigRedirect
+          - TestExecGitCloner_Clone_RejectsOptionLikeURL
+          - TestExecGitCloner_Clone_RejectsOptionLikeRef
+          - TestExecGitCloner_ListTags_RejectsOptionLikeURL
+          - TestNewExecGitCloner_DoesNotProbeForGitBinary
+
+      - id: TASK-015
+        type: test
+        title: "Failing GitError diagnostic tests: missing tag, unreachable repo, absent binary, timeout, listing failure"
+        description: |
+          Add pkg/pack/distribution/gitcloner_errors_test.go. REQ-002 is
+          about DIAGNOSTIC QUALITY, so every test asserts on the MESSAGE
+          CONTENT, never merely that an error was returned.
+
+          Mandated test names (exact):
+            - TestExecGitCloner_Clone_MissingTagReturnsTypedDiagnostic
+              (CLM-010): cloning a tag that does not exist in a real local
+              repo returns a *GitError (errors.As) whose message names BOTH
+              the URL and the requested tag.
+            - TestExecGitCloner_Clone_UnreachableURLCarriesStderr (CLM-011):
+              an unreachable repository (a local path that does not exist —
+              NOT a network host) returns a *GitError carrying the CAPTURED
+              git stderr. Assert a substring git itself produced, so a
+              hand-written message cannot pass.
+            - TestExecGitCloner_Clone_MissingGitBinaryReturnsTypedDiagnostic
+              (CLM-012): set ExecGitCloner.GitBinary to a nonexistent path
+              and assert a *GitError NAMING the executable, not a bare exec
+              error. Do NOT mutate the test process's PATH — the GitBinary
+              field exists precisely so that is unnecessary.
+            - TestExecGitCloner_Clone_TimeoutReturnsTypedDiagnostic (CLM-013):
+              with a short Timeout and a fake git that hangs (TASK-003's
+              newFakeGitBinary), the call RETURNS a *GitError naming the
+              timeout instead of hanging. Bound the test itself so a
+              regression fails rather than wedging CI.
+            - TestExecGitCloner_ListTags_UnreachableURLErrorsRatherThanEmpty
+              (CLM-014): a failing listing returns an ERROR, never
+              `([]string{}, nil)`. This is the falsifier for the whole
+              resolver chain: an empty-list-on-failure would surface later as
+              "already at the latest version", which is a lie.
+
+          These FAIL until TASK-016.
+        files:
+          - pkg/pack/distribution/gitcloner_errors_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestExecGitCloner_Clone_MissingTagReturnsTypedDiagnostic
+          - TestExecGitCloner_Clone_UnreachableURLCarriesStderr
+          - TestExecGitCloner_Clone_MissingGitBinaryReturnsTypedDiagnostic
+          - TestExecGitCloner_Clone_TimeoutReturnsTypedDiagnostic
+          - TestExecGitCloner_ListTags_UnreachableURLErrorsRatherThanEmpty
+
+      - id: TASK-016
+        type: implementation
+        title: "Implement pkg/pack/distribution/gitcloner.go — the production GitCloner"
+        description: |
+          Create pkg/pack/distribution/gitcloner.go with exactly the declared
+          contract surface:
+
+            - type ExecGitCloner struct { GitBinary string; Timeout time.Duration }
+              GitBinary empty means "git" resolved from PATH; it exists so
+              CLM-012 is testable without mutating the test process's PATH.
+              Timeout bounds ONE invocation so a hung remote cannot wedge CI.
+              Neither field is a "dependency" in the DD-30 sense — this type
+              IS the concrete production implementation, and REQ-005 forbids
+              distribution SYNTHESIZING a GitCloner where none was supplied,
+              not a concrete implementation carrying its own tunables.
+            - func NewExecGitCloner() *ExecGitCloner — package default
+              timeout, and DELIBERATELY NO PATH PROBE (CLM-009).
+            - func (c *ExecGitCloner) Clone(url, version, destDir string) error
+            - func (c *ExecGitCloner) ListTags(url string) ([]string, error)
+
+          Clone: shallow, single-ref clone of the EXACT requested tag into
+          destDir. The Add/Install/Update/Upgrade pipelines already create
+          destDir via os.MkdirTemp, so it is empty and git accepts it.
+
+          ListTags: lists the REMOTE repository's tags and returns BARE names
+          with peeled `^{}` entries EXCLUDED. The exclusion belongs HERE,
+          where the ref shape is known, not in the resolver — the resolver's
+          strict-semver filter would hide the bug today and a future
+          relaxation of the version pattern would let duplicates through
+          (Sharp Edge). This is also why pkg/scaffold's
+          RealGitExecutor.ListTags(pattern) is NOT reusable: it runs
+          `git tag -l` against the LOCAL repo, a different operation with a
+          different argument meaning, and has no Clone at all. Do not modify
+          pkg/scaffold.
+
+          BOTH methods must:
+            • Reject a url or ref beginning with `-` BEFORE invoking git, and
+              pass url and ref after a `--` separator so neither can be read
+              as a git option.
+            • Force git NON-INTERACTIVE so a credential or host-key prompt
+              can never block the process.
+            • INHERIT the ambient environment (append to os.Environ(); never
+              replace it). This is what makes GIT_CONFIG_GLOBAL insteadOf
+              redirection work and what keeps a consumer's already-configured
+              credential helper working. A future "hygiene" change that
+              clears the environment silently converts every hermetic test
+              into a network call — the inheritance is LOAD-BEARING
+              BEHAVIOR, so say so in the doc comment.
+            • Bound the invocation with context.WithTimeout +
+              exec.CommandContext.
+            • Wrap EVERY failure in *GitError naming the operation, the URL,
+              the ref where one applies, and the captured stderr. No path may
+              panic, return a bare exit status, or report an empty tag list
+              where the git command failed.
+
+          `git` is on backstop/self Family A's allowed exec-literal list
+          (BUNDLE-006 DD-1 declares git the distribution channel). NOTHING
+          ELSE in this file may be a tool, language, or platform literal.
+        files:
+          - pkg/pack/distribution/gitcloner.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-014
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Verify ExecGitCloner drives the real git binary, hermetically"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+               UNCONDITIONAL. This phase adds pkg/ code only, but bin/backstop
+               statically links pkg/pack/distribution, so the gate binary does
+               not contain gitcloner.go until it is rebuilt (ISSUE-077 is this
+               staleness class). Never skip the rebuild on "cmd/ did not
+               change" reasoning.
+            2. go test ./pkg/pack/distribution/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All fourteen REQ-001/REQ-002 tests pass against the REAL git
+              binary, not a mock (grep the suite for the harness entry points
+              from TASK-003).
+            - NOTHING reaches the network. Re-run the distribution suite with
+              networking disabled if your environment allows it; otherwise
+              read every URL in the suite and confirm each is file:// or a
+              redirected https URL under a GIT_CONFIG_GLOBAL insteadOf.
+            - gitcloner.go carries no tool/language/platform literal beyond
+              the sanctioned `git` invocation; backstop/self's pack_engines
+              dimension runs here like every other dimension.
+        files:
+          - pkg/pack/distribution/gitcloner.go
+          - pkg/pack/distribution/gitcloner_test.go
+          - pkg/pack/distribution/gitcloner_errors_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-009
+          - CLM-011
+          - CLM-014
+        depends_on:
+          - TASK-016
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: PackvalValidator — the same pipeline the CLI runs (REQ-003)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: PackvalValidator — distribution validates through the same packval pipeline pack check and pack test run"
+    tasks:
+      - id: TASK-018
+        type: test
+        title: "Failing PackvalValidator tests: check passes, check fails typed, test passes, fixture failure fails typed"
+        description: |
+          Add pkg/pack/distribution/validator_test.go driving the validator
+          against the TASK-001/TASK-002 fixture pack SOURCES.
+
+          Mandated test names (exact):
+            - TestPackvalValidator_RunPackCheck_PassesValidPack (CLM-015)
+            - TestPackvalValidator_RunPackCheck_InvalidPackReturnsValidationError
+              (CLM-016): errors.As to *ValidationError and the message NAMES
+              the failing phase (and the pack directory). Assert the phase
+              name — "an error occurred" would pass against a validator that
+              rejects everything.
+            - TestPackvalValidator_RunPackTest_PassesValidPack (CLM-017)
+            - TestPackvalValidator_RunPackTest_FixtureFailureReturnsValidationError
+              (CLM-018): driven against the fixture-fail-pack source, which
+              PASSES check and FAILS the fixture phase — so this is
+              distinguishable from CLM-016. If TASK-002 could not build such
+              a pack, this test must say so loudly rather than reusing the
+              check-failing fixture.
+
+          The valid/invalid PAIRING is the falsifier: CLM-015/017 prove the
+          validator does not reject everything, CLM-016/018 prove it does not
+          accept everything. Both halves are required.
+
+          These FAIL until TASK-020.
+        files:
+          - pkg/pack/distribution/validator_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+        depends_on:
+          - TASK-001
+          - TASK-002
+        test_names:
+          - TestPackvalValidator_RunPackCheck_PassesValidPack
+          - TestPackvalValidator_RunPackCheck_InvalidPackReturnsValidationError
+          - TestPackvalValidator_RunPackTest_PassesValidPack
+          - TestPackvalValidator_RunPackTest_FixtureFailureReturnsValidationError
+
+      - id: TASK-019
+        type: test
+        title: "Failing parity test: the validator's verdict equals the pack check and pack test COMMANDS' verdict"
+        description: |
+          Add cmd/backstop/packval_parity_test.go. This claim carries
+          `subject: cmd/backstop` because it compares distribution's
+          validator against the actual CLI commands.
+
+          Mandated test name (exact):
+            - TestPackvalValidator_MatchesPackCheckAndPackTestCommandVerdicts
+              (CLM-019): for BOTH the valid and the invalid fixture pack
+              directory, run `pack check` and `pack test` through the CLI and
+              run distribution.NewPackvalValidator().RunPackCheck /
+              .RunPackTest over the SAME directory, and assert the pass/fail
+              verdicts AGREE in every cell.
+
+          THIS TEST IS ALSO WHAT PROVES THE TASK-001 FIXTURE (spec Review
+          Question 5): a hermetic pack hand-written to satisfy whatever the
+          validator happened to accept cannot falsify anything, so the pack
+          check / pack test run against it here is the fixture's proof, not
+          a redundancy. Do not drop the passing half as "obviously green".
+
+          There must be NO SECOND IMPLEMENTATION of pack validation — if the
+          verdicts can disagree, the validator is not running the same
+          pipeline and REQ-003 is unmet.
+
+          This FAILS until TASK-020.
+        files:
+          - cmd/backstop/packval_parity_test.go
+        claims:
+          - CLM-019
+        depends_on:
+          - TASK-001
+          - TASK-002
+        test_names:
+          - TestPackvalValidator_MatchesPackCheckAndPackTestCommandVerdicts
+
+      - id: TASK-020
+        type: implementation
+        title: "Implement pkg/pack/distribution/validator.go — the production Validator over pkg/packval"
+        description: |
+          Create pkg/pack/distribution/validator.go with exactly the declared
+          contract surface:
+
+            - type PackvalValidator struct { } — stateless; every call
+              constructs a FRESH pipeline over the given pack directory,
+              exactly as cmd/backstop/pack_check.go and pack_test_cmd.go do.
+            - func NewPackvalValidator() *PackvalValidator
+            - func (v *PackvalValidator) RunPackCheck(packDir string) error —
+              packval.NewPipeline(packDir, packval.PipelineOptions{Mode: "check"}).Run(),
+              returning *ValidationError when result.Status == "fail", naming
+              the pack directory, the failing phase, and the error count.
+            - func (v *PackvalValidator) RunPackTest(packDir string) error —
+              the same construction in "test" mode.
+
+          SUPPLY NO EXPLICIT FIXTURE EXECUTOR, matching what the commands do:
+          packval.RunFixtures substitutes its DefaultExecutor for a nil one
+          (phase3.go), so the validator's fixture behavior is identical to
+          the CLI's BY CONSTRUCTION rather than by coincidence. Adding an
+          executor here would create exactly the second implementation
+          REQ-003 forbids.
+
+          NewPackvalValidator is the concrete implementation, NOT an internal
+          default: NOTHING inside pkg/pack/distribution may CALL it to fill a
+          dependency a caller failed to supply (REQ-005 / CLM-031). The only
+          production caller is cmd/backstop's assembly file. This is exactly
+          why the redesigned InstallContractsLocalPack (Phase 10) RECEIVES an
+          assembled command instead of building one.
+
+          IMPORT CYCLE: pkg/packval imports pkg/baseengines, pkg/check,
+          pkg/pack, and pkg/pack/engine — none of which imports
+          pkg/pack/distribution — so this edge is safe. Confirm with
+          `go build ./...`, do not assume.
+
+          No language/tool literal enters this file; the pipeline reads the
+          pack's declared data.
+        files:
+          - pkg/pack/distribution/validator.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-018
+          - TASK-019
+
+      - id: TASK-021
+        type: verification
+        title: "Verify the validator's verdict matches the CLI's, and no second validation implementation exists"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All five REQ-003 tests pass, and the parity test genuinely
+              drives the CLI commands (not a second in-process pipeline).
+            - `go build ./...` succeeds — pkg/packval did NOT acquire an
+              import of pkg/pack/distribution.
+            - validator.go contains no fixture-executor construction and no
+              second validation code path.
+        files:
+          - pkg/pack/distribution/validator.go
+          - pkg/pack/distribution/validator_test.go
+          - cmd/backstop/packval_parity_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-020
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: TagVersionResolver + the two typed assembly errors (REQ-004)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: TagVersionResolver — strict-semver resolution over real remote tags, plus the typed constructor errors"
+    tasks:
+      - id: TASK-022
+        type: test
+        title: "Failing resolver tests: same-major selection, the literal 0.x reading, v-prefix, non-semver rejection, error propagation"
+        description: |
+          Add pkg/pack/distribution/versionresolver_test.go driving
+          ResolveLatestCompatible / IsMajorBump over a STUB cloner whose
+          ListTags returns a controlled slice (the real-git half is TASK-023).
+
+          Mandated test names (exact):
+            - TestTagVersionResolver_ResolvesHighestSameMajor (CLM-020)
+            - TestTagVersionResolver_DoesNotCrossMajorBoundary (CLM-021): a
+              higher-major tag is present and is NOT selected.
+            - TestTagVersionResolver_ZeroMajorMinorIsCompatible (CLM-022):
+              current 0.1.0 with a v0.2.0 tag available resolves to 0.2.0.
+              THE SAME-MAJOR RULE APPLIES LITERALLY AT MAJOR ZERO. This is a
+              deliberate DECISION, not a default (Sharp Edge): strict semver
+              would call a 0.x minor bump breaking, but BUNDLE-006's DD-8
+              enforcement-semver model is about what a version change means
+              for RULES and says nothing about a 0.x caveat. Do not
+              "correct" it — disagreement is a bundle revision.
+            - TestTagVersionResolver_NormalizesOptionalVPrefix (CLM-023): a
+              SINGLE optional leading `v`. `vv1.0.0` is not a version.
+            - TestTagVersionResolver_IgnoresNonStrictSemverTags (CLM-024):
+              prerelease (1.0.0-rc1), build metadata (1.0.0+build), and
+              arbitrary tags (release-2, latest) are all ignored. Include a
+              peeled-looking `1.0.0^{}` entry so the resolver's own filter is
+              exercised even though the cloner should already have removed it.
+            - TestTagVersionResolver_NoNewerCompatibleReturnsCurrent (CLM-025)
+            - TestTagVersionResolver_ListTagsFailurePropagatesAsError
+              (CLM-026): a listing failure PROPAGATES and is NEVER reported
+              as "already at the latest version". Assert the returned error
+              is non-nil AND that the returned version is not silently the
+              current one presented as a success.
+            - TestTagVersionResolver_IsMajorBump_TrueAcrossMajors (CLM-027)
+            - TestTagVersionResolver_IsMajorBump_FalseWithinMajor (CLM-028)
+            - TestNewTagVersionResolver_CompleteAssemblySucceeds (CLM-090)
+            - TestNewTagVersionResolver_NilGitClonerNamesDependency (CLM-047):
+              assert the returned error is a *MissingDependencyError whose
+              message NAMES the git cloner. "An error occurred" passes even
+              when the constructor names the wrong dependency (spec Review
+              Question 10).
+
+          These FAIL until TASK-024.
+        files:
+          - pkg/pack/distribution/versionresolver_test.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-047
+          - CLM-090
+        depends_on: []
+        test_names:
+          - TestTagVersionResolver_ResolvesHighestSameMajor
+          - TestTagVersionResolver_DoesNotCrossMajorBoundary
+          - TestTagVersionResolver_ZeroMajorMinorIsCompatible
+          - TestTagVersionResolver_NormalizesOptionalVPrefix
+          - TestTagVersionResolver_IgnoresNonStrictSemverTags
+          - TestTagVersionResolver_NoNewerCompatibleReturnsCurrent
+          - TestTagVersionResolver_ListTagsFailurePropagatesAsError
+          - TestTagVersionResolver_IsMajorBump_TrueAcrossMajors
+          - TestTagVersionResolver_IsMajorBump_FalseWithinMajor
+          - TestNewTagVersionResolver_CompleteAssemblySucceeds
+          - TestNewTagVersionResolver_NilGitClonerNamesDependency
+
+      - id: TASK-023
+        type: test
+        title: "Failing real-repository resolver test: resolution over an actual remote tag listing"
+        description: |
+          Add pkg/pack/distribution/versionresolver_real_test.go — the test
+          that keeps the resolver from being mock-only.
+
+          Mandated test name (exact):
+            - TestTagVersionResolver_ResolvesAgainstRealTaggedRepository
+              (CLM-029): build a real multi-tagged repository via TASK-003's
+              harness, construct a TagVersionResolver over a REAL
+              ExecGitCloner, redirect the production URL to it via the
+              GIT_CONFIG_GLOBAL insteadOf rewrite, and assert
+              ResolveLatestCompatible selects the expected tag.
+
+          This must go through resolveGitURL — the resolver resolves the
+          pack's git URL through distribution's EXISTING resolveGitURL, so
+          the redirect target must match what that function constructs for
+          the pack name the test passes. A resolver that takes a URL directly
+          would not exercise the production path.
+
+          This FAILS until TASK-024.
+        files:
+          - pkg/pack/distribution/versionresolver_real_test.go
+        claims:
+          - CLM-029
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestTagVersionResolver_ResolvesAgainstRealTaggedRepository
+
+      - id: TASK-024
+        type: implementation
+        title: "Implement versionresolver.go and open command.go with the two typed assembly errors"
+        description: |
+          TWO FILES. command.go is opened here with ONLY its typed errors so
+          the resolver's fail-closed constructor has something to return; the
+          four command TYPES land in TASK-027. Splitting it this way keeps
+          both files compilable in isolation.
+
+          1. pkg/pack/distribution/command.go — the two typed errors, in the
+             same shape as the package's existing GitError/ValidationError:
+
+               type MissingDependencyError struct { Command, Dependency string }
+               type CapabilityUnavailableError struct { Capability, Reference string }
+
+             MissingDependencyError names BOTH the command being assembled
+             and the dependency that was nil, so the diagnostic identifies
+             the wiring site. CapabilityUnavailableError's Reference names
+             the REQUIREMENT tracking the gap (BUNDLE-006 REQ-014 /
+             REQ-018), so the diagnostic points at the WORK rather than
+             reading as a defect. It is declared HERE, not in cmd/backstop,
+             because UpgradeCommand.Run must classify and propagate it
+             (CLM-058) and json_error.go keys the capability kind off it
+             (CLM-086) — while the production implementations that RETURN it
+             live in the assembly layer.
+
+          2. pkg/pack/distribution/versionresolver.go:
+
+               type TagVersionResolver struct { git GitCloner }
+               func NewTagVersionResolver(git GitCloner) (*TagVersionResolver, error)
+               func (r *TagVersionResolver) ResolveLatestCompatible(packName, currentVersion string) (string, error)
+               func (r *TagVersionResolver) IsMajorBump(current, resolved string) bool
+
+             The `git` field is UNEXPORTED so the resolver cannot be
+             assembled by composite literal without a cloner — the same
+             structural rule the command constructors apply. The constructor
+             is the ONLY way to build one and FAILS CLOSED on nil with a
+             *MissingDependencyError naming the git cloner.
+
+             ResolveLatestCompatible: resolve the pack's git URL through the
+             package's EXISTING resolveGitURL, list remote tags through the
+             injected cloner, keep only strict X.Y.Z after stripping ONE
+             optional leading `v`, and return the HIGHEST same-major version
+             — or currentVersion unchanged when none is newer. A listing
+             error PROPAGATES; it must never surface as already-at-latest.
+
+             Parse with the corpus's existing strict-semver convention
+             (pkg/validate/bundle.go's semverRe shape). ADD NO NEW MODULE
+             DEPENDENCY — Masterminds/semver is present only as an indirect
+             golangci-lint dependency and pulling it in direct would be a new
+             supply-chain edge for something a regexp already does.
+
+             IsMajorBump compares major components only.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/versionresolver.go
+        claims:
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-047
+          - CLM-090
+        depends_on:
+          - TASK-022
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify semver resolution, including the literal 0.x reading and real-repository resolution"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+               UNCONDITIONAL — versionresolver.go and command.go are linked
+               into the gate binary even though this phase touched no cmd/
+               file (ISSUE-077 staleness class).
+            2. go test ./pkg/pack/distribution/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All twelve REQ-004 / constructor tests pass.
+            - CLM-029 genuinely drives a real repository through
+              ExecGitCloner and resolveGitURL, not a stub.
+            - go.mod gained no new direct dependency (diff it) — the
+              strict-semver parse uses the corpus regexp convention.
+            - CLM-022 asserts 0.1.0 → 0.2.0 resolves. If it was "corrected"
+              to treat 0.x minors as major-equivalent, that is a spec
+              violation, not a fix.
+        files:
+          - pkg/pack/distribution/versionresolver.go
+          - pkg/pack/distribution/versionresolver_test.go
+          - pkg/pack/distribution/versionresolver_real_test.go
+        claims:
+          - CLM-022
+          - CLM-026
+          - CLM-029
+          - CLM-047
+          - CLM-090
+        depends_on:
+          - TASK-024
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Command types + positional constructors (REQ-006) —
+  #          transitional delegation keeps the tree compiling
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: The four command types and their fail-closed positional constructors (REQ-006), delegating to the free functions for now"
+    tasks:
+      - id: TASK-026
+        type: test
+        title: "Failing constructor-matrix tests: every cell of the dependency table, every nil naming its dependency"
+        description: |
+          Add pkg/pack/distribution/command_test.go covering the REQ-006
+          dependency matrix CELL BY CELL. Reuse the package's EXISTING mocks
+          (mockGitCloner / mockValidator from add_test.go, mockVersionResolver
+          from update_test.go, mockScanner / mockRemediationGenerator from
+          upgrade_test.go) — do not introduce a parallel mock set.
+
+          The matrix, for reference:
+            NewAddCommand      (GitCloner, Validator)
+            NewInstallCommand  (GitCloner)
+            NewUpdateCommand   (GitCloner, Validator, VersionResolver)
+            NewUpgradeCommand  (GitCloner, Validator, Scanner, RemediationGenerator)
+
+          Mandated test names (exact):
+            - TestNewAddCommand_CompleteAssemblySucceeds (CLM-032)
+            - TestNewAddCommand_NilGitClonerNamesDependency (CLM-033)
+            - TestNewAddCommand_NilValidatorNamesDependency (CLM-034)
+            - TestNewAddCommand_AllDependenciesNilReturnsError (CLM-035):
+              returns an error and NEVER a partially assembled command —
+              assert the returned pointer is nil.
+            - TestNewInstallCommand_CompleteAssemblySucceeds (CLM-036)
+            - TestNewInstallCommand_NilGitClonerNamesDependency (CLM-037)
+            - TestNewUpdateCommand_CompleteAssemblySucceeds (CLM-038)
+            - TestNewUpdateCommand_NilGitClonerNamesDependency (CLM-039)
+            - TestNewUpdateCommand_NilValidatorNamesDependency (CLM-040)
+            - TestNewUpdateCommand_NilVersionResolverNamesDependency (CLM-041)
+            - TestNewUpgradeCommand_CompleteAssemblySucceeds (CLM-042)
+            - TestNewUpgradeCommand_NilGitClonerNamesDependency (CLM-043)
+            - TestNewUpgradeCommand_NilValidatorNamesDependency (CLM-044)
+            - TestNewUpgradeCommand_NilScannerNamesDependency (CLM-045)
+            - TestNewUpgradeCommand_NilRemediationGeneratorNamesDependency (CLM-046)
+            - TestNewInstallCommand_RequiresNoValidator (CLM-048): an install
+              command is CONSTRUCTIBLE with no validator argument at all,
+              because pack install is the hash-verified restore path and does
+              not re-validate (DD-12).
+
+          EVERY NIL TEST ASSERTS THE NAMED DEPENDENCY, not merely that an
+          error occurred (spec Review Question 10). Nil ONE dependency at a
+          time with the others real, errors.As to *MissingDependencyError,
+          and assert the message identifies THAT dependency and the command.
+          A constructor that reports the wrong dependency passes an
+          "err != nil" assertion and fails the diagnostic quality REQ-006 is
+          entirely about.
+
+          These FAIL until TASK-027.
+        files:
+          - pkg/pack/distribution/command_test.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-048
+        depends_on: []
+        test_names:
+          - TestNewAddCommand_CompleteAssemblySucceeds
+          - TestNewAddCommand_NilGitClonerNamesDependency
+          - TestNewAddCommand_NilValidatorNamesDependency
+          - TestNewAddCommand_AllDependenciesNilReturnsError
+          - TestNewInstallCommand_CompleteAssemblySucceeds
+          - TestNewInstallCommand_NilGitClonerNamesDependency
+          - TestNewUpdateCommand_CompleteAssemblySucceeds
+          - TestNewUpdateCommand_NilGitClonerNamesDependency
+          - TestNewUpdateCommand_NilValidatorNamesDependency
+          - TestNewUpdateCommand_NilVersionResolverNamesDependency
+          - TestNewUpgradeCommand_CompleteAssemblySucceeds
+          - TestNewUpgradeCommand_NilGitClonerNamesDependency
+          - TestNewUpgradeCommand_NilValidatorNamesDependency
+          - TestNewUpgradeCommand_NilScannerNamesDependency
+          - TestNewUpgradeCommand_NilRemediationGeneratorNamesDependency
+          - TestNewInstallCommand_RequiresNoValidator
+
+      - id: TASK-027
+        type: implementation
+        title: "Add the four command types, constructors, and Run methods to command.go (delegating for now)"
+        description: |
+          Extend pkg/pack/distribution/command.go (opened in TASK-024) with:
+
+            type AddCommand struct { git GitCloner; validator Validator }
+            type InstallCommand struct { git GitCloner }
+            type UpdateCommand struct { git GitCloner; validator Validator; resolver VersionResolver }
+            type UpgradeCommand struct { git GitCloner; validator Validator; scanner Scanner; remediation RemediationGenerator }
+
+            func NewAddCommand(git GitCloner, validator Validator) (*AddCommand, error)
+            func NewInstallCommand(git GitCloner) (*InstallCommand, error)
+            func NewUpdateCommand(git GitCloner, validator Validator, resolver VersionResolver) (*UpdateCommand, error)
+            func NewUpgradeCommand(git GitCloner, validator Validator, scanner Scanner, remediation RemediationGenerator) (*UpgradeCommand, error)
+
+            func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error)
+            func (c *InstallCommand) Run(opts InstallOptions) (*InstallResult, error)
+            func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult, error)
+            func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResult, error)
+
+          DEPENDENCY FIELDS ARE UNEXPORTED so a command cannot be built by
+          composite literal outside the package — the constructor is the only
+          assembly path. Each constructor FAILS CLOSED: a nil argument
+          returns *MissingDependencyError naming the command and the
+          dependency, never a partially assembled command, never a panic,
+          never a deferred nil dereference. Return `nil, err` — not a
+          half-built pointer alongside an error.
+
+          INSTALL TAKES NO VALIDATOR. It is the hash-verified restore path
+          (DD-12). Do not add one "for symmetry".
+
+          THE CLONER IS REQUIRED EVEN WHERE A PATH NEVER CLONES — install's
+          --cache path and add's local-path branch. An "optional when a flag
+          is set" dependency is exactly the shape DD-30 forbids. This is only
+          safe because NewExecGitCloner performs NO PATH PROBE; if a later
+          change makes it validate git's presence at construction time, every
+          airgapped `pack install --cache` breaks with a misleading error
+          (Sharp Edge).
+
+          TRANSITIONAL DELEGATION — READ THE COMPILE-CLOSURE NOTE. For NOW
+          each Run method copies its receiver's dependencies onto the options
+          value and calls the still-present package-level function, e.g.
+
+              func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
+                  opts.GitCloner = c.git
+                  opts.Validator = c.validator
+                  return Add(packRef, opts)
+              }
+
+          Both APIs coexist so the 139-test suite keeps compiling. Phase 11
+          moves the pipeline bodies INTO these methods and deletes the free
+          functions; the end state is exactly the spec's pass 4. Mark each
+          delegation with a comment naming the phase that removes it so it
+          cannot be mistaken for the intended shape.
+
+          DO NOT yet: strip the options structs' dependency fields, remove
+          any nil guard, or delete any free function. All of that is Phase 11
+          and doing it here reds the whole test package.
+        files:
+          - pkg/pack/distribution/command.go
+        claims:
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-048
+        depends_on:
+          - TASK-024
+          - TASK-026
+
+      - id: TASK-028
+        type: verification
+        title: "Verify the constructor matrix and that the tree still compiles green with both APIs present"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build ./...
+            2. go build -o bin/backstop ./cmd/backstop
+               UNCONDITIONAL — the new command types are linked into the gate
+               binary even though this phase touched no cmd/ file (ISSUE-077
+               staleness class).
+            3. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            4. ./bin/backstop gate
+
+          Confirm specifically:
+            - All sixteen constructor tests pass and each nil test asserts on
+              the NAMED dependency.
+            - THE PRE-EXISTING 139 TESTS ARE STILL GREEN. This phase is
+              additive by design; a single red in add_test.go / update_test.go
+              / upgrade_test.go / install*_test.go means the delegation
+              changed behavior, which it must not.
+            - The free functions Add/Install/Update/Upgrade STILL EXIST. They
+              are deleted in Phase 11, not here.
+        files:
+          - pkg/pack/distribution/command_test.go
+        claims:
+          - CLM-032
+          - CLM-036
+          - CLM-038
+          - CLM-042
+          - CLM-048
+        depends_on:
+          - TASK-027
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Production assembly (REQ-010) + Cobra rewiring + the
+  #          substantiveness helper (REQ-013 half)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: cmd/backstop assembles real dependencies — one wiring file, four rewired commands, one real git clone end to end"
+    tasks:
+      - id: TASK-029
+        type: test
+        title: "Failing assembly tests: the four helpers assemble completely, the capabilities name their gap, no CLI options carry dependencies"
+        description: |
+          Add cmd/backstop/pack_wiring_test.go.
+
+          Mandated test names (exact):
+            - TestProductionPackCommands_AssembleCompletely (CLM-061): each
+              of newProductionAddCommand / newProductionInstallCommand /
+              newProductionUpdateCommand / newProductionUpgradeCommand
+              returns a NON-NIL command and a NIL error. Assert both — a
+              helper returning (nil, nil) would satisfy an error-only check
+              and blow up at first use.
+            - TestProductionUpgradeCapabilities_NameCapabilityAndReference
+              (CLM-091): the production unavailableScanner and
+              unavailableRemediationGenerator each return a
+              *CapabilityUnavailableError (errors.As) whose message names
+              BOTH the capability and the REQUIREMENT tracking it. Assert the
+              requirement reference text — a bare "not implemented" reads as
+              a defect instead of pointing at BUNDLE-006 REQ-014/REQ-018.
+            - TestPackCommands_ConstructNoDependencyCarryingOptions (CLM-067,
+              kind: absence): SCAN THE cmd/backstop SOURCES and assert no
+              pack lifecycle command constructs a distribution options value
+              carrying a dependency field. Scan the real files on disk
+              (GitCloner:, Validator:, VersionResolver:, Scanner:,
+              RemediationGenerator: inside an AddOptions/InstallOptions/
+              UpdateOptions/UpgradeOptions literal), not a hardcoded list of
+              known-bad lines — the point is that a NEW site added later is
+              caught too.
+
+          These FAIL until TASK-031.
+        files:
+          - cmd/backstop/pack_wiring_test.go
+        claims:
+          - CLM-061
+          - CLM-091
+          - CLM-067
+        depends_on: []
+        test_names:
+          - TestProductionPackCommands_AssembleCompletely
+          - TestProductionUpgradeCapabilities_NameCapabilityAndReference
+          - TestPackCommands_ConstructNoDependencyCarryingOptions
+
+      - id: TASK-030
+        type: test
+        title: "Failing end-to-end remote tests: a REAL git clone through the BUILT binary, hermetically"
+        description: |
+          Add cmd/backstop/pack_remote_e2e_test.go. These are the claims that
+          decide whether this spec is real (spec Review Question 3). Every
+          one drives the BUILT binary (buildBackstopBinary) through the
+          TASK-004 hermetic harness, and every one that asserts on a stream
+          uses runBackstopStreams — NEVER runBackstop's merged output.
+
+          Mandated test names (exact):
+            - TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks
+              (CLM-062): THE HEADLINE. `pack add <org>/<pack>@1.0.0` against
+              a hermetic tagged repository, redirected via GIT_CONFIG_GLOBAL
+              insteadOf, performs a REAL git clone through the production
+              path and leaves the pack INSTALLED under .backstop/packs/ AND
+              recorded in backstop.lock. Assert the installed content and the
+              lock entry, not just exit 0.
+            - TestE2E_PackAdd_MissingTagDiagnosticNotPanic (CLM-063): adding
+              a tag that does not exist exits NON-ZERO with a readable
+              diagnostic and NO stack trace. Assert the output contains no
+              "goroutine " / "panic:" marker — this is the closure of
+              ISSUE-073, whose whole symptom was a raw SIGSEGV.
+            - TestE2E_PackAdd_ValidationFailureIsLoud (CLM-055): a remote add
+              whose pack FAILS validation exits non-zero with the VALIDATION
+              diagnostic. This is the proof the validator is WIRED, not
+              merely present: today a nil validator makes an invalid pack
+              install cleanly, so a test that only asserts a valid pack
+              installs would pass against the broken code. Assert the message
+              names the validation failure, and assert NOTHING was installed.
+            - TestE2E_PackInstall_CacheRestore (CLM-064): `pack install
+              --cache` restores a locked pack through the built CLI. This
+              path never clones and must work with git ABSENT-ish — it is the
+              airgapped case the no-PATH-probe rule exists for.
+            - TestE2E_PackInstall_GitSourceHashMismatchIsLoud (CLM-065):
+              install against a GIT-sourced lock entry runs the real clone
+              and reports a CONTENT HASH MISMATCH NAMING BOTH HASHES. THIS
+              ASSERTS A MISMATCH, NOT A SUCCESS. `pack add` copies the clone
+              including its root .git and ComputeContentHash hashes it, so
+              two clones of the same tag cannot agree (reflog timestamps
+              alone). A green round trip here would mean someone "fixed" the
+              hash — which is bundle REQ-021@1.1.0, a later seed. Do not.
+            - TestE2E_PackUpdate_ResolvesNewerCompatibleTag (CLM-066): update
+              against a hermetic repo carrying a newer same-major tag
+              resolves and applies it through the built CLI.
+            - TestE2E_PackUpgrade_UnavailableCapabilityIsLoud (CLM-060):
+              `pack upgrade` reports the UNAVAILABLE remediation/scan
+              capability instead of a successful upgrade with zero baselined
+              violations. PACK UPGRADE GETS WORSE BEFORE IT GETS BETTER and
+              that is correct (Sharp Edge) — a zero-violation major upgrade
+              that never ran a scan is a vacuous green. Assert the
+              capability diagnostic and its requirement reference.
+
+          HERMETICITY IS NON-NEGOTIABLE: no test here may reach the network.
+          Confirm the harness propagates GIT_CONFIG_GLOBAL into the child
+          process; a redirect that only affects the test process sends the
+          child to GitHub and the suite becomes network-dependent without
+          anything going red.
+
+          These FAIL until TASK-031/TASK-032.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+        claims:
+          - CLM-055
+          - CLM-060
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-065
+          - CLM-066
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-004
+          - TASK-006
+          - TASK-009
+        test_names:
+          - TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks
+          - TestE2E_PackAdd_MissingTagDiagnosticNotPanic
+          - TestE2E_PackAdd_ValidationFailureIsLoud
+          - TestE2E_PackInstall_CacheRestore
+          - TestE2E_PackInstall_GitSourceHashMismatchIsLoud
+          - TestE2E_PackUpdate_ResolvesNewerCompatibleTag
+          - TestE2E_PackUpgrade_UnavailableCapabilityIsLoud
+
+      - id: TASK-031
+        type: implementation
+        title: "Create cmd/backstop/pack_wiring.go — THE single production assembly seam"
+        description: |
+          Create cmd/backstop/pack_wiring.go with exactly the declared
+          contract surface:
+
+            func newProductionAddCommand()     (*distribution.AddCommand, error)
+            func newProductionInstallCommand() (*distribution.InstallCommand, error)
+            func newProductionUpdateCommand()  (*distribution.UpdateCommand, error)
+            func newProductionUpgradeCommand() (*distribution.UpgradeCommand, error)
+
+            type unavailableScanner struct{}
+            func (s unavailableScanner) ScanViolations(projectDir, packDir string) ([]string, error)
+            type unavailableRemediationGenerator struct{}
+            func (g unavailableRemediationGenerator) GenerateBundle(projectDir string, violations []string) (string, error)
+
+          EVERY pack lifecycle command's dependencies are built in THIS ONE
+          FILE, so "what does production actually wire?" has a single answer
+          instead of being spread across four Cobra files that each built a
+          partial options literal. Do not scatter a second assembly site.
+
+          Wiring, per the REQ-006 matrix:
+            add     ← NewExecGitCloner() + NewPackvalValidator()
+            install ← NewExecGitCloner() only (install does not validate)
+            update  ← NewExecGitCloner() + NewPackvalValidator() +
+                      NewTagVersionResolver(over the SAME cloner)
+            upgrade ← NewExecGitCloner() + NewPackvalValidator() +
+                      unavailableScanner{} + unavailableRemediationGenerator{}
+
+          THE TWO UNAVAILABLE IMPLEMENTATIONS ARE EXPLICIT, NOT NIL. Each
+          returns *distribution.CapabilityUnavailableError naming the
+          capability and the requirement tracking it (BUNDLE-006 REQ-014 for
+          the violation scan, REQ-018 for the remediation bundle generator).
+          Returning an empty violation slice instead would reinstate the
+          vacuous success this spec exists to close. This spec does NOT build
+          those capabilities and does NOT pin those requirements — the
+          diagnostic points at the work.
+
+          An assembly failure is a CONFIGURATION error: the Cobra callers
+          surface it as ExitConfigError (exit 2), not as a violation. Return
+          the error; do not print here.
+
+          No language/tool/platform literal enters this file. The only tool
+          knowledge in the whole chain is the sanctioned `git` invocation
+          inside gitcloner.go.
+        files:
+          - cmd/backstop/pack_wiring.go
+        claims:
+          - CLM-061
+          - CLM-091
+          - CLM-060
+        depends_on:
+          - TASK-029
+          - TASK-030
+
+      - id: TASK-032
+        type: refactor
+        title: "Rewire the four pack Cobra commands onto the assembly helpers, and retarget the one test that would go live"
+        description: |
+          Replace the nil-dependency options literals with assembled
+          commands in all four Cobra files:
+
+            - cmd/backstop/pack_add.go:31-34 — the literal that produces
+              ISSUE-073's nil-cloner panic. Call newProductionAddCommand(),
+              return an ExitCodeError{Code: ExitConfigError} on assembly
+              failure, then cmd.Run(packRef, distribution.AddOptions{
+              ProjectDir: ".", Version: versionFlag}).
+            - cmd/backstop/pack_install.go:~18 — newProductionInstallCommand().
+            - cmd/backstop/pack_update.go — newProductionUpdateCommand().
+            - cmd/backstop/pack_upgrade.go — newProductionUpgradeCommand().
+
+          Preserve each command's existing SUCCESS output verbatim
+          (formatAddedLine, the AlreadyCurrent message, install's warning
+          loop and installed summary). This task changes HOW the pipeline is
+          reached, not what the consumer reads on success.
+
+          Leave `Explained` UNSET on every error return here. These four are
+          in the nine-site loud group; Phase 3 already made them print.
+
+          RETARGET cmd/backstop/coverage_cli_test.go:97-108 IN THIS TASK, NOT
+          LATER. TestCLI_PackAdd_NonexistentPack passes
+          `nonexistent/pack@1.0.0` and today survives on
+          `defer func() { recover() }()` catching the nil-cloner panic. The
+          moment this task lands, that becomes a LIVE clone of
+          https://github.com/nonexistent/pack.git from CI. Retarget it
+          through the hermetic GIT_CONFIG_GLOBAL insteadOf redirect so it
+          exercises the missing-repository diagnostic OFFLINE, and DROP the
+          `recover` — there is no longer a panic to catch. If retargeting
+          would merely duplicate CLM-063, DELETE the test instead. It must
+          not be left as-is: leaving it is a silent regression from
+          "hermetic" to "depends on GitHub being reachable and that
+          repository staying absent."
+
+          `pack add` is the ONLY one of the four so exposed — update and
+          upgrade precheck backstop.yml via readPackVersion and install
+          prechecks the lock, all before any clone. Do not go hunting for
+          equivalents in the other three.
+        files:
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+          - cmd/backstop/coverage_cli_test.go
+        claims:
+          - CLM-062
+          - CLM-063
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-055
+          - CLM-067
+        depends_on:
+          - TASK-031
+
+      - id: TASK-033
+        type: test
+        title: "Failing test: installSubstantivenessLocalPack keeps its receiver and draws from the production assembly"
+        description: |
+          Add cmd/backstop/substantiveness_assembly_test.go.
+
+          Mandated test name (exact):
+            - TestInstallSubstantivenessLocalPack_UsesProductionAssembly
+              (CLM-095): the method
+              `func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error`
+              KEEPS ITS RECEIVER AND SIGNATURE, obtains its command from
+              newProductionAddCommand(), and installs the substantiveness
+              pack with VALIDATION RUNNING.
+
+          THE RECEIVER IS THE POINT. Keeping `(w *e2eWorkspace)` and the
+          `(repoRoot string) error` shape is precisely what lets its four
+          existing call sites in gate_substantiveness_e2e_test.go
+          (:57, :94, :168, :200) need NO EDITS AT ALL. A "helpful" conversion
+          to a free function would cascade into four unnecessary test edits
+          and break the property REQ-013 is asserting.
+
+          Assert the packs/substantiveness source PASSES pack check and pack
+          test through this path — CLM-095 says "with validation running", so
+          a green install that skipped validation does not satisfy it.
+
+          This FAILS until TASK-034.
+        files:
+          - cmd/backstop/substantiveness_assembly_test.go
+        claims:
+          - CLM-095
+        depends_on: []
+        test_names:
+          - TestInstallSubstantivenessLocalPack_UsesProductionAssembly
+
+      - id: TASK-034
+        type: refactor
+        title: "Draw installSubstantivenessLocalPack from the production assembly, signature unchanged"
+        description: |
+          Two files, both mechanical.
+
+          1. cmd/backstop/gate_substantiveness_e2e.go:106 — the METHOD
+             `func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error`
+             currently calls distribution.Add(...) with a bare
+             AddOptions{ProjectDir: w.root}, relying on the nil-validator
+             skip. Obtain the command from newProductionAddCommand() and call
+             its Run method. SIGNATURE AND RECEIVER UNCHANGED.
+
+             Delete the doc comment's "A nil Validator skips
+             RunPackCheck/RunPackTest" contract — under REQ-008 validation is
+             unconditional and that distinction no longer exists.
+
+             This is LEGITIMATE HERE, unlike inside pkg/pack/distribution,
+             because cmd/backstop IS the assembly layer. The asymmetry is
+             REQ-005's boundary made concrete: a library-layer helper
+             constructing its own PackvalValidator would be exactly the
+             internal defaulting REQ-005 forbids.
+
+          2. cmd/backstop/gate_substantiveness_provisioning_test.go:111 —
+             replace the direct distribution.Add(...) call with the assembled
+             command the same way.
+
+          DO NOT touch gate_substantiveness_e2e_test.go. Its four call sites
+          need no edits, and that is the property CLM-095 asserts.
+
+          VALIDATION NOW RUNS on the packs/substantiveness source. It is
+          expected to pass; if it does not, that is a real finding about the
+          pack, not a reason to reinstate a skip.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+        claims:
+          - CLM-095
+        depends_on:
+          - TASK-031
+          - TASK-033
+
+      - id: TASK-035
+        type: verification
+        title: "Verify production assembly: one real clone through the built binary, nothing on the network"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+               (cmd/ changed heavily; a stale binary would make the E2E
+               claims verdict on code that is no longer there)
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - CLM-062 performed an ACTUAL git clone through the ACTUAL
+              production path via the BUILT binary. If every clone in the
+              suite is a mock, this spec delivered nothing (spec Review
+              Question 3).
+            - NO TEST REACHES THE NETWORK (spec Review Question 4). Re-run
+              with networking disabled if the environment allows; otherwise
+              read every URL in the new suites and confirm each is file:// or
+              redirected. Specifically confirm
+              TestCLI_PackAdd_NonexistentPack was retargeted or deleted and
+              no longer carries a `recover`.
+            - CLM-065 asserts a hash MISMATCH, not a green round trip. A
+              green here means someone excluded .git from the hash — that is
+              bundle REQ-021@1.1.0 and out of scope.
+            - grep cmd/backstop for `distribution.Add(`, `distribution.Install(`,
+              `distribution.Update(`, `distribution.Upgrade(` — no production
+              file should call them any more.
+        files:
+          - cmd/backstop/pack_wiring.go
+          - cmd/backstop/pack_wiring_test.go
+          - cmd/backstop/pack_remote_e2e_test.go
+          - cmd/backstop/substantiveness_assembly_test.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-055
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-091
+          - CLM-095
+        depends_on:
+          - TASK-031
+          - TASK-032
+          - TASK-034
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: Structured JSON errors under --json (REQ-012)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: One parseable JSON error document on stdout under --json, kinds derived from distribution's typed errors"
+    tasks:
+      - id: TASK-036
+        type: test
+        title: "Failing writeJSONError unit tests: envelope shape and the four typed kinds plus the default"
+        description: |
+          Add cmd/backstop/json_error_test.go driving
+          `writeJSONError(w io.Writer, command string, err error) error`
+          directly against a bytes.Buffer. These need no process at all —
+          direct unit tests are the correct mechanism for kind
+          classification.
+
+          Mandated test names (exact):
+            - TestJSONError_CarriesCommandKindAndMessage (CLM-084): the
+              document carries the COMMAND PATH, an error KIND, and the HUMAN
+              MESSAGE. Unmarshal and assert all three fields, so a document
+              that omits one cannot pass.
+            - TestJSONError_ClassifiesGitAndValidationKinds (CLM-085):
+              *distribution.GitError → kind "git";
+              *distribution.ValidationError → kind "validation".
+            - TestJSONError_ClassifiesDependencyAndCapabilityKinds (CLM-086):
+              *distribution.MissingDependencyError → kind "dependency";
+              *distribution.CapabilityUnavailableError → kind "capability".
+            - TestJSONError_UnclassifiedFailureUsesDefaultKind (CLM-087): a
+              plain errors.New gets the DEFAULT kind, not an EMPTY kind.
+              Assert the field is non-empty — an empty string would let a
+              consumer's switch fall through silently.
+
+          Wrap at least one of the typed errors (fmt.Errorf("%w")) in one
+          sub-case so the classifier is proven to use errors.As rather than a
+          bare type assertion.
+
+          These FAIL until TASK-038.
+        files:
+          - cmd/backstop/json_error_test.go
+        claims:
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+        depends_on: []
+        test_names:
+          - TestJSONError_CarriesCommandKindAndMessage
+          - TestJSONError_ClassifiesGitAndValidationKinds
+          - TestJSONError_ClassifiesDependencyAndCapabilityKinds
+          - TestJSONError_UnclassifiedFailureUsesDefaultKind
+
+      - id: TASK-037
+        type: test
+        title: "Failing JSON stdout-purity tests through the built binary on separated streams"
+        description: |
+          Add cmd/backstop/json_error_e2e_test.go. These assert on SPECIFIC
+          STREAMS of a real process, so they drive the built binary through
+          runBackstopStreams. NOT runBackstop — against a merged buffer
+          "stdout holds exactly one JSON document" passes for a run that also
+          wrote a human line to stderr, which is the exact vacuity REQ-014
+          exists to prevent.
+
+          Mandated test names (exact):
+            - TestJSONError_PackAdd_EmitsSingleParseableObject (CLM-083): a
+              failing `pack add --json` writes EXACTLY ONE parseable JSON
+              object to the separated STDOUT and still exits non-zero. Assert
+              the whole stdout unmarshals as one document — trailing human
+              text, a second document, or a log line all break json.Unmarshal
+              and must.
+            - TestJSONError_SuppressesHumanDiagnostic (CLM-088): under --json
+              the separated STDERR is EMPTY. Assert emptiness, not merely the
+              absence of the message.
+            - TestJSONError_InstallUpdateUpgradeShareEnvelope (CLM-089): a
+              failing `pack install --json`, `pack update --json`, and
+              `pack upgrade --json` each emit the SAME envelope shape as
+              pack add — same field set, each with its own command path.
+
+          Use the hermetic harness for any case that would otherwise clone.
+
+          These FAIL until TASK-038/TASK-039.
+        files:
+          - cmd/backstop/json_error_e2e_test.go
+        claims:
+          - CLM-083
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-004
+          - TASK-006
+          - TASK-009
+        test_names:
+          - TestJSONError_PackAdd_EmitsSingleParseableObject
+          - TestJSONError_SuppressesHumanDiagnostic
+          - TestJSONError_InstallUpdateUpgradeShareEnvelope
+
+      - id: TASK-038
+        type: implementation
+        title: "Implement cmd/backstop/json_error.go — the classified single-document error envelope"
+        description: |
+          Create cmd/backstop/json_error.go providing
+
+              func writeJSONError(w io.Writer, command string, err error) error
+
+          It renders ONE structured JSON error document carrying the command
+          path, an error kind, and the human message. Classify the kind with
+          errors.As over distribution's typed errors:
+
+              *distribution.GitError                  → "git"
+              *distribution.ValidationError           → "validation"
+              *distribution.MissingDependencyError    → "dependency"
+              *distribution.CapabilityUnavailableError→ "capability"
+              anything else                           → a non-empty default kind
+
+          Use errors.As, never a bare type assertion — a wrapped typed error
+          must still classify, and TASK-036 has a wrapped sub-case.
+
+          Emit ONE document. No trailing newline noise, no second object, no
+          log line. ADR-0001's machine-first output posture means a consumer
+          pipes stdout straight into a parser.
+
+          The CALLER (TASK-039) writes to stdout and then returns an
+          ExitCodeError with Explained SET — emitting the JSON document
+          counts as explaining the failure, so the human stderr line is
+          suppressed and stdout holds exactly one document. This is the ONLY
+          sanctioned Explained site beyond Phase 3's four, and it is the same
+          principle: the command already told the consumer what happened.
+        files:
+          - cmd/backstop/json_error.go
+        claims:
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+        depends_on:
+          - TASK-036
+          - TASK-037
+
+      - id: TASK-039
+        type: refactor
+        title: "Wire --json into the four pack Cobra commands' failure paths"
+        description: |
+          The four pack lifecycle commands currently IGNORE the persistent
+          --json flag entirely: their constructors take it as `_ *bool`.
+          Bind it and use it on the FAILURE path.
+
+          In each of pack_add.go, pack_install.go, pack_update.go,
+          pack_upgrade.go:
+            - Change the constructor parameter from `_ *bool` to a named
+              jsonFlag *bool (matching the shape pack_check.go already uses).
+            - On failure, when jsonFlag != nil && *jsonFlag: call
+              writeJSONError(cmd.OutOrStdout(), "<command path>", err), then
+              return &ExitCodeError{Code: ExitViolations, Message: err.Error(),
+              Explained: true}. The Explained flag is what keeps stderr empty
+              (CLM-088).
+            - Otherwise return the plain loud ExitCodeError as today.
+
+          The command path string is per-command ("pack add", "pack install",
+          "pack update", "pack upgrade") and appears in the document — a
+          shared constant would make CLM-089's "each with its own command
+          path" unfalsifiable.
+
+          DO NOT change the SUCCESS output of any of the four. This spec adds
+          a structured error envelope; a structured success envelope is not
+          in scope and would break every existing CLI test asserting on the
+          human success lines.
+        files:
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-083
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-032
+          - TASK-038
+
+      - id: TASK-040
+        type: verification
+        title: "Verify the JSON envelope: one document on stdout, empty stderr, five kinds"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically:
+            - All seven REQ-012 tests pass.
+            - The stdout-purity claims are driven by runBackstopStreams. Grep
+              json_error_e2e_test.go for `runBackstop(` — it must not appear.
+            - Under --json, stderr is EMPTY (not merely message-free) and
+              stdout unmarshals as exactly one document.
+            - The `Explained` count in cmd/backstop is now four Phase-3 sites
+              plus the four --json failure paths, and NOTHING ELSE.
+        files:
+          - cmd/backstop/json_error.go
+          - cmd/backstop/json_error_test.go
+          - cmd/backstop/json_error_e2e_test.go
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-038
+          - TASK-039
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: THE 139-TEST MIGRATION — its own phase, not a task bullet
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: Migrate the six distribution suites and the two helpers onto constructor-assembled commands, preserving every SPEC-015 test name verbatim"
+    tasks:
+      - id: TASK-041
+        type: test
+        title: "Failing lineage test: every SPEC-015-mandated test name in the six suites still exists verbatim"
+        description: |
+          Add pkg/pack/distribution/spec015_lineage_test.go — the mechanical
+          guard that an instruction not to rename would never survive a
+          139-test edit.
+
+          Mandated test name (exact):
+            - TestDistribution_Spec015MandatedTestNamesPreserved (CLM-100,
+              kind: absence): READ THE MANDATED NAMES OUT OF
+              specs/SPEC-015-pack-distribution.spec.md, scan the six migrated
+              suites (add_test.go, update_test.go, upgrade_test.go,
+              install_test.go, install_materialize_test.go,
+              install_reconcile_test.go) for `func Test…` identifiers, and
+              assert every SPEC-015 name that lives in those files is still
+              present VERBATIM.
+
+          READ FROM THE SPEC, NOT FROM A HARDCODED LIST (spec Review Question
+          12). A hardcoded list drifts silently and turns the guard into
+          decoration. Locate the spec by walking up from the test file to the
+          repo root rather than baking an absolute path, and FAIL LOUDLY if
+          the spec cannot be found — a test that silently passes when it
+          cannot read its own input is worse than no test.
+
+          Current corpus measurement, for your sanity check: SPEC-015
+          mandates 100 test names; the six suites declare 139 test funcs; the
+          intersection is 62. If your test finds materially fewer than 62,
+          your name extraction is wrong, not the corpus.
+
+          WHY THIS MATTERS: BUNDLE-006's revision-impact section forbids
+          rewriting SPEC-015's historical `REQ-021@1.0.0` pin, and renaming a
+          mandated test severs that spec's claim-to-test lineage just as
+          effectively. The failure is QUIET — the suite still passes and only
+          SPEC-015's traceability goes red later.
+
+          This test must be GREEN BEFORE the migration (nothing renamed yet)
+          and stay green through it. That is deliberate: it is a ratchet, not
+          a red-then-green.
+        files:
+          - pkg/pack/distribution/spec015_lineage_test.go
+        claims:
+          - CLM-100
+        depends_on: []
+        test_names:
+          - TestDistribution_Spec015MandatedTestNamesPreserved
+
+      - id: TASK-042
+        type: refactor
+        title: "Migrate add_test.go, update_test.go, and upgrade_test.go onto shared command-building helpers"
+        description: |
+          The heaviest third of the migration: 107 of the 139 tests
+          (add 58, update 25, upgrade 24), 106 free-function call sites, and
+          180 of the 193 dependency-field lines.
+
+          FIRST create pkg/pack/distribution/command_helpers_test.go with one
+          builder per command type, e.g.
+
+              func newTestAddCommand(t *testing.T, git GitCloner, v Validator) *AddCommand
+              func newTestUpdateCommand(t *testing.T, git GitCloner, v Validator, r VersionResolver) *UpdateCommand
+              func newTestUpgradeCommand(t *testing.T, git GitCloner, v Validator, s Scanner, rg RemediationGenerator) *UpgradeCommand
+
+          each calling the real constructor and t.Fatal-ing on error, so the
+          per-test edit is MECHANICAL: options literal in, helper call out.
+          The MOCKS ARE UNCHANGED (mockGitCloner, mockValidator,
+          mockVersionResolver, mockScanner, mockRemediationGenerator,
+          mockScannerWithError, mockVersionResolverWithError) — only their
+          DELIVERY moves from an options literal to a constructor argument.
+
+          Then, per test: drop the dependency fields from the options
+          literal, build the command through the helper, and call
+          `cmd.Run(ref, opts)` where `distribution.Add(ref, opts)` was.
+
+          THE TRAP — READ THIS, AND RE-DERIVE IT RATHER THAN TRUSTING THE
+          COUNTS. The constructors FAIL CLOSED on nil, so any test that today
+          omits a dependency and rides the `!= nil` skip needs a PASSING mock
+          supplied. Measured helper-aware against the current corpus:
+
+            add_test.go     0 gaps — newTestAddOptions (add_test.go:78)
+                            already sets `Validator: &mockValidator{}` for
+                            every caller that does not set one inline, so all
+                            56 distribution.Add callers are covered. This file
+                            needs CALL-SITE edits only.
+            update_test.go  6 tests omit Validator, 2 omit VersionResolver.
+            upgrade_test.go 0 omit Validator; 4 omit Scanner and the same 4
+                            omit RemediationGenerator.
+
+          Supply `&mockValidator{}` / `&mockScanner{}` /
+          `&mockRemediationGenerator{}` to those. Do NOT weaken a constructor,
+          and do NOT change what a test asserts to accommodate newly-running
+          validation — if a test genuinely breaks because validation now runs,
+          that is a finding to surface, not to paper over.
+
+          ONE SANCTIONED RETIREMENT IN THIS TASK.
+          `TestPackUpdate_NoVersionResolver` builds an UpdateOptions with
+          "No VersionResolver provided" and asserts the update.go:55
+          "version resolver required for update" guard errors. TASK-050
+          DELETES that guard, and under NewUpdateCommand's fail-closed
+          constructor its premise — an options value with no resolver — is
+          UNREPRESENTABLE, so it has no migrated form. Verified NOT among
+          SPEC-015's 100 mandated names, and its property is fully subsumed by
+          CLM-041 / TestNewUpdateCommand_NilVersionResolverNamesDependency,
+          which asserts the same thing earlier and with a NAMED dependency.
+          DELETE IT. Note the deletion in the commit so a reader diffing this
+          change finds the reason.
+
+          OTHERWISE NEVER TOUCH A `func TestX` IDENTIFIER. Not a rename, not
+          a merge of two tests, not a "tidy", not a typo fix. 62 of these
+          names are SPEC-015-mandated and CLM-100 (TASK-041) is watching. The
+          before/after set of test identifiers in these three files must be
+          IDENTICAL except for the single sanctioned deletion named above.
+
+          Do not change any assertion's SUBJECT either. This migration is
+          about assembly, not semantics; a behavior change smuggled in here
+          is invisible in a 100+ test diff.
+        files:
+          - pkg/pack/distribution/command_helpers_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/update_test.go
+          - pkg/pack/distribution/upgrade_test.go
+        claims:
+          - CLM-100
+        depends_on:
+          - TASK-027
+          - TASK-041
+
+      - id: TASK-043
+        type: refactor
+        title: "Migrate install_test.go, install_materialize_test.go, and install_reconcile_test.go"
+        description: |
+          The lighter third: 32 tests (install 20, materialize 7, reconcile
+          5), 32 call sites, 13 dependency-field lines — install_reconcile
+          is a pure call-site change with no dependency fields at all.
+
+          Use the `newTestInstallCommand(t, git)` helper from TASK-042's
+          command_helpers_test.go (cloner mock only — install takes NO
+          validator, DD-12). Replace each `distribution.Install(opts)` with
+          `cmd.Run(opts)` and drop the GitCloner field from the options
+          literal.
+
+          NINE of install_test.go's 20 tests omit GitCloner today — the
+          --cache and local-pack paths that never clone. They STILL need a
+          cloner to construct the command. That is DD-30's rule, not an
+          oversight: an "optional when a flag is set" dependency is exactly
+          the shape it forbids, and it is only safe because NewExecGitCloner
+          probes nothing. Pass the mock.
+
+          ONE SANCTIONED RETIREMENT IN THIS TASK.
+          `TestPackInstall_NoGitClonerForGitPack` (install_test.go:483-513)
+          builds an InstallOptions with "No GitCloner provided" and asserts
+          the install.go:165 nil-cloner guard errors. TASK-050 DELETES that
+          guard, and under NewInstallCommand's fail-closed constructor its
+          premise is UNREPRESENTABLE, so it has no migrated form. Verified
+          NOT among SPEC-015's 100 mandated names, and its property is fully
+          subsumed by CLM-037 / TestNewInstallCommand_NilGitClonerNamesDependency,
+          which asserts the same thing earlier and with a NAMED dependency.
+          DELETE IT. Note the deletion in the commit.
+
+          Do NOT confuse it with TestPackInstall_CacheMissingPack immediately
+          below it, which is about a missing pack in the cache directory and
+          MIGRATES normally.
+
+          OTHERWISE NEVER TOUCH A `func TestX` IDENTIFIER — the same SPEC-015
+          lineage rule as TASK-042. The before/after identifier set in these
+          three files must be IDENTICAL except for the single sanctioned
+          deletion named above.
+        files:
+          - pkg/pack/distribution/install_test.go
+          - pkg/pack/distribution/install_materialize_test.go
+          - pkg/pack/distribution/install_reconcile_test.go
+        claims:
+          - CLM-100
+        depends_on:
+          - TASK-042
+
+      - id: TASK-044
+        type: test
+        title: "Failing helper tests: the redesigned InstallContractsLocalPack and the absence of the validator-aware variant"
+        description: |
+          Add pkg/pack/distribution/contracts_local_install_test.go.
+
+          Mandated test names (exact):
+            - TestInstallContractsLocalPack_InstallsWithSuppliedCommand
+              (CLM-092): the helper installs the packs/contracts SOURCE
+              through a CALLER-SUPPLIED assembled *AddCommand with validation
+              RUNNING, and returns the AddResult. Assert the installed path
+              and content hash are populated — a helper that returns a zero
+              result satisfies an error-only check.
+            - TestInstallContractsLocalPack_ContractsPackPassesUnconditionalValidation
+              (CLM-093): the packs/contracts source PASSES pack check and
+              pack test through the unconditional validation path, so the
+              dogfood install stays green. ASSERT IT RATHER THAN ASSUMING IT
+              — this claim exists because the redesign removes the skip that
+              was hiding whether the pack passes.
+            - TestDistribution_NoValidatorAwareInstallVariant (CLM-094,
+              kind: absence): the distribution package declares NO
+              validator-aware install variant and NO nil-validator-skip path.
+              Scan the package sources for
+              `InstallContractsLocalPackWithValidator` and for the
+              nil-validator-skip doc contract, asserting both are gone.
+
+          These FAIL until TASK-045.
+        files:
+          - pkg/pack/distribution/contracts_local_install_test.go
+        claims:
+          - CLM-092
+          - CLM-093
+          - CLM-094
+        depends_on: []
+        test_names:
+          - TestInstallContractsLocalPack_InstallsWithSuppliedCommand
+          - TestInstallContractsLocalPack_ContractsPackPassesUnconditionalValidation
+          - TestDistribution_NoValidatorAwareInstallVariant
+
+      - id: TASK-045
+        type: refactor
+        title: "Redesign InstallContractsLocalPack to RECEIVE a command, retire the validator-aware variant, migrate its call sites"
+        description: |
+          THE REDESIGN (REQ-013), not an ad-hoc migration. Four files.
+
+          1. pkg/pack/distribution/contracts_local_install.go — COLLAPSE the
+             two helpers into ONE:
+
+                 func InstallContractsLocalPack(add *AddCommand, repoRoot, projectDir string) (*AddResult, error)
+
+             It RECEIVES an assembled command rather than assembling one,
+             because a library-layer helper constructing its own
+             PackvalValidator would be EXACTLY the internal defaulting
+             REQ-005 forbids and would make the helper indistinguishable from
+             production wiring (CLM-031). DELETE
+             InstallContractsLocalPackWithValidator AND its "a nil Validator
+             skips those phases" doc contract — under REQ-008 validation is
+             unconditional and the distinction the variant existed to express
+             no longer exists.
+
+             ContractsPackSourceDir is UNCHANGED.
+
+          2. pkg/pack/distribution/contracts_provisioning_test.go —
+             • :95, :178, :193, :198 — pass an assembled *AddCommand to the
+               new InstallContractsLocalPack.
+             • :224 — DELETE TestInstallContractsLocalPackWithValidator_RunsCheckPhases.
+               It exists SOLELY to prove the nil-validator-skip distinction
+               REQ-008 removes, so it cannot be migrated, only RETIRED. It
+               is verified unmandated by any spec or plan, so no claim
+               lineage is stranded — but a reader diffing this change sees
+               test coverage go down and should find the reason in the
+               commit, so say it there.
+             • :215-219 — DELETE stubValidator with it (verified used by no
+               other test in the package). Re-verify with a grep before
+               deleting rather than trusting this line.
+             This is the THIRD and LAST sanctioned retirement in the plan —
+             TASK-042 retires TestPackUpdate_NoVersionResolver and TASK-043
+             retires TestPackInstall_NoGitClonerForGitPack, both the same
+             absent-dependency-premise class. If you find yourself deleting a
+             FOURTH, stop and report it — the edit set is supposed to be
+             closed (spec Review Question 11).
+
+          3-5. cmd/backstop/gate_contract_wiring_test.go:235,
+             gate_contract_e2e_harness_test.go:118, and
+             gate_contract_novacuous_test.go:74 — pass an assembled command
+             (from newProductionAddCommand()) to InstallContractsLocalPack.
+
+          VALIDATION NOW RUNS on packs/contracts. It is expected to pass
+          (CLM-093 asserts it); if it does not, that is a real finding about
+          the pack, not a reason to reinstate a skip.
+        files:
+          - pkg/pack/distribution/contracts_local_install.go
+          - pkg/pack/distribution/contracts_provisioning_test.go
+          - cmd/backstop/gate_contract_wiring_test.go
+          - cmd/backstop/gate_contract_e2e_harness_test.go
+          - cmd/backstop/gate_contract_novacuous_test.go
+        claims:
+          - CLM-092
+          - CLM-093
+          - CLM-094
+        depends_on:
+          - TASK-031
+          - TASK-044
+
+      - id: TASK-046
+        type: verification
+        title: "Verify the migration: 139 tests green, every SPEC-015 name intact, exactly one test retired"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically, and do this MECHANICALLY rather than by
+          reading the diff (spec Review Question 12):
+            - CLM-100 passes and its test reads names from SPEC-015, not from
+              a hardcoded list.
+            - DIFF THE `func Test…` IDENTIFIER SETS in the six suites before
+              and after this phase. They must differ by EXACTLY TWO names —
+              the sanctioned retirements TestPackUpdate_NoVersionResolver
+              (update_test.go) and TestPackInstall_NoGitClonerForGitPack
+              (install_test.go). Zero renames, zero merges, zero other drops.
+              All 62 SPEC-015-mandated names present verbatim.
+            - Exactly THREE tests were retired repo-wide, all of the same
+              absent-dependency-premise class:
+              TestPackUpdate_NoVersionResolver (TASK-042),
+              TestPackInstall_NoGitClonerForGitPack (TASK-043), and
+              TestInstallContractsLocalPackWithValidator_RunsCheckPhases plus
+              stubValidator (TASK-045, in contracts_provisioning_test.go,
+              which is not one of the six suites). A FOURTH deletion means
+              the edit set is not closed — report it, do not absorb it.
+            - Confirm each retirement's property is actually covered by its
+              subsuming constructor test: CLM-041 for the resolver, CLM-037
+              for the cloner. A retirement whose replacement does not exist
+              is a coverage loss wearing a sanction.
+            - No call site OUTSIDE the enumerated set needed changing. If one
+              did, name it (spec Review Question 11) — the corpus moves, and
+              the spec's enumeration was made against an earlier snapshot.
+            - grep pkg/pack/distribution for
+              `InstallContractsLocalPackWithValidator` — gone.
+        files:
+          - pkg/pack/distribution/spec015_lineage_test.go
+          - pkg/pack/distribution/command_helpers_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/update_test.go
+          - pkg/pack/distribution/upgrade_test.go
+          - pkg/pack/distribution/install_test.go
+          - pkg/pack/distribution/contracts_local_install.go
+          - pkg/pack/distribution/contracts_local_install_test.go
+        claims:
+          - CLM-092
+          - CLM-093
+          - CLM-094
+          - CLM-100
+        depends_on:
+          - TASK-042
+          - TASK-043
+          - TASK-045
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 11: The deletion — free functions gone, options stripped,
+  #           validation unconditional, capabilities honest (REQ-005/007/008/009)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-11
+    name: "Phase 11: Close the hole — delete the free functions, strip the dependency fields, make validation and the capability scan unconditional"
+    tasks:
+      - id: TASK-047
+        type: test
+        title: "Failing validation-gate tests: add and upgrade validate unconditionally, install does not, failures leave nothing behind"
+        description: |
+          Add pkg/pack/distribution/validation_gate_test.go.
+
+          Mandated test names (exact):
+            - TestAddCommand_RunsCheckThenTestBeforeInstall (CLM-050): the
+              command runs RunPackCheck and THEN RunPackTest, and BOTH
+              complete BEFORE anything is copied into the consumer project.
+              Assert the ORDER (a recording validator) and the
+              before-any-copy property — order that is correct by inspection
+              but unasserted regresses on the next edit.
+            - TestAddCommand_CheckFailureAbortsWithoutMutation (CLM-051) and
+            - TestAddCommand_TestFailureAbortsWithoutMutation (CLM-052): the
+              command aborts with the VALIDATION DIAGNOSTIC and leaves NO
+              installed content, NO manifest entry, NO lock entry, and NO
+              provenance entry. Assert all four absences — a partial rollback
+              passes a content-only check.
+            - TestUpgradeCommand_ValidatesBeforeInstall (CLM-053).
+            - TestInstallCommand_DoesNotValidate (CLM-054): install RESTORES
+              a pack whose content WOULD fail validation, proving install
+              verifies hashes and does not validate. The pack must genuinely
+              fail validation or the test proves nothing.
+
+          THESE ARE THE PROOF THE VALIDATOR IS WIRED, not merely present.
+          Today a nil validator makes an invalid pack install cleanly, so a
+          test that only asserts a valid pack installs would pass against the
+          broken code.
+
+          These FAIL until TASK-050.
+        files:
+          - pkg/pack/distribution/validation_gate_test.go
+        claims:
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+        depends_on: []
+        test_names:
+          - TestAddCommand_RunsCheckThenTestBeforeInstall
+          - TestAddCommand_CheckFailureAbortsWithoutMutation
+          - TestAddCommand_TestFailureAbortsWithoutMutation
+          - TestUpgradeCommand_ValidatesBeforeInstall
+          - TestInstallCommand_DoesNotValidate
+
+      - id: TASK-048
+        type: test
+        title: "Failing capability tests: upgrade scans unconditionally, propagates the typed error, and fails before any mutation"
+        description: |
+          Add pkg/pack/distribution/upgrade_capability_test.go. These are
+          DISTRIBUTION-level claims driven by TEST-DECLARED doubles, because
+          the production unavailable-capability implementations live in
+          package main, which pkg/pack/distribution cannot import. The
+          production-wiring proof is CLM-091/CLM-060 on the cmd/backstop side
+          (Phase 8) — these four are about the pipeline's behavior.
+
+          Mandated test names (exact):
+            - TestUpgradeCommand_ScannerInvokedUnconditionally (CLM-056): the
+              scanner runs even when the scan reports ZERO violations. A
+              recording double proves invocation; "no violations reported" is
+              indistinguishable from "never ran".
+            - TestUpgradeCommand_RemediationFailureAbortsUpgrade (CLM-057):
+              the remediation generator runs whenever the scan reports
+              violations, and a generation FAILURE aborts the upgrade.
+            - TestUpgradeCommand_PropagatesCapabilityUnavailableError
+              (CLM-058): a scanner returning *CapabilityUnavailableError has
+              that error propagated UNCHANGED — errors.As recovers it with
+              its Capability and Reference intact. A wrapped-into-opaque-text
+              error fails this.
+            - TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
+              (CLM-059): the failure lands before ANY consumer state is
+              mutated — tool config, provenance, installed content,
+              backstop.yml, and backstop.lock all unchanged. ASSERT ALL FIVE.
+              THIS TEST MUST FAIL IF THE SCAN AND THE TOOL-CONFIG MERGE ARE
+              SWAPPED BACK (spec Review Question 9) — that ordering is the
+              whole substance of the claim, so snapshot the five artifacts
+              before the call and compare after.
+
+          These FAIL until TASK-050.
+        files:
+          - pkg/pack/distribution/upgrade_capability_test.go
+        claims:
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on: []
+        test_names:
+          - TestUpgradeCommand_ScannerInvokedUnconditionally
+          - TestUpgradeCommand_RemediationFailureAbortsUpgrade
+          - TestUpgradeCommand_PropagatesCapabilityUnavailableError
+          - TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
+
+      - id: TASK-049
+        type: test
+        title: "Failing absence tests: no dependency fields, no internal defaults, no package-level entry points"
+        description: |
+          Add pkg/pack/distribution/absence_test.go. All three are
+          `kind: absence` — they prove a STRUCTURAL fact about the sources,
+          not a runtime behavior.
+
+          Mandated test names (exact):
+            - TestDistribution_OptionsStructsCarryNoDependencyFields
+              (CLM-030): scan the four options struct declarations
+              (AddOptions, InstallOptions, UpdateOptions, UpgradeOptions) in
+              the package sources and assert NONE declares a GitCloner,
+              Validator, VersionResolver, Scanner, or RemediationGenerator
+              field.
+
+              CLM-030 IS LOAD-BEARING AND MUST NOT BE DROPPED AS REDUNDANT
+              WITH THE CONTRACT DECLARATION. The contracts pack's signature
+              compiler reduces any struct to `type AddOptions $$$`
+              (compile-signature.sh's leading-token `type ` branch) and NEVER
+              compares field lists, so a reintroduced GitCloner field would
+              still satisfy the declared contract. This source scan is the
+              only thing that actually catches it.
+
+            - TestDistribution_NoInternalDependencyDefaults (CLM-031): no
+              constructor, command path, or package-level helper substitutes
+              a fallback implementation when a dependency was not supplied.
+              Scan for calls to NewExecGitCloner / NewPackvalValidator /
+              NewTagVersionResolver from within non-test package sources —
+              there must be NONE. A single fallback anywhere reinstates the
+              defect DD-30 resolved against and makes a test double
+              indistinguishable from production wiring (spec Review Question
+              1).
+
+            - TestDistribution_NoPackageLevelCommandEntryPoints (CLM-049):
+              scan for top-level `func Add(`, `func Install(`, `func Update(`,
+              and `func Upgrade(` declarations in the package — there must be
+              none. Grep for the DECLARATIONS, not merely for the absence
+              test passing (spec Review Question 2): a surviving free
+              function taking an options value would remain callable without
+              any dependency and would reinstate exactly the hole REQ-005 and
+              REQ-006 close.
+
+          Scan the real .go files on disk (excluding _test.go), so a NEW
+          violation introduced later is caught, not just today's known set.
+
+          These FAIL until TASK-050.
+        files:
+          - pkg/pack/distribution/absence_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-049
+        depends_on: []
+        test_names:
+          - TestDistribution_OptionsStructsCarryNoDependencyFields
+          - TestDistribution_NoInternalDependencyDefaults
+          - TestDistribution_NoPackageLevelCommandEntryPoints
+
+      - id: TASK-050
+        type: refactor
+        title: "Move the pipelines into the methods, delete the free functions, strip the options, remove every nil guard"
+        description: |
+          THE CLOSING MOVE. By now NOTHING calls the free functions —
+          cmd/backstop went through the constructors in Phase 8, the six
+          suites in Phase 10, and the two helpers in Phases 8 and 10. So this
+          deletion compiles clean. If it does not, a call site was missed:
+          find it, do not reinstate the function.
+
+          1. MOVE the four pipeline bodies out of the package-level Add /
+             Install / Update / Upgrade functions and INTO the corresponding
+             Run methods on command.go, reading dependencies from the
+             RECEIVER instead of from the options value. DELETE the free
+             functions and the transitional delegation shims TASK-027 added.
+
+          2. STRIP every dependency-typed field from the four options
+             structs, leaving only the non-dependency knobs:
+                 AddOptions     { ProjectDir; Version }
+                 InstallOptions { ProjectDir; CachePath; LocalPackDir }
+                 UpdateOptions  { ProjectDir; Acknowledge }
+                 UpgradeOptions { ProjectDir }
+             LocalPackDir stays (a source override for local packs, not a
+             dependency) and Acknowledge stays (the consumer's
+             tamper-acknowledgment flag, bundle REQ-013).
+
+          3. REMOVE EVERY NIL GUARD the constructors made unreachable:
+             • add.go:160 `if opts.Validator != nil` — validation becomes
+               UNCONDITIONAL and runs BEFORE any copy into the consumer
+               project. This single change delivers validate-before-install
+               for BOTH add and upgrade (REQ-008 pins bundle REQ-002 and
+               REQ-015 together).
+             • upgrade.go:64 — the same guard, same removal.
+             • install.go:165 — the nil-cloner guard and its DIAGNOSTIC-FREE
+               error. This is the silent-exit-1 that is harder to act on than
+               a panic because there is nothing to read. The cloner is
+               present by construction now.
+             • update.go:55 — the runtime "version resolver required for
+               update" check, a fail-closed guard on an optional field the
+               constructor now enforces structurally.
+             • upgrade.go — `if opts.Scanner != nil` and
+               `if len(violations) > 0 && opts.RemediationGenerator != nil`.
+               Their current effect is a VACUOUS SUCCESS: with both nil,
+               pack upgrade skips the scan, generates no remediation bundle,
+               installs the new major version, and reports success with zero
+               baselined violations.
+
+          4. MOVE THE VIOLATION SCAN AHEAD OF THE TOOL-CONFIG MERGE in
+             UpgradeCommand.Run, so an unavailable capability fails BEFORE
+             any consumer state is mutated (tool config, provenance,
+             installed content, backstop.yml, backstop.lock). CLM-059 is the
+             assertion that would fail if the two were swapped back.
+             Propagate *CapabilityUnavailableError UNCHANGED — do not wrap it
+             into opaque text.
+
+          NO INTERNAL DEFAULTS. Nothing in this package may call
+          NewExecGitCloner, NewPackvalValidator, or NewTagVersionResolver to
+          fill a dependency a caller failed to supply (CLM-031). If a code
+          path seems to need one, the caller is wrong, not the rule.
+
+          EXPECT `pack upgrade` TO GET LOUDER. It now fails where it used to
+          report a successful major upgrade with zero baselined violations.
+          That is correct. Any existing test asserting `pack upgrade`
+          succeeds must be RE-EXAMINED, not patched to expect success.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/install.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-027
+          - TASK-032
+          - TASK-034
+          - TASK-042
+          - TASK-043
+          - TASK-045
+          - TASK-047
+          - TASK-048
+          - TASK-049
+
+      - id: TASK-051
+        type: verification
+        title: "Verify the hole is closed: no free function, no dependency field, no internal default, no nil guard"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. ./bin/backstop gate
+
+          Confirm specifically, by GREP and not by inspection:
+            - `grep -n "^func Add(\|^func Install(\|^func Update(\|^func Upgrade(" pkg/pack/distribution/*.go`
+              returns NOTHING (spec Review Question 2).
+            - `grep -rn "GitCloner\|Validator\|VersionResolver\|Scanner\|RemediationGenerator" `
+              inside the four options struct declarations returns nothing
+              (spec Review Question 1 / CLM-030).
+            - No non-test file in pkg/pack/distribution calls
+              NewExecGitCloner, NewPackvalValidator, or NewTagVersionResolver
+              (CLM-031).
+            - `grep -n "!= nil" pkg/pack/distribution/{add,install,update,upgrade}.go`
+              shows no surviving dependency-presence guard.
+            - The whole 139-test suite is still green, and CLM-100 still
+              passes.
+            - CLM-059 would FAIL if the scan and the tool-config merge were
+              swapped — verify by reading the test, since a passing test that
+              cannot fail proves nothing (spec Review Question 9).
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/install.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+          - pkg/pack/distribution/absence_test.go
+          - pkg/pack/distribution/validation_gate_test.go
+          - pkg/pack/distribution/upgrade_capability_test.go
+        claims:
+          - CLM-030
+          - CLM-031
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-054
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+        depends_on:
+          - TASK-032
+          - TASK-034
+          - TASK-050
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 12: Final comprehensive verification — full gate + artifacts
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-12
+    name: "Phase 12: Final verification — full kill chain over code and artifacts, with a freshly built binary"
+    tasks:
+      - id: TASK-052
+        type: verification
+        title: "Full gate: rebuild the binary, run the whole suite with race, run backstop gate and artifact validate"
+        description: |
+          THE FINAL KILL CHAIN. `backstop code check` DOES NOT EXIST
+          (ISSUE-076) — do not run it.
+
+          Run, in order, and read every result:
+            1. go build -o bin/backstop ./cmd/backstop
+               NON-OPTIONAL. This plan changed cmd/backstop extensively;
+               running the gate against a stale bin/backstop produces a
+               verdict about code that is no longer in the tree, and it looks
+               exactly like a real green.
+            2. go test ./... -race -count=1
+               The whole module, not just the two touched packages. The
+               deletion and the migration reach further than they look.
+            3. ./bin/backstop gate
+               The full chain: pack lock verification, artifact validation,
+               pack engines (backstop/self over this diff), test verification,
+               substantiveness, coverage, contracts, status drift,
+               requirement traceability, waiver resolution, baseline
+               comparison, ledger integrity. ALL DIMENSIONS, NEVER FILTERED
+               to what was touched.
+            4. ./bin/backstop artifact validate --all
+               This plan's own artifacts (PLAN-SPEC-055, SPEC-055) plus the
+               corpus.
+
+          COVERAGE: the spec's threshold is 80% at integration level over
+          ./pkg/pack/distribution/... ./cmd/backstop/.... Confirm the gate's
+          coverage dimension is satisfied for those packages; if it is not,
+          the gap names a claim whose test is missing, not a threshold to
+          lower.
+
+          FINAL HONESTY CHECKS — answer each explicitly rather than assuming:
+            - Does at least one test invoke the REAL git binary against a
+              real repository through the production ExecGitCloner, driven by
+              the BUILT binary? If every clone is a mock, this spec delivered
+              nothing it exists to deliver.
+            - Does `go test ./...` still pass with NETWORKING DISABLED?
+            - Is any REQ-011 or REQ-012 claim driven by runBackstop's merged
+              CombinedOutput? Grep. There must be none.
+            - Does anything in the new code carry a language, tool, or
+              platform literal beyond the sanctioned `git` invocation?
+              backstop/self should say so if it does — and if it says so,
+              that is the eradication backlog naming itself, which is a
+              finding to file, not to waive.
+            - Is `pack upgrade` now LOUDLY unavailable rather than quietly
+              wrong? That is the intended outcome, not a regression.
+            - CLM-065 asserts a hash MISMATCH. A green remote add → install
+              round trip means someone fixed content hashing, which is bundle
+              REQ-021@1.1.0 and out of scope for this seed.
+
+          Report the actual command output. Do not assert green without
+          having read it.
+        files:
+          - plans/PLAN-SPEC-055-production-remote-dependency-assembly.plan.yml
+          - specs/SPEC-055-production-remote-dependency-assembly.spec.md
+          - pkg/pack/distribution/gitcloner.go
+          - pkg/pack/distribution/validator.go
+          - pkg/pack/distribution/versionresolver.go
+          - cmd/backstop/pack_wiring.go
+          - cmd/backstop/json_error.go
+        claims:
+          - CLM-001
+          - CLM-019
+          - CLM-029
+          - CLM-030
+          - CLM-049
+          - CLM-055
+          - CLM-060
+          - CLM-062
+          - CLM-063
+          - CLM-065
+          - CLM-067
+          - CLM-082
+          - CLM-088
+          - CLM-095
+          - CLM-099
+          - CLM-100
+        depends_on:
+          - TASK-009
+          - TASK-012
+          - TASK-013
+          - TASK-017
+          - TASK-021
+          - TASK-025
+          - TASK-028
+          - TASK-032
+          - TASK-034
+          - TASK-035
+          - TASK-039
+          - TASK-040
+          - TASK-045
+          - TASK-046
+          - TASK-050
+          - TASK-051
