@@ -4,7 +4,7 @@ number: SPEC-055
 created: "2026-07-26"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 1.3.0
 
 implementation:
   summary: >
@@ -54,15 +54,20 @@ implementation:
     `os.Exit` and is untestable) and a stream-separated CLI runner (because the
     existing `runBackstop` helper uses `CombinedOutput`, which merges stdout and
     stderr and would let every stream assertion pass vacuously). OUT OF SCOPE
-    (later BUNDLE-006 seeds): authored-content hashing and root `.git` exclusion
-    (REQ-021@1.1.0), the legacy-hash migration operation and `pack relock`'s
+    (later BUNDLE-006 seeds): authored-content hashing as a general copy/hash
+    boundary across all sources (REQ-021@1.1.0 — the Clone strip below solves the
+    remote source only), the legacy-hash migration operation and `pack relock`'s
     argument shape (REQ-041 / ISSUE-074), source-coordinate-versus-manifest
     identity (REQ-039), the shared staged-filesystem transaction coordinator
     (REQ-040), and the violation scanner and remediation bundle generator
     themselves (REQ-014 / REQ-018). This spec drives ONE real `git clone` end to
     end through the built binary and lands the hermetic harness substrate the
-    parity suite (REQ-042) extends; it does not claim a green remote add → install
-    round trip, which is blocked on REQ-021@1.1.0.
+    parity suite (REQ-042) extends. Per the Clone-strip amendment it DOES verify a
+    green remote add → install round trip with matching content hashes, because
+    `Clone` strips the root `.git` it created before handing the tree to
+    distribution; that does NOT deliver REQ-021@1.1.0, which owns the copy/hash
+    boundary for ALL sources plus the legacy-lock migration, so local-path packs
+    and pre-existing contaminated locks remain the identity/migration seed's.
   subject: pkg/pack/distribution
 
 verification:
@@ -76,9 +81,16 @@ requirements:
       `pkg/pack/distribution` must provide `ExecGitCloner`, a concrete
       implementation of the existing `GitCloner` interface that executes the real
       `git` binary as a subprocess. `Clone(url, version, destDir)` must fetch the
-      exact requested tag (a shallow, single-ref clone) into `destDir`;
-      `ListTags(url)` must list the tags of a REMOTE repository and return bare tag
-      names with any peeled `^{}` suffix entries excluded. Both must run git
+      exact requested tag (a shallow, single-ref clone) into `destDir` and then
+      STRIP the root `.git` directory before returning, so the tree it hands
+      distribution is AUTHORED CONTENT ONLY. The strip is the cloner's own cleanup:
+      `.git` is repository-control metadata the clone itself created, not content
+      that came from the pack author, so removing it makes `Clone`'s contract
+      "materialize the authored tree at this ref" rather than "leave a git working
+      copy behind". A `Clone` that returns while a root `.git` remains has not
+      satisfied this requirement. `ListTags(url)` must list the tags of a REMOTE
+      repository and return bare tag names with any peeled `^{}` suffix entries
+      excluded. Both must run git
       NON-INTERACTIVELY (a credential or host-key prompt must never be able to
       block the process), and both must INHERIT the ambient git configuration
       environment rather than clearing it, so already-configured credential
@@ -339,6 +351,16 @@ claims:
     text: Constructing the cloner does not probe for the git binary, so assembly succeeds where git is absent
     tests:
       - TestNewExecGitCloner_DoesNotProbeForGitBinary
+  - id: CLM-101
+    requirement: REQ-001
+    text: Clone returns a tree with no root .git directory, driven against a real tagged git repository whose clone would otherwise carry one
+    tests:
+      - TestExecGitCloner_Clone_StripsRootGitDirectory
+  - id: CLM-102
+    requirement: REQ-001
+    text: Two separate clones of the same tag produce byte-identical content hashes, because the .git that would differ between them is stripped
+    tests:
+      - TestExecGitCloner_Clone_RepeatedClonesHashIdentically
 
   # REQ-002 — typed, readable git diagnostics on every failure path
   - id: CLM-010
@@ -655,7 +677,13 @@ claims:
       - TestE2E_PackInstall_CacheRestore
   - id: CLM-065
     requirement: REQ-010
-    text: pack install against a git-sourced lock entry runs the real clone and reports a content hash mismatch naming both hashes rather than exiting silently
+    text: A remote pack add followed by pack install from the committed lock on a FRESH clone yields a matching content hash — the round trip verifies hash equality end to end through the built CLI
+    subject: cmd/backstop
+    tests:
+      - TestE2E_PackAddThenInstall_RoundTripHashesMatch
+  - id: CLM-103
+    requirement: REQ-010
+    text: pack install against a git-sourced lock entry whose recorded hash does not match the cloned content fails loudly naming both hashes, so the round-trip equality claim cannot pass by verification having been removed
     subject: cmd/backstop
     tests:
       - TestE2E_PackInstall_GitSourceHashMismatchIsLoud
@@ -879,7 +907,7 @@ contracts:
       - name: ExecGitCloner.Clone
         kind: method
         signature: "func (c *ExecGitCloner) Clone(url, version, destDir string) error"
-        notes: "Satisfies the existing GitCloner interface declared at add.go:14. Runs a shallow single-ref git clone of the exact requested tag into destDir (which the Add/Install/Update/Upgrade pipelines already create via os.MkdirTemp, so it is empty). Rejects an option-like url or version before invoking git and passes both after a -- separator (CLM-006/007). Sets the non-interactive git environment (CLM-004) while INHERITING the ambient environment so url.insteadOf redirection works (CLM-005). Every failure returns *GitError (REQ-002)."
+        notes: "Satisfies the existing GitCloner interface declared at add.go:14. Runs a shallow single-ref git clone of the exact requested tag into destDir (which the Add/Install/Update/Upgrade pipelines already create via os.MkdirTemp, so it is empty), then STRIPS the root .git directory before returning (CLM-101), so every downstream copy and ComputeContentHash sees authored content only. This is what makes remote-pack content hashes REPRODUCIBLE across clones and machines within this spec — two clones of the same tag differ only in their .git (reflog timestamps, object layout), so removing it makes add and install agree by construction (CLM-065). It does NOT deliver bundle REQ-021@1.1.0, which is a requirement about the COPY/HASH boundary for ALL sources plus the legacy-lock migration; local-path packs still hash whatever is on disk, and this spec deliberately does not pin REQ-021 (Sharp Edges). Rejects an option-like url or version before invoking git and passes both after a -- separator (CLM-006/007). Sets the non-interactive git environment (CLM-004) while INHERITING the ambient environment so url.insteadOf redirection works (CLM-005). Every failure returns *GitError (REQ-002)."
       - name: ExecGitCloner.ListTags
         kind: method
         signature: "func (c *ExecGitCloner) ListTags(url string) ([]string, error)"
@@ -1154,10 +1182,17 @@ the two non-test helpers that depend on the nil-validator-skip contract those ch
 remove, fixes the cross-cutting error-surfacing defect the bundle assigns to this
 seam, and lands the two test mechanisms without which the error-surfacing claims
 cannot be asserted at all. It drives one real `git clone` end to end through the built
-binary so the production path is proven rather than stubbed — but it does not claim a
-green remote add → install round trip, because content hashing still includes root
-repository metadata (REQ-021@1.1.0, a later seed) and a fresh clone therefore cannot
-reproduce a lock hash written from another clone.
+binary so the production path is proven rather than stubbed.
+
+Under the Clone-strip amendment it also verifies the full remote add → install round
+trip with MATCHING content hashes. `Clone` removes the root `.git` it created before
+returning, so the tree distribution copies and hashes is authored content only, and two
+clones of the same tag — which otherwise differ in reflog timestamps and object layout
+— hash identically. That closes the reproducibility gap for the remote source at the
+seam that creates it. It is not the same thing as delivering REQ-021@1.1.0: that
+requirement is a copy/hash boundary for ALL sources plus an explicit legacy-lock
+migration, and local-path packs, mixed-boundary projects, and pre-existing contaminated
+locks remain the identity/migration seed's work. Sharp Edges states both residuals.
 
 Later seeds depend on the seams this one lands: authored-content identity and
 legacy-lock migration, source-coordinate-versus-manifest identity, the shared
@@ -1354,7 +1389,24 @@ Reject an option-like URL or ref before invoking git and pass both after a `--`
 separator. Force git non-interactive so a credential or host-key prompt cannot block,
 and otherwise inherit the environment. Bound each invocation by the configured timeout
 via a cancellable context. Wrap every failure in `*GitError` carrying the operation,
-URL, ref, and captured stderr. `NewExecGitCloner` performs no PATH probe.
+URL, ref, and captured stderr. `NewExecGitCloner` performs no PATH probe. Before
+returning a successful clone, remove the root `.git` directory, so every downstream
+consumer — `copyDirRecursive` into `.backstop/packs/`, `ComputeContentHash`,
+`DetectTamper` — sees authored content only.
+
+The strip's blast radius inside distribution was swept rather than assumed, and it is
+narrow. `copyDirRecursive` and `ComputeContentHash` are the intended beneficiaries: the
+installed tree and its hash become authored-content-only for git sources, which is what
+makes the round trip verify. `DetectTamper` is UNAFFECTED — `detectFixtureRemoval`
+walks only `<oldPackDir>/testdata`, and every other check compares fields read from the
+two `pack.yml` manifests, so no tamper check ever traverses a root `.git` in either the
+installed tree or the fresh clone. It remains correct when an OLD installed pack still
+carries `.git` (predating this seed) while the new clone does not, because neither side
+of any comparison reaches that path. Provenance and `tool_config` merging read the pack
+manifest and declared config fragments, never repository metadata, so they are likewise
+untouched. The local-path branch of `AddCommand.Run` never calls `Clone` at all and is
+therefore unchanged in every respect — that is residual (a) in Sharp Edges, not an
+oversight.
 
 **Pass 2 — `PackvalValidator` (`pkg/pack/distribution/validator.go`, new).**
 `RunPackCheck` and `RunPackTest` each construct a `packval` pipeline over the given
@@ -1528,6 +1580,10 @@ The coverage that decides whether this spec is real:
 - At least one claim drives an actual `git clone` of an actual tagged repository
   through the actual production code path. A mock-only green would leave exactly the
   defect this spec exists to close.
+- The round-trip equality claim (CLM-065) is paired with a genuine-mismatch claim
+  (CLM-103) on purpose. Equality alone is satisfiable by deleting hash verification
+  entirely; only the pair proves both that hashes agree AND that disagreement is still
+  caught. Neither claim may be dropped as redundant with the other.
 - The validation-failure claims are the proof that the validator is wired, not merely
   present: today a nil validator makes an invalid pack install cleanly, so a test that
   only asserts a valid pack installs would pass against the broken code.
@@ -1582,16 +1638,41 @@ reachable and that repository staying absent." The add command is uniquely expos
 because, unlike update and upgrade, its pipeline has no `backstop.yml` precheck before
 the clone.
 
-**Remote add still produces a non-reproducible content hash, and this spec does not
-fix it.** `pack add` copies the clone directory — including its root `.git` — into
-`.backstop/packs/`, and `ComputeContentHash` hashes it. The live verification measured
-the same pack at `639f74fb…` without `.git` and `bb86715c…` with it. Wiring a real
-cloner makes that happen on every remote add, so a `pack add` followed by a `pack
-install` on a fresh clone is guaranteed to mismatch: the two clones' `.git` contents
-differ (reflog timestamps alone). This spec therefore claims a loud, readable hash
-mismatch on install's git path, NOT a green round trip. Anyone reading a green
-`pack add` here as "remote distribution works" will be wrong until REQ-021@1.1.0 and
-REQ-041 land.
+**The Clone strip makes REMOTE hashes reproducible here, but leaves two residuals that
+belong to the identity/migration seed.** Without the strip, `pack add` would copy the
+clone directory — root `.git` included — into `.backstop/packs/` and hash it; the live
+verification measured the same pack at `639f74fb…` without `.git` and `bb86715c…` with
+it, and two clones of one tag differ in reflog timestamps alone, so a fresh-clone
+install was guaranteed to mismatch. Stripping `.git` in `Clone` removes that at the
+source, and CLM-065 now verifies round-trip hash EQUALITY end to end. What it does not
+do is deliver bundle REQ-021@1.1.0, and this spec deliberately does not pin it. Two
+residuals are willed forward to the authored-content-identity and legacy-lock-migration
+seed, which must inherit them explicitly:
+
+- **Local-path packs are untouched.** They are never cloned, so nothing strips anything:
+  `ComputeContentHash` still hashes whatever is on disk, including any `.git` a local
+  pack source happens to carry because it is itself a repository checkout. REQ-021@1.1.0
+  owns the copy/hash boundary for ALL sources; this seed only fixed the one source it
+  creates.
+- **A transitional asymmetry now exists.** After this seed, remote installs are
+  `.git`-free while local installs are unchanged, so two packs in the same project can
+  have hashes computed under different effective content boundaries. Worse, any lock
+  entry written BEFORE this seed still carries a `.git`-contaminated hash and will
+  mismatch against a stripped clone — which is exactly the failure OQ-6's migration
+  policy (DD-28) exists to distinguish from authored-content tampering. Nothing here
+  migrates those entries; a consumer with a pre-existing git-sourced lock needs the
+  migration operation, not this spec.
+
+Anyone reading a green round trip here as "REQ-021 is done" will be wrong on both
+counts.
+
+**Stripping `.git` destroys information a later seed may want.** Once `Clone` returns,
+the resolved commit SHA, the tag's peeled object, and the remote URL as git recorded it
+are gone — they lived in the `.git` this spec deletes. If provenance, attestation, or
+the migration operation later needs the commit a tag pointed at, the cloner must
+CAPTURE it during the clone and return it as data, not read it back off the tree. A
+future contributor who tries to recover it by reading `.git` will find nothing and may
+"fix" it by removing the strip, silently reintroducing the non-reproducible hash.
 
 **Hermetic testing depends on the cloner NOT sanitizing its environment.** URL
 redirection works because `GIT_CONFIG_GLOBAL` reaches the git subprocess. A future
@@ -1717,7 +1798,13 @@ local add depends on git.
     still present verbatim — and does CLM-100's test actually read those names from
     SPEC-015 rather than from a hardcoded list that would drift?
 
-13. Does anything in the new code carry a language, tool, or platform literal beyond
+13. Does `Clone` strip the root `.git` on EVERY successful return path, including
+    whatever fast path a `--cache`-adjacent or retry branch might add later — and does
+    the round-trip test actually clone twice (add from one clone, install from a fresh
+    one) rather than reusing a single cloned tree? A round trip that reuses one clone
+    proves nothing about reproducibility.
+
+14. Does anything in the new code carry a language, tool, or platform literal beyond
     the `git` invocation itself? `git` is distribution's transport, declared by DD-1
     as the distribution channel, not a language toolchain — but a rule name, linter
     name, or file-extension branch appearing here would be a baked-knowledge defect
@@ -1738,6 +1825,11 @@ local add depends on git.
   substrate to the full remote command matrix rather than building it from scratch
 - BUNDLE-006 REQ-014, REQ-018 — the violation scanner and remediation bundle
   generator, which this spec deliberately does NOT deliver and does not pin
+- BUNDLE-006 REQ-021@1.1.0, DD-24, DD-28 — the authored-content copy/hash boundary and
+  the legacy-lock migration. The Clone strip here solves the REMOTE source only and is
+  deliberately NOT pinned to REQ-021; the identity/migration seed must inherit the two
+  residuals named in Sharp Edges (local-path packs, and the transitional asymmetry
+  including pre-existing contaminated locks)
 - ISSUE-073 — `pack add` nil GitCloner panic and silently skipped validation
 - ISSUE-074 — `pack relock` silent exit 1; this spec fixes the silence, not the
   argument shape
@@ -1750,6 +1842,36 @@ local add depends on git.
 
 ## Version History
 
+- **1.3.0** (2026-07-26): Clone-strip amendment, user-adopted following an
+  out-of-session mediation. `ExecGitCloner.Clone` now STRIPS the root `.git` directory
+  it created before returning, so the tree handed to distribution is authored content
+  only; REQ-001 and the `Clone` contract note state the obligation and the reasoning
+  (the cloner is removing an artifact it made, which makes its contract "materialize
+  the authored tree at this ref"). Added CLM-101 (clone returns a `.git`-free tree,
+  driven against a real tagged repository) and CLM-102 (two clones of one tag hash
+  identically). REPLACED CLM-065: the old claim asserted that a git-sourced install
+  reports a hash MISMATCH loudly — an honesty claim about a known gap — with the
+  stronger successor that a remote add followed by a fresh-clone install verifies hash
+  EQUALITY end to end. Added CLM-103 to retain the genuine-mismatch-is-loud behavior as
+  a vacuity guard, since equality alone would also pass if hash verification were
+  deleted outright; Verification states the pair must not be collapsed. Rewrote the
+  non-reproducible-hash Sharp Edge: remote hashes are reproducible IN THIS SEED, with
+  two residuals explicitly willed to the identity/migration seed — (a) local-path packs
+  are never cloned so they still hash whatever is on disk including any `.git` their
+  source carries, and (b) a transitional asymmetry now exists in which remote installs
+  are `.git`-free while local installs are unchanged and pre-existing git-sourced lock
+  entries still carry contaminated hashes that only the DD-28 migration can repair.
+  Added a Sharp Edge that the strip destroys the resolved commit SHA and other git
+  metadata, which a later provenance or migration need must CAPTURE during the clone
+  rather than read back off the tree. Swept the blast radius rather than spot-fixing:
+  `DetectTamper` is unaffected (`detectFixtureRemoval` walks only `<oldPackDir>/testdata`
+  and every other check compares `pack.yml` fields, so no comparison traverses a root
+  `.git` on either side, including the mixed case of an old contaminated install against
+  a stripped clone), and provenance/`tool_config` read manifests and declared fragments
+  only; both findings are recorded in Pass 1. Updated the summary and Overview, which
+  previously disclaimed the round trip, and added Review Question 13 on strip coverage
+  and on the round-trip test genuinely cloning twice. This spec still does NOT pin
+  REQ-021@1.1.0.
 - **1.2.0** (2026-07-26): Second review rework closing three findings. (N1) Added the
   distribution package's OWN six external test suites to the Pass 8 edit set with a
   bulk-migration disposition — `add_test.go`, `update_test.go`, `upgrade_test.go`,

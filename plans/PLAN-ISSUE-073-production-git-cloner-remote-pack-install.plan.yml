@@ -1,0 +1,1093 @@
+---
+plan_id: PLAN-ISSUE-073
+spec_id: ISSUE-073
+created: "2026-07-25"
+status: replaced
+replaced-by: SPEC-055
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/pack/distribution/... ./cmd/backstop/... -race"
+coverage_threshold: 90
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  RETIRED 2026-07-25 — status: replaced, replaced-by: SPEC-055. DO NOT IMPLEMENT.
+  ─────────────────────────────────────────────────────────────────────────
+  This plan is fully superseded by SPEC-055 (Production Remote Dependency
+  Assembly) and its plan PLAN-SPEC-055, which own the production GitCloner,
+  constructor-enforced dependency assembly, and the hermetic remote end-to-end
+  proof. Implementing both would duplicate and conflict on the same files
+  (pkg/pack/distribution/*, cmd/backstop/pack_*.go). SPEC-055 is the successor
+  of record; `replaced-by` carries SPEC-055 because the retirement-pointer
+  grammar takes typed ids of the form (BUNDLE|SPEC|ISSUE|PLAN|DIR)-NNN, and
+  PLAN-SPEC-055 is reachable from SPEC-055.
+
+  ISSUE-073 itself is NOT retired and was deliberately left untouched — it
+  closes via delivered_by when SPEC-055 is implemented.
+
+  Everything below is preserved as the original planning record (the verified
+  defect surface, design decisions, sharp edges and fixture shapes remain
+  useful reference for SPEC-055's implementer) but is NO LONGER the plan of
+  record. Terminal artifacts are excluded from gate enforcement, so nothing
+  below is a live promise.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN FIXES (reactive track: ISSUE-073 → plan; there is NO spec)
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop pack add org/pack@version` PANICS today. Packs are external by
+  design and install from git repos, so the remote path IS the product for a
+  consumer; two launching projects depend on it. Verified against the tree at
+  planning time (2026-07-25):
+    • cmd/backstop/pack_add.go:31-34 builds distribution.AddOptions with
+      ProjectDir + Version only — GitCloner and Validator stay nil.
+    • pkg/pack/distribution/add.go:153 calls opts.GitCloner.Clone(...) with no
+      nil guard → nil-interface method call → panic for ANY git pack ref.
+    • add.go:160 runs the validator only `if opts.Validator != nil`, so a git
+      pack that DID clone would install unvalidated (a silent-green hole).
+    • pkg/pack/distribution/install.go:165 DOES nil-guard ("no git cloner
+      provided for pack %s") and returns cleanly — the good-citizen pattern
+      add/update/upgrade are missing.
+    • update.go:87 and upgrade.go:59 call Clone with the same exposure. Note
+      update.go:55 already errors cleanly on a nil VersionResolver, so today
+      `pack update` fails BEFORE the panic site — see CLM-008.
+    • distribution.GitCloner (add.go:13-17, Clone + ListTags) has NO production
+      implementation. pkg/scaffold/git_executor_real.go RealGitExecutor
+      implements ListTags(pattern) (LOCAL repo tags) but not Clone, and is
+      never wired as a distribution.GitCloner.
+    • Every GitCloner in the tree outside the interface/options definitions is
+      a *_test.go mockGitCloner. The remote path has never executed for real —
+      which is exactly how it shipped broken.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIM DERIVATION (an ISSUE has no CLM-NNN — these are DERIVED)
+  ─────────────────────────────────────────────────────────────────────────
+  ISSUE-073 states its acceptance in prose under "### Expected" plus the seven
+  numbered items of "### Root cause chain". Each CLM below is a one-to-one
+  restatement of one of those stated criteria; nothing here is invented beyond
+  the issue's own text. Tasks reference these ids in `claims`.
+
+    CLM-001 ⇐ Expected sentence 1 + root cause 1/2: `pack add org/pack@version`
+            resolves and CLONES the tagged ref instead of panicking; the CLI
+            entry point constructs and passes a real GitCloner.
+    CLM-002 ⇐ root cause 6: a PRODUCTION GitCloner implementation exists
+            (Clone + ListTags) — the interface stops being mock-only.
+    CLM-003 ⇐ root cause 7 ("only under test mocks"): the production cloner is
+            proven END TO END by a hermetic test against a REAL local git
+            repository fixture — no mock, no network.
+    CLM-004 ⇐ root cause 3 + Expected ("validates it (pack check + pack test)"):
+            validation is no longer silently skipped — a production Validator
+            is wired, and a git-source pack with no Validator is an ERROR.
+    CLM-005 ⇐ root cause 4/5 + Expected ("never a panic"): add/update/upgrade
+            nil-guard the cloner the way install.go already does.
+    CLM-006 ⇐ Expected ("should be a clean exit-2 config/tool error, never a
+            panic"): git/tool failures (missing tag, unreachable URL, git not
+            installed, missing cloner) exit 2 from the CLI with a real message.
+    CLM-007 ⇐ Expected ("installs, hashes, and locks it — the same tail as
+            local packs"): the installed tree is hash-stable, so an
+            add → install round trip hash-VERIFIES rather than mismatching.
+    CLM-008 ⇐ Expected final sentence: `pack update` and `pack upgrade` get the
+            same fix — real cloner wired, update's remote path completed with a
+            production VersionResolver, and BOTH proven by a real remote
+            end-to-end run (not by non-nil field assertions).
+    CLM-009 ⇐ References ("docs/CODEBASE-MAP.md — Known gap"): the map's
+            "Known gap — remote pack resolution" section is reconciled once the
+            gap is closed.
+
+  ─────────────────────────────────────────────────────────────────────────
+  NON-GOAL (FOUNDER DECISION) — do NOT consolidate the repo's git-exec sites
+  ─────────────────────────────────────────────────────────────────────────
+  An earlier draft of this plan introduced a `pkg/gitexec` package on the
+  premise that pkg/scaffold was the only production git-exec site. That premise
+  is FALSE. Verified enumeration (non-test production source, 2026-07-25) —
+  6 files, 14 sites:
+      cmd/backstop/baseline.go:75,148
+      cmd/backstop/gate.go:255,265
+      pkg/gate/scope.go:186
+      pkg/check/scope.go:44,52,63,74,85
+      pkg/scaffold/git_executor_real.go:13,25,32,44,51
+  Two of those files — pkg/gate/scope.go and cmd/backstop/gate.go — sit on the
+  backstop/self B3–B6 spine include-list, so a "one true git path" refactor
+  would drag the gate's diff-scope machinery into a pack-install defect fix.
+  DECISION: no consolidation package, in this plan or as a side effect.
+  RealGitCloner calls exec.CommandContext(ctx, "git", ...) DIRECTLY inside
+  pkg/pack/distribution — backstop/self Family A explicitly allowlists the
+  literal `git` (see Sharp Edge C), so this is legal, not a compromise. The
+  git-on-PATH check lives as an UNEXPORTED helper in the same package.
+  This is recorded as a deliberate non-goal, not an oversight: a future reader
+  who notices the 14 sites should NOT read them as work this plan missed.
+  DO NOT TOUCH, in any task: pkg/scaffold/**, cmd/backstop/gate.go,
+  cmd/backstop/baseline.go, pkg/gate/scope.go, pkg/check/scope.go.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN DECISION 1 — resolveGitURL stays exactly as it is (SETTLED)
+  ─────────────────────────────────────────────────────────────────────────
+  add.go:315 `resolveGitURL` maps org/pack → https://github.com/org/pack.git
+  and STAYS that way. The org is `backstop-ai`, so `pack add
+  backstop-ai/<pack>@<version>` resolves correctly through it. That is correct
+  behavior, not a gap, and there is no caveat, deferral, or follow-up attached
+  to it. Do NOT add a host-override option, a registry setting, or a URL seam.
+  Consequence for the CLI-level e2e: because the resolver is untouched, the
+  hermetic test redirects git ITSELF rather than the code — a temp global git
+  config with
+      [url "file://<fixture-root>/"]
+          insteadOf = https://github.com/
+  activated via t.Setenv("GIT_CONFIG_GLOBAL", <path>) AND t.Setenv("HOME",
+  <tmp>) (set both: GIT_CONFIG_GLOBAL needs git ≥ 2.32 — local git is 2.39.5,
+  verified at planning time — while HOME/.gitconfig works on older git). This
+  exercises the REAL resolveGitURL, the REAL cloner, and the REAL git binary
+  with zero network. A test that reaches github.com is NOT acceptable.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN DECISION 2 — nil Validator: ERROR for git packs, still allowed local
+  ─────────────────────────────────────────────────────────────────────────
+  Making a nil Validator a hard error everywhere would break real in-repo
+  callers that add LOCAL packs with no validator on purpose
+  (cmd/backstop/gate_substantiveness_e2e.go:107 and
+  gate_substantiveness_provisioning_test.go:111 — verified). Rule adopted:
+    • git-source pack + nil Validator ⇒ clean error (you did not author it; it
+      must be validated).
+    • local-path pack + nil Validator ⇒ current skip behavior preserved.
+  The CLI never passes nil either way after TASK-012.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN DECISION 3 — `install` gets a GitCloner but NOT a Validator
+  ─────────────────────────────────────────────────────────────────────────
+  Verified: InstallOptions (install.go:13-18) has fields ProjectDir, CachePath,
+  GitCloner, LocalPackDir — there is NO Validator field, and this plan does not
+  scope the file that would add one. That is deliberate, not an oversight:
+  `install` re-materializes packs that `add` ALREADY validated at add time, and
+  it re-verifies the locked content hash on the way in, so a Validator there
+  would widen scope past the defect without closing a hole. Therefore
+  TestPackCommands_WireProductionGitClonerAndValidator asserts:
+    • GitCloner non-nil for all FOUR of add / install / update / upgrade;
+    • Validator non-nil for add / update / upgrade ONLY;
+    • VersionResolver non-nil for update.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE A — `.git` in the cloned tree poisons the content hash
+  ─────────────────────────────────────────────────────────────────────────
+  ComputeContentHash (hash.go:17) walks EVERY file under the pack dir with no
+  exclusions, and copyDirRecursive (add.go:429) copies everything. A raw
+  `git clone` leaves a .git directory, so without a strip the installed pack
+  would carry the whole repo AND hash over reflogs/refs/pack files that differ
+  between clones — meaning `pack install`'s hash comparison (install.go, fresh
+  clone vs locked hash) would MISMATCH on a pack that was never tampered with.
+  Fix, deliberately narrow: RealGitCloner.Clone removes .git from destDir
+  after the checkout (shallow `--depth 1 --branch <ref>` clone). Do NOT change
+  ComputeContentHash or copyDirRecursive — that would change hashes for
+  already-installed LOCAL packs and churn every lock. Proven by
+  TestRealGitCloner_CloneOmitsGitMetadata +
+  TestRealGitCloner_ContentHashStableAcrossClones +
+  TestPackAddRemote_ThenInstallRoundTripsHashVerified.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE B — RealGitExecutor ACCIDENTALLY matches GitCloner's ListTags
+  ─────────────────────────────────────────────────────────────────────────
+  scaffold.RealGitExecutor.ListTags(pattern string) ([]string, error) has the
+  IDENTICAL Go signature to distribution.GitCloner.ListTags(url string), but
+  opposite semantics (local tag glob vs remote tag list). If anyone ever adds
+  a Clone method to RealGitExecutor it would silently satisfy GitCloner and
+  list the WRONG tags with no compile error.
+  THE GUARD IS THE RUNTIME TEST, TestScaffoldGitExecutorIsNotAPackCloner, and
+  only that test. `var _ GitCloner = (*RealGitCloner)(nil)` in gitcloner.go is
+  ordinary conformance HYGIENE for the new type — it asserts nothing whatsoever
+  about scaffold.RealGitExecutor and must not be credited as this guard.
+  KEEP DECISION: this plan no longer touches pkg/scaffold, so the collision can
+  only be introduced by FUTURE work — which is exactly the case a cheap
+  standing assertion is for. The test is three lines, imports a package the
+  test file can already reach, and fails loudly the day someone adds Clone to
+  RealGitExecutor. Keeping it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SHARP EDGE C — backstop/self rules that bite THIS code (verified, do not
+  overstate)
+  ─────────────────────────────────────────────────────────────────────────
+  Read from .backstop/packs/backstop/self/rules/no-baked.yml at planning time:
+    • Family A no-baked-tool-exec applies to EVERY .go file, INCLUDING
+      _test.go and testdata — but its allowlist regex explicitly permits
+      git|gh|sh|/bin/sh|sandbox-exec as literal tool names. So
+      exec.CommandContext(ctx, "git", ...) in pkg/pack/distribution, and
+      `git init`/`git commit`/`git tag` in test fixtures, are SELF-PACK LEGAL.
+      Do NOT contort the design to avoid naming git.
+    • Family B2 no-baked-language-token is also global (no _test.go exclusion)
+      and its regex matches manifest/extension literals including "go.mod",
+      "package.json", ".ts", "tsconfig". Nothing this plan adds needs such a
+      literal — do not introduce one (e.g. never locate the repo root by
+      searching for a "go.mod" literal).
+    • Families B3/B4/B5/B6 are location-scoped to the gate spine
+      (pkg/gate/*.go, pkg/check/manifest.go, pkg/check/parsers.go,
+      pkg/validate/plan.go, cmd/backstop/gate.go, cmd/backstop/pack_gate*.go,
+      pkg/pack/engine/binding.go). NONE of the files this plan touches is on
+      that list, so those rules do not apply here.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FIXTURE PACK SHAPE — captured from the real tool, not fabricated
+  ─────────────────────────────────────────────────────────────────────────
+  TASK-012 wires the REAL packval validator, so the e2e fixture pack MUST pass
+  BOTH `pack check` AND `pack test`. If it does not, the e2e fails and the next
+  implementer "fixes" it by unwiring the validator — reopening the exact hole
+  CLM-004 closes.
+
+  DO NOT USE pkg/pack/distribution/testdata/valid-pack as the SUCCESS fixture.
+  It is "valid" only against add_test.go's mockValidator{}. Real verdict,
+  captured 2026-07-25 via `./bin/backstop pack check
+  pkg/pack/distribution/testdata/valid-pack`:
+      ERROR [phase1-structural/required]  language is required
+      ERROR [phase1-structural/archetype] invalid archetype
+      ERROR [phase1-structural/content]   content is required
+  That makes it the perfect FAILURE fixture for
+  TestPackAddRemote_FailsClosedWhenPackCheckFails — reuse it there.
+
+  SUCCESS FIXTURE (verified 2026-07-25 to pass BOTH `pack check` and `pack
+  test`, and to provision NO tool, so it stays hermetic on a cold cache).
+  pack.yml:
+      name: acme/demo-pack
+      version: 1.0.0
+      language: generic
+      archetype: enforcement
+      content:
+        ruleset:
+          rules:
+            - id: no-foobar
+              engine: semgrep
+              file: rules/rule.yml
+              risk_class: correctness
+              layer: 2
+  plus rules/rule.yml holding a one-rule ruleset. No `claims:` — so phase3
+  never invokes an engine, nothing is provisioned, and no network is touched.
+  Confirmed hermetic: `env -i HOME=<tmp> PATH=/usr/bin:/bin ./bin/backstop
+  pack test <dir>` → status: pass, phase3-fixtures: pass.
+
+  THREE THINGS THE SUCCESS FIXTURE MUST GET RIGHT (each fails LOUDLY, but pin
+  them so nobody finds them by trial):
+    a) rules/rule.yml MUST contain the literal rule id `no-foobar`. phase3.go:41
+       runs semgrepFileContainsRuleID(ruleData, rule.ID) whenever `file:` is
+       set; captured failure when it does not match:
+           ERROR [phase3-fixtures/semgrep-rule-id] pack rule ID "no-foobar"
+           not found in rule file rules/rule.yml
+       BEYOND containing that id the file's content is UNCONSTRAINED — no claim
+       ever executes it, so do not spend effort authoring a semantically
+       meaningful semgrep rule. Any small well-formed YAML carrying the id does.
+    b) The FAILURE fixture needs its OWN repo coordinate and its own `pack add`
+       ref, distinct from the success fixture: put it at
+       <fixtureRoot>/acme/broken-pack.git and add it as
+       `acme/broken-pack@1.0.0` (the success fixture owns
+       <fixtureRoot>/acme/demo-pack.git / `acme/demo-pack@1.0.0`). Both live
+       under the same <fixtureRoot>, so ONE insteadOf redirect covers them.
+    c) pack.yml's `version:` field DOES bump at each tag — 1.0.0 at v1.0.0,
+       1.1.0 at v1.1.0, 2.0.0 at v2.0.0. Nothing compares it to the tag
+       (phase1.go:27-29 only checks that it is present and semver-shaped;
+       add/upgrade take the version from the REF and update.go:169
+       readPackVersion reads backstop.yml), so a stale value would not fail —
+       bump it anyway, because it is the cheap observable the update/upgrade
+       e2e asserts to prove the right ref was actually checked out.
+
+  VERIFIED ALTERNATIVES if a richer shape is wanted — and the REAL mechanism,
+  which is NOT the `provision:` block. phase3.go:31 enters the rule-file branch
+  only when `rule.File != ""`, and phase3.go:61/74 call executor.RunEngine only
+  inside `for _, claim := range rule.Claims` under that same condition. So an
+  engine executes iff the rule declares `file:` AND `claims:` with fixtures —
+  a `provision:` declaration alone provisions nothing during `pack test`.
+  Measured with `env -i HOME=<tmp> PATH=/usr/bin:/bin ./bin/backstop pack test`:
+    • pkg/packval/testdata/engine-neutral-pack → FAIL (phase3-fixtures;
+      semgrep positive/negative fixture errors). It uses `file: rules/rule.yml`
+      WITH claims, so phase3 really does execute semgrep — this one would have
+      put a network-dependent step inside the load-bearing hermetic e2e.
+    • packs/contracts → pass. • packs/substantiveness → pass. Both declare
+      `provision:` blocks (grep, ast-grep 0.43.0) but address rules via
+      `rule_path:`, leaving rule.File == "", so phase3 never invokes an engine —
+      they are hermetic DESPITE the provisions.
+  Prefer the minimal shape above; if you deviate, RE-VERIFY with
+  `./bin/backstop pack check <dir>` and `./bin/backstop pack test <dir>` under a
+  stripped environment, and report whether phase3 executes an engine.
+
+  MULTI-TAG FIXTURE (needed by the update/upgrade e2e): tag the same repo
+  v1.0.0, then v1.1.0, then v2.0.0. Later tags must only ADD — never remove a
+  rule or a fixture file and never downgrade a severity — because update.go
+  runs DetectTamper(installed, new) whose four categories are fixture_removal /
+  severity_downgrade / risk_class_change / rule_removal; a subtractive v1.1.0
+  would demand --acknowledge and derail the test.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMANDS — read this before copying any other plan
+  ─────────────────────────────────────────────────────────────────────────
+    • `backstop code check` DOES NOT EXIST. It was deleted by ISSUE-018 and
+      other plans in this tree still mandate it (ISSUE-076 filed 2026-07-25 for
+      exactly that). NO task in this plan may prescribe it.
+    • Inner loop / red-green evidence: `go test ./pkg/pack/distribution/...
+      ./cmd/backstop/...` (add -race for the full sweep).
+    • Real check: `./bin/backstop gate` — note the RELATIVE ./bin/ path. A bare
+      `backstop` resolves to a stale /usr/local/bin copy that raises phantom
+      violations (ISSUE-077).
+    • Final phase: full `./bin/backstop gate` kill chain, unfiltered and
+      unscoped, plus `./bin/backstop artifact validate`.
+
+  ─────────────────────────────────────────────────────────────────────────
+  PLANNER FLAGS (user action — NOT tasks in this plan)
+  ─────────────────────────────────────────────────────────────────────────
+  1. LOCAL packs also copy/hash their .git: `pack add ../some-pack` where the
+     source dir is a git repo root copies .git into .backstop/packs and hashes
+     it. Surfaced by this work, deliberately NOT fixed here (fixing it means
+     touching ComputeContentHash/copyDirRecursive, which rehashes every
+     already-installed local pack and churns every lock). File separately.
+  2. ISSUE-074 (`pack relock` silent exit-1) is a DIFFERENT defect in the same
+     subsystem and is out of scope here.
+
+  STRUCTURE:
+    Phase 1: Setup — re-verify the defect surface against the live tree.
+    Phase 2: RealGitCloner, proven against a real local git repo.
+    Phase 3: Nil-dependency guards in add/update/upgrade. Independent of
+             Phase 2 (disjoint files) — parallel-eligible.
+    Phase 4: Production VersionResolver so `pack update` actually works.
+    Phase 5: CLI wiring + the REAL hermetic end-to-end proof for add, install,
+             update and upgrade.
+    Phase 6: Docs reconciliation + full gate.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Setup — pin the defect surface against the live tree
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Setup — Re-verify the Nil-Cloner Defect Surface"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Re-confirm the nil GitCloner/Validator surface and the untouchable file list"
+        description: |
+          Non-mutating investigation. Line numbers in ISSUE-073 will have
+          shifted; re-confirm each fact against the CURRENT tree before any
+          code is written, and record the confirmed map for the tasks below.
+
+          CONFIRM:
+            1. cmd/backstop/pack_add.go constructs distribution.AddOptions with
+               NO GitCloner and NO Validator (both nil).
+            2. pkg/pack/distribution/add.go calls opts.GitCloner.Clone(...) on
+               the non-local branch with no nil guard (the panic site), and
+               runs the Validator only under `if opts.Validator != nil`.
+            3. pkg/pack/distribution/install.go nil-guards the cloner and
+               returns "no git cloner provided for pack %s" — the pattern
+               add/update/upgrade must match (TASK-006 mirrors it) — and that
+               InstallOptions still has NO Validator field (Design Decision 3).
+            4. update.go and upgrade.go carry the same unguarded Clone call,
+               that update.go already errors cleanly on a nil VersionResolver
+               BEFORE reaching Clone, and that upgrade.go's Scanner and
+               RemediationGenerator are nil-guarded (`if opts.Scanner != nil`)
+               so an upgrade e2e needs no extra machinery.
+            5. scaffold.RealGitExecutor has NO Clone method and its
+               ListTags(pattern) shares the SIGNATURE of GitCloner.ListTags(url)
+               with LOCAL semantics — the collision TASK-002's
+               TestScaffoldGitExecutorIsNotAPackCloner pins (Sharp Edge B).
+               This is a READ-ONLY confirmation: pkg/scaffold is on the
+               do-not-touch list (see the NON-GOAL note) and no task edits it.
+            6. Enumerate every production caller of distribution.Add /
+               Install / Update / Upgrade and every in-repo caller that passes
+               a nil Validator with a LOCAL pack (planning-time set:
+               cmd/backstop/gate_substantiveness_e2e.go,
+               cmd/backstop/gate_substantiveness_provisioning_test.go) — these
+               MUST keep working under Design Decision 2.
+            7. Re-read .backstop/packs/backstop/self/rules/no-baked.yml and
+               confirm Sharp Edge C: literal "git" is allowed in exec.Command /
+               exec.CommandContext (Family A allowlist), and that none of the
+               files this plan touches is on the B3–B6 spine include-list.
+            8. Confirm `backstop code check` is absent from the CLI (it must
+               not be used by any verification task here) and that
+               ./bin/backstop is a current build.
+          RE-STATE the do-not-touch list before starting: pkg/scaffold/**,
+          cmd/backstop/gate.go, cmd/backstop/baseline.go, pkg/gate/scope.go,
+          pkg/check/scope.go. The repo has 14 git-exec sites across 6 files;
+          consolidating them is an explicit NON-GOAL of this plan.
+          If ANY of the above is already different from the issue's account,
+          STOP and surface it rather than planning around a stale premise.
+        files:
+          - cmd/backstop/pack_add.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/install.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The production cloner, proven against a real git repository
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Production RealGitCloner (real-git proof, no mocks)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Red: RealGitCloner tests against a REAL local git repository fixture"
+        description: |
+          Write the failing tests FIRST. These are the plan's core anti-mock
+          guarantee (CLM-003): the cloner is exercised against a genuine git
+          repository created in a temp dir, over a file:// URL — real git
+          binary, no network, no flake.
+
+          FIXTURE HELPER (in gitcloner_test.go; mirror the existing precedent
+          pkg/scaffold/git_executor_real_test.go:initTempGitRepo):
+            newLocalPackRepo(t) → t.TempDir() + `git init`, then PER-REPO
+            `git -C <dir> config user.email` / `user.name` (identity must be
+            LOCAL to the fixture repo — the CLI e2e in TASK-011 redirects HOME,
+            and a repo with no identity fails commit with "Please tell me who
+            you are"). Write the SUCCESS fixture pack (see the FIXTURE PACK
+            SHAPE note — pack.yml + rules/rule.yml, no engines block), then
+            `git add -A`, `git commit -m initial`, `git tag v1.0.0`; then an
+            ADDITIVE second commit + `git tag v1.1.0`; then an additive third
+            commit + `git tag v2.0.0`. Never remove a rule/fixture or downgrade
+            a severity between tags (DetectTamper). Return the dir; callers
+            build "file://" + dir. Skip the file with t.Skip if git is not on
+            PATH. `git` as a literal here is self-pack legal (Sharp Edge C).
+
+          pkg/pack/distribution/gitcloner_test.go (external test package
+          distribution_test, matching add_test.go):
+            - TestRealGitCloner_ClonesTaggedRefFromLocalRepo — Clone(fileURL,
+              "v1.0.0", dest) succeeds and dest holds the pack.yml content
+              committed AT THAT TAG (not v1.1.0's) — proves the ref is honored,
+              not just that a clone happened.
+            - TestRealGitCloner_MissingTagReturnsGitError — Clone with
+              "v9.9.9" returns a non-nil error that errors.As-matches
+              *distribution.GitError and whose message names the ref; NO panic,
+              and dest is left with no partial pack.
+            - TestRealGitCloner_UnreachableURLReturnsGitError — Clone from a
+              file:// URL that does not exist returns *GitError, not a panic.
+            - TestRealGitCloner_MissingGitBinaryReturnsGitError — t.Setenv(
+              "PATH", "") then Clone; assert a *GitError whose message names
+              the missing git binary (never a panic, never a bare "exec: not
+              found"). Covers the CLM-006 branch that would otherwise be an
+              uncovered error path; assert the same for ListTags if the guard
+              is shared.
+            - TestRealGitCloner_CloneOmitsGitMetadata — no ".git" entry exists
+              anywhere under dest after a successful clone (Sharp Edge A).
+            - TestRealGitCloner_ContentHashStableAcrossClones — clone the same
+              tag twice into two dirs; distribution.ComputeContentHash returns
+              the IDENTICAL hash for both. This is the assertion that makes the
+              add→install round trip (CLM-007) possible.
+            - TestRealGitCloner_ListTagsReadsRemoteTags — ListTags(fileURL)
+              returns v1.0.0, v1.1.0 and v2.0.0 read from the REMOTE, and does
+              NOT return tags of the repo the test process happens to run in.
+            - TestScaffoldGitExecutorIsNotAPackCloner — runtime interface
+              assertion that scaffold.RealGitExecutor does NOT satisfy
+              distribution.GitCloner (expect ok == false). This is the ONLY
+              guard for Sharp Edge B; the compile-time `var _` line in
+              gitcloner.go does not cover it. Read-only use of pkg/scaffold —
+              do not edit that package.
+          Tests that call t.Setenv must not call t.Parallel.
+          All of these fail (or fail to compile) until TASK-003.
+        files:
+          - pkg/pack/distribution/gitcloner_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestRealGitCloner_ClonesTaggedRefFromLocalRepo
+          - TestRealGitCloner_MissingTagReturnsGitError
+          - TestRealGitCloner_UnreachableURLReturnsGitError
+          - TestRealGitCloner_MissingGitBinaryReturnsGitError
+          - TestRealGitCloner_CloneOmitsGitMetadata
+          - TestRealGitCloner_ContentHashStableAcrossClones
+          - TestRealGitCloner_ListTagsReadsRemoteTags
+          - TestScaffoldGitExecutorIsNotAPackCloner
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Green: implement distribution.RealGitCloner over exec.CommandContext"
+        description: |
+          Make TASK-002's tests pass. ONE new file, inside the package that
+          owns the interface. No new package, no consolidation refactor, and no
+          edits outside this file (see the NON-GOAL note).
+
+          pkg/pack/distribution/gitcloner.go:
+            type RealGitCloner struct{}                  // + NewRealGitCloner()
+            var _ GitCloner = (*RealGitCloner)(nil)      // conformance hygiene
+                                                         // ONLY — this is NOT
+                                                         // the Sharp Edge B
+                                                         // guard
+            unexported helpers in this file:
+              gitAvailable() bool         → exec.LookPath("git")
+              runGit(ctx, dir, args...)   → exec.CommandContext(ctx, "git",
+                args...) with cmd.Dir set when dir != "", stdout and stderr
+                captured separately, returning stdout plus an error that
+                INCLUDES the combined output so callers never see a bare
+                "exit status 1". Apply a bounded default timeout (suggest 5m as
+                a named constant) so a hung network clone cannot wedge the CLI.
+              The literal "git" here is Family-A allowlisted (Sharp Edge C).
+            Clone(url, version, destDir): if !gitAvailable() return a *GitError
+              naming the missing git binary; run `clone --depth 1 --branch
+              <version> <url> <destDir>`; on failure return *GitError wrapping
+              the combined output (so add.go's fmt.Errorf("cloning pack %s: %w")
+              keeps errors.As working, which TASK-012's exit-2 mapping relies
+              on) and leave no partial tree in destDir; on success REMOVE the
+              .git directory from destDir (Sharp Edge A) and return nil.
+            ListTags(url): `ls-remote --tags --refs <url>`, parse the ref names
+              off the stdout lines, return them; *GitError on failure.
+          Do NOT touch ComputeContentHash, copyDirRecursive, resolveGitURL,
+          pkg/scaffold, or any gate/scope file.
+        files:
+          - pkg/pack/distribution/gitcloner.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify the real-git cloner (red→green evidence, then gate)"
+        description: |
+          Confirm Phase 2 with real evidence, not assertion:
+            1. `go test ./pkg/pack/distribution/... -race` is GREEN, and the
+               TASK-002 cloner tests actually EXERCISED a real clone — they must
+               not have t.Skip'd. Read the -v output and say so; a skipped
+               cloner suite is a vacuous green and must be investigated, not
+               accepted.
+            2. Confirm the diff touches ONLY pkg/pack/distribution — no edit
+               leaked into pkg/scaffold, cmd/backstop/gate.go,
+               cmd/backstop/baseline.go, pkg/gate/scope.go or pkg/check/scope.go
+               (the NON-GOAL boundary).
+            3. `./bin/backstop gate` (relative path — ISSUE-077) is green over
+               the diff, with no backstop/self finding on the new file (the
+               "git" literal is Family-A allowed; no Family-B2 token was added).
+          Do NOT use `backstop code check`; it does not exist (ISSUE-076).
+        files:
+          - pkg/pack/distribution/gitcloner.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Nil-dependency guards (parallel with Phase 2 — disjoint files)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Nil-Dependency Guards in add/update/upgrade (no panic, ever)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Red: a nil GitCloner/Validator must be a clean error, never a panic"
+        description: |
+          New test file pkg/pack/distribution/nil_dependency_guard_test.go
+          (package distribution_test, reusing the existing add_test.go fixture
+          helpers/testdata rather than inventing new ones). Each test calls the
+          real exported entry point with a deliberately nil dependency and
+          asserts a returned error — the test binary must NOT panic (a panic
+          fails the test outright, which IS the red signal today):
+            - TestAdd_NilGitCloner_ReturnsCleanErrorNotPanic — Add("acme/x@1.0.0",
+              AddOptions{ProjectDir: tmp}) returns a non-nil error whose message
+              names the missing git cloner, mirroring install.go's existing
+              "no git cloner provided for pack %s" wording; nothing is written
+              to .backstop/packs, backstop.yml, or backstop.lock.
+            - TestAdd_GitPackWithNilValidator_ReturnsCleanError — a git-source
+              add with a working cloner but nil Validator errors instead of
+              installing unvalidated (Design Decision 2 / CLM-004).
+            - TestAdd_LocalPackWithNilValidator_StillSkipsValidation — a
+              LOCAL-path add with nil Validator still succeeds exactly as today
+              (protects gate_substantiveness_e2e.go's real caller).
+            - TestUpdate_NilGitCloner_ReturnsCleanErrorNotPanic — Update with a
+              non-nil VersionResolver (a test double is fine here; this test is
+              about the cloner guard) and a nil GitCloner returns a clean error.
+              Note update's existing nil-VersionResolver guard fires first, so
+              the resolver MUST be supplied or the test proves nothing.
+            - TestUpgrade_NilGitCloner_ReturnsCleanErrorNotPanic — same for
+              Upgrade.
+          Use table-free explicit tests so each failure names its own command.
+        files:
+          - pkg/pack/distribution/nil_dependency_guard_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestAdd_NilGitCloner_ReturnsCleanErrorNotPanic
+          - TestAdd_GitPackWithNilValidator_ReturnsCleanError
+          - TestAdd_LocalPackWithNilValidator_StillSkipsValidation
+          - TestUpdate_NilGitCloner_ReturnsCleanErrorNotPanic
+          - TestUpgrade_NilGitCloner_ReturnsCleanErrorNotPanic
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "Green: guard the nil cloner in add/update/upgrade; require a Validator for git packs"
+        description: |
+          Close the panic surface in the library, mirroring install.go's
+          existing good-citizen pattern.
+            pkg/pack/distribution/add.go — in the `if !isLocal` branch, BEFORE
+              the temp dir is created: if opts.GitCloner == nil return an error
+              worded like install.go's ("no git cloner provided for pack %s").
+              Then, still on the git branch, if opts.Validator == nil return a
+              clean error saying a git-source pack cannot be installed without
+              validation (Design Decision 2). Leave the LOCAL branch's
+              `if opts.Validator != nil` skip exactly as it is — real callers
+              depend on it. Ensure both new errors return BEFORE any filesystem
+              mutation so the guard tests' "nothing written" assertions hold.
+            pkg/pack/distribution/update.go — nil-guard opts.GitCloner before
+              the Clone call, same wording shape.
+            pkg/pack/distribution/upgrade.go — same guard before its Clone call.
+          Do NOT alter the local-pack path, resolveGitURL, the lockfile shape,
+          or any success-path behavior. Errors returned here must remain
+          errors.As-inspectable by TASK-012's exit-code mapping — do not
+          flatten typed errors into plain strings.
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify no code path can nil-deref a missing cloner or skip git-pack validation"
+        description: |
+          Evidence required:
+            1. `go test ./pkg/pack/distribution/... -race` GREEN, including the
+               five TASK-005 guard tests and every pre-existing add/update/
+               upgrade/install test (the local-pack nil-Validator behavior must
+               be provably unchanged).
+            2. `go test ./cmd/backstop/... -race` GREEN — specifically the real
+               local-pack callers gate_substantiveness_e2e.go and
+               gate_substantiveness_provisioning_test.go, which pass a nil
+               Validator on purpose and MUST keep working.
+            3. Grep the package for `opts.GitCloner.` and confirm every call
+               site is preceded by a nil guard (add, update, upgrade, install).
+            4. `./bin/backstop gate` green over the diff (relative path —
+               ISSUE-077). Not `backstop code check` (ISSUE-076).
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Production VersionResolver so `pack update` is fixed, not
+  #          merely "cleanly broken"
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Production VersionResolver over Remote Tags"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Red: resolver picks the latest compatible remote tag; rejects junk"
+        description: |
+          `pack update` needs BOTH a cloner and a VersionResolver; wiring only
+          the cloner would leave update dead behind a clean error, which is the
+          repo's recurring "wired but still unproven" failure mode. Tests
+          first, in pkg/pack/distribution/versionresolver_test.go
+          (distribution_test), driving RealVersionResolver over a tag lister
+          seeded from the REAL local-repo fixture where practical (reuse
+          TASK-002's newLocalPackRepo shape via RealGitCloner.ListTags so at
+          least one test reads genuine `git ls-remote` output rather than a
+          hand-written list):
+            - TestRealVersionResolver_ResolvesLatestCompatibleFromRemoteTags —
+              tags v1.0.0, v1.1.0, v1.2.3, v2.0.0 with current 1.0.0 resolve to
+              1.2.3 (highest same-major), never 2.0.0.
+            - TestRealVersionResolver_IgnoresNonSemverAndPrereleaseTags —
+              tags like "latest", "v1.3.0-rc.1", "release-1" are skipped, not
+              errors; a repo whose only extra tag is a prerelease resolves to
+              the current version (no-op) rather than to the prerelease.
+            - TestRealVersionResolver_IsMajorBumpDetectsMajorChange —
+              IsMajorBump("1.4.0","2.0.0") is true; ("1.4.0","1.9.9") false.
+            - TestRealVersionResolver_NoMatchingTagReturnsError — a remote with
+              no semver tags returns a clean, named error (never a panic and
+              never a silent "already at latest").
+          Return the resolved version WITHOUT the leading "v" — update.go
+          re-adds it (`"v"+resolved`) at the Clone call; a resolver returning
+          "v1.2.3" would produce "vv1.2.3". Pin that in the first test. The
+          composition itself is proven end to end by
+          TestPackUpdateRemote_UpdatesToLatestCompatibleTag in TASK-011, which
+          a unit test on the return value alone cannot do.
+        files:
+          - pkg/pack/distribution/versionresolver_test.go
+        claims:
+          - CLM-008
+        test_names:
+          - TestRealVersionResolver_ResolvesLatestCompatibleFromRemoteTags
+          - TestRealVersionResolver_IgnoresNonSemverAndPrereleaseTags
+          - TestRealVersionResolver_IsMajorBumpDetectsMajorChange
+          - TestRealVersionResolver_NoMatchingTagReturnsError
+        depends_on:
+          - TASK-004
+
+      - id: TASK-009
+        type: implementation
+        title: "Green: RealVersionResolver over ListTags + semver"
+        description: |
+          Add pkg/pack/distribution/versionresolver.go:
+            a small unexported tagLister interface { ListTags(url string)
+              ([]string, error) } so the resolver takes the LISTER, not a
+              concrete cloner (unit-testable, and update.go can hand it the
+              same RealGitCloner it clones with)
+            type RealVersionResolver struct{ Tags tagLister }
+            var _ VersionResolver = (*RealVersionResolver)(nil)
+            ResolveLatestCompatible(packName, currentVersion): resolve the pack
+              URL exactly as the rest of the package does (resolveGitURL —
+              unchanged, Design Decision 1), list remote tags, parse them with
+              github.com/Masterminds/semver/v3 (already in go.mod as an
+              indirect dep — promote it to a direct require; do not add a new
+              module), discard non-semver and prerelease tags, keep the highest
+              with the SAME major as currentVersion, and return it WITHOUT the
+              "v" prefix. Return a named error when nothing parses.
+            IsMajorBump(current, resolved): true when the majors differ.
+          Do NOT change update.go's control flow here — TASK-012 supplies the
+          resolver from the CLI. Run `go mod tidy` after promoting the semver
+          require so the module files stay honest.
+        files:
+          - pkg/pack/distribution/versionresolver.go
+          - go.mod
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the resolver against real ls-remote output and a tidy module graph"
+        description: |
+          Evidence required:
+            1. `go test ./pkg/pack/distribution/... -race` GREEN including the
+               four TASK-008 resolver tests, with at least one of them proven
+               to have read tags from a REAL git repo (not a literal slice).
+            2. `go build ./...` clean and `go mod tidy` produces no diff —
+               semver is a direct require, no stray modules added.
+            3. `./bin/backstop gate` green over the diff (relative path).
+        files:
+          - pkg/pack/distribution/versionresolver.go
+          - go.mod
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: CLI wiring + the REAL end-to-end proof (the launch bar)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: CLI Wiring + Hermetic Remote-Pack End-to-End (add/install/update/upgrade)"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Red: hermetic remote pack add/install/update/upgrade through the real cloner"
+        description: |
+          THE launch-bar tests. They drive the REAL CLI (NewRootCommand +
+          executeCommand, chdirForTest — the existing cmd/backstop helpers used
+          by pack_add_declared_e2e_test.go) through the REAL production cloner
+          against a REAL git repository in a temp dir. No mock, no network.
+
+          HERMETIC REDIRECT (Design Decision 1 — resolveGitURL is NOT changed):
+            ORDER MATTERS.
+            1) Build the fixture repos FIRST, while HOME is still the real one,
+               giving each repo its identity LOCALLY (`git -C <dir> config
+               user.email` / `user.name`) so commits never depend on a global
+               identity.
+            2) THEN write <tmpHome>/.gitconfig:
+                   [user]
+                       name = backstop test
+                       email = test@example.invalid
+                   [url "file://<fixtureRoot>/"]
+                       insteadOf = https://github.com/
+               (the [user] block is belt-and-braces for any later git op that
+               wants an identity once HOME is redirected).
+            3) THEN t.Setenv("HOME", tmpHome) and t.Setenv("GIT_CONFIG_GLOBAL",
+               <tmpHome>/.gitconfig).
+            4) THEN run the CLI.
+            Fixture path: <fixtureRoot>/acme/demo-pack.git, so resolveGitURL's
+            https://github.com/acme/demo-pack.git rewrites onto it. t.Setenv
+            forbids t.Parallel — do not add it. Skip the file only if git is
+            unavailable.
+          FIXTURE PACKS: use the verified SUCCESS shape and the verified
+          FAILURE shape from the FIXTURE PACK SHAPE note — do NOT use
+          testdata/valid-pack as a success fixture (real `pack check` gives it
+          three structural errors, and TASK-012 wires the REAL validator).
+          Tag the success repo v1.0.0 → v1.1.0 → v2.0.0, additively only
+          (DetectTamper).
+
+          cmd/backstop/pack_remote_e2e_test.go:
+            - TestPackAddRemote_ClonesTaggedPackEndToEnd — `pack add
+              acme/demo-pack@1.0.0` exits 0, prints an "Added
+              acme/demo-pack@1.0.0 (hash: …)" line, materializes
+              .backstop/packs/acme/demo-pack/pack.yml with the v1.0.0 content,
+              writes backstop.yml `acme/demo-pack: 1.0.0`, and writes a
+              backstop.lock entry with source_type "git", git_ref "v1.0.0",
+              and a non-empty content_hash.
+            - TestPackAddRemote_InstalledTreeHasNoGitMetadata — no .git under
+              the installed pack (Sharp Edge A).
+            - TestPackAddRemote_ThenInstallRoundTripsHashVerified — delete
+              .backstop/packs/ and run `pack install`; it re-clones through the
+              same wired cloner and the hash CHECK PASSES (this is the
+              assertion that would fail if .git were still in the tree).
+            - TestPackAddRemote_MissingTagExitsConfigError — `pack add
+              acme/demo-pack@9.9.9` does not panic, exits with the CONFIG error
+              code (2, ExitConfigError), and leaves backstop.yml, backstop.lock
+              and .backstop/packs untouched. ANTI-VACUITY (required): assert the
+              error text NAMES the ref (v9.9.9) AND that it refers to the
+              FIXTURE — the file:// fixture root appears, or at minimum
+              "github.com" does NOT. Without that, the test passes identically
+              when the redirect silently fails and git errors merely because the
+              real github.com/acme/demo-pack does not exist.
+            - TestPackAddRemote_FailsClosedWhenPackCheckFails — point the
+              fixture at the FAILURE pack shape; `pack add` FAILS, installs
+              nothing, and the message carries the real pack-check errors,
+              proving validation is no longer silently skipped (CLM-004).
+            - TestPackUpdateRemote_UpdatesToLatestCompatibleTag — after adding
+              @1.0.0, run `pack update acme/demo-pack`; assert exit 0, that
+              backstop.yml moves to 1.1.0, that the lock entry moves to version
+              1.1.0 / git_ref "v1.1.0" with a CHANGED content_hash, and that
+              the installed pack.yml is v1.1.0's content. This drives the real
+              resolver → real ls-remote → real clone chain and is the only
+              thing that proves update.go's `"v"+resolved` composition does not
+              produce "vv1.1.0".
+            - TestPackUpgradeRemote_UpgradesToTargetMajorTag — from the 1.1.0
+              state run `pack upgrade acme/demo-pack@2.0.0`; assert exit 0,
+              backstop.yml and the lock move to 2.0.0 / "v2.0.0" with a fresh
+              hash, and the installed tree is v2.0.0's content. upgrade.go's
+              Scanner and RemediationGenerator are nil-guarded, so no extra
+              machinery is needed. If any part of upgrade's tail turns out to
+              need more than the fixture provides, SURFACE it — do not
+              downgrade this to a structural assertion.
+          cmd/backstop/pack_dependency_wiring_test.go:
+            - TestPackCommands_WireProductionGitClonerAndValidator — construct
+              the options each pack subcommand builds (extract the shared
+              constructors from TASK-012 so this is assertable without running
+              a clone) and assert: GitCloner non-nil for add, install, update
+              AND upgrade; Validator non-nil for add, update and upgrade ONLY
+              (InstallOptions has no Validator field — Design Decision 3);
+              VersionResolver non-nil for update. This is the regression guard
+              against the exact defect ISSUE-073 reports; the behavioral proof
+              lives in the e2e tests above, not here.
+          Before writing implementation, RUN these and confirm the panic /
+          failures are real — that is the red evidence.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+          - cmd/backstop/pack_dependency_wiring_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestPackAddRemote_ClonesTaggedPackEndToEnd
+          - TestPackAddRemote_InstalledTreeHasNoGitMetadata
+          - TestPackAddRemote_ThenInstallRoundTripsHashVerified
+          - TestPackAddRemote_MissingTagExitsConfigError
+          - TestPackAddRemote_FailsClosedWhenPackCheckFails
+          - TestPackUpdateRemote_UpdatesToLatestCompatibleTag
+          - TestPackUpgradeRemote_UpgradesToTargetMajorTag
+          - TestPackCommands_WireProductionGitClonerAndValidator
+        depends_on:
+          - TASK-004
+          - TASK-007
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Green: wire the production cloner, validator and resolver into every pack subcommand"
+        description: |
+          Close the defect at its source — the CLI entry points.
+
+          NEW cmd/backstop/pack_deps.go:
+            - newProductionGitCloner() distribution.GitCloner →
+              distribution.NewRealGitCloner().
+            - packvalValidator implementing distribution.Validator:
+                RunPackCheck(dir) → packval.NewPipeline(dir,
+                  packval.PipelineOptions{Mode: "check", Format: "json"}).Run(),
+                  returning a *distribution.ValidationError naming the failures
+                  when result.Status == "fail".
+                RunPackTest(dir) → the same with Mode: "test".
+              (Match the mode/format strings the existing pack_check.go /
+              pack_test_cmd.go commands use — read them, do not guess.)
+            - newProductionVersionResolver() returning a
+              distribution.RealVersionResolver fed by the same cloner.
+            Expose these as small constructors so
+            TestPackCommands_WireProductionGitClonerAndValidator can assert on
+            the built options without performing a clone.
+
+          WIRE:
+            - cmd/backstop/pack_add.go — AddOptions gains GitCloner + Validator.
+              Also map the failure to the right exit code: a git/tooling
+              failure (errors.As → *distribution.GitError, or the missing-cloner
+              / git-not-installed error) returns &ExitCodeError{Code:
+              ExitConfigError} instead of ExitViolations, per the issue's
+              "clean exit-2 config/tool error" (CLM-006). A pack VALIDATION
+              failure (*distribution.ValidationError) stays ExitViolations —
+              that is a real finding, not a config error. CHECK the existing
+              cmd/backstop/pack_add_test.go exit-code expectations
+              (TestPackAddCommand_ExitCode and friends) and reconcile any that
+              assumed exit 1 for a git failure.
+            - cmd/backstop/pack_install.go — InstallOptions gains GitCloner
+              ONLY. No Validator field exists there and none is added here
+              (Design Decision 3). Its nil guard then never fires in production.
+            - cmd/backstop/pack_update.go — UpdateOptions gains GitCloner,
+              Validator and VersionResolver.
+            - cmd/backstop/pack_upgrade.go — UpgradeOptions gains GitCloner and
+              Validator.
+          Apply the same GitError→exit-2 mapping to install/update/upgrade so
+          the four commands behave consistently. Do NOT change resolveGitURL,
+          the lockfile schema, local-pack behavior, or any file on the
+          do-not-touch list.
+        files:
+          - cmd/backstop/pack_deps.go
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the launch bar: remote add, install, update and upgrade really work, offline"
+        description: |
+          Evidence required — this is the task that decides whether the launch
+          blocker is actually lifted:
+            1. `go test ./cmd/backstop/... -race` GREEN with all eight TASK-011
+               tests RUN (not skipped — a skipped remote e2e is a vacuous green;
+               check the -v output and say so explicitly).
+            2. Confirm the e2e ran with NO network: the temp global git config
+               redirect was in effect, and no test contacted github.com. The
+               missing-tag test's message assertion must name the fixture, not
+               github.com.
+            3. `go test ./... -race` GREEN — no collateral damage to the
+               substantiveness e2e local-pack callers or any pack test.
+            4. Confirm all FOUR subcommands are proven BEHAVIORALLY (add,
+               install, update and upgrade each ran a real clone in a real
+               test), not merely by the non-nil field assertions in
+               TestPackCommands_WireProductionGitClonerAndValidator. If any of
+               the four is proven only structurally, this task FAILS — say so
+               rather than passing it.
+            5. `./bin/backstop gate` green over the diff (relative path —
+               ISSUE-077). Never `backstop code check` (ISSUE-076).
+        files:
+          - cmd/backstop/pack_deps.go
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Docs reconciliation + full kill chain
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Codebase-Map Reconciliation + Full Gate"
+    tasks:
+      - id: TASK-014
+        type: documentation
+        title: "Reconcile the CODEBASE-MAP 'Known gap — remote pack resolution' section"
+        description: |
+          docs/CODEBASE-MAP.md carries a "### Known gap — remote pack
+          resolution (filed: ISSUE-073)" block asserting nil GitCloner/Validator
+          wiring, no production GitCloner implementation, and "all real installs
+          to date are source_type: local". Once TASK-012 lands, that text is
+          FALSE — a stale map is a broken promise, so reconcile it:
+            - Replace the known-gap block with the real shape: pack add /
+              install / update / upgrade wire distribution.RealGitCloner
+              (pkg/pack/distribution/gitcloner.go), plus a packval-backed
+              Validator for add/update/upgrade and a RealVersionResolver for
+              update.
+            - Record that the cloner strips .git so content hashes are stable
+              across clones, and that the remote path is covered by a hermetic
+              real-git end-to-end test (name the test file).
+            - Update the "Pack lifecycle (`pack add <ref>`)" section's REMOTE
+              paragraph accordingly. resolveGitURL's GitHub mapping is CORRECT
+              behavior — describe it plainly, with NO "hardcoded", "deferred",
+              or follow-up caveat attached.
+            - Leave the ISSUE-074 relock known-gap block untouched.
+        files:
+          - docs/CODEBASE-MAP.md
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Final: full `./bin/backstop gate` kill chain + artifact validate + coverage"
+        description: |
+          Comprehensive, unfiltered, unscoped final verification across both
+          the code and artifact work categories:
+            1. Rebuild the CLI first (`make build`) so ./bin/backstop reflects
+               this change — then run `./bin/backstop gate` with NO scope filter
+               and NO dimension filtering. It must be GREEN:
+               pack_lock_verification, artifact_validation, pack_engines
+               (including backstop/self), test_verification, substantiveness,
+               coverage, contracts, status_drift, requirement_traceability,
+               waiver_resolution, baseline_comparison, ledger_integrity. Use the
+               RELATIVE ./bin/backstop path — a bare `backstop` hits a stale
+               /usr/local/bin binary and reports phantom violations (ISSUE-077).
+               `backstop code check` does not exist (ISSUE-076) — it must appear
+               nowhere in this run.
+            2. Confirm backstop/self reports NO new finding on the added files
+               (the "git" literal in gitcloner.go is Family-A allowed, and no
+               Family-B2 token was introduced).
+            3. `./bin/backstop artifact validate` — this plan (PLAN-ISSUE-073)
+               validates and appears in no failure listing.
+            4. COVERAGE, with the limitation stated honestly: `make coverage` is
+               AGGREGATE ONLY — it runs `go test -coverprofile=cover.out ./...`
+               and compares the single `total:` line against threshold 90, so it
+               CANNOT report per-changed-package coverage. Run it for the
+               threshold gate, then get the per-function numbers explicitly:
+                   go test ./pkg/pack/distribution/... ./cmd/backstop/... \
+                     -coverprofile=cover-issue073.out -covermode=atomic
+                   go tool cover -func=cover-issue073.out | \
+                     grep -E 'gitcloner|versionresolver|pack_deps'
+               Read those rows and confirm the new files' ERROR branches are
+               covered (missing git binary, missing tag, unreachable URL,
+               nil cloner, nil validator) — not just the happy paths. Report the
+               actual numbers; do not assert coverage without reading them.
+               Delete the profile file afterwards so it is not committed.
+            5. Restate the acceptance in the issue's own terms: `pack add
+               org/pack@version` clones the tagged ref, validates it, installs,
+               hashes and locks it; failures anywhere in that chain are clean
+               exit-2 config/tool errors; update and upgrade share the fix and
+               are proven by real remote runs.
+        files:
+          - pkg/pack/distribution/gitcloner.go
+          - pkg/pack/distribution/versionresolver.go
+          - pkg/pack/distribution/add.go
+          - cmd/backstop/pack_add.go
+          - docs/CODEBASE-MAP.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-012
+          - TASK-013
+          - TASK-014
