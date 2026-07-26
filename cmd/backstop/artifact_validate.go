@@ -35,6 +35,15 @@ type ValidateResult struct {
 type ExitCodeError struct {
 	Code    int
 	Message string
+	// Explained suppresses reportError's diagnostic line. It is an explicit opt-OUT of
+	// printing, never an opt-in to it (SPEC-055 REQ-011): a command sets it only when it
+	// has ALREADY written structured findings the consumer can read, so the human line
+	// would merely duplicate them. Only gate (for its ExitViolations verdict, so the
+	// exit-2 message keeps printing), pack check, pack test, and artifact validate
+	// qualify. Everything else leaves it zero and therefore prints — a command added
+	// later that forgets to declare itself explained produces a duplicated diagnostic,
+	// which a reviewer notices, rather than a silent failure, which nobody does.
+	Explained bool
 }
 
 func (e *ExitCodeError) Error() string { return e.Message }
