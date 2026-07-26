@@ -1,3 +1,27 @@
+// @waiver:coverage_threshold:deferred:2026-10-24 upgrade success path unreachable until the scanner/remediation capability seed (BUNDLE-006 REQ-014/018) lands — production wiring assembles unavailable* by design (SPEC-055 REQ-009); remove this waiver with that seed
+//
+// THE TOKEN ABOVE MUST STAY ON LINE 1. coverage_threshold is a LOCATIONLESS
+// dimension — its violations carry a file but no line — so the gate anchors them
+// at the file's first line and scans that line alone for an annotation
+// (pkg/gate/step_waiver.go:19, coverageAnnotationLine). Moved down onto
+// newPackUpgradeCommand, where a reader would naturally expect it, the token
+// stops adjudicating: it becomes a dangling waiver AND the coverage red returns.
+//
+// WHAT IT COVERS, and why no test can: seven statements — the constructor-failure
+// branch and the whole success path from "Upgraded %s -> %s" to the final return.
+// Both are unreachable under production assembly. newProductionUpgradeCommand
+// wires unavailableScanner{}, whose ScanViolations has no success return;
+// UpgradeCommand.Run calls it unconditionally and its only success return sits
+// after that call, so Run can never come back nil. The assembly branch is
+// unreachable for the mirror reason: NewExecGitCloner and NewPackvalValidator are
+// one-line constructors that cannot return nil, so assembly cannot fail.
+//
+// This is the can't-comply case, not deferred effort. Reaching the code would
+// take a fake injection seam, which would also dismantle the property SPEC-055
+// exists to establish — that production assembles its own dependencies. Retire
+// this waiver when BUNDLE-006 REQ-014/REQ-018 make a successful upgrade possible;
+// the coverage will then be real rather than waived.
+
 package main
 
 import (

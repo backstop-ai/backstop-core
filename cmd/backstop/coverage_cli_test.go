@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/bmanson/backstop-core/pkg/pack/distribution"
 	"github.com/spf13/cobra"
 )
 
@@ -122,6 +125,55 @@ func TestCLI_PackUpdate_LocalPackIsHonestNoOp(t *testing.T) {
 	}
 	if !strings.Contains(out, "local") {
 		t.Errorf("the no-op message must say why there is nothing to resolve, got: %q", out)
+	}
+}
+
+// TestCLI_PackUpdate_ResolvesNewerTagInProcess drives a REAL hermetic update through the
+// real Cobra command: a genuine clone, a genuine tag listing, a genuine install.
+//
+// It exists IN PROCESS on purpose. TestE2E_PackUpdate_ResolvesNewerCompatibleTag asserts
+// the same behavior through the BUILT binary, which is the stronger proof but runs as a
+// subprocess and therefore contributes NOTHING to this package's coverage profile — the
+// success branch of pack_update.go read as dead code with an end-to-end test sitting
+// right on top of it. This is the in-process twin that closes that gap; neither replaces
+// the other.
+//
+// Three independent assertions make it falsifiable: a resolver that returned the current
+// version would print the no-op message instead, a resolver that reported the new version
+// without installing it would leave the old manifest on disk, and a lock left at 1.0.0
+// would mean the pin was never rewritten.
+func TestCLI_PackUpdate_ResolvesNewerTagInProcess(t *testing.T) {
+	packName, project := remoteE2ESetup(t, validPackFixture, "v1.0.0", "v1.1.0")
+	t.Cleanup(chdirForTest(t, project))
+
+	if out, err := runPackCLI(t, newPackAddCommand(boolPtr(false)), packName+"@1.0.0"); err != nil {
+		t.Fatalf("seeding the project with a real add: %v (out: %s)", err, out)
+	}
+
+	out, err := runPackCLI(t, newPackUpdateCommand(boolPtr(false)), packName)
+	if err != nil {
+		t.Fatalf("pack update must resolve and apply the newer compatible tag: %v (out: %s)", err, out)
+	}
+	if !strings.Contains(out, fmt.Sprintf("Updated %s: 1.0.0 -> 1.1.0", packName)) {
+		t.Errorf("expected the update to report 1.0.0 -> 1.1.0, got: %q", out)
+	}
+
+	lockfile, lockErr := distribution.ReadLockfile(filepath.Join(project, "backstop.lock"))
+	if lockErr != nil {
+		t.Fatalf("reading backstop.lock: %v", lockErr)
+	}
+	if entry := lockfile.Packs[packName]; entry.Version != "1.1.0" {
+		t.Errorf("lock entry version = %q after update, want 1.1.0", entry.Version)
+	}
+
+	// The newer tag rewrites the manifest's own version, so an update that resolved but
+	// reinstalled the old tree is caught here rather than passing on the message alone.
+	manifest, readErr := os.ReadFile(filepath.Join(project, ".backstop", "packs", packName, "pack.yml"))
+	if readErr != nil {
+		t.Fatalf("reading the updated pack manifest: %v", readErr)
+	}
+	if !strings.Contains(string(manifest), "version: 1.1.0") {
+		t.Errorf("the installed pack still carries the old tag's content: %q", string(manifest))
 	}
 }
 
