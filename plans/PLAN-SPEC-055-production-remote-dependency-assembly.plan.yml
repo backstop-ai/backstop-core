@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-055
 spec_id: SPEC-055
-spec_version: "1.2.0"
+spec_version: "1.3.0"
 created: "2026-07-26"
 status: draft
 test_command: "go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1"
@@ -266,12 +266,28 @@ notes: |
   ─────────────────────────────────────────────────────────────────────────
   WHAT THIS PLAN DOES *NOT* DELIVER (do not widen scope to "make it work")
   ─────────────────────────────────────────────────────────────────────────
-  • A GREEN remote add → install round trip. `pack add` copies the clone
-    INCLUDING its root `.git` and ComputeContentHash hashes it, so two
-    clones of the same tag produce different hashes (reflog timestamps
-    alone). CLM-065 claims a LOUD, READABLE hash mismatch naming both
-    hashes — that is the correct outcome here. Fixing the hash is bundle
-    REQ-021@1.1.0, a later seed. Do not "fix" it by excluding .git.
+  • REQ-021@1.1.0, the authored-content-identity requirement — even though
+    spec v1.3.0's Clone strip now makes the REMOTE round trip green.
+    READ THIS CAREFULLY, IT INVERTED AT v1.3.0: `Clone` strips the root
+    `.git` before returning, so every downstream copy and ComputeContentHash
+    sees authored content only, two clones of one tag hash identically, and
+    CLM-065 now asserts round-trip hash EQUALITY. Any instruction you carry
+    from an earlier reading of this plan that says "assert a loud MISMATCH"
+    is stale. What is still NOT delivered, and is willed forward to the
+    identity/migration seed:
+      - LOCAL-PATH packs are untouched. They are never cloned, so nothing
+        strips anything; ComputeContentHash still hashes whatever is on
+        disk, `.git` included if the source is itself a checkout.
+        REQ-021@1.1.0 owns the copy/hash boundary for ALL sources.
+      - A TRANSITIONAL ASYMMETRY now exists: remote installs are `.git`-free
+        while local installs are unchanged, so two packs in one project can
+        be hashed under different effective content boundaries. And any lock
+        entry written BEFORE this seed carries a `.git`-contaminated hash
+        that will mismatch a stripped clone — the failure DD-28's migration
+        policy exists to distinguish from real tampering. Nothing here
+        migrates those entries.
+    Do not widen the strip to the local path to "finish the job"; that is
+    the next seed's requirement and pinning it here would mark it covered.
   • The violation scanner or the remediation bundle generator. Those are
     bundle REQ-014/REQ-018 and this spec deliberately does not pin them.
     Production wires explicit implementations that RETURN
@@ -282,10 +298,45 @@ notes: |
   • `pack relock`'s argument shape (ISSUE-074's underlying defect). Phase 3
     makes relock PRINT its real error instead of nothing; relock still takes
     a filesystem PATH while every sibling takes a NAME. That is the
-    content-identity seed's work.
+    content-identity seed's work (REQ-041). TASK-053 must therefore EDIT the
+    map's ISSUE-074 section down to the surviving half rather than deleting
+    it — half-fixed is the honest state, and a deleted section reads as
+    "resolved".
   • RealGitExecutor in pkg/scaffold. It is NOT reusable (ListTags(pattern)
     runs `git tag -l` against the LOCAL repo, a different operation; no
     Clone at all) and this plan does not modify it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  PLAN VERSION HISTORY
+  ─────────────────────────────────────────────────────────────────────────
+  Tracks which SPEC-055 revision this plan is folded against. The pin at the
+  top (`spec_version`) is the authority; this records what each re-fold
+  changed so a stale reading is recognizable.
+
+  - Folded against SPEC-055 v1.3.0 (the "Clone strip" amendment). FOUR
+    claims changed, not two — fold all of them or the traceability gate
+    reds:
+      • CLM-101 (NEW, REQ-001) — Clone returns a `.git`-free tree.
+        TestExecGitCloner_Clone_StripsRootGitDirectory → TASK-014/016/017.
+      • CLM-102 (NEW, REQ-001) — two clones of one tag hash identically.
+        TestExecGitCloner_Clone_RepeatedClonesHashIdentically →
+        TASK-014/016/017.
+      • CLM-065 (REPLACED, REQ-010) — was "install on a git-sourced lock
+        reports a loud hash MISMATCH", now "add → install round trip on a
+        FRESH clone yields MATCHING hashes". Its mandated test changed from
+        TestE2E_PackInstall_GitSourceHashMismatchIsLoud to
+        TestE2E_PackAddThenInstall_RoundTripHashesMatch → TASK-030/032/035.
+      • CLM-103 (NEW, REQ-010) — KEEPS the old test name
+        TestE2E_PackInstall_GitSourceHashMismatchIsLoud, re-homed as the
+        anti-vacuity PAIR for CLM-065. The old test is NOT deleted, only
+        re-pointed at a new claim id → TASK-030/032/035.
+    CLM-065 AND CLM-103 ARE A PAIR AND NEITHER MAY BE DROPPED AS REDUNDANT
+    WITH THE OTHER (spec Verification). Equality alone is satisfiable by
+    DELETING hash verification entirely; only the pair proves both that
+    hashes agree and that disagreement is still caught. An implementer who
+    "simplifies" by removing the mismatch test has made the equality claim
+    vacuous.
+  - Folded against SPEC-055 v1.2.0 — original plan.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -318,6 +369,21 @@ phases:
           and `./bin/backstop pack test …` yourself and iterate until both
           exit 0. Record nothing; the proof is the passing command, and the
           test re-proves it on every run.
+
+          DO NOT DECLARE A `tier: complete` SCAFFOLD IN THIS FIXTURE. This
+          is a live trap, verified in the current tree, and it would surface
+          as a CLM-065 failure that looks exactly like a hashing or
+          strip-ordering bug:
+          `pkg/packval/phase3.go:145-149` WRITES each `sample_config` entry
+          INTO packDir for every `tier: complete` scaffold. AddCommand
+          validates the cloned tree BEFORE hashing and copying it, while
+          InstallCommand never validates at all — so a complete scaffold
+          leaves rendered config files present at ADD-hash time and absent at
+          INSTALL-hash time, and the round trip cannot agree no matter how
+          correct the `.git` strip is. Declare no scaffolds, or declare only
+          non-`complete` tiers. If a future fixture needs one, the
+          validate/hash ordering has to be pinned first — that is the
+          identity/migration seed's REQ-021 work, not this spec's.
 
           NEUTRAL CONTENT REQUIRED: backstop/self Family B2
           (no-baked-language-token) is GLOBAL and blocking, and it matches
@@ -945,6 +1011,23 @@ phases:
             - TestNewExecGitCloner_DoesNotProbeForGitBinary (CLM-009):
               construction succeeds where git is absent. This is what keeps
               an airgapped `pack install --cache` assembling.
+            - TestExecGitCloner_Clone_StripsRootGitDirectory (CLM-101): after
+              Clone returns, destDir contains NO root `.git`. Drive it
+              against a REAL tagged repository whose clone would otherwise
+              carry one — a fixture that never had a `.git` makes this pass
+              vacuously, so assert the SOURCE repo has one and the
+              DESTINATION does not. Also assert the authored files SURVIVED:
+              a strip that removed the whole tree would satisfy a
+              ".git is absent" check on its own.
+            - TestExecGitCloner_Clone_RepeatedClonesHashIdentically
+              (CLM-102): clone the SAME tag TWICE into two destinations and
+              assert distribution.ComputeContentHash returns the same value
+              for both. This is the property the strip exists to buy — two
+              clones of one tag differ only in their `.git` (reflog
+              timestamps, object layout), so without the strip these hashes
+              cannot agree. Compare the two computed hashes; do NOT compare
+              against a hardcoded hash constant, which would pin the fixture
+              content and break on any unrelated fixture edit.
 
           These FAIL until TASK-016.
         files:
@@ -959,6 +1042,8 @@ phases:
           - CLM-007
           - CLM-008
           - CLM-009
+          - CLM-101
+          - CLM-102
         depends_on:
           - TASK-003
         test_names:
@@ -971,6 +1056,8 @@ phases:
           - TestExecGitCloner_Clone_RejectsOptionLikeRef
           - TestExecGitCloner_ListTags_RejectsOptionLikeURL
           - TestNewExecGitCloner_DoesNotProbeForGitBinary
+          - TestExecGitCloner_Clone_StripsRootGitDirectory
+          - TestExecGitCloner_Clone_RepeatedClonesHashIdentically
 
       - id: TASK-015
         type: test
@@ -1048,6 +1135,27 @@ phases:
           destDir. The Add/Install/Update/Upgrade pipelines already create
           destDir via os.MkdirTemp, so it is empty and git accepts it.
 
+          THEN STRIP THE ROOT `.git` DIRECTORY BEFORE RETURNING (CLM-101).
+          Ordering is load-bearing: strip AFTER the clone completes and
+          BEFORE Clone returns, so destDir is `.git`-free by the time ANY
+          caller sees it. Every downstream copy and every ComputeContentHash
+          then sees authored content only, which is what makes two clones of
+          the same tag hash identically (CLM-102) and what makes the
+          add → install round trip agree by construction (CLM-065).
+
+          Strip the ROOT `.git` ONLY. Do not walk the tree removing every
+          `.git` you find — a pack could legitimately ship a fixture
+          directory containing one, and removing that would corrupt the
+          pack's authored content. If the strip fails, return a *GitError
+          rather than a partially stripped tree: a caller that hashes a
+          half-stripped directory records a hash nothing can reproduce.
+
+          SCOPE FENCE: this strip covers the source THIS cloner creates.
+          Local-path packs are never cloned and are NOT touched — they still
+          hash whatever is on disk. Widening the boundary to all sources is
+          bundle REQ-021@1.1.0, which this spec deliberately does not pin.
+          Do not "finish the job" in this file.
+
           ListTags: lists the REMOTE repository's tags and returns BARE names
           with peeled `^{}` entries EXCLUDED. The exclusion belongs HERE,
           where the ref shape is known, not in the resolver — the resolver's
@@ -1099,6 +1207,8 @@ phases:
           - CLM-012
           - CLM-013
           - CLM-014
+          - CLM-101
+          - CLM-102
         depends_on:
           - TASK-014
           - TASK-015
@@ -1120,9 +1230,16 @@ phases:
             3. ./bin/backstop gate
 
           Confirm specifically:
-            - All fourteen REQ-001/REQ-002 tests pass against the REAL git
+            - All sixteen REQ-001/REQ-002 tests pass against the REAL git
               binary, not a mock (grep the suite for the harness entry points
               from TASK-003).
+            - THE STRIP IS REAL AND SCOPED. CLM-101's fixture repo genuinely
+              carries a root `.git` before the clone (otherwise the assertion
+              is vacuous), the authored files survive the strip, and only the
+              ROOT `.git` is removed — a nested fixture `.git` inside pack
+              content must still be there.
+            - CLM-102 compares two independently computed hashes, not a
+              hardcoded constant.
             - NOTHING reaches the network. Re-run the distribution suite with
               networking disabled if your environment allows it; otherwise
               read every URL in the suite and confirm each is file:// or a
@@ -1140,6 +1257,8 @@ phases:
           - CLM-009
           - CLM-011
           - CLM-014
+          - CLM-101
+          - CLM-102
         depends_on:
           - TASK-016
 
@@ -1822,14 +1941,35 @@ phases:
               --cache` restores a locked pack through the built CLI. This
               path never clones and must work with git ABSENT-ish — it is the
               airgapped case the no-PATH-probe rule exists for.
-            - TestE2E_PackInstall_GitSourceHashMismatchIsLoud (CLM-065):
-              install against a GIT-sourced lock entry runs the real clone
-              and reports a CONTENT HASH MISMATCH NAMING BOTH HASHES. THIS
-              ASSERTS A MISMATCH, NOT A SUCCESS. `pack add` copies the clone
-              including its root .git and ComputeContentHash hashes it, so
-              two clones of the same tag cannot agree (reflog timestamps
-              alone). A green round trip here would mean someone "fixed" the
-              hash — which is bundle REQ-021@1.1.0, a later seed. Do not.
+            - TestE2E_PackAddThenInstall_RoundTripHashesMatch (CLM-065):
+              THE ROUND TRIP, and it asserts EQUALITY. `pack add` the pack
+              from the hermetic repo, commit the resulting backstop.lock,
+              then `pack install` from that lock on a FRESH clone of the same
+              tag, and assert the content hashes MATCH. This works because
+              TASK-016's Clone strips the root `.git`, so the two clones
+              differ in nothing that is hashed.
+
+              THIS INVERTED AT SPEC v1.3.0. An earlier revision of this plan
+              told you to assert a loud MISMATCH here; that instruction is
+              stale. The install must SUCCEED.
+
+              "A fresh clone" is load-bearing: installing from the SAME
+              materialized directory the add produced would compare a hash to
+              itself and prove nothing. Drive install so it genuinely
+              re-clones.
+            - TestE2E_PackInstall_GitSourceHashMismatchIsLoud (CLM-103): the
+              ANTI-VACUITY PAIR for CLM-065, and the same test name this plan
+              previously mapped to CLM-065 — it is RE-POINTED at a new claim,
+              NOT deleted. Install against a git-sourced lock entry whose
+              recorded hash does NOT match the cloned content (corrupt the
+              lock's hash, or alter the tagged content) and assert it fails
+              LOUDLY NAMING BOTH HASHES.
+
+              WHY BOTH: equality alone is satisfiable by DELETING hash
+              verification entirely, which would make CLM-065 pass while the
+              product silently stopped checking anything. Only the pair
+              proves hashes agree AND that disagreement is still caught.
+              NEITHER MAY BE DROPPED AS REDUNDANT WITH THE OTHER.
             - TestE2E_PackUpdate_ResolvesNewerCompatibleTag (CLM-066): update
               against a hermetic repo carrying a newer same-major tag
               resolves and applies it through the built CLI.
@@ -1858,6 +1998,7 @@ phases:
           - CLM-064
           - CLM-065
           - CLM-066
+          - CLM-103
         depends_on:
           - TASK-001
           - TASK-002
@@ -1869,6 +2010,7 @@ phases:
           - TestE2E_PackAdd_MissingTagDiagnosticNotPanic
           - TestE2E_PackAdd_ValidationFailureIsLoud
           - TestE2E_PackInstall_CacheRestore
+          - TestE2E_PackAddThenInstall_RoundTripHashesMatch
           - TestE2E_PackInstall_GitSourceHashMismatchIsLoud
           - TestE2E_PackUpdate_ResolvesNewerCompatibleTag
           - TestE2E_PackUpgrade_UnavailableCapabilityIsLoud
@@ -1985,6 +2127,7 @@ phases:
           - CLM-066
           - CLM-055
           - CLM-067
+          - CLM-103
         depends_on:
           - TASK-031
 
@@ -2088,9 +2231,33 @@ phases:
               redirected. Specifically confirm
               TestCLI_PackAdd_NonexistentPack was retargeted or deleted and
               no longer carries a `recover`.
-            - CLM-065 asserts a hash MISMATCH, not a green round trip. A
-              green here means someone excluded .git from the hash — that is
-              bundle REQ-021@1.1.0 and out of scope.
+            - TestE2E_PackAddThenInstall_RoundTripHashesMatch CLONES TWICE.
+              Read the test: install must NOT be driven with `--cache`, and
+              must not reuse the tree the add materialized. Either shortcut
+              compares a hash to itself and proves nothing about
+              reproducibility (spec Review Question 13, second half). Grep
+              the test for `--cache` — it must not appear.
+            - Relatedly, confirm Clone strips the root `.git` on EVERY
+              successful return path, not just the main one (Review Question
+              13, first half).
+            - CLM-065 asserts round-trip hash EQUALITY and must be GREEN
+              (this inverted at spec v1.3.0 — the old "assert a MISMATCH"
+              instruction is stale). If it reds, the Clone strip is missing
+              or mis-ordered, not the hash.
+            - CLM-065 AND CLM-103 BOTH EXIST AND BOTH PASS. If the mismatch
+              test was deleted as "redundant now that the round trip is
+              green", CLM-065 has become vacuous — equality is trivially
+              satisfiable by removing hash verification. Restore it.
+            - The strip did NOT widen to local-path packs. Their hashes still
+              include whatever is on disk; that boundary is REQ-021@1.1.0.
+            - IF CLM-065 REDS, CHECK THE FIXTURE BEFORE THE STRIP. A
+              `tier: complete` scaffold in the hermetic pack makes
+              packval phase3 (phase3.go:145-149) WRITE sample_config files
+              into the pack directory during add's validation — which runs
+              BEFORE the hash — while install never validates and so never
+              writes them. The round trip then cannot agree even with a
+              perfect strip. TASK-001 forbids such a scaffold; verify the
+              fixture honored that before debugging gitcloner.go.
             - grep cmd/backstop for `distribution.Add(`, `distribution.Install(`,
               `distribution.Update(`, `distribution.Upgrade(` — no production
               file should call them any more.
@@ -2106,8 +2273,10 @@ phases:
           - CLM-061
           - CLM-062
           - CLM-063
+          - CLM-065
           - CLM-091
           - CLM-095
+          - CLM-103
         depends_on:
           - TASK-031
           - TASK-032
@@ -2985,7 +3154,7 @@ phases:
   # Phase 12: Final comprehensive verification — full gate + artifacts
   # ═══════════════════════════════════════════════════════════════════════
   - id: phase-12
-    name: "Phase 12: Final verification — full kill chain over code and artifacts, with a freshly built binary"
+    name: "Phase 12: Final verification — full kill chain over code and artifacts, then reconcile the codebase map against what shipped"
     tasks:
       - id: TASK-052
         type: verification
@@ -3035,9 +3204,15 @@ phases:
               finding to file, not to waive.
             - Is `pack upgrade` now LOUDLY unavailable rather than quietly
               wrong? That is the intended outcome, not a regression.
-            - CLM-065 asserts a hash MISMATCH. A green remote add → install
-              round trip means someone fixed content hashing, which is bundle
-              REQ-021@1.1.0 and out of scope for this seed.
+            - Is the remote add → install round trip GREEN (CLM-065) AND is
+              the genuine-mismatch test still present and passing (CLM-103)?
+              A green round trip is now the CORRECT outcome, because Clone
+              strips the root .git — but equality with the mismatch test
+              deleted is a vacuous green, not a delivery.
+            - Did the strip stay scoped to cloned sources? Local-path packs
+              must still hash whatever is on disk. Widening that boundary
+              would silently claim bundle REQ-021@1.1.0, which this spec does
+              not pin.
 
           Report the actual command output. Do not assert green without
           having read it.
@@ -3066,6 +3241,9 @@ phases:
           - CLM-095
           - CLM-099
           - CLM-100
+          - CLM-101
+          - CLM-102
+          - CLM-103
         depends_on:
           - TASK-009
           - TASK-012
@@ -3083,3 +3261,114 @@ phases:
           - TASK-046
           - TASK-050
           - TASK-051
+
+      - id: TASK-053
+        type: documentation
+        title: "Reconcile docs/CODEBASE-MAP.md against the as-built tree, and TRACK it"
+        description: |
+          RUN THIS AFTER TASK-052'S KILL CHAIN PASSES, not before — the map
+          must describe what actually shipped, and until the gate is green
+          "what shipped" is not settled.
+
+          WHY THIS TASK EXISTS AT ALL. PLAN-ISSUE-073 owned this
+          reconciliation as its CLM-009 / TASK-014. That plan was retired
+          (status: replaced, replaced-by: SPEC-055) and the map task was
+          dropped with NO successor, so nothing in the corpus obliges anyone
+          to fix the map when this spec makes it false. SPEC-055 declares no
+          claim for it, which is why this task carries the claims whose
+          DELIVERY is what falsifies the map rather than a claim of its own.
+          docs/CODEBASE-MAP.md is PROSE DOCUMENTATION, not a schema'd
+          artifact — `backstop artifact validate` does not read it and cannot
+          catch its staleness. A human reading a confidently wrong map is the
+          whole cost here, and CLAUDE.md AUTO-LOADS this file into every
+          session, so a stale map misinforms every future agent too.
+
+          FOUR EDITS. Verify each against the AS-BUILT code before writing —
+          do not transcribe this description into the map.
+
+          1. "### Known gap — remote pack resolution (filed: ISSUE-073)"
+             becomes FALSE ENTIRELY. Every sentence in it is now wrong:
+             pack_add.go no longer builds a nil-dependency AddOptions, the
+             GitCloner interface HAS a production implementation
+             (ExecGitCloner), validation is unconditional rather than
+             silently skipped, and "all real installs to date are
+             source_type: local" stops being true the moment remote works.
+             REPLACE the section with a short as-built summary — production
+             assembly lives in cmd/backstop/pack_wiring.go, the three
+             concrete implementations live in pkg/pack/distribution, the
+             constructors fail closed — and point at SPEC-055. Do not leave
+             a "Known gap" heading over resolved content.
+
+          2. "### Known gap — `pack relock` silent failure (filed: ISSUE-074)"
+             becomes PARTIALLY false, and the surviving half matters.
+             VERIFY BOTH HALVES AGAINST THE SHIPPED CODE:
+               - The SILENT half IS fixed here. REQ-011 / CLM-074 makes
+                 relock print its diagnostic to stderr.
+               - The ARGUMENT-SHAPE half is NOT. As of authoring,
+                 cmd/backstop/pack_relock.go still declares `Use: "relock
+                 [path]"` and calls `distribution.Relock(".", args[0])`,
+                 while remove/update/upgrade take a pack NAME. SPEC-055's
+                 Sharp Edges says so explicitly and assigns the fix to the
+                 content-identity and migration seed (REQ-041).
+             So EDIT the section, do NOT delete it. If your as-built check
+             finds the arg shape unchanged (expected), narrow the section to
+             the arg asymmetry and record that the silence is resolved. If
+             you find it somehow DID change, say what it is now — but do not
+             assume; read pack_relock.go.
+
+             THE SHARP EDGE IS WORTH WRITING DOWN IN THE MAP: a consumer who
+             now sees a message where there was silence may reasonably
+             conclude relock works. It does not, for path-vs-name reasons.
+
+          3. The "## Pack lifecycle (`pack add <ref>`)" section is ALSO
+             falsified and is NOT one of the two Known-gap sections — it is
+             easy to miss. It currently reads
+             "`cmd/backstop/pack_add.go:20` → `distribution.Add` (`add.go:72`)"
+             and "`opts.GitCloner.Clone(url, …)` (`add.go:153`)". The free
+             function is DELETED and the dependency no longer arrives via
+             options. Rewrite the flow through the assembled command and its
+             Run method, and add the root-`.git` strip to the "Common tail"
+             (it now sits between clone and ComputeContentHash, which is
+             precisely what makes remote hashes reproducible).
+
+          4. The `pkg/pack/distribution/` bullet in the Package map should
+             list the new files — gitcloner.go, validator.go,
+             versionresolver.go, command.go — alongside the existing
+             lifecycle files.
+
+          TRACK THE FILE. docs/CODEBASE-MAP.md is currently UNTRACKED in git
+          (`git status` shows `??` — it has never been committed since it was
+          generated). `git add` it in the reconciliation commit. An untracked
+          map is not durable: it is invisible to every other clone and to CI,
+          and it silently disappears on a fresh checkout while CLAUDE.md
+          still references it.
+
+          Regenerate line-number references only where you actually changed
+          the surrounding text; a wholesale re-derivation of every line
+          number in the file is a different job and is not asked for here.
+
+          COMPLETION CRITERIA — RUN THE GATE AFTER TRACKING THE FILE:
+
+              git add docs/CODEBASE-MAP.md
+              ./bin/backstop gate
+
+          THIS IS NOT A DUPLICATE OF TASK-052. `git add` puts
+          docs/CODEBASE-MAP.md into the diff-scoped gate FOR THE FIRST TIME —
+          the file has never been tracked, so TASK-052's green was computed
+          over a tree that did not contain it, and no verification in this
+          plan covers the state this task creates. This task is last; if the
+          newly tracked file trips any dimension, nothing downstream would
+          catch it.
+
+          Read the gate output and REPORT IT. Do not assert green without
+          having run it. If a dimension reds on the map, fix the map — do not
+          untrack the file to make the gate quiet, which would restore
+          exactly the non-durability this task exists to close.
+        files:
+          - docs/CODEBASE-MAP.md
+        claims:
+          - CLM-062
+          - CLM-074
+          - CLM-101
+        depends_on:
+          - TASK-052
