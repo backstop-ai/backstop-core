@@ -99,12 +99,24 @@ claims:
 }
 
 // installSubstantivenessLocalPack installs the packs/substantiveness/ SOURCE as a LOCAL
-// pack via the REAL distribution.Add path (declared `backstop/substantiveness: local` in
-// backstop.yml + a `local` lockfile entry). A nil Validator skips RunPackCheck/RunPackTest
-// (the dogfood install does not gate on the stale pack-check phases) — the install path
-// itself is REAL, not mocked.
+// pack via the REAL pack add path (declared `backstop/substantiveness: local` in
+// backstop.yml + a `local` lockfile entry) — the install path itself is REAL, not mocked.
+//
+// The command comes from the PRODUCTION assembly (SPEC-055 REQ-013), so pack check and
+// pack test run over the source exactly as they do for a consumer. Assembling here is
+// legitimate because cmd/backstop IS the assembly layer; the same construction inside
+// pkg/pack/distribution would be the internal defaulting that makes a test double
+// indistinguishable from production wiring.
+//
+// Its receiver and signature are pinned: the four call sites in
+// gate_substantiveness_e2e_test.go depend on this exact shape.
 func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error {
-	res, err := distribution.Add(substantivenessSourceDir(repoRoot), distribution.AddOptions{
+	add, err := newProductionAddCommand()
+	if err != nil {
+		return fmt.Errorf("assembling the pack add command: %w", err)
+	}
+
+	res, err := add.Run(substantivenessSourceDir(repoRoot), distribution.AddOptions{
 		ProjectDir: w.root,
 	})
 	if err != nil {

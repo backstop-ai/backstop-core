@@ -13,10 +13,15 @@ func newPackInstallCommand(_ *bool) *cobra.Command {
 		Short: "Restore packs from backstop.lock",
 		Long:  "Clones all packs at their locked versions and verifies content hashes. Does not run validation or merge tool_config. Use --cache for offline/airgapped environments.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			install, err := newProductionInstallCommand()
+			if err != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: err.Error()}
+			}
+
 			opts := distribution.InstallOptions{ProjectDir: "."}
 			opts.CachePath = cacheFlag
 
-			result, err := distribution.Install(opts)
+			result, err := install.Run(opts)
 			if err != nil {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}

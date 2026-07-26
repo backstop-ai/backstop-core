@@ -1,13 +1,48 @@
 package main
 
 import (
-	"os"
+	"bytes"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
-// Coverage tests for thin CLI adapter commands.
-// These invoke the cobra RunE with minimal setup to exercise the code paths.
+// Coverage tests for the thin CLI adapter commands: each invokes a cobra RunE with
+// minimal setup and asserts what the operator actually gets back.
+//
+// They used to invoke and discard (`_ = cmd.Execute()`), which exercised the path
+// without ever failing when it misbehaved — the shape that let `pack add` ship a nil
+// dependency and reach production. Every one now asserts on the verdict.
+
+// packCLIProject scaffolds a temp project carrying manifest and makes it the working
+// directory for the rest of the test.
+func packCLIProject(t *testing.T, manifest string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	writeFileForTest(t, dir, "backstop.yml", manifest)
+	t.Cleanup(chdirForTest(t, dir))
+	return dir
+}
+
+// emptyProjectManifest is a project that declares no packs.
+const emptyProjectManifest = "project: test\npacks: {}\n"
+
+// runPackCLI executes a constructed command with its output captured, so a test can
+// assert on what the operator reads rather than only on the error.
+func runPackCLI(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
+	t.Helper()
+
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), err
+}
 
 func TestCLI_PackAdd_NoArgs(t *testing.T) {
 	cmd := newPackAddCommand(boolPtr(false))
@@ -28,28 +63,27 @@ func TestCLI_PackRemove_NoArgs(t *testing.T) {
 }
 
 func TestCLI_PackRemove_NonexistentPack(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	packCLIProject(t, emptyProjectManifest)
 
-	cmd := newPackRemoveCommand(boolPtr(false))
-	cmd.SetArgs([]string{"nonexistent/pack"})
-	_ = cmd.Execute() // Will error — exercises the RunE path
+	_, err := runPackCLI(t, newPackRemoveCommand(boolPtr(false)), "nonexistent/pack")
+	if err == nil {
+		t.Fatal("removing a pack the project does not declare must fail, not report a silent success")
+	}
+	if !strings.Contains(err.Error(), "nonexistent/pack") {
+		t.Errorf("the diagnostic must name the pack that could not be removed, got: %v", err)
+	}
 }
 
 func TestCLI_PackInstall_NoLockfile(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
+	packCLIProject(t, emptyProjectManifest)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	cmd := newPackInstallCommand(boolPtr(false))
-	cmd.SetArgs([]string{})
-	_ = cmd.Execute() // May error on missing lockfile — that's fine, we're exercising the path
+	_, err := runPackCLI(t, newPackInstallCommand(boolPtr(false)))
+	if err == nil {
+		t.Fatal("installing with no backstop.lock must fail: there is nothing recorded to restore from")
+	}
+	if !strings.Contains(err.Error(), "backstop.lock") {
+		t.Errorf("the diagnostic must name the missing lock, got: %v", err)
+	}
 }
 
 func TestCLI_PackUpdate_NoArgs(t *testing.T) {
@@ -62,15 +96,33 @@ func TestCLI_PackUpdate_NoArgs(t *testing.T) {
 }
 
 func TestCLI_PackUpdate_NonexistentPack(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	packCLIProject(t, emptyProjectManifest)
 
-	cmd := newPackUpdateCommand(boolPtr(false))
-	cmd.SetArgs([]string{"nonexistent/pack"})
-	_ = cmd.Execute()
+	_, err := runPackCLI(t, newPackUpdateCommand(boolPtr(false)), "nonexistent/pack")
+	if err == nil {
+		t.Fatal("updating a pack the project does not declare must fail")
+	}
+	if !strings.Contains(err.Error(), "nonexistent/pack") {
+		t.Errorf("the diagnostic must name the pack that could not be updated, got: %v", err)
+	}
+}
+
+// TestCLI_PackUpdate_LocalPackIsHonestNoOp covers the branch nothing else reaches: a
+// pack declared as a local path has no remote to resolve a newer version from, so update
+// reports an honest no-op rather than silently doing nothing or claiming an update.
+func TestCLI_PackUpdate_LocalPackIsHonestNoOp(t *testing.T) {
+	packCLIProject(t, "project: test\npacks:\n  internal/local-rules: local\n")
+
+	out, err := runPackCLI(t, newPackUpdateCommand(boolPtr(false)), "internal/local-rules")
+	if err != nil {
+		t.Fatalf("updating a local-path pack must be a no-op, not a failure: %v", err)
+	}
+	if !strings.Contains(out, "internal/local-rules") {
+		t.Errorf("the no-op message must name the pack, got: %q", out)
+	}
+	if !strings.Contains(out, "local") {
+		t.Errorf("the no-op message must say why there is nothing to resolve, got: %q", out)
+	}
 }
 
 func TestCLI_PackUpgrade_NoArgs(t *testing.T) {
@@ -83,55 +135,68 @@ func TestCLI_PackUpgrade_NoArgs(t *testing.T) {
 }
 
 func TestCLI_PackUpgrade_NonexistentPack(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	packCLIProject(t, emptyProjectManifest)
 
-	cmd := newPackUpgradeCommand(boolPtr(false))
-	cmd.SetArgs([]string{"nonexistent/pack@2.0.0"})
-	_ = cmd.Execute()
+	_, err := runPackCLI(t, newPackUpgradeCommand(boolPtr(false)), "nonexistent/pack@2.0.0")
+	if err == nil {
+		t.Fatal("upgrading a pack the project does not declare must fail")
+	}
+	if !strings.Contains(err.Error(), "nonexistent/pack") {
+		t.Errorf("the diagnostic must name the pack that could not be upgraded, got: %v", err)
+	}
 }
 
+// TestCLI_PackAdd_NonexistentPack exercises pack add against a repository that does not
+// exist, HERMETICALLY (SPEC-055 REQ-010).
+//
+// It used to pass `nonexistent/pack@1.0.0` straight through and survive on a bare
+// `recover()`, because the unassembled command nil-dereferenced before it ever reached
+// git. Now that production assembles a real cloner, the same invocation would clone a
+// live URL — so it is redirected at a local path that is not a repository, and the
+// recover is gone: there is no longer a panic to catch, and a `recover` here would hide
+// the regression if one came back.
+//
+// This is the MISSING-REPOSITORY case, distinct from the missing-TAG case
+// TestE2E_PackAdd_MissingTagDiagnosticNotPanic drives through the built binary.
 func TestCLI_PackAdd_NonexistentPack(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	// A directory that exists but holds no repository: git fails offline, deterministically.
+	redirectPackURL(t, "nonexistent", "pack", t.TempDir())
+	packCLIProject(t, emptyProjectManifest)
 
-	defer func() { recover() }() // distribution.Add may panic on missing deps
-	cmd := newPackAddCommand(boolPtr(false))
-	cmd.SetArgs([]string{"nonexistent/pack@1.0.0"})
-	_ = cmd.Execute()
+	_, err := runPackCLI(t, newPackAddCommand(boolPtr(false)), "nonexistent/pack@1.0.0")
+	if err == nil {
+		t.Fatal("pack add of a repository that does not exist must return an error, not succeed")
+	}
+	if !strings.Contains(err.Error(), "nonexistent/pack") {
+		t.Errorf("the diagnostic must name the pack that could not be cloned, got: %v", err)
+	}
 }
 
 func TestCLI_PackList_EmptyProject(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
+	packCLIProject(t, emptyProjectManifest)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	cmd := newPackListCommand(boolPtr(false))
-	cmd.SetArgs([]string{})
-	_ = cmd.Execute() // May succeed with empty list or error — exercises the path
+	out, err := runPackCLI(t, newPackListCommand(boolPtr(false)))
+	if err != nil {
+		t.Fatalf("listing a project that declares no packs must succeed: %v", err)
+	}
+	if !strings.Contains(out, "VERSION") {
+		t.Errorf("the listing must render its header even when empty, got: %q", out)
+	}
 }
 
 func TestCLI_PackList_JSON(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "backstop.yml"), []byte("project: test\nlanguage: go\n"), 0o644)
-
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	packCLIProject(t, emptyProjectManifest)
 
 	jsonFlag := true
-	cmd := newPackListCommand(&jsonFlag)
-	cmd.SetArgs([]string{})
-	_ = cmd.Execute()
+	out, err := runPackCLI(t, newPackListCommand(&jsonFlag))
+	if err != nil {
+		t.Fatalf("listing a project that declares no packs must succeed: %v", err)
+	}
+
+	var decoded interface{}
+	if decodeErr := json.Unmarshal([]byte(out), &decoded); decodeErr != nil {
+		t.Errorf("--json output must parse as JSON, got %q: %v", out, decodeErr)
+	}
 }
 
 func TestCLI_FormatNewResult_JSON(t *testing.T) {
@@ -166,7 +231,7 @@ func TestCLI_SpecsExist_NoDir(t *testing.T) {
 
 func TestCLI_SpecsExist_DirExists(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "specs"), 0o755)
+	writeFileForTest(t, dir, filepath.Join("specs", ".keep"), "")
 	if !specsExist(filepath.Join(dir, "specs")) {
 		t.Error("expected true when specs/ exists")
 	}
@@ -174,7 +239,7 @@ func TestCLI_SpecsExist_DirExists(t *testing.T) {
 
 func TestCLI_SpecsExist_FileNotDir(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "specs"), []byte("not a dir"), 0o644)
+	writeFileForTest(t, dir, "specs", "not a dir")
 	if specsExist(filepath.Join(dir, "specs")) {
 		t.Error("expected false when specs is a file not a directory")
 	}

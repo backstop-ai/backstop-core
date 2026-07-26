@@ -96,7 +96,7 @@ func TestProvisioning_SubstantivenessPackNotEmbeddedNorTestdata(t *testing.T) {
 }
 
 // TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked (CLM-031) —
-// after distribution.Add over the packs/substantiveness/ local source, backstop.yml
+// after a production-assembled pack add over the packs/substantiveness/ local source, backstop.yml
 // declares the pack with the `local` source value and the lockfile carries a `local`
 // SourceType entry, and VerifyLock PASSES WITHOUT a remote artifact (local packs skipped).
 func TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked(t *testing.T) {
@@ -108,9 +108,14 @@ func TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked(t *t
 		t.Fatalf("writing backstop.yml: %v", err)
 	}
 
-	_, err := distribution.Add(filepath.Join(repoRoot, "packs", "substantiveness"), distribution.AddOptions{ProjectDir: tmp})
+	add, err := newProductionAddCommand()
 	if err != nil {
-		t.Fatalf("distribution.Add (local pack): %v", err)
+		t.Fatalf("assembling the production pack add command: %v", err)
+	}
+
+	_, err = add.Run(filepath.Join(repoRoot, "packs", "substantiveness"), distribution.AddOptions{ProjectDir: tmp})
+	if err != nil {
+		t.Fatalf("pack add (local pack): %v", err)
 	}
 
 	// backstop.yml declares the pack with the `local` source value.

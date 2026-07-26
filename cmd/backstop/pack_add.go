@@ -28,12 +28,18 @@ func newPackAddCommand(_ *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			packRef := args[0]
 
-			opts := distribution.AddOptions{
-				ProjectDir: ".",
-				Version:    versionFlag,
+			add, err := newProductionAddCommand()
+			if err != nil {
+				// A command that cannot be assembled is a mis-built binary, not a
+				// finding about the operator's project, so it exits as a
+				// configuration error rather than as a violation.
+				return &ExitCodeError{Code: ExitConfigError, Message: err.Error()}
 			}
 
-			result, err := distribution.Add(packRef, opts)
+			result, err := add.Run(packRef, distribution.AddOptions{
+				ProjectDir: ".",
+				Version:    versionFlag,
+			})
 			if err != nil {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}

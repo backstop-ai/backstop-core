@@ -16,12 +16,15 @@ func newPackUpdateCommand(_ *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			packName := args[0]
 
-			opts := distribution.UpdateOptions{
-				ProjectDir:  ".",
-				Acknowledge: acknowledgeFlag,
+			update, err := newProductionUpdateCommand()
+			if err != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: err.Error()}
 			}
 
-			result, err := distribution.Update(packName, opts)
+			result, err := update.Run(packName, distribution.UpdateOptions{
+				ProjectDir:  ".",
+				Acknowledge: acknowledgeFlag,
+			})
 			if err != nil {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}

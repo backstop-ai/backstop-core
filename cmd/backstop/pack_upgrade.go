@@ -14,11 +14,14 @@ func newPackUpgradeCommand(_ *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			packRef := args[0]
 
-			opts := distribution.UpgradeOptions{
-				ProjectDir: ".",
+			upgrade, err := newProductionUpgradeCommand()
+			if err != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: err.Error()}
 			}
 
-			result, err := distribution.Upgrade(packRef, opts)
+			result, err := upgrade.Run(packRef, distribution.UpgradeOptions{
+				ProjectDir: ".",
+			})
 			if err != nil {
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}
