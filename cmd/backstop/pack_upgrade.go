@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newPackUpgradeCommand(_ *bool) *cobra.Command {
+func newPackUpgradeCommand(jsonFlag *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade [pack-ref@version]",
 		Short: "Upgrade a pack to a new major version",
@@ -23,7 +23,7 @@ func newPackUpgradeCommand(_ *bool) *cobra.Command {
 				ProjectDir: ".",
 			})
 			if err != nil {
-				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
+				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack upgrade", err)
 			}
 
 			cmd.Printf("Upgraded %s -> %s\n", result.OldVersion, result.NewVersion)

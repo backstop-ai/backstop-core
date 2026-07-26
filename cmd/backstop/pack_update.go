@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newPackUpdateCommand(_ *bool) *cobra.Command {
+func newPackUpdateCommand(jsonFlag *bool) *cobra.Command {
 	var acknowledgeFlag bool
 
 	cmd := &cobra.Command{
@@ -26,7 +26,7 @@ func newPackUpdateCommand(_ *bool) *cobra.Command {
 				Acknowledge: acknowledgeFlag,
 			})
 			if err != nil {
-				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
+				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack update", err)
 			}
 
 			if result.NoOp {

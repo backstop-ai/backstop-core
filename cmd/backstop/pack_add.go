@@ -17,7 +17,7 @@ func formatAddedLine(name, version, hash string) string {
 	return fmt.Sprintf("Added %s@%s (hash: %s)", name, version, hash)
 }
 
-func newPackAddCommand(_ *bool) *cobra.Command {
+func newPackAddCommand(jsonFlag *bool) *cobra.Command {
 	var versionFlag string
 
 	cmd := &cobra.Command{
@@ -41,7 +41,7 @@ func newPackAddCommand(_ *bool) *cobra.Command {
 				Version:    versionFlag,
 			})
 			if err != nil {
-				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
+				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack add", err)
 			}
 
 			if result.AlreadyCurrent {

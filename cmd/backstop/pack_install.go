@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newPackInstallCommand(_ *bool) *cobra.Command {
+func newPackInstallCommand(jsonFlag *bool) *cobra.Command {
 	var cacheFlag string
 
 	cmd := &cobra.Command{
@@ -23,7 +23,7 @@ func newPackInstallCommand(_ *bool) *cobra.Command {
 
 			result, err := install.Run(opts)
 			if err != nil {
-				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
+				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack install", err)
 			}
 
 			// Surface reconciliation divergences loudly (stale lock entries, manifest
