@@ -26,11 +26,11 @@ func newPackTestCommand(jsonFlag *bool) *cobra.Command {
 				}
 			}
 			// ISSUE-049: accept an optional pack-dir path arg (default cwd), same as pack check.
-		packDir := "."
-		if len(args) == 1 {
-			packDir = args[0]
-		}
-		p := packval.NewPipeline(packDir, packval.PipelineOptions{Mode: "test", Format: format})
+			packDir := "."
+			if len(args) == 1 {
+				packDir = args[0]
+			}
+			p := packval.NewPipeline(packDir, packval.PipelineOptions{Mode: "test", Format: format})
 			result := p.Run()
 			out, err := packval.FormatResult(result, format)
 			if err != nil {
@@ -38,7 +38,9 @@ func newPackTestCommand(jsonFlag *bool) *cobra.Command {
 			}
 			cmd.Print(out)
 			if result.Status == "fail" {
-				return &ExitCodeError{Code: ExitViolations, Message: fmt.Sprintf("%d pack validation errors", len(result.Errors))}
+				// Explained for the same reason as pack check (SPEC-055 REQ-011 /
+				// CLM-080): the report is already on stdout by the time this returns.
+				return &ExitCodeError{Code: ExitViolations, Message: fmt.Sprintf("%d pack validation errors", len(result.Errors)), Explained: true}
 			}
 			return nil
 		},

@@ -175,6 +175,17 @@ func runGate(cmd *cobra.Command, args []string) error {
 		return &ExitCodeError{
 			Code:    exitCode,
 			Message: fmt.Sprintf("gate: exit code %d", exitCode),
+			// Explained ONLY for the violations verdict (SPEC-055 REQ-011 / CLM-077).
+			// This return is reachable only after the formatter above wrote the full
+			// result — human report or JSON document — so the human line would duplicate
+			// it, and under --json it would corrupt the document a consumer parses.
+			//
+			// The condition is the CODE, not the command: every exit-2 construction in
+			// runGate above returns before anything is printed, so suppressing on
+			// "this is the gate" would make a gate misconfiguration silent. Should Run
+			// ever return a config-class code here, it stays loud by the same rule
+			// (CLM-078 is the falsifier).
+			Explained: exitCode == ExitViolations,
 		}
 	}
 	return nil

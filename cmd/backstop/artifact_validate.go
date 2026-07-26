@@ -360,9 +360,13 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				return err
 			}
 
-			// Signal violations via exit code 1
+			// Signal violations via exit code 1. Explained: outputResult already wrote
+			// the violation report above, so the human line would duplicate it
+			// (SPEC-055 REQ-011 / CLM-081). This applies to the VIOLATIONS return only —
+			// the ExitConfigError further up prints nothing the operator can act on
+			// beyond its own message and must stay loud.
 			if !result.Pass {
-				return &ExitCodeError{Code: ExitViolations, Message: "violations found"}
+				return &ExitCodeError{Code: ExitViolations, Message: "violations found", Explained: true}
 			}
 
 			return nil

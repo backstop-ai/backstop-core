@@ -27,13 +27,13 @@ func newPackCheckCommand(jsonFlag *bool) *cobra.Command {
 				}
 			}
 			// ISSUE-049: accept an optional pack-dir path arg (default cwd) so `pack check
-		// ./my-pack` works right after `pack new` — the pipeline reads <packDir>/pack.yml,
-		// so a missing manifest names the given path rather than the bare cwd.
-		packDir := "."
-		if len(args) == 1 {
-			packDir = args[0]
-		}
-		p := packval.NewPipeline(packDir, packval.PipelineOptions{Mode: "check", Format: format})
+			// ./my-pack` works right after `pack new` — the pipeline reads <packDir>/pack.yml,
+			// so a missing manifest names the given path rather than the bare cwd.
+			packDir := "."
+			if len(args) == 1 {
+				packDir = args[0]
+			}
+			p := packval.NewPipeline(packDir, packval.PipelineOptions{Mode: "check", Format: format})
 			result := p.Run()
 			out, err := packval.FormatResult(result, format)
 			if err != nil {
@@ -41,7 +41,12 @@ func newPackCheckCommand(jsonFlag *bool) *cobra.Command {
 			}
 			cmd.Print(out)
 			if result.Status == "fail" {
-				return &ExitCodeError{Code: ExitViolations, Message: fmt.Sprintf("%d pack validation errors", len(result.Errors))}
+				// Explained: the formatted report — every failing phase and every error —
+				// reached the consumer on the line above, so reportError's human line
+				// would only duplicate it (SPEC-055 REQ-011 / CLM-079). The opt-out is
+				// claimable here for exactly that reason: this return is reachable only
+				// AFTER the Print, so it can never be the operator's only diagnostic.
+				return &ExitCodeError{Code: ExitViolations, Message: fmt.Sprintf("%d pack validation errors", len(result.Errors)), Explained: true}
 			}
 			return nil
 		},
