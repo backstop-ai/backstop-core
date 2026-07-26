@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-distribution-lifecycle
-  version: "0.8.0"
+  version: "0.9.0"
   created: "2026-04-14"
-  updated: "2026-07-25"
+  updated: "2026-07-26"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: defined
 
 problem:
   summary: >
@@ -748,6 +748,63 @@ No production core fix was retained from the consumer session. The harness is
 temporarily locked to a clean local non-Git export so it can use the pack without
 claiming remote distribution is delivered.
 
+### Live re-verification of the reliability premises (0.9.0)
+
+A direct pass over the committed CLI on 2026-07-25/26 re-derived the 0.7.0
+findings from the current tree rather than from the earlier consumer session,
+and corrected one of them. Every item below was reproduced, not inferred.
+
+- **Remote add still panics.** `backstop pack add <org>/<pack>@<version>` reaches
+  `distribution.Add` with a nil Git cloner and terminates with a raw SIGSEGV
+  stack trace — not a diagnostic, not an explained non-zero exit. The REQ-038 /
+  DD-30 premise holds exactly as written. Filed as ISSUE-073.
+
+- **`pack relock` cannot be invoked the way its siblings can, and says nothing
+  when it refuses.** `pack relock <path>` works; `pack relock <name>` — the
+  argument shape `pack remove`, `pack update`, and `pack upgrade` all take —
+  exits 1 with zero output and leaves the lock unchanged. Filed as ISSUE-074.
+  This is load-bearing for DD-28 and REQ-041: `pack relock` is the designated
+  migration vehicle for local-path legacy hashes, so a migration path that
+  rejects the identifier every sibling command accepts, and reports nothing when
+  it does, is not yet the migration story those decisions assume.
+
+- **Content hashing still includes root repository metadata.** The same pack
+  hashed `639f74fb…` exported without a `.git` directory and `bb86715c…` with
+  one present. REQ-021@1.1.0 and DD-24 remain specified-and-unbuilt, so
+  fresh-clone hash verification against a lock written on a machine holding the
+  source repository is guaranteed to mismatch. This is precisely the failure
+  DD-28's migration policy exists to keep distinguishable from tampering, and it
+  confirms the migration is a live need rather than a hypothetical one.
+
+- **Correction to the 0.7.0 record: `pack install` does not panic, but it is
+  silent.** The earlier reading — that install's nil-dependency guard produces a
+  clean error — is wrong in the part that matters. Install does guard rather
+  than dereference, so no panic; but the resulting failure is exit 1 with no
+  stderr and no diagnostic. A silent failure is harder to act on than the panic,
+  because there is nothing to read at all. Separately observed: lock entries not
+  declared in backstop.yml are silently ignored by install, so a pack the lock
+  claims is required can be absent after an install that looks successful.
+
+#### Silent exit-1 is one cross-cutting defect, not three bugs
+
+`pack relock`, `pack install`, and `recipe apply` (ISSUE-080) all fail with exit
+1 and no output, for unrelated proximate causes. The shared cause is a CLI-wide
+convention: `cmd/backstop/main.go` suppresses the error message whenever the
+exit code is `ExitViolations` (1), on the assumption that a command exiting 1
+has already printed structured findings. That assumption holds for `gate` and
+`pack check`. It is false for every command that uses exit 1 to mean "this
+operation failed" — the diagnostic is generated and then discarded.
+
+Three independent victims in three subsystems make this a property of the
+error-surfacing seam, not a per-command oversight. It belongs in this bundle's
+dependency-assembly and transaction seams (DD-29, DD-30), fixed once, rather
+than patched per command as each victim is discovered — fixing it per command
+guarantees a fourth. REQ-038 already obliges remote lifecycle commands to return
+human diagnostics rather than panic; the live evidence says the same obligation
+has to reach the non-remote commands and the failure paths that never reach a
+remote at all. Whether that becomes a distinct requirement or a widened REQ-038
+is a spec-time call, not a bundle-time one.
+
 ## Draft Requirements
 
 Requirements REQ-001 through REQ-042 are defined in the frontmatter
@@ -1338,7 +1395,11 @@ Requirements REQ-001 through REQ-042 are defined in the frontmatter
   explicit remote re-validating migration operation and local `pack relock` path
   (DD-28), gate/relock/install convergence, and compatibility tests. Independent
   of remote dependency assembly except for the clone seam the remote migration
-  operation needs and for final parity.
+  operation needs and for final parity. This seed owns `pack relock`'s
+  invocation contract as well as its behavior: live verification (ISSUE-074)
+  found relock accepts only a filesystem path while every sibling command takes
+  a pack name, so the designated local migration vehicle currently rejects the
+  identifier a consumer would reach for.
 
 - **Remote reference and manifest identity** — effective version handling,
   source-coordinate-versus-manifest-identity separation with both recorded in the
@@ -1357,6 +1418,18 @@ Requirements REQ-001 through REQ-042 are defined in the frontmatter
   temporary tagged repositories and URL rewriting, covering all commands and
   failure boundaries without network access. Final integration seed; depends on
   all preceding reliability seeds and tests the exact REQ-042 command matrix.
+  Every failure case it asserts must assert on the diagnostic the consumer
+  actually sees, not only on the exit code — an exit-1-with-no-output failure
+  passes an exit-code-only assertion.
+
+**Cross-cutting concern for these seeds: error surfacing.** The silent exit-1
+convention documented in Current Thinking (0.9.0) has three known victims —
+`pack relock`, `pack install`, and `recipe apply` (ISSUE-080) — across three
+subsystems. It is a property of the shared seam, so it is addressed once inside
+the dependency-assembly and transaction seeds rather than assigned to whichever
+command happens to be under repair. Any seed that lands a new failure path
+inherits the same obligation: a non-zero exit must carry a diagnostic the
+consumer can read.
 
 ## Revision Impact on Existing Artifacts
 
@@ -1366,10 +1439,10 @@ describes the algorithm the spec evaluated. Its existing ready plan must not be
 replayed as the repair vehicle because it implements the legacy all-files
 contract and does not cover REQ-038 through REQ-042. Reliability work requires
 new delta specs that pin REQ-021@1.1.0, REQ-020@1.1.0, and the 1.1.0 revisions of
-REQ-038 through REQ-042. OQ-6 through OQ-9 are resolved as of 0.8.0, but the
-bundle remains at exploring maturity — promotion is a separate step, and
-implementation stays unauthorized until the bundle is promoted and those delta
-specs are written and reviewed.
+REQ-038 through REQ-042. OQ-6 through OQ-9 were resolved at 0.8.0 and the bundle
+was promoted to defined at 0.9.0, so the approach is settled and spec authoring
+is unblocked. Implementation remains unauthorized until those delta specs are
+written and reviewed — `defined` authorizes specs, not code.
 
 ## Out of Scope for the 0.7.0 Reliability Revision
 
@@ -1396,6 +1469,29 @@ specs are written and reviewed.
 - ADR-0001 — machine-first output (JSON for agent consumption)
 
 ## Version History
+
+- **0.9.0** (2026-07-26): Advanced to defined maturity, and folded in a live
+  re-verification of the reliability premises. Verification (evidence only, no
+  new scope): remote `pack add` still panics with a raw SIGSEGV on the nil Git
+  cloner (ISSUE-073), confirming REQ-038/DD-30 as written; `pack relock <name>`
+  exits 1 silently while `pack relock <path>` succeeds (ISSUE-074), which makes
+  DD-28/REQ-041's designated local migration vehicle unusable by the identifier
+  every sibling command takes; and the content hash still includes root `.git`
+  metadata (same pack: `639f74fb…` clean vs `bb86715c…` with `.git`), confirming
+  REQ-021@1.1.0 is specified-and-unbuilt and that fresh-clone hash mismatch is
+  guaranteed. Corrected the 0.7.0 record on `pack install`: it does not panic on
+  a nil dependency, but its guard produces exit 1 with no output at all, and
+  lock entries absent from backstop.yml are silently ignored. Recorded the
+  cross-cutting finding that silent exit-1 now has three victims across three
+  subsystems (`pack relock`, `pack install`, `recipe apply` per ISSUE-080) with
+  one shared cause — main.go suppressing the message for `ExitViolations` — and
+  assigned error surfacing to the dependency-assembly and transaction seeds as a
+  single shared concern rather than a per-command patch. Promotion to defined
+  rests on content already present since 0.8.0: 42 requirements, DD-1 through
+  DD-31, nine resolved open questions, eleven spec seeds, and a stated solution
+  approach. No requirement text, design decision, or seed scope changed in this
+  version beyond the seed annotations recording the above. Specs may now be
+  authored; implementation still requires reviewed delta specs.
 
 - **0.8.0** (2026-07-25): Resolved OQ-6 through OQ-9, closing every open
   question from the reliability revision. OQ-6 → always fail a legacy
