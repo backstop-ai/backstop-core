@@ -6,26 +6,30 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-distribution-lifecycle
-  version: "0.6.0"
+  version: "0.8.0"
   created: "2026-04-14"
-  updated: "2026-04-08"
+  updated: "2026-07-25"
   category: feature
 
 status:
-  maturity: ready
+  maturity: exploring
 
 problem:
   summary: >
-    BUNDLE-004 tells an agent how to author a pack. BUNDLE-005 tells it how
-    to validate one. Neither covers the lifecycle between "author has a
-    validated pack in a git repo" and "consumer's gate enforces that pack's
-    rules." There is no story for how packs are added, removed, updated,
-    upgraded, locked, or verified at gate time. There is no lockfile format.
-    There is no tool_config provenance model (so pack removal cannot revert
-    config changes). There is no CI-optimized install path. Without this
-    bundle, every consumer must manually clone packs, hand-edit backstop.yml,
-    hand-merge tool configs, and hope their CI reproduces what they tested
-    locally.
+    BUNDLE-006 defined and partially delivered the lifecycle between a
+    validated pack repository and a consumer's running gate: add, remove,
+    install, update, upgrade, lock verification, and tool-config provenance.
+    Dogfooding a standalone published pack proved that production remote
+    command wiring, source/manifest identity, authored-content hashing,
+    legacy-lock migration, and transactional rollback do not yet reliably
+    satisfy that contract. Remote commands can panic or fail before using
+    their advertised dependencies, Git metadata can contaminate content
+    identity, incoherent pack identity can fail only at gate time, and failed
+    mutations can strand partial consumer state. The intended posture is
+    Homebrew's — install a pack by name from the tap that hosts it, reproducibly,
+    with remote as the default rather than an eventual addition — but every
+    install to date is a local path. This reliability revision is what makes the
+    remote, Homebrew-style posture real rather than advertised.
 
   user_story: >
     As a consumer, I want to add a pack by name, have it validated and
@@ -80,10 +84,47 @@ problem:
       already-installed pack, not-installed pack, missing lockfile, partial
       install (atomic rollback), network/clone failure, validation failure,
       and tool_config conflict
+    - >
+      Every advertised remote command executes through its production-wired
+      required dependencies: add clones and validates; install clones exact lock
+      pins without validation; update resolves, clones, validates, and checks
+      tampering; upgrade clones, validates, and generates remediation artifacts.
+      Incomplete assembly and subprocess failures return diagnostics rather than
+      panics
+    - >
+      Installed pack content and lock hashes exclude only root repository-control
+      metadata, while existing metadata-inclusive locks have a deterministic,
+      tamper-safe migration path: a legacy hash always fails with a typed
+      migration diagnostic and is repaired only by pack relock (local) or an
+      explicit re-validating remote migration operation, never accepted in place
+    - >
+      No lifecycle command can be assembled without its production Git,
+      version-resolution, and validator dependencies — incomplete assembly is a
+      compile-time failure, not a runtime diagnostic
+    - >
+      backstop.lock keys every entry by manifest pack name and records the
+      requested source repository coordinate verbatim alongside it; install path,
+      config key, and engine asset root all derive from the manifest name, so a
+      pack whose name differs from its repository basename installs and dispatches
+      coherently
+    - >
+      Add, install, update, upgrade, and remove restore the exact prior consumer
+      state after any failed mutation across the command-specific surfaces in
+      DD-27
+    - >
+      A hermetic parity suite exercises remote add/install/update/upgrade,
+      gate-time lock verification, explicit remote legacy-lock migration, local
+      relock migration, and remove cleanup
+      through the production CLI against temporary tagged repositories without
+      network access
 
 solution:
   approach: >
-    Git-native distribution with backstop.lock for reproducibility. `pack
+    Git-native distribution modeled explicitly on Homebrew: the repository (tap)
+    is where a pack lives, the pack's own name is the identity you install by,
+    installs are reproducible from pinned references, and remote is the default
+    posture rather than a later addition. backstop.lock supplies the
+    reproducibility Homebrew gets from formula pins. `pack
     add` is the consumer entry point — it clones, validates, installs,
     merges config, and updates the lockfile in one command. `pack install`
     is the CI fast path — it restores from the lockfile with hash
@@ -93,7 +134,10 @@ solution:
     `pack upgrade` handles major bumps with remediation bundle generation.
     Lock verification at gate time prevents drift between what was validated
     and what's running. Local path packs use the same loader and validation
-    but skip git resolution.
+    but skip git resolution. Reliability work is proved through production CLI
+    assembly, canonical remote identity checks before mutation, authored-content
+    hashing with an explicit legacy-lock migration, and transactional staging
+    across every command that changes consumer state.
 
   assumptions:
     - >
@@ -242,17 +286,49 @@ requirements:
       a human-readable table by default, and as structured JSON with
       --json (DD-14)
   - id: REQ-020
-    version: "1.0.0"
+    version: "1.1.0"
     text: >
       backstop.lock must be YAML with sorted keys, containing per-pack entries
-      with name, version, git ref (null for local packs), content hash, source
-      type (git or local), and install date (DD-19)
+      keyed by the manifest pack name, with version, git ref (null for local
+      packs), content hash, source type (git or local), install date, and — for
+      git packs — the requested source repository coordinate recorded verbatim
+      as a field distinct from the pack name (DD-19, DD-31)
+    versions:
+      - version: "1.0.0"
+        text: >
+          backstop.lock must be YAML with sorted keys, containing per-pack entries
+          with name, version, git ref (null for local packs), content hash, source
+          type (git or local), and install date (DD-19)
+      - version: "1.1.0"
+        text: >
+          backstop.lock must be YAML with sorted keys, containing per-pack entries
+          keyed by the manifest pack name, with version, git ref (null for local
+          packs), content hash, source type (git or local), install date, and — for
+          git packs — the requested source repository coordinate recorded verbatim
+          as a field distinct from the pack name (DD-19, DD-31)
   - id: REQ-021
-    version: "1.0.0"
+    version: "1.1.0"
     text: >
       Content hash must be SHA-256 computed from a sorted manifest of
-      relative-path:SHA-256-file-hash pairs covering every file in the pack
-      directory (DD-20)
+      relative-path:SHA-256-file-hash pairs covering every authored file in the
+      pack directory. Repository-control metadata at the pack root, including
+      a .git file, directory, symlink, or subtree, must not be copied into an
+      installed pack or contribute to its content hash. Other authored dotfiles
+      and dot-directories remain content (DD-20, DD-24)
+    versions:
+      - version: "1.0.0"
+        text: >
+          Content hash must be SHA-256 computed from a sorted manifest of
+          relative-path:SHA-256-file-hash pairs covering every file in the pack
+          directory (DD-20)
+      - version: "1.1.0"
+        text: >
+          Content hash must be SHA-256 computed from a sorted manifest of
+          relative-path:SHA-256-file-hash pairs covering every authored file in the
+          pack directory. Repository-control metadata at the pack root, including
+          a .git file, directory, symlink, or subtree, must not be copied into an
+          installed pack or contribute to its content hash. Other authored dotfiles
+          and dot-directories remain content (DD-20, DD-24)
   - id: REQ-022
     version: "1.0.0"
     text: >
@@ -355,6 +431,174 @@ requirements:
       version: entry, and compute a content hash for backstop.lock. Local path
       packs are not cloned to .backstop/packs/ — they are loaded directly from
       their source path (DD-17)
+  - id: REQ-038
+    version: "1.1.0"
+    text: >
+      Every advertised remote lifecycle command must be constructible only with
+      concrete production implementations of the dependencies it requires: add
+      clones and validates an exact version; install clones exact lock pins without
+      validation; update resolves compatible versions, clones, validates, and
+      performs tamper checks; upgrade clones and validates an explicit major
+      version and generates remediation artifacts. An incompletely assembled
+      command must be a compile-time failure, not a runtime condition, so no
+      command can reach execution with a missing dependency. Subprocess failures,
+      missing tags, and malformed refs must return human diagnostics and structured
+      JSON errors with non-zero exits; no command may panic by dereferencing a nil
+      dependency (DD-25, DD-30).
+    versions:
+      - version: "1.0.0"
+        text: >
+          Every advertised remote lifecycle command must wire concrete production
+          implementations for the dependencies it actually requires: add clones and
+          validates an exact version; install clones exact lock pins without validation;
+          update resolves compatible versions, clones, validates, and performs tamper
+          checks; upgrade clones and validates an explicit major version and generates
+          remediation artifacts. Missing dependencies, subprocess failures, missing
+          tags, and malformed refs must return human diagnostics and structured JSON
+          errors with non-zero exits; no command may panic by dereferencing a nil
+          dependency (DD-25).
+      - version: "1.1.0"
+        text: >
+          Every advertised remote lifecycle command must be constructible only with
+          concrete production implementations of the dependencies it requires: add
+          clones and validates an exact version; install clones exact lock pins without
+          validation; update resolves compatible versions, clones, validates, and
+          performs tamper checks; upgrade clones and validates an explicit major
+          version and generates remediation artifacts. An incompletely assembled
+          command must be a compile-time failure, not a runtime condition, so no
+          command can reach execution with a missing dependency. Subprocess failures,
+          missing tags, and malformed refs must return human diagnostics and structured
+          JSON errors with non-zero exits; no command may panic by dereferencing a nil
+          dependency (DD-25, DD-30).
+  - id: REQ-039
+    version: "1.1.0"
+    text: >
+      Before mutation, a remote lifecycle command must validate one exact effective
+      version and record both identities: the requested source repository coordinate
+      verbatim, without host-specific case normalization, and the manifest pack name
+      as the install/runtime identity that determines install path, config key, lock
+      key, and engine asset root. The manifest semantic version must equal the
+      effective tag version after normalizing only an optional leading `v`. Any
+      violation of that mapping must fail at the command boundary rather than create
+      a pack that fails later during rule, producer, converter, or validator
+      resolution (DD-26, DD-31).
+    versions:
+      - version: "1.0.0"
+        text: >
+          Before mutation, a remote lifecycle command must validate one exact effective
+          version and resolve an unambiguous mapping among source repository coordinate,
+          manifest pack name, install path, config key, lock identity, and manifest
+          version. Any mismatch not authorized by the eventual canonical identity policy
+          must fail at the command boundary rather than create a pack that fails later
+          during rule, producer, converter, or validator resolution (DD-26).
+      - version: "1.1.0"
+        text: >
+          Before mutation, a remote lifecycle command must validate one exact effective
+          version and record both identities: the requested source repository coordinate
+          verbatim, without host-specific case normalization, and the manifest pack name
+          as the install/runtime identity that determines install path, config key, lock
+          key, and engine asset root. The manifest semantic version must equal the
+          effective tag version after normalizing only an optional leading `v`. Any
+          violation of that mapping must fail at the command boundary rather than create
+          a pack that fails later during rule, producer, converter, or validator
+          resolution (DD-26, DD-31).
+  - id: REQ-040
+    version: "1.1.0"
+    text: >
+      Pack add, install, update, upgrade, remove, and relock must each define one
+      transactional mutation boundary covering every surface that command may
+      mutate, registered as participants with the single shared staged-filesystem
+      transaction coordinator rather than implemented per command, according to
+      DD-27. A failure must restore the exact previous state, including prior
+      installed content and pre-existing consumer configuration; fresh operations
+      must leave no partial state (DD-27, DD-29).
+    versions:
+      - version: "1.0.0"
+        text: >
+          Pack add, install, update, upgrade, remove, and relock must each define one
+          transactional mutation boundary covering every surface that command may
+          mutate according to DD-27. A failure must restore the exact previous state,
+          including prior installed content and pre-existing consumer configuration;
+          fresh operations must leave no partial state (DD-27).
+      - version: "1.1.0"
+        text: >
+          Pack add, install, update, upgrade, remove, and relock must each define one
+          transactional mutation boundary covering every surface that command may
+          mutate, registered as participants with the single shared staged-filesystem
+          transaction coordinator rather than implemented per command, according to
+          DD-27. A failure must restore the exact previous state, including prior
+          installed content and pre-existing consumer configuration; fresh operations
+          must leave no partial state (DD-27, DD-29).
+  - id: REQ-041
+    version: "1.1.0"
+    text: >
+      A lock entry carrying a REQ-021@1.0.0 Git-metadata-inclusive content hash
+      must fail with a typed migration-required diagnostic distinguishable from
+      authored-content tampering; no command may accept a legacy hash in place.
+      Local-path sources must migrate via pack relock. Git sources must migrate via
+      an explicit remote migration operation that clones the exact pinned tag,
+      reruns pack check and pack test, presents the algorithm transition, requires
+      explicit consumer acknowledgment, and atomically writes sanitized installed
+      content plus the updated lock entry. The migration must never prompt for
+      acknowledgment in CI, which consumes an already-migrated committed lock
+      (DD-24, DD-28).
+    versions:
+      - version: "1.0.0"
+        text: >
+          The transition from content-hash requirement REQ-021@1.0.0 to 1.1.0 must
+          distinguish a recognized legacy Git-metadata-inclusive hash from actual
+          authored-content tampering. The migration policy must be deterministic,
+          non-interactive in CI, and must converge the lock and installed content on
+          the 1.1.0 algorithm without silently accepting unrelated changes.
+          Remote Git locks and local-path locks may require different explicit
+          migration commands because remote legacy clone metadata is not reproducible
+          on a fresh machine (DD-24; migration policy pending OQ-6).
+      - version: "1.1.0"
+        text: >
+          A lock entry carrying a REQ-021@1.0.0 Git-metadata-inclusive content hash
+          must fail with a typed migration-required diagnostic distinguishable from
+          authored-content tampering; no command may accept a legacy hash in place.
+          Local-path sources must migrate via pack relock. Git sources must migrate via
+          an explicit remote migration operation that clones the exact pinned tag,
+          reruns pack check and pack test, presents the algorithm transition, requires
+          explicit consumer acknowledgment, and atomically writes sanitized installed
+          content plus the updated lock entry. The migration must never prompt for
+          acknowledgment in CI, which consumes an already-migrated committed lock
+          (DD-24, DD-28).
+  - id: REQ-042
+    version: "1.1.0"
+    text: >
+      A hermetic end-to-end parity suite must build the production CLI, create
+      temporary tagged pack repositories, and exercise remote add, install,
+      update, and upgrade; gate-time lock verification; the explicit remote
+      lock-migration operation (DD-28); local relock migration; and remove cleanup
+      without GitHub or network access. The suite must cover success, subprocess
+      failure, identity mismatch, legacy-hash migration, rollback via fault
+      injection at the shared transaction coordinator, and repository-metadata
+      exclusion using the same command wiring shipped to consumers
+      (DD-25, DD-27, DD-29).
+    versions:
+      - version: "1.0.0"
+        text: >
+          A hermetic end-to-end parity suite must build the production CLI, create
+          temporary tagged pack repositories, and exercise remote add, install,
+          update, and upgrade; gate-time lock verification; the remote migration path
+          selected by OQ-6; local relock migration; and remove cleanup without GitHub
+          or network access. The suite must cover
+          success, dependency failure, identity mismatch, legacy-hash migration,
+          rollback, and repository-metadata exclusion using the same command wiring
+          shipped to consumers (DD-25, DD-27).
+      - version: "1.1.0"
+        text: >
+          A hermetic end-to-end parity suite must build the production CLI, create
+          temporary tagged pack repositories, and exercise remote add, install,
+          update, and upgrade; gate-time lock verification; the explicit remote
+          lock-migration operation (DD-28); local relock migration; and remove cleanup
+          without GitHub or network access. The suite must cover success, subprocess
+          failure, identity mismatch, legacy-hash migration, rollback via fault
+          injection at the shared transaction coordinator, and repository-metadata
+          exclusion using the same command wiring shipped to consumers
+          (DD-25, DD-27, DD-29).
 ---
 
 # Pack Distribution Lifecycle
@@ -364,12 +608,37 @@ requirements:
 ### The distribution gap
 
 BUNDLE-004 (authoring) and BUNDLE-005 (validation) give you a pack that is
-structurally correct, fixture-proven, and mechanically verified. But a
-validated pack sitting in a git repo is useless until a consumer can install
-it. Today, there is no installation path. No lockfile. No way to reproduce
-pack state across machines. No way to remove a pack without leaving config
-debris. This bundle fills the gap between "pack exists and is valid" and
-"gate enforces it."
+structurally correct, fixture-proven, and mechanically verified. BUNDLE-006
+defined and partially delivered the lifecycle from a validated Git repository
+to a consumer's running gate. Dogfooding a standalone harness pack proved that
+the authored contract is not yet reliably delivered through production command
+wiring: local-path flows work, while remote flows can panic, accept incoherent
+identity, include repository metadata in content hashes, or leave partial state.
+Version 0.7.0 reopens the bundle to close that contract-to-implementation gap.
+
+### The distribution mental model is Homebrew
+
+Packs are meant to be used and distributed the way brew formulas and taps work,
+and that analogy is load-bearing rather than decorative:
+
+- **The tap is where a pack lives; the pack name is what you install by.** A brew
+  formula is not identified by the repository that hosts it, and neither is a
+  pack. This is exactly the separation DD-31 makes formal — the repository
+  coordinate is a source location, the manifest name is the identity.
+- **Installs are reproducible from pinned references.** `brew install foo` on two
+  machines yields the same bottle; `pack install` from a committed lock must
+  yield byte-identical content, which is why the content hash must cover authored
+  content only (DD-24) and why legacy hashes must migrate explicitly rather than
+  be accepted in place (DD-28).
+- **Remote is the default posture, not a later addition.** Local-path packs are
+  the equivalent of a local formula file — supported and useful, but not the
+  shape the ecosystem is designed around.
+
+Today every backstop install is a local path, so the remote posture is
+advertised rather than proven. The 0.7.0 reliability revision exists to close
+that gap: without production dependency assembly, coherent identity, reproducible
+hashes, and transactional mutation, "install a pack by name from its tap" is a
+claim the CLI cannot keep.
 
 ### The command surface
 
@@ -424,7 +693,12 @@ backstop.yml can reference packs by local path
 from the filesystem, not cloned. `pack check` + `pack test` still run at
 add time. They appear in backstop.lock with a content hash but no git ref.
 Updates are immediate — the pack is local, no `pack update` needed. Useful
-for in-repo packs that evolve with the codebase.
+for in-repo packs that evolve with the codebase. REQ-037 and DD-17 remain the
+authoritative direct-source contract. The committed implementation currently
+materializes local packs into `.backstop/packs/`; that is implementation drift,
+not a silent contract revision, and the content-identity/migration repair seed
+must either restore direct loading or return an explicit bundle revision for
+human approval.
 
 ### tool_config provenance
 
@@ -445,9 +719,38 @@ not match lock — run `pack install` to restore"). Missing pack = gate
 failure. This closes the loop: `pack add` validates and locks, `pack
 install` restores from lock, `backstop gate` verifies the lock holds.
 
+### Reliability evidence from harness dogfooding (0.7.0)
+
+The `backstop-harness` consumer published
+`backstop-ai/backstop-harness-toolchain-pack` and exercised the production CLI.
+The following evidence is the discovery source for the reliability revision:
+
+- `backstop pack add backstop-ai/backstop-harness-toolchain-pack` reached
+  `distribution.Add` with no production Git cloner and panicked on a nil
+  dependency. This maps to REQ-038 and the production dependency assembly seed.
+- Installing the first tagged release under the repository coordinate while its
+  manifest declared `backstop/harness-toolchain` reported add success, but gate
+  dispatch later resolved converter scripts beneath the manifest-name path and
+  failed with `missing convert script`. This maps to REQ-039 and the remote
+  reference/manifest identity seed. The pack corrected its identity in v0.1.1;
+  core still needs fail-closed mapping semantics.
+- Adding the Git-backed pack by local path under committed core changed the
+  content hash from the authored v0.1.1 tree hash and copied root `.git` metadata
+  into materialized content. A clean non-Git export produced the authored hash.
+  This maps to REQ-021@1.1.0, REQ-041, and the content identity/migration seed.
+- Review of committed add/install/update/upgrade/remove code found mutation
+  surfaces without one complete rollback boundary and additional production
+  commands with incomplete dependency assembly. This maps to REQ-040, REQ-042,
+  the transaction seed, and the lifecycle parity seed. These are reviewed code
+  findings, not consumer-owned implementation changes.
+
+No production core fix was retained from the consumer session. The harness is
+temporarily locked to a clean local non-Git export so it can use the pack without
+claiming remote distribution is delivered.
+
 ## Draft Requirements
 
-Requirements REQ-001 through REQ-037 are defined in the frontmatter
+Requirements REQ-001 through REQ-042 are defined in the frontmatter
 `requirements` block. They cover:
 
 - **Pack add** (REQ-001 through REQ-005, REQ-024, REQ-031, REQ-032, REQ-037):
@@ -470,8 +773,9 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
   and lockfile update, remediation bundle generation with rollback on
   failure.
 - **Pack list** (REQ-019): human table + JSON output.
-- **backstop.lock** (REQ-020, REQ-021): YAML sorted keys, SHA-256 sorted
-  manifest hash.
+- **backstop.lock** (REQ-020@1.1.0, REQ-021@1.1.0): YAML sorted keys, SHA-256
+  sorted manifest hash over authored content, entries keyed by manifest name with
+  the source coordinate recorded verbatim.
 - **Gate verification** (REQ-022, REQ-023): content hash comparison,
   diagnostic messages for mismatch/missing/extra, mandatory lockfile when
   packs declared.
@@ -483,6 +787,18 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
   trust chains.
 - **Version semantics** (REQ-028, REQ-030): exact pins, enforcement semver
   model (references BUNDLE-004).
+- **Production remote execution** (REQ-038@1.1.0, REQ-039@1.1.0): command
+  dependencies that cannot be omitted at compile time, and source coordinate
+  versus manifest identity with both recorded in the lock.
+- **Transactional lifecycle** (REQ-040@1.1.0): one shared transaction
+  coordinator with per-command participants giving exact rollback across
+  installed content, config, provenance, manifests, lock, and owned gitignore
+  entries.
+- **Hash migration** (REQ-021@1.1.0, REQ-041@1.1.0): authored-content boundary,
+  root repository-metadata exclusion, and explicit re-validating legacy-lock
+  migration that never accepts a legacy hash in place.
+- **Remote lifecycle parity** (REQ-042): hermetic production-CLI coverage of
+  the exact remote, gate, migration, and cleanup command matrix.
 - **Provenance file** (REQ-029): committed, structured tracking.
 - **SDK non-distribution** (REQ-031): packs track SDK references but do not
   distribute SDK code.
@@ -658,6 +974,8 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
   hashing), deterministic (sorted paths), comprehensive (every file
   contributes). Tar-based hashing is fragile across platforms; pack.yml-only
   hashing misses rule and fixture changes.
+  **Revised by DD-24 / REQ-021@1.1.0:** "every file" means every authored
+  content file; root repository-control metadata is not pack content.
   [Resolved from OQ-2]
 
 - **DD-21:** tool_config provenance tracked in
@@ -691,6 +1009,106 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
   when `pack update` exists as the explicit upgrade path. Exact pins
   eliminate "what version am I running?" ambiguity.
   [Resolved from OQ-5]
+
+### Reliability revision decisions (0.7.0)
+
+- **DD-24:** Pack content identity covers authored pack content, not the
+  source repository's control metadata. The root `.git` entry and anything it
+  owns are excluded whether `.git` is a directory, worktree/submodule pointer
+  file, or symlink. This exclusion is deliberately narrow: `.github`, other
+  dotfiles, and nested authored fixtures remain content. Rationale: lock hashes
+  must be reproducible across clones and must not copy repository objects,
+  refs, logs, or local configuration into consumer caches.
+
+- **DD-25:** Production command wiring is part of the tested contract. Remote
+  lifecycle tests must execute the same concrete dependencies assembled by
+  Cobra commands, not only distribution functions with injected mocks.
+  Hermetic tests redirect Git URLs to temporary local repositories so the
+  production path remains network-free and deterministic.
+
+- **DD-26:** Remote identity is checked before mutation. The effective version
+  may come from the reference or an explicit `--version` override, but it must
+  resolve to one exact tag. Source coordinate, manifest name, install path,
+  config key, lock identity, and manifest version must resolve coherently under
+  the policy in DD-31 before the pack can affect consumer state.
+
+- **DD-27:** Transaction participants are command-specific. Add owns installed
+  content when the selected source model materializes it, tool config,
+  provenance, backstop.yml, backstop.lock, and its
+  gitignore contribution. Install owns installed content and, only when an
+  approved hash migration occurs, the corresponding lock entry. Update owns
+  installed content, affected tool config/provenance, backstop.yml, and lock.
+  Upgrade owns those surfaces plus remediation artifacts and baseline changes.
+  Remove owns installed content, reverted tool config, provenance, backstop.yml,
+  and lock. Relock owns lock entries only. Each command atomically restores all
+  participants it actually owns; no command is required to snapshot surfaces it
+  does not mutate. Participants are registered with the shared coordinator in
+  DD-29 rather than implemented per command.
+
+### DDs from resolved OQs (0.8.0)
+
+- **DD-28:** Legacy hash migration is explicit, re-validating, and never
+  in-place. A lock entry carrying a REQ-021@1.0.0 (Git-metadata-inclusive) hash
+  fails with a typed migration-required diagnostic that is distinguishable from
+  authored-content tampering. Local-path sources migrate via `pack relock`. Git
+  sources migrate via a distinct explicit remote migration operation that clones
+  the exact pinned tag, reruns `pack check` + `pack test`, presents the
+  old-algorithm/new-algorithm transition, requires explicit consumer
+  acknowledgment, and atomically writes sanitized installed content plus the
+  updated lock entry in one transaction (DD-29). No command silently accepts a
+  legacy hash, and CI never acknowledges interactively — it consumes an
+  already-migrated committed lock. Rationale: a fresh clone cannot reproduce
+  clone-local Git state, so a dual-read that "proves" the old hash would only
+  ever succeed on a machine that happens to hold the original tree; trust must
+  never be inferred from unreproducible repository metadata. Revalidation is
+  required precisely because the legacy hash cannot authenticate the fresh
+  clone. A later in-place convenience path may be added only with evidence that
+  it cannot mask authored changes.
+  [Resolved from OQ-6]
+
+- **DD-29:** One shared staged-filesystem transaction coordinator, with
+  command-specific participants. Distribution exposes a single coordinator plus
+  staging/snapshot primitives; add, install, update, upgrade, remove, and relock
+  register the participants they own per DD-27 rather than implementing private
+  rollback. A command's mutation surface becomes an explicit registration, not an
+  implicit consequence of which branch executed. Rationale: rollback is the
+  property most likely to silently regress when a new mutation surface is added;
+  five private implementations means five places to forget it. A single
+  coordinator also gives the hermetic parity suite (REQ-042) one seam for
+  fault injection, so rollback is proven by construction rather than per command.
+  [Resolved from OQ-7]
+
+- **DD-30:** Lifecycle command dependencies are structurally mandatory —
+  constructors make incomplete options unrepresentable. A command cannot be
+  assembled without its real Git, version-resolution, and validator
+  dependencies; omitting one is a compile-time failure rather than a runtime
+  diagnostic or a silently-skipped step. Distribution provides no internal
+  defaults, so a test double is never mistakable for production wiring.
+  Fail-closed nil validation (OQ-8 option (a)) is permitted only as an
+  incremental step while the constructors land, never as the end state.
+  Rationale: this codebase is extended by agents working at speed from
+  artifacts, and the discovery-source defect (nil GitCloner panic, REQ-038) was
+  exactly a case where the wiring was optional and nobody remembered it.
+  Structural impossibility beats remembered diligence.
+  [Resolved from OQ-8]
+
+- **DD-31:** Source coordinate and pack identity are separate concepts, both
+  recorded in the lock. The repository coordinate (`org/repository`, resolved
+  URL, tag) is the source coordinate and is recorded verbatim — no host-specific
+  case normalization, because case-insensitivity is a GitHub property and packs
+  may be hosted anywhere. The manifest `name` is the install/runtime identity: it
+  determines the install path under `.backstop/packs/`, the config key in
+  backstop.yml, the lock key, and the engine asset root used to resolve rules,
+  producers, converters, and validators. Manifest semantic version must equal the
+  effective tag version after normalizing only an optional leading `v`, checked
+  fail-closed before any mutation (DD-26). Rationale: the harness pack
+  legitimately named itself `backstop/harness-toolchain` while living at
+  `backstop-ai/backstop-harness-toolchain-pack`; the defect was not the
+  divergence but that the install path was built from the coordinate while gate
+  dispatch resolved assets under the manifest name. Requiring equality would
+  outlaw a reasonable convention; an alias field would add a third name to keep
+  coherent.
+  [Resolved from OQ-9]
 
 ## Open Questions
 
@@ -782,6 +1200,109 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
   always sees exactly what version they're on. backstop.yml and the
   lockfile always agree. See DD-23.
 
+- **OQ-6: Legacy hash migration.** [RESOLVED] REQ-021@1.0.0 included root `.git`
+  metadata whenever the source or installed pack was itself a repository.
+  REQ-021@1.1.0 excludes that metadata. How should existing locks migrate
+  without conflating a recognized legacy hash with authored-content tampering?
+  An in-place consumer may still possess the exact legacy installed tree, but a
+  fresh clone generally cannot reproduce clone-local refs, logs, config, object
+  layout, or worktree pointers. **Options:** (a) in-place dual-read/current-write
+  when the exact legacy tree proves the old hash, with a typed migration-required
+  result on fresh clones; (b) always fail with a typed migration diagnostic,
+  using local `pack relock` for local sources and a new explicit remote migration
+  operation that clones the exact pinned tag, reruns pack check/test because the
+  old hash cannot authenticate a fresh clone, presents the old/new algorithm
+  transition, requires explicit acknowledgment, and atomically writes sanitized
+  content plus lock; (c) treat every old hash as a normal mismatch. **Lean:** (b)
+  for the first safe release; it is deterministic across fresh clones and never
+  asks CI to infer trust from unreproducible repository metadata. CI must receive
+  an already-migrated committed lock rather than acknowledge interactively. A
+  later in-place convenience path may be added only with evidence that it cannot
+  mask authored changes.
+  **Resolution:** (b) — always fail on a legacy hash with a typed migration
+  diagnostic; never accept a legacy hash in place. Local-path sources migrate
+  via `pack relock`. Git sources migrate via a new explicit remote migration
+  operation that clones the exact pinned tag, reruns `pack check` + `pack test`
+  (the legacy hash cannot authenticate a fresh clone), presents the algorithm
+  transition, requires explicit acknowledgment, and atomically writes sanitized
+  content plus the updated lock entry. CI always receives an already-migrated
+  committed lock and is never asked to acknowledge interactively. Rationale:
+  trust is never inferred from unreproducible repository metadata — a fresh
+  clone cannot reproduce clone-local refs, logs, config, object layout, or
+  worktree pointers, so any in-place dual-read would authenticate content on a
+  machine-specific accident. Deterministic failure plus an explicit,
+  re-validating migration keeps "the hash is the proof" (DD-12) true through the
+  algorithm transition. See DD-28.
+
+- **OQ-7: Transaction coordinator boundary.** [RESOLVED] Current add/install/update/
+  upgrade paths mutate different combinations of installed content, tool
+  config, provenance, manifests, lock, and gitignore. Should each command own
+  a private snapshot/rollback implementation, or should distribution expose
+  one reusable local transaction coordinator? **Options:** (a) shared staged
+  filesystem transaction with command-specific participants; (b) command-local
+  snapshots using shared primitives; (c) narrow rollback only around newly
+  introduced validation failures. **Lean:** (a) or (b); (c) does not satisfy
+  existing atomicity promises and preserves known partial-state failures.
+  **Resolution:** (a) — one shared staged-filesystem transaction coordinator in
+  distribution, with command-specific participants registered per DD-27, exposed
+  as shared primitives that add, install, update, upgrade, remove, and relock all
+  consume. Rationale: rollback correctness is the hardest property to get right
+  and the easiest to regress; five private implementations means five places for
+  a newly added mutation surface to be forgotten. One coordinator makes "which
+  surfaces does this command own?" an explicit registration rather than an
+  implicit consequence of the code path taken, and it gives the parity suite
+  (REQ-042) a single seam to fault-inject against. See DD-29.
+
+- **OQ-8: Production dependency assembly.** [RESOLVED] Should Git/version dependencies be
+  mandatory explicit fields supplied by every command, or should distribution
+  provide safe production defaults when options omit them? **Options:** (a)
+  explicit command wiring plus fail-closed nil validation in distribution;
+  (b) defaults inside distribution; (c) constructors that make incomplete
+  options unrepresentable. **Lean:** (c), with (a) as the incremental path.
+  **Resolution:** (c) — constructors make incomplete options unrepresentable. A
+  lifecycle command cannot be assembled without its real Git, version-resolution,
+  and validator dependencies; a missing dependency is a compile-time failure, not
+  a runtime diagnostic. Option (a)'s fail-closed nil validation is acceptable
+  only as an incremental path while the restructuring lands, not as the end
+  state. Rationale (user-endorsed): this codebase is extended by agents working
+  at speed from artifacts, so structural impossibility beats remembered
+  diligence — the nil-cloner panic (REQ-038's discovery source) was exactly a
+  case where the wiring was optional and nobody remembered it. Defaults inside
+  distribution (b) were rejected because they hide which dependency is actually
+  in play and make a test double indistinguishable from production wiring. See
+  DD-30.
+
+- **OQ-9: Canonical repository identity.** [RESOLVED] GitHub repository names are
+  case-insensitive while pack names are validated identifiers, and the pack
+  ecosystem may intentionally use a conceptual manifest name that differs from
+  its repository basename. Which tuple is authoritative across source URL,
+  requested `org/repository`, manifest name, install path, config key, lock key,
+  and engine asset root? **Options:** (a) require canonical full repository
+  identity to equal manifest name; (b) treat repository identity as source
+  coordinate and manifest name as install/runtime identity, recording both in
+  the lock; (c) allow an explicit manifest alias/source field that maps them.
+  Host-specific case normalization must not be applied to arbitrary Git hosts.
+  Manifest semantic version must still equal the effective tag version after
+  normalizing only an optional `v` prefix. **Lean:** (b), because source location
+  and pack identity are separate concepts and existing ecosystem names need not
+  mirror repository basenames.
+  **Resolution:** (b) — repository identity is the SOURCE COORDINATE only,
+  recorded verbatim in the lock. The manifest name is the install/runtime
+  IDENTITY: it determines the install path, the config key, the lock key, and the
+  engine asset root. Both are recorded in the lock so a consumer can answer
+  "where did this come from?" and "what is it called here?" independently.
+  Host-specific case normalization is never applied — the requested coordinate is
+  preserved as written, because case folding is a GitHub property and packs may
+  be hosted anywhere. Manifest semver must equal the effective tag version after
+  normalizing only an optional `v` prefix; that check stays fail-closed before
+  mutation. Rationale: the harness failure was not an identity-equality problem —
+  the pack legitimately named itself `backstop/harness-toolchain` while living at
+  `backstop-ai/backstop-harness-toolchain-pack`. Forcing equality (a) would
+  outlaw a reasonable naming convention; an alias field (c) adds a third name to
+  keep coherent. Separating coordinate from identity fixes the real defect, which
+  was that the manifest name was not the value used to build the install path.
+  See DD-31.
+
 ## Spec Seeds
 
 - **`pack add` command** — git resolution, clone, validate, install to
@@ -804,6 +1325,68 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
 - **tool_config provenance** — tracking which settings came from which
   pack, install-time value hashing, safe revert on pack remove.
 
+### Reliability repair seeds (0.7.0)
+
+- **Production remote dependency assembly** — real Git/tag implementations and
+  constructors that make an incompletely assembled command unrepresentable
+  (DD-30), with Cobra wiring for add, install, update, and upgrade. Foundation
+  seed; identity and parity depend on its production seams. Fail-closed nil
+  validation is permitted only as an interim step inside this seed.
+
+- **Authored content identity and legacy lock migration** — root repository
+  metadata exclusion for copy/hash, the typed migration-required diagnostic, the
+  explicit remote re-validating migration operation and local `pack relock` path
+  (DD-28), gate/relock/install convergence, and compatibility tests. Independent
+  of remote dependency assembly except for the clone seam the remote migration
+  operation needs and for final parity.
+
+- **Remote reference and manifest identity** — effective version handling,
+  source-coordinate-versus-manifest-identity separation with both recorded in the
+  lock, verbatim coordinate preservation, manifest-name-derived install path /
+  config key / engine asset root, `v`-prefix-normalized version equality, and
+  pre-mutation diagnostics (DD-31). Depends on production clone seams.
+
+- **Transactional distribution mutations** — the single shared staged-filesystem
+  transaction coordinator plus command-specific participant registration (DD-29)
+  giving exact rollback for installed packs, consumer tool config, provenance,
+  manifests, lock, owned gitignore entries, and remove cleanup according to
+  DD-27. Exposes the shared transaction primitives every command repair consumes,
+  and the fault-injection seam the parity suite drives.
+
+- **Hermetic remote lifecycle parity suite** — production CLI tests using
+  temporary tagged repositories and URL rewriting, covering all commands and
+  failure boundaries without network access. Final integration seed; depends on
+  all preceding reliability seeds and tests the exact REQ-042 command matrix.
+
+## Revision Impact on Existing Artifacts
+
+`SPEC-015-pack-distribution.spec.md` remains historically pinned to
+`pack-distribution-lifecycle:REQ-021@1.0.0`. That pin must not be rewritten: it
+describes the algorithm the spec evaluated. Its existing ready plan must not be
+replayed as the repair vehicle because it implements the legacy all-files
+contract and does not cover REQ-038 through REQ-042. Reliability work requires
+new delta specs that pin REQ-021@1.1.0, REQ-020@1.1.0, and the 1.1.0 revisions of
+REQ-038 through REQ-042. OQ-6 through OQ-9 are resolved as of 0.8.0, but the
+bundle remains at exploring maturity — promotion is a separate step, and
+implementation stays unauthorized until the bundle is promoted and those delta
+specs are written and reviewed.
+
+## Out of Scope for the 0.7.0 Reliability Revision
+
+- A hosted pack registry, catalog redesign, publishing proxy, attestations, or
+  native package-registry distribution (owned by BUNDLE-001/BUNDLE-002).
+- New Git authentication, credential storage, SSH-agent management, or
+  host-specific transport beyond executing already-configured non-interactive
+  Git commands.
+- General pack validation-rule redesign; this revision wires existing pack
+  check/test authority through production commands.
+- New local-pack provenance semantics unrelated to repository metadata and hash
+  migration.
+- Unrelated gate dimensions or Go test-engine output handling.
+- Changing pack authoring identity rules. DD-31 fixes core's mapping between
+  source coordinate and runtime pack identity; it does not constrain what
+  authors may name their packs or repositories.
+
 ## References
 
 - BUNDLE-001 — parent vision bundle (pack distribution, verification, review)
@@ -813,6 +1396,41 @@ Requirements REQ-001 through REQ-037 are defined in the frontmatter
 - ADR-0001 — machine-first output (JSON for agent consumption)
 
 ## Version History
+
+- **0.8.0** (2026-07-25): Resolved OQ-6 through OQ-9, closing every open
+  question from the reliability revision. OQ-6 → always fail a legacy
+  Git-metadata-inclusive hash with a typed migration diagnostic; local sources
+  migrate via `pack relock`, git sources via an explicit re-validating remote
+  migration operation with consumer acknowledgment; no in-place acceptance, and
+  CI never acknowledges interactively (DD-28). OQ-7 → one shared
+  staged-filesystem transaction coordinator with command-specific participants
+  (DD-29). OQ-8 → constructors make incomplete options unrepresentable so a
+  missing production dependency is a compile-time failure, with fail-closed
+  validation permitted only as an interim path (DD-30). OQ-9 → repository
+  identity is the source coordinate recorded verbatim, manifest name is the
+  install/runtime identity driving install path, config key, lock key, and engine
+  asset root, with both recorded in the lock and no host-specific case
+  normalization (DD-31). Versioned the affected requirements to 1.1.0: REQ-020
+  (lock records both identities), REQ-038 (compile-time dependency
+  completeness), REQ-039 (coordinate/identity separation), REQ-040 (shared
+  coordinator participants), REQ-041 (explicit migration policy), REQ-042
+  (parity suite covers the named migration operation and coordinator fault
+  injection). Added three success criteria and made the Homebrew distribution
+  mental model explicit in problem framing, solution approach, and Current
+  Thinking — tap as host, pack name as identity, reproducible pinned installs,
+  remote as the default posture that all-local installs have not yet proven.
+  Maturity deliberately held at exploring; promotion is a separate user-driven
+  step.
+
+- **0.7.0** (2026-07-22): Reopened to exploring after dogfooding a published
+  harness toolchain pack exposed production remote lifecycle gaps. Versioned
+  REQ-021 to define authored-content hashing and root repository-metadata
+  exclusion; added REQ-038 through REQ-042 for production dependency wiring,
+  remote identity validation, transactional mutation boundaries, legacy hash
+  migration, and hermetic lifecycle parity. Added DD-24 through DD-27, OQ-6
+  through OQ-9, and five reliability repair spec seeds. No implementation is
+  authorized until the new open questions are resolved and the bundle returns
+  to ready maturity.
 
 - **0.6.0** (2026-04-08): Advanced to ready maturity. Added success criteria
   (10 criteria covering all six commands, lockfile format, gate verification,
