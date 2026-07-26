@@ -71,12 +71,47 @@ underlying defect — it silently assumes every `ExitViolations` returner pre-re
 its own output, and nothing enforces that assumption. Other `ExitViolations`
 returners should be audited for the same trap before it claims a third victim.
 
+### Third finding — malformed waiver tokens are silently ignored too (2026-07-26)
+
+Live-reproduced in the 2026-07-26 full recipe-scenario sweep (all kinds/ops
+authored in a real local pack, applied via the real CLI in a scratch consumer):
+a divergence token with an illegal reason code —
+`@waiver:some-rule:intentional-fork:2026-12-31` — where `intentional-fork` is not
+one of pkg/waiver's closed `ReasonCode` enum members (`false-positive`,
+`accepted-risk`, `deferred`, `third-party`; `pkg/waiver/waiver.go:26-37`) simply
+fails to parse. `recipe apply` does not report this as an error at all: it
+**regenerates the consumer's diverged file over the operator's edit and exits 0**
+with `applied recipe <ref>` (`cmd/backstop/recipe_apply.go:73`) — no warning, no
+mention that a waiver token was seen and rejected, no mention that the file was
+rewritten. The operator's edit is clobbered with zero hint the token was invalid.
+
+Root cause is a different code path than the `ExitViolations` convention above, but
+the same silence family: `pkg/recipe/apply.go:337-356` (`adjudicateDivergence`)
+calls `waiver.Adjudicate(findings, read, nil, time.Now())` and reads only
+`.Suppressed` off the returned `waiver.Result` to decide whether the divergence is
+covered. `waiver.Adjudicate` already classifies an unparseable token as a
+`DiagnosticMalformed` entry in `Result.Diagnostics` (`pkg/waiver/adjudicate.go:39,
+120`) — the malformed-token signal EXISTS in the value `adjudicateDivergence`
+receives — but `adjudicateDivergence`'s `bool` return type has nowhere to carry it,
+so it is dropped on the floor. `coveredDivergence` (`apply.go:308-321`) then sees
+"not covered" and `preserveOrRegenerate` (`apply.go:266` area) proceeds to
+regenerate, indistinguishable from the case where no token was present at all.
+Compounding it, the CLI's success path never reports `ApplyResult.Preserved` or
+which files were (re)written either way (`cmd/backstop/recipe_apply.go:73` prints
+only the one static line), so even a VALID waiver's preservation and an INVALID
+waiver's silent override look identical at the terminal — both just say
+"applied recipe".
+
 ### Why tests missed it
 
 The trust-gate/E2E tests for `recipe apply` assert on the in-process error VALUE
 returned by the command (`err.Error()` contents), never on the process-level stderr
 of an actual failing invocation. A test that shells out to the built binary and
-checks stderr would have caught this; none does.
+checks stderr would have caught this; none does. The malformed-waiver-token finding
+has the same shape one level deeper: no existing test drives a diverged file through
+`Apply` with a token whose reason code is outside the closed enum and asserts on
+what the operator is told — `adjudicateDivergence`'s narrowing of `waiver.Result` to
+a single `bool` is untested on its `Diagnostics` side entirely.
 
 ### Expected
 
@@ -90,6 +125,15 @@ rendered its own output" from "this command did not" (e.g. a carrier flag on
 same silent branch. A process-level test — invoking the built `recipe apply` binary
 against a failing recipe and asserting the `manual:` text appears on stderr — should
 guard the fix.
+
+Separately (same silence family, different path): `adjudicateDivergence` needs a
+return shape that carries `waiver.Result.Diagnostics`, not just `.Suppressed`, so a
+malformed token can surface as "waiver token on line N has unknown reason code
+%q" (or equivalent) instead of vanishing. At minimum, `recipe apply`'s success
+output should name every file it (re)wrote versus preserved — a
+diverged-and-regenerated notice naming the file — so a malformed-token regeneration
+is visibly different from a clean re-apply even before the malformed-token message
+itself is wired up.
 
 ## References
 
@@ -117,3 +161,18 @@ guard the fix.
 - `docs/CODEBASE-MAP.md` — "Known gap — `pack relock` silent failure" section
   documents ISSUE-074's instance of this convention; this issue is a second data
   point for the same gap
+- `pkg/recipe/apply.go:337-356` (`adjudicateDivergence`) — narrows
+  `waiver.Adjudicate`'s `Result` to a single `bool` (`.Suppressed` only), dropping
+  `.Diagnostics` on the floor; a malformed reason code produces a
+  `DiagnosticMalformed` entry that never reaches the caller
+- `pkg/recipe/apply.go:304-321` (`coveredDivergence`) — treats "not covered" (which
+  includes "token was malformed") identically to "no token present" and proceeds to
+  regenerate either way
+- `pkg/waiver/waiver.go:22-46` (`ReasonCode`, `validReason`) — the closed
+  four-member enum (`false-positive`/`accepted-risk`/`deferred`/`third-party`); any
+  other value, e.g. `intentional-fork`, is malformed
+- `pkg/waiver/adjudicate.go:39,120` (`DiagnosticMalformed`) — the malformed-token
+  diagnostic kind `Adjudicate` already produces, unused by the recipe-apply path
+- `cmd/backstop/recipe_apply.go:73` — success path prints only `applied recipe
+  <ref>`; never reports `ApplyResult.Preserved` or which files were (re)written, so
+  a silently-overridden divergence is indistinguishable from a clean apply
