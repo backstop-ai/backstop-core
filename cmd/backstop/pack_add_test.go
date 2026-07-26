@@ -7,15 +7,61 @@ import (
 	"testing"
 )
 
-// writeLocalPackSource writes a minimal versionless local pack source (pack.yml + a
-// representative rule file) under parent/rel and returns its absolute dir.
+// writeLocalPackSource writes a STRUCTURALLY VALID local pack source (pack.yml + its
+// rule file) under parent/rel and returns its absolute dir. It is the shared fixture for
+// every test in this package that drives a local `pack add` through the CLI.
+//
+// It has to be genuinely valid because `pack add` now runs pack check and pack test
+// UNCONDITIONALLY (SPEC-055 REQ-008), local sources included — the nil Validator that
+// used to skip them is gone. The older four-field fixture this replaced was never a valid
+// pack; it only ever passed because nothing looked at it.
+//
+// The pack declares a `version:`, which the local add path deliberately ignores: it never
+// reads a version out of a local manifest, so AddResult.Version stays empty and the
+// versionless "Added <name> (hash: …)" rendering — with no bare trailing `@` — is still
+// what the display assertions below exercise.
+//
+// It executes NOTHING. The engine's command is empty, so a fixture that somehow reached
+// execution fails loudly instead of quietly shelling out; and a rule with no claims is
+// exempt from the claims requirement exactly when its declared engine resolves, which is
+// what lets a pack this small pass phase2 at all.
 func writeLocalPackSource(t *testing.T, parent, rel, name string) string {
 	t.Helper()
-	writeFileForTest(t, parent, filepath.Join(rel, "pack.yml"),
-		"name: "+name+"\narchetype: rule-pack\ncontent:\n  ruleset:\n    rules:\n      - id: R1\n")
-	writeFileForTest(t, parent, filepath.Join(rel, "rules", "r1.yml"), "rules:\n  - id: R1\n")
+	writeFileForTest(t, parent, filepath.Join(rel, "pack.yml"), localPackManifest(name))
+	writeFileForTest(t, parent, filepath.Join(rel, "rules", "r1.yml"), localPackRuleFile)
 	return filepath.Join(parent, rel)
 }
+
+// localPackManifest renders the fixture manifest for a pack named name.
+func localPackManifest(name string) string {
+	return "name: " + name + `
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Local pack fixture for the cmd/backstop CLI tests. It exists to be installed, not to
+  find anything, and it runs no external tool.
+engines:
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: R1
+        engine: marker-scan
+        file: rules/r1.yml
+        risk_class: correctness
+`
+}
+
+// localPackRuleFile is the rule file the manifest points at. The fixture phase checks that
+// it declares the SAME rule id the manifest does, so the two must move together.
+const localPackRuleFile = "rules:\n  - id: R1\n"
 
 // TestPackAddCLI_LocalPackNoBareAt asserts CLM-004: adding a versionless LOCAL pack via
 // the real `pack add` prints a success line with the pack name but NO bare trailing `@`.

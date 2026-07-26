@@ -19,7 +19,6 @@ import (
 func TestPackAddDeclaredE2E_EmptyPacksMaterializes(t *testing.T) {
 	parent := t.TempDir()
 	projectDir := filepath.Join(parent, "project")
-	sourceDir := filepath.Join(parent, "go-standards")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -27,9 +26,7 @@ func TestPackAddDeclaredE2E_EmptyPacksMaterializes(t *testing.T) {
 	packName := "backstop/go-standards"
 	// backstop.yml DECLARES the pack, but nothing is materialized on disk.
 	writeFileForTest(t, projectDir, "backstop.yml", "packs:\n  "+packName+": local")
-	writeFileForTest(t, sourceDir, "pack.yml",
-		"name: "+packName+"\narchetype: enforcement\ncontent:\n  ruleset:\n    rules:\n      - id: R1")
-	writeFileForTest(t, sourceDir, filepath.Join("rules", "r1.yml"), "rules:\n  - id: R1")
+	writeLocalPackSource(t, parent, "go-standards", packName)
 
 	restore := chdirForTest(t, projectDir)
 	defer restore()
@@ -82,7 +79,6 @@ func TestPackAddDeclaredE2E_EmptyPacksMaterializes(t *testing.T) {
 func TestPackAddDeclaredE2E_DivergedLockReinstalls(t *testing.T) {
 	parent := t.TempDir()
 	projectDir := filepath.Join(parent, "project")
-	sourceDir := filepath.Join(parent, "go-standards")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +87,7 @@ func TestPackAddDeclaredE2E_DivergedLockReinstalls(t *testing.T) {
 	stale := "slotly/go-standards"
 
 	writeFileForTest(t, projectDir, "backstop.yml", "packs:\n  "+declared+": local")
-	writeFileForTest(t, sourceDir, "pack.yml",
-		"name: "+declared+"\narchetype: enforcement\ncontent:\n  ruleset:\n    rules:\n      - id: R1")
-	writeFileForTest(t, sourceDir, filepath.Join("rules", "r1.yml"), "rules:\n  - id: R1")
+	writeLocalPackSource(t, parent, "go-standards", declared)
 
 	// Diverged lock: only a stale entry under the OLD name, no entry for the declared pack.
 	staleLock := &distribution.Lockfile{

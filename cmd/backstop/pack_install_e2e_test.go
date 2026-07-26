@@ -18,15 +18,12 @@ import (
 func TestPackInstallE2E_LocalPackMaterializesAndResolves(t *testing.T) {
 	parent := t.TempDir()
 	projectDir := filepath.Join(parent, "project")
-	sourceDir := filepath.Join(parent, "go-standards")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	writeFileForTest(t, projectDir, "backstop.yml", "packs: {}")
-	writeFileForTest(t, sourceDir, "pack.yml",
-		"name: backstop/go-standards\nversion: \"1.0.0\"\narchetype: enforcement\ncontent:\n  ruleset:\n    rules:\n      - id: R1")
-	writeFileForTest(t, sourceDir, filepath.Join("rules", "r1.yml"), "rules:\n  - id: R1")
+	writeLocalPackSource(t, parent, "go-standards", "backstop/go-standards")
 
 	restore := chdirForTest(t, projectDir)
 	defer restore()
@@ -145,13 +142,12 @@ func TestPackInstallE2E_StaleLockWarnsInstallsDeclared(t *testing.T) {
 func TestPackInstallE2E_UnresolvableSourceFailsLoud(t *testing.T) {
 	parent := t.TempDir()
 	projectDir := filepath.Join(parent, "project")
-	sourceDir := filepath.Join(parent, "go-standards")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	writeFileForTest(t, projectDir, "backstop.yml", "packs: {}")
-	writeFileForTest(t, sourceDir, "pack.yml", "name: backstop/go-standards\nversion: \"1.0.0\"")
+	sourceDir := writeLocalPackSource(t, parent, "go-standards", "backstop/go-standards")
 
 	restore := chdirForTest(t, projectDir)
 	defer restore()
