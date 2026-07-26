@@ -2,9 +2,9 @@
 title: "Production Remote Dependency Assembly"
 number: SPEC-055
 created: "2026-07-26"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.3.0
+spec_version: 1.3.1
 
 implementation:
   summary: >
@@ -1842,6 +1842,27 @@ local add depends on git.
 
 ## Version History
 
+- **1.3.1** (2026-07-26): Status flip to `implemented`. Documentary only — no
+  requirement, claim, contract, or behavior changed; the delivered contract is the one
+  1.3.0 states. PLAN-SPEC-055 executed in full (53 tasks, all twelve phases) through the
+  commit series `cbe0869..40a92cd`: the hermetic remote substrate (phase 1), the
+  `reportError` seam and separated-stream runner (phase 2), per-site error surfacing —
+  four `Explained`, nine loud (phase 3), `ExecGitCloner` with the Clone strip (phase 4),
+  `PackvalValidator` and `TagVersionResolver` (phases 5–6), the fail-closed positional
+  constructors that make an unassembled command a compile error (phase 7, DD-30 /
+  OQ-8(c)), production cobra wiring that kills the ISSUE-073 nil-cloner panic (phase 8),
+  the single `--json` error document on stdout (phase 9), the 134-test migration of the
+  distribution suites onto the constructor-assembled commands (phase 10), the deletion of
+  the four free functions and the dependency fields so nil is unrepresentable (phase 11),
+  and the kill chain (phase 12). All 103 claims' mandated tests are present and green with
+  ONE accountable exception: the `pack upgrade` SUCCESS path is unreachable from the
+  production wiring until the scanner/remediation capability seed lands (BUNDLE-006
+  REQ-014/REQ-018), so its coverage carries an expiring waiver at
+  `cmd/backstop/pack_upgrade.go:1` — `@waiver:coverage_threshold:deferred:2026-10-24` —
+  which that seed must remove rather than renew. TASK-053 reconciled the two
+  `docs/CODEBASE-MAP.md` known-gap sections against the as-built tree. PLAN-SPEC-055 moves
+  to `completed`; its `spec_version` pin stays at `1.3.0`, the version it was executed
+  against.
 - **1.3.0** (2026-07-26): Clone-strip amendment, user-adopted following an
   out-of-session mediation. `ExecGitCloner.Clone` now STRIPS the root `.git` directory
   it created before returning, so the tree handed to distribution is authored content
