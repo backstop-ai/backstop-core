@@ -530,7 +530,7 @@ phases:
               - id: <id>
                 tier: complete
                 path: <a directory that EXISTS in the fixture>
-                test_command: "true"      ← see below
+                test_command: ":"         ← EXACTLY this; see below
                 sample_config:
                   <relPath>: "<contents>"
                 use_when: [...]
@@ -547,7 +547,7 @@ phases:
              "validator writes do not reach the installed tree" assertions
              cannot fail.
 
-          2. test_command MUST BE A POSIX SHELL BUILTIN.
+          2. test_command MUST BE `:` — THE POSIX SPECIAL BUILTIN, NOT `true`.
              DefaultExecutor.RunScaffoldTest (executor.go:107-112) runs
              exec.Command("sh", "-c", testCommand) UNCONDITIONALLY for a
              tier:complete scaffold, and PackvalValidator supplies no executor
@@ -555,9 +555,29 @@ phases:
              shell subprocess is UNAVOIDABLE on this path. The hermetic
              property is therefore "reaches no network and no toolchain or
              provisioned binary", NOT "spawns no process" — writing the claim
-             the other way would be false by construction. `true` is the
-             builtin; anything that resolves to a binary on PATH breaks
-             CLM-103.
+             the other way would be false by construction.
+
+             "BUILTIN" IS NOT ENOUGH; IT MUST HAVE NO EXTERNAL COUNTERPART.
+             CLM-103's mandated test asserts that exec.LookPath ERRORS on the
+             command's first word, and `true` FAILS that assertion. Measured on
+             the base system:
+
+               LookPath("true") → "/usr/bin/true", err = nil     ✗ CLM-103 reds
+               LookPath(":")    → "", err = not found in $PATH   ✓ CLM-103 passes
+
+             `true` is a REGULAR builtin: the shell resolves it internally, but
+             a real /usr/bin/true also exists, so LookPath finds it and the
+             claim cannot hold. `:` is a POSIX SPECIAL builtin — resolved
+             before any PATH search, with no external counterpart on any POSIX
+             system (`/usr/bin/:` does not and cannot exist, since `:` is not a
+             legal filename component in a command word the shell would search
+             for). `sh -c ':'` exits 0, which is what the scaffold test needs.
+
+             An earlier revision of this plan specified `true` on the premise
+             that it was "the builtin". THAT PREMISE WAS FALSE and the fixture
+             would have failed its own claim. Do not revert it, and do not
+             substitute any other command without running LookPath against it
+             first.
 
           3. scaffold.Path MUST BE A REAL DIRECTORY IN THE FIXTURE. RunScaffoldTest
              sets cmd.Dir = packDir + "/" + scaffoldPath; a missing directory
@@ -729,11 +749,22 @@ phases:
 
             TestHermeticFixture_ScaffoldTestCommandIsAShellBuiltin (CLM-103)
               Require the declared test_command resolves to NO executable on
-              PATH (exec.LookPath returns an error for its first word). State
-              in a comment WHY the assertion is shaped that way: a shell
-              subprocess is unavoidable here (executor.go:107-112), so the
-              hermetic property is network-free and toolchain-free, not
-              process-free.
+              PATH (exec.LookPath returns an error for its first word). The
+              fixture declares `:` (TASK-003 constraint 2) and that is what
+              makes the assertion hold. State in a comment WHY the assertion is
+              shaped that way: a shell subprocess is unavoidable here
+              (executor.go:107-112), so the hermetic property is network-free
+              and toolchain-free, not process-free.
+
+              READ THE COMMAND FROM THE MANIFEST, never hardcode `:` in the
+              assertion — the test's job is to catch a fixture edited to
+              something PATH-resolvable, and a hardcoded expected value tests
+              the test. The trap this guards is specific and already sprung
+              once: `true` LOOKS like the obvious builtin and is a REGULAR
+              builtin, but /usr/bin/true exists, LookPath returns nil error,
+              and this test would red. `:` is a SPECIAL builtin with no
+              external counterpart. If this test ever reds, the fix is the
+              FIXTURE, not the assertion.
 
             TestHermeticFixture_NewFixturesPassPackCheckAndPackTest (CLM-104)
               Drive the BUILT binary — buildBackstopBinary, then
