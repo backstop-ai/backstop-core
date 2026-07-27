@@ -1,0 +1,1896 @@
+---
+plan_id: PLAN-ISSUE-087
+spec_id: ISSUE-087
+created: "2026-07-27"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-087 — the launch-minimal slice of DIR-001. Four deliverables,
+  in a forced order: the module path rename FIRST (everything downstream names the
+  new path), then version resolution, then the goreleaser config, then the two
+  workflows.
+
+  ── TARGET MODULE IS THE POST-RENAME PATH ──────────────────────────────────
+  `target_module` above is `github.com/backstop-ai/backstop-core` — the path this
+  plan MOVES TO, not the one on disk when the plan was written (that is
+  `github.com/bmanson/backstop-core`). Phase 1 makes the header true.
+
+  ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
+  Confirmed 2026-07-27: `./bin/backstop code check` errors with
+  `unknown command "code" for "backstop"`. The shipped top-level commands are
+  artifact, baseline, commands, completion, gate, help, pack, recipe, version,
+  waiver. Any task prescribing `backstop code check` is prescribing a command
+  that does not exist.
+
+    middle: go build ./... && go test ./... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary
+            gates the OLD code and reports a vacuous green)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-087
+
+  Every Go test run is `-race -count=1`. Report TRUE exit codes (`echo $?`);
+  never mask a non-zero exit behind a pipe or a summary.
+
+  ── WHAT IS PROVABLE TODAY vs WHAT WAITS FOR THE REMOTE ────────────────────
+  `git remote -v` is EMPTY. There is no remote, no GitHub repo, and therefore no
+  workflow in this repo has EVER executed — including the `ci.yml` that this
+  issue's release workflow gates on. That is not a defect to fix here; it is the
+  honest boundary of this plan's evidence.
+
+    PROVABLE LOCALLY (this plan's tasks must actually prove these):
+      - the rename: full repo build + `go test ./... -race -count=1` green, and
+        a rebuilt binary passing `./bin/backstop gate`
+      - version resolution: a pure-function table test, PLUS a real
+        `go build -ldflags "-X main.version=vX.Y.Z"` whose CLI output is asserted
+      - the goreleaser config: `goreleaser check` (config validity) and
+        `goreleaser release --snapshot --clean` (a real four-platform build with
+        NO remote and NO tag)
+      - the workflows: parsed-YAML shape assertions + actionlint
+
+    NOT PROVABLE UNTIL THE PRIVATE REMOTE EXISTS (TASK-014, deferred by design):
+      - a real `v*` tag push producing a real GitHub Release with archives and
+        checksums
+      - a tag against a RED commit, or a non-semver / non-ancestor tag, being
+        REFUSED by the live workflow
+      - `go install github.com/backstop-ai/backstop-core/cmd/backstop@vX.Y.Z`
+        followed by `backstop version` reporting the real tag
+
+  TASK-014 exists so a green run of this plan is never mistaken for a proven
+  pipeline. The implementer MUST report TASK-014 as DEFERRED-BLOCKED and MUST NOT
+  simulate, stub, or claim it.
+
+  ── TOOL-AVAILABILITY PROTOCOL (goreleaser and actionlint are NOT installed) ─
+  Verified 2026-07-27: `which goreleaser` and `which actionlint` both report not
+  found. Both are Go programs, so both are runnable without installing anything:
+
+      go run github.com/goreleaser/goreleaser/v2@latest check
+      go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+      go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/*.yml
+
+  Prefer a PATH binary if one appears; otherwise use `go run`. These fetch from
+  the network. If the fetch fails, the task MUST report the failure and the skip
+  EXPLICITLY — "goreleaser check could not run: <error>" — and must NOT report the
+  step as passed. The parsed-YAML shape tests (TASK-008, TASK-011) are the
+  always-available falsifier and are never optional.
+
+  ── SHARP EDGE: A LOCAL `go build` ALREADY STAMPS A PSEUDO-VERSION ──────────
+  This is the trap in the ReadBuildInfo fallback, and it was found by CAPTURING
+  real output rather than reasoning about it. On 2026-07-27, against the
+  binary built by `make build` (Go 1.25.3):
+
+      $ go version -m ./bin/backstop
+      ./bin/backstop: go1.25.3
+        path  github.com/bmanson/backstop-core/cmd/backstop
+        mod   github.com/bmanson/backstop-core  v0.0.0-20260727014125-1ccb2a60b2f7+dirty
+
+  Since Go 1.24, `go build` derives `Main.Version` from VCS state. It is NOT
+  `(devel)` here — it is a PSEUDO-VERSION, and on a dirty tree it carries a
+  `+dirty` suffix. A naive `if injected == "dev" { use info.Main.Version }`
+  therefore makes every local dev build report
+  `v0.0.0-20260727014125-1ccb2a60b2f7+dirty` at `backstop version`. That is worse
+  than `"dev"`: it looks like a real version and is not one.
+
+  The fallback must accept ONLY a released module version and reject everything
+  else. Captured/derived fixture strings for the table test — the first is REAL
+  captured output, the rest are the shapes the Go toolchain actually emits:
+
+      "v0.11.0"                                     ACCEPT (go install @v0.11.0)
+      "v1.0.0-rc.1"                                 ACCEPT (pre-release tag)
+      "v0.0.0-20260727014125-1ccb2a60b2f7+dirty"    REJECT (captured local build)
+      "v0.0.0-20260727014125-1ccb2a60b2f7"          REJECT (clean pseudo-version)
+      "(devel)"                                     REJECT (no VCS info)
+      ""                                            REJECT (empty)
+      nil BuildInfo / ReadBuildInfo ok==false       REJECT
+
+  REJECT means the result is `"dev"`. The rejection predicate is behavioral, not
+  cosmetic: reject `(devel)`, empty, anything containing `+` (build metadata /
+  dirty), and anything whose pre-release segment is the pseudo-version shape
+  `-<14 digits>-<12 hex>`. Accept otherwise, provided it starts with `v` and the
+  remainder is a well-formed `X.Y.Z[-prerelease]`.
+
+  ── WHAT THE RENAME DOES AND DOES NOT TOUCH ────────────────────────────────
+  ⚠ THE FILE COUNT IS A MOVING TARGET — DO NOT TREAT IT AS A CRITERION.
+  ISSUE-087 records 295 `.go` files, verified when it was written. Re-measured
+  the same day, 2026-07-27, after the concurrent lanes had moved:
+
+      grep -rl "github.com/bmanson/backstop-core" --include="*.go" .   -> 301
+      find-based whole-tree count (excluding .git)                     -> 387
+      inside .backstop/ (installed pack, off limits)                   ->   1
+
+  It drifted by six files in a matter of hours because three implementer lanes
+  are live in `pkg/` and `cmd/backstop/` — which is the quiet-tree precondition
+  below, arriving as evidence rather than as a worry. RE-DERIVE the count on the
+  quiet tree immediately before the sweep and report before/after. Do not assert
+  "295 files renamed"; assert "N files matched before, 0 match after."
+
+  KNOWN INBOUND DRIFT — PLAN-SPEC-057. That plan is implementing now and CREATES
+  two new files that import the module by full path:
+
+      pkg/pack/distribution/hash_metadata_test.go
+      pkg/pack/distribution/add_metadata_test.go
+
+  If SPEC-057 lands BEFORE this rename (the expected order), the sweep count
+  grows by exactly two and both files are swept like any other. If this rename
+  lands first, SPEC-057's author writes them against the NEW module path. Either
+  order works; what does NOT work is treating any previously-recorded count as
+  authoritative. This is a concrete instance of the derived-at-execution rule
+  above, not an exception to it.
+
+  THE TWO PLANS ARE NOT INDEPENDENT, and an earlier draft of this block wrongly
+  said they were. TASK-002's declared scope is `**/*.go`, so the rename sweep
+  COVERS FIVE OF PLAN-SPEC-057's SIX declared files — add.go, hash.go, both new
+  metadata test files, and cmd/backstop/pack_remote_e2e_test.go. Only
+  backstop.lock falls outside it.
+
+  The earlier "zero overlap" claim came from intersecting the two plans' declared
+  file LISTS as literal strings, which is what D-081's validator compares. That
+  check passes because the string `**/*.go` is not the string
+  `pkg/pack/distribution/add.go` — but a passing D-081 check means the validator
+  cannot prove a conflict, NOT that no conflict exists. For a scope-glob task
+  like TASK-002, literal-string disjointness proves nothing at all.
+
+  Consequence: PLAN-SPEC-057 is IN FLIGHT AT THIS MOMENT, editing files this
+  sweep will rewrite. The quiet-tree precondition on TASK-002 is therefore
+  BINDING, not advisory — TASK-002 does not start until PLAN-SPEC-057 has landed.
+  Stop-and-escalate stands: if 057 is still in flight when you reach TASK-002,
+  halt and escalate for a scheduling slot rather than sweeping around it.
+
+  Note also that a plain `grep -rl <pattern> .` in this environment did NOT
+  descend into the root `.backstop/` directory, while the find-based count did.
+  That is why the earlier whole-tree figure (375) was understated and why the
+  installed-pack reference went unnoticed on the first pass. Use the find-based
+  form when completeness matters.
+
+  The ~86-file delta between the Go count and the whole-tree count is almost
+  entirely HISTORICAL ARTIFACTS — committed plans, specs and issues that quote
+  the module path inside validator snippets or prose.
+
+    RENAMED (live code and live tooling):
+      - go.mod module directive
+      - all 295 .go files
+      - cmd/backstop/testdata/catalog-display-site.go.txt
+      - cmd/backstop/testdata/catalog-unlisted-keying-site.go.txt
+      - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/
+        scripts/coverage-to-records.sh  (a comment, but it names the import path
+        the coverage records key on)
+      - the eight agent-definition files whose embedded validator snippet imports
+        pkg/artifact, pkg/validate, and — in six of the eight — pkg/schema
+        (TASK-003). Leaving these stale silently breaks the planner's own
+        validator the moment the rename lands.
+
+    DELIBERATELY NOT RENAMED (and the guard test must not demand it):
+      - plans/, specs/, issues/, bundles/, directives/, adrs/ — these are
+        historical records of what the module path WAS. CLAUDE.md forbids
+        hand-editing artifacts, and rewriting history to match the present is
+        exactly the drift the artifact track exists to prevent. ISSUE-087 and
+        DIR-001 legitimately contain BOTH paths — they describe the rename.
+      - `.backstop/` — see the next block. This one is NOT a stylistic choice;
+        editing it would break the gate.
+      - .git/ and any dist/ output.
+
+  ── `.backstop/packs/` IS OFF LIMITS, AND WHY THE GUARD MUST SKIP IT ───────
+  The INSTALLED copy of the go-toolchain pack carries the old module path:
+
+      .backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh:21
+        # their full module import path (e.g. github.com/bmanson/backstop-core/embed.go),
+
+  `.backstop/packs/` is gitignored INSTALLED pack content — the `node_modules`
+  of this system. Editing it in place is NON-DURABLE: the edit is invisible to
+  git, it never reaches the pack's source repo, and the next `pack install`
+  overwrites it. A rename applied there would look done and silently revert.
+  That is the reason to leave it alone, and it is sufficient on its own.
+
+  CORRECTION (2026-07-27, from PLAN-SPEC-057's review): an earlier draft of this
+  block justified the skip by claiming that editing the installed copy "trips
+  pack_lock_verification's tamper detection — the FIRST step of the gate." THAT
+  IS FALSE, and the plan should not have asserted it. `VerifyLock` SKIPS every
+  `source_type: local` entry outright (`pkg/pack/distribution/verify.go:47-49`,
+  "Skip local packs — they are not in packsDir"), and backstop/go-toolchain is a
+  LOCAL entry. Tamper detection could never have fired on this file. Five of the
+  six locked packs are local today; only the one `git` entry is hash-verified at
+  all. Do not restore the tamper argument.
+
+  Nor should this block cite a content hash. Hashes are MUTABLE BY RELOCK — the
+  go-toolchain hash changes the moment PLAN-SPEC-057's relock task runs, so any
+  hash written here is stale on a schedule nobody is tracking. Cite the pack by
+  NAME and source type, never by digest.
+
+  So TASK-001's guard test MUST skip the repo-root `.backstop` — not because
+  editing it would trip a gate, but because the sweep correctly will not edit it,
+  which means the old path survives there permanently. Without the skip the guard
+  stays RED forever no matter how complete the sweep is, and both ways to "fix"
+  that are wrong: edit installed pack content (non-durable, and it belongs
+  upstream), or delete the guard.
+
+  FOLLOW-ON, filed here so it is not lost: the pack-side comment should be
+  corrected in the backstop/go-toolchain SOURCE repo via the normal pack
+  workflow — fix → version bump → `backstop pack relock` in this repo — NOT by
+  editing the installed copy. It is COSMETIC and non-urgent: the script derives
+  the module prefix at runtime by parsing the producer's `#backstop-module`
+  line, so a stale example in a comment changes no behavior. Do not bundle this
+  into ISSUE-087; it is a separate repo on a separate release cadence.
+
+  ── PRECONDITION: THE RENAME NEEDS A QUIET TREE ────────────────────────────
+  TASK-002 rewrites every `.go` file in the repo. Its file set is a SUPERSET of
+  every other lane's file set, so it collides with any concurrent implementation
+  work by construction — there is no file scoping that avoids this, which is
+  exactly why it is called out here rather than left to D-081.
+
+  As of 2026-07-27 there are three implementer lanes live in `pkg/` and
+  `cmd/backstop/`. Running the sweep while any of them is mid-edit produces
+  conflicts that are miserable to untangle: the mechanical diff touches
+  everything, so a three-way merge cannot tell a rename hunk from a real change.
+
+  BEFORE starting Phase 1, verify and report:
+    - every in-flight implementation lane is committed or landed
+    - `git status` is clean apart from this plan file
+    - no concurrent lane is scheduled to start during the sweep
+
+  If the tree is not quiet, STOP and escalate to the orchestrator for a
+  scheduling slot. Do not start the sweep and "be careful" — that has no
+  recovery path once 295 files are rewritten under someone else's edits.
+
+  TASK-003 edits agent-definition markdown. Scope it to the IMPORT LINES ONLY,
+  inside the fenced Go validator snippet. The count is NOT uniform: the two
+  planner files carry two imports (`pkg/artifact`, `pkg/validate`); the other six
+  carry three, adding `pkg/schema`. Verified 2026-07-27 — do not assume two.
+  Do not touch instruction text, frontmatter, tool lists, or anything else in
+  those files.
+
+  ── IMPORT ORDERING AFTER THE SWEEP ────────────────────────────────────────
+  `backstop-ai` and `bmanson` sort to nearly the same place in the third-party
+  group, so most files are unaffected — but "nearly" is not "provably". After the
+  sed sweep, run `gofmt -l .` and the lint gate; golangci-lint's gci/gofumpt will
+  surface any import block that needs resorting. Fix them; do not waive them.
+
+  ── WHERE THE CONFIG-SHAPE TESTS LIVE, AND WHY THAT IS NOT BAKED KNOWLEDGE ──
+  TASK-008 and TASK-011 add `release_config_test.go` and `workflows_test.go` to
+  the repo-ROOT package (`package backstopcore_test`, alongside the existing
+  `embed_test.go`). The root package is where repo-meta tests already live —
+  `.goreleaser.yml` and `.github/` are both root-relative, and the root package is
+  the only one that can reach them without `../..` games.
+
+  These are the REPO's tests about the REPO's own release configuration. They are
+  not, and must not become, backstop CLI check logic — nothing here goes into
+  pkg/ or into a gate step. CLAUDE.md's zero-baked-knowledge rule governs what the
+  backstop BINARY knows; it does not forbid this repo from testing its own build
+  config. Stated here so a reviewer does not have to guess.
+
+  Assert on PARSED YAML STRUCTURE, not on golden text blobs. `jobs.<id>.needs`,
+  `on.push.tags`, `permissions`, the presence of a step whose `run` invokes
+  `merge-base --is-ancestor` — those survive formatting churn. A byte-for-byte
+  golden file does not, and a test that breaks on reindentation teaches the next
+  person to delete it. The ONE substring assertion that is legitimate is the
+  temporary-header check (CLM-016), because the header's TEXT is the deliverable.
+
+  ── THE SWEEP ACTIVATES DORMANT FINDINGS — RULED: SPLIT (2026-07-27) ───────
+  The gate scopes findings to CHANGED FILES, and file-level diff scope activates
+  ALL of a touched file's dormant findings — not just the lines the diff
+  touched. TASK-002 touches every `.go` file in the repo. That converts a block
+  of currently-dormant violations into BLOCKING ones as a side effect of a
+  mechanical rename that changes no behavior.
+
+  FOUNDER RULING, 2026-07-27 — SPLIT, not a blanket grandfather:
+
+    pack_engines (the mechanical error-wrapping / ignored-errors class)
+      REMEDIATE. TASK-016 owns them, sequenced after the sweep and before
+      TASK-004's gate. The no-grandfather rule applies as normally written:
+      touch it, fix its violations.
+
+    coverage_threshold (8 shortfalls)
+      GRANDFATHERED by explicit founder exception. Routed to the already-approved
+      coverage-baseline refresh. NOT fixed in this plan, NOT waived file-by-file,
+      and NOT silently absorbed — reported against the exception by name.
+
+      The refresh itself is HELD: CI's baseline job does not install packs, so
+      the published baseline is generated with ZERO pack engines present — the
+      packless-baseline defect ISSUE-086 carries. A baseline generated today
+      would therefore lack the very pack set that produces these coverage
+      measurements, and refreshing against it would ratchet the project against a
+      vacuum. The debt is TRACKED behind that blocker, not dropped. Anyone
+      tempted to "just refresh the baseline" to make this green is doing the
+      thing this paragraph exists to prevent.
+
+      CITE IT PLAINLY as "ISSUE-086 (packless baseline)". Do NOT write "ISSUE-086
+      fact 2": that issue was NARROWED on 2026-07-27 from a two-fact filing and
+      no longer has numbered facts. It now carries only the packless-baseline
+      defect; the CI-wiring fact was welded into ISSUE-020's acceptance criterion
+      with an explicit founder instruction not to re-file it separately. A stale
+      "fact 2" label sends the next reader looking for a section that no longer
+      exists.
+
+  ── MEASURED INVENTORY (re-derive; these are snapshots) ────────────────────
+  Parsed from the reviewer's `gate --all` capture, 2026-07-27. The reviewer's
+  headline was ~31 violations across 15 files; a precise re-parse of the same
+  capture gives the following, and the two differ because the headline was the
+  intersection with the swept set net of waivers while this is the raw dimension:
+
+    pack_engines, go-standards rules — 37 rows across 20 files
+        20  error-wrapping-required
+         8  no-global-mutable-state
+         6  no-ignored-errors
+         2  no-panic-in-library-code
+         1  no-hardcoded-credentials
+
+    pack_engines, go-toolchain rules — 59 further rows, NOT covered by the
+    ruling above (46 errcheck, 7 unused, 5 staticcheck, 1 go-test), mostly on
+    `*_test.go` files. See the escalation note in TASK-016: if these land in the
+    swept set they are unruled, and the implementer must escalate rather than
+    silently expanding or shrinking the founder's decision.
+
+    coverage_threshold — 20 rows in the raw dimension; the ruling names 8
+    shortfalls as the grandfathered set. Re-derive the intersection with the
+    swept files and report the actual number against the exception.
+
+  Capture path: `scratchpad/gate-all.txt` (SESSION scratchpad — convenience
+  only, not durable; regenerate rather than trusting it). AUTHORITATIVE method:
+  run `./bin/backstop gate --all`, take its violation file list, intersect with
+  the files TASK-002 modified. That intersection is the newly-activated set.
+
+  NOT COVERED BY ANY DISPOSITION, and this plan's own responsibility:
+    - the three NEW root-package test files (module_path_test.go,
+      release_config_test.go, workflows_test.go) and cmd/backstop/version.go
+      must be findings-clean. New files are in diff scope unconditionally, so a
+      violation in a file this plan AUTHORS is this plan's defect.
+    - any finding absent from `gate --all` BEFORE the sweep. An activated
+      dormant finding is a scope question; a newly-created one is a defect.
+
+  ── HOMEBREW IS BACK IN SCOPE (founder reversal, 2026-07-27) ──────────────
+  ISSUE-087 lists the Homebrew tap as explicitly out of scope, deferred
+  post-launch. That is SUPERSEDED: "we'll bake in homebrew and go install from
+  day 1." The release trinity ships together at launch.
+
+  ── TAP COORDINATES — RATIFIED 2026-07-27 ─────────────────────────────────
+  SETTLED. Founder ratification, verbatim rationale: "I'd lean hard into
+  convention over configuration."
+
+      TAP REPO         backstop-ai/homebrew-tap
+      TAP SHORTHAND    backstop-ai/tap
+      INSTALL COMMAND  brew install backstop-ai/tap/backstop
+
+  The three parts are one fact, not three: Homebrew strips the `homebrew-`
+  prefix when resolving a tap, so the repo `backstop-ai/homebrew-tap` IS the tap
+  `backstop-ai/tap`, and a formula in it installs as
+  `backstop-ai/tap/backstop`. Write the REPO name in the config and the
+  SHORTHAND in any user-facing instruction; they are not interchangeable and
+  mixing them up produces a tap that resolves to nothing.
+
+  Candidates considered, recorded so the decision is not re-litigated:
+      backstop-ai/homebrew-tap        ✅ RATIFIED — the convention form
+      backstop-core/homebrew-backstop ❌ rejected — names the pre-rename org,
+                                         and encodes the project name where the
+                                         convention expects the generic `tap`
+
+  STALE COORDINATES REMAIN IN TWO ARTIFACTS: DIR-001:28 and ISSUE-087:87 both
+  still say `backstop-core/homebrew-backstop`. Both are fixed by the routed
+  follow-on below, using the ratified name — this plan does not hand-edit them.
+
+  Three sites carry the ratified name and must stay in agreement: TASK-008's
+  assertion, TASK-009's config block, and TASK-014's repo-creation step. A tap
+  pointing at the wrong repo does not fail loudly; it publishes a formula into a
+  namespace nobody is watching, which is why the assertion in TASK-008 exists at
+  all.
+
+  What this changes:
+    - `.goreleaser.yml` gains a `brews:` block targeting the NEW repo
+      `backstop-ai/homebrew-tap`. goreleaser generates the formula; nobody
+      hand-writes Ruby.
+    - Creating the tap repo is a STEP, not a deliverable to author. Its contents
+      are generated by the first release that publishes into it.
+    - TASK-008's assertion FLIPS: the earlier `brews:`-ABSENCE assertion (added
+      when the cut was live) becomes a PRESENCE assertion on the block and its
+      tap coordinates. An absence assertion left in place would now block the
+      very thing the founder asked for.
+
+  `go install` needs NOTHING NEW. It is already fully covered by the module
+  rename (Phase 1) plus the ReadBuildInfo fallback (Phase 2) — that combination
+  is exactly what makes `go install ...@vX.Y.Z` report a real version. Do not
+  add machinery for it: no install script, no wrapper, no separate workflow. If
+  you find yourself building something for the `go install` path, stop; the
+  answer is that Phases 1 and 2 already did it.
+
+  SEQUENCING NOTE: like the GitHub Release itself, the tap cannot be proven
+  pre-remote. `goreleaser release --snapshot` skips publishing entirely, so
+  TASK-010's local dry-run still works and still proves the config — but the
+  formula only lands in a real tap on a real tagged run. The tap-repo creation
+  and the `brew install` round trip are therefore part of TASK-014's deferred
+  post-remote set, not something to fake locally.
+
+  ── THE RELEASE TRINITY IS THE SEED OF A `go-distribution` PACK ────────────
+  Framing, recorded so the artifacts are authored with it in mind rather than
+  retrofitted later. GitHub releases + Homebrew + `go install` are not three
+  one-offs; together they are the distribution story for ANY Go project, which
+  is precisely the shape of a PACK. The future `go-distribution` pack would
+  carry scaffolding-kind recipes that lay down the goreleaser config, the
+  release and tag-integrity workflows, and the tap wiring — with enforcement
+  rules attached, per the recipes archetype.
+
+  For THIS plan the artifacts stay HAND-WRITTEN. The launch slice does not wait
+  on a pack. But author them AS FUTURE PACK PAYLOADS:
+    - minimize backstop-core-specific hardcoding. Prefer `go-version-file:
+      go.mod` over a pinned version, `./cmd/backstop` derived from the repo
+      layout over paths that only make sense here, and template-friendly names.
+    - where something MUST be core-specific (the tap repo name, the module
+      path), keep it in one obvious place rather than scattered, so extraction
+      is a substitution rather than an archaeology exercise.
+    - the placeholder headers WIDEN: they already point at BUNDLE-015 REQ-018
+      (the CI recipe pack); they should now also name this `go-distribution`
+      framing, so the successor is understood as a distribution pack and not
+      merely a CI-workflow pack.
+
+  Extraction is POST-LAUNCH and belongs to the go-contracts arc. It is NOT this
+  plan's scope — do not start building the pack, and do not let "make it
+  pack-ready" grow into abstraction this slice does not need.
+
+  ── ROUTED ARTIFACT FOLLOW-ONS (this plan does NOT hand-edit artifacts) ────
+  CLAUDE.md forbids hand-editing artifacts, so every item below is routed to its
+  purpose-built agent rather than applied here. They are recorded together so the
+  set is dispatched as one pass instead of trickling out.
+
+  1. ISSUE-087 AMENDMENT — route via the issue-author agent (`/issue`).
+     REQUIRED, not cosmetic: the issue's "Explicitly out of scope" section still
+     carries a **Homebrew tap** bullet ("Deferred post-launch") that now directly
+     CONTRADICTS this plan's REQ-006 / CLM-019. The founder reversed it on
+     2026-07-27 ("we'll bake in homebrew and go install from day 1"). An issue
+     that says deferred and a plan that says shipping cannot both be the source
+     of truth, and the issue is what the next reader opens first.
+
+  2. DIR-001 NOTE — route via the directive-author agent (`/directive`). Three
+     drifts, all in one edit:
+       a. add the `go-distribution` pack framing above (the release trinity as
+          the seed of a future distribution pack)
+       b. build targets: DIR-001:29 lists THREE (darwin/amd64, darwin/arm64,
+          linux/amd64); this plan builds FOUR — linux/arm64 is missing from the
+          directive
+       c. tap coordinates: DIR-001:28 says `backstop-core/homebrew-backstop`,
+          the pre-rename org and the rejected name. Update it to the RATIFIED
+          `backstop-ai/homebrew-tap`, and state the install command as
+          `brew install backstop-ai/tap/backstop` (the tap shorthand, not the
+          repo name — see the ratification block above). No longer blocked: the
+          ruling landed 2026-07-27, so this edit can proceed immediately.
+
+     ISSUE-087:87 carries the same stale coordinates inside its now-superseded
+     "Homebrew tap deferred" bullet; item 1's amendment should correct the name
+     while it removes the deferral, so the two artifacts do not disagree.
+
+  Neither follow-on blocks implementation of this plan. Both should land before
+  ISSUE-087 is closed, or the artifact trail will record a scope that was never
+  shipped and a shipped scope that was never recorded.
+
+  ── SELF-GATING IS ABSENT ON PURPOSE ───────────────────────────────────────
+  Neither workflow calls `backstop gate`. That is a founder-approved scope cut
+  (ISSUE-087, "Explicitly out of scope"): self-gating needs a macOS runner because
+  the darwin sandbox is real and Linux's is a hard no-op (ISSUE-020), plus a fleet
+  lock migration. CLM-017 pins the absence as a DECISION — the release workflow's
+  header names the fast-follow, and TASK-011's test asserts no `backstop gate`
+  invocation appears. If someone later adds one, the test fails and they are
+  forced to read the header explaining why it was left out.
+
+  Symmetrically, tag-integrity carries a temporary hand-written header naming its
+  BUNDLE-015 REQ-018 CI-recipe-pack successor (CLM-016), following the convention
+  already shipped in the pack repos
+  (backstop-self-pack/.github/workflows/tag-integrity.yml). Core's version differs
+  from the packs' in one way worth stating: the packs check tag-vs-`pack.yml`
+  agreement, which core has no analogue for. Core checks tag semver
+  well-formedness plus tag-is-ancestor-of-`main` instead.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from ISSUE-087's Scope) ─────
+  ISSUE-087 is at `open` status and records no claims — schema-gated, full
+  traceability parity applies from `ready` onward. The ledger below is derived
+  from the issue's In-scope list and its Verification section.
+
+    REQ-001: The module path rename lands first, and lands completely.
+      CLM-001  go.mod declares `module github.com/backstop-ai/backstop-core`.
+      CLM-002  no live Go source, Go fixture, or script in the tree references
+               `github.com/bmanson/backstop-core`; artifact directories are
+               excluded as historical records and the guard test says so.
+      CLM-003  after the rename `go build ./...` and `go test ./... -race
+               -count=1` are fully green and a REBUILT binary passes
+               `./bin/backstop gate` — the rename's falsifier.
+      CLM-004  the eight agent-definition validator snippets import the new path,
+               so the planner's own plan validator still compiles post-rename.
+
+    REQ-002: Version stamping survives BOTH build paths.
+      CLM-005  an ldflags-injected version wins outright — the goreleaser path is
+               never second-guessed by build info.
+      CLM-006  with no injection, a released module version from
+               `debug.ReadBuildInfo()` is reported — the `go install @vX.Y.Z`
+               path shows the real tag, not "dev".
+      CLM-007  a pseudo-version, a `+dirty` build, `(devel)`, an empty version,
+               and absent build info ALL report "dev" — the fallback never
+               fabricates a version out of local VCS state.
+      CLM-008  `backstop version` and `backstop version --json` report the same
+               resolved value from the same code path.
+      CLM-009  a binary built with `-ldflags "-X main.version=vX.Y.Z"` reports
+               that version through the real CLI, and a plain build reports
+               "dev" — proven by building both, not by reading the source.
+
+    REQ-003: goreleaser produces the cross-platform release artifacts.
+      CLM-010  .goreleaser.yml builds ./cmd/backstop for EXACTLY darwin/amd64,
+               darwin/arm64, linux/amd64, linux/arm64 — no more, no fewer.
+      CLM-011  it injects the version via `-X main.version={{.Version}}` — the
+               same symbol cmd/backstop declares — and declares archives, a
+               checksums file, and a GitHub Release from one `goreleaser
+               release` invocation.
+      CLM-012  the config passes `goreleaser check`, and `goreleaser release
+               --snapshot --clean` produces all four platform binaries locally
+               with no remote and no tag.
+
+    REQ-004: The tag-driven workflow refuses to release from an untrustworthy tag.
+      CLM-013  release.yml triggers ONLY on `v*` tag push — not on branch push,
+               not on pull_request — and declares `contents: write` for the
+               Release plus `actions: read` for the CI query.
+      CLM-014  the goreleaser job runs only after BOTH a tag-integrity job and a
+               green-CI job succeed; the green-CI job asserts ci.yml already
+               concluded success on the tagged SHA, so a tag on a red commit
+               produces no release.
+      CLM-015  tag-integrity.yml fails a non-semver tag and fails a tag that is
+               not an ancestor of `main`, and checks out with fetch-depth 0 so
+               the ancestry query has the history to answer with.
+      CLM-016  tag-integrity.yml carries the temporary hand-written header naming
+               the BUNDLE-015 REQ-018 CI-recipe-pack successor.
+      CLM-017  neither workflow invokes `backstop gate`, and release.yml's header
+               records self-gating as the named fast-follow (macOS runner +
+               ISSUE-020) — the absence reads as a decision, not an oversight.
+
+    REQ-005: The unprovable half is named, not assumed.
+      CLM-018  the verification that requires the private remote — a real tag
+               push producing a real Release, a red-commit tag being refused, the
+               tap round trip, and `go install ...@vX.Y.Z` reporting the real
+               version — is recorded as an explicit deferred task and reported as
+               DEFERRED-BLOCKED.
+
+    REQ-006: Homebrew ships at launch alongside the other two paths.
+      CLM-019  .goreleaser.yml declares a `brews:` block targeting
+               `backstop-ai/homebrew-tap` (ratified 2026-07-27), with the formula
+               generated by goreleaser rather than hand-written, and `go install`
+               requires no machinery beyond the rename and the ReadBuildInfo
+               fallback.
+
+    REQ-007: The sweep's activated findings are dispositioned, not absorbed.
+      CLM-020  the mechanical pack_engines findings activated over the swept file
+               set (error-wrapping / ignored-errors class) are REMEDIATED in
+               place, and the dimension is clean over those files afterward —
+               excluding the deliberate violation FIXTURES, which are named and
+               left intact.
+      CLM-021  the coverage_threshold shortfalls are NOT fixed and NOT waived
+               file-by-file — they are reported by name against the founder
+               grandfather exception of 2026-07-27 and routed to the coverage-
+               baseline refresh, which is itself held behind ISSUE-086 (the
+               packless baseline). The reported set must match the exception's
+               scope; anything outside it is not covered and must be escalated.
+
+  Structure:
+    Phase 1: Module path rename — a guard test that is RED today, the mechanical
+             sweep, the agent-snippet update, and a full-suite + gate falsifier.
+             Everything else depends on this phase.
+    Phase 2: Version resolution — ldflags precedence and the ReadBuildInfo
+             fallback, with the pseudo-version trap pinned by captured fixtures.
+    Phase 3: goreleaser config — shape test, config, then a real snapshot build.
+    Phase 4: Release + tag-integrity workflows — shape test, workflows, actionlint.
+             Phases 2, 3 and 4 are file-disjoint and parallel-eligible after
+             Phase 1.
+    Phase 5: Comprehensive verification, plus the named post-remote task that
+             this environment cannot run.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Module Path Rename — the ordering constraint"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED guard: module path is canonical and no legacy references survive in the live tree"
+        description: |
+          Add `module_path_test.go` at the repo ROOT in `package backstopcore_test`,
+          alongside the existing `embed_test.go`. Two tests, both RED against the
+          current tree — run them and PASTE the failure output before writing any
+          rename. A guard test that was never seen red proves nothing.
+
+          TestModulePath_GoModDeclaresCanonicalModule
+            Read `go.mod` from the repo root, parse the `module` directive, assert
+            it is exactly `github.com/backstop-ai/backstop-core`. Fails today with
+            `github.com/bmanson/backstop-core`.
+
+          TestModulePath_NoLegacyReferencesInLiveTree
+            Walk the repo from the root. For every file whose extension is `.go`,
+            `.go.txt`, `.sh`, or whose name is `go.mod`, assert the contents do not
+            contain the byte string `github.com/bmanson/backstop-core`. Report
+            EVERY offending path in the failure message, not just the first — the
+            implementer needs the full list to verify the sweep was complete.
+
+            Skip these directories entirely, and put the REASON in a comment in the
+            test, not just in this plan — the next person to widen this walk needs
+            to know why each exclusion exists:
+
+              .git, dist, bin, node_modules
+                build output and VCS internals.
+
+              plans, specs, issues, bundles, directives, adrs
+                historical records of what the module path WAS. CLAUDE.md forbids
+                hand-editing artifacts, and ISSUE-087/DIR-001 legitimately name
+                BOTH paths because they describe this rename.
+
+              ./.backstop  — THE REPO-ROOT ONE ONLY, PATH-ANCHORED
+                Match this exclusion against the path RELATIVE TO THE REPO ROOT,
+                not against any directory whose basename happens to be
+                `.backstop`. Anchor it: skip the walk at `<root>/.backstop`, and
+                nowhere else.
+
+                Why: the repo-root `.backstop/` is INSTALLED EXTERNAL PACK
+                CONTENT — gitignored, and NOT this repo's to edit. Its
+                `packs/backstop/go-toolchain/scripts/coverage-to-records.sh:21`
+                carries the old module path in a comment. Editing it in place is
+                non-durable: invisible to git, never reaching the pack's source
+                repo, and overwritten by the next `pack install`. So the sweep
+                correctly leaves it alone, which means the old path survives
+                there permanently — and the guard must skip it or be
+                unsatisfiable: RED no matter how complete the sweep is, with both
+                escapes wrong (edit installed pack content, or delete the guard).
+                The pack-side comment is a filed follow-on in the
+                backstop/go-toolchain source repo — see the plan notes.
+
+                Do NOT justify this skip by tamper detection, and do not cite a
+                content hash. `VerifyLock` skips every `source_type: local`
+                entry (verify.go:47-49) and go-toolchain is local, so
+                pack_lock_verification never inspects this file; hashes are also
+                mutable by relock. An earlier draft asserted both — corrected
+                2026-07-27 via PLAN-SPEC-057's review.
+
+                Why ANCHORED, and this is the subtle half: there is a SECOND
+                `.backstop` directory in this repo —
+                `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+                go-toolchain/scripts/coverage-to-records.sh` — which is a TESTDATA
+                FIXTURE, tracked in git, not locked, and squarely IN the rename's
+                scope (it appears in TASK-002's file list). A skip written by bare
+                directory name swallows that file too, and because TASK-004 and
+                TASK-015 re-grep with `--include="*.go"`, a missed `.sh` is
+                invisible to every other check in this plan. The anchored skip is
+                that fixture's ONLY falsifier — write it as a path comparison and
+                add a test comment saying so, or the next person will "simplify"
+                it back into a basename match and silently reopen the hole.
+
+          TestModulePath_AgentDefinitionSnippetsImportCanonicalModule
+            The eight agent-definition files carry a fenced Go validator snippet
+            importing `pkg/artifact`, `pkg/validate`, and — in six of the eight —
+            `pkg/schema`. They are `.md`, so the walk above skips them by
+            extension; without this test TASK-003 has NO falsifier at all and a
+            stale snippet ships silently, breaking the planner's own validator the
+            next time anyone runs it.
+
+            Assert over this FIXED list of eight paths (not a glob — a glob that
+            matches nothing passes vacuously, and the point is that all eight are
+            covered). The per-file import set is NOT uniform; assert the set each
+            file actually carries, verified 2026-07-27:
+
+              TWO imports — pkg/artifact, pkg/validate
+                .claude/agents/planner.md             (188-189)
+                .github/agents/planner.agent.md       (184-185)
+
+              THREE imports — pkg/artifact, pkg/schema, pkg/validate
+                .claude/agents/plan-reviewer.md       (54-56)
+                .claude/agents/spec-author.md         (106-108)
+                .claude/agents/spec-reviewer.md       (64-66)
+                .github/agents/plan-reviewer.agent.md (49-51)
+                .github/agents/spec-author.agent.md   (102-104)
+                .github/agents/spec-reviewer.agent.md (52-54)
+
+            For each: the file EXISTS (fail loudly if one was renamed or removed —
+            never skip a missing entry), it contains the canonical
+            `github.com/backstop-ai/backstop-core/...` form of EVERY import in its
+            set (so a file that renamed artifact and validate but left
+            `pkg/schema` stale still FAILS — that is the specific miss this test
+            is here to catch), and it contains no `github.com/bmanson/backstop-core`
+            reference at all.
+
+            Line numbers are orientation only — assert on CONTENT, not position.
+            Simplest robust form: per file, assert zero legacy-path occurrences
+            and one canonical occurrence per expected package.
+
+          All three tests must fail for the RIGHT reason — a legacy reference
+          found, not a walk error or a missing file. Assert on the parsed module
+          directive, not on a substring of the whole go.mod, so a stray comment
+          cannot make the test pass vacuously.
+
+          FINDINGS-CLEAN: this file is NEW, so it is in gate diff scope
+          unconditionally. It must carry zero pack_engines findings of its own —
+          a lint violation in a test file this plan ADDS is this plan's defect,
+          and it falls outside the 2026-07-27 split ruling entirely (see notes):
+          both halves of that ruling — TASK-016's remediation and the coverage
+          grandfather exception — concern pre-existing dormant findings in files
+          the sweep touches, never a file this plan authors. Same requirement
+          applies to release_config_test.go (TASK-008) and workflows_test.go
+          (TASK-011).
+        files:
+          - module_path_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+        test_names:
+          - TestModulePath_GoModDeclaresCanonicalModule
+          - TestModulePath_NoLegacyReferencesInLiveTree
+          - TestModulePath_AgentDefinitionSnippetsImportCanonicalModule
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Rename the module path across go.mod, all Go sources, Go fixtures, and scripts"
+        description: |
+          PRECONDITION — QUIET TREE. Verify and report BEFORE touching anything:
+          every in-flight implementation lane committed or landed, `git status`
+          clean apart from this plan file, no concurrent lane starting during the
+          sweep. This task's file set is a SUPERSET of every other lane's, so it
+          collides with concurrent work by construction and a three-way merge
+          cannot distinguish a rename hunk from a real change. If the tree is not
+          quiet, STOP and escalate for a scheduling slot — do not proceed
+          carefully, there is no recovery once 295 files are rewritten under
+          someone else's edits.
+
+          Then perform the mechanical rename
+          `github.com/bmanson/backstop-core` -> `github.com/backstop-ai/backstop-core`
+          across the LIVE tree.
+
+          Scope, verified 2026-07-27:
+            - `go.mod` module directive (1 file)
+            - every `.go` file matching the old path. The count is a MOVING TARGET
+              — the issue records 295, and a re-measure the same day returned 301
+              because concurrent lanes were adding files. Re-derive it on the quiet
+              tree immediately before the sweep; report the before count and the
+              after count (which must be 0). Never assert a fixed number.
+            - cmd/backstop/testdata/catalog-display-site.go.txt
+            - cmd/backstop/testdata/catalog-unlisted-keying-site.go.txt
+            - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+              go-toolchain/scripts/coverage-to-records.sh
+
+          Do NOT touch plans/, specs/, issues/, bundles/, directives/, adrs/ —
+          TASK-001's guard test already excludes them, and a `grep -rl | xargs sed`
+          run without a directory filter WILL rewrite them. Filter by extension and
+          exclude the artifact directories explicitly; do not rely on `--include`
+          alone to protect you.
+
+          Do NOT touch the REPO-ROOT `./.backstop/` — and note the qualifier,
+          because it is doing real work. That tree is gitignored INSTALLED pack
+          content; its
+          `packs/backstop/go-toolchain/scripts/coverage-to-records.sh:21` carries
+          the old path. Editing it is NON-DURABLE — invisible to git, never
+          reaching the pack's source repo, and overwritten by the next
+          `pack install`, so the change would look applied and silently revert.
+          The fix belongs upstream: it is a filed pack-repo follow-on, not this
+          task's work. (Not a tamper-detection concern — `VerifyLock` skips
+          `source_type: local` entries, verify.go:47-49, and go-toolchain is
+          local. An earlier draft claimed otherwise; corrected 2026-07-27.)
+
+          The OTHER `.backstop` directory IS yours and MUST be swept:
+            cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+              go-toolchain/scripts/coverage-to-records.sh
+          It is a tracked testdata fixture, not installed pack content, and it is
+          listed in this task's file scope below. Do not let a `.backstop` glob or
+          a bare directory-name filter exclude it — filter on the ROOT-ANCHORED
+          path. TASK-004 and TASK-015 re-grep with `--include="*.go"`, so if you
+          miss this `.sh` file nothing downstream will tell you; TASK-001's
+          anchored skip is its only falsifier.
+
+          On macOS, in-place sed needs the empty backup argument: `sed -i ''`.
+
+          After the sweep, before declaring anything:
+            1. `gofmt -l .` — must print nothing. `backstop-ai` and `bmanson` sort
+               to nearly the same position in the third-party import group, so most
+               files are unaffected, but verify rather than assume. Fix any import
+               block gofmt or gci wants resorted; do not waive it.
+            2. `go build ./...` — must succeed.
+            3. `go test ./... -race -count=1 -run 'TestModulePath'` — expect TWO of
+               TASK-001's three tests GREEN: GoModDeclaresCanonicalModule and
+               NoLegacyReferencesInLiveTree.
+               AgentDefinitionSnippetsImportCanonicalModule stays RED until TASK-003
+               lands, because the `.md` files are outside this task's scope. That is
+               the expected intermediate state, not a failure — say so in the report
+               rather than reaching into TASK-003's files to make it green early.
+
+          If the post-sweep grep count is not zero, the sweep missed something —
+          find it from TASK-001's failure list rather than re-running a broader sed.
+        files:
+          - go.mod
+          - "**/*.go"
+          - cmd/backstop/testdata/catalog-display-site.go.txt
+          - cmd/backstop/testdata/catalog-unlisted-keying-site.go.txt
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: documentation
+        title: "Update the module path in the agent-definition validator snippets"
+        description: |
+          Eight agent-definition files embed a fenced Go validator snippet that
+          imports `github.com/bmanson/backstop-core/pkg/artifact`,
+          `.../pkg/validate`, and — in six of the eight — `.../pkg/schema`. After
+          TASK-002 those imports no longer resolve, and the planner's own
+          `go run /tmp/validate_plan.go` step breaks silently the next time anyone
+          uses it.
+
+          Change ONLY the import lines in each file — and note that the COUNT
+          VARIES. The two planner files carry TWO imports; the other six carry
+          THREE, including `pkg/schema`. An instruction that says "the two import
+          lines" would leave six files with a stale `pkg/schema` import that still
+          fails to compile, which is the whole failure this task exists to
+          prevent. Verified line-by-line 2026-07-27:
+
+            TWO imports — pkg/artifact, pkg/validate
+              .claude/agents/planner.md:188-189
+              .github/agents/planner.agent.md:184-185
+
+            THREE imports — pkg/artifact, pkg/schema, pkg/validate
+              .claude/agents/plan-reviewer.md:54-56
+              .claude/agents/spec-author.md:106-108
+              .claude/agents/spec-reviewer.md:64-66
+              .github/agents/plan-reviewer.agent.md:49-51
+              .github/agents/spec-author.agent.md:102-104
+              .github/agents/spec-reviewer.agent.md:52-54
+
+          Do not touch frontmatter, tool lists, instruction prose, headings, or any
+          other line. Do not assume a count — grep each file for
+          `github.com/bmanson/backstop-core` and change every hit it reports.
+
+          These are tooling definitions, not backstop artifacts — the agent-guard
+          hook governs artifact authoring, and this touches neither an artifact nor
+          any behavioral instruction. Verify by diffing: every changed line must
+          contain `backstop-core/pkg/`. If the diff shows anything else, revert and
+          redo it line-targeted.
+
+          FALSIFIER: TASK-001's TestModulePath_AgentDefinitionSnippetsImportCanonicalModule
+          is RED after TASK-002 and turns GREEN here. Run
+          `go test ./... -race -count=1 -run 'TestModulePath'` and confirm all
+          three TASK-001 tests are now green. That test is the only mechanical
+          check on this task — a documentation task with no falsifier is how a
+          stale snippet ships unnoticed.
+
+          Then verify the snippet actually works by running it as documented,
+          against this plan file.
+        files:
+          - .claude/agents/planner.md
+          - .claude/agents/plan-reviewer.md
+          - .claude/agents/spec-author.md
+          - .claude/agents/spec-reviewer.md
+          - .github/agents/planner.agent.md
+          - .github/agents/plan-reviewer.agent.md
+          - .github/agents/spec-author.agent.md
+          - .github/agents/spec-reviewer.agent.md
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+      - id: TASK-016
+        type: refactor
+        title: "Remediate the mechanical pack_engines findings the sweep activates"
+        description: |
+          FOUNDER RULING 2026-07-27 (SPLIT): the mechanical pack_engines class is
+          REMEDIATED, not grandfathered. The no-grandfather rule applies as
+          written — touching a file means fixing its violations. Only the
+          coverage_threshold shortfalls got an exception, and they are NOT this
+          task's business (see TASK-004 and the plan notes).
+
+          SCOPE. Start from the reviewer's `gate --all` capture, then RE-DERIVE
+          against the post-sweep tree — the capture is a snapshot and the tree
+          has been moving. Parsed inventory of the go-standards rules from that
+          capture, 37 rows across 20 files:
+
+              20  error-wrapping-required
+               8  no-global-mutable-state
+               6  no-ignored-errors
+               2  no-panic-in-library-code
+               1  no-hardcoded-credentials
+
+          Fix each in the ordinary way: wrap returned errors with
+          `fmt.Errorf("...: %w", err)` and context; handle ignored errors
+          explicitly rather than assigning to `_`. These are mechanical and
+          should not change behavior — if a fix requires a behavior change, stop
+          and escalate rather than smuggling one in under a rename.
+
+          TWO FILES ARE DELIBERATE FIXTURES AND MUST NOT BE "FIXED":
+            cmd/backstop/testdata/dogfood_enforcement/known_bad.go
+              carries no-hardcoded-credentials ON PURPOSE — it is the dogfood
+              fixture that proves the rule fires.
+            packs/contracts/testdata/fixtures/sig-kinds-present.go
+              carries no-global-mutable-state ON PURPOSE — a contracts fixture.
+          "Fixing" either destroys the fixture and produces a vacuous green in
+          whatever suite depends on it. They need exclusion or a waiver with a
+          reason, never remediation. Check any other `testdata/` or `fixtures/`
+          hit the same way BEFORE editing it — the whole point of a violation
+          fixture is that it violates.
+
+          ⚠ UNRULED RESIDUAL — ESCALATE, DO NOT ABSORB. The same capture shows 59
+          further pack_engines rows from go-toolchain rules (46 errcheck, 7
+          unused, 5 staticcheck, 1 go-test), mostly on `*_test.go` files. The
+          founder ruling names the error-wrapping / ignored-errors class and does
+          not speak to these. If they land in the swept set, report them as
+          UNRULED and escalate for a disposition. Do NOT quietly fix them (that
+          expands the founder's decision) and do NOT quietly skip them (that
+          shrinks it). Either way the plan owes an explicit answer, not a
+          judgment call made at the keyboard.
+
+          FILE SCOPE is broad by nature — this is one mechanical change repeated
+          across many files, and splitting it into arbitrary chunks would be
+          ceremony rather than risk reduction. The list below is the go-standards
+          set from the capture, MINUS the two fixtures. Re-derive it; treat this
+          as the starting point, not the contract.
+
+          Verify with `go build ./...` and `go test ./... -race -count=1` — error
+          wrapping changes message text, and some tests assert on messages. A
+          test that breaks because a message gained context needs its assertion
+          updated deliberately, not the wrap reverted.
+        files:
+          - pkg/pack/distribution/remove.go
+          - pkg/pack/distribution/config_merge.go
+          - pkg/pack/distribution/list.go
+          - pkg/pack/distribution/tamper.go
+          - pkg/pack/distribution/relock.go
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/artifact_route.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/embed.go
+          - pkg/baseengines/base_engines.go
+          - pkg/check/scope.go
+          - pkg/config/config.go
+          - pkg/pack/manifest.go
+          - pkg/packval/format.go
+          - pkg/scaffold/scaffold.go
+          - pkg/scaffold/slug.go
+          - pkg/validate/contracts.go
+          - embed.go
+        claims:
+          - CLM-020
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Rename falsifier: full repo suite green and a rebuilt binary passing the gate"
+        description: |
+          The rename is mechanical, which is exactly why it needs the widest
+          possible falsifier: a single missed import is a compile error, and a
+          missed fixture is a silent test failure in a package nobody ran.
+
+          Run, in order, reporting real output and the TRUE exit code (`echo $?`)
+          for each:
+
+            1. `go build ./...`
+            2. `go test ./... -race -count=1`  — the WHOLE repo, not a filtered
+               subset. This is the rename's falsifier; scoping it defeats the
+               point. Every package must be green.
+            3. `go build -o bin/backstop ./cmd/backstop/`  — REBUILD. A stale
+               binary gates the pre-rename code and reports a vacuous green.
+            4. `./bin/backstop gate`
+            5. `./bin/backstop artifact validate --plan PLAN-ISSUE-087`
+
+          Also re-run and report:
+            `grep -rl "github.com/bmanson/backstop-core" --include="*.go" . | wc -l`
+          It must be 0, against whatever non-zero count TASK-002 recorded on the
+          quiet tree beforehand. Note this counts `.go` files
+          only and does not descend into the exclusions above — `.backstop/` still
+          carries one reference by design, and that is not a miss.
+
+          ── GATE EXPECTATION UNDER THE SPLIT RULING (2026-07-27) ───────────
+          Do NOT expect the gate violation set to be unchanged. The gate scopes
+          findings to CHANGED FILES and file-level diff scope activates ALL of a
+          touched file's dormant findings, not only the diffed lines. TASK-002
+          touches every `.go` file, so a large block of previously-dormant
+          violations becomes blocking purely as a side effect of a rename that
+          changes no behavior.
+
+          What to do here:
+            - Run `./bin/backstop gate` and `./bin/backstop gate --all`. Report
+              both, in full, with true exit codes.
+            - Intersect `gate --all`'s violation file list with the files TASK-002
+              modified. That intersection is the newly-ACTIVATED set. Report it as
+              an inventory — rule, file, dimension.
+            - Regenerate rather than trusting `scratchpad/gate-all.txt`; it is a
+              session scratchpad snapshot and the tree has moved.
+            - Report the activated set as ACTIVATED-BY-SWEEP. Not "caused by the
+              rename" (nothing changed behavior) and not "pre-existing, therefore
+              fine" (it is blocking now, which it was not before).
+
+          Then apply the ruling, dimension by dimension:
+
+            pack_engines — must be CLEAN over the swept set, because TASK-016
+            remediated it. Anything left is either (a) one of the two named
+            deliberate fixtures, which stays and is reported as such, or (b) an
+            UNRULED go-toolchain-class row, which is escalated per TASK-016 —
+            never silently fixed or silently skipped.
+
+            coverage_threshold — EXPECTED TO REMAIN RED, by founder exception of
+            2026-07-27. Do NOT fix these, do NOT add file-by-file waivers, and do
+            NOT refresh the baseline to bury them. Report each shortfall by file
+            and state it is grandfathered and routed to the coverage-baseline
+            refresh — which is itself HELD until CI's baseline job installs packs
+            (ISSUE-086, the packless baseline), because a baseline generated
+            without the pack set would bake in a wrong number.
+
+            If the shortfall set you measure does not match the exception's scope
+            (the ruling names 8), the extra ones are NOT covered. Escalate them;
+            do not extend the exception yourself.
+
+          Not covered by any disposition and clean regardless:
+            - `module_path_test.go`, added by TASK-001, carries zero findings.
+            - the rename introduces no NEW finding anywhere. An activated dormant
+              finding is a scope question; a finding absent from `gate --all`
+              before the sweep is a defect in the sweep.
+
+          Because coverage_threshold is expected red, `./bin/backstop gate` will
+          exit non-zero here. Report that exit code truthfully and explain WHICH
+          dimension accounts for it. Do not describe the gate as passing, and do
+          not reach for a waiver to make the number look better.
+        files:
+          - go.mod
+          - "**/*.go"
+          - module_path_test.go
+        claims:
+          - CLM-003
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-016
+
+  - id: phase-2
+    name: "Phase 2: Version Resolution — ldflags precedence plus a ReadBuildInfo fallback"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "RED: version resolution table plus a real ldflags round-trip through the built CLI"
+        description: |
+          Add `cmd/backstop/version_test.go` (package main, matching the existing
+          cmd/backstop test convention). RED today: `resolveVersion` does not exist.
+
+          Target signature — a PURE function, so the whole matrix is testable
+          without building a binary per case:
+
+            func resolveVersion(injected string, info *debug.BuildInfo, ok bool) string
+
+          Table cases. The `+dirty` string below is REAL CAPTURED OUTPUT from
+          `go version -m ./bin/backstop` on 2026-07-27 against a `make build`
+          binary — do not "clean it up", it is the exact shape the toolchain emits
+          and it is the case the naive implementation gets wrong:
+
+            TestResolveVersion_LdflagsInjectionWins
+              injected "v0.11.0", info.Main.Version "v0.9.0"  -> "v0.11.0"
+              injected "v0.11.0", ok=false                    -> "v0.11.0"
+              The goreleaser path is authoritative and is never second-guessed by
+              build info.
+
+            TestResolveVersion_ModuleVersionFallbackForGoInstall
+              injected "dev", info.Main.Version "v0.11.0"     -> "v0.11.0"
+              injected "dev", info.Main.Version "v1.0.0-rc.1" -> "v1.0.0-rc.1"
+              injected "",    info.Main.Version "v0.11.0"     -> "v0.11.0"
+
+            TestResolveVersion_PseudoVersionFallsBackToDev
+              "v0.0.0-20260727014125-1ccb2a60b2f7"            -> "dev"
+
+            TestResolveVersion_DirtyBuildFallsBackToDev
+              "v0.0.0-20260727014125-1ccb2a60b2f7+dirty"      -> "dev"
+              "v0.11.0+dirty"                                 -> "dev"
+
+            TestResolveVersion_DevelAndAbsentBuildInfoFallBackToDev
+              "(devel)"  -> "dev"
+              ""         -> "dev"
+              nil info   -> "dev"
+              ok=false   -> "dev"
+
+          TestVersionCommand_TextAndJSONAgree
+            Execute the real cobra command both ways (the repo's existing
+            cmd/backstop tests already drive commands with captured output — follow
+            that pattern) and assert the version string in the `--json` payload's
+            `version` field equals the one in the text output's
+            `backstop version <x>` line. This is what stops the two branches in
+            root.go's versionCmd from drifting apart.
+
+          TestVersion_LdflagsInjectionReachesBuiltCLI
+            The only test that proves the SYMBOL PATH is right — that
+            `-X main.version` actually writes the var the CLI reads. A table test
+            cannot prove this; a typo in the symbol name would pass every case
+            above and ship a binary reporting "dev".
+
+            Build into t.TempDir() twice from the repo root and run each binary's
+            `version` subcommand:
+              a) `go build -ldflags "-X main.version=v9.9.9" -o <tmp>/backstop
+                  ./cmd/backstop` -> output contains "v9.9.9"
+              b) `go build -o <tmp>/backstop-plain ./cmd/backstop` -> output is
+                  "dev", NOT a pseudo-version. This half is the regression guard
+                  for the captured `+dirty` trap.
+
+            Locate the repo root from the test's working directory rather than
+            hardcoding a path. This test is slow by nature (two builds); that is
+            acceptable and it must not be skipped or short-circuited.
+        files:
+          - cmd/backstop/version_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        test_names:
+          - TestResolveVersion_LdflagsInjectionWins
+          - TestResolveVersion_ModuleVersionFallbackForGoInstall
+          - TestResolveVersion_PseudoVersionFallsBackToDev
+          - TestResolveVersion_DirtyBuildFallsBackToDev
+          - TestResolveVersion_DevelAndAbsentBuildInfoFallBackToDev
+          - TestVersionCommand_TextAndJSONAgree
+          - TestVersion_LdflagsInjectionReachesBuiltCLI
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Add resolveVersion with the pseudo-version-rejecting fallback and wire the version command to it"
+        description: |
+          Add `cmd/backstop/version.go` (new file, package main) containing
+          `resolveVersion(injected string, info *debug.BuildInfo, ok bool) string`
+          and a thin `effectiveVersion()` that calls it with the package `version`
+          var and `debug.ReadBuildInfo()`.
+
+          Precedence, in order:
+            1. `injected` is non-empty and not "dev" -> return it. The goreleaser
+               ldflags path wins outright.
+            2. build info absent (ok==false or info==nil) -> "dev".
+            3. `info.Main.Version` is a RELEASED module version -> return it.
+            4. otherwise -> "dev".
+
+          "Released module version" rejects, with the reason in a comment because
+          the next reader will not have this plan open:
+            - "" and "(devel)"
+            - anything containing "+" (build metadata / dirty; `+dirty` is what a
+              local build of a modified tree produces)
+            - anything whose pre-release segment matches the pseudo-version shape
+              `-<14 digits>-<12 hex chars>` — Go 1.24+ stamps this from VCS on a
+              plain `go build`, so accepting it would make every dev build report a
+              version that looks real and is not
+          and accepts a leading `v` followed by a well-formed `X.Y.Z` with an
+          optional pre-release. Implement the shape check directly; do not add a
+          semver dependency for this.
+
+          Then edit `cmd/backstop/root.go`:
+            - LEAVE `var version = "dev"` where it is (root.go:16) and LEAVE its
+              `// nosemgrep: go.core.no-global-mutable-state` comment intact —
+              `-ldflags -X` can only write a package-level var, and that comment is
+              the standing justification. Moving or reformatting the line risks
+              detaching the waiver from the finding.
+            - Update the comment above it: the value is the ldflags-injected build
+              stamp, and `effectiveVersion()` is what callers read.
+            - In versionCmd's RunE, replace BOTH uses of `version` — the `"version"`
+              key in the JSON map (root.go:106) and the `cmd.Printf("backstop
+              version %s\n", version)` line (root.go:117) — with a single
+              `effectiveVersion()` result computed once at the top of RunE, so the
+              two branches cannot drift.
+
+          Every test named in TASK-005 must pass. Run
+          `go test ./cmd/backstop/... -race -count=1` and report the true exit code.
+        files:
+          - cmd/backstop/version.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify version resolution: package suite plus both real binaries"
+        description: |
+          Run `go test ./cmd/backstop/... -race -count=1` and report real output
+          plus the TRUE exit code.
+
+          Then reproduce TASK-005's binary round-trip BY HAND, outside the test, so
+          the evidence is visible rather than only asserted:
+
+            go build -ldflags "-X main.version=v9.9.9" -o /tmp/bs-stamped ./cmd/backstop
+            /tmp/bs-stamped version
+            /tmp/bs-stamped version --json
+
+            go build -o /tmp/bs-plain ./cmd/backstop
+            /tmp/bs-plain version
+            go version -m /tmp/bs-plain | head -3
+
+          PASTE the output of all of it. The stamped binary must report v9.9.9 in
+          both text and JSON. The plain binary must report "dev" WHILE
+          `go version -m` shows a pseudo-version in its `mod` line — that
+          side-by-side contrast is the proof that the rejection predicate works,
+          and it is the single most convincing artifact this phase produces.
+
+          Also confirm coverage did not regress: the new cmd/backstop/version.go is
+          fully exercised by the table test, so `make coverage` must still clear 90.
+        files:
+          - cmd/backstop/version.go
+          - cmd/backstop/root.go
+          - cmd/backstop/version_test.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-006
+
+  - id: phase-3
+    name: "Phase 3: goreleaser Config — four platforms, checksums, a Release"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "RED: goreleaser config shape — four platforms, the version symbol, archives and checksums"
+        description: |
+          Add `release_config_test.go` at the repo ROOT in `package
+          backstopcore_test`. RED today: `.goreleaser.yml` does not exist.
+
+          Parse the file with `gopkg.in/yaml.v3` (already a direct dependency) and
+          assert on the PARSED STRUCTURE. Do not assert on raw text and do not
+          introduce a golden file — a test that breaks on reindentation gets
+          deleted rather than fixed.
+
+          TestGoreleaserConfig_DeclaresFourTargetPlatforms
+            Exactly one build entry, whose `main` (or `dir` + `main`) resolves to
+            ./cmd/backstop. Its goos set is exactly {darwin, linux} and its goarch
+            set is exactly {amd64, arm64}, with no `ignore:` entry pruning any of
+            the four resulting pairs. Assert on SETS and assert EXACTLY — a config
+            that also builds windows/386 passes a "contains" assertion and ships
+            binaries nobody asked for. Assert the resulting pair set equals
+            {darwin/amd64, darwin/arm64, linux/amd64, linux/arm64}.
+
+          TestGoreleaserConfig_InjectsVersionIntoMainVersionSymbol
+            The build entry's `ldflags` contain `-X main.version={{.Version}}`.
+            This is the join between phase 2 and phase 3: if this symbol name and
+            the var in cmd/backstop ever diverge, releases silently ship "dev".
+            Assert on the symbol path `main.version` specifically, not merely that
+            some `-X` flag is present.
+
+          TestGoreleaserConfig_ProducesArchivesChecksumsAndRelease
+            An `archives:` section exists; a `checksum:` section exists with a
+            declared name template; a `release:` section exists and is not
+            disabled. Also assert the top-level `version: 2` key, which goreleaser
+            v2 requires and whose absence is a confusing runtime error rather than
+            a parse error.
+
+          TestGoreleaserConfig_DeclaresHomebrewTapTarget
+            FOUNDER REVERSAL 2026-07-27 — Homebrew ships at launch. An earlier
+            draft of this plan asserted the ABSENCE of a `brews:` key, back when
+            the tap was a deferral. That assertion is now inverted: asserting
+            absence would block the thing the founder asked for.
+
+            Assert a top-level `brews:` block exists and that it names the tap
+            repository by OWNER and NAME both — a block pointing at the wrong tap
+            publishes a formula into a namespace nobody is watching, and it fails
+            silently rather than loudly.
+
+            RATIFIED 2026-07-27 — assert BOTH parts exactly:
+                owner  backstop-ai
+                repo   homebrew-tap
+            Assert the repo name as `homebrew-tap`, NOT the tap shorthand `tap`.
+            goreleaser's `brews:` block takes the REPOSITORY, and Homebrew strips
+            the `homebrew-` prefix only when resolving a user-facing
+            `brew tap backstop-ai/tap`. A config asserting `tap` would be
+            asserting a repo that does not exist. Keep the literal in one named
+            constant in the test rather than inline at each assertion.
+
+            Also assert the block carries no hand-written formula body. Concretely,
+            FAIL if the block contains any of these keys, which are the ways a
+            hand-authored formula gets smuggled in:
+              `formula`, `template`, `custom_block`, `install`, `test`,
+              `post_install`, `caveats`, `service`
+            Enumerating them is what makes this mechanically falsifiable — "no
+            hand-written body" as prose is not something a test can check, and a
+            clause a test cannot evaluate is worse than no clause because it reads
+            like coverage. goreleaser generates `install` and `test` stanzas
+            itself; their PRESENCE IN THE CONFIG means someone overrode the
+            generator.
+
+            No corresponding `go install` assertion exists, and none should be
+            added: that path needs no config at all. It works because the module
+            was renamed (Phase 1) and `resolveVersion` falls back to build info
+            (Phase 2). If someone adds a `go install` section here, they have
+            misunderstood which mechanism carries it.
+
+          FINDINGS-CLEAN: this file is NEW and therefore unconditionally in gate
+          diff scope. It must carry zero pack_engines findings of its own. The
+          2026-07-27 split ruling does not reach it either way — remediation and
+          the coverage grandfather both concern pre-existing dormant findings in
+          files the sweep touches, never a file this plan authors.
+        files:
+          - release_config_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-019
+        test_names:
+          - TestGoreleaserConfig_DeclaresFourTargetPlatforms
+          - TestGoreleaserConfig_InjectsVersionIntoMainVersionSymbol
+          - TestGoreleaserConfig_ProducesArchivesChecksumsAndRelease
+          - TestGoreleaserConfig_DeclaresHomebrewTapTarget
+        depends_on:
+          - TASK-004
+
+      - id: TASK-009
+        type: implementation
+        title: "Write .goreleaser.yml"
+        description: |
+          Create `.goreleaser.yml` at the repo root, turning TASK-008 green.
+
+          Required content:
+            - `version: 2` at the top (goreleaser v2 config schema).
+            - One build entry: `main: ./cmd/backstop`, `binary: backstop`,
+              `env: [CGO_ENABLED=0]`, `goos: [darwin, linux]`,
+              `goarch: [amd64, arm64]` — all four pairs are wanted, so declare NO
+              `ignore:` entries.
+            - `ldflags: -s -w -X main.version={{.Version}}`. The symbol is
+              `main.version` because cmd/backstop is `package main` and root.go
+              declares `var version` there. Phase 2's
+              TestVersion_LdflagsInjectionReachesBuiltCLI proves this symbol path
+              works; keep the two in sync.
+            - `archives:` producing per-platform archives with a stable name
+              template including version, os and arch.
+            - `checksum:` with a name template.
+            - `release:` left enabled (goreleaser publishes the GitHub Release from
+              the tag it is invoked on).
+            - A `brews:` block targeting `backstop-ai/homebrew-tap` — RATIFIED
+              2026-07-27 ("lean hard into convention over configuration").
+              Declare the REPOSITORY name `homebrew-tap`, not the tap shorthand
+              `tap`; Homebrew strips the prefix at resolution time, so consumers
+              type `brew install backstop-ai/tap/backstop` while the config names
+              the real repo. Getting these two confused yields a block pointing
+              at a repository that does not exist.
+              FOUNDER REVERSAL 2026-07-27 — ISSUE-087 lists the tap as out of
+              scope and that is superseded: "we'll bake in homebrew and go install
+              from day 1." Let goreleaser GENERATE the formula; do not hand-write
+              Ruby, and do not add `install`/`test`/`caveats` stanzas (TASK-008
+              fails on those keys).
+              Declare the tap repository owner/name, the formula description and
+              homepage, and the token goreleaser uses to push to the tap (a PAT
+              with write access to the tap repo, referenced from secrets — the
+              default GITHUB_TOKEN is scoped to THIS repo and cannot push to
+              another one, which is the single most common way this block fails).
+
+          Add NOTHING for `go install`. That path is already carried by the module
+          rename plus the ReadBuildInfo fallback; there is no config surface for
+          it and inventing one would be machinery with no mechanism behind it.
+
+          Keep core-specific values (the tap coordinates, the module path) in one
+          obvious place rather than scattered through the file — this config is a
+          future `go-distribution` pack payload, and extraction should be a
+          substitution rather than an archaeology exercise. Do not abstract beyond
+          that; see the framing note.
+
+          The tap REPO itself does not exist yet and cannot be created without the
+          remote. Creating it is a step in TASK-014, not a prerequisite for writing
+          this config — `goreleaser --snapshot` skips publishing, so TASK-010
+          verifies the config without it. Its name is settled —
+          `backstop-ai/homebrew-tap` — so write the config against the final
+          coordinates now; nothing here is provisional.
+
+          `dist/` is already gitignored, so snapshot output needs no gitignore
+          change — confirm that rather than assuming it.
+        files:
+          - .goreleaser.yml
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-019
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the goreleaser config: `check` plus a real four-platform snapshot build"
+        description: |
+          Two levels, both real, neither requiring a remote or a tag.
+
+          1. Config validity:
+               goreleaser check
+             goreleaser is NOT installed here (verified 2026-07-27:
+             `which goreleaser` -> not found). It is a Go program, so run it
+             without installing:
+               go run github.com/goreleaser/goreleaser/v2@latest check
+
+          2. A real build:
+               go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+             `--snapshot` is what makes this provable with no remote and no tag: it
+             builds and archives locally and skips publishing entirely.
+
+             Then INSPECT dist/ and paste the listing. All four binaries must
+             exist. Confirm each is the architecture it claims — `file dist/*/backstop`
+             — rather than trusting the directory names. Confirm the archives and
+             the checksums file were produced.
+
+             Run the darwin binary matching this host's architecture and paste
+             `<binary> version`. Under `--snapshot` goreleaser synthesizes a
+             snapshot version rather than a tag, so the expectation is that it
+             reports that SNAPSHOT string — NOT "dev". Reporting "dev" here means
+             the ldflags never reached the symbol, which is exactly the failure
+             TASK-008's symbol assertion and TASK-005's round-trip exist to catch.
+
+          THE `brews:` BLOCK IS NOT EXERCISED HERE, and that is expected.
+          `--snapshot` skips all publishing, so goreleaser validates the block's
+          SHAPE (via `check`) but never pushes a formula. Confirm `check` accepts
+          it and say plainly in the report that the tap was not written to — the
+          real round trip is TASK-014's. Do not create the tap repo to make this
+          step "more real"; it would prove nothing locally and the plan sequences
+          it deliberately.
+
+          HONESTY REQUIREMENT: both commands fetch from the network. If a fetch
+          fails, report the exact error and state plainly that the step could not
+          run. Do not report it as passed, do not substitute the parsed-YAML tests
+          as if they were equivalent (they check declaration, not execution), and
+          do not mark this task complete on a skip — escalate it instead.
+        files:
+          - .goreleaser.yml
+          - release_config_test.go
+        claims:
+          - CLM-012
+          - CLM-019
+        depends_on:
+          - TASK-009
+
+  - id: phase-4
+    name: "Phase 4: Release and Tag-Integrity Workflows"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "RED: workflow shape — semver-tag-only trigger, integrity and green-CI gating, no self-gating"
+        description: |
+          Add `workflows_test.go` at the repo ROOT in `package backstopcore_test`.
+          RED today: neither workflow file exists.
+
+          Parse both workflow YAMLs and assert on parsed structure. Note the YAML
+          `on:` trap — `on` can decode as the BOOLEAN true rather than the string
+          key, so read the trigger key defensively (check both the `"on"` string
+          key and a `true` key) and fail with a clear message if neither is present
+          rather than silently asserting nothing.
+
+          TestReleaseWorkflow_TriggersOnlyOnSemverTagPush
+            .github/workflows/release.yml triggers on `push` with `tags: ['v*']`
+            and declares NO `branches:` trigger and no `pull_request:` trigger — a
+            release workflow that also fires on every main push will publish
+            garbage. Assert its `permissions` include `contents: write` (needed to
+            create the Release) and `actions: read` (needed to query CI status).
+
+          TestReleaseWorkflow_RequiresTagIntegrityAndGreenCI
+            The job that runs goreleaser `needs:` BOTH the tag-integrity job and
+            the green-CI job. Assert on the `needs` set, which is the actual
+            enforcement mechanism — a green-CI job that exists but is not in
+            `needs` gates nothing. Assert the green-CI job has a step whose `run`
+            queries CI conclusion for the tagged SHA (`gh run list` / `gh api` with
+            the commit SHA) — the exact query is the implementer's choice; what the
+            test pins is that a step consults CI status for THIS commit rather than
+            assuming it.
+
+          TestTagIntegrityWorkflow_ChecksSemverAndAncestryOfMain
+            .github/workflows/tag-integrity.yml has a step asserting the tag name
+            matches a semver pattern, and a step running
+            `git merge-base --is-ancestor` against origin/main. Assert its checkout
+            step sets `fetch-depth: 0` — without full history the ancestry query
+            cannot answer, and a shallow checkout would make the check pass
+            vacuously or error confusingly.
+
+          TestTagIntegrityWorkflow_CarriesTemporarySuccessorHeader
+            Read the file as TEXT (this one assertion is legitimately textual — the
+            header's wording is the deliverable) and assert the leading comment
+            block names it as temporary and names its successor. The successor
+            framing WIDENED on 2026-07-27: it is not only BUNDLE-015 REQ-018's CI
+            recipe pack but the future `go-distribution` pack, of which the
+            release trinity (GitHub releases + Homebrew + `go install`) is the
+            seed. Assert on the identifying tokens — "temporary", "REQ-018", and
+            "go-distribution" — rather than on the full sentence.
+
+            Add one NEGATIVE token assertion: the header must NOT contain
+            "ISSUE-086". That issue was narrowed on 2026-07-27 to the
+            packless-baseline defect and no longer owns the hand-baked-CI concern
+            (ISSUE-020 does), so citing it here would ship a wrong reference in
+            source that outlives this plan. Positive-token assertions cannot catch
+            a wrong citation — they only check that expected tokens are PRESENT —
+            which is exactly why this one negative assertion earns its place.
+
+          TestReleaseWorkflows_DoNotSelfGate
+            FIRST, assert BOTH workflow files EXIST and are non-empty. Then assert
+            neither contains a `backstop gate` invocation.
+
+            The existence assertions are not decoration — without them this test
+            is VACUOUS at RED time. An absence-only assertion over files that do
+            not exist yet passes trivially: before TASK-012 there is no
+            release.yml and no tag-integrity.yml, so "neither contains `backstop
+            gate`" is true of nothing. It would be the one test in this plan that
+            starts GREEN, and a test that never fails proves nothing about the
+            code that later makes it pass. Reading the file must ERROR the test if
+            the file is missing, not be skipped or swallowed.
+
+            This pins a deliberate founder-approved cut (macOS runner +
+            ISSUE-020's Linux sandbox) so that adding self-gating later is a
+            conscious act that trips a test and forces the author to read
+            release.yml's header. It is now the ONLY remaining scope cut pinned by
+            a test — the Homebrew cut was reversed on 2026-07-27 and TASK-008's
+            assertion flipped from absence to presence accordingly.
+
+            General rule for every absence assertion in this file: pair it with an
+            existence assertion on the thing being searched, or it degrades into a
+            tautology the moment the target is missing.
+
+          FINDINGS-CLEAN: this file is NEW and therefore unconditionally in gate
+          diff scope. It must carry zero pack_engines findings of its own. The
+          2026-07-27 split ruling does not reach it either way — remediation and
+          the coverage grandfather both concern pre-existing dormant findings in
+          files the sweep touches, never a file this plan authors.
+        files:
+          - workflows_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        test_names:
+          - TestReleaseWorkflow_TriggersOnlyOnSemverTagPush
+          - TestReleaseWorkflow_RequiresTagIntegrityAndGreenCI
+          - TestTagIntegrityWorkflow_ChecksSemverAndAncestryOfMain
+          - TestTagIntegrityWorkflow_CarriesTemporarySuccessorHeader
+          - TestReleaseWorkflows_DoNotSelfGate
+        depends_on:
+          - TASK-004
+
+      - id: TASK-012
+        type: implementation
+        title: "Write the tag-integrity and release workflows"
+        description: |
+          Create both workflows, turning TASK-011 green.
+
+          .github/workflows/tag-integrity.yml
+            Follow the pattern already shipped in the pack repos —
+            backstop-self-pack/.github/workflows/tag-integrity.yml is the
+            reference; READ IT before writing this. Core's checks differ from the
+            packs': the packs assert tag-vs-`pack.yml` version agreement, which
+            core has no analogue for. Core asserts instead:
+              - the pushed tag matches
+                `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`, failing with a
+                `::error::` annotation naming the malformed tag
+              - the tagged commit is an ancestor of `main`:
+                checkout with `fetch-depth: 0`, `git fetch origin main`, then
+                `git merge-base --is-ancestor "$GITHUB_SHA" origin/main`, failing
+                with an annotation explaining that a tag off a side branch will not
+                be released
+            Trigger on `push` tags `v*`. Lead with the TEMPORARY HEADER comment
+            block, matching the pack repos' convention: state that this is a
+            hand-written placeholder, and that it is not meant to become a second
+            permanent hand-baked pipeline. Name BOTH successors — the BUNDLE-015
+            REQ-018 CI recipe pack (DIR-019), and the future `go-distribution`
+            pack that the release trinity seeds (see the framing note). Extraction
+            is post-launch; the header exists so the next reader knows this file
+            is destined to become pack payload rather than to accrete.
+
+            DO NOT cite ISSUE-086 in this header. An earlier draft attributed the
+            hand-baked-pipeline concern to it; ISSUE-086 was narrowed on
+            2026-07-27 to the packless-baseline defect ONLY, and the hand-baked-Go
+            fact belongs to ISSUE-020's acceptance criterion. This header is
+            SHIPPED SOURCE — it outlives this plan and gets read by people who
+            will chase whatever issue number it names, so a wrong citation here is
+            more expensive than the same wrong citation in a task description.
+            If you want a tracking reference in the header, cite ISSUE-020 for the
+            hand-baked-CI concern, or cite nothing and let the successors carry it.
+
+            CLM-016's token test (TASK-011) asserts "temporary", "REQ-018" and
+            "go-distribution". Those are presence-only checks and would NOT have
+            caught the bad ISSUE-086 citation. TASK-011 therefore MANDATES a
+            negative assertion that the header does NOT contain "ISSUE-086" —
+            this header must satisfy it. That assertion is what converts this from
+            a review catch into a mechanical one.
+
+          .github/workflows/release.yml
+            Trigger: `push` with `tags: ['v*']` only.
+            Permissions: `contents: write`, `actions: read`.
+            Jobs:
+              - `tag-integrity`: reuse the same semver + ancestry assertions (call
+                the reusable workflow, or repeat the two steps — either is fine;
+                what matters is that the release job cannot run without them).
+              - `require-green-ci`: assert `ci.yml` already concluded success on
+                `$GITHUB_SHA`, using `gh` (preinstalled on GitHub runners) with
+                `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. Fail with an explicit
+                annotation when no successful CI run exists for that exact SHA —
+                including the case of NO run at all, which must fail, not pass by
+                absence. That vacuous-pass case is the one worth writing carefully:
+                "no runs found" and "runs found, all red" must both be red.
+              - `goreleaser`: `needs: [tag-integrity, require-green-ci]`. Checkout
+                with `fetch-depth: 0` (goreleaser needs history for changelog),
+                `actions/setup-go@v5` with `go-version-file: go.mod`, then
+                `goreleaser/goreleaser-action@v6` with `version: "~> v2"` and
+                `args: release --clean`, `GITHUB_TOKEN` in env.
+
+            Lead with a header comment recording that this pipeline does NOT
+            self-gate with `backstop gate`, and why: it is the named fast-follow
+            from ISSUE-087, requiring a macOS runner (the darwin sandbox is real;
+            Linux's is a hard no-op per ISSUE-020) plus a fleet lock migration. The
+            existing hand-baked ci.yml gates the tagged commit in the interim, and
+            the `require-green-ci` job above is what makes that gating binding.
+            Someone reading this file must be able to tell the absence is a
+            decision, not an oversight.
+
+          Do NOT modify .github/workflows/ci.yml. Its hand-baked Go tooling —
+          `gate` running `go test`/golangci-lint directly instead of calling
+          `backstop gate` — belongs to ISSUE-020's acceptance criterion, NOT to
+          ISSUE-086. ISSUE-086 was narrowed on 2026-07-27 to the packless-baseline
+          defect only, and the founder explicitly ruled the CI-wiring fact stays
+          welded to ISSUE-020 and must not be re-filed. This pipeline deliberately
+          depends on that hand-baked job continuing to work as-is.
+        files:
+          - .github/workflows/release.yml
+          - .github/workflows/tag-integrity.yml
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the workflows: shape tests plus actionlint"
+        description: |
+          1. `go test ./... -race -count=1 -run 'TestReleaseWorkflow|TestTagIntegrityWorkflow|TestReleaseWorkflows'`
+             — all five TASK-011 tests green. Report the true exit code.
+
+          2. actionlint over both new files. It is NOT installed here (verified
+             2026-07-27: `which actionlint` -> not found) and it is a Go program,
+             so run it without installing:
+               go run github.com/rhysd/actionlint/cmd/actionlint@latest \
+                 .github/workflows/release.yml .github/workflows/tag-integrity.yml
+             Paste the real output. actionlint catches the class of error the shape
+             tests cannot — bad expression syntax, unknown context fields, invalid
+             `needs` references — which is precisely the class that only surfaces on
+             a live runner this repo does not have.
+
+             Note that actionlint may also flag the pre-existing ci.yml if run
+             repo-wide. Scope it to the two new files; if you do run it repo-wide,
+             report ci.yml findings separately and do not fix them here — that
+             file's hand-baked-Go gap is ISSUE-020's scope, not ISSUE-086's.
+
+          HONESTY REQUIREMENT: if the `go run` fetch fails, report the error and
+          state that actionlint could not run. Do not report it as passed and do
+          not treat the shape tests as a substitute — they assert intent, not
+          syntax.
+
+          Read both workflow files back once more and confirm by eye that neither
+          contains `backstop gate`. The test asserts this, but this is the
+          founder's explicit scope cut and it is worth a human-readable
+          confirmation in the report.
+        files:
+          - .github/workflows/release.yml
+          - .github/workflows/tag-integrity.yml
+          - workflows_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+  - id: phase-5
+    name: "Phase 5: Comprehensive Verification and the Named Post-Remote Gap"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "DEFERRED-BLOCKED: post-remote verification that cannot run without the private remote"
+        description: |
+          THIS TASK IS NOT EXECUTABLE IN THIS ENVIRONMENT. `git remote -v` is empty;
+          there is no GitHub repository, so no workflow in this repo has ever run,
+          no tag has ever been pushed, and no module version has ever been
+          published.
+
+          The implementer MUST NOT attempt, simulate, stub, or approximate any of
+          the steps below, and MUST NOT mark this task complete. Report it as
+          DEFERRED-BLOCKED, name the blocker (no remote), and carry it forward.
+          A plan that runs green while this is outstanding has proven the
+          CONFIGURATION, not the PIPELINE — and the difference is the whole value
+          of this task existing.
+
+          To be run, in this order, once the private remote exists and the renamed
+          module has been pushed:
+
+            1. Push `main`. Confirm ci.yml runs and goes green — this is the FIRST
+               execution of a workflow that has only ever been read, so budget for
+               it failing on something mundane.
+            2. Push a well-formed tag (e.g. v0.1.0) on that green commit. Confirm:
+               tag-integrity passes, require-green-ci passes, goreleaser runs, and
+               a GitHub Release appears with four archives plus a checksums file.
+            3. Download the darwin/arm64 archive, run `backstop version`, confirm
+               it reports v0.1.0 — not "dev", not a snapshot string.
+            4. NEGATIVE: push a malformed tag (e.g. `v1.2` or `release-1`) and
+               confirm no Release is produced and tag-integrity's annotation names
+               the malformed tag.
+            5. NEGATIVE: tag a commit that is not an ancestor of main and confirm
+               refusal.
+            6. NEGATIVE: tag a commit whose CI is red and confirm require-green-ci
+               refuses. This is the criterion most likely to be quietly wrong —
+               "no CI run found for this SHA" must fail closed, not pass by
+               absence.
+            7. `go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.1.0`
+               then `backstop version` — must report v0.1.0. This is the sole
+               end-to-end proof of the ReadBuildInfo fallback on a REAL published
+               module version; phase 2 proves the predicate, not the publication.
+
+          HOMEBREW — the third leg of the trinity, also unprovable until now:
+            8. Create the tap repo `backstop-ai/homebrew-tap` — the exact
+               repository name, ratified 2026-07-27, NOT `backstop-ai/tap` (that
+               is the shorthand consumers type, which Homebrew expands to this
+               repo). Confirm it matches what TASK-009's config declares before
+               creating it: creating the repo under the wrong name is the one
+               step here that is annoying to undo, because consumers who have
+               already run `brew tap` keep pointing at the old one. It starts
+               EMPTY; its contents are generated. Do not hand-author a formula.
+            9. Provision the token the `brews:` block pushes with — a PAT with
+               write access to the TAP repo, stored as a secret in this repo. The
+               default GITHUB_TOKEN is scoped to backstop-core and cannot push to
+               the tap; that mismatch is the most common failure here and it
+               surfaces only on a real release.
+           10. Re-run the tagged release (or tag v0.1.1) and confirm goreleaser
+               pushed a generated formula into the tap.
+           11. `brew install backstop-ai/tap/backstop` (the ratified install
+               command — the shorthand `backstop-ai/tap` resolves to the
+               `backstop-ai/homebrew-tap` repo created in step 8), then
+               `backstop version` — must report the real tag. That closes the
+               trinity: GitHub Release, Homebrew, and `go install` all reporting
+               the same version from the same tagged commit.
+
+          If step 7 reports "dev", the fallback's accept-predicate is too strict
+          for a real published version — re-open phase 2 rather than loosening the
+          workflow. If step 11 reports a different version from step 7, the two
+          distribution paths disagree, which is the exact failure CLM-008's
+          same-code-path requirement exists to prevent — treat it as a defect in
+          version resolution, not as a packaging quirk.
+        files:
+          - .github/workflows/release.yml
+          - .goreleaser.yml
+          - go.mod
+        claims:
+          - CLM-018
+        depends_on:
+          - TASK-012
+          - TASK-015
+
+      - id: TASK-015
+        type: verification
+        title: "Comprehensive verification: rebuilt binary, full gate, full suite, artifact validation"
+        description: |
+          The final falsifier across everything this plan touched. Run each command
+          and report REAL output plus the TRUE exit code (`echo $?`); never a
+          summary in place of output, never a pipe that masks a non-zero exit.
+
+            1. go build ./...
+            2. go test ./... -race -count=1
+               The whole repo. Phases 2, 3 and 4 all added root-package or
+               cmd/backstop tests on top of a 295-file rename; a scoped run cannot
+               falsify that combination.
+            3. make coverage
+               Must clear the 90 threshold. cmd/backstop/version.go is the only new
+               statement-bearing file; its table test covers it.
+            4. go build -o bin/backstop ./cmd/backstop/
+               REBUILD. A stale binary gates the pre-change code and reports a
+               vacuous green — this matters more than usual here, since the module
+               path itself changed.
+            5. ./bin/backstop gate
+               AND ./bin/backstop gate --all
+            6. ./bin/backstop artifact validate --plan PLAN-ISSUE-087
+            7. grep -rl "github.com/bmanson/backstop-core" --include="*.go" . | wc -l
+               Must be 0. (`.backstop/` still carries one reference by design — it
+               is locked installed pack content and a filed pack-repo follow-on.)
+
+          ── GATE EXPECTATION UNDER THE SPLIT RULING ───────────────────────
+          Do not assert the violation set is unchanged, and do not treat step 5 as
+          a simple pass/fail. The repo-wide sweep pulls a materially larger set
+          into diff scope. Report the activated inventory (rule, file, dimension)
+          and reconcile it against TASK-004's, explaining any delta.
+
+          Per the founder ruling of 2026-07-27:
+            - pack_engines: CLEAN over the swept set (TASK-016 remediated it),
+              except the two named deliberate fixtures and any escalated unruled
+              go-toolchain rows.
+            - coverage_threshold: EXPECTED RED on the grandfathered shortfalls.
+              Report them by file against the exception; do not fix, waive, or
+              refresh the baseline. The refresh is held behind ISSUE-086 (the
+              packless baseline).
+
+          `./bin/backstop gate` will therefore exit non-zero. Report the true exit
+          code and name the dimension responsible. A non-zero exit that is fully
+          accounted for by the grandfathered coverage set is the EXPECTED end
+          state of this plan — say that explicitly rather than leaving a red gate
+          looking like a failure, and equally do not call it a pass.
+
+          These are clean regardless of the ruling and are this plan's own
+          responsibility:
+            - the three NEW root-package test files — module_path_test.go,
+              release_config_test.go, workflows_test.go — carry zero findings
+            - cmd/backstop/version.go carries zero findings
+            - no finding exists that was absent from `gate --all` before the sweep
+
+          Then state, explicitly and in these terms, what this plan did and did not
+          prove:
+            PROVEN LOCALLY — the rename (full suite + gate), the pack_engines
+            remediation, version resolution (table + both real binaries), the
+            goreleaser config including the `brews:` block's shape (`check` + a
+            real four-platform `--snapshot` build), the workflows (shape +
+            actionlint).
+            NOT PROVEN — everything in TASK-014. No tag has been pushed, no Release
+            produced, no tap repo created, no formula published, no `brew install`
+            or `go install @vX.Y.Z` performed, and ci.yml has still never executed.
+            All three legs of the release trinity are configured and none is
+            end-to-end proven.
+
+          Do not describe the release pipeline as working, verified, or done. It is
+          CONFIGURED and locally dry-run. TASK-014 is what would make it proven, and
+          it is blocked on infrastructure that does not exist yet.
+
+          Name the grandfather exception explicitly in the report, with its date
+          and the held follow-on. A gate whose remaining red is carved out by an
+          exception reads identically to one that was never looked at — the
+          difference has to be stated, not inferred.
+        files:
+          - go.mod
+          - cmd/backstop/version.go
+          - .goreleaser.yml
+          - .github/workflows/release.yml
+          - .github/workflows/tag-integrity.yml
+          - module_path_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-019
+          - CLM-020
+          - CLM-021
+        depends_on:
+          - TASK-002
+          - TASK-006
+          - TASK-007
+          - TASK-009
+          - TASK-010
+          - TASK-012
+          - TASK-013
+          - TASK-016
