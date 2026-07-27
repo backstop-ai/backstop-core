@@ -104,27 +104,31 @@ func TestPackInstallCommand_RendersWarningsToStderr(t *testing.T) {
 
 // TestPackAddCommand_RendersWarningsToStderr (CLM-109).
 //
-// pack add renders NOTHING of the kind today — the loop is new in TASK-021, and the
-// divergence diagnostic that populates AddResult.Warnings is wired in TASK-027. A reader
-// who assumes a producing path already exists will hunt for a bug rather than adding one.
+// It drives a HERMETIC remote rather than a mock, because newPackAddCommand assembles its
+// own production dependencies inside RunE with no injection seam — the only way to hand
+// the real command a divergent pack is to publish one. divergent-name-pack's manifest
+// declares hermetic/renamed-pack while its directory, and therefore the coordinate
+// remoteE2ESetup builds, is hermetic/divergent-name-pack.
 func TestPackAddCommand_RendersWarningsToStderr(t *testing.T) {
-	t.Skip("pack add produces no warning until the divergence diagnostic is wired in TASK-027 (phase 8); the rendering loop lands in TASK-021 and this asserts it once there is something to render")
+	packName, projectDir := remoteE2ESetup(t, "divergent-name-pack", "v1.0.0")
 
-	projectDir := t.TempDir()
-	writeFileForTest(t, projectDir, "backstop.yml", "packs: {}\n")
 	restore := chdirForTest(t, projectDir)
 	defer restore()
 
 	jsonFlag := false
-	stdout, stderr, err := runWithSeparateStreams(t, newPackAddCommand(&jsonFlag), "acme/renamed-pack@1.0.0")
+	stdout, stderr, err := runWithSeparateStreams(t, newPackAddCommand(&jsonFlag), packName+"@1.0.0")
 	if err != nil {
-		t.Fatalf("a divergent add must succeed while warning: %v", err)
+		t.Fatalf("a divergent add must SUCCEED while warning — divergence is loud, never fatal: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
+
 	if !strings.Contains(strings.ToLower(stderr), "warning") {
 		t.Errorf("the divergence diagnostic must render to STDERR; stderr was:\n%s", stderr)
 	}
+	if !strings.Contains(stderr, "hermetic/renamed-pack") {
+		t.Errorf("the diagnostic must name the manifest name; stderr was:\n%s", stderr)
+	}
 	if strings.Contains(strings.ToLower(stdout), "warning") {
-		t.Errorf("the diagnostic must NOT appear on stdout; stdout was:\n%s", stdout)
+		t.Errorf("the diagnostic must NOT appear on stdout — a renderer writing to both streams passes the positive assertion alone; stdout was:\n%s", stdout)
 	}
 }
 

@@ -1,6 +1,7 @@
 package distribution_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -894,8 +895,20 @@ func TestPackAdd_LocalPathMissingName(t *testing.T) {
 		t.Fatal("expected error for local pack missing name")
 	}
 
-	if !strings.Contains(err.Error(), "local pack manifest missing name") {
-		t.Errorf("error should mention missing name, got: %v", err)
+	// SPEC-056 edit-set C. This asserted the literal sentence "local pack manifest
+	// missing name" until the local branch started routing through ReadManifestIdentity,
+	// whose *IdentityError words it differently.
+	//
+	// Asserting the TYPE is strictly stronger than asserting a sentence, and it is the
+	// same assertion CLM-033 makes on the REMOTE side — so the local and remote halves of
+	// "a pack that cannot be addressed cannot be installed" now agree by construction
+	// rather than by two independently maintained strings.
+	var identityErr *distribution.IdentityError
+	if !errors.As(err, &identityErr) {
+		t.Fatalf("error is %T (%v), want *IdentityError", err, err)
+	}
+	if !strings.Contains(strings.ToLower(identityErr.Field), "name") {
+		t.Errorf("IdentityError.Field = %q, want it to name the name field", identityErr.Field)
 	}
 }
 
@@ -1265,13 +1278,31 @@ func TestPackAdd_WriteLockfileRollback(t *testing.T) {
 	}
 }
 
+// TestPackAdd_MergeToolConfigErrorRollsBack keeps its identifier and both its rollback
+// assertions; only the way it REACHES the merge failure changed (SPEC-056 edit-set A).
+//
+// It used to provoke the failure with a pack.yml of binary garbage, relying on
+// MergeToolConfig -> readPackManifest being the first thing to choke on it. After the
+// identity gate lands, such a pack is refused far earlier by ReadManifestIdentity, so the
+// test's PREMISE no longer held: it would have gone on passing while exercising an
+// entirely different refusal.
+//
+// The manifest now PARSES and identity-validates, and the failure comes from the merge
+// itself: .golangci.yml exists as a DIRECTORY, so writeConfigFile cannot write the merged
+// settings to it (config_merge.go:107). The settings block is non-empty because the write
+// is only attempted when something was actually merged for that file.
 func TestPackAdd_MergeToolConfigErrorRollsBack(t *testing.T) {
 	projectDir := setupAddProject(t)
 
-	// Create a pack with an invalid pack.yml (not valid YAML or JSON).
-	// This will cause MergeToolConfig → readPackManifest to fail.
 	badPackDir := t.TempDir()
-	writeFile(t, filepath.Join(badPackDir, "pack.yml"), "\x00\x01\x02 binary garbage")
+	writeFile(t, filepath.Join(badPackDir, "pack.yml"),
+		"name: acme/bad-pack\nversion: \"1.0.0\"\narchetype: rule-pack\n"+
+			"tool_config:\n  - config_file: \".golangci.yml\"\n    settings:\n      linters.enable.revive: true\n")
+
+	// The merge target is a DIRECTORY, so writing the merged config fails.
+	if mkErr := os.MkdirAll(filepath.Join(projectDir, ".golangci.yml"), 0o755); mkErr != nil {
+		t.Fatal(mkErr)
+	}
 
 	// Snapshot backstop.yml before add.
 	ymlPath := filepath.Join(projectDir, "backstop.yml")

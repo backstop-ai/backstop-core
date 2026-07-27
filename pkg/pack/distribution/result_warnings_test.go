@@ -32,8 +32,6 @@ import (
 // manifest declares acme/valid-pack, so requesting acme/renamed-pack makes the manifest
 // name and the requested coordinate differ byte-exactly.
 func TestAddResult_CarriesWarnings(t *testing.T) {
-	t.Skip("the divergence diagnostic is wired in TASK-027 (phase 8); the carrier lands here so the diagnostic has somewhere to ride when it does")
-
 	projectDir := setupAddProject(t)
 	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/bmanson/backstop-core/pkg/pack"
 )
 
 // scratchValidationDirPattern is the os.MkdirTemp pattern for the directory validation
@@ -162,8 +162,12 @@ func NewAddCommand(git GitCloner, validator Validator) (*AddCommand, error) {
 // longer install cleanly.
 func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 	isLocal := isLocalPath(packRef)
-	var packName, version, packDir, sourceType string
+	// packName is the pack's INSTALL IDENTITY and always comes from the MANIFEST
+	// (SPEC-056 REQ-003). coordinate is the requested org/repository, recorded verbatim
+	// and never used to build a path, a key, or an asset root.
+	var packName, coordinate, version, packDir, sourceType string
 	var gitRef *string
+	var warnings []string
 	// localRelPath holds the local pack's source dir RELATIVE TO THE PROJECT ROOT, recorded
 	// in the lock so install can re-materialize it portably (empty for git-source packs).
 	var localRelPath string
@@ -177,27 +181,22 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 		packDir = local.packDir
 		localRelPath = local.relPath
 		sourceType = "local"
-	} else {
-		// Git pack: parse org/pack-name@version.
-		packName, version = parsePackRef(packRef)
-		if opts.Version != "" {
-			version = opts.Version
+
+		if isPackInstalledAndCurrent(opts.ProjectDir, packName) {
+			return &AddResult{PackName: packName, AlreadyCurrent: true}, nil
 		}
+	} else {
+		// EXACTLY ONE effective version, resolved BEFORE any git subprocess runs
+		// (REQ-001). Previously a bare org/name produced an empty version and the
+		// pipeline cloned the ref "v", so the operator's diagnostic was a git error
+		// about a nonexistent branch.
+		resolvedCoordinate, effectiveVersion, resolveErr := ResolveEffectiveVersion(packRef, opts.Version)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("pack add %s: %w", packRef, resolveErr)
+		}
+		coordinate = resolvedCoordinate
 		sourceType = "git"
-		ref := "v" + version
-		gitRef = &ref
-	}
 
-	// Distinguish DECLARED from INSTALLED. Manifest membership in backstop.yml is NOT
-	// enough: a pack is genuinely installed-and-current only when it is materialized on
-	// disk AND recorded in the lock. When it IS current, honestly report a no-op; when it
-	// is declared-but-absent (or the lock diverged), fall through to the materialize/lock
-	// pipeline below and actually install it.
-	if isPackInstalledAndCurrent(opts.ProjectDir, packName) {
-		return &AddResult{PackName: packName, AlreadyCurrent: true}, nil
-	}
-
-	if !isLocal {
 		// Clone the pack to a temporary directory.
 		tmpDir, err := os.MkdirTemp("", "backstop-pack-clone-*")
 		if err != nil {
@@ -205,11 +204,44 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 		}
 		defer func() { _ = os.RemoveAll(tmpDir) }()
 
-		gitURL := resolveGitURL(packName)
-		if err := c.git.Clone(gitURL, "v"+version, tmpDir); err != nil {
-			return nil, fmt.Errorf("cloning pack %s: %w", packName, err)
+		gitURL := resolveGitURL(coordinate)
+		if err := c.git.Clone(gitURL, versionTagPrefix+effectiveVersion, tmpDir); err != nil {
+			return nil, fmt.Errorf("cloning pack %s: %w", coordinate, err)
 		}
 		packDir = tmpDir
+
+		// THE IDENTITY GATE, before ANY consumer state is touched (REQ-002/REQ-003 and
+		// REQ-007's ordering). It reads the cloned manifest and refuses a version that
+		// disagrees with the tag or a name that cannot address a pack.
+		identity, identityErr := ValidateRemoteIdentity(coordinate, effectiveVersion, tmpDir)
+		if identityErr != nil {
+			return nil, fmt.Errorf("pack add %s: %w", packRef, identityErr)
+		}
+
+		// The MANIFEST name is the identity from here on.
+		packName = identity.InstallName
+		version = identity.EffectiveVersion
+		ref := identity.Tag
+		gitRef = &ref
+
+		// Divergence is a LOUD DIAGNOSTIC and never a refusal (REQ-006 / OQ-9 option
+		// (b)). Requiring equality was rejected by name: name == coordinate is a fleet
+		// CONVENTION, and a convention is something you notice breaking.
+		if identity.Diverged {
+			warnings = append(warnings, fmt.Sprintf(
+				"pack %s declares the name %s in its manifest; installing it as %s at %s",
+				coordinate, identity.ManifestName,
+				identity.InstallName, filepath.Join(".backstop", "packs", identity.InstallName)))
+		}
+
+		// The already-current short-circuit MOVED here on purpose: it is keyed on the
+		// INSTALL name, which for a git source is not knowable until the manifest is
+		// read. Re-adding a current git pack therefore costs one shallow clone. Keying
+		// it on the coordinate would reintroduce the coordinate-as-identity assumption
+		// this spec removes — do not "optimize" it back.
+		if isPackInstalledAndCurrent(opts.ProjectDir, packName) {
+			return &AddResult{PackName: packName, AlreadyCurrent: true, Warnings: warnings}, nil
+		}
 	}
 
 	// Validate against a SCRATCH COPY, BOTH branches. The local branch is not an
@@ -220,7 +252,7 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 	// operator's own path for a local one.
 	validationLabel := packDir
 	if !isLocal {
-		validationLabel = fmt.Sprintf("%s at tag v%s", packName, version)
+		validationLabel = fmt.Sprintf("%s at tag %s", coordinate, versionTagPrefix+version)
 	}
 	if err := RunValidationOnScratchCopy(c.validator, packDir, validationLabel); err != nil {
 		return nil, fmt.Errorf("pack add %s: %w", packRef, err)
@@ -324,6 +356,9 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 		SourceType:  sourceType,
 		InstallDate: time.Now().UTC().Format(time.RFC3339),
 		LocalPath:   localRelPath,
+		// Recorded VERBATIM for git sources and empty for local ones, whose source is
+		// already recorded by LocalPath (REQ-004).
+		SourceCoordinate: coordinate,
 	}
 
 	if err := WriteLockfile(lockPath, lf); err != nil {
@@ -341,6 +376,7 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 		Version:       version,
 		ContentHash:   contentHash,
 		InstalledPath: installedPath,
+		Warnings:      warnings,
 	}, nil
 }
 
@@ -831,18 +867,29 @@ func resolveLocalPackSource(packRef, projectDir string) (*localPackSource, error
 		return nil, fmt.Errorf("reading local pack manifest: %w", readErr)
 	}
 
-	// The name is read separately from the manifest model, which carries only the
-	// tool_config the merge needs. A pack.yml that parses but declares no name is a
-	// pack that cannot be addressed, so it is rejected rather than installed nameless.
-	packName := ""
-	var nameFields map[string]interface{}
-	if err := yaml.Unmarshal(readFileOrNil(filepath.Join(absPath, "pack.yml")), &nameFields); err == nil {
-		if declared, ok := nameFields["name"].(string); ok {
-			packName = declared
+	// Identity comes from the SAME reader the remote path uses (SPEC-056 CLM-038). The
+	// ad-hoc untyped manifest decode that used to live here was a SECOND implementation
+	// of "what is this pack called", and two readers that agree today drift tomorrow.
+	//
+	// ReadManifestIdentity tolerates a missing VERSION on purpose — testdata/local-pack
+	// declares none and several local-path adds expect it to install. Version strictness
+	// belongs to ValidateRemoteIdentity, which only the tag-cloning path calls.
+	packName, _, identityErr := ReadManifestIdentity(absPath)
+	if identityErr != nil {
+		return nil, &IdentityError{
+			Coordinate: absPath,
+			Tag:        "local",
+			Field:      "name",
+			Problem:    identityErr.Error(),
 		}
 	}
-	if packName == "" {
-		return nil, fmt.Errorf("local pack manifest missing name")
+	if nameErr := pack.ValidatePackName(packName); nameErr != nil {
+		return nil, &IdentityError{
+			Coordinate: absPath,
+			Tag:        "local",
+			Field:      "name",
+			Problem:    nameErr.Error(),
+		}
 	}
 
 	absProjectDir, absErr := filepath.Abs(projectDir)
