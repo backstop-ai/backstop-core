@@ -11,6 +11,7 @@ directive:
     - "SPEC-054"
     - "ISSUE-079"
     - "ISSUE-081"
+    - "ISSUE-080"
 ---
 
 ## Description
@@ -86,12 +87,16 @@ mechanism is complete (modulo ISSUE-079/081) but has zero consumers:
 BUNDLE-015's "CI recipe pack" consumer — the default-CI-wiring story that
 `backstop init` depends on — remains unbuilt.
 
-ISSUE-080 (`recipe apply` discards its declared `manual:` fallback; violation-
-class failures exit 1 silently) is a recipe-capability defect by subject
-matter, but its root cause is the shared `ExitViolations`/`main.go`
-stderr-suppression convention that DIR-026's BUNDLE-006 seeds claim by name.
-Home unresolved — escalated to Brandon 2026-07-26, not yet cited by this
-directive.
+ISSUE-080's original two-problem report split on reconciliation (2026-07-26):
+the shared `ExitViolations`/`main.go` stderr-suppression root cause (dropped
+`manual:` fallback, silenced diagnostics) was fixed generically, repo-wide, by
+SPEC-055 (`reportError`/`Explained` in `cmd/backstop/main.go`) — see SPEC-055
+for that half's delivery. What remains open under ISSUE-080, and is now cited
+by this directive, is the recipe-specific remainder: `recipe apply` silently
+clobbers an operator's manually-diverged edit to a recipe-owned file when the
+guarding `@waiver:` token carries a malformed reason code — a data-loss defect
+in `pkg/recipe/apply.go`'s waiver-divergence adjudication that `reportError`
+never touches, since it fails silently at exit 0.
 
 **Sequencing (founder ack 2026-07-26, backlog-pm ISSUE-079 escalation):**
 ISSUE-079 is next work under this directive, ahead of ISSUE-081. ISSUE-079
