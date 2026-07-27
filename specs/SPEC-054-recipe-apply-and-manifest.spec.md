@@ -2,9 +2,10 @@
 title: "Recipe Apply And Manifest"
 number: SPEC-054
 created: "2026-07-21"
+updated: "2026-07-27"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.4.0
+spec_version: 1.5.0
 
 implementation:
   summary: >
@@ -83,9 +84,16 @@ requirements:
       carry that authority; a placeholder in `rule:` is instead REFUSED at manifest
       validation (REQ-009). The resulting invariant: after a successful apply no literal
       `{{` / `}}` may reach the consumer's filesystem — not in any path an op writes,
-      reads or creates, and not in the bytes it splices. (`Op.Payload` and `Op.Fragment`
-      as PATHS are deliberately OUT OF SCOPE of this rule — their form and templatability
-      are ISSUE-081's open question, decided there and not here.)
+      reads or creates, and not in the bytes it splices. `Op.Fragment` as a PATH joins
+      `Op.Rule` on the NOT-substituted side: a merge op's `fragment:` is a
+      recipe-directory-relative path resolved under the recipe directory and read from disk
+      VERBATIM, and its hole is closed at parse instead — a non-path `fragment:` (inline
+      content, a `{{` placeholder, or an empty value) is REFUSED at manifest validation
+      (REQ-009). The fragment FILE'S CONTENT is still substituted, as it has been since
+      1.0.0; path and content are separate fields of the contract and must not be read as
+      contradicting each other. (`Op.Payload` as a PATH remains deliberately OUT OF SCOPE
+      of this rule — its form and templatability stay ISSUE-081's open question, decided
+      there and not here.)
     supports: pack-scaffolding-recipes:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
@@ -103,7 +111,19 @@ requirements:
       op that in SDLC-mediated mode has neither a declared target/anchor nor a supplied
       injection site fails loud (it must not fall back to a guessed site — REQ-011). Both
       modes drive the same op executors over the same recipe artifact; the mode selects
-      only where the WHERE comes from (recipe-declared defaults vs supplied sites).
+      only where the WHERE comes from (recipe-declared defaults vs supplied sites). Direct
+      mode's PARAM scope is the recipe-declared defaults OVERRIDDEN by operator-supplied
+      values, and the shipped CLI must expose a way to supply them: a repeatable
+      `--param key=value` threaded into `ApplyOptions.Params`, so a param declared
+      `required: true` with no `default:` is reachable through the shipped command rather
+      than permanently unusable in direct mode. A malformed argument (no `=`, or an empty
+      key), a DUPLICATE key, and a key the resolved recipe does not declare are each a
+      fail-loud config error naming the offending argument, refused BEFORE any op is
+      applied — never silently ignored, never last-wins, and never degraded into an
+      unattributable unresolvable-placeholder failure later. Splitting is on the FIRST `=`
+      only (a value may contain `=`), an empty value is a legal supplied empty string, and
+      values are never comma-split. This is a CLI-layer input surface only: `Apply` and
+      every SDLC-mediated library caller are unchanged.
     supports: pack-scaffolding-recipes:REQ-003@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-004
@@ -209,8 +229,25 @@ requirements:
       `rule:` is a fail-loud validation error naming the op index, the op id and the
       FIELD, and it is reported BEFORE the declared-rules allowlist cross-check so a
       templated rule reports its real cause rather than "not among the declared rules".
-      This check is scoped to `rule:` ONLY — a placeholder in `payload:` or `fragment:` is
-      NOT rejected here (whether those may be templated is ISSUE-081's open question).
+      The rule-placeholder check remains scoped to `rule:` ONLY. `fragment:` is separately
+      constrained by check (5) below; `payload:` is not checked here and its templatability
+      remains ISSUE-081's open question. (5) a `merge` op's `fragment:` MUST be a
+      recipe-directory-relative PATH: the applier resolves it under the recipe directory and
+      reads the file, so a declaration that can only be something else is a fail-loud
+      validation error naming the op index, the op id and the FIELD. Three shapes are
+      refused, each with its OWN message so the diagnostic names the real cause: an empty or
+      whitespace-only value (a merge op cannot merge nothing), a value containing a NEWLINE
+      (the inline block-scalar form — checked BEFORE the placeholder check, since an inline
+      block usually carries a placeholder too and diagnosing it as a templated path would
+      name the wrong defect), and a value containing the `{{` opening delimiter (a fragment
+      PATH is resolved verbatim and never substituted, so a templated path can only fail to
+      open). The predicate is deliberately NOT widened: a single-line, placeholder-free value
+      that is syntactically a valid relative filename is ACCEPTED here even if it is really
+      inline content, because separating the two would require a content sniff on the
+      document's first byte — syntax knowledge the manifest reader must not carry. That
+      residual case fails at APPLY, where the message names this path-only contract rather
+      than leaking a bare ENOENT. The check's scope is the recipe's own `ops` only; variant
+      ops continue to validate structurally.
     supports: pack-scaffolding-recipes:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-010
@@ -324,6 +361,18 @@ claims:
     text: A merge op targeting a file whose format is not json/yaml/toml/.env fails loud (unsupported structured format)
     tests:
       - TestApply_MergeOp_UnsupportedFormatFailsLoud
+  - id: CLM-088
+    requirement: REQ-002
+    text: >
+      The RESIDUAL fragment failure that parse cannot catch — a single-line, placeholder-free
+      value that is really inline content but is syntactically a valid relative filename, and a
+      declared path naming nothing under the recipe directory — fails the APPLY with a message
+      that NAMES the path-only contract (a recipe-directory-relative path read from disk) and
+      echoes the declared value, keeping the underlying read failure wrapped rather than
+      surfacing it bare. Asserting only that the error is non-nil would leave the undiagnosable
+      bare-ENOENT message passing, which is the failure ISSUE-081 was filed about
+    tests:
+      - TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract
   - id: CLM-010
     requirement: REQ-002
     text: A transform op dispatches an AST rewrite to an allowlisted general engine running the declared rule, transforming a CAPTURED before-fixture to its captured after-state
@@ -367,13 +416,16 @@ claims:
   - id: CLM-071
     requirement: REQ-002
     text: >
-      Driving the committed starter recipe through Apply, the templated create target
-      resolves before the apply halts on the recipe's inline fragment (ISSUE-081 marker;
-      this claim retires when the fragment form is pinned) — the create op's file lands at
-      the substituted path and no literal-brace directory is created, and only then does
-      the merge op fail loud on its unreadable declared fragment
+      Driving the COMMITTED starter recipe through Apply resolves its templated create
+      target AND merges its declared fragment PATH — the create op's file lands at the
+      substituted path with no literal-brace directory created, and the merge op resolves
+      `fragment:` under the recipe directory, reads that file, substitutes its CONTENT and
+      merges it additively into the seeded consumer document (the pre-existing keys survive
+      alongside the merged ones). The path is read verbatim and the content is substituted:
+      both halves of the split are proved in one run over a committed artifact, not a
+      test-local manifest
     tests:
-      - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+      - TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
   - id: CLM-072
     requirement: REQ-002
     text: >
@@ -430,6 +482,65 @@ claims:
     text: Direct mode self-applies the recipe's ops from the recipe-declared defaults/params
     tests:
       - TestApply_DirectMode_SelfAppliesFromDefaults
+  # Direct mode's OPERATOR-SUPPLIED param half (ISSUE-081 Gap 2). CLM-015 states what a
+  # recipe supplies to itself; these state what the operator supplies to it through the
+  # SHIPPED command. Each carries `subject: cmd/backstop` (like CLM-025/027/063/077): the
+  # tests drive the shipped root command over an INSTALLED pack, so the inherited
+  # `pkg/recipe` subject would trip the substantiveness noTarget join on a correctly-placed
+  # test.
+  - id: CLM-089
+    requirement: REQ-003
+    subject: cmd/backstop
+    text: >
+      A repeatable `--param key=value` on the shipped `backstop recipe apply` threads into
+      `ApplyOptions.Params`, so a param declared `required: true` with NO `default:` resolves
+      through the command — the file lands at the substituted target and the supplied value
+      reaches the written BYTES, not only the path. The SAME invocation WITHOUT the flag
+      fails, which is what proves the flag is load-bearing rather than decorative
+    tests:
+      - TestRecipeApply_CLI_ParamFlagSuppliesRequiredNoDefaultParam
+  - id: CLM-090
+    requirement: REQ-003
+    subject: cmd/backstop
+    text: >
+      A malformed `--param` — no `=` at all, or an empty key — is a fail-loud config error
+      (exit 2) QUOTING the offending argument, refused before any op runs so nothing is
+      written beneath the project root; it is never silently ignored
+    tests:
+      - TestRecipeApply_CLI_MalformedParamFlagFailsLoud
+  - id: CLM-091
+    requirement: REQ-003
+    subject: cmd/backstop
+    text: >
+      A DUPLICATE `--param` key is a fail-loud config error naming the repeated key, not
+      last-wins — asserted with a key the recipe DECLARES, so the undeclared-name check
+      cannot be what rejects it, and with nothing written beneath the project root (a map
+      write would have silently kept the last value)
+    tests:
+      - TestRecipeApply_CLI_DuplicateParamKeyFailsLoud
+  - id: CLM-092
+    requirement: REQ-003
+    subject: cmd/backstop
+    text: >
+      A `--param` naming a param the resolved recipe does not declare is a fail-loud config
+      error naming the offending name, refused after resolution and before apply with nothing
+      written — and the message must NOT read as an unresolvable-placeholder failure, since
+      that undiagnosable shape is what the check exists to replace. The complement holds: an
+      invocation whose supplied names are all DECLARED (including an explicit override of a
+      param that carries a default) is accepted, so the check cannot pass by rejecting
+      everything
+    tests:
+      - TestRecipeApply_CLI_UndeclaredParamFailsLoud
+  - id: CLM-093
+    requirement: REQ-003
+    subject: cmd/backstop
+    text: >
+      A `--param` value carrying BOTH `,` and `=` survives intact end to end — the flag is a
+      pflag StringArray (a StringSlice would comma-split the value into two params) and
+      `key=value` splits on the FIRST `=` (splitting on the last would mangle the remainder).
+      Asserted on the WRITTEN path and bytes rather than on an internal map
+    tests:
+      - TestRecipeApply_CLI_ParamValueWithSeparatorsSurvivesIntact
   - id: CLM-016
     requirement: REQ-003
     text: Direct mode is deterministic — the same recipe+params yields byte-identical output across two runs
@@ -729,11 +840,54 @@ claims:
       A substitution placeholder in `rule:` — and ONLY in `rule:` — is refused at manifest
       validation, fail-loud, naming the op index, the op id and the FIELD, and reported
       BEFORE the declared-rules allowlist cross-check; the SAME manifest with a literal
-      `rule:` but a templated `payload:` and a templated `fragment:` still parses CLEANLY
-      (the scope guard — payload/fragment templatability is ISSUE-081's call, not this
-      check's), and a fully literal manifest parses cleanly too
+      `rule:` but a templated `payload:` still parses CLEANLY (the scope guard — `payload:`
+      templatability is ISSUE-081's call, not this check's; `fragment:` is decided and is
+      constrained separately by the fragment-form check, so it is NOT part of this guard),
+      and a fully literal manifest parses cleanly too
     tests:
       - TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
+  - id: CLM-085
+    requirement: REQ-009
+    text: >
+      A `merge` op whose `fragment:` value spans LINES — the inline block-scalar form — is
+      refused at manifest validation, fail-loud, naming the op index, the op id and the
+      FIELD, and stating the canon: `fragment` is a recipe-directory-relative path to a file
+      read from disk, not inline content. The inline case is diagnosed AS inline even when it
+      also carries a placeholder, so the message names the real defect rather than reporting
+      a templated path
+    tests:
+      - TestParseRecipeManifest_InlineFragmentRefused
+  - id: CLM-086
+    requirement: REQ-009
+    text: >
+      A `merge` op whose single-line `fragment:` carries a `{{` placeholder is refused at
+      parse — a fragment PATH is resolved under the recipe directory verbatim and never
+      substituted, so a templated path can only fail to open — with the message directing the
+      author to move the placeholder INTO the fragment file, whose content IS substituted.
+      The rejection must come from the FRAGMENT check and not from the rule cross-check (the
+      manifest declares its rule literally and lists it in `transform_rules`, so a
+      rule-related diagnosis would mean the fragment check never ran). The complementary
+      scope guard — the same manifest with a templated `payload:` still parsing cleanly —
+      is CLM-076's
+    tests:
+      - TestParseRecipeManifest_TemplatedFragmentPathRefused
+  - id: CLM-087
+    requirement: REQ-009
+    text: >
+      A `merge` op whose `fragment:` is empty or whitespace-only is refused at parse — a
+      merge op cannot merge nothing — rather than surviving to apply and surfacing there as
+      the create/payload path's "declares no path" diagnostic, which names the wrong contract
+    tests:
+      - TestParseRecipeManifest_EmptyFragmentOnMergeOpRefused
+  - id: CLM-094
+    requirement: REQ-009
+    text: >
+      The MIRROR of the three refusals: a `merge` op declaring the canon form — a
+      recipe-directory-relative fragment PATH — parses CLEAN and round-trips the declared
+      string byte-exactly (it is handed to path resolution unchanged). Without this accept
+      case the three refusals would be satisfied by a check that refused every fragment
+    tests:
+      - TestParseRecipeManifest_PathFormFragmentAccepted
 
   # REQ-010 — apply-time reference resolution of pack:recipe@version
   - id: CLM-045
@@ -839,7 +993,7 @@ contracts:
       - name: Op
         kind: type
         signature: "type Op struct { ID string; Kind string; Target string; Payload string; Fragment string; Format string; Rule string; Anchor string; Snippet string; Manual string }"
-        notes: "One declared operation. ID is the stable op key SDLC-mediated InjectionSites is keyed by (REQ-003). Kind is a CLOSED allowlist: create/merge/transform/insert/step (REQ-002/REQ-007), carried in source as the grouped untyped consts OpCreate/OpMerge/OpTransform/OpInsert/OpStep. Those consts carry NO separate `provides` entry for the same reason RecipeManifest's kind consts do not — a grouped `const (…)` member is inexpressible to the contracts-pack signature compiler (ISSUE-078). The allowlist is enforced BEHAVIORALLY and exhaustively across every family: CLM-004 (create), CLM-005/006/007/008 (merge over the json/yaml/toml/.env matrix), CLM-010 (transform), CLM-011 (insert), CLM-028/029 (step recognized and sequenced, never executed), and CLM-030 (an op kind outside the set fails loud, never silently skipped). Rule (transform only) is a pack-relative rule-file path that MUST appear in the recipe's declared TransformRules — an op citing an undeclared rule is a manifest validation error (REQ-009/CLM-066). Manual is the human-actionable fallback instruction emitted VERBATIM when the injection limit is hit (REQ-011); it is REQUIRED for transform/insert and validated absent-is-error (CLM-064). A step op carries only its ID+Kind here and is never executed — its future payload schema is NOT round-tripped by the current non-strict YAML decode (unknown keys are dropped); BUNDLE-019 (which owns the step executor) will EXTEND this Op contract with the step payload fields (or a raw-passthrough), so this spec deliberately does not model them (Sharp Edges)."
+        notes: "One declared operation. ID is the stable op key SDLC-mediated InjectionSites is keyed by (REQ-003). Kind is a CLOSED allowlist: create/merge/transform/insert/step (REQ-002/REQ-007), carried in source as the grouped untyped consts OpCreate/OpMerge/OpTransform/OpInsert/OpStep. Those consts carry NO separate `provides` entry for the same reason RecipeManifest's kind consts do not — a grouped `const (…)` member is inexpressible to the contracts-pack signature compiler (ISSUE-078). The allowlist is enforced BEHAVIORALLY and exhaustively across every family: CLM-004 (create), CLM-005/006/007/008 (merge over the json/yaml/toml/.env matrix), CLM-010 (transform), CLM-011 (insert), CLM-028/029 (step recognized and sequenced, never executed), and CLM-030 (an op kind outside the set fails loud, never silently skipped). Rule (transform only) is a pack-relative rule-file path that MUST appear in the recipe's declared TransformRules — an op citing an undeclared rule is a manifest validation error (REQ-009/CLM-066). Fragment (merge only) is likewise a PATH — recipe-DIRECTORY-relative, resolved under ResolvedRecipe.Dir and read from disk VERBATIM, never substituted — the form ISSUE-081's Decision (2026-07-27) pinned; a declaration that can only be something else (an inline block, a `{{` placeholder, an empty value) is a manifest validation error (REQ-009/CLM-085/086/087), and the residual single-line inline value parse cannot distinguish from a filename fails at apply naming this contract (CLM-088). The fragment FILE'S CONTENT is still substituted (CLM-071): Fragment is the path, not the bytes. Payload's form remains ISSUE-081's residual open question and is deliberately unconstrained here. Manual is the human-actionable fallback instruction emitted VERBATIM when the injection limit is hit (REQ-011); it is REQUIRED for transform/insert and validated absent-is-error (CLM-064). A step op carries only its ID+Kind here and is never executed — its future payload schema is NOT round-tripped by the current non-strict YAML decode (unknown keys are dropped); BUNDLE-019 (which owns the step executor) will EXTEND this Op contract with the step payload fields (or a raw-passthrough), so this spec deliberately does not model them (Sharp Edges)."
       - name: ParamSpec
         kind: type
         signature: "type ParamSpec struct { Name string; Required bool; Default string }"
@@ -847,7 +1001,7 @@ contracts:
       - name: ParseRecipeManifest
         kind: function
         signature: "func ParseRecipeManifest(data []byte) (*RecipeManifest, error)"
-        notes: "Parses + structurally validates recipe.yml: fail-loud on missing ops, missing/malformed-semver version, invalid kind, a transform/insert op missing its manual field (CLM-064), and a transform op whose rule is not among the declared TransformRules (CLM-066), a duplicate op id, an empty id on a transform/insert op (CLM-068), or a substitution placeholder in a transform op's `rule` — checked BEFORE the TransformRules cross-check and scoped to `rule:` ONLY, never payload/fragment (CLM-076) (REQ-009). Optional compat/variants validate structurally. No language knowledge — reads declared data."
+        notes: "Parses + structurally validates recipe.yml: fail-loud on missing ops, missing/malformed-semver version, invalid kind, a transform/insert op missing its manual field (CLM-064), and a transform op whose rule is not among the declared TransformRules (CLM-066), a duplicate op id, an empty id on a transform/insert op (CLM-068), or a substitution placeholder in a transform op's `rule` — checked BEFORE the TransformRules cross-check and scoped to `rule:` ONLY, never payload (CLM-076) — and a merge op's `fragment:` that is not a PATH: empty/whitespace-only, spanning lines (the inline block form, diagnosed BEFORE the placeholder case so an inline block reports itself as inline), or carrying a `{{` placeholder, each with its own message naming the op index, id and field (CLM-085/086/087) while the canon path form parses clean (CLM-094) (REQ-009). The fragment predicate is deliberately not widened to a content sniff, so a single-line value that is syntactically a filename is accepted here and fails at apply instead (CLM-088); the check covers the recipe's own Ops only, not variant ops. Optional compat/variants validate structurally. No language knowledge — reads declared data."
     consumes:
       - source: gopkg.in/yaml.v3
         name: Unmarshal
@@ -1104,17 +1258,36 @@ named here as deliberately not. Every row is covered by a claim that drives the 
 | `Op.Anchor` | insert (INCLUDING the half supplied through SDLC-mediated `InjectionSites`) | YES — before the anchor match | FAIL LOUD | CLM-070 / CLM-073 / CLM-074 |
 | `Op.Snippet` | insert | YES — before the splice | FAIL LOUD | CLM-070 / CLM-073 |
 | `Op.Manual` | transform / insert (relayed operator instruction) | YES — before it is relayed | FAIL **SOFT** → relay the RAW declared text | CLM-078 |
-| payload / fragment CONTENT | create / merge | YES — before the bytes are written or merged (true since 1.0.0) | FAIL LOUD | CLM-070 |
+| payload / fragment CONTENT | create / merge | YES — before the bytes are written or merged (true since 1.0.0) | FAIL LOUD | CLM-070 / CLM-071 |
 | `Op.Rule` | transform | **NO** — the declared, allowlist-validated path is executed unchanged | a placeholder in `rule:` is REFUSED at manifest validation (REQ-009) | CLM-075 / CLM-076 |
+| `Op.Fragment` as a PATH | merge | **NO** — the declared path is resolved under the recipe directory and read from disk unchanged | a non-path value (inline content, a `{{` placeholder, or empty) is REFUSED at manifest validation (REQ-009); the residual single-line inline value parse cannot distinguish from a filename fails at APPLY naming the path-only contract | CLM-071 / CLM-085 / CLM-086 / CLM-087 / CLM-088 |
 
-`Op.Payload` and `Op.Fragment` as PATHS are deliberately **OUT OF SCOPE of this table**.
-Their form — including whether `fragment:` may carry inline content at all rather than a
-path — and their templatability are ISSUE-081's open question. The omission is a
-DECISION, not a gap: deciding it here would settle ISSUE-081 silently and from the wrong
-place, so this spec takes no position either way. (Their CONTENT, once read, is
-substituted; that is the row above and is a separate matter from the path's form.)
+**The path/content split, stated so the last two rows are not read as contradicting each
+other.** `Op.Fragment` is a PATH and is never substituted; the FILE it names has its
+CONTENT substituted, exactly as it has since 1.0.0. A recipe author who wants a placeholder
+in a merge fragment puts it inside the fragment file, never in the field that locates it.
+The same split is what makes the parse-time refusal safe: refusing a templated `fragment:`
+takes nothing away from the author, because the field was never a place a placeholder could
+work — a brace-bearing path is resolved verbatim and can only fail to open. CLM-071 proves
+both halves in one run over the committed `starter` recipe: the declared path is read
+verbatim and its content arrives substituted.
 
-**Why `Op.Rule` is the exception.** The rule path is validated at PARSE time by exact
+`Op.Payload` as a PATH is deliberately **OUT OF SCOPE of this table**. Its form and
+templatability remain ISSUE-081's open question. The omission is a DECISION, not a gap:
+deciding it here would settle ISSUE-081 silently and from the wrong place, so this spec
+takes no position either way. The asymmetry with `fragment:` is itself the reason —
+`fragment:` had a LIVE three-way contradiction (the applier read a path, this spec said
+nothing, and a committed fixture declared an inline block), so it was decided on evidence
+by ISSUE-081's Decision (2026-07-27); `payload:` has no such contradiction, and settling it
+here would be deciding from the wrong place on no evidence. (Payload CONTENT, once read, is
+substituted; that is the content row above and is a separate matter from the path's form.)
+
+**Why `Op.Rule` is not substituted — and why the reason differs from `Op.Fragment`'s.**
+Both are paths refused-at-parse rather than substituted, but for DIFFERENT reasons, and
+collapsing them would lose the stronger one. `fragment:` is verbatim because a substituted
+path could only fail to open — there is nothing a placeholder there could usefully do.
+`rule:` is verbatim for an AUTHORITY reason that would hold even if the substituted path
+resolved perfectly. The rule path is validated at PARSE time by exact
 string equality against the recipe's declared `transform` rules allowlist (REQ-009), and
 it selects which PACK ASSET an allowlisted engine executes IN PLACE over the consumer's
 tree. Substituting it at apply time would (a) execute a rule path that is not the one
@@ -1162,7 +1335,8 @@ family that forgets substitution is caught without anyone updating a list).
 | `compat`, `variants` | no | structural only (behavior out of scope) | CLM-044 |
 | op `manual:` | yes for `transform`/`insert`, else no | non-empty on injection-limit ops; optional on `create`/`merge` | CLM-064 / CLM-065 |
 | op `rule:` (transform) | yes for `transform` | pack-relative path present in the recipe's declared `transform` rules | CLM-066 / CLM-067 |
-| op `rule:` placeholder (transform) | n/a | a `{{` in `rule:` — and ONLY in `rule:` — is refused, before the declared-rules cross-check; `payload:`/`fragment:` placeholders are NOT checked here (ISSUE-081) | CLM-076 |
+| op `rule:` placeholder (transform) | n/a | a `{{` in `rule:` — and ONLY in `rule:` — is refused, before the declared-rules cross-check; a `payload:` placeholder is NOT checked here (ISSUE-081's residual open question) | CLM-076 |
+| op `fragment:` (merge) | yes for `merge` | a recipe-DIRECTORY-relative path; an inline (multi-line) value, a `{{` placeholder, or an empty/whitespace-only value is a fail-loud error naming the op index, id and field, each with its own message; the canon path form parses clean. Scope is the recipe's own `ops`, not variant ops | CLM-085 / CLM-086 / CLM-087 / CLM-094 |
 | op `id:` | unique always; non-empty on `transform`/`insert` | duplicate id, or empty id on an injection-accepting op, is an error (it is the `InjectionSites` routing key — REQ-003) | CLM-068 / CLM-069 |
 
 ## Implementation
@@ -1299,7 +1473,16 @@ transformed file bytes — a no-op dispatch cannot pass it.
    REFUSES a substitution placeholder in a `transform` op's `rule` — checked BEFORE the
    declared-rules cross-check so the diagnostic names the real cause, keyed on the placeholder
    delimiter the substitution implementation already declares (never a second literal), and scoped
-   to `rule:` ONLY (CLM-076); validates optional compat/variants structurally.
+   to `rule:` ONLY (CLM-076); REFUSES a `merge` op's non-path `fragment:` — empty/whitespace-only,
+   multi-line (the inline block form, diagnosed BEFORE the placeholder case so an inline block
+   reports itself as inline rather than as a templated path), or carrying the `{{` delimiter — each
+   with its own message naming the op index, id and field (CLM-085/086/087), while the canon path
+   form parses clean (CLM-094); validates optional compat/variants structurally. The fragment
+   predicate stops where a CONTENT SNIFF would begin: a single-line, placeholder-free value that is
+   syntactically a valid relative filename is accepted here even if it is really inline content,
+   because distinguishing it means guessing at document syntax the manifest reader must not carry —
+   that residual case fails at apply instead, naming this contract (CLM-088, step 5). The check
+   covers `Ops` only; variant ops keep validating structurally.
 2. **`recipes:` index on the pack manifest (REQ-008).** Add `Manifest.Recipes` and
    `validateRecipesIndex` (missing dir / missing `recipe.yml` -> error), wired into
    `ParseManifest` beside `Content.Scaffolds`.
@@ -1337,6 +1520,20 @@ transformed file bytes — a no-op dispatch cannot pass it.
 9. **Modes + multi-recipe (REQ-003/REQ-013).** Direct vs SDLC-mediated select where params/
    injection sites come from; `ApplyAll` runs multiple recipes strictly sequentially in
    declared order, same-file co-writes composing via `merge`.
+10. **Operator param input at the CLI (REQ-003).** `backstop recipe apply` registers a
+    repeatable `--param key=value` as a pflag **StringArray** — a StringSlice comma-splits its
+    values and would silently truncate `--param greeting=a,b` into two params (CLM-093) — read
+    inside `RunE` from the command's own flag set rather than from a captured variable, and
+    parsed into the supplied param scope: split on the FIRST `=` only (a value may contain `=`),
+    an empty value is a legal supplied empty string, a malformed argument or an empty key is a
+    `*check.ConfigError` quoting the argument (CLM-090), and a repeated key is a `ConfigError`
+    rather than last-wins (CLM-091). The UNDECLARED-name check runs AFTER `ResolveRecipe` — the
+    recipe's declared param schema is only knowable then — and BEFORE `Apply` (CLM-092), so a
+    typo'd name is refused at the invocation instead of resurfacing later as an unattributable
+    unresolvable-placeholder failure. Every rejection is PRE-apply, which is why they take the
+    ConfigError/exit-2 side of `runRecipeApply`'s existing exit-code split: nothing was applied,
+    so the INVOCATION is what must change. `effectiveParams` is unchanged — supplied values
+    already override declared defaults; the CLI simply never populated them (CLM-089).
 
 ### Fixtures must be CAPTURED, never fabricated
 
@@ -1435,15 +1632,47 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   a templated `rule:` (CLM-076), so the excluded field has no hole. CLM-075 exists specifically
   to fail a future uniformity refactor.
 
-- **`Op.Payload` / `Op.Fragment` path form is UNDECIDED here, and the silence is load-bearing.**
-  They are pack-relative source paths of the same class as `Rule`, so the symmetry argument
-  reaches them too — but whether they may be templated, and whether `fragment:` may carry inline
-  CONTENT at all rather than a path, is ISSUE-081's open question. Deciding it from this spec
-  would settle that issue silently AND invalidate committed artifacts that carry a templated
-  inline fragment today. So the scope matrix names them as OUT OF SCOPE rather than omitting
-  them: the next reader must be able to tell a decision from an oversight. CLM-071 pins the
-  current halt on an inline fragment as a live, falsifiable marker and RETIRES when ISSUE-081
-  lands; CLM-076's clean-parse case guards the boundary from below.
+- **`Op.Payload`'s path form is STILL UNDECIDED here, and that silence stays load-bearing — while
+  `Op.Fragment`'s is now DECIDED.** `fragment:` is a recipe-directory-relative PATH as of
+  ISSUE-081's Decision (2026-07-27), refused at parse when it can only be something else. It was
+  decided because it had a LIVE three-way contradiction: the applier read a path, this spec said
+  nothing, and a committed fixture declared an inline block — a contradiction that survived the
+  whole suite because the committed `starter` recipe was never driven through `Apply`. `payload:`
+  has no such contradiction, so deciding it here would settle ISSUE-081's residual facet silently,
+  from the wrong place, on no evidence. The scope matrix therefore still NAMES `Op.Payload` as out
+  of scope rather than omitting it: the next reader must be able to tell a decision from an
+  oversight. The falsifiable guard from below is CLM-076's payload-clean parse case — a future
+  "uniformity" refactor that widens the placeholder check to `payload:` fails that ACCEPT case,
+  which is exactly what the guard is for. The asymmetric risk to hold: the same symmetry argument
+  that just landed on `fragment:` will look equally tidy applied to `payload:`, and it must not be
+  taken here — it belongs to ISSUE-081.
+
+- **A new `kind: type` contract entry for `pkg/recipe/apply.go` goes RED in Go while the artifact
+  tooling stays GREEN — the spec author gets NO signal.** `pkg/recipe/contract_signature_test.go`
+  compares this spec's declared `signature:` strings TEXTUALLY against `go/printer` output for the
+  shipped declarations, and it walks a `contractedTypes()` list inside the test. Adding a `provides`
+  entry to this spec's frontmatter for that file therefore makes `go test ./pkg/recipe/` FAIL until
+  the same name is added to `contractedTypes()` — while `backstop artifact validate` passes
+  throughout, because a contract entry is structurally valid on its own. The instruction currently
+  lives only in that test's doc comment, discoverable only by someone already reading the test,
+  which is why it is stated here where a spec author will meet it (PLAN-ISSUE-080 widened the guard
+  and deferred this note to the next SPEC-054 touch — this one). The corollary for editors of THIS
+  spec: contract `notes:` prose is free to change, but a `signature:` string is load-bearing text —
+  field names, types and ORDER are compared byte-wise, so an "improvement" to a signature line is a
+  code change in disguise.
+
+- **The `--param` refusals are a CLI-LAYER policy, and they are deliberately stricter than the
+  library.** `pkg/recipe.Apply` accepts any `Params` map: an undeclared key there is simply unused,
+  and a duplicate is unrepresentable. The undeclared-name and duplicate-key refusals live at
+  `cmd/backstop` ONLY, after `ResolveRecipe` and before `Apply`, so every SDLC-mediated library
+  caller is unchanged. The reason to refuse rather than ignore: a dropped `--param app_nmae=x`
+  resurfaces later as an unresolvable-`{{ app_name }}` failure the operator cannot attribute — the
+  same undiagnosable shape ISSUE-081 was filed about — and a silently last-wins duplicate discards a
+  value the operator typed. The consequence to hold: a recipe that REMOVES a param in a later
+  version now breaks an invocation that still supplies it, loudly, at the invocation rather than in
+  the output. That is the intended trade. The layering is the sharp part — a future refactor that
+  "tidies" these checks down into `Apply` would impose a CLI ergonomics policy on every library
+  caller, including SDLC-mediated apply, which supplies params programmatically.
 
 - **`recipes:` index must not collide with `content.scaffolds` or `pack scaffold`.** "Scaffold"
   is already overloaded: `Content.Scaffolds` is a rule's paired TEST scaffold; `pack scaffold` /
@@ -1577,10 +1806,26 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
 
 15. Is `Op.Rule` left UNSUBSTITUTED — the dispatch receiving the declared, allowlist-validated
     rule path resolved under `PackDir` byte-identically — with its hole closed instead by a
-    parse-time refusal scoped to `rule:` ALONE (a templated `payload:`/`fragment:` still parsing
-    cleanly, since ISSUE-081 owns that question), and does `Op.Manual` fail SOFT to the raw
+    parse-time refusal scoped to `rule:` ALONE (a templated `payload:` still parsing cleanly,
+    since ISSUE-081 still owns that question), and does `Op.Manual` fail SOFT to the raw
     declared text rather than replacing the operator's instruction with a second error?
     (REQ-002/REQ-009/REQ-011 / CLM-075/076/078.)
+
+16. Is `Op.Fragment` treated as a PATH and only a path — resolved under the recipe directory and
+    read VERBATIM, with the three non-path shapes (inline/multi-line, `{{`-bearing, empty)
+    refused at parse under their OWN messages naming op index, id and field, the canon form
+    accepted, and the residual single-line-inline value failing at APPLY with a message that
+    names the path-only contract rather than a bare ENOENT — while the fragment FILE'S CONTENT
+    is still substituted? Is the predicate free of any CONTENT SNIFF (no leading-`{`/`[` test),
+    and scoped to the recipe's own `ops` rather than variant ops? (REQ-002/REQ-009 /
+    CLM-071/085/086/087/088/094.)
+
+17. Does `--param` reach `ApplyOptions.Params` through the SHIPPED command as a repeatable pflag
+    **StringArray** (not a StringSlice, which would comma-split a value), splitting on the FIRST
+    `=`, with malformed / duplicate / undeclared arguments each refused PRE-apply as a
+    `*check.ConfigError` (exit 2) that quotes the offending argument and leaves nothing written
+    beneath the project root — and are those refusals implemented at the CLI layer only, leaving
+    `pkg/recipe.Apply` and every SDLC-mediated caller unchanged? (REQ-003 / CLM-089..093.)
 
 ## References
 
@@ -1613,10 +1858,15 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   substitution-scope matrix now pins: `Op.Target`/`Op.Anchor`/`Op.Snippet` were used RAW while
   `Substitute`-direct claims stayed green. Reconciled here in the same change that ships the
   behavior.
-- **ISSUE-081 (recipe authoring surface: merge fragment form + no CLI param input)** — owns the
-  `payload:`/`fragment:` PATH form, whether `fragment:` may carry inline content, and whether
-  either may be templated. Deliberately undecided here; CLM-071 is the live marker that retires
-  when it lands.
+- **ISSUE-081 (recipe authoring surface: merge fragment form + no CLI param input)** — its
+  **Decision (2026-07-27)** is the source for BOTH positions reconciled at 1.5.0: Gap 1 pinned
+  `fragment:` as a recipe-directory-relative PATH with a non-path declaration a parse error, and
+  Gap 2 gave `backstop recipe apply` a repeatable `--param key=value` threaded into
+  `ApplyOptions.Params`. The reference NARROWS rather than retires: **Gap 3 remains OPEN** under
+  ISSUE-081 (insert placement semantics — inline-after-anchor vs new-line-after-anchor-line — and
+  whether SDLC-mediated mode's CLI reachability is stated), as does the residual **`Op.Payload`**
+  facet (its path form and templatability). This spec takes no position on either, and CLM-076's
+  payload-clean parse case is the guard that keeps the remaining boundary falsifiable.
 
 ## Version History
 
@@ -1792,3 +2042,75 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   in the contracts block are load-bearing. CLM-062 (never authors a token) is unregressed: the seam
   is still READ-only. No requirement or existing test was removed. Now 13 requirements, 84 claims,
   18 sharp edges, 15 review questions.
+- **1.5.0 (2026-07-27, implemented)** — THE RECIPE AUTHORING SURFACE pinned to what shipped in the
+  same change (ISSUE-081's **Decision, 2026-07-27**), on both gaps it decided.
+  (1) **`fragment:` IS A PATH.** `Op.Fragment` (merge) is a recipe-DIRECTORY-relative path,
+  resolved under the recipe directory and read from disk VERBATIM — never substituted. It joins
+  `Op.Rule` on the NOT-substituted side of the substitution-scope matrix, which gains a row for it
+  (families merge; Substituted? NO; failure policy: a non-path value is REFUSED at manifest
+  validation) plus an explicit path-vs-content note, since the pre-existing "payload / fragment
+  CONTENT — YES" row is CORRECT and stays: the FILE's content is still substituted; only the field
+  that LOCATES it is verbatim. The decision resolved a live three-way contradiction — the applier
+  read a path, this spec said nothing, and a committed fixture declared an inline block — which
+  survived the whole suite because the committed `starter` recipe was never driven through `Apply`.
+  (2) **REQ-009 gained a FIFTH op-level parse check**: a merge op's `fragment:` that is
+  empty/whitespace-only, spans LINES (the inline block-scalar form), or carries a `{{` placeholder
+  is a fail-loud validation error naming the op index, op id and FIELD, each cause under its OWN
+  message; the inline case is diagnosed BEFORE the placeholder case so an inline block (which
+  usually carries a placeholder too) reports itself as inline rather than as a templated path. The
+  predicate deliberately stops short of a CONTENT SNIFF: a single-line, placeholder-free value that
+  is syntactically a valid relative filename is ACCEPTED at parse, because separating it from a real
+  filename means guessing at document syntax the manifest reader must not carry — that residual case
+  fails at APPLY instead, with a message naming the path-only contract. Two layers, one canon, both
+  stated. Scope is the recipe's own `ops`; variant ops keep validating structurally.
+  (3) **`--param` (Gap 2).** REQ-003 now states direct mode's OPERATOR-supplied param half: the
+  shipped `backstop recipe apply` exposes a repeatable `--param key=value` threaded into
+  `ApplyOptions.Params`, so a `required: true` param with no `default:` is reachable instead of
+  permanently unusable in direct mode. Malformed (no `=`, empty key), DUPLICATE, and UNDECLARED
+  names are each refused PRE-apply as config errors quoting the offending argument — never silently
+  ignored, never last-wins, and never degraded into an unattributable unresolvable-placeholder
+  failure later. The flag is a pflag StringArray (a StringSlice would comma-split a value) and
+  `key=value` splits on the FIRST `=`. The refusals are CLI-LAYER ONLY: `pkg/recipe.Apply` and every
+  SDLC-mediated library caller are unchanged, and `effectiveParams` is untouched.
+  (4) **CLM-071 REWRITTEN IN PLACE**, id reused so REQ-002 keeps its coverage. It claimed the
+  starter apply HALTED on the recipe's inline fragment and carried "this claim retires when the
+  fragment form is pinned"; the form is pinned, so it now claims the pinned behavior — the committed
+  starter recipe resolves its templated create target AND merges its declared fragment PATH
+  additively into the seeded consumer document. Its mandated test name moves from
+  `TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment` to
+  `TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath`. Retiring by REWRITE rather than
+  by deletion keeps the property ISSUE-079 bought: the committed starter stays driven through
+  `Apply`, which is how the contradiction hid in the first place.
+  (5) **CLM-076 NARROWED** to a `payload:`-only clean-parse guard (its mandated test name
+  `TestParseRecipeManifest_TemplatedTransformRuleFailsLoud` is unchanged), matching the split of the
+  test's templated-payload-and-fragment manifest into a payload ACCEPT case and a fragment REJECT
+  case. That accept case is what keeps the remaining boundary falsifiable from below: a future
+  uniformity refactor widening the check to `payload:` fails it.
+  (6) **CLAIMS ADDED**, each mandating a delivered test: CLM-085/086/087 (inline / templated /
+  empty fragment refused at parse), CLM-094 (the mirroring ACCEPT — the canon path form parses clean
+  and round-trips byte-exactly, without which the three refusals would be satisfied by a check that
+  refused every fragment), CLM-088 (the residual apply-time failure names the path-only contract and
+  echoes the declared value, keeping the underlying read error wrapped rather than bare), and
+  CLM-089..093 under REQ-003 for the CLI param surface — supplies a required-no-default param,
+  malformed refused, duplicate refused, undeclared refused (with its complementary all-declared
+  accept case), and a value carrying `,` and `=` surviving intact. The five CLI claims carry
+  per-claim `subject: cmd/backstop`, like CLM-025/027/063/077.
+  (7) **REQ-002's out-of-scope parenthetical and the matrix paragraph NARROWED to `Op.Payload`
+  alone**, with the evidence asymmetry stated: `fragment:` was decided because it had a live
+  contradiction; `payload:` has none, so deciding it here would settle ISSUE-081's residual facet
+  from the wrong place on no evidence.
+  (8) **CONTRACT NOTES** on `Op` (Fragment pinned as a path read from disk, mirroring how Rule is
+  already documented) and `ParseRecipeManifest` (the fragment-form rejection listed among its
+  fail-loud checks). `notes:` prose only — NO `signature:` string changed, so
+  `pkg/recipe/contract_signature_test.go`'s textual guard is unaffected.
+  (9) **SHARP EDGES**: the payload/fragment silence bullet is replaced by a payload-only version
+  carrying the fragment decision and its date; a new bullet records what PLAN-ISSUE-080 deferred to
+  this touch — adding a `kind: type` entry for `pkg/recipe/apply.go` to this frontmatter makes
+  `go test ./pkg/recipe/` RED until the name is also added to `contractedTypes()`, while
+  `backstop artifact validate` stays GREEN, so the artifact tooling gives the spec author NO signal;
+  and a third records that the `--param` refusals are a deliberately stricter CLI-layer policy that
+  must not be tidied down into `Apply`. Two review questions added (the fragment path-only surface,
+  the `--param` surface) and RQ-15 narrowed off `fragment:`.
+  ISSUE-081 stays in References, NARROWED: Gap 3 (insert placement semantics, SDLC-mediated CLI
+  reachability) and the residual `Op.Payload` facet remain OPEN there. No requirement was removed
+  and no existing test was dropped.
