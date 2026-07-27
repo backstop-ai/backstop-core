@@ -9,6 +9,7 @@ directive:
   source:
     - "BUNDLE-006"
     - "SPEC-055"
+    - "SPEC-056"
     - "ISSUE-083"
 ---
 
@@ -73,24 +74,51 @@ ergonomics: wanted, but not what makes backstop unusable if it slips.
 SPEC-055 implemented 2026-07-26 — all 12 phases of PLAN-SPEC-055 landed.
 Ten packs are published under `backstop-ai` with real remote installs
 proven (see DIR-027, which owns the ecosystem/fleet side of this work).
-What remains under this directive is the BUNDLE-006 code-side seed work
-SPEC-055 didn't scope:
+SPEC-056 implemented 2026-07-27 — all 13 phases of PLAN-SPEC-056 landed
+(closing commit `067bd37`, "chore(SPEC-056): close delivered — spec
+implemented v1.1.1, plan completed"). What remains under this directive is
+the BUNDLE-006 code-side seed work SPEC-055 and SPEC-056 didn't scope:
 
-- **REQ-039 (version/identity validation)** — manifest semver must equal
-  the effective tag; a live counterexample already exists (the harness
-  toolchain pack's manifest declares `0.1.3` against tags `v0.1.0`/`v0.1.1`,
-  cited in DIR-027 item 2). Now the highest-value remaining seed per PM
-  assessment.
+- **REQ-039 (version/identity validation) — DELIVERED.** SPEC-056
+  ("Remote Identity Version Validation", `implemented` at spec_version
+  1.1.1, PLAN-SPEC-056 `completed`) shipped this: the manifest `name` —
+  never the requested repository coordinate — is now the pack's
+  install/runtime identity (install path, `backstop.yml` key, lock key,
+  engine asset root); a new remote identity module
+  (`pkg/pack/distribution/identity.go`) gates every cloning command with
+  typed refusals (`*VersionUnresolvedError`, `*VersionMismatchError`,
+  `*IdentityError`) before any consumer state is touched; the requested
+  coordinate is recorded verbatim and preserved through the lock
+  lifecycle (`LockEntry.SourceCoordinate`, DD-31) and read back through
+  one shared accessor on install/update/upgrade/version-resolution;
+  identity now gates on `pack update` and `pack upgrade`, not just `pack
+  add`; and a hermetic identity E2E suite runs over the built binary.
+  12+ of SPEC-056's claims carry
+  `supports: pack-distribution-lifecycle:REQ-039@1.1.0`. The harness
+  toolchain pack's manifest/tag drift (manifest declares `0.1.3` against
+  tags stopping at `v0.1.1`, cited in DIR-027 item 2) was the shape this
+  spec was built to catch and is now what the gate is validated against
+  — SPEC-056 did not itself retag or amend that published pack, so the
+  live drift persists as a fixture-proven case rather than a remediated
+  one.
 - **Transactions and the parity suite** — the remaining BUNDLE-006 DDs not
-  covered by SPEC-055.
+  covered by SPEC-055 or SPEC-056. This is now the actual code-side
+  remainder under this directive.
 - **REQ-041 (legacy-hash migration), DEMOTED** — remove+re-add under
   DIR-027's fleet migration writes fresh lock entries, so the migration
   mechanism's real-world exposure is now approximately zero; still seeded
   here for BUNDLE-006 traceability, not treated as launch-blocking.
 
-`status` remains `active` — SPEC-055 is implemented but the remaining
-code-side seeds above have not yet been specced. Update to `done` (with
-`directive.completed`) once they land and the gate is proven green.
+`status` remains `active`. SPEC-055 and SPEC-056 are both implemented;
+what still holds this directive open is the remainder above —
+transactions and the parity suite, neither yet specced — plus REQ-041
+(demoted, not blocking). ISSUE-083 is cited here but is explicitly
+post-launch and not-to-be-planned (see guard below), so it may not be
+holding this directive open on merit; whether DIR-026 is now close
+enough to `done` pending only transactions/parity is a founder call this
+reconciliation pass does not make. Update to `done` (with
+`directive.completed`) once the remainder lands and the gate is proven
+green.
 
 **ISSUE-083 (`resolveGitURL` hardcodes the GitHub host) — cited here, not
 scoped for work yet, with two guards traveling with the citation:**

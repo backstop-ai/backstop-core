@@ -99,26 +99,42 @@ guarding `@waiver:` token carries a malformed reason code — a data-loss defect
 in `pkg/recipe/apply.go`'s waiver-divergence adjudication that `reportError`
 never touches, since it fails silently at exit 0.
 
-**Sequencing (founder ack 2026-07-26, backlog-pm ISSUE-079 escalation):**
-ISSUE-079 is next work under this directive, ahead of ISSUE-081. ISSUE-079
-(risk: critical — untemplated site fields, silent wrong output) is the
-correctness defect blocking trust in the mechanism; ISSUE-081 (authoring-
-surface polish — merge/insert/`--param` semantics) follows it.
+**Sequencing update (2026-07-27) — ISSUE-079 closed, ISSUE-081 Gaps 1-2
+delivered.** The prior sequencing instruction ("ISSUE-079 next, ahead of
+ISSUE-081") is spent. ISSUE-079 (risk: critical — untemplated site fields,
+silent wrong output) is `closed`; `PLAN-ISSUE-079` completed the fix.
+ISSUE-081's Gap 1 (`fragment:` form — DECIDED: path-only, recipe-directory-
+relative) and Gap 2 are delivered: `PLAN-ISSUE-081` completed, landing in
+`8c80b2c` (fragment path-only contract + repeatable `--param`) and `da9d599`
+(SPEC-054 v1.5.0 rewriting CLM-071). ISSUE-081 correctly stays `open` for
+Gap 3 alone — insert placement semantics (inline-after-anchor vs.
+new-line-after-anchor-line) are unpinned; the issue records founder-ratified
+positions for Gaps 1 and 2 with Gap 3 explicitly left open, plus a residual
+`Op.Payload` facet. What's genuinely next under this directive is no longer
+"ISSUE-079 ahead of ISSUE-081" — it's ISSUE-080's recipe-specific remainder
+(above), now this directive's **highest-severity open item** since it's
+silent data loss (regenerates a diverged file and exits 0 with no warning),
+ahead of ISSUE-081 Gap 3, which is authoring-surface polish by comparison.
 
-**ISSUE-085 (recipe-pack archetype gap) — added 2026-07-27.** A pack whose
-whole point is handing out scaffolds + recipes with no ruleset has no valid
-archetype: `pkg/packval`'s model recognizes only `code` (requires rules) and
-`enforcement` (forbids scaffolds), so a recipes-first pack satisfies neither
-branch. This was latent behind the pre-SPEC-055 nil-`Validator` skip (the
-retired ISSUE-073) and was EXPOSED by SPEC-055 REQ-008 making `pack
-check`/`pack test` validation unconditional on every `pack add` — turning a
-`pack check`-time gap into an install-time hard blocker. It sits on REQ-018's
-critical path: BUNDLE-015's CI recipe pack — this directive's own
-packs-only acceptance test — is precisely this pack shape (scaffolds +
-recipes, no rules) and will hit the same wall. DIR-026 caused the exposure
-(REQ-008 shipped there); DIR-019 owns the fix, since it's this directive's
-archetype/recipe-capability surface. Founder-decided 2026-07-27: direction 1
-— a new `recipes`/scaffolding archetype, WITH TEETH: every non-templating
-(`scaffolding`- and `implementing`-kind) recipe in the pack must declare its
-own `enforcement.rules`; `templating`-kind recipes are exempt, since the
-applier itself is the drift enforcement for the other two kinds.
+**ISSUE-085 (recipe-pack archetype gap) — delivered 2026-07-27.** A pack
+whose whole point is handing out scaffolds + recipes with no ruleset had no
+valid archetype: `pkg/packval`'s model recognized only `code` (requires
+rules) and `enforcement` (forbids scaffolds), so a recipes-first pack
+satisfied neither branch. This was latent behind the pre-SPEC-055 nil-
+`Validator` skip (the retired ISSUE-073) and was EXPOSED by SPEC-055 REQ-008
+making `pack check`/`pack test` validation unconditional on every `pack
+add` — turning a `pack check`-time gap into an install-time hard blocker. It
+sat on REQ-018's critical path: BUNDLE-015's CI recipe pack — this
+directive's own packs-only acceptance test — is precisely this pack shape
+(scaffolds + recipes, no rules) and would have hit the same wall. DIR-026
+caused the exposure (REQ-008 shipped there); DIR-019 owned the fix, since
+it's this directive's archetype/recipe-capability surface. Founder-decided
+2026-07-27: direction 1 — a new `recipes`/scaffolding archetype, WITH TEETH:
+every non-templating (`scaffolding`- and `implementing`-kind) recipe in the
+pack must declare its own `enforcement.rules`; `templating`-kind recipes are
+exempt, since the applier itself is the drift enforcement for the other two
+kinds. **Delivered**: `PLAN-ISSUE-085` completed and ISSUE-085 is `closed`.
+Commits: `0c729bf` (TDD red, acceptance fixtures), `253c501` (phase 2 —
+recipes archetype lands at both parse seams), `419b71a` (phase 3 — clears
+the four dormant findings the diff scope activated), `40fc878` (close
+delivered).

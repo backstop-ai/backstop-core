@@ -6,8 +6,11 @@ issue:
   id: ISSUE-075
   title: "Gate Test Verification Vacuous Green Missing Mandated Test"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-25"
+  closed: "2026-07-27"
+
+delivered_by: PLAN-ISSUE-075
 
 complexity:
   scope: isolated
@@ -16,6 +19,46 @@ complexity:
 ---
 
 # Gate Test Verification Vacuous Green Missing Mandated Test
+
+## Resolution
+
+Fixed by PLAN-ISSUE-075 (commit `37bdb75`, 2026-07-26). `specOpts` gained a `status`
+field and `createSpec` now honors it — `specStatus := opts.status` falling back to
+`"draft"` only when unset (`tests/smoke/smoke_test.go:146-149`) — instead of
+hardcoding `draft` unconditionally as it did before this issue. Every existing
+caller that relied on the old hardcoded default (`TestSmoke_GatePassesOnCompliantProject`
+and friends, which depend on `draft` keeping substantiveness/coverage/contracts at
+capability-absent warnings) is unaffected because the default is preserved.
+`TestSmoke_GateFailsMissingMandatedTest`'s `SPEC-999` now passes
+`status: "implemented"` explicitly (`smoke_test.go:618-624`), with an inline comment
+recording why that status is load-bearing (ISSUE-054's implemented-only mandated-test
+scoping) so a future scoping change can't silently re-vacuate the scenario without a
+fixture update alongside it. A new guard test,
+`TestSmoke_CreateSpecDefaultsToDraftStatus`, pins the other half of the contract — an
+unset `specOpts.status` must still emit `status: draft`.
+
+Verification performed on the current tree (not taken on the commit message alone):
+
+- `go test ./tests/smoke/... -run 'TestSmoke_GateFailsMissingMandatedTest|TestSmoke_CreateSpecDefaultsToDraftStatus' -v -count=1` —
+  both PASS, exit 0, run uncached (`-count=1` forces re-execution, defeating the exact
+  `go test` caching that hid this defect for 12 days per the Problem section below).
+- Full mandated verification command from this issue's `verification` block —
+  `go test ./tests/smoke/... -count=1 -race` — PASS, exit 0.
+- Falsification: copied the repo to a scratch worktree, reintroduced the exact
+  original defect (`createSpec` forcing `specStatus := "draft"` unconditionally,
+  ignoring `opts.status`), and re-ran
+  `go test ./tests/smoke/... -run 'TestSmoke_GateFailsMissingMandatedTest|TestSmoke_CreateSpecDefaultsToDraftStatus' -v -count=1`.
+  `TestSmoke_GateFailsMissingMandatedTest` FAILED under the reintroduced defect
+  (`SPEC-999` fell back to `draft`, its mandated test was filtered by
+  `filterDueMandatedTests` before the discovery walk ran, and the gate returned
+  `pass=true`/exit 0 instead of the expected exit 1) while
+  `TestSmoke_CreateSpecDefaultsToDraftStatus` still passed (unaffected, since the
+  default was already `draft`). The guard catches the regression it exists to catch.
+  Scratch copy discarded after the run; nothing under version control was touched.
+
+Scenario 6 (`TestSmoke_CodeCheckCatchesViolation`, stale `backstop code check`
+naming) noted in the Problem section as out of scope remains untouched — not part of
+this issue's fix.
 
 ## Problem
 

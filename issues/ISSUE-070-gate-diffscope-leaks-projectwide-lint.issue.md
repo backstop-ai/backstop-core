@@ -6,8 +6,11 @@ issue:
   id: ISSUE-070
   title: "Gate Diffscope Leaks Projectwide Lint"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-18"
+  closed: "2026-07-27"
+
+delivered_by: PLAN-ISSUE-070
 
 complexity:
   scope: contained
@@ -16,6 +19,51 @@ complexity:
 ---
 
 # Gate Diffscope Leaks Projectwide Lint
+
+## Resolution
+
+Fixed by PLAN-ISSUE-070 (commit `43ddeb6`, 2026-07-18). The `pack_engines` gate
+step (`packValidatorStep` in `cmd/backstop/gate.go`) never applied the
+diff-scope filter to its dispatched violations — `pkg/gate/step_delegate.go`
+and `pkg/gate/baseline.go` both called `filterViolations` on their streams,
+but `packValidatorStep` set `status` directly off the raw dispatch output. The
+fix: `pkg/gate/scope.go` gained an exported `(*GateScope).FilterViolations`
+wrapper over the already-correct internal `filterViolations`, and
+`packValidatorStep` now calls `activeScope.FilterViolations(violations)`
+immediately after dispatch, before computing status (`cmd/backstop/gate.go:842`).
+The filter is keyed structurally on the `ProjectWide` field + `scope.Contains`
+— never on a golangci/tool name — so it generalizes to any project-wide,
+non-exempt engine.
+
+**Survived the ISSUE-068 revert.** Commit `43ddeb6` delivered ISSUE-068
+(shared-run-key dedup) and ISSUE-070 (this fix) together; commit `334b441`
+later reverted the ISSUE-068 mechanism (`run_group`/`sharedRunCache`,
+solved pack-side instead) but its own message states it "Keeps: ISSUE-070's
+FilterViolations, all pack fixes, PLAN-070 proof tests." Confirmed directly
+against the current tree: `activeScope.FilterViolations(violations)` is
+still called at `cmd/backstop/gate.go:842` inside `packValidatorStep`, and
+the exported `FilterViolations` method is still present at
+`pkg/gate/scope.go:229` — neither file lost the mechanism in the revert
+(the revert's diff to `cmd/backstop/pack_gate.go` only removed the
+`sharedRunCache`/`run_group` plumbing, not the scope-filter call, which
+lives in `gate.go`, a file the revert also touched but only for the
+unrelated cache threading).
+
+Verified by running the plan's mandated test set directly against the
+current tree (`go test ./cmd/backstop/... ./pkg/gate/... -run
+"TestGate_PackEngines_DiffScope|TestGateScope_FilterViolations|TestDiag_PackEngines"
+-race -v`) — all green:
+`TestGate_PackEngines_DiffScope_FiltersOutOfScopeNonExemptViolation`,
+`TestGate_PackEngines_DiffScope_RedsOnChangedFileViolation`,
+`TestGate_PackEngines_DiffScope_ExemptProjectWideViolationStillReds`,
+`TestGate_PackEngines_DiffScope_FilterKeyedStructurallyNotByToolName`,
+`TestDiag_PackEngines_DispatchOutputRetainsOutOfScopeNonExemptViolation`,
+`TestGateScope_FilterViolations_ExportedWrapper`,
+`TestGateScope_FilterViolations_NormalizesBothSidesBeforeMembership`,
+`TestGateScope_FilterViolations_PreservesProjectWideExemption`.
+
+`PLAN-ISSUE-070` (`plans/PLAN-ISSUE-070-gate-diffscope-lint-filter.plan.yml`)
+is `status: completed`.
 
 ## Problem
 
