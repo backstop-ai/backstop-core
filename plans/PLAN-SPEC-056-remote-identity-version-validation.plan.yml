@@ -366,6 +366,19 @@ notes: |
     current version in the traceability gate while two thirds of it remain
     unbuilt.
   • The hermetic lifecycle parity suite (REQ-042@1.1.0).
+  • CLM-112's CLI RENDERING STEP — the one claim in this spec that ships with a
+    surviving t.Skip. The carrier half is delivered and proven (CLM-107,
+    TestUpgradeResult_CarriesWarnings); only the `pack upgrade` renderer cannot
+    be asserted, because production upgrade CANNOT SUCCEED while
+    newProductionUpgradeCommand assembles unavailableScanner{} and
+    unavailableRemediationGenerator{} by SPEC-055 REQ-009 design and
+    UpgradeCommand.Run calls the scanner unconditionally (command.go:805).
+    The renderer is unreachable, not unwritten. It retires with BUNDLE-006
+    REQ-014/REQ-018, in the same change that retires
+    cmd/backstop/pack_upgrade.go's line-1 coverage waiver — one deferral with
+    one trigger. Do NOT add an injection seam to make it green; that would
+    dismantle SPEC-055's production-assembly property to cover a step with
+    nothing to run.
   • resolveGitURL's hardcoded GitHub host (ISSUE-083, post-launch). The URL
     builder keeps its current construction; only the STRING it is handed
     changes, from the pack name to the recorded coordinate.
@@ -1588,10 +1601,22 @@ phases:
           make three tests green early would dismantle the property SPEC-055
           exists to establish.
 
-          SO: t.Skip CLM-109, CLM-111 and CLM-112, each naming the task that
-          removes the skip — TASK-027 for add, TASK-035 for update and upgrade.
-          DO NOT substitute a weaker assertion to avoid the skip. The two
-          tempting forms are both vacuous and both forbidden by TASK-019's
+          SO: t.Skip CLM-109, CLM-111 and CLM-112, each naming what removes the
+          skip — TASK-027 for add, TASK-035 for update.
+
+          CLM-112 IS DIFFERENT FROM THE OTHER TWO AND ITS SKIP MESSAGE MUST SAY
+          SO. add and update are waiting on a warning that phases 8 and 10
+          produce. upgrade is waiting on BUNDLE-006 REQ-014/REQ-018, which THIS
+          PLAN DOES NOT DELIVER: newProductionUpgradeCommand assembles
+          unavailableScanner{} by SPEC-055 REQ-009 design, UpgradeCommand.Run
+          calls the scanner unconditionally, so production `pack upgrade` always
+          errors and the renderer is unreachable rather than merely unwired.
+          Its skip therefore names the capability seed and
+          cmd/backstop/pack_upgrade.go's line-1 coverage waiver — same root
+          cause, same trigger — not a task in this plan. See TASK-035.
+
+          DO NOT substitute a weaker assertion to avoid any of the three. The
+          two tempting forms are both vacuous and both forbidden by TASK-019's
           reasoning: reading the SOURCE to assert a rendering loop exists tests
           the file, not the behavior; asserting an EMPTY Warnings slice prints
           nothing passes against a command with no loop at all.
@@ -1718,7 +1743,17 @@ phases:
                 CLI-side renderers (TASK-020) — 3
                   CLM-109 PackAddCommand_RendersWarningsToStderr → TASK-027
                   CLM-111 PackUpdateCommand_Renders…             → TASK-035
-                  CLM-112 PackUpgradeCommand_Renders…            → TASK-035
+                  CLM-112 PackUpgradeCommand_Renders…            → NOT IN THIS
+                          PLAN — retires with BUNDLE-006 REQ-014/REQ-018
+
+              SIX OF THE SEVEN RETIRE INSIDE THIS PLAN. CLM-112 does not, and
+              that is a correct outcome rather than a shortfall: production
+              `pack upgrade` cannot succeed while newProductionUpgradeCommand
+              assembles unavailableScanner{} (SPEC-055 REQ-009), so its renderer
+              is unreachable. Its skip pairs with pack_upgrade.go's line-1
+              coverage waiver — one deferral, one trigger — and TASK-035 states
+              the full reasoning. Do not treat a surviving CLM-112 skip at the
+              end of this plan as an unfinished task.
 
               CLM-110 IS DELIBERATELY NOT IN THAT LIST and must NOT be skipped:
               install already emits reconciliation warnings
@@ -2588,10 +2623,10 @@ phases:
           commands. A local entry has no remote, so asking for its coordinate
           is a category error that surfaces as a spurious warning.
 
-          REMOVE THE REMAINING FIVE OF PHASE 6'S SEVEN SKIPS IN THIS TASK. Every
-          producing path they wait on lands here — update's and upgrade's
-          divergence and fallback warnings, and install's coordinate fallback
-          alongside its existing reconciliation warnings:
+          REMOVE FOUR OF PHASE 6'S SEVEN SKIPS IN THIS TASK. Their producing
+          paths land here — update's divergence and fallback warnings, upgrade's
+          divergence warning at the RESULT level, and install's coordinate
+          fallback alongside its existing reconciliation warnings:
 
             pkg/pack/distribution/result_warnings_test.go
               • TestUpdateResult_CarriesWarnings                          (CLM-106)
@@ -2599,12 +2634,38 @@ phases:
               • TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether (CLM-108)
             cmd/backstop/pack_warnings_render_test.go
               • TestPackUpdateCommand_RendersWarningsToStderr             (CLM-111)
-              • TestPackUpgradeCommand_RendersWarningsToStderr            (CLM-112)
 
-          AFTER THIS TASK ZERO SKIPS FROM PHASE 6 REMAIN — TASK-027 removed the
-          other two (CLM-105, CLM-109). All five must go GREEN, not merely
-          un-skipped: run them by name. A surviving skip at the end of this
-          phase is a claim that was written, deferred, and then never collected.
+          ONE SKIP SURVIVES THIS PHASE AND THIS PLAN, AND IT IS CORRECT THAT IT
+          DOES: TestPackUpgradeCommand_RendersWarningsToStderr (CLM-112).
+          Production `pack upgrade` CANNOT SUCCEED. newProductionUpgradeCommand
+          (pack_wiring.go:83) assembles unavailableScanner{} and
+          unavailableRemediationGenerator{} by SPEC-055 REQ-009 design — both
+          return *CapabilityUnavailableError unconditionally — and
+          UpgradeCommand.Run calls c.scanner.ScanViolations unconditionally
+          (command.go:805), so Run can never return a nil error. TASK-021
+          forbids rendering warnings on the failure path. The renderer is
+          therefore UNREACHABLE, not unwritten, and no assertion available in
+          this plan can observe it.
+
+          WHY THAT IS NOT A COVERAGE HOLE: the property CLM-112 shares with
+          CLM-107 — that upgrade's warnings survive out of the command — IS
+          proven, at the distribution level, by TestUpgradeResult_CarriesWarnings
+          going green in this same task. What cannot be proven is only the CLI
+          rendering step, and it cannot be proven for the same reason
+          cmd/backstop/pack_upgrade.go carries a line-1 coverage waiver: the
+          upgrade success path does not exist yet.
+
+          THE SKIP AND THE WAIVER ARE ONE DEFERRAL WITH ONE TRIGGER. Both retire
+          when BUNDLE-006 REQ-014/REQ-018 make a successful upgrade possible.
+          The skip message must say so, naming the waiver, so a future reader
+          finds both ends of the same deferral from either end. Do NOT retire
+          one without the other, and do NOT add an injection seam to make this
+          one test green — that would dismantle the production-assembly property
+          SPEC-055 exists to establish, to cover a step that has nothing to run.
+
+          The other four must go GREEN, not merely un-skipped: run them by name.
+          A fifth surviving skip is a claim that was written, deferred, and then
+          never collected — report it.
 
           INSTALL PERFORMS NO IDENTITY OR MANIFEST-VERSION CHECK. It is the
           hash-verified restore path (DD-12) and this task must not leak the
@@ -3248,6 +3309,18 @@ phases:
           only waiver this plan interacts with is
           cmd/backstop/pack_upgrade.go's line-1 coverage token, which must
           still be on line 1 (`head -1` it) and must still be adjudicating.
+
+          THE SKIP LEDGER. Exactly ONE t.Skip may survive this plan:
+          TestPackUpgradeCommand_RendersWarningsToStderr (CLM-112). Confirm by
+            grep -rn "t.Skip" pkg/pack/distribution/result_warnings_test.go \
+                               cmd/backstop/pack_warnings_render_test.go
+          returns exactly that one, and that its message names BOTH BUNDLE-006
+          REQ-014/REQ-018 and pack_upgrade.go's line-1 coverage waiver — the two
+          are one deferral with one trigger and a reader must be able to find
+          either from the other. A SECOND surviving skip is a claim that was
+          deferred and never collected; ZERO means someone made CLM-112 green,
+          which under production wiring is only possible by adding an injection
+          seam — check pack_wiring.go and report it rather than accepting it.
 
           FINAL HONESTY CHECKS — answer each explicitly rather than assuming:
             - Does every use of a pack name to build a filesystem path, a
