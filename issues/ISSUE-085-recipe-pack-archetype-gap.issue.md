@@ -6,16 +6,44 @@ issue:
   id: ISSUE-085
   title: "A Pack Shipping Recipes + Scaffolds but No Ruleset Has No Valid Archetype — Uninstallable Since SPEC-055"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-26"
+  closed: "2026-07-27"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-085
 ---
 
 # A Pack Shipping Recipes + Scaffolds but No Ruleset Has No Valid Archetype — Uninstallable Since SPEC-055
+
+## Resolution
+
+Delivered by PLAN-ISSUE-085 (status: completed) as founder-ratified direction 1 — a new
+`recipes`/scaffolding archetype in `pkg/packval`, with teeth, across three commits:
+
+- `0c729bf` (phase 1) — fixtures + 17 mandated TDD-red tests establishing the acceptance bar
+  before any production code changed.
+- `253c501` (phase 2) — the recipes archetype landed at BOTH parse seams: `pkg/packval`'s
+  `Recipes` index/enum and `checkRecipeEnforcement` (the per-recipe `enforcement.rules`
+  requirement for `scaffolding`/`implementing`-kind recipes, `templating`-kind exempt), plus
+  `pkg/pack`'s `validateArchetype` and archetype-conditional `validateScaffold`.
+- `419b71a` (phase 3) — dormant-finding fixes and full verification.
+
+Acceptance proven live on the rebuilt binary: `pack check` against the unpadded field-guide
+fixture (`cmd/backstop/testdata/recipes-archetype-pack`) exits 0 with all phases passing — no
+decoy rule/engine/`pairs_with` padding required. The no-enforcement counterpart fixture exits 1,
+failing phase4 with `ERROR [phase4-archetype/recipe-enforcement] recipe "scaffold-service":
+scaffolding-kind recipe must declare enforcement.rules`, naming the offending recipe id in the
+default text output. Full suite green: `go test ./pkg/packval/... ./pkg/pack/... ./cmd/backstop/...
+-race -count=1` exits 0.
+
+This satisfies the "new archetype, with teeth" decision recorded below — scaffolds + recipes with
+no pack-level ruleset now validate, while non-templating recipes carry their own drift-enforcement
+obligation instead of a pack-grain ruleset requirement.
 
 ## Problem
 
