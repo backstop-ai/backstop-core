@@ -14,6 +14,17 @@
 # kept near its old neighbors. Everything else preserves its prior relative
 # order. See DIR-026 Notes for a caveat on the recipes/DIR-019 progress
 # claim underlying this ordering.
+#
+# UPDATED 2026-07-27 (founder-ratified): the "positions 1-3" claim above is
+# now historical, not current, and stale on two counts. DIR-027 (Pack Fleet
+# Publication & Migration) has since taken position 3, pushing Linux/CI
+# viability (DIR-024) to position 4. Separately, the founder tiered a
+# fourth launch blocker on 2026-07-27 — CI-driven releases (DIR-001) — and
+# ratified moving it to position 5 (after DIR-024, ahead of
+# DIR-003/DIR-002), reflected in the list below. The current four-blocker
+# set is: recipes (DIR-019), remote pack consumption (DIR-026), Linux+CI
+# viability (DIR-024), and CI-driven releases (DIR-001) — see those
+# directives' Description/Notes for detail.
 
 directives:
   - id: DIR-019
@@ -24,12 +35,12 @@ directives:
     title: Pack Fleet Publication & Migration
   - id: DIR-024
     title: Gate/Engine Quality
+  - id: DIR-001
+    title: Release Workflow
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002
     title: backstop init Command
-  - id: DIR-001
-    title: Release Workflow
   - id: DIR-025
     title: Adoption Telemetry
   - id: DIR-021
@@ -46,8 +57,9 @@ directives:
 # Unhomed bundles — expressions of intent awaiting directive homes.
 # Position = priority within this tier. Ordering founder-ratified 2026-07-26
 # (001/002 held low deliberately); reorder to reprioritize.
-# 2026-07-27: 021 leads because its OQ-3 sandbox-profile contract must
-# resolve before ISSUE-020's Linux scoping re-derives it.
+# 2026-07-27: 021 leads because its OQ-2 (profile shape) and OQ-3
+# (engine-command extension) must resolve before ISSUE-020's Linux work
+# re-derives them.
 bundles:
   - id: BUNDLE-021
     title: Pack Command Execution Governance

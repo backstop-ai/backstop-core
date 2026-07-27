@@ -2,20 +2,24 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "backstop-backlog-v1",
   "title": "Backstop Backlog Schema v1",
-  "description": "Schema for BACKLOG.yml — the ordered list of directive IDs that constitutes the project backlog. Position in the list IS priority. First item is highest priority. Reordering the file is reprioritizing.",
+  "description": "Schema for BACKLOG.yml \u2014 the ordered list of directive IDs that constitutes the project backlog. Position in the list IS priority. First item is highest priority. Reordering the file is reprioritizing.",
   "version": "1.0.0",
   "filename": "BACKLOG.yml",
   "location": ".backstop/BACKLOG.yml (consuming repos) or BACKLOG.yml (backstop-core)",
   "format": {
     "type": "object",
-    "required": ["directives"],
+    "required": [
+      "directives"
+    ],
     "properties": {
       "directives": {
         "type": "array",
         "description": "Ordered list of directive IDs. Position = priority. First = highest.",
         "items": {
           "type": "object",
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "properties": {
             "id": {
               "type": "string",
@@ -28,12 +32,34 @@
             }
           }
         }
+      },
+      "bundles": {
+        "type": "array",
+        "description": "Ordered list of bundle IDs not yet homed by a directive. Bundles are expressions of intent (founder ruling 2026-07-26): every bundle appears here from creation until a directive cites it as source, regardless of maturity. Position = priority within the intent tier.",
+        "items": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^BUNDLE-[0-9]{3}$",
+              "description": "Bundle ID reference"
+            },
+            "title": {
+              "type": "string",
+              "description": "Denormalized title; source of truth is the bundle file"
+            }
+          }
+        }
       }
     }
   },
   "enforcement": {
     "position-is-priority": "No priority field exists. Moving an item up or down in the list IS the prioritization action.",
     "all-active-directives-listed": "Every directive with status queued or active should appear in the backlog. Done directives may be removed or kept for history.",
-    "no-duplicates": "Each directive ID appears at most once in the list."
+    "no-duplicates": "Each directive ID appears at most once in the list.",
+    "all-bundles-listed": "Every bundle appears either as a directive source or in the bundles section \u2014 unhomed intent is never invisible. A bundle leaves this section only by being cited by a directive or reaching a terminal state."
   }
 }

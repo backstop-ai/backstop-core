@@ -12,6 +12,7 @@ directive:
     - "ISSUE-079"
     - "ISSUE-081"
     - "ISSUE-080"
+    - "ISSUE-085"
 ---
 
 ## Description
@@ -103,3 +104,21 @@ ISSUE-079 is next work under this directive, ahead of ISSUE-081. ISSUE-079
 (risk: critical — untemplated site fields, silent wrong output) is the
 correctness defect blocking trust in the mechanism; ISSUE-081 (authoring-
 surface polish — merge/insert/`--param` semantics) follows it.
+
+**ISSUE-085 (recipe-pack archetype gap) — added 2026-07-27.** A pack whose
+whole point is handing out scaffolds + recipes with no ruleset has no valid
+archetype: `pkg/packval`'s model recognizes only `code` (requires rules) and
+`enforcement` (forbids scaffolds), so a recipes-first pack satisfies neither
+branch. This was latent behind the pre-SPEC-055 nil-`Validator` skip (the
+retired ISSUE-073) and was EXPOSED by SPEC-055 REQ-008 making `pack
+check`/`pack test` validation unconditional on every `pack add` — turning a
+`pack check`-time gap into an install-time hard blocker. It sits on REQ-018's
+critical path: BUNDLE-015's CI recipe pack — this directive's own
+packs-only acceptance test — is precisely this pack shape (scaffolds +
+recipes, no rules) and will hit the same wall. DIR-026 caused the exposure
+(REQ-008 shipped there); DIR-019 owns the fix, since it's this directive's
+archetype/recipe-capability surface. Founder-decided 2026-07-27: direction 1
+— a new `recipes`/scaffolding archetype, WITH TEETH: every non-templating
+(`scaffolding`- and `implementing`-kind) recipe in the pack must declare its
+own `enforcement.rules`; `templating`-kind recipes are exempt, since the
+applier itself is the drift enforcement for the other two kinds.

@@ -6,8 +6,11 @@ issue:
   id: ISSUE-079
   title: "`recipe apply` Writes Recipe-Declared Sites Under Their LITERAL `{{ }}` Path, Anchor, and Snippet Text — Silent Wrong Output"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-25"
+  closed: "2026-07-26"
+
+delivered_by: PLAN-ISSUE-079
 
 complexity:
   scope: contained
@@ -16,6 +19,47 @@ complexity:
 ---
 
 # `recipe apply` Writes Recipe-Declared Sites Under Their LITERAL `{{ }}` Path, Anchor, and Snippet Text — Silent Wrong Output
+
+## Resolution
+
+Fixed by PLAN-ISSUE-079 (commit `81f84b8`, 2026-07-26). Every consumer-facing
+site/content field — `Op.Target` (create/merge/transform/insert), `Op.Anchor`
+and `Op.Snippet` (insert), and `Op.Manual` (relayed instruction, fail-soft to
+raw on its own substitution failure) — now routes through `Substitute` with
+`effectiveParams` before it is used to resolve a path, match an anchor, or
+splice content, in both apply modes including the `sdlc-mediated`
+`InjectionSites` override. `Op.Rule` was deliberately left unsubstituted
+(parse-time `transform_rules` allowlist validated by exact string equality,
+plus the authority-escalation concern of letting a consumer param select
+which pack asset an allowlisted engine executes) and instead gained a
+parse-time fail-loud rejection of any `{{` in a declared `rule:`.
+
+Verified against the live repro: the committed demo fixture's templated
+`starter` recipe is now actually driven through `Apply` (its create target
+resolves correctly before halting on ISSUE-081's separately-owned inline
+merge fragment), a new committed `templated-sites` fixture proves all four
+op families end-to-end, a filesystem tree-walk invariant asserts no `{{`
+segment ever reaches disk, and a CLI e2e test reproduces the original
+defaulted-param repro through the shipped binary — the file now lands at
+`config/service.json`, not `./{{ config_dir }}/service.json`.
+
+`ApplyResult.Written` and `PreservedDivergence.Path` now carry the
+substituted project-relative target rather than the raw declared path — a
+result-path contract change reconciled into SPEC-054 (→ v1.3.0) in the same
+commit, alongside a new substitution-scope table pinning which `Op` fields
+are substituted and which (`Rule`) are not.
+
+Mandated tests (all green, `go test ./pkg/recipe/... ./cmd/backstop/... -race
+-count=1`):
+`TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite`,
+`TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment`,
+`TestApply_NoLiteralPlaceholderReachesTheFilesystem`,
+`TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud`,
+`TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted`,
+`TestApply_TransformOp_DeclaredRuleIsNotSubstituted`,
+`TestApply_InjectionLimit_RelaysSubstitutedManualFailingSoftToRaw`,
+`TestParseRecipeManifest_TemplatedTransformRuleFailsLoud`,
+`TestRecipeApply_CLI_TemplatedTargetWritesAtTheSubstitutedPath`.
 
 ## Problem
 

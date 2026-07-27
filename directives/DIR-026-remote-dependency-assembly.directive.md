@@ -61,12 +61,12 @@ milestone, not this reliability workstream — and it correctly carries no
 BACKLOG.yml entry, since done directives may be dropped. Neither is the
 right home; this workstream needed its own directive.
 
-**Launch status: blocking.** The founder tiered launch blockers on
-2026-07-25/26 as exactly three: pack recipes (BUNDLE-015 / SPEC-054),
-remote pack consumption (this directive), and Linux/CI viability
-(ISSUE-020, under DIR-024). Everything else — explicitly including
-`backstop init` (DIR-002) — is tier-2 ergonomics: wanted, but not what
-makes backstop unusable if it slips.
+**Launch status: blocking.** The founder tiers launch blockers as four (as
+of 2026-07-27): pack recipes (BUNDLE-015 / SPEC-054, under DIR-019), remote
+pack consumption (this directive), Linux/CI viability (ISSUE-020, under
+DIR-024), and CI-driven releases (DIR-001, tiered up 2026-07-27). Everything
+else — explicitly including `backstop init` (DIR-002) — is tier-2
+ergonomics: wanted, but not what makes backstop unusable if it slips.
 
 ## Notes
 

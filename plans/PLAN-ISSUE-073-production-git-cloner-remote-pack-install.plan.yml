@@ -11,25 +11,171 @@ coverage_threshold: 90
 
 notes: |
   ─────────────────────────────────────────────────────────────────────────
-  RETIRED 2026-07-25 — status: replaced, replaced-by: SPEC-055. DO NOT IMPLEMENT.
+  RETIRED 2026-07-26 — status: replaced, replaced-by: SPEC-055. DO NOT IMPLEMENT.
   ─────────────────────────────────────────────────────────────────────────
-  This plan is fully superseded by SPEC-055 (Production Remote Dependency
-  Assembly) and its plan PLAN-SPEC-055, which own the production GitCloner,
-  constructor-enforced dependency assembly, and the hermetic remote end-to-end
-  proof. Implementing both would duplicate and conflict on the same files
-  (pkg/pack/distribution/*, cmd/backstop/pack_*.go). SPEC-055 is the successor
-  of record; `replaced-by` carries SPEC-055 because the retirement-pointer
-  grammar takes typed ids of the form (BUNDLE|SPEC|ISSUE|PLAN|DIR)-NNN, and
-  PLAN-SPEC-055 is reachable from SPEC-055.
+  Retired as REDUNDANT, not as WRONG. Its analysis was substantially adopted by
+  the successor (see CARRIED FORWARD below); it is retired because the surface
+  moved tracks, not because the plan was mistaken.
 
-  ISSUE-073 itself is NOT retired and was deliberately left untouched — it
-  closes via delivered_by when SPEC-055 is implemented.
+  SUCCESSOR OF RECORD: SPEC-055 (Production Remote Dependency Assembly) and its
+  plan PLAN-SPEC-055, descending from BUNDLE-006 (pack-distribution-lifecycle).
+  Verified in the tree at retirement time: BUNDLE-006 OQ-6..9 resolved (8ecb178),
+  promoted exploring→defined (4ecb495), SPEC-055 authored as BUNDLE-006 seed one
+  (a188c34, v1.2.0), PLAN-SPEC-055 at 52 tasks / 12 phases (856400c), and its
+  Phase 1 hermetic remote substrate already LANDED (cbe0869).
 
-  Everything below is preserved as the original planning record (the verified
-  defect surface, design decisions, sharp edges and fixture shapes remain
-  useful reference for SPEC-055's implementer) but is NO LONGER the plan of
+  WHY THE SURFACE MOVED RATHER THAN THIS PLAN BEING REVISED. This plan is on the
+  REACTIVE track (issue → plan, no spec — see its CLAIM DERIVATION note, which
+  had to derive CLM ids from ISSUE-073's prose because an issue carries none).
+  The successor is on the FEATURE track (bundle → spec → plan). Once BUNDLE-006
+  claimed pack-distribution lifecycle as a bundle and seeded SPEC-055 with real
+  requirement ids, the remote-pack-consumption surface acquired a spec-level
+  owner with bundle traceability. A reactive plan cannot be revised INTO that —
+  the tracks differ in artifact lineage, not merely in scope — so the correct
+  disposition is retirement in favor of the spec'd chain. Implementing both
+  would also collide on the same files (pkg/pack/distribution/*,
+  cmd/backstop/pack_*.go).
+
+  `replaced-by` carries SPEC-055 ALONE for a mechanical reason, not a judgment
+  about which artifact absorbed the work: the retirement-pointer grammar
+  (pkg/validate/terminal.go, replacedByRefPattern) is
+  ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$, which cannot express a two-segment
+  plan id like PLAN-SPEC-055. The field DOES accept an array; the shape is what
+  fails. PLAN-SPEC-055 is reachable from SPEC-055.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CARRIED FORWARD — two things explicitly adopted (verified in SPEC-055)
+  ─────────────────────────────────────────────────────────────────────────
+  1. THE `.git` STRIP INSIDE `Clone` (this plan's SHARP EDGE A) was ADOPTED into
+     SPEC-055 REQ-001, delivered in PLAN-SPEC-055 Phase 4 (ExecGitCloner). The
+     reasoning that made it the correct site is preserved here because it is the
+     non-obvious part and a future contributor who removes the strip will
+     silently reintroduce a non-reproducible hash:
+       • ComputeContentHash (hash.go:17) walks EVERY file under the pack dir
+         with NO exclusions, and copyDirRecursive copies everything. A raw
+         `git clone` leaves a .git directory whose reflogs/refs/object layout
+         differ between two clones of the SAME tag.
+       • `Add` hashes the INSTALLED COPY. `Install` hashes the RAW CLONE.
+         `Update`'s DetectTamper compares INSTALLED against a RAW CLONE.
+       • Those three read the tree at different points, so a strip applied at
+         any ONE of them leaves the others disagreeing. Only stripping inside
+         `Clone` — before the tree is ever handed to distribution — makes all
+         three agree by construction.
+       • The narrowness is deliberate: changing ComputeContentHash or
+         copyDirRecursive instead would rehash every already-installed LOCAL
+         pack and churn every lock.
+     SPEC-055 adopted this reasoning verbatim in substance (REQ-001: Clone
+     "must ... STRIP the root `.git` directory before returning, so the tree it
+     hands distribution is AUTHORED CONTENT ONLY"), added claims CLM-101
+     (strip) and CLM-102 (two clones hash identically), and — because the strip
+     lands — upgraded its CLM-065 from "assert a loud hash MISMATCH" to
+     asserting round-trip hash EQUALITY, with CLM-103 retained so the equality
+     claim cannot pass by hash verification having been deleted. That CLM-065
+     inversion is this plan's CLM-007 arriving in the successor.
+
+  2. THE LOCAL-PACK `.git` RESIDUAL (this plan's PLANNER FLAG 1 — `pack add
+     ../some-pack` where the source dir is itself a git repo root copies .git
+     into .backstop/packs and hashes it) is ASSIGNED, not unaddressed. It is
+     owned by BUNDLE-006 REQ-021@1.1.0 ("Repository-control metadata at the pack
+     root ... must not be copied into an installed pack or contribute to its
+     content hash") together with REQ-041 / OQ-6's legacy-lock migration policy —
+     i.e. the authored-content-identity and migration seed, a LATER BUNDLE-006
+     seed. SPEC-055 explicitly declines to deliver it and wills it forward in its
+     Sharp Edges, naming both residuals: local-path packs are never cloned so
+     nothing strips them, and any lock entry written before the strip still
+     carries a contaminated hash. The Clone strip fixes only the one source the
+     cloner itself creates.
+
+  ─────────────────────────────────────────────────────────────────────────
+  NOT CARRIED FORWARD — dropped or superseded (do not read this retirement as
+  "everything here shipped")
+  ─────────────────────────────────────────────────────────────────────────
+  Verified against SPEC-055 and PLAN-SPEC-055 by reading them; where this plan
+  could not confirm successor coverage it says so rather than assuming it.
+
+  • CLM-005 + DESIGN DECISION 2 (nil-dependency GUARDS) — SUPERSEDED by a
+    strictly stronger mechanism, so the goal survives but the design does not.
+    This plan proposed runtime nil guards in add/update/upgrade mirroring
+    install.go, plus the rule "git pack + nil Validator = error, local pack +
+    nil Validator = still skips". SPEC-055 rejects that whole shape: REQ-005
+    REMOVES every dependency-typed field from the options structs, REQ-007
+    DELETES the package-level Add/Install/Update/Upgrade free functions, and
+    REQ-006 replaces them with fail-closed positional constructors, making an
+    incompletely assembled command a COMPILE-TIME failure rather than a guarded
+    runtime error. REQ-008 then makes validation UNCONDITIONAL and deletes the
+    nil-validator-skip contract entirely — so this plan's carve-out preserving
+    the local-pack skip for gate_substantiveness_e2e.go is explicitly reversed
+    (SPEC-055 REQ-013 redesigns those callers instead).
+  • CLM-006's SPECIFIC exit-2 MAPPING — NOT confirmed as carried. This plan
+    required GitError → &ExitCodeError{Code: ExitConfigError} (exit 2) for
+    git/tool failures across all four commands. SPEC-055 pins exit 2 only for an
+    ASSEMBLY failure (REQ-010). Its missing-tag claim CLM-063 requires only
+    "exits non-zero with a diagnostic and no stack trace", and its REQ-011
+    exit-surfacing claims describe these sites as exiting 1. The ANTI-PANIC
+    intent carried; the specific config-vs-violation exit-code taxonomy did not,
+    and may be a deliberate successor choice rather than an oversight — this is
+    stated as an observed difference, NOT as a gap SPEC-055 must close.
+  • CLM-009 / TASK-014, the CODEBASE-MAP RECONCILIATION — DROPPED with NO
+    successor coverage found. docs/CODEBASE-MAP.md still carries a "### Known
+    gap — remote pack resolution (filed: ISSUE-073)" block asserting nil
+    GitCloner/Validator wiring, no production GitCloner, and "all real installs
+    to date are source_type: local". Neither SPEC-055 nor PLAN-SPEC-055 mentions
+    CODEBASE-MAP at all (verified by grep: zero hits in both). When SPEC-055
+    lands, that block becomes FALSE and nothing currently obliges anyone to fix
+    it. Flagged for the founder; not repaired here, because editing the map is
+    outside a retirement edit's scope.
+  • SHARP EDGE B's STANDING GUARD TEST
+    (TestScaffoldGitExecutorIsNotAPackCloner) — DROPPED as a test. The hazard is
+    that scaffold.RealGitExecutor.ListTags(pattern) shares a Go SIGNATURE with
+    distribution.GitCloner.ListTags(url) but has opposite (local-vs-remote)
+    semantics, so adding a Clone method to RealGitExecutor would silently
+    satisfy GitCloner and list the WRONG tags with no compile error. SPEC-055
+    records the non-reusability as PROSE in two places (REQ-001's summary and
+    the ExecGitCloner.ListTags contract note) but declares no test pinning it —
+    verified by grep: no IsNotAPackCloner test name appears in either successor
+    artifact. Prose does not fail the day someone adds Clone.
+  • THE MASTERMINDS/SEMVER PROMOTION (TASK-009) — REVERSED. This plan promoted
+    github.com/Masterminds/semver/v3 from indirect to a direct require.
+    SPEC-055's TagVersionResolver contract explicitly declines to add the module
+    dependency and instead matches strict X.Y.Z with the corpus convention
+    already used by pkg/validate/bundle.go's semverRe.
+  • THE NON-GOAL RECORD (no pkg/gitexec consolidation) — a founder DECISION with
+    no successor home. The enumeration below (14 git-exec sites across 6 files,
+    two of them on the backstop/self B3–B6 spine, hence the do-not-touch list)
+    is preserved in this file only. If it needs to bind SPEC-055's implementer
+    it must be re-recorded there; a terminal plan binds nobody.
+  • The verification-command warnings below (`backstop code check` does not
+    exist; a bare `backstop` hits a stale /usr/local/bin binary) are NOT lost —
+    they are filed as ISSUE-076 and ISSUE-077 and survive independently.
+  • PLANNER FLAG 2 (ISSUE-074, `pack relock` silent exit-1) survives on the
+    bundle track: BUNDLE-006 REQ-041 owns relock's argument shape, and SPEC-055
+    CLM-074 makes relock PRINT its real error, while explicitly leaving the
+    underlying argument-shape defect to the content-identity seed.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SURFACED BY THIS RETIREMENT (for the SPEC-055 track, not work for this plan)
+  ─────────────────────────────────────────────────────────────────────────
+  PLAN-SPEC-055 as committed (856400c) is STALE with respect to the Clone-strip
+  amendment, which at retirement time is an UNCOMMITTED working-tree edit to
+  SPEC-055 (the strip clause is absent from the spec's only commit, a188c34).
+  The committed plan still carries the pre-amendment position and actively
+  instructs the opposite outcome — its Phase 8 note reads "CLM-065 asserts a
+  hash MISMATCH, not a green round trip. A green here means someone excluded
+  .git from the hash — that is bundle REQ-021@1.1.0 and out of scope" — and it
+  contains no CLM-101 / CLM-102 / CLM-103 and none of the new test names
+  (verified by grep: zero hits). An implementer following the committed plan
+  would reject the amended spec's intended behavior as a defect. PLAN-SPEC-055
+  needs a rework pass against SPEC-055 once the amendment is committed.
+
+  ISSUE-073 itself is NOT retired and was deliberately left untouched — its
+  disposition is a separate founder decision, outside this edit's scope.
+
+  Everything below is preserved as the original planning record. The verified
+  defect surface, design decisions, sharp edges and fixture shapes remain useful
+  REFERENCE for SPEC-055's implementer, but this is NO LONGER the plan of
   record. Terminal artifacts are excluded from gate enforcement, so nothing
-  below is a live promise.
+  below is a live promise — including the task list, whose CLM-005 / CLM-006 /
+  CLM-009 obligations are superseded or dropped per the section above.
 
   ─────────────────────────────────────────────────────────────────────────
   WHAT THIS PLAN FIXES (reactive track: ISSUE-073 → plan; there is NO spec)

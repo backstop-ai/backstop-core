@@ -121,9 +121,10 @@ work — so they ride along here for thematic fit (gate/engine quality)
 rather than displacing ISSUE-020's priority within this directive.
 
 Sequencing caveat: DIR-024 holds position 3 in BACKLOG.yml on the strength
-of ISSUE-020 — Linux/CI viability is one of the three founder-designated
-launch blockers (the other two being recipes/SPEC-054 and remote pack
-consumption/DIR-026/SPEC-055). ISSUE-082 is tier-2 by both the founder's
+of ISSUE-020 — Linux/CI viability is one of the four founder-designated
+launch blockers (the other three being recipes/SPEC-054/DIR-019, remote
+pack consumption/DIR-026/SPEC-055, and CI-driven releases/DIR-001, tiered
+up 2026-07-27). ISSUE-082 is tier-2 by both the founder's
 launch razor and its own priority note; it rides along in this directive
 for thematic fit only (gate/engine quality), not because it shares
 ISSUE-020's urgency. Anyone working this directive top-down should land
