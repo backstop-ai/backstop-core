@@ -34,7 +34,7 @@ framework, or CI platform.`,
 
 // newRecipeApplyCommand builds `backstop recipe apply <pack>:<recipe>@<version>`.
 func newRecipeApplyCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "apply <pack>:<recipe>@<version>",
 		Short: "Apply a pinned recipe from an installed pack",
 		Long: `Applies one pinned recipe into the current project.
@@ -44,6 +44,12 @@ The reference is always fully pinned — <pack>:<recipe>@<version>; there is no
 in the order the recipe declares them, and the adoption is recorded in the tracked
 project-root record.
 
+Use --param to supply a value for a param the recipe DECLARES. The flag is
+repeatable, and any param left unsupplied falls back to the default the recipe
+declares for it. A param declared required with no default can ONLY be supplied
+this way — without it the apply cannot resolve, so it fails rather than writing at
+an unresolved site.
+
 A recipe's transform op is dispatched to the engine its pack DECLARES, and that
 engine's tool must clear the same trusted-tool allowlist gate every pack-declared
 enforcement command clears — an un-allowlisted or wrongly-pinned tool is refused
@@ -52,12 +58,20 @@ before any command is built.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Read INSIDE RunE rather than binding a captured variable:
+			// NewRootCommand() is constructed fresh per invocation, and a captured
+			// var would share state across them.
+			supplied, flagErr := cmd.Flags().GetStringArray("param")
+			if flagErr != nil {
+				return &check.ConfigError{Message: flagErr.Error()}
+			}
+
 			projectRoot, rootErr := recipeProjectRoot()
 			if rootErr != nil {
 				return rootErr
 			}
 
-			result, err := runRecipeApply(args[0], projectRoot)
+			result, err := runRecipeApply(args[0], projectRoot, supplied)
 			if err != nil {
 				// A ConfigError is returned UNWRAPPED so it keeps its exit-2 shape
 				// (main.go maps an untyped error to ExitConfigError) and stays
@@ -75,6 +89,13 @@ before any command is built.`,
 			return nil
 		},
 	}
+
+	// StringArray, NOT StringSlice: StringSlice comma-splits its values, which
+	// would silently turn `--param greeting=a,b` into two params and truncate a
+	// value the operator supplied whole.
+	cmd.Flags().StringArray("param", nil, "supply a value for a param the recipe declares, as key=value (repeatable; unsupplied params fall back to the recipe's declared defaults)")
+
+	return cmd
 }
 
 // reportRecipeApply prints what the apply ACTUALLY DID.
@@ -160,11 +181,22 @@ func recipeProjectRoot() (string, error) {
 //
 // The exit-code split follows the boundary the operator cares about: everything that
 // happens BEFORE the apply — an unusable reference, an uninstalled pack, a recipe the
-// pack does not index, an engine backstop will not run — is a *check.ConfigError
-// (exit 2), because nothing was applied and the invocation or the installation is what
-// must change. Only a failure of the apply ITSELF is a violation (exit 1), and it
-// carries the op's declared manual instruction verbatim.
-func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error) {
+// pack does not index, an engine backstop will not run, and every `--param` rejection
+// below (malformed, duplicate, undeclared) — is a *check.ConfigError (exit 2), because
+// nothing was applied and the invocation or the installation is what must change. Only
+// a failure of the apply ITSELF is a violation (exit 1), and it carries the op's
+// declared manual instruction verbatim.
+//
+// suppliedParams arrives as the raw repeated `--param key=value` arguments so the
+// rejections can quote what the operator actually typed.
+func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, error) {
+	// Purely syntactic and needs no filesystem, so it runs first: a malformed
+	// invocation is reported without depending on the project being resolvable.
+	params, err := parseParamFlags(suppliedParams)
+	if err != nil {
+		return recipe.ApplyResult{}, err
+	}
+
 	parsed, err := recipe.ParseRecipeRef(ref)
 	if err != nil {
 		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
@@ -184,6 +216,15 @@ func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error) 
 	if err != nil {
 		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
 	}
+	// AFTER resolution (the recipe's declared param schema is only knowable now)
+	// and BEFORE the apply, so a typo'd name is refused while nothing has been
+	// written. Deliberately at the CLI layer only: recipe.Apply and every
+	// SDLC-mediated library caller are unchanged, because this is invocation
+	// hygiene rather than applier policy.
+	if err := checkUndeclaredParams(resolved.Manifest, params); err != nil {
+		return recipe.ApplyResult{}, err
+	}
+
 	// Resolution succeeded, so the pack IS in the corpus under this key.
 	packManifest := corpus[parsed.Pack]
 
@@ -204,6 +245,7 @@ func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error) 
 	result, err := recipe.Apply(resolved, recipe.ApplyOptions{
 		Mode:        recipe.ModeDirect,
 		ProjectRoot: projectRoot,
+		Params:      params,
 		Dispatch:    transformDispatch(binding, projectRoot),
 		// ReadWaivers is deliberately nil: that selects the applier's OWN reader over
 		// the real pkg/waiver read path. Supplying a second reader here would fork the
@@ -218,6 +260,71 @@ func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error) 
 	}
 
 	return result, recordRecipeAdoption(projectRoot, result)
+}
+
+// parseParamFlags turns the repeated `--param key=value` arguments into the
+// supplied param scope.
+//
+// The grammar, pinned because a plausible alternative is silently wrong in each
+// case: the split takes the FIRST `=` only, so a VALUE may contain `=`; an EMPTY
+// value is legal and supplies the empty string, which is meaningfully distinct
+// from unsupplied; a missing `=` or an empty KEY is refused; and a DUPLICATE key
+// is refused rather than last-wins. A map write silently keeps the last value,
+// which would discard something the operator typed without ever saying so.
+func parseParamFlags(supplied []string) (map[string]string, error) {
+	params := make(map[string]string, len(supplied))
+
+	for _, raw := range supplied {
+		key, value, separated := strings.Cut(raw, "=")
+		if !separated {
+			return nil, &check.ConfigError{Message: fmt.Sprintf(
+				"--param %q is malformed: a param is supplied as key=value", raw)}
+		}
+		if strings.TrimSpace(key) == "" {
+			return nil, &check.ConfigError{Message: fmt.Sprintf(
+				"--param %q supplies an empty param name: a param is supplied as key=value", raw)}
+		}
+		if _, duplicate := params[key]; duplicate {
+			return nil, &check.ConfigError{Message: fmt.Sprintf(
+				"--param %q supplies %q a second time; a param may be supplied once, and silently keeping the last value would discard one you typed", raw, key)}
+		}
+		params[key] = value
+	}
+
+	return params, nil
+}
+
+// checkUndeclaredParams refuses a supplied param the resolved recipe does not
+// declare.
+//
+// Without it a typo (`--param app_nmae=x`) is silently dropped and resurfaces as
+// an unresolvable-placeholder failure the operator cannot attribute to their own
+// invocation — the same undiagnosable shape ISSUE-081 was filed about. The names
+// are SORTED because map iteration order would make the message nondeterministic
+// across runs.
+func checkUndeclaredParams(manifest *recipe.RecipeManifest, supplied map[string]string) error {
+	declared := make(map[string]struct{}, len(manifest.Params))
+	declaredNames := make([]string, 0, len(manifest.Params))
+	for _, spec := range manifest.Params {
+		declared[spec.Name] = struct{}{}
+		declaredNames = append(declaredNames, spec.Name)
+	}
+
+	undeclared := make([]string, 0, len(supplied))
+	for name := range supplied {
+		if _, known := declared[name]; !known {
+			undeclared = append(undeclared, name)
+		}
+	}
+	if len(undeclared) == 0 {
+		return nil
+	}
+	sort.Strings(undeclared)
+	sort.Strings(declaredNames)
+
+	return &check.ConfigError{Message: fmt.Sprintf(
+		"--param supplied %v, which this recipe does not declare; it declares %v",
+		undeclared, declaredNames)}
 }
 
 // provisionedEngineBinding selects the transform engine from DECLARED DATA: the

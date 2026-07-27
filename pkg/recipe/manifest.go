@@ -60,6 +60,11 @@ type RecipeManifest struct {
 // (REQ-011) — core cannot synthesize it without the language knowledge REQ-006
 // forbids, so transform and insert must declare it.
 //
+// Fragment (merge only) is a RECIPE-DIRECTORY-RELATIVE PATH to a file read from
+// disk — never inline content, and never templated: the path is resolved
+// verbatim, while the file's CONTENT is substituted. A non-path declaration is
+// refused at parse (ISSUE-081's Decision, 2026-07-27).
+//
 // A `step` op carries only its ID and Kind here. Its future payload schema is NOT
 // round-tripped by the non-strict decode below (unknown keys are dropped);
 // BUNDLE-019, which owns the step executor, extends this contract with them.
@@ -163,8 +168,9 @@ func validateRecipeHeader(m *RecipeManifest) error {
 
 // validateRecipeOps runs the op-level cross-checks: unique ids, a non-empty id on
 // every injection-accepting op, a non-empty manual on the injection-limit
-// families, and a transform rule that the recipe actually declared. Variant ops
-// are NOT cross-checked here — variants validate structurally only.
+// families, a transform rule that the recipe actually declared, and a merge op's
+// `fragment:` in its pinned PATH form. Variant ops are NOT cross-checked here —
+// variants validate structurally only.
 func validateRecipeOps(m *RecipeManifest) error {
 	label := recipeLabel(m)
 
@@ -198,15 +204,19 @@ func validateRecipeOps(m *RecipeManifest) error {
 			// and leave "not among the declared transform_rules" as a misleading
 			// diagnosis for a manifest whose actual defect is the placeholder.
 			//
-			// `rule:` is the ONLY field checked here, and that narrowness is
+			// `rule:` is the ONLY field checked HERE, and that narrowness is
 			// deliberate. Op.Rule is the one field apply deliberately does NOT
 			// substitute: it is validated right here by exact string equality
 			// against the declared allowlist, and it selects which rewrite file an
 			// allowlisted engine executes IN PLACE over the consumer's tree, so a
 			// consumer-supplied param must not carry that authority. Refusing a
 			// templated rule at parse closes that excluded field at the earliest
-			// point. Whether op.payload / op.fragment may be templated is a
-			// separate, open authoring-surface question and is NOT decided here.
+			// point.
+			//
+			// `fragment:` is DECIDED — path-only, per ISSUE-081's Decision
+			// (2026-07-27) — and is refused separately just below, including when
+			// it carries a placeholder. `payload:` remains the open
+			// authoring-surface question and is NOT decided here.
 			if strings.Contains(op.Rule, placeholderOpen) {
 				return fmt.Errorf("%s: ops[%d] %q declares rule %q, whose 'rule' field carries a %s placeholder; a rule path is never substituted, because it is validated against the declared transform_rules by exact match and selects which pack asset the engine executes", label, i, op.ID, op.Rule, placeholderOpen)
 			}
@@ -214,6 +224,53 @@ func validateRecipeOps(m *RecipeManifest) error {
 				return fmt.Errorf("%s: ops[%d] %q declares rule %q, which is not among the recipe's declared transform_rules", label, i, op.ID, op.Rule)
 			}
 		}
+
+		if op.Kind == OpMerge {
+			if err := validateMergeFragmentForm(label, i, op); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateMergeFragmentForm refuses a `fragment:` that is not a path.
+//
+// A merge op's fragment is a RECIPE-DIRECTORY-RELATIVE PATH: applyMerge resolves
+// it under the recipe directory and reads the file. ISSUE-081's Decision
+// (2026-07-27) pins that as the canon, so the three shapes that can only be
+// something else are refused HERE rather than surfacing at apply — where an
+// inline declaration produced a bare "no such file or directory" naming a
+// filename the author never wrote.
+//
+// Each cause gets its OWN message. A single "invalid fragment" covering all three
+// would be the same undiagnosable failure ISSUE-081 was filed about.
+//
+// The predicate is deliberately NOT widened. A single-line, placeholder-free value
+// that is really inline content but is syntactically a valid relative filename
+// (`{"a": 1}`) is ACCEPTED here: distinguishing it would take a content sniff on a
+// leading `{`/`[`, which means guessing at document syntax the manifest reader has
+// no business knowing. That residual case fails at apply, where the message names
+// this contract. No escape-path (`../`) check either — resolveUnder already
+// refuses escapes at apply.
+//
+// Scope is `m.Ops` only. Variant ops validate structurally, and this does not
+// change that.
+func validateMergeFragmentForm(label string, index int, op Op) error {
+	if strings.TrimSpace(op.Fragment) == "" {
+		return fmt.Errorf("%s: ops[%d] %q (kind %q) declares an empty 'fragment'; a merge op cannot merge nothing, and 'fragment' is a recipe-directory-relative path to a file read from disk", label, index, op.ID, op.Kind)
+	}
+
+	// The newline check runs BEFORE the placeholder check so the block-scalar form
+	// reports itself as INLINE. An inline block usually carries a placeholder too,
+	// and diagnosing it as a templated path would name the wrong defect.
+	if strings.ContainsAny(op.Fragment, "\r\n") {
+		return fmt.Errorf("%s: ops[%d] %q (kind %q) declares an INLINE 'fragment' block; a fragment is a recipe-directory-relative path to a file read from disk, not inline content — move the content into a file under the recipe directory and declare that file's path", label, index, op.ID, op.Kind)
+	}
+
+	if strings.Contains(op.Fragment, placeholderOpen) {
+		return fmt.Errorf("%s: ops[%d] %q (kind %q) declares fragment %q, whose 'fragment' field carries a %s placeholder; a fragment PATH is resolved under the recipe directory verbatim and is never substituted, so this can only fail to open — the fragment FILE'S content IS still substituted, so move the placeholder into the file", label, index, op.ID, op.Kind, op.Fragment, placeholderOpen)
 	}
 
 	return nil

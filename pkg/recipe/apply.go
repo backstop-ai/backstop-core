@@ -851,6 +851,18 @@ func injectionLimit(target string, op Op, params map[string]string, cause error)
 	)
 }
 
+// fragmentPathContract states the canon a fragment failure must carry, held in
+// one place so the resolve and read diagnostics cannot drift apart.
+//
+// It exists because the bare wrapped ENOENT these paths used to emit was
+// unactionable: an author who declared inline content saw "no such file or
+// directory" naming a filename they never wrote, with nothing to tell them the
+// field is a PATH (ISSUE-081, the live 2026-07-25 dogfood). Manifest validation
+// now refuses the obvious non-path shapes, but a single-line value that is
+// syntactically a filename cannot be told from inline content at parse, so it
+// arrives HERE — and this is the only place left to say what the field is.
+const fragmentPathContract = "'fragment' is a recipe-directory-relative path to a file read from disk, resolved under the recipe directory; inline content is not a supported form"
+
 // applyMerge merges the op's declared fragment into its declared target.
 //
 // The format is the op's DECLARED format, falling back to the target's extension only
@@ -878,17 +890,23 @@ func applyMerge(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[s
 		return err
 	}
 
+	// Both diagnostics keep their "resolve/read declared fragment" PREFIX — which
+	// names the failing OPERATION, and which apply_merge_test.go pins by substring
+	// — and append the CONTRACT after it. The underlying error stays wrapped: the
+	// ENOENT is still useful, it just must not be the whole story.
 	fragmentPath, err := resolveUnder(resolved.Dir, op.Fragment)
 	if err != nil {
-		return fmt.Errorf("resolve declared fragment: %w", err)
+		return fmt.Errorf("resolve declared fragment %q: %w; %s", op.Fragment, err, fragmentPathContract)
 	}
 	rawFragment, err := os.ReadFile(fragmentPath)
 	if err != nil {
-		return fmt.Errorf("read declared fragment %q: %w", op.Fragment, err)
+		return fmt.Errorf("read declared fragment %q: %w; %s", op.Fragment, err, fragmentPathContract)
 	}
 
-	// The fragment is substituted before it is decoded, so a "{{ param }}" works in a
-	// fragment exactly as it does in a create payload.
+	// THE SPLIT that makes fragment path-only coherent: the declared PATH above is
+	// resolved VERBATIM and never substituted, while the file's CONTENT is
+	// substituted right here — so a "{{ param }}" works inside a fragment file
+	// exactly as it does in a create payload, and only the path is placeholder-free.
 	fragment, err := Substitute(string(rawFragment), params)
 	if err != nil {
 		return fmt.Errorf("substitute declared fragment %q: %w", op.Fragment, err)
