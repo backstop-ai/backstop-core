@@ -9,6 +9,7 @@ directive:
   source:
     - "ISSUE-052"
     - "ISSUE-053"
+    - "ISSUE-078"
 ---
 
 ## Description
@@ -58,6 +59,26 @@ Both threads sit in the same gate-correctness cluster as ISSUE-036/037/038
 (DIR-015, already `done`) — this directive is the next chapter of that
 work, not a reopening of it.
 
+**Grouped const/var block members (ISSUE-078, folds into thread 1).**
+ISSUE-078 surfaces two findings while triaging SPEC-054's `RecipeKind`/
+`Op.Kind` consts. Finding 2 is a third live instance of thread 1's
+relational-rule gap: the compiler's `const $NAME = $$$` / `var $NAME =
+$$$` patterns bind only a standalone declaration, not a member of an
+idiomatic grouped `const ( … )` / `var ( … )` block — same "not a
+standalone Go fragment" limitation as the iota-member and struct-field
+cases, no new mechanism needed beyond thread 1's planned relational-rule
+`input_mode`. It is now actively costing coverage on shipped code, not
+just theoretical: SPEC-054 could not declare `provides` contracts for
+`RecipeKind`/`Op.Kind` because of it. Finding 1 is a separate, currently
+gate-red matter: ISSUE-036's CLM-008 mandates five kebab-case pack.yml
+`claims[].id` values (`type-signature-go` and siblings) that can never
+satisfy `gate.TestNameMatcher` (built from toolchain `TestNamePatterns`
+like `^Test[A-Z]`, `cmd/backstop/gate.go:1188`), producing 5 permanent
+broken-promise violations even though the underlying rules exist and
+pass. Its fix has a gate-side component (claim-ID-vs-test-name matching),
+not a contracts-compiler change — a planner should not assume thread 1's
+compiler work covers it.
+
 ## Notes
 
 ISSUE-052 and ISSUE-053 are grouped into one directive because they are
@@ -66,3 +87,8 @@ both engine-capability extensions to the same compiler
 DIR-015 hardening pass, not because either is small enough to fold into an
 existing directive. Both are `contained` scope, `safe` risk, per their
 issue files — no urgency signal beyond normal backlog priority.
+
+backlog-pm slotted ISSUE-078 here on 2026-07-26 during a full-corpus sweep;
+its Finding 1 (gate-side claim-ID-vs-test-name reconciliation) is noted as
+a possible scope seam if a planner judges it belongs with gate
+test-verification work instead of this directive's compiler-focused scope.
