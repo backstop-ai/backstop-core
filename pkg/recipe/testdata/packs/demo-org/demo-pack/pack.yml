@@ -9,6 +9,7 @@ description: Demo pack carrying two recipe directories plus an independent scaff
 recipes:
   starter: recipes/starter
   second: recipes/second
+  templated-sites: recipes/templated-sites
 content:
   scaffolds:
     - id: baseline

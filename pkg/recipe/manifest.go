@@ -192,6 +192,24 @@ func validateRecipeOps(m *RecipeManifest) error {
 		}
 
 		if op.Kind == OpTransform {
+			// The placeholder check runs BEFORE the allowlist cross-check so a
+			// templated rule reports its real cause. A recipe can declare the same
+			// templated string in transform_rules, which would clear the allowlist
+			// and leave "not among the declared transform_rules" as a misleading
+			// diagnosis for a manifest whose actual defect is the placeholder.
+			//
+			// `rule:` is the ONLY field checked here, and that narrowness is
+			// deliberate. Op.Rule is the one field apply deliberately does NOT
+			// substitute: it is validated right here by exact string equality
+			// against the declared allowlist, and it selects which rewrite file an
+			// allowlisted engine executes IN PLACE over the consumer's tree, so a
+			// consumer-supplied param must not carry that authority. Refusing a
+			// templated rule at parse closes that excluded field at the earliest
+			// point. Whether op.payload / op.fragment may be templated is a
+			// separate, open authoring-surface question and is NOT decided here.
+			if strings.Contains(op.Rule, placeholderOpen) {
+				return fmt.Errorf("%s: ops[%d] %q declares rule %q, whose 'rule' field carries a %s placeholder; a rule path is never substituted, because it is validated against the declared transform_rules by exact match and selects which pack asset the engine executes", label, i, op.ID, op.Rule, placeholderOpen)
+			}
 			if _, declared := declaredRules[op.Rule]; !declared {
 				return fmt.Errorf("%s: ops[%d] %q declares rule %q, which is not among the recipe's declared transform_rules", label, i, op.ID, op.Rule)
 			}

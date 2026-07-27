@@ -1,0 +1,47 @@
+# Every SITE this recipe declares is templated — the create/merge/transform/insert
+# targets, the insert's snippet, and both manual instructions — so driving it
+# through Apply proves the applier resolves a declared site rather than writing at
+# the literal placeholder text. Its `rule:` is deliberately LITERAL: a rule path is
+# validated at parse against transform_rules by exact string equality and selects
+# which pack asset an allowlisted engine executes, so it is never substituted.
+kind: scaffolding
+version: 1.0.0
+params:
+  - name: app_name
+    required: true
+  - name: config_dir
+    required: false
+    default: config
+transform_rules:
+  - recipes/templated-sites/rules/rename-config-key.yml
+ops:
+  - id: create-config
+    kind: create
+    target: "{{ config_dir }}/app.config.json"
+    payload: payload/app.config.json
+  # The fragment is a recipe-relative FILE, which is the shipped contract and the
+  # reason this recipe exists alongside `starter` (whose inline fragment block is
+  # ISSUE-081's evidence and is left byte-intact).
+  - id: merge-settings
+    kind: merge
+    target: "{{ config_dir }}/settings.json"
+    format: json
+    fragment: payload/settings.fragment.json
+  - id: rename-config-key
+    kind: transform
+    target: "{{ config_dir }}/app.config.json"
+    rule: recipes/templated-sites/rules/rename-config-key.yml
+    manual: >-
+      Could not reach the rewrite site for "{{ app_name }}". Open the generated
+      config and rename the top-level "legacy_name" entry to "name" by hand,
+      keeping its existing value.
+  - id: register-app
+    kind: insert
+    target: "{{ config_dir }}/settings.json"
+    anchor: '"registrations": ['
+    snippet: '"{{ app_name }}"'
+    manual: >-
+      Could not find the registrations anchor. Add "{{ app_name }}" to the
+      "registrations" list in the settings file by hand.
+  - id: confirm-adoption
+    kind: step

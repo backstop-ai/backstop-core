@@ -29,6 +29,7 @@ engines:
       version: 0.43.0
 recipes:
   rewrite: recipes/rewrite
+  templated: recipes/templated
 content:
   scaffolds:
     - id: rewrite-companion

@@ -1,0 +1,18 @@
+# The live-repro recipe (ISSUE-079): a single create op whose declared TARGET is
+# templated against a param that carries a DEFAULT, so the shipped
+# `backstop recipe apply` resolves it with no operator input at all — exactly the
+# invocation that wrote `./{{ config_dir }}/service.json` and exited 0.
+#
+# One create op only: no transform, so no engine tool is ever executed and the
+# test stays hermetic.
+kind: scaffolding
+version: 1.0.0
+params:
+  - name: config_dir
+    required: false
+    default: config
+ops:
+  - id: create-service
+    kind: create
+    target: "{{ config_dir }}/service.json"
+    payload: payload/service.json

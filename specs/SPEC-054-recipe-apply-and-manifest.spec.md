@@ -4,7 +4,7 @@ number: SPEC-054
 created: "2026-07-21"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.1
+spec_version: 1.3.0
 
 implementation:
   summary: >
@@ -69,7 +69,23 @@ requirements:
       that resolves declared params ONLY and is explicitly NOT Turing-complete: it
       performs pure value interpolation with no conditionals, loops, or expression
       evaluation, and an undeclared placeholder is a fail-loud error (never silently
-      blanked).
+      blanked). Substitution SCOPE is part of the contract, not incidental: EVERY
+      CONSUMER-FACING site/content field an op declares must be resolved through
+      substitution BEFORE it is used to locate a path, match an anchor, splice bytes, or
+      report a result — `Op.Target` (create / merge / transform / insert), `Op.Anchor`
+      (insert, INCLUDING the half a caller supplies through SDLC-mediated
+      `InjectionSites` — REQ-003), `Op.Snippet` (insert), the `create` payload and `merge`
+      fragment CONTENT, and the relayed `Op.Manual` instruction (REQ-011, the one
+      fail-SOFT field). `Op.Rule` is the ONE declared field that is NEVER substituted: it
+      is validated at parse time by exact string equality against the recipe's declared
+      `transform` rules allowlist and it selects which PACK ASSET an allowlisted engine
+      executes in place over the consumer's tree, so a consumer-supplied param must not
+      carry that authority; a placeholder in `rule:` is instead REFUSED at manifest
+      validation (REQ-009). The resulting invariant: after a successful apply no literal
+      `{{` / `}}` may reach the consumer's filesystem — not in any path an op writes,
+      reads or creates, and not in the bytes it splices. (`Op.Payload` and `Op.Fragment`
+      as PATHS are deliberately OUT OF SCOPE of this rule — their form and templatability
+      are ISSUE-081's open question, decided there and not here.)
     supports: pack-scaffolding-recipes:REQ-002@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-003
@@ -186,7 +202,15 @@ requirements:
       duplicate id would misroute the site and an empty id on an injection-accepting op
       would make routing ambiguous; a duplicate id, or an empty id on a
       `transform`/`insert` op, is a fail-loud validation error naming the recipe and the
-      duplicate/empty id.
+      duplicate/empty id. (4) a `transform` op's `rule` MUST NOT carry a substitution
+      placeholder: `rule:` is the one op field the applier deliberately never substitutes
+      (REQ-002), so a templated rule would otherwise resolve a brace-bearing path into an
+      engine invocation at apply time; a placeholder opening delimiter appearing in
+      `rule:` is a fail-loud validation error naming the op index, the op id and the
+      FIELD, and it is reported BEFORE the declared-rules allowlist cross-check so a
+      templated rule reports its real cause rather than "not among the declared rules".
+      This check is scoped to `rule:` ONLY — a placeholder in `payload:` or `fragment:` is
+      NOT rejected here (whether those may be templated is ISSUE-081's open question).
     supports: pack-scaffolding-recipes:REQ-009@1.0.0
     follows: STD-GO-001:GO-010
   - id: REQ-010
@@ -211,7 +235,16 @@ requirements:
       an actionable "wire it in by hand like THIS" instruction is inherently
       language/framework-specific and would violate REQ-006 if built in core; the recipe
       supplies it as DATA. The same fail-loud-with-declared-`manual:`-instruction rule
-      applies to an `insert` op whose declared anchor is absent from the target. ("When
+      applies to an `insert` op whose declared anchor is absent from the target. VERBATIM
+      means core NEVER composes, paraphrases, re-wraps or synthesizes the instruction — it
+      does NOT mean UNRENDERED: the relayed text is run through the recipe's OWN declared
+      params (REQ-002) so the operator reads a resolved instruction rather than literal
+      `{{ }}` braces; rendering the recipe author's declared params is not composition.
+      Because the manual is emitted ONLY on an error path, this is the one field where
+      substitution fails SOFT: if substituting the manual itself fails, the RAW declared
+      text is relayed unchanged and the unreachable-site failure is still reported in
+      full — replacing the operator's instruction with a second error, on a path that is
+      already reporting a failure, is worse than an unrendered placeholder. ("When
       generation can't reach, enforcement does" — the paired-enforcement backstop is
       REQ-013/014, out of scope here; this spec owns the apply-time fail-loud half.)
     supports: pack-scaffolding-recipes:REQ-021@1.0.0
@@ -245,7 +278,13 @@ claims:
       - TestApply_RunsOpsInDeclaredOrder
   - id: CLM-002
     requirement: REQ-001
-    text: The applier contributes no target path — a create op writes exactly at the recipe-declared target and nowhere else
+    text: >
+      The applier contributes no target path — a create op writes exactly at the
+      recipe-declared target and nowhere else. "Recipe-declared target" means the declared
+      target AFTER the recipe's own param substitution (REQ-002): the substituted form is
+      what is written, and it is what `ApplyResult.Written` echoes — still the recipe's own
+      path FORM, never a path the applier invented and never the applier's absolute
+      resolution of it.
     tests:
       - TestApply_TargetComesFromRecipeNotApplier
   - id: CLM-003
@@ -310,6 +349,80 @@ claims:
     text: An undeclared placeholder fails loud (never silently blanked)
     tests:
       - TestSubstitute_UndeclaredParamFailsLoud
+  # REQ-002 — substitution SCOPE. CLM-012/013/014 above prove Substitute's SEMANTICS by
+  # driving Substitute DIRECTLY, which cannot prove which fields the APPLIER routes
+  # through it; the claims below are the Apply-level obligation and every one of them
+  # drives the real Apply (or the real parse / the real CLI).
+  - id: CLM-070
+    requirement: REQ-002
+    text: >
+      A COMMITTED, resolution-driven recipe whose create / merge / transform / insert
+      sites are all templated applies end to end with EVERY templated site resolved —
+      the create target, the merge target, the transform target, the insert anchor and
+      the insert snippet — proved through Apply over the resolved recipe, not through
+      Substitute, and the result's Written paths carry the substituted project-relative
+      form
+    tests:
+      - TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
+  - id: CLM-071
+    requirement: REQ-002
+    text: >
+      Driving the committed starter recipe through Apply, the templated create target
+      resolves before the apply halts on the recipe's inline fragment (ISSUE-081 marker;
+      this claim retires when the fragment form is pinned) — the create op's file lands at
+      the substituted path and no literal-brace directory is created, and only then does
+      the merge op fail loud on its unreadable declared fragment
+    tests:
+      - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+  - id: CLM-072
+    requirement: REQ-002
+    text: >
+      INVARIANT — after a successful apply, no path beneath the project root carries a
+      `{{` or `}}` segment anywhere (asserted by walking the whole tree, not against a
+      known-good path list, so an op family that forgets substitution is caught without
+      anyone updating a list)
+    tests:
+      - TestApply_NoLiteralPlaceholderReachesTheFilesystem
+  - id: CLM-073
+    requirement: REQ-002
+    text: >
+      An UNDECLARED placeholder in ANY substituted site/content field — a create target, a
+      merge target, an insert anchor, an insert snippet — fails the APPLY loud, with an
+      error naming the recipe, the op INDEX and the op ID, and nothing is written (a
+      partially-applied failure is as bad as a silent success)
+    tests:
+      - TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud
+  - id: CLM-074
+    requirement: REQ-002
+    text: >
+      BOTH halves of a caller-supplied SDLC-mediated injection site are substituted — an
+      InjectionSites value whose target AND anchor are templated writes at the substituted
+      target and splices at the substituted anchor, and the recipe-DECLARED target is not
+      written (so an applier that ignored the override cannot pass)
+    tests:
+      - TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted
+  - id: CLM-075
+    requirement: REQ-002
+    text: >
+      A transform op's declared `rule` is NOT substituted — with a templated target and a
+      literal declared rule, the dispatch receives the substituted target and the
+      byte-identical declared, transform-rules-validated rule path resolved under PackDir
+      (guards the deliberate asymmetry against a later "fix" that substitutes everything
+      uniformly)
+    tests:
+      - TestApply_TransformOp_DeclaredRuleIsNotSubstituted
+  - id: CLM-077
+    requirement: REQ-002
+    subject: cmd/backstop
+    text: >
+      The shipped `backstop recipe apply` resolves a DEFAULTED param and the file lands at
+      the real substituted path — the command succeeds, the declared payload is at the
+      substituted target, and no `{{`-bearing path exists anywhere beneath the staged
+      project root. Per-claim `subject: cmd/backstop` (like CLM-025/027/063): the test
+      drives the shipped root command over an INSTALLED pack, so the inherited `pkg/recipe`
+      subject would trip the substantiveness noTarget join on a correctly-placed test.
+    tests:
+      - TestRecipeApply_CLI_TemplatedTargetWritesAtTheSubstitutedPath
 
   # REQ-003 — two application modes from one artifact
   - id: CLM-015
@@ -538,6 +651,17 @@ claims:
     text: A recipe whose op ids are unique (and non-empty on every injection-accepting op) validates clean
     tests:
       - TestRecipeManifest_UniqueOpIdsValid
+  - id: CLM-076
+    requirement: REQ-009
+    text: >
+      A substitution placeholder in `rule:` — and ONLY in `rule:` — is refused at manifest
+      validation, fail-loud, naming the op index, the op id and the FIELD, and reported
+      BEFORE the declared-rules allowlist cross-check; the SAME manifest with a literal
+      `rule:` but a templated `payload:` and a templated `fragment:` still parses CLEANLY
+      (the scope guard — payload/fragment templatability is ISSUE-081's call, not this
+      check's), and a fully literal manifest parses cleanly too
+    tests:
+      - TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
 
   # REQ-010 — apply-time reference resolution of pack:recipe@version
   - id: CLM-045
@@ -587,6 +711,17 @@ claims:
     text: An insert op whose declared anchor is absent fails loud with the op's declared manual field VERBATIM (the insert analog of the injection limit)
     tests:
       - TestApply_InsertMissingAnchor_MessageEqualsDeclaredManualVerbatim
+  - id: CLM-078
+    requirement: REQ-011
+    text: >
+      The relayed manual instruction is SUBSTITUTED and fails SOFT — on the injection-limit
+      error path a manual templating a DECLARED param is relayed with the param resolved
+      and carries no `{{`; the SAME manual templating an UNDECLARED param is relayed as the
+      RAW declared text verbatim and the unreachable site is still identified (the
+      falsifier for a naive substitute-everything-fail-loud implementation: the operator's
+      instruction is never replaced by a second error on a path already reporting failure)
+    tests:
+      - TestApply_InjectionLimit_RelaysSubstitutedManualFailingSoftToRaw
 
   # REQ-012 (bundle REQ-023) — templating-kind one-shot / consumer-owned
   - id: CLM-054
@@ -640,7 +775,7 @@ contracts:
       - name: ParseRecipeManifest
         kind: function
         signature: "func ParseRecipeManifest(data []byte) (*RecipeManifest, error)"
-        notes: "Parses + structurally validates recipe.yml: fail-loud on missing ops, missing/malformed-semver version, invalid kind, a transform/insert op missing its manual field (CLM-064), and a transform op whose rule is not among the declared TransformRules (CLM-066), a duplicate op id, or an empty id on a transform/insert op (CLM-068) (REQ-009). Optional compat/variants validate structurally. No language knowledge — reads declared data."
+        notes: "Parses + structurally validates recipe.yml: fail-loud on missing ops, missing/malformed-semver version, invalid kind, a transform/insert op missing its manual field (CLM-064), and a transform op whose rule is not among the declared TransformRules (CLM-066), a duplicate op id, an empty id on a transform/insert op (CLM-068), or a substitution placeholder in a transform op's `rule` — checked BEFORE the TransformRules cross-check and scoped to `rule:` ONLY, never payload/fragment (CLM-076) (REQ-009). Optional compat/variants validate structurally. No language knowledge — reads declared data."
     consumes:
       - source: gopkg.in/yaml.v3
         name: Unmarshal
@@ -688,15 +823,15 @@ contracts:
       - name: ApplyResult
         kind: type
         signature: "type ApplyResult struct { Written []string; Preserved []PreservedDivergence; Adoption AdoptionEntry }"
-        notes: "Records what an apply wrote, the recipe-owned files PRESERVED because a covering active waiver was READ (each with the covering waiver that accounted for it — REQ-004; never a waiver the applier authored), and the thin adoption entry (REQ-005)."
+        notes: "Records what an apply wrote, the recipe-owned files PRESERVED because a covering active waiver was READ (each with the covering waiver that accounted for it — REQ-004; never a waiver the applier authored), and the thin adoption entry (REQ-005). `Written` carries the recipe-declared target AFTER param substitution (REQ-002) — still the recipe's own path FORM (project-relative), never the applier's absolute resolution of it, and never a `{{`-bearing string: reporting `{{ config_dir }}/service.json` to an operator whose file landed at `config/service.json` names a path that does not exist. The same substituted form is the ownership key an apply uses to recognize a file it wrote in this run, because two ops templating differently can legitimately resolve to one file. `pkg/recipe/apply.go`'s ApplyResult doc comment states this identically and is updated in the SAME change — the two statements of the contract must not drift apart (CLM-002/CLM-070)."
       - name: PreservedDivergence
         kind: type
         signature: "type PreservedDivergence struct { Path string; Rule string; CoveringWaiver string }"
-        notes: "One recipe-owned file left in place on re-apply because the divergence finding was adjudicated as covered by an ACTIVE waiver read from the consumer's file (REQ-004/CLM-021). CoveringWaiver is the token that was READ, not one the applier wrote."
+        notes: "One recipe-owned file left in place on re-apply because the divergence finding was adjudicated as covered by an ACTIVE waiver read from the consumer's file (REQ-004/CLM-021). CoveringWaiver is the token that was READ, not one the applier wrote. `Path` carries the recipe-declared target AFTER param substitution (REQ-002), on the same terms as `ApplyResult.Written`: the recipe's own project-relative path form, never the applier's absolute resolution and never a `{{`-bearing string — an operator asked to account for a divergence must be given a path that exists."
       - name: Apply
         kind: function
         signature: "func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error)"
-        notes: "Runs the recipe's ops in declared order (REQ-001); dispatches per op family (REQ-002/REQ-007); non-destructive toward user files, and on re-apply of recipe-owned output computes the would-be-regenerated bytes, diffs on-disk, and PRESERVES-on-covered-waiver (read via opts.ReadWaivers) / REGENERATES-otherwise, never authoring a token (REQ-004); one-shot for templating (REQ-012); fail-loud with the op's declared manual text VERBATIM on an unreachable transform/insert (REQ-011); writes the thin adoption record (REQ-005). Zero language/platform/CI literals (REQ-006)."
+        notes: "Runs the recipe's ops in declared order (REQ-001); dispatches per op family (REQ-002/REQ-007); resolves every consumer-facing site/content field an op declares — target, anchor, snippet, payload/fragment content, and the relayed manual — through Substitute BEFORE using it to locate a path, match an anchor, splice bytes or report a result, while leaving Op.Rule RAW (REQ-002 scope; a templated rule is refused at parse instead, REQ-009); non-destructive toward user files, and on re-apply of recipe-owned output computes the would-be-regenerated bytes, diffs on-disk, and PRESERVES-on-covered-waiver (read via opts.ReadWaivers) / REGENERATES-otherwise, never authoring a token (REQ-004); one-shot for templating (REQ-012); fail-loud with the op's declared manual text VERBATIM on an unreachable transform/insert (REQ-011); writes the thin adoption record (REQ-005). Zero language/platform/CI literals (REQ-006)."
       - name: ApplyAll
         kind: function
         signature: "func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, error)"
@@ -880,6 +1015,55 @@ divergence from *recipe-owned* output is an accountable `@waiver`, never a bespo
 | logic/expression construct in placeholder | never evaluated as code (not Turing-complete) | CLM-013 |
 | undeclared placeholder | FAIL LOUD (never silently blanked) | CLM-014 |
 
+#### Substitution SCOPE — which `Op` fields are resolved (REQ-002)
+
+The semantics above say HOW a placeholder resolves; this matrix says WHERE. It is a
+closed, field-by-field allowlist: a field is either SUBSTITUTED before use or it is
+named here as deliberately not. Every row is covered by a claim that drives the real
+`Apply` (or the real parse, or the real CLI) — never `Substitute` in isolation.
+
+| `Op` field | Families | Substituted? | Failure policy | Claim |
+|------------|----------|--------------|----------------|-------|
+| `Op.Target` | create / merge / transform / insert | YES — before path resolution, existence check, read, write, ownership keying and result reporting | FAIL LOUD | CLM-070 / CLM-071 / CLM-073 / CLM-077 |
+| `Op.Anchor` | insert (INCLUDING the half supplied through SDLC-mediated `InjectionSites`) | YES — before the anchor match | FAIL LOUD | CLM-070 / CLM-073 / CLM-074 |
+| `Op.Snippet` | insert | YES — before the splice | FAIL LOUD | CLM-070 / CLM-073 |
+| `Op.Manual` | transform / insert (relayed operator instruction) | YES — before it is relayed | FAIL **SOFT** → relay the RAW declared text | CLM-078 |
+| payload / fragment CONTENT | create / merge | YES — before the bytes are written or merged (true since 1.0.0) | FAIL LOUD | CLM-070 |
+| `Op.Rule` | transform | **NO** — the declared, allowlist-validated path is executed unchanged | a placeholder in `rule:` is REFUSED at manifest validation (REQ-009) | CLM-075 / CLM-076 |
+
+`Op.Payload` and `Op.Fragment` as PATHS are deliberately **OUT OF SCOPE of this table**.
+Their form — including whether `fragment:` may carry inline content at all rather than a
+path — and their templatability are ISSUE-081's open question. The omission is a
+DECISION, not a gap: deciding it here would settle ISSUE-081 silently and from the wrong
+place, so this spec takes no position either way. (Their CONTENT, once read, is
+substituted; that is the row above and is a separate matter from the path's form.)
+
+**Why `Op.Rule` is the exception.** The rule path is validated at PARSE time by exact
+string equality against the recipe's declared `transform` rules allowlist (REQ-009), and
+it selects which PACK ASSET an allowlisted engine executes IN PLACE over the consumer's
+tree. Substituting it at apply time would (a) execute a rule path that is not the one
+validation approved — breaking, by construction, the declared-vs-executed correspondence
+the allowlist exists to guarantee — and (b) hand a CONSUMER-supplied param authority over
+which of the recipe's own code assets runs. Params are inputs to the recipe's OUTPUT,
+never a selector for the recipe's own code. Because `rule:` is excluded from
+substitution, its placeholder hole is closed at the earliest point instead: a `{{` in
+`rule:` is a fail-loud manifest-validation error naming the op and the field (CLM-076),
+scoped to `rule:` alone.
+
+**Why `Op.Manual` fails SOFT.** The manual is emitted on ONE path only — the
+injection-limit failure (REQ-011), where the loud failure has already happened. Relaying
+literal braces to an operator is the same defect class in the diagnostic channel, so the
+manual IS substituted; but a substitution failure there must not REPLACE the operator's
+instruction with a second error. On failure the RAW declared text is relayed unchanged
+and the unreachable site is still identified (CLM-078). This is the only field in the
+matrix where fail-loud is the wrong policy, and the reason is precisely that the loud
+failure is already in flight.
+
+The invariant the matrix exists to produce: after a successful apply, **no path beneath
+the project root carries a `{{` or `}}` segment** and no spliced bytes do either (CLM-072,
+asserted by walking the tree rather than checking a known-good path list, so a future op
+family that forgets substitution is caught without anyone updating a list).
+
 ### Reference resolution (REQ-010)
 
 `<pack>:<recipe>@<recipe_version>` resolves iff all hold; any failure is a fail-loud error:
@@ -902,6 +1086,7 @@ divergence from *recipe-owned* output is an accountable `@waiver`, never a bespo
 | `compat`, `variants` | no | structural only (behavior out of scope) | CLM-044 |
 | op `manual:` | yes for `transform`/`insert`, else no | non-empty on injection-limit ops; optional on `create`/`merge` | CLM-064 / CLM-065 |
 | op `rule:` (transform) | yes for `transform` | pack-relative path present in the recipe's declared `transform` rules | CLM-066 / CLM-067 |
+| op `rule:` placeholder (transform) | n/a | a `{{` in `rule:` — and ONLY in `rule:` — is refused, before the declared-rules cross-check; `payload:`/`fragment:` placeholders are NOT checked here (ISSUE-081) | CLM-076 |
 | op `id:` | unique always; non-empty on `transform`/`insert` | duplicate id, or empty id on an injection-accepting op, is an error (it is the `InjectionSites` routing key — REQ-003) | CLM-068 / CLM-069 |
 
 ## Implementation
@@ -1035,14 +1220,24 @@ transformed file bytes — a no-op dispatch cannot pass it.
    `create`/`merge` (CLM-065); cross-checks that every `transform` op's `rule` is a pack-relative
    path present in the declared `transform` rules (CLM-066/067); cross-checks that op `id`s are
    unique and non-empty on injection-accepting ops (CLM-068/069, the `InjectionSites` routing key);
-   validates optional compat/variants structurally.
+   REFUSES a substitution placeholder in a `transform` op's `rule` — checked BEFORE the
+   declared-rules cross-check so the diagnostic names the real cause, keyed on the placeholder
+   delimiter the substitution implementation already declares (never a second literal), and scoped
+   to `rule:` ONLY (CLM-076); validates optional compat/variants structurally.
 2. **`recipes:` index on the pack manifest (REQ-008).** Add `Manifest.Recipes` and
    `validateRecipesIndex` (missing dir / missing `recipe.yml` -> error), wired into
    `ParseManifest` beside `Content.Scaffolds`.
 3. **Reference resolution (REQ-010).** `ParseRecipeRef` + `ResolveRecipe`: missing pack /
    undeclared recipe / version mismatch / unpinned-or-malformed -> fail loud.
 4. **Substitution (REQ-002).** `Substitute`: declared-param interpolation only; undeclared
-   placeholder -> fail loud; no logic evaluation.
+   placeholder -> fail loud; no logic evaluation. Its SCOPE is a separate, equally load-bearing
+   step: every consumer-facing site/content field an op declares — `Op.Target` (all families),
+   `Op.Anchor` (insert, including the SDLC-mediated supplied half), `Op.Snippet`, the payload/
+   fragment CONTENT, and the relayed `Op.Manual` — passes through substitution BEFORE it is used
+   to resolve a path, match an anchor, splice bytes or populate `ApplyResult`. Every field goes
+   through ONE door, so a field added later cannot be wired in without it, and the error names the
+   FIELD that failed. `Op.Rule` alone is left RAW (its hole is closed at parse, step 1). The
+   substitution-scope matrix is the authority for which field is which.
 5. **Op dispatch (REQ-002/REQ-007).** `Apply` runs ops in declared order, dispatching per the
    closed allowlist: create/merge/transform/insert execute; `step` is recognized + sequenced
    but not executed; any other kind -> fail loud. `merge` routes by target format
@@ -1057,7 +1252,10 @@ transformed file bytes — a no-op dispatch cannot pass it.
    below is unaffected; REQ-012).
 7. **Injection limit (REQ-011).** An unreachable `transform` (or an `insert` whose anchor is
    absent) fails loud with the op's DECLARED `manual:` text emitted VERBATIM plus a locator
-   (op id + intended target) — never silent-skip, never guess, never synthesize the instruction.
+   (op id + intended SUBSTITUTED target) — never silent-skip, never guess, never synthesize the
+   instruction. The relayed manual is rendered through the recipe's declared params first
+   (step 4); if THAT substitution fails, relay the RAW declared text and still report the
+   unreachable site — the one fail-SOFT field, because this path is already a failure.
 8. **Adoption record (REQ-005).** `Apply` writes the thin `{recipe ref, @version, adopted}`
    entry.
 9. **Modes + multi-recipe (REQ-003/REQ-013).** Direct vs SDLC-mediated select where params/
@@ -1141,6 +1339,35 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   Nx-generator by the back door — the exact thing DD-3/DD-10 forbid). An undeclared placeholder
   must FAIL LOUD, not silently blank — silent blanking yields malformed output that looks
   applied. CLM-013/014 hold the line.
+
+- **Substitution SEMANTICS and substitution SCOPE are different properties, and only one of
+  them is provable by testing `Substitute`.** Every test that drives `Substitute` directly can
+  be green while the applier routes almost nothing through it — which is exactly what happened:
+  CLM-012/013/014 passed for the whole period in which `Op.Target`, `Op.Anchor` and `Op.Snippet`
+  were used RAW, and a recipe templating its target wrote to a literal `{{ … }}` directory and
+  exited 0 (silent wrong output, ISSUE-079). A scope claim MUST drive the real `Apply` (or the
+  real parse, or the real CLI) over a COMMITTED recipe, never `Substitute` in isolation, and
+  the general guard must be the filesystem-walk invariant (CLM-072) rather than a list of
+  known-good paths — a list only catches the op families someone remembered to add to it.
+
+- **The `Op.Rule` asymmetry is deliberate and must not be "cleaned up".** Uniformity is the
+  seductive wrong answer here: substituting every declared path looks tidier, and it silently
+  breaks two guarantees at once — the parse-time exact-match correspondence between the
+  declared `transform` rules allowlist and what actually executes, and the rule that a
+  CONSUMER-supplied param never selects which of the recipe's own assets an allowlisted engine
+  runs in place over the consumer's tree. The compensating control is the parse-time refusal of
+  a templated `rule:` (CLM-076), so the excluded field has no hole. CLM-075 exists specifically
+  to fail a future uniformity refactor.
+
+- **`Op.Payload` / `Op.Fragment` path form is UNDECIDED here, and the silence is load-bearing.**
+  They are pack-relative source paths of the same class as `Rule`, so the symmetry argument
+  reaches them too — but whether they may be templated, and whether `fragment:` may carry inline
+  CONTENT at all rather than a path, is ISSUE-081's open question. Deciding it from this spec
+  would settle that issue silently AND invalidate committed artifacts that carry a templated
+  inline fragment today. So the scope matrix names them as OUT OF SCOPE rather than omitting
+  them: the next reader must be able to tell a decision from an oversight. CLM-071 pins the
+  current halt on an inline fragment as a live, falsifiable marker and RETIRES when ISSUE-081
+  lands; CLM-076's clean-parse case guards the boundary from below.
 
 - **`recipes:` index must not collide with `content.scaffolds` or `pack scaffold`.** "Scaffold"
   is already overloaded: `Content.Scaffolds` is a rule's paired TEST scaffold; `pack scaffold` /
@@ -1263,6 +1490,22 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
     `TransformDispatch` fails — and does every `transform` op's `rule` cross-check against the
     recipe's declared rule files? (REQ-006/REQ-009 / CLM-063/066/067.)
 
+14. Does EVERY consumer-facing site/content field in the substitution-scope matrix pass through
+    substitution before it is used to resolve a path, match an anchor, splice bytes or populate
+    `ApplyResult` — target (all four executed families), anchor (including the SDLC-mediated
+    SUPPLIED half, not just the declared one), snippet, payload/fragment content, and the relayed
+    manual — with every scope assertion made through the real `Apply` over a COMMITTED recipe
+    rather than against `Substitute`, and with the filesystem-walk invariant (no `{{`/`}}` path
+    segment beneath the project root) asserted generically? (REQ-002 / CLM-070..074, CLM-077,
+    CLM-078.)
+
+15. Is `Op.Rule` left UNSUBSTITUTED — the dispatch receiving the declared, allowlist-validated
+    rule path resolved under `PackDir` byte-identically — with its hole closed instead by a
+    parse-time refusal scoped to `rule:` ALONE (a templated `payload:`/`fragment:` still parsing
+    cleanly, since ISSUE-081 owns that question), and does `Op.Manual` fail SOFT to the raw
+    declared text rather than replacing the operator's instruction with a second error?
+    (REQ-002/REQ-009/REQ-011 / CLM-075/076/078.)
+
 ## References
 
 - **BUNDLE-015 (pack-scaffolding-recipes)** — source bundle (v0.11.0, `defined`). Seeds:
@@ -1290,6 +1533,14 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   dispatch must respect (REQ-006 / DD-3/DD-10).
 - Waiver subsystem (SPEC-049) — the `@waiver:<rule>:<reason>:<expiry>` machinery divergence is
   recorded through (REQ-004 / DD-8).
+- **ISSUE-079 (recipe substitution scope)** — the defect that surfaced the scope gap this spec's
+  substitution-scope matrix now pins: `Op.Target`/`Op.Anchor`/`Op.Snippet` were used RAW while
+  `Substitute`-direct claims stayed green. Reconciled here in the same change that ships the
+  behavior.
+- **ISSUE-081 (recipe authoring surface: merge fragment form + no CLI param input)** — owns the
+  `payload:`/`fragment:` PATH form, whether `fragment:` may carry inline content, and whether
+  either may be templated. Deliberately undecided here; CLM-071 is the live marker that retires
+  when it lands.
 
 ## Version History
 
@@ -1379,3 +1630,51 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   up by one entry. (3) Aligned the Implementation "Package layout" bullet so the body states
   the same grouped-const disposition as the frontmatter. No requirement, claim, mandated test,
   or behavior changed; still 13 requirements, 69 claims, 15 sharp edges, 13 review questions.
+- **1.3.0 (2026-07-26, implemented)** — SUBSTITUTION SCOPE pinned + the result-path contract
+  reconciled, both to behavior shipping in the SAME change (ISSUE-079). The spec previously pinned
+  substitution SEMANTICS (declared params only, not Turing-complete, undeclared fails loud) but
+  never its SCOPE — which `Op` fields the applier actually resolves — and the shipped applier ran
+  only the create PAYLOAD and merge FRAGMENT content through `Substitute`. A recipe templating its
+  target wrote to a literal `{{ … }}` path and exited 0. Crucially, the existing CLM-012/013/014
+  tests (`TestSubstitute_ResolvesDeclaredParam`,
+  `TestSubstitute_NotTuringComplete_NoLogicEvaluated`, `TestSubstitute_UndeclaredParamFailsLoud`)
+  are **Substitute-DIRECT**: they exercise the function in isolation and were green throughout, so
+  they cannot prove applier scope at all. The claims added here are the **Apply-level obligation**
+  — every one drives the real `Apply` over a COMMITTED recipe, the real parse, or the real shipped
+  CLI. (1) REQ-002 now states the scope: every consumer-facing site/content field — `Op.Target`
+  (all four executed families), `Op.Anchor` (insert, INCLUDING the SDLC-mediated supplied half),
+  `Op.Snippet`, payload/fragment CONTENT, and the relayed `Op.Manual` — is substituted before it
+  locates, matches, splices or reports; `Op.Rule` is the one field never substituted; and no
+  literal `{{`/`}}` may reach the consumer's filesystem. A new "Substitution SCOPE" matrix in the
+  body carries one row per field with its failure policy, in the style of the neighbouring
+  op-family / merge-format / kind / reference-resolution / manifest-validation matrices, plus the
+  Rule rationale (parse-time exact-match allowlist correspondence + a consumer param must not
+  select which PACK ASSET an allowlisted engine executes in place) and the Manual fail-SOFT
+  rationale (the manual is emitted only on an error path, so a substitution failure there must not
+  replace the operator's instruction with a second error). `Op.Payload`/`Op.Fragment` as PATHS are
+  stated as explicitly OUT OF SCOPE of that matrix — their form and templatability are ISSUE-081's
+  open question — so the omission reads as a decision, not a gap. (2) REQ-009 gained a FOURTH
+  op-level parse cross-check: a placeholder in a `transform` op's `rule:` — and only `rule:` — is
+  refused at manifest validation, before the declared-rules allowlist check, naming the op index,
+  op id and field; `payload:`/`fragment:` placeholders are untouched. (3) REQ-011 now distinguishes
+  VERBATIM (core never composes/paraphrases/synthesizes) from UNRENDERED: the relayed manual IS
+  substituted, and fails SOFT to the raw declared text. (4) RESULT-PATH CONTRACT: `ApplyResult`
+  `Written` and `PreservedDivergence.Path` are documented as carrying the recipe-declared target
+  AFTER param substitution — still the recipe's own path FORM, never the applier's absolute
+  resolution — and CLM-002 gained the matching substituted-form clarification while keeping its
+  existing test (`TestApply_TargetComesFromRecipeNotApplier`). `pkg/recipe/apply.go`'s ApplyResult
+  doc comment states the same contract and is updated in the same change; the two must not drift.
+  (5) NINE claims added, each mandating a delivered test: CLM-070 (committed resolution-driven
+  recipe, every templated site resolved end to end), CLM-071 (the byte-intact committed starter
+  recipe — templated create target resolves before the apply halts on its inline fragment;
+  ISSUE-081 marker, retires when the fragment form is pinned), CLM-072 (the walk-the-tree
+  no-literal-placeholder invariant), CLM-073 (undeclared placeholder in any site field fails the
+  APPLY loud, naming recipe + op index + op id, nothing written), CLM-074 (both halves of a
+  supplied SDLC-mediated injection site substituted), CLM-075 (`Op.Rule` NOT substituted), CLM-076
+  (templated `rule:` refused at parse, `payload:`/`fragment:` still clean), CLM-077 (shipped
+  `backstop recipe apply` resolves a DEFAULTED param to the real path; `subject: cmd/backstop`),
+  CLM-078 (relayed manual substituted, fail-soft to raw). (6) Three sharp edges added — semantics
+  vs scope (a `Substitute`-direct test can never prove scope), the deliberate `Op.Rule` asymmetry
+  that must not be "cleaned up", and the load-bearing silence on payload/fragment form — plus two
+  review questions and ISSUE-079/ISSUE-081 in References. No requirement was removed and no
+  existing test was dropped. Now 13 requirements, 78 claims, 18 sharp edges, 15 review questions.

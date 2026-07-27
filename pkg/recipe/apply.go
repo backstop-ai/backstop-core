@@ -86,11 +86,16 @@ type PreservedDivergence struct {
 	CoveringWaiver string
 }
 
-// ApplyResult records what one apply did: the files it WROTE (as the
-// recipe-declared targets, so the result echoes the recipe's own paths rather than
-// the applier's resolution of them), the files it left in place, and the thin
-// adoption entry. A returned error yields the ZERO result: an apply either produces
-// a verdict or it fails, never both.
+// ApplyResult records what one apply did: the files it WROTE, the files it left in
+// place, and the thin adoption entry. A returned error yields the ZERO result: an
+// apply either produces a verdict or it fails, never both.
+//
+// Written and PreservedDivergence.Path carry the recipe-declared target AFTER param
+// substitution — still the recipe's own path FORM, never the applier's absolute
+// resolution of it. The substituted form is what a consumer can act on: reporting
+// "{{ config_dir }}/service.json" to an operator whose file landed at
+// "config/service.json" names a path that does not exist. SPEC-054's ApplyResult
+// contract states the same thing; the two must not drift apart.
 type ApplyResult struct {
 	Written   []string
 	Preserved []PreservedDivergence
@@ -138,7 +143,7 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 		case OpCreate:
 			err = applyCreate(resolved, op, opts, params, own, &result)
 		case OpInsert:
-			err = applyInsert(op, opts, &result)
+			err = applyInsert(op, opts, params, &result)
 		case OpStep:
 			// RESERVED, not executed: the step keeps its sequence position and
 			// contributes nothing to the result. Its payload is opaque here and is
@@ -146,7 +151,7 @@ func Apply(resolved *ResolvedRecipe, opts ApplyOptions) (ApplyResult, error) {
 		case OpMerge:
 			err = applyMerge(resolved, op, opts, params, &result)
 		case OpTransform:
-			err = applyTransform(resolved, op, opts, &result)
+			err = applyTransform(resolved, op, opts, params, &result)
 		default:
 			err = fmt.Errorf("op kind %q is outside the closed allowlist {%s, %s, %s, %s, %s}", op.Kind, OpCreate, OpMerge, OpTransform, OpInsert, OpStep)
 		}
@@ -220,20 +225,31 @@ func ApplyAll(resolved []*ResolvedRecipe, opts ApplyOptions) ([]ApplyResult, err
 //     regenerate-by-default with the accountable-divergence hinge — compute the
 //     would-be bytes, diff, and on a divergence PRESERVE only if a covering
 //     @waiver is adjudicated ACTIVE, otherwise regenerate over it.
+//
+// The declared target is substituted ONCE, at the top, and that value is what every
+// step below uses: the path resolution, the ownership key, the reported result, and
+// every diagnostic. Keying ownership on the substituted path is required rather than
+// incidental — two ops templating differently can legitimately resolve to one file,
+// and the raw declarations would look like two distinct targets.
 func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, result *ApplyResult) error {
-	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	declaredTarget, err := substituteField(op.Target, "target", params)
+	if err != nil {
+		return err
+	}
+
+	target, err := resolveUnder(opts.ProjectRoot, declaredTarget)
 	if err != nil {
 		return fmt.Errorf("resolve declared target: %w", err)
 	}
 
-	_, writtenThisRun := own.writtenNow[op.Target]
-	present, err := targetExists(op.Target, target)
+	_, writtenThisRun := own.writtenNow[declaredTarget]
+	present, err := targetExists(declaredTarget, target)
 	if err != nil {
 		return err
 	}
 
 	if present && !writtenThisRun {
-		preserved, done, err := preserveOrRegenerate(resolved, op, opts, params, own, target)
+		preserved, done, err := preserveOrRegenerate(resolved, op, opts, params, own, declaredTarget, target)
 		if err != nil {
 			return err
 		}
@@ -249,13 +265,13 @@ func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[
 	if err != nil {
 		return err
 	}
-	if err := writeRendered(op.Target, target, rendered); err != nil {
+	if err := writeRendered(declaredTarget, target, rendered); err != nil {
 		return err
 	}
 
-	own.writtenNow[op.Target] = struct{}{}
+	own.writtenNow[declaredTarget] = struct{}{}
 	own.materialized = true
-	recordWritten(result, op.Target)
+	recordWritten(result, declaredTarget)
 
 	return nil
 }
@@ -263,13 +279,13 @@ func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[
 // preserveOrRegenerate decides what happens to a target that is ALREADY on disk.
 // It reports the divergence to record (nil when there is nothing to report) and
 // whether the decision is final — done=false means the caller regenerates.
-func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, target string) (*PreservedDivergence, bool, error) {
+func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, declaredTarget string, target string) (*PreservedDivergence, bool, error) {
 	if !own.adopted {
 		// USER-OWNED: no apply of this recipe ever produced this file, so it is
 		// the consumer's outright. Rule and CoveringWaiver stay empty — nothing
 		// was adjudicated, and the applier never authors the token that would
 		// account for one.
-		return &PreservedDivergence{Path: op.Target}, true, nil
+		return &PreservedDivergence{Path: declaredTarget}, true, nil
 	}
 
 	if own.kind == KindTemplating {
@@ -277,16 +293,16 @@ func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, pa
 		// or consulting the waiver seam: templating output carries no
 		// regeneration obligation, so there is no divergence to account for.
 		own.materialized = true
-		return &PreservedDivergence{Path: op.Target}, true, nil
+		return &PreservedDivergence{Path: declaredTarget}, true, nil
 	}
 
 	rendered, err := renderPayload(resolved, op, params)
 	if err != nil {
-		return nil, false, fmt.Errorf("compute the would-be regenerated output for %q: %w", op.Target, err)
+		return nil, false, fmt.Errorf("compute the would-be regenerated output for %q: %w", declaredTarget, err)
 	}
 	onDisk, err := os.ReadFile(target)
 	if err != nil {
-		return nil, false, fmt.Errorf("read recipe-owned target %q: %w", op.Target, err)
+		return nil, false, fmt.Errorf("read recipe-owned target %q: %w", declaredTarget, err)
 	}
 	if string(onDisk) == rendered {
 		own.materialized = true
@@ -295,7 +311,7 @@ func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, pa
 
 	if rule, covering, covered := coveredDivergence(resolved, opts, target); covered {
 		own.materialized = true
-		return &PreservedDivergence{Path: op.Target, Rule: rule, CoveringWaiver: covering}, true, nil
+		return &PreservedDivergence{Path: declaredTarget, Rule: rule, CoveringWaiver: covering}, true, nil
 	}
 
 	return nil, false, nil
@@ -403,6 +419,23 @@ func targetExists(declared string, target string) (bool, error) {
 	return true, nil
 }
 
+// substituteField resolves ONE declared field against the effective params before
+// the applier uses it to locate a file, match an anchor, or splice content.
+//
+// It is the single door every consumer-facing site/content field goes through, so a
+// field added to Op later cannot quietly skip substitution, and the wrapped error
+// names WHICH declaration was unresolvable rather than only quoting the placeholder.
+//
+// Op.Rule does NOT go through it — see applyTransform for why.
+func substituteField(declared string, label string, params map[string]string) (string, error) {
+	rendered, err := Substitute(declared, params)
+	if err != nil {
+		return "", fmt.Errorf("substitute declared %s %q: %w", label, declared, err)
+	}
+
+	return rendered, nil
+}
+
 // renderPayload reads the op's declared payload from the recipe directory and
 // substitutes the effective params, producing the WOULD-BE output bytes. Both the
 // fresh write and the divergence diff go through it, so what is compared is
@@ -442,13 +475,24 @@ func writeRendered(declared string, target string, rendered string) error {
 // after the anchor's first occurrence. An absent target or an absent anchor is a
 // fail-loud error: the applier never guesses a site and never falls back to
 // appending at the end of the file.
-func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
-	site := siteFor(op, opts)
+func applyInsert(op Op, opts ApplyOptions, params map[string]string, result *ApplyResult) error {
+	site, err := siteFor(op, opts, params)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(site.target) == "" {
-		return missingSite(op, "target")
+		return missingSite(op, "target", params)
 	}
 	if strings.TrimSpace(site.anchor) == "" {
-		return missingSite(op, "anchor")
+		return missingSite(op, "anchor", params)
+	}
+
+	// The snippet is bytes spliced into the CONSUMER's file, so it is resolved
+	// before anything is read: nothing is opened until every field this op needs
+	// has resolved.
+	snippet, err := substituteField(op.Snippet, "snippet", params)
+	if err != nil {
+		return err
 	}
 
 	target, err := resolveUnder(opts.ProjectRoot, site.target)
@@ -463,11 +507,11 @@ func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
 	content := string(raw)
 	anchorAt := strings.Index(content, site.anchor)
 	if anchorAt < 0 {
-		return injectionLimit(site.target, op, fmt.Errorf("anchor %q is absent from the target", site.anchor))
+		return injectionLimit(site.target, op, params, fmt.Errorf("anchor %q is absent from the target", site.anchor))
 	}
 
 	spliceAt := anchorAt + len(site.anchor)
-	updated := content[:spliceAt] + op.Snippet + content[spliceAt:]
+	updated := content[:spliceAt] + snippet + content[spliceAt:]
 	if err := os.WriteFile(target, []byte(updated), 0o644); err != nil {
 		return fmt.Errorf("write insertion site %q: %w", site.target, err)
 	}
@@ -493,16 +537,27 @@ func applyInsert(op Op, opts ApplyOptions, result *ApplyResult) error {
 // or a locked version to check one against, so the dispatch is the WHOLE seam, and the
 // production implementation gates the engine at the layer that can see the pack's
 // declared engines and the lock file.
-func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *ApplyResult) error {
+func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, result *ApplyResult) error {
 	if opts.Dispatch == nil {
 		return errors.New("no transform dispatch was supplied; the transform seam is injected and has no default")
 	}
 
-	site := siteFor(op, opts)
+	site, err := siteFor(op, opts, params)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(site.target) == "" {
-		return missingSite(op, "target")
+		return missingSite(op, "target", params)
 	}
 
+	// Op.Rule is used RAW, and deliberately so. It is validated at PARSE time by
+	// exact string equality against the recipe's declared transform_rules
+	// (manifest.go validateRecipeOps), so substituting it here would execute a rule
+	// path that is not the one validation approved. And it selects which pack asset
+	// an allowlisted engine runs IN PLACE over the consumer's tree — a
+	// consumer-supplied param must never carry that authority. Params are inputs to
+	// the recipe's output, never a selector for the recipe's own code. A placeholder
+	// in `rule:` is therefore refused at manifest validation instead.
 	rule, err := resolveUnder(resolved.PackDir, op.Rule)
 	if err != nil {
 		return fmt.Errorf("resolve declared rule: %w", err)
@@ -513,11 +568,11 @@ func applyTransform(resolved *ResolvedRecipe, op Op, opts ApplyOptions, result *
 	}
 
 	if _, statErr := os.Stat(target); statErr != nil {
-		return injectionLimit(site.target, op, fmt.Errorf("the target could not be opened: %w", statErr))
+		return injectionLimit(site.target, op, params, fmt.Errorf("the target could not be opened: %w", statErr))
 	}
 
 	if dispatchErr := opts.Dispatch(rule, target); dispatchErr != nil {
-		return injectionLimit(site.target, op, dispatchErr)
+		return injectionLimit(site.target, op, params, dispatchErr)
 	}
 
 	recordWritten(result, site.target)
@@ -548,29 +603,39 @@ const injectionSiteSeparator = "#"
 //
 // Only transform and insert reach here. create, merge and step are not
 // injection-accepting and never consult a site.
-func siteFor(op Op, opts ApplyOptions) injectionSite {
-	site := injectionSite{target: op.Target, anchor: op.Anchor}
-	if opts.Mode != ModeSDLCMediated {
-		return site
+//
+// BOTH halves are substituted, in BOTH modes, and the sdlc-mediated override is
+// substituted too — it locates a write in the consumer's tree exactly as the
+// declaration does, so leaving it raw would reopen the same hole through the other
+// door. The separator is split off the DECLARED text BEFORE substitution: the "#"
+// grammar is core-owned and applies to the declaration, so a substituted value that
+// happens to contain "#" can never be re-split into halves the caller did not write.
+func siteFor(op Op, opts ApplyOptions, params map[string]string) (injectionSite, error) {
+	target, anchor := op.Target, op.Anchor
+
+	if supplied, present := opts.InjectionSites[op.ID]; present && opts.Mode == ModeSDLCMediated {
+		suppliedTarget, suppliedAnchor := supplied, ""
+		if at := strings.Index(supplied, injectionSiteSeparator); at >= 0 {
+			suppliedTarget, suppliedAnchor = supplied[:at], supplied[at+len(injectionSiteSeparator):]
+		}
+		if strings.TrimSpace(suppliedTarget) != "" {
+			target = suppliedTarget
+		}
+		if strings.TrimSpace(suppliedAnchor) != "" {
+			anchor = suppliedAnchor
+		}
 	}
 
-	supplied, present := opts.InjectionSites[op.ID]
-	if !present {
-		return site
+	substitutedTarget, err := substituteField(target, "target", params)
+	if err != nil {
+		return injectionSite{}, fmt.Errorf("resolve the injection site: %w", err)
+	}
+	substitutedAnchor, err := substituteField(anchor, "anchor", params)
+	if err != nil {
+		return injectionSite{}, fmt.Errorf("resolve the injection site: %w", err)
 	}
 
-	target, anchor := supplied, ""
-	if at := strings.Index(supplied, injectionSiteSeparator); at >= 0 {
-		target, anchor = supplied[:at], supplied[at+len(injectionSiteSeparator):]
-	}
-	if strings.TrimSpace(target) != "" {
-		site.target = target
-	}
-	if strings.TrimSpace(anchor) != "" {
-		site.anchor = anchor
-	}
-
-	return site
+	return injectionSite{target: substitutedTarget, anchor: substitutedAnchor}, nil
 }
 
 // missingSite renders the failure for an injection-accepting op that has NEITHER a
@@ -579,11 +644,33 @@ func siteFor(op Op, opts ApplyOptions) injectionSite {
 // guesses an anchor, because a guessed site writes into the consumer codebase. The
 // DECLARED manual instruction is relayed VERBATIM (REQ-011), so the operator is left
 // with the same actionable text an unreachable site would have produced.
-func missingSite(op Op, part string) error {
+func missingSite(op Op, part string, params map[string]string) error {
 	return fmt.Errorf(
 		"the op declares no %s and no injection site supplied one; the applier never guesses a site. Apply the declared instruction by hand: %s",
-		part, op.Manual,
+		part, relayedManual(op, params),
 	)
+}
+
+// relayedManual renders the op's DECLARED instruction for the operator, and falls
+// SOFT to the raw declared text if its own substitution fails.
+//
+// The instruction is substituted because the recipe author writes it with the same
+// params as everything else — relaying "{{ app_name }}" to a human is the same
+// defect as writing it to disk, only in the diagnostic channel. REQ-011's "verbatim"
+// forbids the applier COMPOSING, paraphrasing or re-wrapping the instruction;
+// rendering the author's own declared params is not composition.
+//
+// The fail-soft is the deliberate exception to fail-loud everywhere else, and the
+// reason is that this text is emitted ONLY on an error path: the loud failure has
+// already happened, and replacing the operator's instruction with a second error
+// about the instruction would leave them with nothing to act on.
+func relayedManual(op Op, params map[string]string) string {
+	rendered, err := Substitute(op.Manual, params)
+	if err != nil {
+		return op.Manual
+	}
+
+	return rendered
 }
 
 // injectionLimit renders the failure for an op whose declared site could not be
@@ -596,10 +683,10 @@ func missingSite(op Op, part string) error {
 // invent, so the recipe supplies it as data and this only relays it. The target half of
 // the locator is here; the op id half comes from opFailure, which wraps every op
 // failure on the way out.
-func injectionLimit(target string, op Op, cause error) error {
+func injectionLimit(target string, op Op, params map[string]string, cause error) error {
 	return fmt.Errorf(
 		"the declared site in target %q could not be reached (%v); apply the recipe's declared instruction by hand: %s",
-		target, cause, op.Manual,
+		target, cause, relayedManual(op, params),
 	)
 }
 
@@ -615,12 +702,17 @@ func injectionLimit(target string, op Op, cause error) error {
 // Nothing is written until the whole merge has succeeded, so a decode or encode
 // failure leaves the target byte-identical.
 func applyMerge(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, result *ApplyResult) error {
-	target, err := resolveUnder(opts.ProjectRoot, op.Target)
+	declaredTarget, err := substituteField(op.Target, "target", params)
+	if err != nil {
+		return err
+	}
+
+	target, err := resolveUnder(opts.ProjectRoot, declaredTarget)
 	if err != nil {
 		return fmt.Errorf("resolve declared target: %w", err)
 	}
 
-	format, err := mergeFormatFor(op)
+	format, err := mergeFormatFor(op, declaredTarget)
 	if err != nil {
 		return err
 	}
@@ -643,19 +735,19 @@ func applyMerge(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[s
 
 	rawTarget, err := os.ReadFile(target)
 	if err != nil {
-		return fmt.Errorf("read declared target %q: %w", op.Target, err)
+		return fmt.Errorf("read declared target %q: %w", declaredTarget, err)
 	}
 
 	merged, err := mergeDocuments(format, string(rawTarget), fragment)
 	if err != nil {
-		return fmt.Errorf("merge declared fragment %q into %q as %s: %w", op.Fragment, op.Target, format, err)
+		return fmt.Errorf("merge declared fragment %q into %q as %s: %w", op.Fragment, declaredTarget, format, err)
 	}
 
 	if err := os.WriteFile(target, []byte(merged), 0o644); err != nil {
-		return fmt.Errorf("write declared target %q: %w", op.Target, err)
+		return fmt.Errorf("write declared target %q: %w", declaredTarget, err)
 	}
 
-	recordWritten(result, op.Target)
+	recordWritten(result, declaredTarget)
 
 	return nil
 }
@@ -663,10 +755,14 @@ func applyMerge(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[s
 // mergeFormatFor resolves the op's merge format against the closed allowlist. An
 // unsupported format is a fail-loud error naming the target and the format it could
 // not handle, never a degraded write.
-func mergeFormatFor(op Op) (string, error) {
+//
+// It takes the SUBSTITUTED target because the extension fallback is read off it: a
+// templated path would otherwise yield the extension of the placeholder text and so
+// the wrong format verdict.
+func mergeFormatFor(op Op, declaredTarget string) (string, error) {
 	declared := strings.ToLower(strings.TrimSpace(op.Format))
 	if declared == "" {
-		declared = strings.ToLower(strings.TrimPrefix(filepath.Ext(op.Target), "."))
+		declared = strings.ToLower(strings.TrimPrefix(filepath.Ext(declaredTarget), "."))
 	}
 
 	switch declared {
@@ -678,7 +774,7 @@ func mergeFormatFor(op Op) (string, error) {
 
 	return "", fmt.Errorf(
 		"merge target %q has format %q, which is outside the supported set {%s, %s, %s, %s}; a merge never falls back to a text append",
-		op.Target, declared, mergeFormatJSON, mergeFormatYAML, mergeFormatTOML, mergeFormatEnv,
+		declaredTarget, declared, mergeFormatJSON, mergeFormatYAML, mergeFormatTOML, mergeFormatEnv,
 	)
 }
 
