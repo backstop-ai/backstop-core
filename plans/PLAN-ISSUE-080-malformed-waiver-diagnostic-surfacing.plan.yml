@@ -27,6 +27,53 @@ notes: |
   post-079 tree and must complete before any other task starts. Do not begin
   Phase 1 on a tree where 079 has landed but TASK-000 has not run.
 
+  ── REBASE RECORD — TASK-000 EXECUTED 2026-07-26 against 81f84b8 ─────────────
+  ISSUE-079 is MERGED. pkg/recipe/apply.go is 1094 lines. Every design decision
+  in this plan SURVIVES the rebase; nothing was escalated. What 079 changed:
+
+    1. preserveOrRegenerate KEPT its (preserved, done, error) return and GAINED
+       one parameter. Post-079 it is
+       (resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string,
+        own *ownership, declaredTarget string, target string).
+       `declaredTarget` is the SUBSTITUTED declared target; `target` is its
+       absolute resolution. Substitution happens ONCE at the top of applyCreate
+       (substituteField(op.Target, "target", params), apply.go:235) — strictly
+       BEFORE the ownership check, the diff and the waiver decision — so the
+       divergenceOutcome design in TASK-004 step 5 drops in unchanged: it replaces
+       only the RETURN, on a parameter list that already carries the substituted
+       value.
+
+    2. recordWritten records `declaredTarget` (apply.go:274) — the SUBSTITUTED
+       value, NOT op.Target. Regenerated therefore appends `declaredTarget`, and
+       the CLM-008 strict-subset property survives templated targets.
+
+    3. coveredDivergence still takes the ABSOLUTE `target` (it reads the file), so
+       waiver.Diagnostic.File carries the absolute path — what adjudication
+       reported, and what the stderr warning surfaces. The CLM-003 ERROR names
+       `declaredTarget` instead: the substituted path the operator sees on disk,
+       never the raw declaration text. That distinction is what 079 exists to
+       protect.
+
+    4. SPEC-054 baseline for TASK-008, read off the post-079 file: spec_version
+       1.3.0 (079 bumped it from 1.2.1) and highest claim id CLM-078. TASK-008
+       therefore bumps to 1.4.0 and allocates from CLM-079 up.
+
+    5. LINE ANCHORS re-verified individually. UNMOVED: WaiverReader (apply.go:63),
+       spyWaiverReader.read (apply_templating_test.go:71), waiver.go:158, and every
+       cmd/backstop/recipe_apply.go anchor (:60-71, :73, :104). MOVED, corrected
+       below: ApplyResult 94-98 -> 99-103 (Preserved appended at :242 -> :258),
+       preserveOrRegenerate 266-303 -> 282-318, coveredDivergence 304-321 ->
+       324-337 (nil-default selection site 310-313 -> 326-329),
+       adjudicateDivergence 337-356 -> 353-372. In pkg/waiver: the Malformed
+       classification is adjudicate.go:38 + 115-121 (not :39, 113-121) and the
+       Result slices are at :53-60 with the Diagnostic type at :44-50 (not :51-59).
+
+    6. FIXTURE unchanged. 079's only manifest-surface change is that
+       validateRecipeOps now REJECTS a `{{` placeholder in an op's `rule:` field;
+       TASK-001's fixture declares no transform op, no `rule:`, no params and a
+       NON-templated target, so it parses and reaches the waiver branch as
+       written.
+
   ── THE DEFECT (verified against pre-079 code, 2026-07-26) ────────────────────
   `adjudicateDivergence` (pkg/recipe/apply.go:337-356) is pkg/recipe's own
   WaiverReader over the real pkg/waiver read path. It ends:
@@ -34,18 +81,19 @@ notes: |
       return len(waiver.Adjudicate(findings, read, nil, time.Now()).Suppressed) > 0
 
   `waiver.Adjudicate` ALREADY classifies an unparseable reason code as a
-  `DiagnosticMalformed` entry on `Result.Malformed` (pkg/waiver/adjudicate.go:39,
-  113-121; the parse error text is `waiver: unknown reason-code "<value>"`,
+  `DiagnosticMalformed` entry on `Result.Malformed` (pkg/waiver/adjudicate.go:38,
+  115-121; the parse error text is `waiver: unknown reason-code "<value>"`,
   pkg/waiver/waiver.go:158). NOTE the field name: the issue's write-up says
   `Result.Diagnostics`, but the shipped `waiver.Result` has no such field — the
   diagnostics live on the separate `Malformed` and `NonWaivable` slices
-  (pkg/waiver/adjudicate.go:51-59). The signal this needs is already inside the
+  (pkg/waiver/adjudicate.go:53-60; the Diagnostic type is at :44-50). The signal
+  this needs is already inside the
   value `adjudicateDivergence` receives. But `WaiverReader` (apply.go:63) is
   `func(rule string, file string) (covered bool)` — closed to a single bool — so
   every diagnostic is dropped before it can return.
 
-  `coveredDivergence` (apply.go:304-321) then sees "not covered" and
-  `preserveOrRegenerate` (apply.go:266-303) regenerates: the EXACT branch it takes
+  `coveredDivergence` (apply.go:324-337) then sees "not covered" and
+  `preserveOrRegenerate` (apply.go:282-318) regenerates: the EXACT branch it takes
   when no token was present at all. A malformed token and an absent token are
   indistinguishable at the decision point. Live field repro: a recipe-owned file
   hand-edited and marked `@waiver:<rule>:intentional-fork:2026-12-31` —
@@ -54,7 +102,7 @@ notes: |
   `applied recipe <ref>`. The operator's edit is gone with zero feedback.
 
   Compounding gap: cmd/backstop/recipe_apply.go:73 prints one static line
-  regardless of outcome. `ApplyResult.Preserved` (apply.go:96, appended at :242)
+  regardless of outcome. `ApplyResult.Preserved` (apply.go:101, appended at :258)
   already carries the preserve/write distinction and is never surfaced, so even a
   VALID token's clean preservation and an INVALID token's silent override print
   identically.
@@ -75,7 +123,7 @@ notes: |
        from a different adjudication — and nothing would catch it.
     3. The blast radius is small and fully in-repo. The seam has exactly ONE
        production implementation (`adjudicateDivergence`), ONE nil-default
-       selection site (apply.go:310-313), and ONE test-supplied reader
+       selection site (apply.go:326-329), and ONE test-supplied reader
        (`spyWaiverReader.read`, pkg/recipe/apply_templating_test.go:71). All three
        are in this plan's file scope. (Sweep performed 2026-07-26 over the whole
        tree excluding .backstop/: no other referent exists.)
@@ -182,6 +230,64 @@ notes: |
     * TEMPLATING NEVER REACHES HERE. `preserveOrRegenerate` short-circuits
       KindTemplating before reading the file or consulting the seam, so one-shot
       recipes are untouched by all of this.
+    * SPEC-054 AND apply.go ARE NOW A COUPLED PAIR. TASK-009's congruence test
+      compares the spec's declared signature strings to the shipped type
+      declarations textually, so a signature edit on EITHER side alone now fails
+      `go test ./pkg/recipe/...` — not merely the gate. It has since been WIDENED
+      from three types to ALL SEVEN `kind: type` entries SPEC-054 declares for
+      `pkg/recipe/apply.go`: ApplyMode, ApplyOptions, TransformDispatch,
+      WaiverReader, DivergenceVerdict, ApplyResult and PreservedDivergence. All
+      seven were verified textually congruent at the time of widening, so it went
+      green with no spec edits needed. Field NAMES, field TYPES and field ORDER are
+      all load-bearing on both sides — falsifiability was DEMONSTRATED rather than
+      assumed: a pure field-ORDER swap in ApplyOptions, with identical field names
+      and identical types, is caught. The test also carries a COMPLETENESS check: if
+      the spec later declares a type entry for that file which the test does not
+      compare, the test FAILS naming it, so the guard cannot silently narrow over
+      time into a record of one past edit. This is the intended design rather than
+      an accident: the contracts dimension compiles every `kind: type` entry to the
+      existence-only ast-grep pattern `type <Name> $$$`, which both a stale and a
+      corrected signature satisfy, so nothing mechanical would otherwise catch the
+      drift. The cost is that the spec and the source have to move in the SAME
+      change. Do not resolve a future red by loosening the comparison to a substring
+      or suffix check — that is the lossy form the test exists to eliminate; fix
+      whichever side is actually wrong.
+    * THE GUARD STOPS AT apply.go — FIVE TYPE ENTRIES ARE UNGUARDED. The spec writes
+      its `signature:` strings WITHOUT Go struct tags while go/printer emits them, so
+      the tag-bearing types declared in the OTHER pkg/recipe sources — RecipeManifest,
+      Op and ParamSpec in the manifest source, AdoptionEntry and AdoptionRecord in the
+      adoption source — compare as mismatches that are pure FORMATTING rather than
+      real drift. Extending the guard past apply.go therefore first requires deciding
+      whether the spec's signature convention includes struct tags: that is a
+      convention call, not something a test should settle by quietly stripping them.
+      Until it is made, those five entries are unguarded by the test AND invisible to
+      the gate, which sees only the existence-only pattern above.
+    * WIDENING A RETURN TYPE DOES NOT RESTATE ITS HOLDERS. `ApplyOptions` embeds
+      `ReadWaivers WaiverReader`, so widening what `WaiverReader` RETURNS did NOT
+      change `ApplyOptions`' signature string — the field's type NAME is unchanged.
+      Only the type whose OWN declaration changed needed a spec edit. Do not
+      "helpfully" edit every spec entry that merely mentions the seam.
+    * DEFERRED — THE SPEC-AUTHOR-FACING FORM OF THE COUPLING WARNING IS NOT YET IN
+      SPEC-054. This is a DELIBERATE deferral recorded here so it is not a silent
+      drop, not an oversight. The completeness check described above lands its
+      failure on a SPEC AUTHOR, not on a Go author: adding a new `kind: type` entry
+      for `pkg/recipe/apply.go` to SPEC-054's frontmatter makes `go test
+      ./pkg/recipe/` RED until someone also adds that name to `contractedTypes()` in
+      `pkg/recipe/contract_signature_test.go` — while `backstop artifact validate`
+      stays GREEN throughout, so the artifact tooling gives the editor no signal.
+      That instruction currently lives ONLY in the test's own doc comment, which is
+      discoverable only by someone already reading the test — exactly not the person
+      who will trip it. WHAT IS DEFERRED: a bullet in SPEC-054's OWN Sharp Edges
+      section stating the coupling in spec-author terms (add a type entry here → add
+      the name to `contractedTypes()` in the same change). WHERE IT SHOULD LAND: the
+      next natural SPEC-054 touch rather than a commit of its own — ISSUE-081
+      (recipe authoring surface underspecified) is the likely one, since it already
+      reopens the recipe authoring surface. WHY DEFERRED: SPEC-054 had just been
+      committed (d222975) and reopening a just-committed artifact for a
+      documentation-only change is not worth a second commit; and the guard fails
+      LOUD AND BY NAME — it names the unguarded entry and states the fix — so a
+      tripped editor is stuck for seconds, materially unlike the silent 4-of-7 hole
+      that justified widening the guard in the first place.
 
   ── FIXTURE POLICY (why a NEW consumer project) ───────────────────────────────
   The E2E needs a recipe whose op family is CREATE (the only family that reaches
@@ -251,9 +357,11 @@ notes: |
                target REGENERATED over an unaccounted-for divergence — so a clobber
                is visibly different from a clean re-apply.
       CLM-008  ApplyResult carries Regenerated (the reported targets whose diverged
-               bytes were overwritten — a strict subset of Written, in the same
-               value form) and Diagnostics (non-fatal adjudication findings), so
-               the CLI reports from DATA rather than re-deriving the distinction.
+               bytes were overwritten — a strict subset of Written, recorded as the
+               SUBSTITUTED `declaredTarget` value recordWritten itself uses
+               (apply.go:274), so the subset property survives templated targets)
+               and Diagnostics (non-fatal adjudication findings), so the CLI
+               reports from DATA rather than re-deriving the distinction.
     REQ-005: The fix is proven through the SHIPPED binary.
       CLM-009  A process-level E2E drives the built binary: apply -> operator
                diverges the recipe-owned output with
@@ -713,7 +821,7 @@ phases:
              adjudicateDivergence, and the seam still exists so a caller can supply
              a different SOURCE — never so the mechanism can be stubbed out.
 
-          3. adjudicateDivergence (apply.go:337-356) returns the verdict. Keep the
+          3. adjudicateDivergence (apply.go:353-372) returns the verdict. Keep the
              per-line finding synthesis and the LINE CONTRACT comment verbatim —
              they are load-bearing and unrelated to this change. Call Adjudicate
              ONCE, hold the Result, and return:
@@ -725,7 +833,7 @@ phases:
              the comment. On the rawFileLines error path, return the zero verdict
              (unreadable file, nothing adjudicated) as it does today.
 
-          4. coveredDivergence (apply.go:304-321) accumulates ACROSS RULES:
+          4. coveredDivergence (apply.go:324-337) accumulates ACROSS RULES:
 
                  func coveredDivergence(resolved *ResolvedRecipe, opts ApplyOptions, target string) (rule string, covering string, diagnostics []waiver.Diagnostic, covered bool)
 
@@ -744,7 +852,7 @@ phases:
              false. A recipe with no declared rules returns nothing and false, and
              the reader is never called (CLM-006).
 
-          5. preserveOrRegenerate (apply.go:266-303) gains the decision. Replace
+          5. preserveOrRegenerate (apply.go:282-318) gains the decision. Replace
              the (preserved, done, error) triple with a small verdict struct so the
              third outcome is explicit rather than encoded in a bare bool:
 
@@ -755,8 +863,11 @@ phases:
                      Diagnostics    []waiver.Diagnostic  // non-fatal, surfaced by the caller
                  }
 
-             (TASK-000 re-anchors this onto 079's parameter list; the OUTCOME shape
-             above is this plan's design and does not change.)
+             RE-ANCHORED (TASK-000): 079's parameter list is (resolved, op, opts,
+             params, own, declaredTarget, target) and is KEPT verbatim — only the
+             RETURN changes, from (*PreservedDivergence, bool, error) to
+             (divergenceOutcome, error). `declaredTarget` is already the
+             SUBSTITUTED value, so the fail-loud error names it directly.
 
              After the diff shows a divergence and coveredDivergence returns:
                * COVERED -> outcome{Preserved: …, Final: true, Diagnostics: all}.
@@ -773,7 +884,7 @@ phases:
                  outcome{Final: false, OverDivergence: true, Diagnostics: all} and
                  the caller regenerates.
 
-          6. ApplyResult (apply.go:94-98) gains TWO fields:
+          6. ApplyResult (apply.go:99-103) gains TWO fields:
 
                  Regenerated []string
                  Diagnostics []waiver.Diagnostic
@@ -1040,14 +1151,13 @@ phases:
                enforces mandated tests on an `implemented` spec, so a claim citing
                a test that does not exist is an immediate broken promise.
 
-            5. spec_version bump. READ the CURRENT spec_version off the file first
-               — ISSUE-079 lands before this plan and touches the same spec, so the
-               baseline is whatever 079 left, NOT the 1.2.1 observed on 2026-07-26.
-               Bump one MINOR from the observed value (a widened contract is a
-               minor change, not a patch). Allocate any new CLM ids ABOVE the
-               highest CLM id present in the file AFTER 079, not above the
-               pre-079 maximum. TASK-000 records both observed values; if it did
-               not, read them before authoring. Add a Version History entry naming
+            5. spec_version bump. TASK-000 read the post-079 baseline off the file
+               on 2026-07-26: spec_version is 1.3.0 (079 bumped it from 1.2.1) and
+               the highest claim id present is CLM-078. So bump to 1.4.0 — one
+               MINOR, because a widened contract is a minor change, not a patch —
+               and allocate any new CLM ids from CLM-079 up. Re-read both values
+               before authoring in case another lane moved them. Add a Version
+               History entry naming
                ISSUE-080, the seam widening, and the reason a second diagnostics
                channel was rejected (an optional nil-defaulted hook reproduces the
                silent drop by shape).
