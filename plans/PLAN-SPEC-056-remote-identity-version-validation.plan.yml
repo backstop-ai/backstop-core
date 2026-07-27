@@ -1568,6 +1568,34 @@ phases:
           kind today. Say so in each test's comment — a reader who assumes a
           loop exists will look for a bug rather than adding the loop.
 
+          THREE OF THE FOUR MUST BE SKIPPED IN THIS PHASE, AND THE REASON IS A
+          MISSING SEAM RATHER THAN MISSING EFFORT. A renderer test needs a
+          warning to EXIST before it can assert where the warning is printed.
+          Only install produces one today (its reconciliation warnings —
+          command.go:332/347/388), so only CLM-110 can be driven for real here.
+          add, update and upgrade produce their first warnings in phase 8 and
+          phase 10.
+
+          AND A cmd/backstop TEST CANNOT MANUFACTURE ONE. All four RunE bodies
+          assemble their command internally through a ZERO-ARGUMENT production
+          constructor — newProductionAddCommand() (pack_add.go),
+          newProductionUpdateCommand() (pack_update.go),
+          newProductionUpgradeCommand() (pack_upgrade.go) — and none of them
+          takes an injectable dependency. There is no seam through which a test
+          can substitute a command whose result carries a warning. That is
+          SPEC-055's design working as intended (production assembles its own
+          dependencies), not a gap to fix here, and adding an injection seam to
+          make three tests green early would dismantle the property SPEC-055
+          exists to establish.
+
+          SO: t.Skip CLM-109, CLM-111 and CLM-112, each naming the task that
+          removes the skip — TASK-027 for add, TASK-035 for update and upgrade.
+          DO NOT substitute a weaker assertion to avoid the skip. The two
+          tempting forms are both vacuous and both forbidden by TASK-019's
+          reasoning: reading the SOURCE to assert a rendering loop exists tests
+          the file, not the behavior; asserting an EMPTY Warnings slice prints
+          nothing passes against a command with no loop at all.
+
           EXIT CODES ARE UNCHANGED BY A WARNING. Each of the four asserts the
           command returned no error while emitting the warning. CLM-113
           re-asserts this end-to-end through the process exit code; asserting
@@ -1679,8 +1707,35 @@ phases:
               TestPackInstallE2E_StaleLockWarnsInstallsDeclared. If either
               needed an edit, the "warning: " prefix changed and a consumer's
               grep just broke.
-            - The four CLM-105..108 tests carrying a t.Skip are the ONLY skips
-              introduced, and each names the task that removes it.
+            - SEVEN skips are introduced by this phase and no more, and each
+              names the task that removes it:
+
+                distribution-side carriers (TASK-019) — 4
+                  CLM-105 AddResult_CarriesWarnings              → TASK-027
+                  CLM-106 UpdateResult_CarriesWarnings           → TASK-035
+                  CLM-107 UpgradeResult_CarriesWarnings          → TASK-035
+                  CLM-108 InstallResult_Carries…Together         → TASK-035
+                CLI-side renderers (TASK-020) — 3
+                  CLM-109 PackAddCommand_RendersWarningsToStderr → TASK-027
+                  CLM-111 PackUpdateCommand_Renders…             → TASK-035
+                  CLM-112 PackUpgradeCommand_Renders…            → TASK-035
+
+              CLM-110 IS DELIBERATELY NOT IN THAT LIST and must NOT be skipped:
+              install already emits reconciliation warnings
+              (command.go:332/347/388), so its renderer claim can be driven for
+              real in this phase. A skip on CLM-110 means the stdout→stderr
+              move went unasserted, which is the one renderer change that ships
+              complete here.
+
+              The three renderer skips exist because cmd/backstop has NO
+              INJECTION SEAM — every RunE calls a zero-argument
+              newProduction*Command() — so a test cannot make add, update or
+              upgrade produce a warning before phases 8 and 10 wire one. Confirm
+              none of the three was "fixed" by asserting on source text or on an
+              empty-slice no-op; both are vacuous and TASK-020 forbids them.
+              Confirm also that NO injection seam was added to pack_wiring.go to
+              avoid a skip — that would dismantle SPEC-055's production-assembly
+              property to make three tests green a phase early.
         files:
           - cmd/backstop/pack_upgrade.go
           - cmd/backstop/pack_install.go
@@ -2006,9 +2061,18 @@ phases:
 
           DIVERGENCE IS LOUD AND NEVER FATAL (REQ-006):
             TestAddCommand_Run_DivergentIdentitySucceedsWithWarning (CLM-063)
-              err is nil AND Warnings is non-empty. REMOVE TASK-019's t.Skip
-              from TestAddResult_CarriesWarnings in this task — its producing
-              path now exists.
+              err is nil AND Warnings is non-empty.
+
+              REMOVE TWO OF PHASE 6'S SEVEN SKIPS IN THIS TASK — add's producing
+              path now exists, so both its carrier claim and its renderer claim
+              become assertable:
+                • TestAddResult_CarriesWarnings (CLM-105,
+                  pkg/pack/distribution/result_warnings_test.go)
+                • TestPackAddCommand_RendersWarningsToStderr (CLM-109,
+                  cmd/backstop/pack_warnings_render_test.go)
+              The renderer one is the easier to forget because it lives in a
+              different package from everything else this task touches. Both
+              must go GREEN, not merely un-skipped: run them by name.
             TestAddCommand_Run_DivergenceWarningNamesAllThreeIdentities (CLM-064)
               The diagnostic names the requested COORDINATE, the MANIFEST NAME,
               and the RESOLVED INSTALL PATH. All three; two of three leaves an
@@ -2029,8 +2093,10 @@ phases:
         files:
           - pkg/pack/distribution/add_identity_test.go
           - pkg/pack/distribution/result_warnings_test.go
+          - cmd/backstop/pack_warnings_render_test.go
         claims:
           - CLM-010
+          - CLM-109
           - CLM-028
           - CLM-029
           - CLM-030
@@ -2522,10 +2588,23 @@ phases:
           commands. A local entry has no remote, so asking for its coordinate
           is a category error that surfaces as a spurious warning.
 
-          REMOVE TASK-019's t.Skip from TestUpdateResult_CarriesWarnings,
-          TestUpgradeResult_CarriesWarnings and
-          TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether —
-          their producing paths now exist.
+          REMOVE THE REMAINING FIVE OF PHASE 6'S SEVEN SKIPS IN THIS TASK. Every
+          producing path they wait on lands here — update's and upgrade's
+          divergence and fallback warnings, and install's coordinate fallback
+          alongside its existing reconciliation warnings:
+
+            pkg/pack/distribution/result_warnings_test.go
+              • TestUpdateResult_CarriesWarnings                          (CLM-106)
+              • TestUpgradeResult_CarriesWarnings                         (CLM-107)
+              • TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether (CLM-108)
+            cmd/backstop/pack_warnings_render_test.go
+              • TestPackUpdateCommand_RendersWarningsToStderr             (CLM-111)
+              • TestPackUpgradeCommand_RendersWarningsToStderr            (CLM-112)
+
+          AFTER THIS TASK ZERO SKIPS FROM PHASE 6 REMAIN — TASK-027 removed the
+          other two (CLM-105, CLM-109). All five must go GREEN, not merely
+          un-skipped: run them by name. A surviving skip at the end of this
+          phase is a claim that was written, deferred, and then never collected.
 
           INSTALL PERFORMS NO IDENTITY OR MANIFEST-VERSION CHECK. It is the
           hash-verified restore path (DD-12) and this task must not leak the
@@ -2539,10 +2618,13 @@ phases:
           - pkg/pack/distribution/versionresolver.go
           - pkg/pack/distribution/update.go
           - pkg/pack/distribution/result_warnings_test.go
+          - cmd/backstop/pack_warnings_render_test.go
         claims:
           - CLM-025
           - CLM-026
           - CLM-027
+          - CLM-111
+          - CLM-112
           - CLM-054
           - CLM-055
           - CLM-056
