@@ -1,0 +1,26 @@
+name: acme/valid-pack
+version: "2.0.0"
+archetype: rule-pack
+description: A valid test pack version 2 for update/upgrade tests
+rules:
+  - id: RULE-001
+    severity: error
+    risk_class: high
+    description: Test rule one (updated)
+    pattern: "test-pattern-1-v2"
+  - id: RULE-002
+    severity: warning
+    risk_class: medium
+    description: Test rule two
+    pattern: "test-pattern-2"
+  - id: RULE-003
+    severity: info
+    risk_class: low
+    description: New rule in v2
+    pattern: "test-pattern-3"
+scaffolds: []
+tool_config:
+  - config_file: ".golangci.yml"
+    settings:
+      linters.enable.revive: true
+      linters.enable.errcheck: true

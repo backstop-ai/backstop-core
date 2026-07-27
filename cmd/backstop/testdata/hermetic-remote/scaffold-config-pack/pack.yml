@@ -1,0 +1,99 @@
+name: hermetic/scaffold-config-pack
+version: 1.0.0
+language: neutral
+archetype: code
+description: >
+  Hermetic SCAFFOLD-CONFIG pack fixture (SPEC-056 TASK-003). It is the corpus's FIRST
+  `tier: complete` scaffold declaration — every other scaffold in the tree is
+  `tier: skeleton` — and it exists so REQ-008 has something observable to contain.
+
+  WHAT IT PROVOKES. packval phase3 renders every `tier: complete` scaffold's declared
+  `sample_config` entries into `<packDir>/<scaffold.path>/<relPath>` before running the
+  scaffold's test command. Any command that validates a tree in place and then copies
+  and hashes THAT tree therefore records a hash a fresh clone cannot reproduce. This
+  pack is what makes that mutation happen on demand.
+
+  THE sample_config TARGET IS DELIBERATELY UNAUTHORED. `sample-settings.yml` does not
+  exist in this tree, so a rendered copy is DETECTABLE — an authored file at that path
+  would make a rendered one indistinguishable from it and would quietly disarm
+  CLM-081/082's "validator writes do not reach the installed tree" assertions. Do not
+  "fix" a `pack test` run by committing the file it renders.
+
+  THE archetype IS `code`, NOT `enforcement`, BECAUSE IT MUST BE. packval phase4
+  rejects an enforcement pack that declares any scaffold, and a code pack requires
+  rules whose `pairs_with` resolves — hence the rule below pairs with the scaffold and
+  the scaffold pairs back.
+
+  HERMETIC MEANS NETWORK-FREE AND TOOLCHAIN-FREE, NOT PROCESS-FREE.
+  `DefaultExecutor.RunScaffoldTest` runs `sh -c <test_command>` UNCONDITIONALLY for a
+  complete scaffold and `PackvalValidator` supplies no executor, so a shell subprocess
+  is unavoidable on this path. `test_command` is therefore restricted to `:`, the POSIX
+  SPECIAL built-in null command, which a conforming shell must resolve before any PATH
+  search and which has no external counterpart to fall through to.
+
+  IT IS `:` AND NOT `true` FOR A MEASURED REASON. `true` is a shell builtin AND a real
+  binary — `/usr/bin/true` exists on this platform and on every coreutils system — so
+  `exec.LookPath("true")` SUCCEEDS. CLM-103 asserts the declared command resolves to no
+  executable on PATH, which is the only mechanical way to state "reaches nothing outside
+  the process", and `true` fails that assertion. `exec.LookPath(":")` errors, as it must.
+
+  The pack's tool, engine, rule, and scaffold names are DECLARED DATA here. No Go
+  source names them, and nothing in this file carries a foreign-language token.
+engines:
+  # Pack-DECLARED engine, copied from valid-pack. It resolves (the pack declares it),
+  # which is what phase2 and phase5 require of a claimless engine-model rule, and it
+  # carries NO provision, so no trusted-tool allowlist gate and no tool download is
+  # reachable from here.
+  #
+  # The command is deliberately EMPTY: this fixture's engine is never executed, and an
+  # empty command fails LOUD ("engine binding has no command to run") if some future
+  # change ever routes execution here.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # phase3-fixtures reads rules/forbidden-marker.yml and asserts this rule's id
+      # appears in it. pairs_with.scaffolds is what phase4 requires of every rule in a
+      # `code` pack.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/forbidden-marker.yml
+        risk_class: correctness
+        pairs_with:
+          scaffolds:
+            - config-scaffold
+  scaffolds:
+    # path "." is the pack root — a directory that exists, which phase1 requires and
+    # which RunScaffoldTest uses as the subprocess's working directory. The rendered
+    # sample_config file therefore lands beside pack.yml, where `git status` shows it
+    # immediately.
+    - id: config-scaffold
+      tier: complete
+      path: "."
+      # `:` — the POSIX special built-in null command. NOT `true`, which also exists
+      # as /usr/bin/true and would therefore resolve on PATH (CLM-103).
+      test_command: ":"
+      description: >
+        A complete scaffold whose only job is to declare a sample_config entry, so
+        packval phase3 writes a file into the directory it was handed.
+      use_when:
+        - A test needs packval to mutate the directory it validates.
+      assumes:
+        - A POSIX shell is available to run the scaffold test command.
+      pairs_with:
+        rules:
+          - forbidden-marker
+      sample_config:
+        # MUST NOT EXIST in the authored tree (CLM-102). phase3 renders it; nothing
+        # else does.
+        sample-settings.yml: |
+          # Rendered by packval phase3 from this pack's declared sample_config.
+          # Its presence in an installed tree or its effect on a recorded content
+          # hash is the REQ-008 defect.
+          marker: rendered

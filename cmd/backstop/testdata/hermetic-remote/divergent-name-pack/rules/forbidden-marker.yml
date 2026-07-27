@@ -1,0 +1,10 @@
+# Rule file for the hermetic divergent-name pack. phase3-fixtures parses this file and
+# requires the pack rule's id (forbidden-marker) to appear as a rule id here. After a
+# divergent add, CLM-031 requires the gate to find this file under the asset root the
+# MANIFEST name resolves to, not the one the requested coordinate would resolve to.
+rules:
+  - id: forbidden-marker
+    message: A forbidden marker is present in the scanned file.
+    severity: ERROR
+    patterns:
+      - pattern-regex: 'FORBIDDEN_MARKER'

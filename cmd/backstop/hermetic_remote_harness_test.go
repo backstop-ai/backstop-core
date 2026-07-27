@@ -52,6 +52,35 @@ type hermeticRemote struct {
 // whose tags all point at one commit cannot falsify that.
 func newHermeticRemote(t *testing.T, packSourceDir string, tags ...string) *hermeticRemote {
 	t.Helper()
+	return publishHermeticRemote(t, packSourceDir, true, tags...)
+}
+
+// newHermeticRemoteKeepingManifestVersion publishes the source the same way but leaves
+// pack.yml's declared version exactly as the fixture author wrote it (SPEC-056 REQ-010).
+//
+// A tag-versus-manifest divergence is INEXPRESSIBLE through newHermeticRemote: its
+// rewrite repairs the drift before any test can observe it, so a drift claim driven
+// through it passes over a fixture that cannot fail. That is what this constructor is
+// for, and version-drift-pack is what it is for.
+//
+// The cost of turning the rewrite off is that every tag points at the SAME commit, so
+// two tags name identical content. That is correct for a drift fixture and WRONG for
+// the newer-compatible-version case, which needs the resolved tag to be materially
+// different from the installed one — which is why newHermeticRemote keeps the rewrite
+// and stays the default.
+func newHermeticRemoteKeepingManifestVersion(t *testing.T, packSourceDir string, tags ...string) *hermeticRemote {
+	t.Helper()
+	return publishHermeticRemote(t, packSourceDir, false, tags...)
+}
+
+// publishHermeticRemote is the one body both constructors share. rewriteVersion selects
+// the single behavioral difference between them: whether each tag gets its own commit
+// rewriting pack.yml's version to that tag, or whether every tag is created directly
+// against the imported source commit. Everything else — the already-a-repository guard,
+// the identity environment, the redirect-target shape — exists once so there is nothing
+// for a second copy to drift from.
+func publishHermeticRemote(t *testing.T, packSourceDir string, rewriteVersion bool, tags ...string) *hermeticRemote {
+	t.Helper()
 	requireGit(t)
 
 	if _, err := os.Stat(filepath.Join(packSourceDir, ".git")); err == nil {
@@ -70,7 +99,7 @@ func newHermeticRemote(t *testing.T, packSourceDir string, tags ...string) *herm
 
 	created := make([]string, 0, len(tags))
 	for _, tag := range tags {
-		if setPackVersion(t, repo, strings.TrimPrefix(tag, "v")) {
+		if rewriteVersion && setPackVersion(t, repo, strings.TrimPrefix(tag, "v")) {
 			mustGit(t, repo, "add", "-A")
 			mustGit(t, repo, "commit", "-m", "set pack version "+tag)
 		}

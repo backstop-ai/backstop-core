@@ -1,0 +1,54 @@
+name: hermetic/renamed-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Hermetic DIVERGENT-NAME pack fixture (SPEC-056 TASK-002). Its manifest name is
+  `hermetic/renamed-pack` while it lives in a directory named `divergent-name-pack`,
+  which is exactly what `remoteE2ESetup` builds the requested coordinate from. The two
+  identities therefore DIFFER, which is the fixture.
+
+  THE DIVERGENCE IS DELIBERATE AND MUST STAY BYTE-LEVEL, NOT CASE-LEVEL. It drives
+  REQ-003's install path, backstop.yml key, lock key and engine asset root — all of
+  which must come from `hermetic/renamed-pack` — while the recorded
+  `source_coordinate` stays `hermetic/divergent-name-pack`. CLM-066's case-only
+  divergence gets its difference from the CALLER varying the ref's case; a fixture
+  whose two names differed only in case would conflate the two.
+
+  THE DECLARED RULE FILE IS LOAD-BEARING. CLM-031 resolves it under the manifest-name
+  asset root after a divergent add, so the pack must actually declare a rule file that
+  exists in this tree; a content-less fixture would make that claim unfalsifiable.
+
+  Everything else is copied from the valid-pack sibling: the rule carries no claims,
+  which is the mechanism-model shape packval exempts from the claims requirement
+  exactly when its declared engine RESOLVES, so `pack check` and `pack test` reach a
+  verdict without executing anything. No network, no provisioned binary, no sandbox.
+
+  The pack's tool, engine, and rule names are DECLARED DATA here. No Go source names
+  them, and nothing in this file carries a foreign-language token.
+engines:
+  # Pack-DECLARED engine, copied from valid-pack. It resolves (the pack declares it),
+  # which is what phase2 and phase5 require of a claimless engine-model rule, and it
+  # carries NO provision, so no trusted-tool allowlist gate and no tool download is
+  # reachable from here.
+  #
+  # The command is deliberately EMPTY: this fixture's engine is never executed, and an
+  # empty command fails LOUD ("engine binding has no command to run") if some future
+  # change ever routes execution here.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      # phase3-fixtures reads rules/forbidden-marker.yml and asserts this rule's id
+      # appears in it. CLM-031 resolves this same declared path under the MANIFEST
+      # name's asset root once the pack is installed.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/forbidden-marker.yml
+        risk_class: correctness

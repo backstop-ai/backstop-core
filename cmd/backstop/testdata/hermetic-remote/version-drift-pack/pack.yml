@@ -1,0 +1,50 @@
+name: hermetic/version-drift-pack
+version: 0.1.3
+language: neutral
+archetype: enforcement
+description: >
+  Hermetic VERSION-DRIFT pack fixture (SPEC-056 TASK-001). It reproduces the shape of
+  the PUBLISHED harness toolchain pack (DIR-027 item 2), which is REQ-002's waiting
+  first customer: the manifest declares 0.1.3 while the repository's tags stop at
+  v0.1.1. Requesting either published tag must therefore be REFUSED by the identity
+  gate with a *VersionMismatchError.
+
+  THE DRIFT IS THE FIXTURE AND IT IS FRAGILE. `newHermeticRemote` rewrites this file's
+  version line to match every tag it creates, which would repair the drift before any
+  test could observe it and make CLM-016 pass over a fixture that cannot fail. Build
+  this source ONLY through `newHermeticRemoteKeepingManifestVersion`. Do not "correct"
+  0.1.3 to a tag value — that is the whole point of the fixture.
+
+  Everything else is copied from the valid-pack sibling so the pack itself is
+  ordinary: the declared rule carries no claims, which is the mechanism-model shape
+  packval exempts from the claims requirement exactly when its declared engine
+  RESOLVES, so `pack check` and `pack test` reach a verdict without executing
+  anything. No network, no provisioned binary, no sandbox.
+
+  The pack's tool, engine, and rule names are DECLARED DATA here. No Go source names
+  them, and nothing in this file carries a foreign-language token.
+engines:
+  # Pack-DECLARED engine, copied from valid-pack. It resolves (the pack declares it),
+  # which is what phase2 and phase5 require of a claimless engine-model rule, and it
+  # carries NO provision, so no trusted-tool allowlist gate and no tool download is
+  # reachable from here.
+  #
+  # The command is deliberately EMPTY: this fixture's engine is never executed, and an
+  # empty command fails LOUD ("engine binding has no command to run") if some future
+  # change ever routes execution here.
+  marker-scan:
+    command: ""
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: findings
+content:
+  ruleset:
+    version: 0.1.3
+    rules:
+      # phase3-fixtures reads rules/forbidden-marker.yml and asserts this rule's id
+      # appears in it.
+      - id: forbidden-marker
+        engine: marker-scan
+        file: rules/forbidden-marker.yml
+        risk_class: correctness

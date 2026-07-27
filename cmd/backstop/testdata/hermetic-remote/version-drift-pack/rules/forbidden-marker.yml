@@ -1,0 +1,8 @@
+# Rule file for the hermetic version-drift pack. phase3-fixtures parses this file and
+# requires the pack rule's id (forbidden-marker) to appear as a rule id here.
+rules:
+  - id: forbidden-marker
+    message: A forbidden marker is present in the scanned file.
+    severity: ERROR
+    patterns:
+      - pattern-regex: 'FORBIDDEN_MARKER'
