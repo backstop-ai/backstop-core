@@ -38,6 +38,32 @@ type ValidateConfig struct {
 and `backstop gate` goes red on a false positive, with no upstream fix in
 flight today.
 
+**Update 2026-07-27 (SPEC-056 phase 5):** a second occurrence surfaced and
+was waived the same way, confirming this is a recurring pattern rather than
+a one-off. `pkg/pack/distribution/identity.go:38` — `RemoteIdentity` (a
+struct with no `Error()` method) is flagged for the same reason:
+`VersionUnresolvedError` (correctly suffixed) happens to be the first type
+in the file with an `Error()` method, and the rule's whole-file DOTALL scan
+anchors on `RemoteIdentity` as the preceding non-`Error`-suffixed struct.
+
+```go
+// @waiver:backstop/go-standards/backstop.packs.backstop.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-25 pack rule fix pending — RemoteIdentity is not an error type; the rule's dotall regex spans declarations and anchors on whatever struct precedes the file's first Error() method, which here is the correctly-suffixed VersionUnresolvedError
+type RemoteIdentity struct {
+```
+
+This waiver expires 2026-10-25. Two independent waived FPs are now live
+against the same rule; both must clear for the acceptance criteria below to
+hold, and both are impacted by the same upstream pack fix.
+
+A minimal two-file repro was produced during SPEC-056 phase 5 confirming
+the mechanism exactly as diagnosed below: a plain (non-error) struct placed
+BEFORE a correctly-named `MyError{}` + `Error()` method fires; identical
+code with the plain struct placed AFTER the error type does not fire. This
+isolates the bug to declaration ORDER, independent of any specific file's
+content, and rules out anything file-specific about either
+`artifact_validate.go` or `identity.go` — the rule is unconditionally
+order-dependent.
+
 ### Root cause
 
 The rule's pattern is a raw regex, not a scoped AST match, and it binds no
@@ -108,6 +134,8 @@ next `pack install`/`pack update`.
       `backstop pack install` has materialized it into `.backstop/packs/`.
 - [ ] The inline waiver on `cmd/backstop/artifact_validate.go:17` is
       removed.
+- [ ] The inline waiver on `pkg/pack/distribution/identity.go:38`
+      (`RemoteIdentity`, expires 2026-10-25) is removed.
 - [ ] `backstop gate --all` is green with **zero**
       `error-type-suffix` waivers anywhere in the tree.
 
@@ -135,6 +163,10 @@ waiver removal, run `./bin/backstop gate --all` and confirm no
 - `cmd/backstop/artifact_validate.go:35,40` — `ExitCodeError` and its
   `Error()` method; the actual error type in the file, not flagged, and not
   the type the rule's match was ever really evaluating
+- `pkg/pack/distribution/identity.go:38` — second inline waiver
+  (`RemoteIdentity`, expires 2026-10-25), added 2026-07-27 during SPEC-056
+  phase 5; same mechanism, `VersionUnresolvedError` is the incidental
+  anchor
 - `backstop.lock` — durability boundary for the pack version pin; must be
   updated once the fix ships
 - CLAUDE.md — "packs live OUTSIDE core... editing the installed copy is
