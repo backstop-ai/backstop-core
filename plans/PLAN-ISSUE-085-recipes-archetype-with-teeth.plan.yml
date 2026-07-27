@@ -1,0 +1,1090 @@
+---
+plan_id: PLAN-ISSUE-085
+spec_id: ISSUE-085
+created: "2026-07-27"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/packval/... ./pkg/pack/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-085 under its founder-ratified Decision (2026-07-27),
+  DIRECTION 1: a new archetype in pkg/packval that admits scaffolds + recipes
+  with no pack-level ruleset, and that REQUIRES `enforcement.rules` on every
+  non-templating recipe the pack ships. Direction 2 (relaxing `code`) and
+  direction 3 (padding the field guide with a decoy rule) are ruled out by the
+  issue and are not re-litigated here.
+
+  ── THE NAME: `recipes` (decided, not left open) ────────────────────────────
+  The Decision text says "`recipes`/scaffolding archetype". This plan picks
+  `recipes` and the implementer must not substitute `scaffolding`. Grounds:
+  `scaffolding` is ALREADY taken twice in this vocabulary — it is one of the
+  three recipe KINDS (pkg/recipe/manifest.go:19 `KindScaffolding`) and it is the
+  root of `content.scaffolds`. An archetype spelled `scaffolding` whose teeth are
+  "every scaffolding-KIND recipe needs enforcement.rules" is a sentence nobody
+  can read twice. `recipes` names what the pack ships.
+
+  ── WHAT PACKVAL LEARNS ABOUT RECIPES (the narrow path, deliberately) ───────
+  packval's `Content` struct (pkg/packval/manifest.go:51-54) is NOT touched, and
+  phase1's "content is required" check (phase1.go:45-47) is NOT widened. Those
+  are the three-site widening SPEC-054 named as a tracked follow-up (its
+  "A RECIPES-ONLY pack does not validate yet" sharp edge, plus the matching
+  follow-up entry), and the issue says that work is COUPLED but NOT BLOCKING.
+  This plan does not absorb it.
+
+  CITE SPEC-054 BY HEADING, NEVER BY LINE NUMBER, anywhere in this plan or in
+  the code comments it produces. The issue's own `:1419-1427` citation is STALE
+  (the passage is further down the file), and PLAN-ISSUE-081 — zero file overlap
+  with this plan, so it may land in either order — edits SPEC-054 and shifts
+  every offset again. Grep the heading text.
+
+  Instead packval gains ONE new field: a top-level `Recipes map[string]string`
+  on `PackManifest`, mirroring the runtime model's own top-level index
+  (pkg/pack/manifest.go:63). `recipes:` IS a top-level pack.yml key, not a
+  `content:` key, so this is the honest parse — not a back door into the content
+  model. Consequence, stated so nobody is surprised: a recipes-ONLY pack (no
+  scaffolds, no rules, no sdk) STILL fails phase1 "content is required" after
+  this plan. CLM-014 pins that as a live falsifiable marker rather than a silent
+  gap, so the SPEC-054 follow-up has a test that flips when it lands.
+
+  ── WHY THE ENFORCEMENT CHECK BELONGS IN PACKVAL AND NOWHERE ELSE ──────────
+  Verified against the import graph, not assumed:
+    * `pkg/pack` CANNOT do it. Its own comment says so — validateRecipesIndex
+      (pkg/pack/manifest.go:427-431) is structural ONLY because "the recipe.yml
+      itself is parsed at resolve time by the recipe package, WHICH IMPORTS THIS
+      ONE; validating its contents here would invert that dependency."
+    * `pkg/packval` CAN. `go list -deps ./pkg/recipe` = {pack/engine, pack,
+      waiver} — pkg/recipe does NOT import packval, so packval -> recipe adds no
+      cycle. packval already imports pkg/pack and pkg/pack/engine.
+  So the content-level check (kind + enforcement.rules per recipe) lands in
+  packval phase4 via `recipe.ParseRecipeManifest`, which is the ONE parser for
+  recipe.yml. No second recipe-manifest model is created anywhere.
+
+  ── SIGNATURE CHANGE (declared cost, not a surprise) ───────────────────────
+  phase4 must read files, so `RunArchetype(pack *PackManifest)` becomes
+  `RunArchetype(pack *PackManifest, packDir string)` — symmetric with
+  RunCoherence / RunFixtures / RunLayer, which already take packDir. Call sites:
+    * pkg/packval/pipeline.go:66 (production)
+    * pkg/packval/packval_phase456_pipeline_test.go — 8 calls
+    * pkg/packval/coverage_error_paths_test.go:157,171 — 2 calls
+  Those two existing test files are in TASK-005's file scope for the MECHANICAL
+  argument addition ONLY (pass `t.TempDir()`). No existing assertion may be
+  weakened, retargeted or deleted; if one goes red, the new branch is wrong.
+
+  ── EDIT-SET HONESTY: THE INSTALL PATH AND THE LOAD PATH ARE DIFFERENT ─────
+  A pack manifest is validated at THREE seams, not one, and they do not agree.
+  Widening only packval's would ship a pack that installs cleanly and then makes
+  the project ungateable:
+    1. pkg/packval/phase1.go:42 (archetype enum) — reached by `pack check`,
+       `pack test` and `pack add` (PackvalValidator, unconditional since
+       SPEC-055 REQ-008). This is the INSTALL path.
+    2. pkg/pack/manifest.go:482 `validateArchetype` — reached by
+       `pack.ParseManifestFile`, which cmd/backstop/pack_gate.go:168 calls for
+       EVERY declared pack on EVERY gate run, hard-failing the run on a parse
+       error ("parsing %s: %w"). This is the LOAD path.
+    3. pkg/pack/manifest.go:642 `validateScaffold`, called UNCONDITIONALLY from
+       the scaffold loop at manifest.go:355 with NO archetype branch. Also the
+       LOAD path.
+
+  Seam 3 is the reviewer-found blocker, and it is decisive because the two paths
+  are DISJOINT: nothing in pkg/pack/distribution calls ParseManifestFile (grep:
+  the only caller in the tree is pack_gate.go:168), so `pack add` never runs
+  seams 2 or 3. A field-guide pack would therefore INSTALL successfully and then
+  abort every subsequent `backstop gate` at load — strictly worse than today's
+  honest install-time rejection, and exactly the silent trap TASK-006 exists to
+  prevent.
+
+  What seam 3 demands of EVERY scaffold today, regardless of archetype: a valid
+  `tier` (complete|skeleton — empty fails), a `test_command`, a non-empty
+  `use_when`, a non-empty `assumes`, and a non-empty `pairs_with`. That is five
+  cascading failures for the field-guide pack's bare {id, path} scaffold, and
+  four of the five are the SAME enforcement-pack padding the issue's
+  reproduction documents. There is no way around it from the fixture side: a
+  recipes-ONLY pack (dropping scaffolds to dodge seam 3) fails content-is-
+  required at BOTH phase1 and manifest.go:287, which is SPEC-054's follow-up,
+  not this plan's. So seam 3 becomes archetype-conditional in TASK-006, mirroring
+  how phase4 already branches per archetype.
+
+  The relaxation is scoped, not a hole: under `archetype: recipes` those five
+  requirements do not APPLY, but everything still VALIDATES — a declared tier
+  must still be complete|skeleton, sample_config values must still be strings,
+  and a declared scaffold version must still be semver. And non-recipes
+  archetypes keep every requirement byte-for-byte (CLM-013/CLM-015).
+
+  Production edit set, complete:
+    pkg/packval/{manifest,phase1,phase4,pipeline}.go + pkg/pack/manifest.go.
+  Verified NOT to need changes (do not edit them):
+    * pkg/pack/validate_manifest.go — its archetype branches are `enforcement`-
+      only plus an `m.Archetype != "code"` early return, so a `recipes` pack
+      flows through untouched. It also has NO production caller (grep:
+      definition only), so it is not on the install or gate path at all.
+    * pkg/pack/manifest.go:317 — ruleset-version defaulting is `enforcement`-
+      keyed; a recipes pack with no ruleset is unaffected.
+    * pkg/pack/manifest.go:350 — the scaffold semver check is already
+      conditional on a non-empty version.
+    * pkg/pack/distribution/** — no manifest re-validation to widen; the whole
+      point above is that it never reaches seams 2 or 3.
+    * pkg/pack/distribution/list.go — echoes the archetype string for display.
+    * artifacts/**/schema.json — no pack.yml JSON schema declares archetype
+      (swept: zero hits for "archetype" under artifacts/).
+
+  ── THE TEETH, EXACTLY ─────────────────────────────────────────────────────
+  For `archetype: recipes`, phase4:
+    (a) FAILS if the pack declares no `recipes:` at all — check `recipes-
+        required`. This is what keeps the new archetype from becoming the
+        rule-less escape hatch direction 2 was rejected for. A pack with no
+        recipes and no ruleset is not a recipes pack; it is an empty pack.
+    (b) FAILS, per recipe, if `<packDir>/<dir>/recipe.yml` is missing,
+        unreadable, or unparseable — check `recipe-manifest`. An unreadable
+        manifest must NEVER be silently exempt from (c); that is the vacuous
+        green this whole issue is about.
+    (c) FAILS, per recipe, when `kind` is `scaffolding` or `implementing` and
+        `enforcement.rules` is absent or EMPTY — check `recipe-enforcement`.
+        `enforcement:` present with `rules: []` counts as ABSENT (CLM-008): an
+        empty list is not a declaration.
+    (d) EXEMPTS `kind: templating` entirely (no drift story to enforce). A
+        templating recipe that declares enforcement.rules anyway is NOT an
+        error — the obligation is one-directional.
+    (e) imposes NO ruleset requirement and NO `pairs_with` obligation. Those are
+        `code`-archetype enforcement semantics and they are exactly the
+        whack-a-mole the issue documents.
+  Rules are PERMITTED but not required under `recipes` — the guard against
+  abuse is (a), not a prohibition nobody ratified.
+
+  SCOPE GUARD on (c): the check is PRESENCE-ONLY. packval must not resolve,
+  cross-reference or validate the rule strings inside `enforcement.rules`
+  against anything — there is no pack ruleset to resolve them against, and
+  inventing one would re-import the enforcement-pack assumption this archetype
+  exists to escape.
+
+  DETERMINISM: `Recipes` is a map. Sort the ids before iterating so error order
+  is stable, exactly as validateRecipesIndex (pkg/pack/manifest.go:436-438)
+  already does.
+
+  ERROR SHAPE: reuse the existing ValidationError slots — `Check` as named
+  above, `Rule` carrying the RECIPE ID (phase1 already puts scaffold ids in that
+  slot, phase1.go:77), `ManifestPath` as `recipes.<id>`.
+
+  AND PUT THE RECIPE ID IN THE MESSAGE TEXT TOO. This is not redundancy: the
+  text renderer prints `ERROR [%s/%s] %s` over Phase, Check and Message ONLY
+  (pkg/packval/format.go:27) and DISCARDS the Rule field entirely. Text is the
+  human default for `pack check` (the --json flag selects JSON), so a recipe id
+  that lives only in Rule is invisible to the pack author standing at the
+  terminal — the one person the diagnostic exists for. Shape each message so it
+  names the recipe and states the obligation, e.g.
+
+    recipe "adopt-lint": implementing-kind recipe must declare enforcement.rules
+
+  Keep populating Rule as well, for the JSON consumers and for symmetry with
+  phase1. Widening the text formatter is NOT in scope for this plan — it would
+  change every existing pack's diagnostic output, which is a separate change
+  with its own blast radius.
+
+  ── SWEEP: WHAT ELSE DECLARES AN ARCHETYPE (verified 2026-07-27) ───────────
+  Nothing changes verdict, and the claim is falsifiable rather than asserted:
+    * Published + installed packs — .backstop/packs/{backstop/self, go-toolchain,
+      go-standards, contracts, substantiveness}, .backstop/packs/backstop-ai/
+      cobra-cli-standards, packs/{contracts,substantiveness,base-engines}, and
+      the external backstop-packs suite (typescript-{standards,toolchain,
+      contracts,substantiveness}, secrets): ALL `archetype: enforcement`. None
+      declares `code`; none declares `recipes`.
+    * Fixtures declaring `code` (recipe-apply-e2e x3, recipe-divergence-e2e,
+      classifier-e2e, spec045-discovery, pkg/recipe demo-pack, pkg/pack/testdata/
+      recipes/{valid,missing-dir}): the `code` branch is byte-unchanged, so they
+      keep their current verdict. pkg/pack/testdata/recipes/valid is the closest
+      LOOKING case (code + scaffolds + recipes, no ruleset) but it is NOT the
+      field-guide shape and must not be cited as proof that the shape parses
+      today: its scaffold carries the full padding — tier: skeleton,
+      test_command, use_when, assumes AND pairs_with — which is precisely WHY it
+      survives seam 3. It parses because it pays the tax the issue is about. It
+      is deliberately LEFT ALONE: it is a pkg/pack index-validation fixture that
+      never runs packval, and retrofitting it would widen this plan's blast
+      radius for zero coverage.
+    * pkg/pack/distribution/testdata/* declare `archetype: rule-pack`, invalid in
+      BOTH enums today and still invalid after. Those fixtures run against mock
+      validators. Unchanged.
+    * Existing negative tests use "hybrid" (packval coverage_error_paths_test.go:
+      156) and "library" (pkg/pack/manifest_test.go:279,913). Both remain
+      invalid — CLM-013 pins that the enum grew by exactly one member.
+
+  ── FIXTURE POLICY (read before invoking "capture, don't fabricate") ───────
+  The captured-from-real-output rule governs TOOL OUTPUT fixtures (SARIF,
+  coverage reports). A pack.yml / recipe.yml is a DECLARATION, not captured
+  output, and authoring one by hand is correct here. What must not be fabricated
+  is the EXPECTED REPORT: assertions go on the check name and the recipe id in
+  the real pipeline result, never on a hand-written golden blob of `pack check`
+  output.
+
+  ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
+    middle: go test ./pkg/packval/... ./pkg/pack/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary
+            gates the OLD code and reports a vacuous green)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-085
+  Every test run is `-race -count=1`. Report TRUE exit codes; never mask a
+  non-zero exit behind a pipe.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Decision) ──
+    REQ-001: A recipes-primary pack has a valid archetype end to end.
+      CLM-001  packval phase1 accepts `archetype: recipes`.
+      CLM-002  packval's PackManifest parses the top-level `recipes:` index
+               (id -> pack-relative dir); Content is unchanged and phase1's
+               content-required rule is untouched.
+      CLM-003  phase4's recipes branch requires NO ruleset and imposes NO
+               pairs_with obligation — scaffolds + recipes with no ruleset
+               passes, with no decoy rule, engine binding or pairs_with wiring.
+      CLM-004  the field-guide pack, UNPADDED, also LOADS through
+               pack.ParseManifestFile — the gate-time seam (pack_gate.go:168)
+               that `pack add` never touches. Not "loads if padded": the pack
+               that installs is the pack that must load.
+      CLM-015  under `archetype: recipes` pkg/pack's scaffold requirements
+               (tier, test_command, use_when, assumes, pairs_with) do not apply,
+               while a DECLARED tier is still validated and every non-recipes
+               archetype keeps all five requirements.
+    REQ-002: The teeth — recipes carry their own drift story.
+      CLM-005  a `scaffolding`-kind recipe with no enforcement.rules FAILS
+               phase4, naming the recipe id.
+      CLM-006  an `implementing`-kind recipe with no enforcement.rules FAILS
+               phase4, naming the recipe id.
+      CLM-007  a `templating`-kind recipe is EXEMPT, and declaring
+               enforcement.rules on one anyway is not an error.
+      CLM-008  `enforcement:` present with an EMPTY `rules:` list counts as
+               absent and fails.
+      CLM-009  a `recipes` pack declaring no recipes at all FAILS — the
+               archetype is not a rule-less escape hatch.
+      CLM-010  a declared recipe whose recipe.yml is missing or unparseable
+               FAILS LOUD naming the id — never silently exempt from CLM-005/6.
+    REQ-003: Proven live through the shipped CLI, both directions.
+      CLM-011  the field-guide-shaped pack passes the real `backstop pack check`
+               AND installs through the real `backstop pack add` (which runs
+               check AND test unconditionally since SPEC-055 REQ-008).
+      CLM-012  the same pack with one non-templating recipe stripped of
+               enforcement.rules FAILS `pack check` with a non-zero exit and a
+               diagnostic naming the offending recipe.
+    REQ-004: Nothing else moves.
+      CLM-013  `code` and `enforcement` verdicts are unchanged and an unknown
+               archetype is still rejected — the enum grew by exactly one.
+      CLM-014  a recipes-ONLY pack (no scaffolds/rules/sdk) still fails phase1
+               "content is required", pinned as the live marker for SPEC-054's
+               named three-site widening follow-up.
+
+  Structure:
+    Phase 1: Acceptance fixtures + TDD red — three parallel, file-disjoint
+             failing test tasks (packval phases, the pkg/pack LOAD seam —
+             archetype enum plus the scaffold requirements — and the CLI e2e).
+    Phase 2: TDD green — two parallel implementation tasks (packval, pkg/pack)
+             + package verification.
+    Phase 3: Comprehensive verification — rebuilt binary, full gate, artifact
+             validation, and the behavior-neutrality sweep.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Acceptance fixtures + TDD red
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Acceptance Fixtures and TDD Red — The Field-Guide Shape Must Pass, the Toothless One Must Fail"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Commit the two acceptance fixture packs: the field-guide shape (green) and the missing-enforcement shape (red)"
+        description: |
+          These two committed packs ARE the live acceptance bar from the issue's
+          reproduction: a pack whose whole point is to hand out recipes and
+          paired scaffolds, with no ruleset and none of the whack-a-mole padding
+          (no decoy rule, no engines: binding, no pairs_with wiring).
+
+          (1) cmd/backstop/testdata/recipes-archetype-pack/ — the GREEN one.
+
+              pack.yml (top-level keys only, no `engines:`, no `content.ruleset`):
+                name: demo-org/recipes-field-guide
+                version: 1.0.0
+                language: any
+                archetype: recipes
+                description: <one line — pkg/pack requires a non-empty description>
+                recipes:
+                  scaffold-service: recipes/scaffold-service   # scaffolding kind
+                  adopt-lint:       recipes/adopt-lint         # implementing kind
+                  readme-badge:     recipes/readme-badge       # templating kind
+                content:
+                  scaffolds:
+                    - id: service-base
+                      path: scaffolds/service-base
+
+              The scaffold is BARE — id and path only. That is the point of the
+              fixture, not an oversight: no tier, no test_command, no use_when,
+              no assumes, no pairs_with. Those five are exactly what pkg/pack's
+              validateScaffold demands unconditionally today (manifest.go:642,
+              called from the loop at :355) and four of them are the
+              enforcement-pack padding the issue's reproduction documents.
+              TASK-006 makes that requirement archetype-conditional; until it
+              lands, TASK-003's load test fails here, which is the intended red.
+              DO NOT repair the red by padding this scaffold — padding it
+              silently reintroduces the whack-a-mole shape and makes CLM-004
+              vacuous.
+
+              Leaving `tier:` off also keeps `pack add`'s test-mode run hermetic:
+              phase3 only acts on tier `complete` / `skeleton`
+              (phase3.go:145-206), so no test command is ever executed. The
+              scaffold PATH must exist (phase1.go:74-80 stats it), so put one
+              small file under scaffolds/service-base/.
+
+              recipes/scaffold-service/recipe.yml — kind: scaffolding, version
+                1.0.0, ONE create op writing a declared target from
+                payload/service.json, and an `enforcement:` block with a
+                non-empty `rules:` list.
+              recipes/adopt-lint/recipe.yml — kind: implementing, version 1.0.0,
+                ONE create op, and a non-empty enforcement.rules.
+              recipes/readme-badge/recipe.yml — kind: templating, version 1.0.0,
+                ONE insert op (target + anchor + snippet + manual — insert
+                REQUIRES manual, pkg/recipe/manifest.go), and NO `enforcement:`
+                block at all. This recipe is the exemption's proof: it must pass
+                while declaring nothing.
+
+              Ship the payload file each create op names, so the field guide is
+              a genuinely applicable pack rather than a decorative one.
+
+              Every recipe.yml must parse under pkg/recipe.ParseRecipeManifest
+              (semver MAJOR.MINOR.PATCH exactly, unique non-empty op ids, a
+              transform op would need a matching transform_rules entry — so do
+              not declare one). Verify by running the packval suite, not by
+              inspection.
+
+          (2) cmd/backstop/testdata/recipes-archetype-pack-no-enforcement/ — the
+              RED one, and the reason it is a separate committed tree rather
+              than a mutation is that a permanently-red fixture is greppable and
+              cannot be accidentally "fixed" by an unrelated edit (precedent:
+              testdata/packgate-broken, hermetic-remote/fixture-fail-pack).
+
+              Identical shape, minimal: one `scaffolding`-kind recipe with NO
+              `enforcement:` block, plus the scaffold (phase1 still needs
+              content). It must reach phase4 to fail there — so it must be
+              structurally clean everywhere else. This fixture is expected to
+              exit non-zero under `pack check` FOREVER; say so in a README.md
+              inside the fixture dir so the next reader does not repair it.
+
+          Do NOT touch any existing pack.yml anywhere in the tree. In particular
+          pkg/pack/testdata/recipes/valid/pack.yml is NOT the field-guide shape
+          and must not be copied as a model for these fixtures: it looks close
+          (code + scaffolds + recipes, no ruleset) but its scaffold carries the
+          full tier / test_command / use_when / assumes / pairs_with padding, and
+          that padding is the ONLY reason it survives pkg/pack's validateScaffold
+          today. It parses because it pays the tax this issue is about. Leave it
+          byte-intact (see the plan notes' sweep and TASK-003).
+        files:
+          - cmd/backstop/testdata/recipes-archetype-pack/pack.yml
+          - cmd/backstop/testdata/recipes-archetype-pack/recipes/scaffold-service/recipe.yml
+          - cmd/backstop/testdata/recipes-archetype-pack/recipes/adopt-lint/recipe.yml
+          - cmd/backstop/testdata/recipes-archetype-pack/recipes/readme-badge/recipe.yml
+          - cmd/backstop/testdata/recipes-archetype-pack/scaffolds/service-base/service.json
+          - cmd/backstop/testdata/recipes-archetype-pack-no-enforcement/pack.yml
+          - cmd/backstop/testdata/recipes-archetype-pack-no-enforcement/recipes/scaffold-service/recipe.yml
+          - cmd/backstop/testdata/recipes-archetype-pack-no-enforcement/README.md
+        claims:
+          - CLM-011
+          - CLM-012
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Failing pkg/packval tests: the recipes archetype, its teeth, its exemption, and the two boundaries it must NOT cross"
+        description: |
+          Add pkg/packval/archetype_recipes_test.go in package `packval_test`
+          (matching packval_phase456_pipeline_test.go), driving the EXPORTED
+          API — RunStructural, RunArchetype, ParseManifest — never an internal.
+
+          Each phase4 case constructs a packval.PackManifest inline and writes
+          the recipe.yml files it declares into a t.TempDir(), then calls
+          RunArchetype(m, dir). Write a tiny local helper that takes a map of
+          recipe-dir -> recipe.yml bytes so the cases stay one-liners; do not
+          add a shared helper to the existing test files.
+
+          Mandated test names (exact):
+
+            - TestPackVal_P1_RecipesArchetypeAccepted (CLM-001) — RunStructural
+              over a manifest with `archetype: recipes` and scaffolds content
+              produces NO error whose Check is "archetype". Falsifier in the same
+              test: the SAME manifest with archetype "hybrid" still produces one.
+
+            - TestPackVal_Manifest_ParsesTopLevelRecipesIndex (CLM-002) — write a
+              pack.yml with a top-level `recipes:` block plus a `content:` block
+              to a temp dir, call packval.ParseManifest, and assert the parsed
+              Recipes map holds every declared id -> dir AND that
+              Content.Scaffolds is populated independently. This is the "the two
+              never populate each other" assertion: a recipes entry must not
+              appear in Content.Scaffolds and vice versa.
+
+            - TestPackVal_P1_RecipesOnlyPackStillFailsContentRequired (CLM-014) —
+              a `recipes` manifest with a populated Recipes index and NO
+              scaffolds, NO rules, NO sdk still yields phase1's "content is
+              required" error. THIS TEST DOCUMENTS A DELIBERATE GAP, not a
+              desired behavior: SPEC-054's "A RECIPES-ONLY pack does not
+              validate yet" sharp edge names the three content-is-required sites
+              as a tracked follow-up that this plan does not absorb. Say exactly
+              that in the test doc comment and cite SPEC-054 BY THAT HEADING,
+              never by line number (see the plan notes) — so whoever lands the
+              widening knows this assertion is theirs to invert, and so the
+              reference survives PLAN-ISSUE-081's edits to the same spec.
+
+            - TestPackVal_P4_RecipesPack_ScaffoldsAndRecipesNoRulesetPasses
+              (CLM-003) — the field-guide shape: archetype recipes, scaffolds
+              with NO pairs_with, an empty ruleset, and recipes whose manifests
+              all declare enforcement.rules (or are templating). Status "pass".
+              Falsifier baked in: the scaffolds carry no pairs_with and the rules
+              list is empty, so a branch that leaked `code` semantics fails here.
+
+            - TestPackVal_P4_RecipesPack_ScaffoldingRecipeWithoutEnforcementFails
+              (CLM-005) — one `kind: scaffolding` recipe.yml with no
+              `enforcement:` block. Status "fail", and assert the specific error:
+              Check == "recipe-enforcement" AND the error identifies the RECIPE
+              ID. A bare status check would pass against a validator failing for
+              the wrong reason.
+
+            - TestPackVal_P4_RecipesPack_ImplementingRecipeWithoutEnforcementFails
+              (CLM-006) — same, `kind: implementing`.
+
+            - TestPackVal_P4_RecipesPack_TemplatingRecipeExempt (CLM-007) — two
+              cases, both "pass": a `kind: templating` recipe with NO
+              enforcement block, and a `kind: templating` recipe that DOES
+              declare enforcement.rules. The second case pins that the
+              obligation is one-directional and stops a future "templating must
+              not declare enforcement" from creeping in unratified.
+
+            - TestPackVal_P4_RecipesPack_EmptyEnforcementRulesCountsAsAbsent
+              (CLM-008) — a scaffolding recipe declaring `enforcement:` with
+              `rules: []`. Status "fail" with Check "recipe-enforcement". An
+              empty list is not a declaration.
+
+            - TestPackVal_P4_RecipesPack_NoRecipesDeclaredFails (CLM-009) —
+              archetype recipes, scaffolds present, `recipes:` empty. Status
+              "fail" with Check "recipes-required". This is the anti-escape-
+              hatch assertion: without it the new archetype would admit exactly
+              the rule-less "code" packs direction 2 was rejected for.
+
+            - TestPackVal_P4_RecipesPack_UnreadableRecipeManifestFailsLoud
+              (CLM-010) — two cases: a declared recipe dir with NO recipe.yml on
+              disk, and one whose recipe.yml is malformed (fails
+              ParseRecipeManifest — e.g. a bogus `kind:`). BOTH must be "fail"
+              with Check "recipe-manifest" naming the recipe id. The falsifier
+              this test exists for: an implementation that treats an unreadable
+              manifest as "kind unknown, therefore not non-templating, therefore
+              exempt" — a silent hole straight through the teeth.
+
+            - TestPackVal_P4_CodeAndEnforcementArchetypeVerdictsUnchanged
+              (CLM-013) — table over the pre-existing verdicts, re-asserted
+              through the NEW signature: a `code` pack with no rules fails; a
+              `code` pack with rules and matched pairs_with passes; an
+              `enforcement` pack with scaffolds fails; an `enforcement` pack with
+              sdk fails; a rules-only `enforcement` pack passes. Plus: phase1
+              still rejects archetype "hybrid". The enum grew by exactly one.
+
+          Do NOT modify any production file in this task, and do NOT edit
+          pkg/packval/packval_phase456_pipeline_test.go or
+          coverage_error_paths_test.go (TASK-005 owns their mechanical signature
+          update). These tests do not compile until TASK-005 lands the new
+          signature and field — that is the red state, and it is expected.
+        files:
+          - pkg/packval/archetype_recipes_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-013
+          - CLM-014
+        test_names:
+          - TestPackVal_P1_RecipesArchetypeAccepted
+          - TestPackVal_Manifest_ParsesTopLevelRecipesIndex
+          - TestPackVal_P1_RecipesOnlyPackStillFailsContentRequired
+          - TestPackVal_P4_RecipesPack_ScaffoldsAndRecipesNoRulesetPasses
+          - TestPackVal_P4_RecipesPack_ScaffoldingRecipeWithoutEnforcementFails
+          - TestPackVal_P4_RecipesPack_ImplementingRecipeWithoutEnforcementFails
+          - TestPackVal_P4_RecipesPack_TemplatingRecipeExempt
+          - TestPackVal_P4_RecipesPack_EmptyEnforcementRulesCountsAsAbsent
+          - TestPackVal_P4_RecipesPack_NoRecipesDeclaredFails
+          - TestPackVal_P4_RecipesPack_UnreadableRecipeManifestFailsLoud
+          - TestPackVal_P4_CodeAndEnforcementArchetypeVerdictsUnchanged
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "Failing pkg/pack tests: the UNPADDED field-guide pack loads at the gate-time seam — archetype enum AND archetype-conditional scaffold requirements"
+        description: |
+          Widening packval alone would ship a pack that installs and then breaks
+          `backstop gate`: cmd/backstop/pack_gate.go:168 parses EVERY declared
+          pack through pack.ParseManifestFile on every gate run and hard-fails
+          the run on a parse error. Nothing in pkg/pack/distribution calls
+          ParseManifestFile, so `pack add` never sees these checks — install and
+          load disagree, and that is the trap. Pin BOTH halves here.
+
+          Add pkg/pack/manifest_recipes_archetype_test.go.
+
+          Mandated test names (exact):
+
+            - TestValidateArchetype_Recipes (CLM-004) — validateArchetype
+              ("recipes") returns nil. Same test re-asserts
+              validateArchetype("library") still errors, so the enum grew by
+              exactly one member.
+
+            - TestValidateScaffold_RecipesArchetypeRelaxesRulePairingRequirements
+              (CLM-015) — the blocker's own unit. validateScaffold is called
+              unconditionally from the manifest.go:355 loop and today demands a
+              valid tier, a test_command, use_when, assumes AND pairs_with of
+              EVERY scaffold. Table it:
+                * a BARE Scaffold{ID, Path} under archetype "recipes" -> nil
+                  error. This is the case that fails five ways today.
+                * the SAME bare scaffold under "code" AND under "enforcement" ->
+                  still errors. This is the CLM-013 falsifier: a relaxation that
+                  leaked past the recipes branch would silently gut FIVE existing
+                  negative assertions in manifest_test.go
+                  (TestValidateScaffold_{MissingTestCommand, MissingUseWhen,
+                  MissingAssumes, MissingPairsWith, EmptyUseWhen}).
+                * under "recipes", a scaffold declaring `tier: bogus` -> STILL
+                  errors, and one declaring `tier: skeleton` -> nil. The
+                  requirement is dropped; the validation is not. Without this
+                  case the branch could be written as a blanket early-return and
+                  look green.
+                * under "recipes", a scaffold whose sample_config holds a
+                  non-string value -> still errors.
+
+            - TestParseManifestFile_RecipesArchetypePackLoads (CLM-004,
+              CLM-015) — the integration of the two above at the seam the gate
+              actually uses. Write an UNPADDED field-guide-shaped pack.yml to a
+              t.TempDir(): archetype recipes, description, a top-level `recipes:`
+              index, content.scaffolds holding ONE scaffold with id and path
+              ONLY, and NO ruleset. Also create the recipe dirs + recipe.yml
+              files the index names — validateRecipesIndex (manifest.go:432)
+              fail-louds on an index entry with no recipe.yml, so the dirs must
+              be real. Assert: no error, Archetype == "recipes", and the parsed
+              Recipes map holds the declared entries.
+
+              The scaffold MUST stay unpadded. If this test goes red, the fix is
+              TASK-006's conditional, never adding tier/test_command/use_when/
+              assumes/pairs_with to the fixture — padding it would make CLM-004
+              mean "loads only if padded", which is the outcome this plan
+              exists to prevent.
+
+          Use the package's existing inline-YAML style (manifest_test.go). Do NOT
+          modify pkg/pack/manifest.go in this task (TASK-006 owns it, including
+          the mechanical argument update to the eight existing validateScaffold
+          call sites in manifest_test.go), do NOT touch
+          pkg/pack/validate_manifest.go, and do NOT edit any existing fixture
+          under pkg/pack/testdata/. In particular pkg/pack/testdata/recipes/
+          valid/pack.yml stays byte-intact on `archetype: code` — and note it is
+          NOT evidence that the unpadded shape parses: its scaffold carries the
+          full tier/test_command/use_when/assumes/pairs_with padding, which is
+          exactly why it survives today.
+        files:
+          - pkg/pack/manifest_recipes_archetype_test.go
+        claims:
+          - CLM-004
+          - CLM-013
+          - CLM-015
+        test_names:
+          - TestValidateArchetype_Recipes
+          - TestValidateScaffold_RecipesArchetypeRelaxesRulePairingRequirements
+          - TestParseManifestFile_RecipesArchetypePackLoads
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "Failing CLI e2e: the field-guide pack passes `pack check` and installs via `pack add`; the toothless one fails `pack check` non-zero"
+        description: |
+          The unit tests drive RunArchetype directly. Only the shipped CLI proves
+          the issue's actual complaint — that the pack is UNINSTALLABLE — because
+          `pack add` runs the packval pipeline in BOTH modes unconditionally
+          since SPEC-055 REQ-008 (pkg/pack/distribution/command.go:154,157 via
+          PackvalValidator). Add cmd/backstop/pack_recipes_archetype_e2e_test.go.
+
+          Mandated test names (exact):
+
+            - TestPackCheck_RecipesArchetypeFieldGuidePackPasses (CLM-011) —
+              run the real command over TASK-001's committed GREEN fixture:
+              executeCommand(NewRootCommand(), "pack", "check", "--format",
+              "json", filepath.Join("testdata", "recipes-archetype-pack")).
+              Assert: no error returned (exit 0) and the rendered result reports
+              overall pass with phase4-archetype passing. Then assert the
+              NEGATIVE that makes this a real acceptance rather than a smoke
+              test: the fixture's pack.yml contains no `ruleset`, no `engines:`,
+              no `pairs_with`, no `test_command`, no `use_when` and no `assumes`
+              — read the committed file and assert those substrings are absent,
+              so the pack cannot be quietly padded back into the whack-a-mole
+              shape the issue is about while the test stays green.
+
+              This anti-padding assertion is coherent ONLY because TASK-006
+              makes pkg/pack's scaffold requirements archetype-conditional —
+              without that, `pairs_with`/`test_command`/`use_when`/`assumes` are
+              mandatory at the load seam and this assertion would contradict
+              CLM-004. Read as a pair, not separately.
+
+            - TestPackCheck_RecipesArchetypeMissingEnforcementFails (CLM-012) —
+              the same command over the committed RED fixture
+              (recipes-archetype-pack-no-enforcement), but run it in the DEFAULT
+              TEXT format, not JSON. Assert: a non-nil error (non-zero exit) AND
+              the printed report names the offending RECIPE ID and the
+              enforcement obligation.
+
+              Text specifically, because that is the human default and the
+              renderer prints only Phase/Check/Message while DISCARDING the Rule
+              field (pkg/packval/format.go:27) — a JSON-only assertion would pass
+              while the operator at the terminal still cannot tell which recipe
+              failed. This test is what holds TASK-005's id-in-message
+              requirement in place. Assert on substrings of the REAL rendered
+              output; do not compare against a hand-written golden report.
+
+            - TestPackAdd_RecipesArchetypePackInstalls (CLM-011, CLM-004) — the
+              uninstallable headline, closed, AND the install/load trap closed
+              with it. Stage as TestPackAddDeclaredE2E_EmptyPacksMaterializes
+              does (pack_add_declared_e2e_test.go:19-35): a temp parent holding
+              a `project` dir and a copy of the GREEN fixture tree (copyTree,
+              defined at gate_waiver_e2e_test.go:13), chdir into project, then
+              `pack add ../<fixture-dir>`.
+
+              WRITE backstop.yml INTO THE PROJECT DIR FIRST, before running the
+              command. This is not optional staging polish: updateBackstopYml
+              (pkg/pack/distribution/add.go:141-146) os.ReadFile's backstop.yml
+              and returns the error, so `pack add` HARD-FAILS in a directory
+              without one. The model test writes
+              `packs:\n  demo-org/recipes-field-guide: local` for exactly this
+              reason; mirror it.
+
+              Assert: exit 0; the pack materialized at
+              .backstop/packs/demo-org/recipes-field-guide/ WITH its recipes/
+              tree; a lockfile entry exists (distribution.ReadLockfile).
+
+              THEN — the assertion that closes the trap — parse the INSTALLED
+              manifest through pack.ParseManifestFile(filepath.Join(dest,
+              "pack.yml")) and assert no error. `pack add` never calls that
+              function (nothing in pkg/pack/distribution does), so a pack can
+              install cleanly and still abort every later `backstop gate` at
+              pack_gate.go:168. Driving the installed artifact through the LOAD
+              seam in the same test is what makes "installable" mean "usable".
+
+              Copy rather than adding from the testdata path in place, so the
+              install never writes into the repo's own tree.
+
+          Do NOT modify any production file in this task and do NOT edit the
+          fixtures TASK-001 committed.
+        files:
+          - cmd/backstop/pack_recipes_archetype_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-011
+          - CLM-012
+        test_names:
+          - TestPackCheck_RecipesArchetypeFieldGuidePackPasses
+          - TestPackCheck_RecipesArchetypeMissingEnforcementFails
+          - TestPackAdd_RecipesArchetypePackInstalls
+        depends_on:
+          - TASK-001
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD green — two parallel implementations + package verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — The recipes Archetype in packval, the Enum and the Scaffold Seam in pkg/pack"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "pkg/packval — parse the recipes index, admit `archetype: recipes`, and enforce per-recipe enforcement.rules in phase4"
+        description: |
+          Make TASK-002's and TASK-004's tests pass. Four production edits plus
+          two mechanical test-call-site updates.
+
+          1. pkg/packval/manifest.go — add ONE field to PackManifest (top level,
+             beside ToolConfig/Engines, NOT inside Content):
+
+               Recipes map[string]string `json:"recipes,omitempty" yaml:"recipes,omitempty"`
+
+             Document it the way the runtime model documents its twin
+             (pkg/pack/manifest.go:55-63): a stable recipe id mapped to the
+             pack-relative directory holding that recipe's recipe.yml and
+             payload; a DISTINCT top-level key from Content.Scaffolds; the two
+             never populate each other; zero-value (nil) when absent. Do NOT
+             touch the Content struct and do NOT add a Recipes field to it.
+
+          2. pkg/packval/phase1.go:42 — widen the archetype enum to admit
+             "recipes" alongside "code" and "enforcement". Do NOT touch the
+             content-required check on line 45-47: a recipes-ONLY pack still
+             failing there is deliberate and TASK-002 pins it (SPEC-054's named
+             three-site widening follow-up is not this plan's).
+
+          3. pkg/packval/phase4.go — change the signature to
+             `RunArchetype(pack *PackManifest, packDir string)` and add the
+             recipes branch. Bump the PhaseResult Checks count from 2 to 3 and
+             extend its comment (archetype-rules, co-occurrence,
+             recipe-enforcement).
+
+             The branch, in order:
+               (a) `len(pack.Recipes) == 0` -> ValidationError{Check:
+                   "recipes-required", ManifestPath: "recipes"} — a recipes pack
+                   that declares no recipes is an empty pack, and this is what
+                   stops the archetype becoming the rule-less escape hatch
+                   direction 2 was rejected for.
+               (b) iterate the recipe ids in SORTED order (mirror
+                   validateRecipesIndex, pkg/pack/manifest.go:436-438) so error
+                   order is deterministic. For each: read
+                   filepath.Join(packDir, dir, "recipe.yml"); on a read error OR
+                   a recipe.ParseRecipeManifest error emit ValidationError{Check:
+                   "recipe-manifest", Rule: <recipe id>, ManifestPath:
+                   "recipes."+id} carrying the underlying error, and CONTINUE to
+                   the next recipe — never fall through to (c) with a zero-value
+                   manifest, which would silently exempt an unreadable recipe.
+                   The MESSAGE must NAME THE RECIPE ID, e.g.
+                     recipe "adopt-lint": reading recipes/adopt-lint/recipe.yml: <err>
+               (c) when Kind is recipe.KindScaffolding or recipe.KindImplementing
+                   and (Enforcement == nil || len(Enforcement.Rules) == 0), emit
+                   ValidationError{Check: "recipe-enforcement", Rule: <recipe
+                   id>, ManifestPath: "recipes."+id}. The MESSAGE must NAME THE
+                   RECIPE ID and the kind, e.g.
+                     recipe "adopt-lint": implementing-kind recipe must declare enforcement.rules
+
+               The id-in-message requirement in (b) and (c) is load-bearing, not
+               style: the text renderer prints only Phase, Check and Message
+               (pkg/packval/format.go:27) and DISCARDS Rule, and text is the
+               human default for `pack check`. An id that lives only in Rule
+               cannot be seen by the pack author at the terminal — and TASK-004's
+               substring assertion and TASK-008's step-5 acceptance both read
+               that default output. Populate Rule as well, for JSON consumers.
+               Do NOT widen the formatter to print Rule: that would change every
+               existing pack's diagnostics and is a separate change.
+               (d) recipe.KindTemplating: no obligation, and declaring
+                   enforcement.rules anyway is NOT an error.
+
+             Compare kinds against the pkg/recipe constants (KindScaffolding /
+             KindImplementing / KindTemplating) — do not retype the strings, so
+             the two packages cannot drift. This is the import that makes the
+             check possible: pkg/recipe does not import packval (verified:
+             `go list -deps ./pkg/recipe` = pack/engine, pack, waiver), so
+             packval -> recipe adds no cycle, and pkg/pack deliberately cannot
+             host this check because recipe imports IT (its own comment,
+             manifest.go:427-431).
+
+             SCOPE GUARD: the check is PRESENCE-ONLY. Do not resolve, look up or
+             validate the strings inside enforcement.rules against anything —
+             there is no pack ruleset to resolve them against, and inventing one
+             re-imports the enforcement-pack assumption this archetype exists to
+             escape.
+
+             Leave the `code` and `enforcement` branches byte-unchanged. The
+             recipes branch imposes NO ruleset requirement and NO pairs_with
+             obligation; rules are permitted but never required. Add a short doc
+             comment on RunArchetype stating the three-archetype contract and
+             WHY the enforcement unit for a recipes pack is the recipe rather
+             than the pack (the applier is the drift enforcement for
+             regenerating kinds; templating is check-free by design), so the
+             next reader does not "harmonize" it back to a pack-level ruleset.
+
+          4. pkg/packval/pipeline.go:66 — pass p.packDir into RunArchetype.
+
+          5. Mechanically add the new argument at the ten existing call sites in
+             packval_phase456_pipeline_test.go (8) and coverage_error_paths_test.go
+             (2), passing t.TempDir(). NOTHING ELSE in those two files may change
+             — no assertion weakened, retargeted or deleted. If one of them goes
+             red, the new branch leaked into the code/enforcement paths and the
+             branch is wrong, not the test.
+
+          Do NOT touch pkg/pack (TASK-006 owns it), phase2/3/5/6, or the
+          Content struct. Then run:
+            go test ./pkg/packval/... ./cmd/backstop/... -race -count=1
+
+          EXPECT ONE RESIDUAL RED, and do not chase it: TASK-006 is a PARALLEL
+          SIBLING, not a predecessor, so if it has not landed yet
+          TestPackAdd_RecipesArchetypePackInstalls still fails on its closing
+          pack.ParseManifestFile assertion — the unpadded field-guide scaffold is
+          rejected by pkg/pack's unconditional validateScaffold until TASK-006
+          makes it archetype-conditional. That failure is TASK-006's to clear.
+          Do NOT "fix" it by padding the fixture with tier / test_command /
+          use_when / assumes / pairs_with, and do NOT weaken the assertion:
+          either move re-introduces the exact whack-a-mole shape this plan
+          exists to remove and makes CLM-004 vacuous. Everything else in the run
+          must be green.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase1.go
+          - pkg/packval/phase4.go
+          - pkg/packval/pipeline.go
+          - pkg/packval/packval_phase456_pipeline_test.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "pkg/pack — admit `recipes` at the load seam: the archetype enum AND archetype-conditional scaffold requirements"
+        description: |
+          Make TASK-003's tests pass. TWO production edits in pkg/pack/manifest.go
+          plus one mechanical test-call-site update.
+
+          Why this file at all, since packval is where the archetype model lives:
+          cmd/backstop/pack_gate.go:168 parses EVERY declared pack through
+          pack.ParseManifestFile on EVERY gate run and returns `parsing %s: %w`
+          on failure, aborting the run. Nothing in pkg/pack/distribution calls
+          ParseManifestFile, so `pack add` never reaches these checks. Skip this
+          task and a recipes pack installs cleanly and then makes `backstop gate`
+          unrunnable for the whole project — a silent trap strictly worse than
+          today's honest install-time rejection.
+
+          1. manifest.go:482 `validateArchetype` accepts "recipes" alongside
+             "enforcement" and "code", and its error message names all three.
+
+          2. manifest.go:642 `validateScaffold` becomes archetype-aware:
+
+               func validateScaffold(s Scaffold, archetype string) error
+
+             and the single production call site in the scaffold loop
+             (manifest.go:355) passes `manifest.Archetype`.
+
+             Under `archetype: recipes`, these five REQUIREMENTS do not apply:
+             a valid `tier`, `test_command`, `use_when`, `assumes`,
+             `pairs_with`. Under every other archetype they apply exactly as
+             today — do not restructure, reorder or reword the existing checks.
+
+             The relaxation drops REQUIREMENTS, never VALIDATION. Under
+             `recipes` an EMPTY tier is fine but a DECLARED tier must still be
+             complete|skeleton (call validateScaffoldTier only when s.Tier != ""),
+             and the sample_config string check still runs for every archetype.
+             A blanket early-return for recipes would pass TASK-003's first case
+             and fail its tier-bogus and sample_config cases — write the branch,
+             not the shortcut.
+
+             Rationale to put in the doc comment, so this is not "harmonized"
+             back later: under a recipes pack there is no ruleset for a scaffold
+             to pair with, and the scaffold is a recipe's payload rather than a
+             rule's paired fixture — its authoring contract is the recipe's, and
+             the recipe's own contract is enforced at the recipe grain by
+             packval phase4 (enforcement.rules on every non-templating recipe).
+             Mirror the branching shape phase4 already uses.
+
+          3. Mechanically add the archetype argument at the EIGHT existing
+             validateScaffold call sites in pkg/pack/manifest_test.go — lines
+             ~478/493/511/526/541/556/572/589, belonging to
+             TestValidateScaffold_{WithTestCommand, MissingTestCommand,
+             AllFieldsPresent, MissingUseWhen, MissingAssumes, MissingPairsWith,
+             EmptyUseWhen, SampleConfigNonString}.
+
+             EIGHT, not six. The count is stated exactly because an implementer
+             who patches only the first six hits a compile error at :572 and
+             :589 and may fix it ad hoc — and :572 (EmptyUseWhen) is a NEGATIVE
+             assertion, so an ad-hoc "recipes" there guts it silently while the
+             mandated test name survives.
+
+             PASS AN EXPLICIT "code" AT ALL EIGHT. The dangerous value is
+             "recipes", which is the one archetype that relaxes the requirements:
+             under it, five of these tests (MissingTestCommand, MissingUseWhen,
+             MissingAssumes, MissingPairsWith, EmptyUseWhen) assert a MISSING
+             field FAILS and would pass VACUOUSLY — mandated name intact,
+             assertion gutted. Empty string "" would take the strict path under
+             the natural `== "recipes"` branch and so is not itself unsafe, but
+             pass "code" anyway: it states the intent at the call site instead of
+             depending on how the branch happens to be written, so a later
+             refactor to `switch archetype` cannot quietly flip five negatives to
+             green. (SampleConfigNonString at :589 survives either way — that
+             check still runs under recipes — but take "code" there too for
+             consistency.)
+
+             After the edit, confirm the five negatives still FAIL-when-expected
+             by reading the run output, not by assuming. Nothing else in that
+             file changes.
+
+          Change NOTHING else in manifest.go. Specifically leave alone:
+            * line 317, the ruleset-version default (enforcement-keyed; a
+              recipes pack with no ruleset is unaffected);
+            * line 350, the scaffold semver check (already conditional on a
+              non-empty version);
+            * the content-is-required check ending at manifest.go:287 —
+              widening it to count `recipes:` is SPEC-054's named three-site
+              follow-up, explicitly not this plan's (the field-guide pack
+              carries a scaffold and clears it today);
+            * validateRecipesIndex, which stays STRUCTURAL — it must not start
+              parsing recipe.yml, because pkg/recipe imports this package and
+              doing so would invert the dependency (its own comment says so).
+          Do NOT touch pkg/pack/validate_manifest.go: its archetype branches are
+          enforcement-only plus an `m.Archetype != "code"` early return, so a
+          recipes pack flows through unchanged, and it has no production caller.
+
+          Then run: go test ./pkg/pack/... -race -count=1
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/manifest_test.go
+        claims:
+          - CLM-004
+          - CLM-013
+          - CLM-015
+        depends_on:
+          - TASK-003
+
+      - id: TASK-007
+        type: verification
+        title: "Package verification — packval, pack and the CLI e2e suites green under race"
+        description: |
+          Run, and report the TRUE exit code:
+
+            go test ./pkg/packval/... ./pkg/pack/... ./cmd/backstop/... -race -count=1
+
+          Confirm:
+            * all eleven TASK-002 tests, both TASK-003 tests and all three
+              TASK-004 CLI e2e tests now PASS (none of them compiled or passed
+              before TASK-005/TASK-006);
+            * every pre-existing packval suite still passes — in particular
+              TestPackVal_P4_* in packval_phase456_pipeline_test.go and
+              TestPackVal_P1_InvalidArchetype / TestPackVal_P4_* in
+              coverage_error_paths_test.go, whose ONLY permitted change was the
+              added packDir argument;
+            * every pre-existing pkg/pack archetype test still passes —
+              TestValidateArchetype_{Enforcement,Code,Invalid,Missing},
+              TestParseManifest_InvalidArchetype (both still reject "library"),
+              and the recipes-index suites over pkg/pack/testdata/recipes/;
+            * the eight TestValidateScaffold_* tests still pass AND still bite.
+              FIVE of them (MissingTestCommand, MissingUseWhen, MissingAssumes,
+              MissingPairsWith, EmptyUseWhen) assert a MISSING field FAILS, so
+              they would go vacuously green if TASK-006 passed "recipes" as the
+              archetype argument at their call sites. Verify by inspecting all
+              eight call sites for the explicit "code" — a green run alone cannot
+              distinguish "still failing as expected" from "no longer failing at
+              all";
+            * the pack-distribution and pack-gate e2e suites are unaffected.
+
+          If anything fails, fix it in the owning task's files and re-run. Do NOT
+          weaken or delete an assertion to get green, and do not skip a test.
+          `backstop code check` does not exist in this repo — do not invent it.
+        files:
+          - pkg/packval/phase4.go
+          - pkg/packval/phase1.go
+          - pkg/packval/manifest.go
+          - pkg/pack/manifest.go
+          - pkg/packval/archetype_recipes_test.go
+          - cmd/backstop/pack_recipes_archetype_e2e_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-015
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive verification + behavior-neutrality sweep
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — Rebuilt Binary, Full Gate, Artifact Validation, Neutrality Sweep"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Comprehensive verification — rebuild, full gate kill chain, artifact validation, and proof that no existing pack moved"
+        description: |
+          Final verification over both work categories this plan touches: Go code
+          and artifacts.
+
+          1. REBUILD the binary FIRST. A stale ./bin/backstop gates the OLD code
+             and reports a vacuous green:
+
+               go build -o bin/backstop ./cmd/backstop/
+
+          2. Full kill chain, unfiltered:
+
+               ./bin/backstop gate
+
+             Every dimension, no scoping down, no per-dimension selection. This
+             run also re-proves CLM-004 in production: the gate loads every
+             declared installed pack through pack.ParseManifestFile, the exact
+             seam TASK-006 widened. Fix real violations in the owning task's
+             files; do not waive, do not baseline. Violations in files THIS
+             change touched must be fixed outright — no grandfathering on
+             changed files.
+
+          3. Artifact validation:
+
+               ./bin/backstop artifact validate --plan PLAN-ISSUE-085
+
+             Must pass. This plan touches no other backstop artifact — the two
+             new fixture trees are pack manifests, not artifacts.
+
+          4. BEHAVIOR-NEUTRALITY SWEEP (CLM-013), run as commands and reported,
+             not asserted from memory:
+
+             a. `git diff --name-only` must show NO modification to any existing
+                pack.yml anywhere in the tree. The only pack.yml files in the
+                diff must be the two NEW fixtures TASK-001 added. Named
+                explicitly because they are the tempting ones to "fix":
+                pkg/pack/testdata/recipes/{valid,missing-dir}/pack.yml. `valid`
+                is the likeliest mistaken edit — it LOOKS like the field-guide
+                shape but its scaffold carries the full tier/test_command/
+                use_when/assumes/pairs_with padding, and it must keep it.
+
+             b. Confirm the ONLY packs declaring `recipes` are the two new
+                fixtures, and that every installed/published pack
+                (.backstop/packs/**, packs/**) still declares `enforcement`:
+
+                  grep -rn "^archetype:" --include="pack.yml" .
+
+                QUOTE the --include value. Unquoted, zsh expands it and the
+                command dies with "no matches found" instead of sweeping —
+                a sweep that never ran is worse than no sweep, because it
+                reports clean.
+
+             c. Confirm the enum grew by exactly ONE: an unknown archetype is
+                still rejected by both validators (the "hybrid" and "library"
+                cases in the existing suites, green in TASK-007).
+
+          5. Confirm the RED fixture is genuinely red through the shipped binary,
+             since a toothless check is the failure mode this whole issue is
+             about:
+
+               ./bin/backstop pack check cmd/backstop/testdata/recipes-archetype-pack-no-enforcement
+
+             Must exit NON-ZERO and name the offending recipe IN THE PRINTED
+             TEXT. That is only true because TASK-005 puts the recipe id in the
+             ValidationError MESSAGE: this bare invocation renders through the
+             text formatter, which prints Phase/Check/Message and DISCARDS the
+             Rule field (pkg/packval/format.go:27). If the id is missing from
+             this output, the defect is TASK-005's message shape — fix it there;
+             do NOT add --format json to make this step look like it passed, and
+             do NOT widen the formatter.
+
+             Report the actual output and the actual exit code (`echo $?`), not a
+             summary of it. Then run it against the GREEN fixture and confirm
+             exit 0.
+
+          Report real command output for every step. Do not assert a pass you did
+          not run.
+        files:
+          - pkg/packval/phase4.go
+          - pkg/packval/phase1.go
+          - pkg/pack/manifest.go
+          - cmd/backstop/pack_recipes_archetype_e2e_test.go
+          - cmd/backstop/testdata/recipes-archetype-pack/pack.yml
+          - cmd/backstop/testdata/recipes-archetype-pack-no-enforcement/pack.yml
+        claims:
+          - CLM-004
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-015
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-007
