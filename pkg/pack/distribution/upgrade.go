@@ -26,4 +26,8 @@ type UpgradeResult struct {
 	ContentHash         string `json:"content_hash"`
 	RemediationBundle   string `json:"remediation_bundle"`
 	BaselinedViolations int    `json:"baselined_violations"`
+	// Warnings carries diagnostics the upgrade produced without failing: the
+	// coordinate fallback (REQ-005) and the divergence diagnostic (REQ-006). Like
+	// UpdateResult.Warnings it did not exist before SPEC-056 (REQ-011).
+	Warnings []string `json:"warnings,omitempty"`
 }

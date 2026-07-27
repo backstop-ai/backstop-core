@@ -31,6 +31,13 @@ type UpdateResult struct {
 	ContentHash string `json:"content_hash"`
 	NoOp        bool   `json:"no_op"`
 	Message     string `json:"message"`
+	// Warnings carries diagnostics the update produced without failing: the
+	// coordinate fallback (REQ-005) and the divergence diagnostic (REQ-006).
+	//
+	// It did not exist before SPEC-056, which is exactly why REQ-011 exists — a warning
+	// computed inside update with no field to hold it is computed and silently DROPPED,
+	// and the code that drops it looks correct.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // readPackVersion reads the current version and source type from backstop.yml.

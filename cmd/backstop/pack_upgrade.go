@@ -50,6 +50,11 @@ func newPackUpgradeCommand(jsonFlag *bool) *cobra.Command {
 				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack upgrade", err)
 			}
 
+			// STDERR, before the success line. Rendering a warning never changes the
+			// exit code: divergence and the coordinate fallback are diagnostics on an
+			// otherwise-successful upgrade (SPEC-056 REQ-011).
+			renderWarnings(cmd, result.Warnings)
+
 			cmd.Printf("Upgraded %s -> %s\n", result.OldVersion, result.NewVersion)
 			if result.RemediationBundle != "" {
 				cmd.Printf("  remediation bundle: %s\n", result.RemediationBundle)

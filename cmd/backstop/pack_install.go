@@ -29,9 +29,11 @@ func newPackInstallCommand(jsonFlag *bool) *cobra.Command {
 			// Surface reconciliation divergences loudly (stale lock entries, manifest
 			// packs missing from the lock, absent manifest) before the installed summary,
 			// so an install is never silently green over a diverged lock.
-			for _, w := range result.Warnings {
-				cmd.Printf("warning: %s\n", w)
-			}
+			// STDERR, not stdout: a warning is a DIAGNOSTIC, not part of this command's
+			// output, and only a stream-separated assertion can tell the two apart
+			// (SPEC-056 REQ-011). The "warning: " prefix is preserved verbatim — two
+			// existing tests and any consumer grep match on that lowercase word.
+			renderWarnings(cmd, result.Warnings)
 
 			cmd.Printf("Installed %d packs\n", len(result.InstalledPacks))
 			for _, p := range result.InstalledPacks {

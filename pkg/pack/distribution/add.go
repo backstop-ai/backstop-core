@@ -56,6 +56,14 @@ type AddResult struct {
 	// re-install. It lets the CLI print a clear "already installed and up to date" message
 	// instead of a misleading error or a silent zero-output exit.
 	AlreadyCurrent bool `json:"already_current,omitempty"`
+	// Warnings carries diagnostics the add produced without failing — today the
+	// manifest-name-versus-coordinate divergence (SPEC-056 REQ-006). Divergence is LOUD
+	// and never a refusal, so it needs somewhere to ride out of a SUCCESSFUL command.
+	//
+	// Warnings ride the RESULT rather than an injected writer: pkg/pack/distribution owns
+	// no output stream and must not acquire a dependency in order to carry a string. The
+	// check happens here; the rendering happens where every other CLI message is rendered.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // backstopYml represents backstop.yml preserving all fields during read-modify-write.

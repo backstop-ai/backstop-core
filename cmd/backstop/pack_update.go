@@ -29,6 +29,11 @@ func newPackUpdateCommand(jsonFlag *bool) *cobra.Command {
 				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack update", err)
 			}
 
+			// STDERR, before EITHER outcome line — a no-op update can still have fallen
+			// back on a coordinate, and that diagnostic must not be swallowed by the
+			// early return below.
+			renderWarnings(cmd, result.Warnings)
+
 			if result.NoOp {
 				cmd.Println(result.Message)
 				return nil

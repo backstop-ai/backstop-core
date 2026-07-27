@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/bmanson/backstop-core/pkg/pack/distribution"
 	"github.com/spf13/cobra"
@@ -15,6 +16,29 @@ func formatAddedLine(name, version, hash string) string {
 		return fmt.Sprintf("Added %s (hash: %s)", name, hash)
 	}
 	return fmt.Sprintf("Added %s@%s (hash: %s)", name, version, hash)
+}
+
+// writeWarning writes one "warning: <message>" line to w and reports whether it landed.
+//
+// It mirrors writeDiagnostic (main.go:60) and exists for the same reason: the four pack
+// lifecycle commands each render result warnings, and keeping the write CHECKED in one
+// documented place is what stops the error being silently discarded at four call sites.
+// No caller can act on the answer — a warning is advisory and the command is mid-success
+// — but discarding it unexamined at each site is what the standard forbids.
+//
+// The "warning: " prefix is load-bearing: existing tests and consumer greps match on that
+// lowercase word.
+func writeWarning(w io.Writer, message string) bool {
+	_, err := fmt.Fprintf(w, "warning: %s\n", message)
+	return err == nil
+}
+
+// renderWarnings writes every warning a lifecycle result carried, to STDERR. Rendering a
+// warning NEVER changes an exit code (SPEC-056 REQ-011).
+func renderWarnings(cmd *cobra.Command, warnings []string) {
+	for _, w := range warnings {
+		writeWarning(cmd.ErrOrStderr(), w)
+	}
 }
 
 func newPackAddCommand(jsonFlag *bool) *cobra.Command {
@@ -43,6 +67,10 @@ func newPackAddCommand(jsonFlag *bool) *cobra.Command {
 			if err != nil {
 				return packLifecycleFailure(cmd.OutOrStdout(), jsonFlag, "pack add", err)
 			}
+
+			// Diagnostics first, on STDERR, before any success line reaches stdout.
+			// Rendering one never changes the exit code — divergence is loud, not fatal.
+			renderWarnings(cmd, result.Warnings)
 
 			if result.AlreadyCurrent {
 				cmd.Printf("Pack %s is already installed and up to date\n", result.PackName)
