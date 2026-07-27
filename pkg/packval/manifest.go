@@ -28,6 +28,20 @@ type PackManifest struct {
 	// consumer's EngineSpec/parseEngineSpec yields — packval no longer dies at phase1
 	// with the int-enum unmarshal errors that kept go-toolchain from reaching phase2/5.
 	Engines map[string]engine.EngineBinding `json:"engines,omitempty" yaml:"engines,omitempty"`
+	// Recipes is the pack's OPTIONAL top-level `recipes:` index (ISSUE-085): a stable
+	// recipe id mapped to the pack-relative directory holding that recipe's recipe.yml
+	// and payload. It mirrors the runtime model's own top-level index and, like it, is a
+	// DISTINCT top-level pack.yml key from Content.Scaffolds (a rule's paired test
+	// scaffold) — declaring both is valid and the two NEVER populate each other.
+	// Zero-value (nil) when absent.
+	//
+	// Parsing it here is what lets phase4 enforce the `recipes` archetype's teeth at the
+	// RECIPE grain. It is deliberately NOT a Content field: `recipes:` is top level in
+	// pack.yml, so this is the honest parse rather than a back door into the content
+	// model. Consequence, stated rather than hidden: a recipes-ONLY pack still fails
+	// phase1's content-is-required check, which SPEC-054's sharp edge "A RECIPES-ONLY
+	// pack does not validate yet" names as a tracked three-site follow-up.
+	Recipes map[string]string `json:"recipes,omitempty" yaml:"recipes,omitempty"`
 }
 
 // resolveEngine resolves an engine name against the base engine registry merged with

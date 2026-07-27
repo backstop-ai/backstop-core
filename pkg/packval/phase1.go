@@ -39,7 +39,7 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 	}
 	if pack.Archetype == "" {
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "required", Message: "archetype is required", ManifestPath: "archetype"})
-	} else if pack.Archetype != "code" && pack.Archetype != "enforcement" {
+	} else if pack.Archetype != "code" && pack.Archetype != "enforcement" && pack.Archetype != "recipes" {
 		res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "archetype", Message: "invalid archetype", ManifestPath: "archetype"})
 	}
 	if len(pack.Content.Ruleset.Rules) == 0 && len(pack.Content.Scaffolds) == 0 && pack.Content.SDK == nil {

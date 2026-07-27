@@ -63,7 +63,7 @@ func (p *Pipeline) Run() *Result {
 		struct {
 			name string
 			run  func() *PhaseResult
-		}{"phase4-archetype", func() *PhaseResult { return RunArchetype(m) }},
+		}{"phase4-archetype", func() *PhaseResult { return RunArchetype(m, p.packDir) }},
 		struct {
 			name string
 			run  func() *PhaseResult

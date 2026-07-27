@@ -13,14 +13,14 @@ import (
 func TestPackVal_P4_CodePackNoRules(t *testing.T) {
 	m := baseManifest()
 	m.Content.Ruleset.Rules = nil
-	if packval.RunArchetype(m).Status != "fail" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "fail" {
 		t.Fatal("fail")
 	}
 }
 func TestPackVal_P4_ScaffoldNoEnforcementRule(t *testing.T) {
 	m := baseManifest()
 	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1"}}
-	if packval.RunArchetype(m).Status != "fail" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "fail" {
 		t.Fatal("fail")
 	}
 }
@@ -28,12 +28,12 @@ func TestPackVal_P4_CodePackWithRulesPass(t *testing.T) {
 	m := baseManifest()
 	m.Content.Ruleset.Rules[0].PairsWith.Scaffolds = []string{"S1"}
 	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", PairsWith: packval.PairsWith{Rules: []string{"R1"}}}}
-	if packval.RunArchetype(m).Status != "pass" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "pass" {
 		t.Fatal("pass")
 	}
 }
 func TestPackVal_P4_RuleNoPairsWithInCodePack(t *testing.T) {
-	if packval.RunArchetype(baseManifest()).Status != "fail" {
+	if packval.RunArchetype(baseManifest(), t.TempDir()).Status != "fail" {
 		t.Fatal("fail")
 	}
 }
@@ -41,7 +41,7 @@ func TestPackVal_P4_AllRulesHavePairsWith(t *testing.T) {
 	m := baseManifest()
 	m.Content.Ruleset.Rules[0].PairsWith.Scaffolds = []string{"S1"}
 	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1", PairsWith: packval.PairsWith{Rules: []string{"R1"}}}}
-	if packval.RunArchetype(m).Status != "pass" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "pass" {
 		t.Fatal("pass")
 	}
 }
@@ -49,7 +49,7 @@ func TestPackVal_P4_EnforcementPackWithSDK(t *testing.T) {
 	m := baseManifest()
 	m.Archetype = "enforcement"
 	m.Content.SDK = &packval.SDK{Provides: []string{"x"}}
-	if packval.RunArchetype(m).Status != "fail" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "fail" {
 		t.Fatal("fail")
 	}
 }
@@ -57,14 +57,14 @@ func TestPackVal_P4_EnforcementPackWithScaffolds(t *testing.T) {
 	m := baseManifest()
 	m.Archetype = "enforcement"
 	m.Content.Scaffolds = []packval.Scaffold{{ID: "S1"}}
-	if packval.RunArchetype(m).Status != "fail" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "fail" {
 		t.Fatal("fail")
 	}
 }
 func TestPackVal_P4_EnforcementPackRulesOnlyPass(t *testing.T) {
 	m := baseManifest()
 	m.Archetype = "enforcement"
-	if packval.RunArchetype(m).Status != "pass" {
+	if packval.RunArchetype(m, t.TempDir()).Status != "pass" {
 		t.Fatal("pass")
 	}
 }

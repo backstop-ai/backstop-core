@@ -352,7 +352,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 				return nil, fmt.Errorf("invalid scaffold version: %w", err)
 			}
 		}
-		if err := validateScaffold(scaffold); err != nil {
+		if err := validateScaffold(scaffold, manifest.Archetype); err != nil {
 			return nil, fmt.Errorf("scaffold %q: %w", scaffold.ID, err)
 		}
 	}
@@ -481,10 +481,10 @@ func validateLanguageField(lang string) error {
 
 func validateArchetype(a string) error {
 	switch a {
-	case "enforcement", "code":
+	case "enforcement", "code", "recipes":
 		return nil
 	default:
-		return fmt.Errorf("archetype must be enforcement or code")
+		return fmt.Errorf("archetype must be enforcement, code, or recipes")
 	}
 }
 
@@ -639,21 +639,42 @@ func validateFixtures(f Fixtures) error {
 	return nil
 }
 
-func validateScaffold(s Scaffold) error {
-	if err := validateScaffoldTier(s.Tier); err != nil {
-		return err
+// validateScaffold validates one scaffold at load time. It is archetype-aware
+// (ISSUE-085): under `archetype: recipes` the five authoring REQUIREMENTS below — a
+// valid tier, a test_command, use_when, assumes and pairs_with — do not apply. Under
+// every other archetype they apply exactly as before.
+//
+// The rationale, so this is not "harmonized" back later: a recipes pack has no ruleset
+// for a scaffold to pair with, and its scaffold is a RECIPE'S PAYLOAD rather than a
+// rule's paired fixture, so its authoring contract belongs to the recipe. The recipe's
+// own contract is enforced at the recipe grain by packval phase4, which requires
+// enforcement.rules on every non-templating recipe the pack ships — the teeth move,
+// they do not disappear.
+//
+// The relaxation drops REQUIREMENTS, never VALIDATION. Under `recipes` an empty tier is
+// fine but a DECLARED tier must still be complete or skeleton, and the sample_config
+// string check runs for every archetype.
+func validateScaffold(s Scaffold, archetype string) error {
+	recipesPack := archetype == "recipes"
+
+	if !recipesPack || s.Tier != "" {
+		if err := validateScaffoldTier(s.Tier); err != nil {
+			return err
+		}
 	}
-	if s.TestCommand == "" {
-		return fmt.Errorf("scaffold test_command is required")
-	}
-	if len(s.UseWhen) == 0 {
-		return fmt.Errorf("scaffold use_when is required")
-	}
-	if len(s.Assumes) == 0 {
-		return fmt.Errorf("scaffold assumes is required")
-	}
-	if len(s.PairsWith.Rules) == 0 && len(s.PairsWith.Scaffolds) == 0 && s.PairsWith.SDK == "" {
-		return fmt.Errorf("scaffold pairs_with is required")
+	if !recipesPack {
+		if s.TestCommand == "" {
+			return fmt.Errorf("scaffold test_command is required")
+		}
+		if len(s.UseWhen) == 0 {
+			return fmt.Errorf("scaffold use_when is required")
+		}
+		if len(s.Assumes) == 0 {
+			return fmt.Errorf("scaffold assumes is required")
+		}
+		if len(s.PairsWith.Rules) == 0 && len(s.PairsWith.Scaffolds) == 0 && s.PairsWith.SDK == "" {
+			return fmt.Errorf("scaffold pairs_with is required")
+		}
 	}
 	for key, value := range s.SampleConfig {
 		if _, ok := value.(string); !ok {

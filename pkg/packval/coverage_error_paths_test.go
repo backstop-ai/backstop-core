@@ -154,7 +154,7 @@ func TestPackVal_P1_ToolConfigInvalidRiskClass(t *testing.T) {
 // --- Phase 4 error paths ---
 
 func TestPackVal_P4_NilManifest(t *testing.T) {
-	r := RunArchetype(nil)
+	r := RunArchetype(nil, t.TempDir())
 	if r.Status != "fail" {
 		t.Error("expected fail for nil manifest")
 	}
@@ -168,7 +168,7 @@ func TestPackVal_P4_CodePackDanglingScaffoldRef(t *testing.T) {
 			Scaffolds: []Scaffold{{ID: "s1", PairsWith: PairsWith{Rules: []string{"nonexistent-rule"}}}},
 		},
 	}
-	r := RunArchetype(m)
+	r := RunArchetype(m, t.TempDir())
 	hasDangling := false
 	for _, e := range r.Errors {
 		if e.Message == "scaffold pairs_with unresolved rule" {

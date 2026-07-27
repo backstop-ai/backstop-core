@@ -475,7 +475,7 @@ func TestValidateScaffold_WithTestCommand(t *testing.T) {
 		Assumes:     []string{"go-mod"},
 		PairsWith:   PairsWith{Rules: []string{"r-1"}},
 	}
-	if err := validateScaffold(s); err != nil {
+	if err := validateScaffold(s, "code"); err != nil {
 		t.Fatalf("expected valid scaffold, got: %v", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestValidateScaffold_MissingTestCommand(t *testing.T) {
 		Assumes:   []string{"go-mod"},
 		PairsWith: PairsWith{Rules: []string{"r-1"}},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected missing test_command to fail")
 	}
 }
@@ -508,7 +508,7 @@ func TestValidateScaffold_AllFieldsPresent(t *testing.T) {
 		PairsWith:    PairsWith{Rules: []string{"r-1"}, Scaffolds: []string{"s-2"}, SDK: "sdk/ref"},
 		SampleConfig: map[string]any{"mode": "safe"},
 	}
-	if err := validateScaffold(s); err != nil {
+	if err := validateScaffold(s, "code"); err != nil {
 		t.Fatalf("expected valid scaffold, got: %v", err)
 	}
 }
@@ -523,7 +523,7 @@ func TestValidateScaffold_MissingUseWhen(t *testing.T) {
 		Assumes:     []string{"go-mod"},
 		PairsWith:   PairsWith{Rules: []string{"r-1"}},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected missing use_when to fail")
 	}
 }
@@ -538,7 +538,7 @@ func TestValidateScaffold_MissingAssumes(t *testing.T) {
 		UseWhen:     []string{"apps"},
 		PairsWith:   PairsWith{Rules: []string{"r-1"}},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected missing assumes to fail")
 	}
 }
@@ -553,7 +553,7 @@ func TestValidateScaffold_MissingPairsWith(t *testing.T) {
 		UseWhen:     []string{"apps"},
 		Assumes:     []string{"go-mod"},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected missing pairs_with to fail")
 	}
 }
@@ -569,7 +569,7 @@ func TestValidateScaffold_EmptyUseWhen(t *testing.T) {
 		Assumes:     []string{"go-mod"},
 		PairsWith:   PairsWith{Rules: []string{"r-1"}},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected empty use_when to fail")
 	}
 }
@@ -586,7 +586,7 @@ func TestValidateScaffold_SampleConfigNonString(t *testing.T) {
 		PairsWith:    PairsWith{Rules: []string{"r-1"}},
 		SampleConfig: map[string]any{"retries": 3},
 	}
-	if err := validateScaffold(s); err == nil {
+	if err := validateScaffold(s, "code"); err == nil {
 		t.Fatal("expected non-string sample_config value to fail")
 	}
 }
