@@ -1,0 +1,23 @@
+# The FIELD-GUIDE pack (ISSUE-085): a pack whose whole point is to hand out
+# recipes and a paired scaffold. It declares no rule set, no engine binding and
+# no rule-pairing wiring — none of the padding the issue's reproduction
+# documents. Its teeth live at the recipe grain instead: every non-templating
+# recipe it ships declares its own enforcement rules.
+#
+# The scaffold below is BARE on purpose — id and path only. Do NOT pad it with
+# the scaffold authoring metadata an enforcement pack demands in order to repair
+# a red test: padding reintroduces the exact shape this fixture exists to
+# disprove, and the CLI e2e asserts those keys are ABSENT from this file.
+name: demo-org/recipes-field-guide
+version: 1.0.0
+language: any
+archetype: recipes
+description: Field-guide pack shipping recipes and a paired scaffold, with no rule set of its own.
+recipes:
+  scaffold-service: recipes/scaffold-service
+  adopt-lint: recipes/adopt-lint
+  readme-badge: recipes/readme-badge
+content:
+  scaffolds:
+    - id: service-base
+      path: scaffolds/service-base

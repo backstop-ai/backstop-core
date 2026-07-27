@@ -1,0 +1,12 @@
+# An implementing-kind recipe: it also regenerates by default, so it carries the
+# same obligation as a scaffolding recipe (ISSUE-085 CLM-006).
+kind: implementing
+version: 1.0.0
+enforcement:
+  rules:
+    - recipe.lint.config-present
+ops:
+  - id: create-lint-config
+    kind: create
+    target: lint.config.json
+    payload: payload/lint.config.json

@@ -1,0 +1,16 @@
+# The PERMANENTLY-RED half of the ISSUE-085 acceptance pair. Same shape as
+# ../recipes-archetype-pack, minus the teeth: its one scaffolding-kind recipe
+# declares no enforcement block, so `backstop pack check` must reject it at
+# phase4 naming the offending recipe. See README.md before "fixing" anything
+# here.
+name: demo-org/recipes-no-enforcement
+version: 1.0.0
+language: any
+archetype: recipes
+description: Permanently-red fixture whose non-templating recipe declares no enforcement rules.
+recipes:
+  scaffold-service: recipes/scaffold-service
+content:
+  scaffolds:
+    - id: service-base
+      path: scaffolds/service-base

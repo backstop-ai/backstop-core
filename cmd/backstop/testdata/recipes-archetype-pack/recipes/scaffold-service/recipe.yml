@@ -1,0 +1,12 @@
+# A scaffolding-kind recipe: it regenerates its own output, so it carries a drift
+# story and MUST declare the enforcement rules that police it (ISSUE-085 CLM-005).
+kind: scaffolding
+version: 1.0.0
+enforcement:
+  rules:
+    - recipe.service.layout
+ops:
+  - id: create-service-manifest
+    kind: create
+    target: service/service.json
+    payload: payload/service.json

@@ -1,0 +1,14 @@
+# A templating-kind recipe: one-shot, consumer-owned output, so there is no drift
+# story to police and it declares NO enforcement block at all. This recipe is the
+# exemption's proof (ISSUE-085 CLM-007) — it must pass while declaring nothing.
+kind: templating
+version: 1.0.0
+ops:
+  - id: insert-badge
+    kind: insert
+    target: README.md
+    anchor: "<!-- badges -->"
+    snippet: "![gated by backstop](docs/badge.svg)"
+    manual: >-
+      Could not find the badge anchor. Add the badge line by hand, directly under
+      the badges comment near the top of the README.

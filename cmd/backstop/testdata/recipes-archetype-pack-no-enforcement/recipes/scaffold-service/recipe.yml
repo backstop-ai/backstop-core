@@ -1,0 +1,12 @@
+# Structurally VALID and deliberately toothless: a scaffolding-kind recipe
+# regenerates its own output, so it owes an enforcement block — and this one does
+# not declare it. Everything else here parses cleanly on purpose, so the pack
+# reaches phase4 and fails THERE, at the recipe grain, rather than earlier for an
+# unrelated reason.
+kind: scaffolding
+version: 1.0.0
+ops:
+  - id: create-service-manifest
+    kind: create
+    target: service/service.json
+    payload: payload/service.json
