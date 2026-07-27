@@ -10,7 +10,7 @@ issue:
   created: "2026-06-21"
 
 complexity:
-  scope: contained
+  scope: cross-cutting
   uncertainty: exploratory
   risk: critical
 ---
@@ -144,3 +144,97 @@ Any implementation must:
 4. Fail loudly (not silently pass through) if the chosen sandbox mechanism is
    unavailable on the host kernel — a silent no-op is exactly this defect; an explicit
    error is at least recoverable and auditable.
+
+### Acceptance criteria (raised 2026-07-26)
+
+"A Linux sandbox exists" is NOT a sufficient definition of done. The bar is now:
+
+**`backstop gate` runs green in CI on Linux.**
+
+This deliberately subsumes wiring `.github/workflows/ci.yml` to actually invoke
+`backstop gate` on `ubuntu-latest`. That wiring is not separable follow-on work — it
+cannot be done until this issue is fixed, because pointing the gate at `ubuntu-latest`
+today fails immediately (the Linux branch is a hard `errors.New`, see above). Making CI
+invocation the acceptance criterion means two things happen together: the fix cannot be
+claimed done on the strength of an isolated unit test over `sandbox.go` — it has to be
+proven by a real `backstop gate` run, against real installed packs, going green on a
+real Linux CI host — and the same change closes the gap (documented below) that let
+this defect stay invisible in the first place. Landing a Linux sandbox implementation
+without also flipping CI over to call `backstop gate` does not close this issue.
+
+### Newly-verified scope: the blast radius is near-total, not partial (verified 2026-07-26)
+
+Both `SandboxedRun` (pack validators) and `SandboxedRunStdout` (pack convert scripts)
+sit behind `resolveSandboxedRunStdout()`, which wraps pack convert scripts on two
+dispatch paths in `cmd/backstop/pack_gate.go`:
+
+- the findings/engine path (`pack_gate.go:693`)
+- the coverage path (`pack_gate.go:473`) — which additionally treats a `coverage`
+  gate-type engine with no declared `convert:` binding as a broken-pack config error
+  ("its native profile is not coverage-records and must be normalized"). A coverage
+  engine's convert is mandatory, not optional, which makes the coverage dimension
+  strictly convert-dependent too.
+
+Essentially every functional pack ships at least one convert script — counts verified
+directly against the packs installed/vendored today:
+
+| Pack | Convert scripts |
+|---|---|
+| `packs/contracts` | 2 (`ast-grep/to-sarif.sh`, `grep/to-sarif.sh`) |
+| `packs/substantiveness` | 1 (`ast-grep/to-sarif.sh`) |
+| `packs/base-engines` (embedded in the binary itself) | 1 (`ast-grep/to-sarif.sh`) |
+| `.backstop/packs/backstop/go-toolchain` | 3 (`scripts/build-to-sarif.sh`, `scripts/test-to-sarif.sh`, `scripts/coverage-to-records.sh`) |
+| `typescript-contracts` (separate `backstop-packs` repo) | 2 |
+| `typescript-substantiveness` (separate `backstop-packs` repo) | 1 |
+| `typescript-toolchain` (separate `backstop-packs` repo) | 5 |
+
+`base-engines` is the sharpest data point: it is embedded directly in the backstop
+binary (`embed.go`, `BaseEnginesFS`), so even a bare install with zero user-added packs
+cannot check findings on Linux — this is not an edge case reachable only by exotic
+third-party packs.
+
+Consequence, stated plainly: on Linux, `backstop gate` today fails every dimension that
+dispatches an engine with a convert script (pack_engines/findings, coverage), while the
+dimensions that operate purely on committed documents — artifact validation, status
+drift, requirement traceability, waiver resolution, baseline comparison, lockfile
+verification — still pass, because they never touch a pack convert script. The gate
+checks documents and not software. The one mitigating fact, worth stating because it is
+the thing that keeps this from being worse: this is a loud, total failure of the
+code-checking half of the gate, not a silent or vacuous green. A pack engine that
+cannot run reports an error; it does not report a false pass.
+
+### The related CI defect this issue folds in (deliberately not filed separately)
+
+`.github/workflows/ci.yml` does not invoke `backstop` at all today:
+
+- The `gate` job (`runs-on: ubuntu-latest`) runs raw `go tool golangci-lint run
+  ./...`, raw `go test -race -coverprofile=... ./...`, and a hand-rolled shell
+  threshold check over `go tool cover -func`. None of this is `backstop gate`.
+- The only job that touches the binary is `baseline`, which builds `./backstop` and
+  runs `./backstop baseline generate` — commented in the workflow itself as "equivalent
+  to `./backstop gate --all --json`" — also on `runs-on: ubuntu-latest`. That is the one
+  place CI would hit this issue's wall immediately, the moment it actually ran.
+
+The founder's explicit call: this does not get its own issue. It is a one-file YAML
+change with no design decisions behind it — filing a separate issue-and-plan for
+pointing a CI step at `backstop gate` instead of raw tool invocations would be ceremony.
+It is recorded here, and folded into this issue's acceptance criteria above,
+specifically so the Linux-sandbox fix cannot be declared done without also being proven
+against the real CI path. Do not re-file this as a standalone issue.
+
+Why it stayed invisible until now, worth recording so it isn't mistaken for a recent
+regression: backstop-core's own CI does not dogfood `backstop gate` (see above), and —
+independently — the workflow file has never actually executed at all, because the repo
+has no remote yet (`git remote -v` returns empty on this clone). This is a latent
+failure that has never been observed in practice, not one that was missed.
+
+### Launch relevance (escalated 2026-07-26)
+
+The founder escalated this issue to the same tier as the two other current launch
+blockers: recipes (SPEC-054) and remote pack consumption (ISSUE-073). The functional
+argument: a consumer cannot enforce backstop in CI — the only place enforcement
+actually matters for a team, as distinct from a single local machine — until this is
+fixed. Today the product works on the founder's Mac and nowhere else, which is not
+shippable. This also blocks the client-portal traceability feed, which renders gate
+JSON that CI is expected to produce: with CI unable to run `backstop gate` on Linux at
+all, that feed has no real CI-sourced gate JSON to render.
