@@ -55,11 +55,11 @@ The same pack directory hashed differently with and without its root `.git` pres
 `bundles/BUNDLE-006-pack-distribution-lifecycle.bundle.md` around lines 771-773, which states
 plainly: "REQ-021@1.1.0 and DD-24 remain specified-and-unbuilt."
 
-`ComputeContentHash` is called from five sites, none with a `.git` exclusion:
+`ComputeContentHash` is called from seven sites, none with a `.git` exclusion:
 - `pkg/pack/distribution/install.go:78`
-- `pkg/pack/distribution/command.go:172`
-- `pkg/pack/distribution/command.go:427`
-- `pkg/pack/distribution/command.go:807`
+- `pkg/pack/distribution/command.go:272` (add's post-copy hash)
+- `pkg/pack/distribution/command.go:538` (install's verification)
+- `pkg/pack/distribution/command.go:992` (`replaceInstalledPack`)
 - `pkg/pack/distribution/list.go:143`
 - `pkg/pack/distribution/relock.go:54`
 - `pkg/pack/distribution/verify.go:64`
@@ -105,6 +105,12 @@ construction. The exposure is local-path installs specifically (dev/test packs i
 directory), which is the minority path today but is exactly the workflow BUNDLE-006's
 identity/migration seed is meant to eventually harden.
 
+This is not hypothetical for backstop-core itself: `backstop.lock`'s `backstop/self` entry
+(`local_path: ../backstop-self-pack`, `content_hash: 3eb4324c85cb1be7567b7a460cc0fdbb5e748ddf578d64a02120a4e6632ca67f`)
+is a local-path install and is the one contaminated lock entry in this repo today, so the
+implementing plan must relock it (once `pack relock`'s ISSUE-074 defect is fixed) or in-repo
+pack install/verify against a fresh clone of `backstop-self-pack` will mismatch.
+
 This issue is intentionally scoped **not** to prescribe or implement the fix here. The actual
 hash-boundary fix (excluding `.git` — and any other non-authored-content boundary DD-24 needs
 to define precisely — from `ComputeContentHash`, plus the legacy-hash migration mechanism) is
@@ -118,7 +124,7 @@ and doesn't remain buried only in bundle prose.
 - `pkg/pack/distribution/hash.go:17` — `ComputeContentHash`, no `.git` exclusion of any kind
 - `pkg/pack/distribution/gitcloner.go:29,78` — `ExecGitCloner.Clone`'s post-clone root `.git`
   strip, scoped only to the remote-clone path (SPEC-055 CLM-101/CLM-102)
-- `pkg/pack/distribution/install.go:78`, `command.go:172`, `command.go:427`, `command.go:807`,
+- `pkg/pack/distribution/install.go:78`, `command.go:272`, `command.go:538`, `command.go:992`,
   `list.go:143`, `relock.go:54`, `verify.go:64` — the seven `ComputeContentHash` call sites,
   none `.git`-aware
 - `bundles/BUNDLE-006-pack-distribution-lifecycle.bundle.md:309-331` — REQ-021@1.0.0 (original,
