@@ -31,14 +31,31 @@ collection starts. Two halves:
    agency-capture business model (`project_business_model_agency`)
    credible with a number instead of an assertion.
 
-**Hard coupling to the release timeline.** This directive must land WITH OR
-BEFORE DIR-001 (Release Workflow) — that is the entire reason it is being
-staked out now rather than deferred. Telemetry collection that starts after
-day one of the first public release loses the day-zero baseline permanently;
-there is no way to retroactively backfill "how many repos adopted on day
-one." This coupling, not a bandwidth argument, is why it sits immediately
-after DIR-001 in the backlog rather than further down with the other
-hardening directives.
+**Decoupled from the release timeline (ruling 2026-07-27).** This directive
+does not need to land with or before DIR-001 (Release Workflow). The founder's
+ruling: "we don't need fancy telemetry from day 1. We'll get downloads/clones
+from GitHub and we'll also bake in homebrew and go install from day 1." That
+splits the two halves cleanly:
+
+- **Half 2 (ecosystem/adoption metrics)** is largely reconstructable without
+  this directive shipping. GitHub already surfaces downloads and clone/traffic
+  analytics, and Homebrew publishes install analytics for taps/formulae —
+  with Homebrew and `go install` distribution baked in from day one, the
+  publicly-tellable adoption numbers have a source at launch regardless of
+  whether bespoke instrumentation exists yet.
+- **Half 1 (usage telemetry)** does lose its day-zero baseline permanently if
+  collection doesn't start on day one — there is no way to retroactively
+  backfill "how many repos adopted on day one." That insight is still true.
+  But at day-zero launch scale the cohort is small enough that the lost
+  baseline costs little, while instrumenting it early buys noise rather than
+  signal. The founder has consciously accepted that cost rather than treating
+  it as a scheduling constraint on this directive.
+
+Decoupling also reinforces the trust-first constraint above: designing
+opt-out-or-better, openly-disclosed telemetry properly is easier unhurried,
+on BUNDLE-016's own timeline, than rushed to hit a release date. Rushing
+trust-sensitive collection to meet a deadline is the failure mode this
+directive is staked out to avoid.
 
 BUNDLE-016 is still at `exploring` maturity as of this writing, with its
 Overview/Components sections not yet populated — this directive is sourced
@@ -49,9 +66,12 @@ questions resolved (`feedback_bundle_workflow`, `feedback_oq_workflow`).
 
 ## Notes
 
-Positioned directly after DIR-001 (Release Workflow) in BACKLOG.yml,
-inheriting the release timeline rather than being prioritized independently
-— it is a release-day dependency, not a general hardening item. The founder
-reorders at will; this placement should not be read as this directive
-outranking release-blocking work on its own merits, only as riding along
-with DIR-001's schedule.
+**2026-07-27 — hard-coupling-to-DIR-001 claim retracted.** An earlier version
+of this directive asserted it must land with or before DIR-001 and was
+positioned in BACKLOG.yml on that basis. The backlog PM flagged that both the
+Description's coupling claim and this section's position claim had gone
+stale relative to BACKLOG.yml's actual order; the founder ruled to retire the
+coupling rather than reorder. See the Description's "Decoupled from the
+release timeline" paragraph for the founder's reasoning and its date. This
+directive's position in BACKLOG.yml is not restated here — position is
+recorded in BACKLOG.yml itself, not duplicated in directive prose.
