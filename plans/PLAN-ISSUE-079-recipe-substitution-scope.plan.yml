@@ -1,0 +1,894 @@
+---
+plan_id: PLAN-ISSUE-079
+spec_id: ISSUE-079
+created: "2026-07-26"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-079 — `recipe apply` runs only two fields through Substitute
+  (the create PAYLOAD content, apply.go:410-426/248, and the merge FRAGMENT
+  content, apply.go:639). Every field that locates WHERE an op writes —
+  Op.Target, Op.Anchor — and the content it SPLICES — Op.Snippet — is used RAW,
+  so a recipe that templates one of them writes to / reads from / splices in the
+  literal `{{ … }}` text and exits 0. Silent wrong output, verified live
+  2026-07-25: `./{{ config_dir }}/service.json` on disk, exit 0, no warning.
+
+  ── LANDING ORDER (ruled by the orchestrator, 2026-07-26) ───────────────────
+  PLAN-ISSUE-079 lands FIRST; PLAN-ISSUE-080 rebases onto it afterward. Both
+  reactive plans touch the same functions and the same implemented spec
+  (SPEC-054), and TASK-008 below dispatches /spec — which ALLOCATES new CLM ids
+  and bumps the spec version. 080's spec task must therefore read the POST-079
+  spec or the two /spec dispatches collide on claim ids. Nothing in this plan
+  changes because of the ruling; it is recorded here so the implementer does not
+  re-litigate it, and 080's planner is instructed separately.
+
+  ── BLAST RADIUS (reviewer-verified against the tree, do not re-derive) ──────
+  Exactly two Substitute call sites exist in pkg/recipe/apply.go. Raw uses:
+    * applyCreate      (apply.go:224, 229, 230, 252, 256, 258) — resolveUnder /
+      targetExists / writeRendered / own.writtenNow key / recordWritten, all on
+      the raw op.Target.
+    * applyMerge       (apply.go:618, 644, 646, 654, 656) — raw op.Target, three
+      lines from the correctly-substituted fragment. mergeFormatFor (apply.go:
+      666-683) ALSO derives the format fallback from filepath.Ext(op.Target), so
+      it must see the substituted target or a templated path yields the wrong
+      format verdict.
+    * applyInsert      (apply.go:445-478) — raw site.target (454), raw anchor
+      match (464-466), and `content[:spliceAt] + op.Snippet + …` (470) splices
+      the snippet verbatim.
+    * applyTransform   (apply.go:496-526) — raw site.target (510) handed to the
+      injected Dispatch.
+    * siteFor          (apply.go:551-574) — produces target+anchor for insert AND
+      transform in BOTH modes and substitutes neither half, so the sdlc-mediated
+      InjectionSites override has the identical gap.
+    * missingSite / injectionLimit (apply.go:582-604) relay op.Manual verbatim;
+      the committed fixtures TEMPLATE their manual text.
+
+  ── THE FIX ─────────────────────────────────────────────────────────────────
+  Route every CONSUMER-FACING site/content field through
+  Substitute(field, effectiveParams(...)) BEFORE it is used to resolve a path,
+  match an anchor, or splice content. The substitution scope after this plan:
+
+    SUBSTITUTED (consumer-facing — a project path, a match in the consumer's
+    file, bytes written into the consumer's tree, or text shown to the operator):
+      Op.Target   — every family (create / merge / transform / insert)
+      Op.Anchor   — insert, including the sdlc-mediated supplied half
+      Op.Snippet  — insert
+      Op.Manual   — relayed operator instruction (see the Manual note below)
+      payload / fragment CONTENT — already correct, unchanged
+
+    NOT SUBSTITUTED:
+      Op.Rule — pack-internal, allowlist-validated, authority-bearing (below).
+
+    LEFT ALONE ENTIRELY BY THIS PLAN:
+      Op.Payload / Op.Fragment — see the ISSUE-081 boundary below.
+
+  ── RULE: THE EXPLICIT DECISION (contrary to the issue's "for symmetry") ────
+  The issue's Expected section suggests substituting Op.Rule "for symmetry, since
+  Rule is also a declared path." This plan DECLINES that and does NOT substitute
+  Op.Rule. Two grounds, both from the shipped contract:
+
+    1. Op.Rule is validated at PARSE time by exact string equality against the
+       recipe's declared `transform_rules` allowlist (pkg/recipe/manifest.go:
+       171-197: `if _, declared := declaredRules[op.Rule]; !declared { … }`).
+       Substituting it at apply time would execute a rule path that is NOT the
+       one validation approved — the declared-vs-executed correspondence the
+       allowlist exists to guarantee would be broken by construction.
+    2. Op.Rule selects which rewrite file an allowlisted engine runs IN PLACE
+       over the consumer's tree (cmd/backstop/recipe_apply.go transformDispatch,
+       `ast-grep scan --update-all …`). Substituting it hands a CONSUMER-supplied
+       param authority over which pack asset gets executed. Params are inputs to
+       the recipe's output, never a selector for the recipe's own code.
+
+  Because Rule is deliberately excluded from substitution, a templated `rule:`
+  could otherwise send a literal `{{` down to the engine. So Rule — and ONLY Rule
+  — gains a fail-loud PARSE-TIME rejection of `{{` (TASK-006), naming the op and
+  the field. That closes the excluded field's hole at the earliest point without
+  giving params authority they should not have.
+
+  ── ISSUE-081 BOUNDARY (ruled: do not pre-empt) ────────────────────────────
+  Op.Payload and Op.Fragment are pack-relative source paths of the same class as
+  Rule, and an earlier draft of this plan rejected `{{` in all three. That is
+  DROPPED. Whether a payload/fragment may be templated — and whether `fragment:`
+  may carry inline CONTENT at all rather than a path — is ISSUE-081's open
+  question ("Recipe Authoring Surface Underspecified: Merge Fragment Form + No
+  CLI Param Input"), and a parse-time rejection here would decide it silently
+  and from the wrong plan. Rule is different only because its security case is
+  airtight: the exact-match TransformRules cross-check plus the
+  authority-escalation ground above.
+
+  Two committed artifacts confirm the narrowing is required, not merely polite —
+  both carry a templated INLINE fragment and both go red under the broad check,
+  in nobody's file scope:
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml:6-9
+      (TestResolveRef_ResolvesPinnedRecipe would fail);
+    * pkg/recipe/manifest_test.go:37-38, the wellFormedRecipeYAML const
+      (TestRecipeManifest_WellFormedValid would fatal).
+  Verified under the NARROWED (rule-only) check that both survive untouched:
+  `second` declares no transform op and therefore no `rule:` at all, and
+  wellFormedRecipeYAML's `rule: rules/rename-key.yml` is literal. No repair task
+  is needed, and no task in this plan may touch either file.
+
+  ── MANUAL: the second explicit decision ───────────────────────────────────
+  Op.Manual IS substituted, with a FAIL-SOFT fallback. It is operator-facing text
+  telling a human what to type into their own file, and the committed fixtures
+  template it (`Add "{{ app_name }}" to the "registrations" list…`) — relaying
+  literal braces to the operator is the same defect class in the diagnostic
+  channel. REQ-011's "verbatim" means the applier never composes, paraphrases or
+  re-wraps the instruction; rendering the recipe author's own declared params is
+  not composition. BUT: Manual is only ever emitted on an ERROR path, so a
+  substitution failure there must NOT replace the operator's instruction with a
+  substitution error — if Substitute fails on Manual, relay the RAW manual text.
+  This is the one field where fail-loud is the wrong policy, and the reason is
+  that the loud failure already happened.
+
+  ── RESULT-PATH SEMANTICS (behavior-visible, decide it deliberately) ────────
+  ApplyResult.Written and PreservedDivergence.Path today echo the RAW declared
+  target ("so the result echoes the recipe's own paths rather than the applier's
+  resolution of them", apply.go:89-98). After this fix they carry the SUBSTITUTED
+  project-relative path — still the recipe's path form, never the applier's
+  absolute resolution. Reporting `{{ config_dir }}/service.json` to an operator
+  whose file landed at `config/service.json` is exactly the confusion the issue
+  is about. Same for the `own.writtenNow` ownership key: it MUST key on the
+  substituted path, because two ops templating differently can legitimately
+  resolve to one file. This is a CONTRACT change, so it lands in three places
+  together: the code, the apply.go:89-98 doc comment, and SPEC-054's ApplyResult
+  contract entry + CLM-002 wording (TASK-008).
+
+  ── FIXTURE STRATEGY (why Phase 1 adds rather than edits) ──────────────────
+  The mandated regression is driving a COMMITTED, resolution-driven recipe
+  through Apply end to end — templated `target:` on the create/merge/transform
+  ops and a templated `snippet:` on the insert, the exact combination no existing
+  test constructs.
+
+  The obvious candidate, the committed `starter` recipe, cannot run all four
+  families today: its merge op declares `fragment:` as INLINE JSON content while
+  the shipped applier reads Fragment as a recipe-relative PATH
+  (apply.go:628-635). That inline block is ISSUE-081's PRIMARY EVIDENCE ARTIFACT
+  and is left BYTE-INTACT by this plan — no task may rewrite it, and this plan
+  takes no position on whether the inline form should ever be accepted.
+
+  So Phase 1 ADDS a sibling committed recipe (`templated-sites`) carrying the
+  same templating shape with a fragment FILE, and TASK-002 drives BOTH:
+    * `templated-sites` for the full four-family end-to-end proof;
+    * the byte-intact `starter` for a partial proof that is strictly better than
+      a comment — its create op runs FIRST, so the test asserts the templated
+      create target resolved correctly and then asserts the apply halts at the
+      merge op with the fragment-path error. The committed starter recipe finally
+      gets driven through Apply (the issue's core complaint), ISSUE-081 gains a
+      live falsifiable marker, and the evidence file is never touched.
+  Adding to demo-pack's `recipes:` index is safe: no test asserts that index's
+  contents (TestResolveRef_UndeclaredRecipeFailsLoud checks only the marker text
+  and the requested id), and starter's pinned version 1.2.0 and op-id order are
+  untouched.
+
+  ── SCOPE BOUNDARIES ───────────────────────────────────────────────────────
+    * No CLI --param flag, no payload/fragment form decision, no inline-fragment
+      support (ISSUE-081 owns all three). The CLI e2e reproduces the live repro
+      through a DEFAULTED param, exactly as the live repro did.
+    * No change to the transform trust gate, engine selection, adoption record,
+      merge semantics, or waiver adjudication.
+    * No new language/tool knowledge anywhere — every path, anchor, snippet and
+      rule still comes from the recipe as DATA.
+
+  ── VERIFICATION COMMANDS (backstop code check does NOT exist) ─────────────
+    middle: go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary
+            gates the old code)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-079
+            ./bin/backstop artifact validate --spec SPEC-054
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Expected) ───
+    REQ-001: Every consumer-facing site/content field is substituted BEFORE use.
+      CLM-001  applyCreate substitutes Op.Target before resolveUnder /
+               targetExists / writeRendered, and keys ownership + result paths on
+               the SUBSTITUTED project-relative path.
+      CLM-002  applyMerge substitutes Op.Target before resolution, read and
+               write, and mergeFormatFor derives its extension fallback from the
+               SUBSTITUTED target.
+      CLM-003  applyInsert substitutes target, anchor AND snippet before the
+               anchor match and the splice.
+      CLM-004  applyTransform substitutes its target before resolution, stat and
+               Dispatch.
+      CLM-005  siteFor substitutes BOTH halves in BOTH modes, including a
+               caller-supplied sdlc-mediated InjectionSites override.
+      CLM-006  Op.Manual is substituted when relayed, and falls back to the RAW
+               declared text if its own substitution fails.
+    REQ-002: Fail loud; no literal placeholder ever reaches the filesystem.
+      CLM-007  an undeclared placeholder in ANY substituted site/content field
+               fails the apply with Substitute's unresolvable-placeholder error,
+               wrapped by opFailure so it names the recipe, op index, id and
+               kind — and nothing is written.
+      CLM-008  INVARIANT: after a successful apply, no path written, read or
+               created contains a `{{` segment anywhere beneath the project root.
+    REQ-003: Op.Rule stays unsubstituted and untemplatable.
+      CLM-009  Op.Rule is NOT substituted — Dispatch receives the declared,
+               transform_rules-validated rule path resolved under PackDir.
+      CLM-010  a placeholder in op.rule — and ONLY op.rule — is rejected at
+               manifest validation, fail-loud, naming the op and the field;
+               payload/fragment placeholders are untouched (ISSUE-081's call).
+    REQ-004: Proven on the committed corpus AND through the shipped CLI.
+      CLM-011  a committed, resolution-driven recipe applies end-to-end — all
+               four executed op families, every templated site resolved — and the
+               byte-intact `starter` recipe proves its templated create target
+               resolves before halting at ISSUE-081's inline fragment.
+      CLM-012  the shipped `backstop recipe apply` reproduces the live repro
+               correctly: a DEFAULTED param resolves, the file lands at the real
+               path, exit 0, and no literal-brace directory exists.
+    REQ-005: The spec gap that let this through is closed.
+      CLM-013  SPEC-054 gains a substitution-SCOPE table pinning which Op fields
+               are substituted and which are not, with the Rule rationale, and
+               its ApplyResult contract reflects the substituted result paths.
+
+  Structure:
+    Phase 1: Fixture precondition — ADD a runnable committed sibling recipe;
+             starter stays byte-intact as ISSUE-081's evidence.
+    Phase 2: TDD red — three parallel, file-disjoint failing test tasks
+             (pkg apply substitution, rule-placeholder validation, CLI e2e).
+    Phase 3: TDD green — two parallel implementation tasks (apply.go, manifest.go)
+             + package verification.
+    Phase 4: Spec reconciliation (substitution-scope table + result-path contract
+             via /spec) + comprehensive verification (rebuilt binary, gate,
+             artifact validate).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Fixture precondition — a runnable committed recipe, added not edited
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixture Precondition — Add a Runnable Committed Recipe Beside the Untouched starter Evidence"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Add the committed `templated-sites` demo recipe: templated targets on three families, templated snippet and manual, fragment as a FILE"
+        description: |
+          TASK-002's end-to-end regression needs a COMMITTED, resolution-driven
+          recipe it can actually run. The existing `starter` recipe cannot run all
+          four families: its merge op declares `fragment:` as INLINE content while
+          applyMerge (apply.go:628-635) reads Fragment as a recipe-relative PATH.
+
+          DO NOT EDIT recipes/starter/recipe.yml. Its inline fragment block is
+          ISSUE-081's primary evidence artifact and must stay byte-intact —
+          TASK-002 drives it as-is to pin that evidence as a live regression
+          marker. This plan takes no position on the inline form.
+
+          Instead ADD a sibling recipe to the same committed demo pack:
+
+            1. pkg/recipe/testdata/packs/demo-org/demo-pack/pack.yml — add ONE
+               index line: `templated-sites: recipes/templated-sites`. Change
+               nothing else in that file. (Safe: no test asserts the index's
+               contents — TestResolveRef_UndeclaredRecipeFailsLoud checks only the
+               marker wording and the requested id.)
+            2. recipes/templated-sites/recipe.yml — kind: scaffolding,
+               version: 1.0.0, params `app_name` (required, NO default) and
+               `config_dir` (required:false, default: config), a transform_rules
+               entry, and FIVE ops in declared order mirroring starter's shape:
+                 * create  `{{ config_dir }}/app.config.json` from
+                   payload/app.config.json
+                 * merge   `{{ config_dir }}/settings.json`, format json,
+                   fragment payload/settings.fragment.json  ← a FILE, the shipped
+                   contract, which is the whole reason this recipe exists
+                 * transform `{{ config_dir }}/app.config.json` with a LITERAL
+                   (never templated) rule path also listed in transform_rules,
+                   and a manual that TEMPLATES `{{ app_name }}`
+                 * insert  `{{ config_dir }}/settings.json`, anchor
+                   `"registrations": [`, snippet `"{{ app_name }}"`, manual
+                   templating `{{ app_name }}`
+                 * a step op (reserved, not executed) so the sequence-position
+                   behavior is exercised
+            3. recipes/templated-sites/payload/app.config.json — the create
+               payload; keep starter's markers (`legacy_name`, `{{ app_name }}`,
+               `registrations`) so the payload-content substitution path is
+               exercised alongside the site fields.
+            4. recipes/templated-sites/payload/settings.fragment.json —
+               `{"adopted_by": "{{ app_name }}"}`.
+
+          Do NOT create the transform rule FILE. Verified empirically:
+          applyTransform resolves the rule path under PackDir but never stats it
+          (apply.go:506-521 stats the TARGET only), and the dispatch is injected in
+          tests — so an absent rule file is correct here and adding one would be
+          dead fixture.
+
+          Confirm the existing parse/resolve suites still pass before handing off:
+            go test ./pkg/recipe/... -race -count=1 -run "TestRecipeDir|TestResolveRef|TestRecipeManifest|TestParseRecipeManifest"
+        files:
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/pack.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/payload/app.config.json
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/payload/settings.fragment.json
+        claims:
+          - CLM-011
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD red — three parallel, file-disjoint failing test tasks
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Failing Substitution-Scope Tests (package, manifest, CLI)"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Failing pkg/recipe tests: committed-fixture end-to-end, the no-literal-braces invariant, fail-loud, sdlc-mediated override, Rule-not-substituted, Manual fail-soft"
+        description: |
+          Add pkg/recipe/apply_substitution_test.go. Every test drives the REAL
+          Apply — no test may assert against Substitute() directly, because
+          Substitute-direct testing is exactly what let this defect ship (the
+          three mandated CLM-012/013/014 tests in substitute_test.go all pass
+          today while the applier is broken).
+
+          Reuse the package's existing helpers rather than re-declaring them:
+          loadFixtureCorpus (resolve_test.go:22), ResolveRecipe,
+          resolvedFromManifest / writeUnder (apply_core_test.go:83, 99).
+
+          Mandated test names (exact):
+
+            - TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
+              (CLM-001..CLM-004, CLM-009, CLM-011) — THE crux regression.
+              Resolve TASK-001's committed recipe via loadFixtureCorpus +
+              ParseRecipeRef("<fixture pack>:templated-sites@1.0.0") +
+              ResolveRecipe — never re-typed inline, so the test cannot drift from
+              the fixture. Stage a temp project root, seed the merge/insert target
+              `config/settings.json` with a document containing the declared
+              anchor `"registrations": [`. Apply in ModeDirect with
+              Params{"app_name": …} (app_name is required with NO default;
+              config_dir defaults to "config") and an injected Dispatch that
+              RECORDS the (rule, target) pair it was handed.
+              Assert, reading the expected values back off the PARSED manifest
+              (op.Target rendered through Substitute with the same params) rather
+              than hardcoding them:
+                * the create op wrote `<root>/config/app.config.json`, and its
+                  substituted payload content is intact;
+                * the merge op merged into `<root>/config/settings.json` with
+                  `adopted_by` = the supplied app_name (fragment-content
+                  substitution still works) and the seeded siblings preserved;
+                * the insert op spliced the SUBSTITUTED snippet — the literal
+                  app_name value, NOT `{{ app_name }}` — immediately after the
+                  anchor in that same file;
+                * the transform op's Dispatch received target
+                  `<root>/config/app.config.json` AND the declared rule path
+                  resolved under PackDir UNCHANGED — the Rule-not-substituted
+                  assertion (CLM-009);
+                * ApplyResult.Written carries the SUBSTITUTED project-relative
+                  paths (`config/app.config.json`, `config/settings.json`), never
+                  a `{{`-bearing string;
+                * the step op executed nothing and did not break the sequence.
+              This test FAILS today at the first assertion (the create lands at
+              `<root>/{{ config_dir }}/app.config.json`).
+
+            - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+              (CLM-001, CLM-011) — drives the BYTE-INTACT committed `starter`
+              recipe (`<fixture pack>:starter@1.2.0`) through Apply. Its create op
+              runs FIRST, so assert: `<root>/config/app.config.json` exists (the
+              templated create target resolved) and no `{{ config_dir }}`
+              directory was created; THEN assert Apply returned an error
+              identifying the merge op and its unreadable declared fragment.
+              This is the recipe the issue names as never having been driven
+              through Apply — now it is — and the halt is ISSUE-081's evidence
+              pinned as a live, falsifiable marker instead of a comment. Reference
+              ISSUE-081 in the test doc comment so whoever fixes the fragment form
+              knows this assertion is theirs to update.
+
+            - TestApply_NoLiteralPlaceholderReachesTheFilesystem (CLM-008) —
+              the invariant, and the one that would have caught the live repro
+              generically. After a successful apply of TASK-001's fixture,
+              filepath.WalkDir the whole project root and FAIL if ANY path
+              segment of ANY entry contains "{{" or "}}". Assert on the walk, not
+              on a known-good path list, so a future op family that forgets
+              substitution is caught without anyone remembering to update a list.
+
+            - TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud (CLM-007) —
+              table-driven over the four substituted field positions, each built
+              inline via resolvedFromManifest so the failure is isolated:
+              a create `target`, a merge `target`, an insert `anchor`, and an
+              insert `snippet`, each carrying `{{ nope }}` with no such declared
+              param. For every case assert: Apply returns a non-nil error whose
+              message contains Substitute's "unresolvable placeholder" text AND
+              the offending param name AND — via opFailure — the recipe ref, the
+              op index and the op id; AND that the project root is UNCHANGED
+              (nothing written, no `{{`-named file created). A partially-applied
+              failure is as bad as a silent success.
+
+            - TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted
+              (CLM-005) — an insert op in ModeSDLCMediated whose
+              InjectionSites[op-id] supplies a TEMPLATED value in the
+              "<target>#<anchor>" form (both halves templated, using params the
+              recipe declares). Assert the write lands at the substituted target
+              and splices at the substituted anchor. Falsifier: also assert the
+              DECLARED target was not written, so an applier that ignored the
+              override cannot pass. This is the gap the issue calls out at
+              siteFor — it is reachable only through the override, so it needs
+              its own test.
+
+            - TestApply_TransformOp_DeclaredRuleIsNotSubstituted (CLM-009) — an
+              inline transform recipe whose `rule` is a plain declared path (also
+              listed in transform_rules) and whose `target` IS templated. Assert
+              the injected Dispatch received the substituted target and the
+              byte-identical declared rule path resolved under PackDir. Guards
+              the deliberate asymmetry against a future "fix" that substitutes
+              everything uniformly.
+
+            - TestApply_InjectionLimit_RelaysSubstitutedManualFailingSoftToRaw
+              (CLM-006) — two cases on the injection-limit error path, where
+              op.Manual is relayed:
+                (a) an insert whose anchor is ABSENT from the target and whose
+                    `manual` templates a DECLARED param (as the committed fixtures
+                    do): assert the returned error carries the manual with the
+                    param RESOLVED and contains no `{{`;
+                (b) the same, but the manual templates an UNDECLARED param:
+                    assert the error still carries the RAW manual text verbatim
+                    and still identifies the unreachable site — the operator's
+                    instruction must never be replaced by a substitution error on
+                    a path that is already reporting a failure.
+              Case (b) is the falsifier for a naive "substitute everything
+              fail-loud" implementation.
+
+          Do NOT modify pkg/recipe/apply.go or manifest.go in this task, and do
+          NOT touch recipes/starter/recipe.yml.
+        files:
+          - pkg/recipe/apply_substitution_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+        test_names:
+          - TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
+          - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+          - TestApply_NoLiteralPlaceholderReachesTheFilesystem
+          - TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud
+          - TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted
+          - TestApply_TransformOp_DeclaredRuleIsNotSubstituted
+          - TestApply_InjectionLimit_RelaysSubstitutedManualFailingSoftToRaw
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Failing manifest-validation test: a placeholder in `rule:` — and only `rule:` — is rejected at parse"
+        description: |
+          Add pkg/recipe/manifest_ruleplaceholder_test.go pinning the OTHER half
+          of the invariant: Op.Rule is deliberately NOT substituted (see the plan
+          notes' Rule decision), so a templated rule must be refused at PARSE time
+          rather than silently resolving a brace-bearing path into an engine
+          invocation at apply time.
+
+          Mandated test name (exact):
+            - TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
+
+          Cases:
+            * REJECT: a transform op whose `rule` is "rules/{{ variant }}.yml",
+              with transform_rules declaring that SAME literal string — so the
+              case fails on the placeholder check and NOT on the pre-existing
+              allowlist check. That ordering is the point of the case. Assert the
+              error names the op INDEX, the op ID and the FIELD (`rule`) — a
+              generic "invalid op" tells a pack author nothing.
+            * ACCEPT (the scope guard, and the reason this test is narrow): the
+              SAME manifest with a literal `rule:` but a templated `payload:` and
+              a templated `fragment:` parses CLEANLY. Payload/fragment templating
+              is ISSUE-081's open question and this plan must not decide it. This
+              case FAILS if someone widens the check, which is exactly what it is
+              for.
+            * ACCEPT: a fully literal manifest still parses cleanly, so a check
+              that rejected every rule path could not look green.
+
+          Reuse the existing inline-manifest style of manifest_opchecks_test.go.
+          Do NOT modify pkg/recipe/manifest.go in this task, and do NOT touch
+          pkg/recipe/manifest_test.go or
+          testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml — both carry
+          templated inline fragments that the narrowed check leaves valid
+          (verified: `second` declares no transform op at all, and
+          wellFormedRecipeYAML's rule is literal).
+        files:
+          - pkg/recipe/manifest_ruleplaceholder_test.go
+        claims:
+          - CLM-010
+        test_names:
+          - TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "Failing CLI e2e reproducing the live repro: a defaulted param resolves the declared target through the shipped `recipe apply`"
+        description: |
+          The pkg-level tests all inject their own ApplyOptions. Only a run of the
+          SHIPPED `backstop recipe apply` over an INSTALLED pack reproduces the
+          2026-07-25 live repro — a defaulted param, no override, exit 0, and a
+          literal-brace directory on disk. Add that.
+
+          Fixture work, inside the EXISTING committed e2e consumer project:
+            * add `templated: recipes/templated` to the `recipes:` index of
+              cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/
+              recipe-pack/pack.yml (leave its single provisioned ast-grep engine
+              binding untouched — runRecipeApply requires EXACTLY ONE provisioned
+              binding and gates it even for a recipe with no transform op);
+            * add recipes/templated/recipe.yml: kind scaffolding, version 1.0.0,
+              a single param `config_dir` (required:false, default: config), and
+              ONE create op with `target: "{{ config_dir }}/service.json"` and
+              `payload: payload/service.json`. One create op only — no transform,
+              so no engine tool is ever executed and the test stays hermetic;
+            * add recipes/templated/payload/service.json.
+
+          No backstop.yml change and NO backstop.lock refresh is needed, and this
+          is verified rather than assumed: the recipe-apply path loads packs via
+          loadInstalledPacks (cmd/backstop/pack_gate.go:147-176), which reads
+          backstop.yml's declared pack names and parses each pack.yml — it
+          performs NO content-hash verification against backstop.lock. The pack is
+          already declared, so editing its pack.yml and adding a recipe directory
+          is sufficient. Do not touch backstop.lock.
+
+          Mandated test name (exact):
+            - TestRecipeApply_CLI_TemplatedTargetWritesAtTheSubstitutedPath
+
+          Stage the fixture project with the existing stageRecipeE2EProject helper
+          (recipe_apply_e2e_test.go:43) and drive the SHIPPED command exactly as
+          the TestRecipeApply_CLI_* tests in that file do. Assert:
+            * the command succeeds (no error / exit 0);
+            * `<root>/config/service.json` exists with the payload content;
+            * NO directory or file named with a `{{` segment exists anywhere
+              beneath the staged root (walk it — this is the literal live-repro
+              symptom, `./{{ config_dir }}/service.json`);
+            * the adoption record records the recipe.
+          Read the expected target from the PARSED fixture recipe manifest
+          (Substitute of op.Target with the declared default) rather than
+          hardcoding "config/service.json", so the assertion cannot agree with a
+          broken applier by coincidence.
+
+          This test FAILS today: the file lands under a literal `{{ config_dir }}`
+          directory and the command still exits 0.
+
+          Do NOT add a `--param` CLI flag — ISSUE-081 owns that surface. The
+          DEFAULTED param is what the live repro used and is sufficient here.
+          Do NOT modify any production file in this task.
+        files:
+          - cmd/backstop/recipe_apply_substitution_e2e_test.go
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/pack.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/templated/recipe.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/templated/payload/service.json
+        claims:
+          - CLM-008
+          - CLM-012
+        test_names:
+          - TestRecipeApply_CLI_TemplatedTargetWritesAtTheSubstitutedPath
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD green — the two production changes (parallel) + verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — Substitute Every Consumer-Facing Site/Content Field; Refuse a Templated Rule"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "pkg/recipe/apply.go — route target/anchor/snippet/manual through Substitute before path resolution, anchor match and splice"
+        description: |
+          Make TASK-002's and TASK-004's tests pass. One narrow, general change —
+          no op family gets a special case, and no language/tool noun appears.
+
+          Add ONE helper next to the existing renderPayload, so every field goes
+          through the same door and a future field cannot be added without it:
+
+              func substituteField(field string, label string, params map[string]string) (string, error)
+
+          returning a wrapped error naming the FIELD (e.g. `substitute declared
+          target %q: %w`) so the diagnostic says which declaration was bad.
+
+          Wire it in:
+            * applyCreate (apply.go:223-261) — substitute op.Target ONCE at the
+              top; use that value for resolveUnder, targetExists, writeRendered,
+              the own.writtenNow key, recordWritten, and the PreservedDivergence
+              path. Thread the substituted value into preserveOrRegenerate
+              (apply.go:266-302) too — its three PreservedDivergence{Path:
+              op.Target} constructions and its error messages must report the
+              substituted path.
+            * applyMerge (apply.go:617-661) — substitute op.Target at the top and
+              use it for resolveUnder, both reads, the write, recordWritten, and
+              the error messages. Change mergeFormatFor to take the SUBSTITUTED
+              target (apply.go:666-683 currently derives the extension fallback
+              from op.Target); keep it checking the format BEFORE the fragment is
+              read, exactly as today.
+            * siteFor (apply.go:551-574) — substitute BOTH halves and return an
+              error: `func siteFor(op Op, opts ApplyOptions, params map[string]string) (injectionSite, error)`.
+              Substitute the recipe-declared target/anchor AND the sdlc-mediated
+              supplied override (both halves of the "<target>#<anchor>" form),
+              so the override closes the same gap. Split on the separator BEFORE
+              substituting so a substituted value containing "#" cannot be
+              re-split — the grammar is core-owned and applies to the DECLARED
+              text, not to param values.
+            * applyInsert (apply.go:445-478) — take params, propagate siteFor's
+              error, and substitute op.Snippet before the splice. Keep the
+              empty-half checks and the anchor-absent injectionLimit exactly as
+              they are, reporting the SUBSTITUTED site.
+            * applyTransform (apply.go:496-526) — take params, propagate siteFor's
+              error, substitute the target before resolveUnder/stat/Dispatch.
+              LEAVE op.Rule RAW: `resolveUnder(resolved.PackDir, op.Rule)` is
+              unchanged. Add a short comment stating WHY (parse-time
+              transform_rules allowlist validated by string equality; a consumer
+              param must not select which pack asset an allowlisted engine
+              executes) so the asymmetry is not "cleaned up" later.
+            * missingSite / injectionLimit (apply.go:582-604) — substitute
+              op.Manual before relaying it, and on a substitution FAILURE relay
+              the RAW manual text unchanged. The manual is emitted only on an
+              error path; losing the operator's instruction to a second error is
+              worse than literal braces.
+            * Apply (apply.go:134-157) — pass `params` to applyInsert (it takes
+              none today) and to applyTransform.
+
+          Update the doc comments that this changes the meaning of: ApplyResult
+          (apply.go:89-98) and applyCreate (apply.go:204-222) both currently say
+          the result echoes the RAW recipe-declared target; they now carry the
+          SUBSTITUTED project-relative path (still the recipe's path form, never
+          the applier's absolute resolution). TASK-008 makes the matching change
+          in SPEC-054's contract entry — the code comment and the spec must not
+          drift apart.
+
+          Do NOT touch pkg/recipe/manifest.go (TASK-006 owns it), Substitute
+          itself, the merge/deep-merge semantics, the waiver adjudication, or the
+          adoption record.
+
+          Run `go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1` and
+          confirm the previously-failing tests are green and nothing regressed.
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "pkg/recipe/manifest.go — reject a placeholder in `rule:` at parse time (rule ONLY)"
+        description: |
+          Make TASK-003's test pass. In validateRecipeOps (manifest.go:167-201),
+          for a transform op, reject a `{{` appearing in op.Rule with a fail-loud
+          error naming the op index, the op id and the FIELD. Check it BEFORE the
+          existing transform_rules allowlist check so a templated rule reports the
+          real cause rather than "not among the declared transform_rules".
+
+          Key the check on the placeholder OPEN delimiter already declared in
+          substitute.go (placeholderOpen) — do not retype "{{" as a second
+          literal, so the two files cannot drift.
+
+          SCOPE — `rule:` ONLY. Do NOT extend this to op.Payload or op.Fragment.
+          Whether those may be templated (and whether `fragment:` may carry inline
+          content at all) is ISSUE-081's open question, and deciding it from this
+          plan would both pre-empt that issue and break two committed artifacts
+          nobody here owns: recipes/second/recipe.yml:6-9 and
+          manifest_test.go:37-38's wellFormedRecipeYAML const both declare a
+          templated INLINE fragment. Verified that both remain valid under the
+          rule-only check (`second` declares no transform op; wellFormedRecipeYAML's
+          rule is literal) — so neither file is touched by this plan, and TASK-003's
+          ACCEPT case guards that boundary.
+
+          Why rule and nothing else: op.Rule is validated here by exact string
+          equality against the declared transform_rules allowlist, and it selects
+          which rewrite file an allowlisted engine executes in place over the
+          consumer's tree — a consumer param must not have that authority (see the
+          plan notes' "RULE: THE EXPLICIT DECISION"). Refusing a templated rule at
+          parse closes the one field substitution deliberately skips.
+
+          Keep the message shaped like the surrounding op-check errors (label,
+          ops[i], id, then the specific problem). Do NOT touch pkg/recipe/apply.go
+          (TASK-005 owns it) and do NOT relax any existing op check.
+        files:
+          - pkg/recipe/manifest.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-007
+        type: verification
+        title: "Package verification — the recipe package and the CLI recipe-apply suites green under race"
+        description: |
+          Run:
+
+            go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+          Confirm:
+            * all seven TASK-002 tests, TASK-003's manifest test and TASK-004's CLI
+              e2e now PASS (they failed before TASK-005/TASK-006);
+            * every pre-existing pkg/recipe suite still passes — in particular the
+              parse/resolve tests over the demo pack TASK-001 extended
+              (TestRecipeDir_ParsesColocatedManifestAndPayload,
+              TestResolveRef_*), TestRecipeManifest_WellFormedValid and the
+              manifest op-check suites (the two templated-inline-fragment
+              artifacts the narrowed rule-only check must leave valid), the merge
+              suites, the mode suites, and the committed CLI e2e trust-gate tests
+              (TestRecipeApply_E2E_RealEngineTransform_CapturedFixture,
+              TestRecipeApply_CLI_*);
+            * the three mandated SPEC-054 substitution tests
+              (TestSubstitute_ResolvesDeclaredParam,
+              TestSubstitute_NotTuringComplete_NoLogicEvaluated,
+              TestSubstitute_UndeclaredParamFailsLoud) still pass — Substitute
+              itself is unchanged.
+
+          If anything fails, fix it in the owning task's files and re-run. Do NOT
+          weaken or delete an assertion to get green. `backstop code check` does
+          not exist — do not invent it.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/manifest.go
+          - pkg/recipe/apply_substitution_test.go
+          - pkg/recipe/manifest_ruleplaceholder_test.go
+          - cmd/backstop/recipe_apply_substitution_e2e_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Spec reconciliation + comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: SPEC-054 Substitution-Scope Table + Result-Path Contract + Comprehensive Gate Verification"
+    tasks:
+      - id: TASK-008
+        type: documentation
+        title: "SPEC-054 — add the substitution-SCOPE table and reconcile the ApplyResult result-path contract"
+        description: |
+          The issue names a contributing spec gap: SPEC-054's "Substitution
+          (REQ-002)" section (specs/SPEC-054-recipe-apply-and-manifest.spec.md
+          ~873-881) pins the substitution SEMANTICS (declared params only, not
+          Turing-complete, undeclared fails loud) but never pins the SCOPE — which
+          Op fields are resolved. The spec's own fixture corpus implied targets and
+          snippets were in scope; the implementation disagreed, and nothing caught
+          it. SPEC-054 is `implemented`, so this is a reconciliation of a shipped
+          spec to shipped behavior, not new scope.
+
+          LANDING ORDER: this /spec dispatch runs BEFORE PLAN-ISSUE-080's, per the
+          orchestrator's ruling — it allocates new CLM ids and bumps the spec
+          version, and 080 rebases onto the result.
+
+          ROUTE THIS THROUGH THE SPEC AGENT — do NOT hand-edit the spec file
+          (CLAUDE.md: never hand-edit artifacts). Dispatch /spec (spec-author)
+          with these instructions:
+
+            * Add a substitution-SCOPE table to the "Substitution (REQ-002)"
+              section, in the same style as the existing kind /
+              reference-resolution / manifest-validation matrices, with one row
+              per Op field:
+                Op.Target (create/merge/transform/insert) — SUBSTITUTED
+                Op.Anchor (insert, incl. the sdlc-mediated supplied half) — SUBSTITUTED
+                Op.Snippet (insert) — SUBSTITUTED
+                Op.Manual (relayed instruction) — SUBSTITUTED, fail-soft to raw
+                payload / fragment CONTENT — SUBSTITUTED (already true)
+                Op.Rule — NOT substituted; a placeholder in it is refused at
+                  manifest validation.
+              Op.Payload and Op.Fragment as PATHS are deliberately OUT OF SCOPE of
+              this table — their form and templatability are ISSUE-081's open
+              question. Say so explicitly in one line rather than leaving a silent
+              gap, so the next reader knows the omission is a decision.
+            * State the Rule rationale in prose next to the table: the rule path
+              is validated at parse by exact string equality against the declared
+              transform_rules allowlist, and it selects which pack asset an
+              allowlisted engine executes in place over the consumer's tree — a
+              consumer param must not carry that authority.
+            * RESULT-PATH CONTRACT (a behavior change shipping in the same
+              commit, so the spec must move with it):
+                - update the ApplyResult contract entry (~spec:690) so Written and
+                  PreservedDivergence.Path are documented as carrying the
+                  SUBSTITUTED project-relative target — still the recipe's path
+                  form, never the applier's absolute resolution;
+                - CLM-002's wording ("writes exactly at the recipe-declared
+                  target") needs the substituted-form clarification: the declared
+                  target AFTER param substitution is what is written, and that is
+                  what the result echoes;
+                - note that pkg/recipe/apply.go's ApplyResult doc comment
+                  (apply.go:89-98) is updated in the same change by TASK-005, so
+                  the two statements of the contract stay aligned.
+            * Add claims covering the scope: a site field templated in a recipe
+              resolves through Apply (not merely through Substitute); a
+              placeholder in `rule:` is refused at parse; and the
+              no-literal-placeholder-on-the-filesystem invariant. Mandate the
+              test names this plan delivers —
+              TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite,
+              TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment,
+              TestApply_NoLiteralPlaceholderReachesTheFilesystem,
+              TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud,
+              TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted,
+              TestApply_TransformOp_DeclaredRuleIsNotSubstituted,
+              TestApply_InjectionLimit_RelaysSubstitutedManualFailingSoftToRaw,
+              TestParseRecipeManifest_TemplatedTransformRuleFailsLoud,
+              TestRecipeApply_CLI_TemplatedTargetWritesAtTheSubstitutedPath —
+              so the traceability dimensions bind the spec to the delivered tests.
+            * Note in the spec's version history that the existing CLM-012/013/014
+              tests are Substitute-DIRECT and therefore cannot prove applier
+              scope; the new claims are the Apply-level obligation.
+            * Bump the spec version per the spec agent's own convention and keep
+              status `implemented` (this reconciles the spec to behavior that
+              ships in the same change).
+
+          Do not restate the fix in the spec as a plan; the spec declares the
+          contract, this plan delivers it.
+        files:
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Comprehensive verification — rebuilt binary, full gate kill chain, artifact validation"
+        description: |
+          Final verification over BOTH work categories this plan touched: Go code
+          and artifacts.
+
+          1. REBUILD the binary first — a stale ./bin/backstop gates the OLD code
+             and would report a vacuous green:
+
+               go build -o bin/backstop ./cmd/backstop/
+
+          2. Full kill chain:
+
+               ./bin/backstop gate
+
+             Every dimension, no filtering, no per-dimension selection. Fix real
+             violations in the owning task's files; do not waive, do not
+             baseline, and do not scope the run down. Violations in files THIS
+             change touched must be fixed outright (you-touch-it-you-fix-it) —
+             no grandfathering on changed files.
+
+          3. Artifact validation for the artifacts this plan touched:
+
+               ./bin/backstop artifact validate --plan PLAN-ISSUE-079
+               ./bin/backstop artifact validate --spec SPEC-054
+
+             Both must pass. If TASK-008's spec edit broke schema conformance,
+             route the correction back through /spec — never hand-edit the spec
+             to satisfy the validator.
+
+          4. Confirm the delivered evidence one last time, since this defect was
+             silent-wrong-output rather than a crash: re-read the CLI e2e output
+             and confirm no `{{`-bearing path exists in the staged project after
+             a successful apply. A green suite that never walked the filesystem
+             is what shipped this bug.
+
+          5. Confirm the ISSUE-081 boundary artifacts are untouched by the whole
+             change: `git diff` must show NO modification to
+             pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml,
+             recipes/second/recipe.yml, or pkg/recipe/manifest_test.go.
+
+          Report the actual command output. Do not assert a pass you did not run.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/manifest.go
+          - cmd/backstop/recipe_apply_substitution_e2e_test.go
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-008
