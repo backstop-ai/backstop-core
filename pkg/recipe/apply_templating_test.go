@@ -68,9 +68,9 @@ type spyWaiverReader struct {
 	calls []string
 }
 
-func (s *spyWaiverReader) read(rule string, file string) bool {
+func (s *spyWaiverReader) read(rule string, file string) DivergenceVerdict {
 	s.calls = append(s.calls, rule+" "+file)
-	return false
+	return DivergenceVerdict{}
 }
 
 // TestApply_Templating_OutputConsumerOwned proves a templating recipe's output is

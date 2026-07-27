@@ -1,0 +1,45 @@
+name: demo-org/divergence-pack
+version: 1.0.0
+language: any
+archetype: code
+description: >
+  E2E fixture pack for recipe divergence adjudication (ISSUE-080). Its one recipe
+  is a SCAFFOLDING create op with a declared enforcement rule — the only shape
+  that reaches the waiver-adjudication seam, since templating short-circuits it
+  and transform/insert/merge never consult it at all.
+engines:
+  # This binding exists ONLY to satisfy two things the CLI does before it applies
+  # anything: provisionedEngineBinding's exactly-one-provisioned-binding
+  # requirement, and the trust gate that compares the declared tool+version
+  # against engine.TrustedToolAllowlist(). 0.43.0 is the pinned version, matching
+  # demo-org/recipe-pack.
+  #
+  # NO transform op is ever dispatched by this pack's recipe, so ast-grep is never
+  # executed and nothing needs installing: the fixture is HERMETIC.
+  ast-grep:
+    command: ast-grep scan --update-all
+    input_mode: rule-flags
+    input_flag: "--rule"
+    scope_kind: file-args
+    gate_type: lint
+    category: mechanism
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+recipes:
+  divergence: recipes/divergence
+content:
+  scaffolds:
+    - id: divergence-companion
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/divergence-companion
+      test_command: make test
+      description: >
+        Independent content.scaffolds entry, so the manifest satisfies the
+        "content is required" check on its own terms rather than leaning on the
+        engines: OR-arm — exactly as demo-org/recipe-pack does.
+      use_when: [adopting the divergence recipe]
+      assumes: [project source tree]
+      pairs_with:
+        scaffolds: [divergence-companion-extras]

@@ -1,0 +1,4 @@
+# recipe-owned output
+alpha
+bravo
+charlie

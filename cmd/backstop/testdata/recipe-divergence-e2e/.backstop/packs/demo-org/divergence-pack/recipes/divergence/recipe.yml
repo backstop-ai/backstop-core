@@ -1,0 +1,21 @@
+# The divergence-adjudication recipe (ISSUE-080).
+#
+# kind: scaffolding is the regenerate-by-default hinge — the ONLY kind (with
+# implementing) whose recipe-owned output is diffed and adjudicated on re-apply.
+# A templating recipe short-circuits before the file is even read, so it can
+# never reach the waiver seam.
+#
+# The target is deliberately NOT templated. This fixture's tests isolate the
+# waiver-adjudication behavior; ISSUE-079's substitution scope is proven by its
+# own templated-target E2E and must not be re-tested here, where a substitution
+# failure would masquerade as a waiver failure.
+kind: scaffolding
+version: 1.0.0
+enforcement:
+  rules:
+    - recipe.output.divergence
+ops:
+  - id: op-generate
+    kind: create
+    target: generated/recipe-owned.conf
+    payload: body.txt

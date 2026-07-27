@@ -51,16 +51,38 @@ const (
 // engine.CheckToolAllowed gate the enforcement dispatch uses.
 type TransformDispatch func(rule string, target string) error
 
+// DivergenceVerdict is what the waiver-adjudication seam REPORTS about one
+// diverged file: whether an ACTIVE waiver covers it, and the diagnostics the
+// adjudication produced on the way to that answer.
+//
+// Diagnostics carries what adjudication REPORTED — never anything the applier
+// synthesized — so the seam stays a read path. It exists because narrowing the
+// answer to a bool silently DROPPED waiver.DiagnosticMalformed, which made a
+// malformed token and an absent token indistinguishable at the decision point and
+// let a hand-edited file be regenerated over in silence (ISSUE-080).
+type DivergenceVerdict struct {
+	Covered     bool
+	Diagnostics []waiver.Diagnostic
+}
+
 // WaiverReader is the waiver-adjudication seam (REQ-004): given the recipe's
 // declared enforcement rule and a diverged path, it reports whether a covering
-// @waiver is ACTIVE. It is a READ path only — the applier never authors a token,
-// because a waiver's reason and expiry are human judgments.
+// @waiver is ACTIVE and what the adjudication found. It is a READ path only — the
+// applier never authors a token, because a waiver's reason and expiry are human
+// judgments.
+//
+// It returns a VERDICT rather than a bool plus an optional reporting hook, and the
+// difference matters: an optional hook is nil by default, and nil means "drop it",
+// which is precisely the silent drop this widening exists to close. A reader that
+// computed a verdict cannot fail to hand back what it computed. The two facts also
+// come from ONE waiver.Result, so splitting them across two seams would let them
+// disagree with nothing to catch it.
 //
 // A nil reader is not a disabled check: it selects adjudicateDivergence, this
 // package's own reader over the REAL pkg/waiver read path. The seam exists so a
 // caller can supply a different source, never so the mechanism can be stubbed
 // out of the tests that matter.
-type WaiverReader func(rule string, file string) (covered bool)
+type WaiverReader func(rule string, file string) DivergenceVerdict
 
 // ApplyOptions carries everything the applier is allowed to know that the recipe
 // does not declare. Note what is absent: no target path, no extension, no default
@@ -87,8 +109,15 @@ type PreservedDivergence struct {
 }
 
 // ApplyResult records what one apply did: the files it WROTE, the files it left in
-// place, and the thin adoption entry. A returned error yields the ZERO result: an
-// apply either produces a verdict or it fails, never both.
+// place, which of the writes overwrote a divergence, what adjudication reported
+// non-fatally, and the thin adoption entry. A returned error yields the ZERO
+// result: an apply either produces a verdict or it fails, never both.
+//
+// Regenerated and Diagnostics are REPORTING CHANNELS the CLI reads, never inputs to
+// a decision. Regenerated is a strict SUBSET of Written recorded in the same value
+// form, so a caller can mark a CLOBBER — a write that overwrote an
+// unaccounted-for local divergence — without re-deriving the distinction. Before
+// it existed, a clobber and a clean re-apply printed identically.
 //
 // Written and PreservedDivergence.Path carry the recipe-declared target AFTER param
 // substitution — still the recipe's own path FORM, never the applier's absolute
@@ -97,9 +126,11 @@ type PreservedDivergence struct {
 // "config/service.json" names a path that does not exist. SPEC-054's ApplyResult
 // contract states the same thing; the two must not drift apart.
 type ApplyResult struct {
-	Written   []string
-	Preserved []PreservedDivergence
-	Adoption  AdoptionEntry
+	Written     []string
+	Preserved   []PreservedDivergence
+	Regenerated []string
+	Diagnostics []waiver.Diagnostic
+	Adoption    AdoptionEntry
 }
 
 // Apply materializes one resolved recipe into the project at opts.ProjectRoot.
@@ -248,17 +279,28 @@ func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[
 		return err
 	}
 
+	// Whether the pending write overwrites an unaccounted-for divergence. It is
+	// decided here and recorded AFTER the write succeeds, so a failed write never
+	// reports a clobber that did not happen.
+	var overDivergence bool
+
 	if present && !writtenThisRun {
-		preserved, done, err := preserveOrRegenerate(resolved, op, opts, params, own, declaredTarget, target)
+		outcome, err := preserveOrRegenerate(resolved, op, opts, params, own, declaredTarget, target)
 		if err != nil {
 			return err
 		}
-		if done {
-			if preserved != nil {
-				result.Preserved = append(result.Preserved, *preserved)
+		// Collected on EVERY branch that produced them, including the preserving
+		// one: coverage and token hygiene are independent facts, and reporting the
+		// diagnostics only when the apply proceeds would be the same silent drop
+		// one `if` later.
+		result.Diagnostics = appendDiagnostics(result.Diagnostics, outcome.Diagnostics)
+		if outcome.Final {
+			if outcome.Preserved != nil {
+				result.Preserved = append(result.Preserved, *outcome.Preserved)
 			}
 			return nil
 		}
+		overDivergence = outcome.OverDivergence
 	}
 
 	rendered, err := renderPayload(resolved, op, params)
@@ -272,20 +314,44 @@ func applyCreate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[
 	own.writtenNow[declaredTarget] = struct{}{}
 	own.materialized = true
 	recordWritten(result, declaredTarget)
+	if overDivergence {
+		// The SAME value recordWritten just recorded — the SUBSTITUTED declared
+		// target. Appending the raw op.Target instead would break the
+		// subset-of-Written property for every templated target, silently.
+		recordRegenerated(result, declaredTarget)
+	}
 
 	return nil
 }
 
-// preserveOrRegenerate decides what happens to a target that is ALREADY on disk.
-// It reports the divergence to record (nil when there is nothing to report) and
-// whether the decision is final — done=false means the caller regenerates.
-func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, declaredTarget string, target string) (*PreservedDivergence, bool, error) {
+// divergenceOutcome is preserveOrRegenerate's answer. The third case — the pending
+// write would overwrite a divergence NOTHING accounts for — is an explicit field
+// rather than something the caller infers from "not final", because that case is
+// exactly what the CLI must be able to report as a CLOBBER.
+type divergenceOutcome struct {
+	Preserved      *PreservedDivergence
+	Final          bool                // true: the caller must not write
+	OverDivergence bool                // the pending write overwrites unaccounted-for divergence
+	Diagnostics    []waiver.Diagnostic // non-fatal, surfaced by the caller
+}
+
+// preserveOrRegenerate decides what happens to a target that is ALREADY on disk:
+// preserve it, regenerate over it, or REFUSE.
+//
+// The refusal is the ISSUE-080 case. An UNCOVERED divergence whose file carries a
+// token that does not PARSE fails the apply and leaves the file byte-for-byte,
+// because the two alternatives both lie: regenerate-but-warn still destroys the
+// operator's edit and exits 0, and preserve-silently would turn a typo into a
+// permanent opt-out of regeneration. Failing is the only outcome that destroys
+// nothing AND claims nothing. Waiver semantics are intact either way — a malformed
+// token still does not suppress; the apply refuses rather than accepting it.
+func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, params map[string]string, own *ownership, declaredTarget string, target string) (divergenceOutcome, error) {
 	if !own.adopted {
 		// USER-OWNED: no apply of this recipe ever produced this file, so it is
 		// the consumer's outright. Rule and CoveringWaiver stay empty — nothing
 		// was adjudicated, and the applier never authors the token that would
 		// account for one.
-		return &PreservedDivergence{Path: declaredTarget}, true, nil
+		return divergenceOutcome{Preserved: &PreservedDivergence{Path: declaredTarget}, Final: true}, nil
 	}
 
 	if own.kind == KindTemplating {
@@ -293,47 +359,125 @@ func preserveOrRegenerate(resolved *ResolvedRecipe, op Op, opts ApplyOptions, pa
 		// or consulting the waiver seam: templating output carries no
 		// regeneration obligation, so there is no divergence to account for.
 		own.materialized = true
-		return &PreservedDivergence{Path: declaredTarget}, true, nil
+		return divergenceOutcome{Preserved: &PreservedDivergence{Path: declaredTarget}, Final: true}, nil
 	}
 
 	rendered, err := renderPayload(resolved, op, params)
 	if err != nil {
-		return nil, false, fmt.Errorf("compute the would-be regenerated output for %q: %w", declaredTarget, err)
+		return divergenceOutcome{}, fmt.Errorf("compute the would-be regenerated output for %q: %w", declaredTarget, err)
 	}
 	onDisk, err := os.ReadFile(target)
 	if err != nil {
-		return nil, false, fmt.Errorf("read recipe-owned target %q: %w", declaredTarget, err)
+		return divergenceOutcome{}, fmt.Errorf("read recipe-owned target %q: %w", declaredTarget, err)
 	}
 	if string(onDisk) == rendered {
 		own.materialized = true
-		return nil, true, nil
+		return divergenceOutcome{Final: true}, nil
 	}
 
-	if rule, covering, covered := coveredDivergence(resolved, opts, target); covered {
+	rule, covering, diagnostics, covered := coveredDivergence(resolved, opts, target)
+	if covered {
+		// PRESERVED, and the diagnostics still ride out. The operator accounted
+		// for this divergence with a valid token; an unrelated malformed token
+		// elsewhere in the file is a hygiene problem to report, not grounds to
+		// revoke the accountable path.
 		own.materialized = true
-		return &PreservedDivergence{Path: declaredTarget, Rule: rule, CoveringWaiver: covering}, true, nil
+		return divergenceOutcome{
+			Preserved:   &PreservedDivergence{Path: declaredTarget, Rule: rule, CoveringWaiver: covering},
+			Final:       true,
+			Diagnostics: diagnostics,
+		}, nil
 	}
 
-	return nil, false, nil
+	if malformed, found := firstMalformed(diagnostics); found {
+		// The target is named AS REPORTED — the substituted declared path the
+		// operator sees on disk, never the raw declaration text.
+		return divergenceOutcome{}, fmt.Errorf(
+			"the local divergence in %q is not covered by any active waiver, and the @waiver on line %d does not parse (%s); the applier will not regenerate over an edit it cannot adjudicate. Either correct the reason code to one the waiver grammar declares, or remove the token and re-apply to accept the regeneration",
+			declaredTarget, malformed.Line, malformed.Message,
+		)
+	}
+
+	return divergenceOutcome{OverDivergence: true, Diagnostics: diagnostics}, nil
+}
+
+// appendDiagnostics appends src onto dst, dropping any diagnostic already present
+// under TOKEN IDENTITY — {File, Line, Message} — and preserving first-seen order
+// for determinism.
+//
+// The dedupe is required, not cosmetic: coveredDivergence adjudicates the same file
+// once per DECLARED enforcement rule, so a single malformed token yields N
+// identical entries for a recipe declaring N rules. RuleID is deliberately absent
+// from the key — it is the one field that legitimately DIFFERS between those N,
+// because each adjudication ran against a different rule's findings.
+func appendDiagnostics(dst []waiver.Diagnostic, src []waiver.Diagnostic) []waiver.Diagnostic {
+	for _, candidate := range src {
+		if containsDiagnostic(dst, candidate) {
+			continue
+		}
+		dst = append(dst, candidate)
+	}
+
+	return dst
+}
+
+// containsDiagnostic reports whether a diagnostic for the same token is already
+// present.
+func containsDiagnostic(diagnostics []waiver.Diagnostic, candidate waiver.Diagnostic) bool {
+	for _, existing := range diagnostics {
+		if existing.File == candidate.File && existing.Line == candidate.Line && existing.Message == candidate.Message {
+			return true
+		}
+	}
+
+	return false
+}
+
+// firstMalformed returns the first diagnostic reporting a token that did not parse,
+// which is what turns an uncovered divergence into a refusal.
+func firstMalformed(diagnostics []waiver.Diagnostic) (waiver.Diagnostic, bool) {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Kind == waiver.DiagnosticMalformed {
+			return diagnostic, true
+		}
+	}
+
+	return waiver.Diagnostic{}, false
 }
 
 // coveredDivergence adjudicates a diverged recipe-owned file against the recipe's
 // DECLARED enforcement rules and reports the rule and the covering token when one
-// of them is waived. A recipe that declares no enforcement rule has no rule id a
-// consumer could waive against, so its divergences are always regenerated.
-func coveredDivergence(resolved *ResolvedRecipe, opts ApplyOptions, target string) (string, string, bool) {
-	for _, rule := range enforcementRules(resolved) {
-		read := opts.ReadWaivers
-		if read == nil {
-			read = adjudicateDivergence
-		}
-		if !read(rule, target) {
-			continue
-		}
-		return rule, coveringWaiverText(target, rule), true
+// of them is waived, together with every diagnostic the adjudications produced.
+// A recipe that declares no enforcement rule has no rule id a consumer could waive
+// against, so the seam is never consulted and its divergences are always
+// regenerated — a malformed token in such a recipe's output cannot block anything.
+//
+// EVERY declared rule is consulted, including after one has covered. Returning
+// early on the first covering verdict would drop the diagnostics the later rules
+// reported, which is the same silent drop the bool seam produced, just one `if`
+// later. The FIRST covering rule wins; the accumulation runs throughout.
+func coveredDivergence(resolved *ResolvedRecipe, opts ApplyOptions, target string) (string, string, []waiver.Diagnostic, bool) {
+	read := opts.ReadWaivers
+	if read == nil {
+		read = adjudicateDivergence
 	}
 
-	return "", "", false
+	var diagnostics []waiver.Diagnostic
+	covering := ""
+
+	for _, rule := range enforcementRules(resolved) {
+		verdict := read(rule, target)
+		diagnostics = appendDiagnostics(diagnostics, verdict.Diagnostics)
+		if verdict.Covered && covering == "" {
+			covering = rule
+		}
+	}
+
+	if covering == "" {
+		return "", "", diagnostics, false
+	}
+
+	return covering, coveringWaiverText(target, covering), diagnostics, true
 }
 
 // adjudicateDivergence is this package's own WaiverReader over the REAL
@@ -350,10 +494,12 @@ func coveredDivergence(resolved *ResolvedRecipe, opts ApplyOptions, target strin
 //
 // The Policy is nil (every rule waivable here): the declared non-waivable tier is
 // the GATE's adjudication to make, not the applier's.
-func adjudicateDivergence(rule string, file string) bool {
+func adjudicateDivergence(rule string, file string) DivergenceVerdict {
 	lines, err := rawFileLines(file)
 	if err != nil {
-		return false
+		// Unreadable file: nothing was adjudicated, so there is nothing to report
+		// and nothing is covered.
+		return DivergenceVerdict{}
 	}
 
 	findings := make([]waiver.Finding, 0, len(lines))
@@ -368,7 +514,22 @@ func adjudicateDivergence(rule string, file string) bool {
 		return lines[line-1], true
 	}
 
-	return len(waiver.Adjudicate(findings, read, nil, time.Now()).Suppressed) > 0
+	// ONE call, and the WHOLE Result is held: coverage and the diagnostics are two
+	// facts read off the same adjudication, and computing them separately would let
+	// them disagree.
+	adjudicated := waiver.Adjudicate(findings, read, nil, time.Now())
+
+	// BOTH diagnostic kinds are carried, even though the nil Policy above makes
+	// NonWaivable structurally unreachable today. Narrowing to Malformed would
+	// re-create ISSUE-080 the moment a Policy is supplied here.
+	diagnostics := make([]waiver.Diagnostic, 0, len(adjudicated.Malformed)+len(adjudicated.NonWaivable))
+	diagnostics = append(diagnostics, adjudicated.Malformed...)
+	diagnostics = append(diagnostics, adjudicated.NonWaivable...)
+
+	return DivergenceVerdict{
+		Covered:     len(adjudicated.Suppressed) > 0,
+		Diagnostics: diagnostics,
+	}
 }
 
 // coveringWaiverText re-reads the covering token's raw text so the result can
@@ -1042,6 +1203,18 @@ func recordWritten(result *ApplyResult, target string) {
 		}
 	}
 	result.Written = append(result.Written, target)
+}
+
+// recordRegenerated appends a declared target to the result's Regenerated list
+// once. It is only ever called alongside recordWritten and with the SAME value, so
+// Regenerated stays a strict subset of Written — for a templated target too.
+func recordRegenerated(result *ApplyResult, target string) {
+	for _, regenerated := range result.Regenerated {
+		if regenerated == target {
+			return
+		}
+	}
+	result.Regenerated = append(result.Regenerated, target)
 }
 
 // ownership is one apply's ownership state: the recipe KIND (the

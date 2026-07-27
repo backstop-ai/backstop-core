@@ -4,7 +4,7 @@ number: SPEC-054
 created: "2026-07-21"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.3.0
+spec_version: 1.4.0
 
 implementation:
   summary: >
@@ -477,6 +477,78 @@ claims:
     text: Apply NEVER authors a @waiver token — a divergence with no pre-existing waiver never causes a token to be written into any file
     tests:
       - TestApply_NeverAuthorsWaiverToken
+  - id: CLM-079
+    requirement: REQ-004
+    text: >
+      An UNCOVERED divergence whose file carries a @waiver with an UNPARSEABLE reason
+      code FAILS the apply loud — the error names the target as reported, the token's
+      LINE and the illegal reason code — and the consumer's bytes are left on disk
+      byte-for-byte. Regenerate-but-warn was rejected (the operator's edit is still
+      destroyed, only more chattily), and preserve-silently was rejected (a typo in a
+      reason code would become a permanent, unaudited opt-out of regeneration). This
+      holds even when the malformed token names ANOTHER rule, and that asymmetry is
+      DELIBERATE: a VALID token naming another rule does NOT block (it parsed, so its
+      rule id is readable and it is knowably not about this recipe), while a MALFORMED
+      one does (ParseToken fails before any field is trustworthy, so it cannot be
+      dismissed as someone else's business). The two halves must not be "cleaned up"
+      into symmetry
+    tests:
+      - TestApply_DivergedWithMalformedWaiverToken_FailsLoudAndPreservesConsumerBytes
+      - TestApply_DivergedWithMalformedWaiverToken_DiagnosticNamesFileLineAndReasonCode
+      - TestApply_MalformedTokenForAnotherRule_AlsoBlocks
+      - TestRecipeApply_CLI_MalformedWaiverTokenSurfacesDiagnosticOnStderr
+  - id: CLM-080
+    requirement: REQ-004
+    text: >
+      A COVERED divergence that ALSO carries a separate malformed token is still
+      PRESERVED and the apply still exits 0, AND the malformed token is still SURFACED
+      as a warning naming the file, the line and the bad reason code — coverage and
+      token hygiene are independent facts, and blocking here would punish the
+      accountable path for an unrelated typo
+    tests:
+      - TestApply_CoveredDivergenceWithSeparateMalformedToken_PreservesAndReportsDiagnostic
+      - TestRecipeApply_CLI_SuccessOutputNamesWrittenPreservedAndRegenerated
+  - id: CLM-081
+    requirement: REQ-004
+    text: >
+      ONE token yields ONE diagnostic regardless of how many enforcement rules the
+      recipe declares — the same token is re-adjudicated once per declared rule, so
+      the accumulation dedupes by token identity {File, Line, Message}
+    tests:
+      - TestApply_MultipleEnforcementRules_MalformedTokenReportedOnce
+  - id: CLM-082
+    requirement: REQ-004
+    text: >
+      `ApplyResult.Regenerated` is POPULATED and is a strict SUBSET of `Written` in the
+      SAME value form, so the CLI marks a clobber from DATA rather than re-deriving the
+      distinction: a re-apply over an UNCOVERED divergence records the target in both
+      lists, while a write over nothing (first apply) and a re-apply over an UNCHANGED
+      file record it in `Written` ONLY — the falsifier for the two lists being aliases
+    tests:
+      - TestApply_DivergedNoWaiver_RecordsRegeneratedOverDivergence
+      - TestRecipeApply_CLI_SuccessOutputNamesWrittenPreservedAndRegenerated
+  - id: CLM-083
+    requirement: REQ-004
+    text: >
+      The malformed-token refusal has a BOUNDED blast radius — a recipe declaring NO
+      enforcement rule has no rule id a consumer could waive against, so the waiver seam
+      is never consulted, a malformed token in that recipe's output is invisible, the
+      output still regenerates and no diagnostic is reported. Without this bound the
+      refusal would start failing applies for recipes that never opted into divergence
+      adjudication at all
+    tests:
+      - TestApply_NoEnforcementRules_MalformedTokenCannotBlock
+  - id: CLM-084
+    requirement: REQ-004
+    text: >
+      The type-level precondition every other divergence claim rests on — the seam
+      returns a DivergenceVerdict, so "not covered because the token was MALFORMED" and
+      "not covered because there was NO token" arrive at the decision point as different
+      values (`Covered` is false in both; only `Diagnostics` differs) and produce
+      opposite outcomes. A bare-bool seam cannot express that difference, and the real
+      production reader — not only a stub — must actually produce such a verdict
+    tests:
+      - TestApply_WaiverReaderVerdict_CarriesAdjudicationDiagnostics
 
   # REQ-005 — thin adoption record
   - id: CLM-022
@@ -811,19 +883,23 @@ contracts:
       - name: ApplyOptions
         kind: type
         signature: "type ApplyOptions struct { Mode ApplyMode; Params map[string]string; InjectionSites map[string]string; ProjectRoot string; Dispatch TransformDispatch; ReadWaivers WaiverReader }"
-        notes: "Direct mode reads Params/defaults; SDLC-mediated mode reads InjectionSites — a map KEYED BY op id whose value is the WHERE (target/anchor) for the injection-accepting transform/insert ops only (REQ-003). Dispatch is the transform-engine seam (REQ-006). ReadWaivers is the waiver-adjudication seam (REQ-004); the production impl calls the real pkg/waiver read path (waiver.Adjudicate over a waiver.LineReader on the consumer's file)."
+        notes: "Direct mode reads Params/defaults; SDLC-mediated mode reads InjectionSites — a map KEYED BY op id whose value is the WHERE (target/anchor) for the injection-accepting transform/insert ops only (REQ-003). Dispatch is the transform-engine seam (REQ-006). ReadWaivers is the waiver-adjudication seam (REQ-004); the production impl calls the real pkg/waiver read path (waiver.Adjudicate over a waiver.LineReader on the consumer's file). `ReadWaivers` now yields a `DivergenceVerdict` rather than a bool (ISSUE-080) — the field's TYPE NAME is unchanged, so this signature line is unchanged."
       - name: TransformDispatch
         kind: type
         signature: "type TransformDispatch func(rule string, target string) error"
         notes: "The injected transform-engine dispatch seam — and the ONLY transform-engine seam pkg/recipe has. pkg/recipe itself does NOT call engine.CheckToolAllowed: no type in this package carries a tool name or a locked version, so the trust gate is unimplementable here. The production Dispatch is built in cmd/backstop/recipe_apply.go, which runs the gate BEFORE constructing the closure, so an un-allowlisted tool's command is never built (REQ-006). Kept as a seam so the reject path is exercised on the real gate (CLM-025, a cmd/backstop test) without stubbing the allowlist open."
       - name: WaiverReader
         kind: type
-        signature: "type WaiverReader func(rule string, file string) (covered bool)"
-        notes: "The waiver-adjudication seam (REQ-004): given the recipe's declared enforcement rule and a diverged path, returns whether a covering @waiver is ACTIVE. The production impl builds a waiver.Finding for the divergence and adjudicates it via waiver.Adjudicate fed a waiver.LineReader over the on-disk file — it NEVER writes a token. Kept as a seam so tests can drive the real read path (CLM-021) and the no-waiver path (CLM-061) without a stub-open bypass."
+        signature: "type WaiverReader func(rule string, file string) DivergenceVerdict"
+        notes: "The waiver-adjudication seam (REQ-004): given the recipe's declared enforcement rule and a diverged path, it reports whether a covering @waiver is ACTIVE **and what the adjudication FOUND** — the coverage answer and the diagnostics travel together. It returns a VERDICT rather than a bool plus an optional reporting hook because an optional hook is nil by default and nil means \"drop it\" — reproducing by shape the very silent drop ISSUE-080 removed. Both facts come from ONE waiver.Result, so splitting them across two seams would let them disagree with nothing to catch it. The production impl builds a waiver.Finding for the divergence and adjudicates it via waiver.Adjudicate fed a waiver.LineReader over the on-disk file — it is still a READ path only and NEVER writes a token (CLM-062 unregressed). Kept as a seam so tests can drive the real read path (CLM-021) and the no-waiver path (CLM-061) without a stub-open bypass."
+      - name: DivergenceVerdict
+        kind: type
+        signature: "type DivergenceVerdict struct { Covered bool; Diagnostics []waiver.Diagnostic }"
+        notes: "The value the WaiverReader seam returns (REQ-004). It exists because narrowing adjudication to a bare `bool` silently DROPPED `waiver.DiagnosticMalformed`: a malformed @waiver token and an ABSENT token became indistinguishable at the decision point, so a hand-edited file marked with an unparseable token was regenerated over at exit 0, in silence (ISSUE-080). `Covered` is the coverage answer; `Diagnostics` carries what adjudication REPORTED — never anything the applier synthesized, on the same terms as `PreservedDivergence.CoveringWaiver`."
       - name: ApplyResult
         kind: type
-        signature: "type ApplyResult struct { Written []string; Preserved []PreservedDivergence; Adoption AdoptionEntry }"
-        notes: "Records what an apply wrote, the recipe-owned files PRESERVED because a covering active waiver was READ (each with the covering waiver that accounted for it — REQ-004; never a waiver the applier authored), and the thin adoption entry (REQ-005). `Written` carries the recipe-declared target AFTER param substitution (REQ-002) — still the recipe's own path FORM (project-relative), never the applier's absolute resolution of it, and never a `{{`-bearing string: reporting `{{ config_dir }}/service.json` to an operator whose file landed at `config/service.json` names a path that does not exist. The same substituted form is the ownership key an apply uses to recognize a file it wrote in this run, because two ops templating differently can legitimately resolve to one file. `pkg/recipe/apply.go`'s ApplyResult doc comment states this identically and is updated in the SAME change — the two statements of the contract must not drift apart (CLM-002/CLM-070)."
+        signature: "type ApplyResult struct { Written []string; Preserved []PreservedDivergence; Regenerated []string; Diagnostics []waiver.Diagnostic; Adoption AdoptionEntry }"
+        notes: "Records what an apply wrote, the recipe-owned files PRESERVED because a covering active waiver was READ (each with the covering waiver that accounted for it — REQ-004; never a waiver the applier authored), which of the writes overwrote a divergence, what adjudication reported non-fatally, and the thin adoption entry (REQ-005). `Regenerated` is the strict SUBSET of `Written` whose diverged bytes were overwritten with NO covering waiver, recorded in the SAME value form `recordWritten` uses (the substituted declared target), so the subset property survives templated targets. `Diagnostics` carries the non-fatal adjudication findings the CLI surfaces as warnings on stderr. Both are REPORTING channels the CLI reads, never inputs to a decision. `Written` carries the recipe-declared target AFTER param substitution (REQ-002) — still the recipe's own path FORM (project-relative), never the applier's absolute resolution of it, and never a `{{`-bearing string: reporting `{{ config_dir }}/service.json` to an operator whose file landed at `config/service.json` names a path that does not exist. The same substituted form is the ownership key an apply uses to recognize a file it wrote in this run, because two ops templating differently can legitimately resolve to one file. `pkg/recipe/apply.go`'s ApplyResult doc comment states this identically and is updated in the SAME change — the two statements of the contract must not drift apart (CLM-002/CLM-070)."
       - name: PreservedDivergence
         kind: type
         signature: "type PreservedDivergence struct { Path string; Rule string; CoveringWaiver string }"
@@ -894,8 +970,8 @@ contracts:
     provides:
       - name: runRecipeApply
         kind: function
-        signature: "func runRecipeApply(ref string, projectRoot string) error"
-        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, selects the pack's single provisioned engine binding from declared data, RUNS THE TRUST GATE (checkEngineToolAllowed → engine.CheckToolAllowed over resolveTrustedToolAllowlist, the SAME gate the enforcement dispatch uses — REQ-006) and only then builds the production TransformDispatch, so an un-allowlisted tool's command is never constructed; runs Apply and writes the adoption record. THIS FILE IS WHERE THE TRUST GATE LIVES — pkg/recipe cannot host it (no type there carries a tool or a locked version). ReadWaivers is left nil so apply.go's own real pkg/waiver read path is used rather than forking adjudication into a second implementation (REQ-004). The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it."
+        signature: "func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error)"
+        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, selects the pack's single provisioned engine binding from declared data, RUNS THE TRUST GATE (checkEngineToolAllowed → engine.CheckToolAllowed over resolveTrustedToolAllowlist, the SAME gate the enforcement dispatch uses — REQ-006) and only then builds the production TransformDispatch, so an un-allowlisted tool's command is never constructed; runs Apply and writes the adoption record. It RETURNS the applier's result alongside the error (ISSUE-080) because the success line is printed in the cobra RunE closure, from which the result was otherwise unreachable — so the CLI now reports what the apply ACTUALLY did from DATA rather than printing one static line: each WRITTEN target, marking any that overwrote a divergence no active waiver accounted for; each PRESERVED path with the covering token, or marked as the consumer's own file; and each non-fatal adjudication diagnostic as a `warning:` on STDERR while the report itself goes undivided to stdout. Every failure path returns the ZERO result alongside the error, matching Apply's own contract (a run either produces a verdict or it fails, never both). The ConfigError-vs-violation exit split is UNCHANGED. THIS FILE IS WHERE THE TRUST GATE LIVES — pkg/recipe cannot host it (no type there carries a tool or a locked version). ReadWaivers is left nil so apply.go's own real pkg/waiver read path is used rather than forking adjudication into a second implementation (REQ-004). The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it."
     consumes:
       - source: pkg/recipe
         name: Apply
@@ -1678,3 +1754,41 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   that must not be "cleaned up", and the load-bearing silence on payload/fragment form — plus two
   review questions and ISSUE-079/ISSUE-081 in References. No requirement was removed and no
   existing test was dropped. Now 13 requirements, 78 claims, 18 sharp edges, 15 review questions.
+- **1.4.0 (2026-07-26, implemented)** — WAIVER-ADJUDICATION SEAM WIDENED (ISSUE-080), reconciled
+  to behavior shipping in the same change. `WaiverReader` returned a bare `bool`, which silently
+  DROPPED `waiver.DiagnosticMalformed`: a MALFORMED @waiver token and an ABSENT one were
+  indistinguishable at the decision point, so a hand-edited file marked
+  `@waiver:<rule>:intentional-fork:2026-12-31` was regenerated over at exit 0, in silence. The seam
+  now returns a new `DivergenceVerdict{Covered, Diagnostics}` carrying BOTH the coverage answer and
+  the adjudication diagnostics. A second, OPTIONAL diagnostics channel was REJECTED: an optional
+  hook is nil by default and nil means "drop it", reproducing the silent drop by shape — and both
+  facts come from one `waiver.Result`, so two seams could disagree with nothing to catch it.
+  `ApplyResult` gained `Regenerated` (the strict subset of `Written` overwritten with no covering
+  waiver, in the same substituted value form) and `Diagnostics` (non-fatal findings the CLI warns
+  on) — both REPORTING channels, never decision inputs. `ApplyOptions`' signature is unchanged: the
+  field's type NAME is still `WaiverReader`. On the CLI side, `runRecipeApply` now returns
+  `(recipe.ApplyResult, error)`: the success line is printed in the cobra RunE closure, which could
+  not reach the result, so the CLI printed one static line instead of what the run did. It now
+  reports from DATA — each written target (marking any that overwrote an unaccounted-for
+  divergence), each preserved path with its covering token or marked consumer-owned, and each
+  diagnostic as a stderr warning — with the ZERO result returned on every failure path and the
+  ConfigError-vs-violation exit split UNCHANGED. SIX claims added, each mandating a delivered test:
+  CLM-079 (uncovered divergence + unparseable reason code fails LOUD naming target/line/reason code,
+  consumer bytes byte-for-byte intact — regenerate-but-warn and preserve-silently both rejected —
+  including the DELIBERATE asymmetry that a malformed token naming ANOTHER rule also blocks while a
+  VALID one for another rule does not), CLM-080 (covered divergence + a separate malformed token
+  still preserves at exit 0 while surfacing the warning), CLM-081 (one token, one diagnostic —
+  dedupe by {File, Line, Message} across N declared enforcement rules), CLM-082 (`Regenerated` is
+  populated and a strict subset of `Written` in the same value form, so the CLI marks a clobber from
+  data), CLM-083 (the refusal's BOUNDED blast radius — a recipe declaring no enforcement rule never
+  consults the seam, so a malformed token there cannot block), CLM-084 (the type-level precondition:
+  malformed-vs-absent reach the decision point as different verdicts, which a bare bool cannot
+  express). CLM-082/083/084 bind tests that shipped with this change but were initially left
+  unclaimed — `Regenerated` was declared as a contract with nothing mandating the only test that
+  proves it is ever populated, which is the same unenforced-promise shape this change exists to
+  close. A standing signature-drift test
+  (`TestContract_SPEC054_DeclaredSignaturesMatchShippedTypes`) now compares these declared
+  `signature:` strings TEXTUALLY against the shipped declarations, so field names, types and order
+  in the contracts block are load-bearing. CLM-062 (never authors a token) is unregressed: the seam
+  is still READ-only. No requirement or existing test was removed. Now 13 requirements, 84 claims,
+  18 sharp edges, 15 review questions.

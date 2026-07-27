@@ -1,0 +1,16 @@
+# Fixture consumer project for the recipe DIVERGENCE-ADJUDICATION e2e (ISSUE-080).
+#
+# It is a SEPARATE project from recipe-apply-e2e on purpose: that fixture's pack
+# ships only TRANSFORM recipes, and only a CREATE op with a declared enforcement
+# rule reaches preserveOrRegenerate's waiver branch. Adding a recipe to that pack
+# would stale its committed backstop.lock content_hash, and a hand-written
+# replacement hash is a fabricated fixture.
+#
+# There is deliberately NO backstop.lock here. Nothing on the `recipe apply` path
+# reads one — loadInstalledPacks reads backstop.yml plus the packs directory, and
+# the lock is consulted only by the gate's pack_lock_verification step. Its
+# absence is a decision, not an oversight; the alternative would be inventing a
+# content_hash nothing computed.
+project: recipe-divergence-e2e
+packs:
+  demo-org/divergence-pack: "1.0.0"

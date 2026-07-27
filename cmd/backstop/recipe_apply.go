@@ -57,7 +57,8 @@ before any command is built.`,
 				return rootErr
 			}
 
-			if err := runRecipeApply(args[0], projectRoot); err != nil {
+			result, err := runRecipeApply(args[0], projectRoot)
+			if err != nil {
 				// A ConfigError is returned UNWRAPPED so it keeps its exit-2 shape
 				// (main.go maps an untyped error to ExitConfigError) and stays
 				// inspectable by errors.As. Every other failure is a violation: the
@@ -70,10 +71,72 @@ before any command is built.`,
 				return &ExitCodeError{Code: ExitViolations, Message: err.Error()}
 			}
 
-			cmd.Printf("applied recipe %s\n", args[0])
+			reportRecipeApply(cmd, args[0], result)
 			return nil
 		},
 	}
+}
+
+// reportRecipeApply prints what the apply ACTUALLY DID.
+//
+// The gap this closes: the command used to print one static line whatever
+// happened, so a run that CLOBBERED a local edit and a clean re-apply were
+// indistinguishable to the operator — the same silence, in the success channel,
+// that ISSUE-080 closes in the failure channel.
+//
+// Entries are emitted in the RESULT'S OWN SLICE ORDER, which is the recipe's
+// declared op order. Sorting would be a second, invented ordering over an artifact
+// whose sequence is its contract, for the same reason Apply never sorts ops.
+//
+// STREAM SPLIT, deliberately: the whole REPORT goes to stdout undivided — a report
+// split across two streams makes every stream assertion about it unfalsifiable —
+// while a WARNING is not part of the report of what was done and goes to stderr,
+// where it is separately assertable. A clean preserve leaving stderr EMPTY is what
+// makes the warning meaningful when it appears.
+func reportRecipeApply(cmd *cobra.Command, ref string, result recipe.ApplyResult) {
+	cmd.Printf("applied recipe %s\n", ref)
+
+	for _, written := range result.Written {
+		if clobberedDivergence(result, written) {
+			cmd.Printf("  wrote %s (REGENERATED over a local divergence no active waiver accounted for)\n", written)
+			continue
+		}
+		cmd.Printf("  wrote %s\n", written)
+	}
+
+	for _, preserved := range result.Preserved {
+		if strings.TrimSpace(preserved.CoveringWaiver) == "" {
+			// The user-owned branch never adjudicated anything, so there is no
+			// token to quote — saying so is more honest than an empty citation.
+			cmd.Printf("  preserved %s (the consumer's own file)\n", preserved.Path)
+			continue
+		}
+		cmd.Printf("  preserved %s (accounted for by %s)\n", preserved.Path, preserved.CoveringWaiver)
+	}
+
+	if len(result.Written) == 0 && len(result.Preserved) == 0 {
+		// Said explicitly rather than left as a bare headline, which reads
+		// identically to a run that did work.
+		cmd.Printf("  nothing was written or preserved\n")
+	}
+
+	for _, diagnostic := range result.Diagnostics {
+		cmd.PrintErrf("warning: %s:%d: %s\n", diagnostic.File, diagnostic.Line, diagnostic.Message)
+	}
+}
+
+// clobberedDivergence reports whether a written target overwrote an
+// unaccounted-for divergence. It reads the applier's own Regenerated list — a
+// strict subset of Written — rather than re-deriving the distinction here, so the
+// CLI reports DATA instead of guessing.
+func clobberedDivergence(result recipe.ApplyResult, target string) bool {
+	for _, regenerated := range result.Regenerated {
+		if regenerated == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 // recipeProjectRoot resolves the project root from the discovered backstop.yml, the
@@ -101,15 +164,15 @@ func recipeProjectRoot() (string, error) {
 // (exit 2), because nothing was applied and the invocation or the installation is what
 // must change. Only a failure of the apply ITSELF is a violation (exit 1), and it
 // carries the op's declared manual instruction verbatim.
-func runRecipeApply(ref string, projectRoot string) error {
+func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error) {
 	parsed, err := recipe.ParseRecipeRef(ref)
 	if err != nil {
-		return &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
 	}
 
 	manifests, err := loadInstalledPacks(projectRoot)
 	if err != nil {
-		return &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
 	}
 	corpus := make(map[string]*pack.Manifest, len(manifests))
 	for _, manifest := range manifests {
@@ -119,14 +182,14 @@ func runRecipeApply(ref string, projectRoot string) error {
 	packsDir := filepath.Join(projectRoot, ".backstop", "packs")
 	resolved, err := recipe.ResolveRecipe(parsed, corpus, filepath.Join(packsDir, filepath.FromSlash(parsed.Pack)))
 	if err != nil {
-		return &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
 	}
 	// Resolution succeeded, so the pack IS in the corpus under this key.
 	packManifest := corpus[parsed.Pack]
 
 	binding, err := provisionedEngineBinding(packManifest)
 	if err != nil {
-		return err
+		return recipe.ApplyResult{}, fmt.Errorf("select the transform engine for recipe %s: %w", ref, err)
 	}
 
 	// TRUST GATE — the SAME check every pack-declared enforcement command clears
@@ -135,7 +198,7 @@ func runRecipeApply(ref string, projectRoot string) error {
 	// is exactly ONE gate, and it runs HERE, before the dispatch closure below is
 	// built, mirroring runFindingsEngine's gate-before-command-construction order.
 	if gateErr := checkEngineToolAllowed(packManifest, binding); gateErr != nil {
-		return gateErr
+		return recipe.ApplyResult{}, fmt.Errorf("gate the transform engine for recipe %s: %w", ref, gateErr)
 	}
 
 	result, err := recipe.Apply(resolved, recipe.ApplyOptions{
@@ -147,10 +210,14 @@ func runRecipeApply(ref string, projectRoot string) error {
 		// adjudication into two implementations.
 	})
 	if err != nil {
-		return err
+		// The ZERO result on failure, matching Apply's own contract: an apply
+		// either produces a verdict or it fails, never both. The wrap names the
+		// project the apply ran against, which the applier's own error — scoped to
+		// the recipe and the op — does not carry.
+		return recipe.ApplyResult{}, fmt.Errorf("apply into project %q: %w", projectRoot, err)
 	}
 
-	return recordRecipeAdoption(projectRoot, result)
+	return result, recordRecipeAdoption(projectRoot, result)
 }
 
 // provisionedEngineBinding selects the transform engine from DECLARED DATA: the
