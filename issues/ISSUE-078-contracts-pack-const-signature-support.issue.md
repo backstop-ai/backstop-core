@@ -19,12 +19,14 @@ complexity:
 
 ## Problem
 
-This issue has two distinct findings, both discovered while triaging why
-SPEC-054 (the first spec to declare `const`-block contracts) could not get a
-clean `contract_signature` pass for its `RecipeKind`/`Op.Kind` consts. One is
-a currently gate-red broken promise on the closed ISSUE-036; the other is a
-real, reproduced compiler capability gap that ISSUE-036 never actually
-claimed to close.
+This issue has three distinct findings. The first two were discovered while
+triaging why SPEC-054 (the first spec to declare `const`-block contracts)
+could not get a clean `contract_signature` pass for its `RecipeKind`/`Op.Kind`
+consts: one is a currently gate-red broken promise on the closed ISSUE-036;
+the other is a real, reproduced compiler capability gap that ISSUE-036 never
+actually claimed to close. The third is a sibling capability gap in the same
+compiler, verified during PLAN-ISSUE-080 review on 2026-07-26: `kind: type`
+contract entries are existence-only, not shape-verifying.
 
 ### Finding 1 (currently gate-red): ISSUE-036's CLM-008 mandated tests are unresolvable by construction
 
@@ -132,6 +134,56 @@ number. `contract_signature` is currently `pass` (0 violations) precisely
 but it is a real, reproduced gap blocking a real spec from declaring a real
 contract on idiomatic Go.
 
+### Finding 3 (real capability gap, currently undetected, not gate-red): `kind: type` contract entries are existence-only, not shape-verifying
+
+Verified 2026-07-26 while reviewing PLAN-ISSUE-080: the kind-aware compiler's
+`type` branch (`packs/contracts/scripts/compile-signature.sh:78-89`) collapses
+every non-interface type declaration to `printf 'type %s $$$'` — the `$$$`
+wildcard matches any underlying type (a different struct entirely, a func
+type, a primitive alias, anything). The interface branch is only nominally
+stricter: `printf 'type %s interface { $$$ }'` (line 84) still terminates in
+a `$$$` wildcard, so it confirms only "declared as `interface`," never which
+methods it declares. Verified directly:
+
+```
+$ sh packs/contracts/scripts/compile-signature.sh 'type AddOptions struct { ProjectDir string; Version string }'
+type AddOptions $$$
+```
+
+The static pack rule that exercises this same collapse,
+`packs/contracts/pack.yml:70-73` (`type-signature`, `pattern: "type $NAME
+$$$"`), matches identically regardless of the type's actual field list,
+underlying type, or method set. A `provides` entry of `kind: type` proves
+only that a type named `$NAME` exists — never that its shape matches the
+spec's declared signature string.
+
+This false premise — "the contracts gate will red if the type's shape drifts
+from what's declared" — has now surfaced twice in planning, both caught only
+in review, not at authoring time:
+
+- SPEC-055's `AddOptions` contract entry note
+  (`specs/SPEC-055-production-remote-dependency-assembly.spec.md:1028`) had
+  to explicitly document that the entry "does NOT itself enforce" the
+  GitCloner/Validator field removal, because "the contracts pack's signature
+  compiler reduces any struct to `type AddOptions $$$` ... and never compares
+  field lists" — forcing a dedicated field-absence claim (CLM-030) to carry
+  the real enforcement instead of the type-kind entry.
+- PLAN-ISSUE-080's Phase 5 reconciliation task
+  (`plans/PLAN-ISSUE-080-malformed-waiver-diagnostic-surfacing.plan.yml:732-734`)
+  asserted that leaving SPEC-054's declared `WaiverReader` signature unedited
+  after widening the interface "reds the gate as contract drift" — treating
+  the contracts dimension as a shape-verifying forcing function it
+  structurally is not for `kind: type` entries. This was caught and
+  corrected during plan review rather than at drafting.
+
+Same root cause as Finding 2 and ISSUE-052: `--pattern`-string matching under
+`input_mode: pattern-arg` can express "a node of this shape exists here" but
+not "and its named sub-structure matches these values." The relational-rule
+`input_mode` ISSUE-052 already proposes (`kind: <node>` + scoped `has:`
+clauses) is the same mechanism needed here, generalized to a fourth instance
+— `type_declaration`/`interface_type` shape checks — rather than a fourth
+parallel fix.
+
 ### This is the same root cause ISSUE-052 already tracks, one instance wider
 
 ISSUE-052 (`contracts-engine-relational-rule-input-mode`, open,
@@ -155,7 +207,7 @@ member, regardless of whether it carries a value.
 
 ## Solution
 
-Not committed — two independent, differently-sized fixes, evaluate and
+Not committed — three independent, differently-sized fixes, evaluate and
 schedule separately rather than as one unit:
 
 1. **Finding 1 (mandated-test repoint, small, no new code).** Edit
@@ -183,20 +235,44 @@ schedule separately rather than as one unit:
    across three issues. Once it lands, SPEC-054's dropped `provides` entries
    for `RecipeManifest.Kind`/`Op.Kind` can be restored as real, verified
    contracts instead of the current inexpressible-entry disposition.
-3. Whichever order these ship in, Finding 1 does not block or depend on
-   Finding 2 — the mandated-test repoint is independently actionable today.
+3. **Finding 3 (engine capability, contained but real work).** Fold the
+   `kind: type` shape-verification gap into ISSUE-052 as a fourth confirmed
+   instance (updating ISSUE-052's problem statement and live-instance table
+   to include type/interface shape checks, alongside the bare iota member,
+   struct field, and grouped block member instances) rather than building a
+   fifth, parallel, narrower fix. Once it lands, `kind: type` `provides`
+   entries (e.g. SPEC-055's `AddOptions`, SPEC-054's `WaiverReader`) stop
+   being existence-only and the CLM-030-style dedicated-claim workaround
+   becomes unnecessary going forward.
+4. Whichever order these ship in, Finding 1 does not block or depend on
+   Finding 2 or Finding 3 — the mandated-test repoint is independently
+   actionable today.
 
 ## References
 
 - `packs/contracts/scripts/compile-signature.sh` — the kind-aware compiler;
   its `const $NAME = $$$` / `var $NAME = $$$` emission is correct for a
   standalone declaration and does not (and structurally cannot, under
-  `pattern-arg`) bind a grouped block member
+  `pattern-arg`) bind a grouped block member; its `type` branch
+  (lines 78-89) is Finding 3's source — both the plain and `interface`
+  cases terminate in a `$$$` wildcard, so a `kind: type` entry proves only
+  that the named type exists, never its shape
 - `packs/contracts/pack.yml` — the five per-kind static rules
   (`type-signature`, `const-signature`, `var-signature`,
   `method-signature`, `interface-signature`) whose `claims[].id` values are
   ISSUE-036's unresolvable CLM-008 mandated-test names; `input_mode:
-  pattern-arg` is the substrate limitation behind Finding 2
+  pattern-arg` is the substrate limitation behind Findings 2 and 3;
+  `type-signature`'s `pattern: "type $NAME $$$"` (lines 70-73) is the static
+  rule that exercises Finding 3's existence-only match
+- `specs/SPEC-055-production-remote-dependency-assembly.spec.md:1028` — the
+  `AddOptions` contract entry note documenting that the compiler "reduces
+  any struct to `type AddOptions $$$` ... and never compares field lists,"
+  forcing the dedicated CLM-030 field-absence claim to carry real
+  enforcement; Finding 3's first precedent
+- `plans/PLAN-ISSUE-080-malformed-waiver-diagnostic-surfacing.plan.yml:732-734`
+  — the Phase 5 reconciliation task's now-corrected premise that leaving
+  SPEC-054's `WaiverReader` signature unedited "reds the gate as contract
+  drift"; Finding 3's second precedent, caught and corrected in plan review
 - `pkg/pack/engine/contracts_kind_signature_test.go` — the
   `TestContractCompiler_*` suite; the 9 tests that already prove ISSUE-036's
   per-kind claims under names the gate CAN resolve
@@ -220,7 +296,8 @@ schedule separately rather than as one unit:
   contracts
 - ISSUE-052 (`contracts-engine-relational-rule-input-mode`) — open,
   technical-debt; the general fix (relational-rule `input_mode`) this
-  issue's Finding 2 recommends folding into rather than duplicating
+  issue's Finding 2 and Finding 3 both recommend folding into rather than
+  duplicating
 - CLAUDE.md — "Loud ≠ blocking" and the zero-baked-checks / no-vacuous-green
   first principle; Finding 1 is a gate false-red (loud on a real capability),
   Finding 2 is a real, honestly-worked-around gap rather than a silently
