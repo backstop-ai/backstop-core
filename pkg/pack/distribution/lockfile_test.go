@@ -490,3 +490,188 @@ func TestReadLockfile_RoundTrip_LocalPack(t *testing.T) {
 		t.Errorf("ContentHash = %q, want %q", entry.ContentHash, "sha256:localhash123")
 	}
 }
+
+// TestLockfile_SourceCoordinateRoundTrips proves the recorded repository coordinate
+// survives a write/read cycle byte-for-byte (SPEC-056 REQ-004 / CLM-045).
+//
+// THE FIXTURE IS MIXED-CASE AND -pack-SUFFIXED ON PURPOSE. REQ-004 records the
+// coordinate EXACTLY as the operator wrote it: no case folding, no suffix stripping, no
+// host-specific normalization. Case-insensitivity is a GitHub property, and packs may be
+// hosted anywhere, so a normalization added anywhere in the write or read path is a
+// defect — and this fixture is shaped to red HERE, at the lockfile, rather than three
+// phases later in CLM-041 where the cause would be much further from the symptom.
+//
+// "Backstop-AI/backstop-harness-toolchain-pack" is not invented: it is the real
+// repository of the pack whose manifest declares backstop/harness-toolchain, which is
+// the divergence that motivated this whole spec.
+func TestLockfile_SourceCoordinateRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	const (
+		packName   = "backstop/harness-toolchain"
+		coordinate = "Backstop-AI/backstop-harness-toolchain-pack"
+	)
+
+	ref := "v0.1.1"
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			packName: {
+				Name:             packName,
+				Version:          "0.1.1",
+				GitRef:           &ref,
+				ContentHash:      "sha256:coordhash",
+				SourceType:       "git",
+				InstallDate:      time.Now().UTC().Format(time.RFC3339),
+				SourceCoordinate: coordinate,
+			},
+		},
+	}
+
+	if err := distribution.WriteLockfile(path, lf); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading lockfile: %v", err)
+	}
+	if !strings.Contains(string(data), "source_coordinate:") {
+		t.Errorf("expected serialized YAML to carry the source_coordinate key, got:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), coordinate) {
+		t.Errorf("expected serialized YAML to carry %q VERBATIM — any case folding or suffix stripping here is the GitHub-host assumption DD-31 removed; got:\n%s", coordinate, string(data))
+	}
+
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile: %v", err)
+	}
+	entry := read.Packs[packName]
+	if entry.SourceCoordinate != coordinate {
+		t.Errorf("SourceCoordinate = %q, want %q byte-for-byte", entry.SourceCoordinate, coordinate)
+	}
+	// The lock KEY and the coordinate are independent identities; recording one must not
+	// disturb the other. This is the pairing REQ-003 and REQ-004 split apart.
+	if entry.Name != packName {
+		t.Errorf("Name = %q, want %q — the manifest name and the source coordinate are separate fields", entry.Name, packName)
+	}
+}
+
+// TestLockfile_LegacyEntryWithoutCoordinateRoundTripsUnchanged proves an entry written
+// before this field existed neither fails to parse nor gains a blank key (CLM-046).
+//
+// It starts from lockfile TEXT rather than from a struct, because the shape under test
+// is what is already on disk in every consumer's tracked backstop.lock — including all
+// six entries in this repository's own — and a struct literal with an empty field is a
+// weaker premise than the actual legacy bytes.
+//
+// `omitempty` ON THE STRUCT TAG IS NOT SUFFICIENT BY ITSELF. WriteLockfile does not
+// marshal the struct; buildSortedLockEntryNode builds the YAML node BY HAND, so the
+// emptiness guard has to be written there too, the way LocalPath's already is. Without
+// it every legacy entry gains `source_coordinate: ""` on its first rewrite — a diff in
+// every consumer's tracked lock, for a field they have no value for.
+func TestLockfile_LegacyEntryWithoutCoordinateRoundTripsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	// The exact shape of every entry written before SPEC-056.
+	legacy := `packs:
+    acme/legacy-pack:
+        content_hash: sha256:legacyhash
+        git_ref: v1.0.0
+        install_date: "2026-07-01T00:00:00Z"
+        name: acme/legacy-pack
+        source_type: git
+        version: 1.0.0
+`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("writing legacy lockfile: %v", err)
+	}
+
+	read, err := distribution.ReadLockfile(path)
+	if err != nil {
+		t.Fatalf("ReadLockfile on a legacy entry: %v", err)
+	}
+	entry := read.Packs["acme/legacy-pack"]
+	if entry.SourceCoordinate != "" {
+		t.Errorf("SourceCoordinate = %q, want empty for an entry that declares none", entry.SourceCoordinate)
+	}
+	if entry.Name != "acme/legacy-pack" || entry.ContentHash != "sha256:legacyhash" {
+		t.Fatalf("the legacy entry did not parse intact: %+v", entry)
+	}
+
+	if err := distribution.WriteLockfile(path, read); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+	rewritten, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading rewritten lockfile: %v", err)
+	}
+	if strings.Contains(string(rewritten), "source_coordinate") {
+		t.Errorf("a legacy entry gained a source_coordinate key on rewrite; every consumer's tracked backstop.lock would show a spurious diff for a field they have no value for. Got:\n%s", string(rewritten))
+	}
+}
+
+// TestLockfile_SourceCoordinateSortsBetweenNameAndSourceType pins the emitted key ORDER
+// (CLM-047).
+//
+// IT ASSERTS ON THE TEXT, NOT ON THE PARSED MAP, because a map has no order at all — an
+// assertion made against one cannot fail no matter where the key is emitted. The file's
+// invariant is alphabetical keys, and `source_coordinate` falls between `name` and
+// `source_type`. Getting this wrong produces a lockfile that still parses, so nothing
+// but this test would notice.
+func TestLockfile_SourceCoordinateSortsBetweenNameAndSourceType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backstop.lock")
+
+	ref := "v1.0.0"
+	lf := &distribution.Lockfile{
+		Packs: map[string]distribution.LockEntry{
+			"acme/pack": {
+				Name:             "acme/pack",
+				Version:          "1.0.0",
+				GitRef:           &ref,
+				ContentHash:      "sha256:abc123",
+				SourceType:       "git",
+				InstallDate:      time.Now().UTC().Format(time.RFC3339),
+				LocalPath:        "",
+				SourceCoordinate: "acme/pack-repo",
+			},
+		},
+	}
+
+	if err := distribution.WriteLockfile(path, lf); err != nil {
+		t.Fatalf("WriteLockfile: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading lockfile: %v", err)
+	}
+	text := string(data)
+
+	nameAt := strings.Index(text, "name:")
+	coordAt := strings.Index(text, "source_coordinate:")
+	typeAt := strings.Index(text, "source_type:")
+	if nameAt < 0 || coordAt < 0 || typeAt < 0 {
+		t.Fatalf("expected all three keys present; name=%d source_coordinate=%d source_type=%d in:\n%s", nameAt, coordAt, typeAt, text)
+	}
+	if nameAt >= coordAt || coordAt >= typeAt {
+		t.Errorf("keys are out of alphabetical order: name@%d, source_coordinate@%d, source_type@%d — the lockfile's whole determinism rests on sorted keys. Got:\n%s",
+			nameAt, coordAt, typeAt, text)
+	}
+
+	// The full alphabetical sequence, so a key inserted in the wrong place anywhere reds.
+	wantOrder := []string{"content_hash:", "git_ref:", "install_date:", "name:", "source_coordinate:", "source_type:", "version:"}
+	prev := -1
+	for _, key := range wantOrder {
+		at := strings.Index(text, key)
+		if at < 0 {
+			t.Fatalf("key %q missing from emitted lockfile:\n%s", key, text)
+		}
+		if at < prev {
+			t.Errorf("key %q is emitted out of alphabetical order in:\n%s", key, text)
+		}
+		prev = at
+	}
+}

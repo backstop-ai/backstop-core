@@ -26,6 +26,21 @@ type LockEntry struct {
 	// portable record. Empty for git-source packs. It is provenance only — it is NOT part
 	// of ComputeContentHash (a source path is not pack content).
 	LocalPath string `yaml:"local_path,omitempty"`
+	// SourceCoordinate is the git-source pack's requested `org/repository` reference,
+	// recorded EXACTLY as the operator wrote it with only the `@version` suffix removed:
+	// no case folding, no suffix stripping, no host-specific normalization (SPEC-056
+	// REQ-004). Case-insensitivity is a GitHub property and packs may be hosted
+	// anywhere, so normalizing here would bake in the host assumption DD-31 removed.
+	//
+	// It is empty for local-source packs, whose source is already recorded by LocalPath.
+	// Like LocalPath it is PROVENANCE AND RESOLUTION INPUT — it is NOT part of
+	// ComputeContentHash, because where a pack came from is not pack content and folding
+	// it in would make every existing lock entry's hash unreproducible.
+	//
+	// It exists because REQ-003 keys the lock by MANIFEST name: without a recorded
+	// coordinate, a pack whose name differs from its repository becomes uninstallable
+	// from its own lock the moment that landed.
+	SourceCoordinate string `yaml:"source_coordinate,omitempty"`
 }
 
 // ReadLockfile reads and parses a backstop.lock YAML file.
@@ -121,6 +136,17 @@ func buildSortedLockEntryNode(entry LockEntry) *yaml.Node {
 	}
 
 	addScalarPair(node, "name", entry.Name)
+
+	// source_coordinate is alphabetically between name and source_type; emit only when
+	// set, exactly as local_path is guarded above. The guard is LOAD-BEARING, not
+	// cosmetic: this node is built by hand rather than marshalled from the struct, so
+	// the `omitempty` tag alone does nothing here, and without it every pre-existing
+	// entry would gain a blank source_coordinate key on its first rewrite — a diff in
+	// every consumer's tracked backstop.lock for a field they have no value for.
+	if entry.SourceCoordinate != "" {
+		addScalarPair(node, "source_coordinate", entry.SourceCoordinate)
+	}
+
 	addScalarPair(node, "source_type", entry.SourceType)
 
 	if entry.Version != "" {
