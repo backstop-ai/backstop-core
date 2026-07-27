@@ -323,3 +323,88 @@ gate-in-CI wiring** (this issue's acceptance criterion is a real `backstop gate`
 green on Linux CI). **ISSUE-086** keeps the baseline-vacuity and hand-baked-pipeline
 tracking — it does not duplicate this issue's Linux-sandbox-plus-CI-wiring scope, and this
 issue does not absorb ISSUE-086's baseline-generation concerns.
+
+## Spike results (2026-07-27)
+
+Probe of the OQ-3 mechanism contest (bubblewrap vs. Landlock+seccomp), run against a
+Docker container test bed. Recorded here so the eventual plan inherits the findings
+rather than re-deriving them.
+
+### Test-bed limit (load-bearing)
+
+Docker Desktop's LinuxKit kernel (6.10.14-linuxkit) compiles in **neither** AppArmor
+**nor** Landlock — `CONFIG_LSM="yama,loadpin,safesetid,integrity,bpf"`,
+`CONFIG_SECURITY_LANDLOCK` unset. The two decisive questions (Ubuntu's
+`apparmor_restrict_unprivileged_userns` behavior; the Landlock ABI level) are therefore
+**unmeasurable in containers**, and any Docker-based CI job attempting to validate the
+sandbox would false-negative: container seccomp blocks user namespaces in ways a bare
+GitHub Actions runner does not, so `bwrap` behavior observed in-container does not
+transfer to the host where `ubuntu-latest` actually runs. The container bed is good for
+development iteration only — it cannot stand in for sandbox validation.
+
+### Corrected bubblewrap invocation
+
+The scoping report's original `bwrap` form fails two ways: it omits `--unshare-user`
+(so the call clones in a privileged style and gets `EPERM`), and `--ro-bind /lib` alone
+is insufficient on a merged-`/usr` Ubuntu layout. The corrected invocation, proven
+exit-0 both as root and as uid 1001 with seccomp relaxed:
+
+```
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
+  --symlink usr/lib64 /lib64 --unshare-user --unshare-net --dev /dev \
+  --proc /proc /bin/true
+```
+
+### Falsifiable assertion triple (carry into CI as the test set)
+
+Three checks that together prove denial isn't vacuous — one alone (a bare "exit 0")
+doesn't distinguish "sandbox denied correctly" from "sandbox did nothing":
+
+1. Read of an unbound path → `ENOENT`.
+2. `getent hosts` under `--unshare-net` → exit 2 (network denied).
+3. The **same** command without `--unshare-net` → exit 0 (control leg proving the
+   denial in #2 is the sandbox, not an unrelated failure).
+
+### Re-probe list for the real `ubuntu-latest` runner
+
+Once the private `backstop-ai/backstop-core` remote exists (ISSUE-087 sequences it),
+re-run on the real GitHub Actions Linux runner, ordered by load-bearingness:
+
+1. `cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns` — decisive for the
+   bwrap path; **read it, don't assume the value**.
+2. The corrected `bwrap` invocation above, run as the unprivileged runner user.
+3. The falsifiable assertion triple.
+4. Landlock ABI probe (expect ABI 5+ on a real GHA kernel; zero signal so far — see
+   Landlock note below).
+5. `--unshare-pid` with `--proc` (the masked-`/proc` failure seen in-container was a
+   Docker-specific artifact, not necessarily reproducible on the host).
+6. `unshare -Urn` + `aa-status`.
+7. `uname -r`, `/sys/kernel/security/lsm`, and whether `bwrap` is preinstalled or needs
+   `apt install`.
+
+### Narrowing state
+
+- **bubblewrap** is modestly ahead: it is packaged, its enforcement was demonstrably
+  real (the assertion triple passed), and the seccomp blockage observed in-container is
+  attributable to the test-bed limit above, not to `bwrap` itself.
+- **Landlock** got **zero signal** — `ENOSYS` in-container is a kernel-compile fact
+  (Landlock isn't built into the LinuxKit kernel), not ABI or seccomp evidence. Any claim
+  about Landlock's viability either way would be fabricated from this probe; it needs a
+  real-kernel re-probe (item 4 above) before it can be ranked against bubblewrap.
+- **AppArmor remains the open risk** to the bwrap path specifically —
+  `apparmor_restrict_unprivileged_userns` is the one variable that could still break
+  unprivileged `--unshare-user` on a real Ubuntu GHA runner, and it was unmeasurable in
+  this test bed.
+- Two negative results worth recording so they aren't re-tried: setting
+  `apparmor=unconfined` changed nothing (there was nothing to unconfine in this kernel);
+  `--cap-add SYS_ADMIN` is the wrong lever (with it, `bwrap` skips the user-namespace
+  path entirely and then lacks `CAP_NET_ADMIN` — relaxing seccomp instead, as done
+  above, is the correct and sufficient adjustment in containers).
+
+### Handoff note
+
+Probe scripts (`probe.sh`, `final.sh`, `uall.sh`) existed only in the spike session's
+scratchpad and are not part of this record. Porting them to CI means dropping the Docker
+wrapper and running the corrected `bwrap` invocation and assertion triple directly on the
+runner — the commands captured above are the durable artifact of this spike, not the
+scratchpad scripts themselves.
