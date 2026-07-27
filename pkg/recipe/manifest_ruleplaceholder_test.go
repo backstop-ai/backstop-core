@@ -16,12 +16,20 @@ import (
 // instead: parse.
 //
 // The check is `rule:` ONLY, and the ACCEPT case below is what holds that line.
-// Whether `payload:` and `fragment:` may be templated — and whether `fragment:`
-// may carry inline CONTENT at all rather than a path — is ISSUE-081's open
-// question. Two committed artifacts already declare a templated INLINE fragment
-// (testdata/.../recipes/second/recipe.yml and manifest_test.go's
-// wellFormedRecipeYAML), so widening this check would decide that question
-// silently and break both.
+//
+// `fragment:` is no longer part of what this guard holds: ISSUE-081's Decision
+// (2026-07-27) pinned it as path-only, and it is now separately refused when it
+// carries a placeholder — see manifest_fragmentform_test.go. `payload:` is the
+// residual UNDECIDED facet, and the accept case below is scoped to it alone.
+//
+// The asymmetry is evidence-driven, not timidity. Fragment had a live THREE-WAY
+// contradiction — the applier read it as a path, the spec said nothing, and a
+// committed fixture declared it inline — which is what forced a decision. Payload
+// has none: renderPayload resolves it under the recipe dir, every committed
+// fixture declares it as a path, and no artifact disagrees. So a future
+// uniformity refactor that widens the placeholder check to `payload:` would
+// settle that question from the wrong place on no evidence — and it FAILS HERE
+// when it tries, which is exactly what this accept case is for.
 
 // templatedRuleManifest declares the placeholder in `rule:` AND lists that exact
 // literal string in transform_rules, so the allowlist cross-check would PASS. The
@@ -47,11 +55,13 @@ ops:
     manual: Apply the rewrite by hand.
 `
 
-// templatedPayloadAndFragmentManifest is templatedRuleManifest with the rule made
-// LITERAL and the placeholders moved to `payload:` and `fragment:` instead. It is
-// the SCOPE GUARD: it fails the moment someone widens the rule-only check, which
-// is exactly what it is for.
-const templatedPayloadAndFragmentManifest = `
+// templatedPayloadManifest is templatedRuleManifest with the rule made LITERAL
+// and the placeholder moved to `payload:` instead. It is the SCOPE GUARD: it
+// fails the moment someone widens the rule-only check to payload, which is
+// exactly what it is for. It declares NO merge op — fragment's form is decided
+// and guarded in manifest_fragmentform_test.go, so including one here would make
+// this file fail for a reason it is not about.
+const templatedPayloadManifest = `
 kind: implementing
 version: 1.0.0
 params:
@@ -64,12 +74,6 @@ ops:
     kind: create
     target: config/app.settings
     payload: "payload/{{ variant }}.settings"
-  - id: merge-settings
-    kind: merge
-    target: config/registry.json
-    format: json
-    fragment: |
-      {"adopted_by": "{{ variant }}"}
   - id: rewrite-entry
     kind: transform
     target: config/app.settings
@@ -116,10 +120,10 @@ func TestParseRecipeManifest_TemplatedTransformRuleFailsLoud(t *testing.T) {
 		}
 	})
 
-	t.Run("a templated payload and fragment still parse clean", func(t *testing.T) {
-		manifest, err := ParseRecipeManifest([]byte(templatedPayloadAndFragmentManifest))
+	t.Run("a templated payload still parses clean", func(t *testing.T) {
+		manifest, err := ParseRecipeManifest([]byte(templatedPayloadManifest))
 		if err != nil {
-			t.Fatalf("payload/fragment templating is ISSUE-081's open question and this check must not decide it; got error: %v", err)
+			t.Fatalf("payload templatability is ISSUE-081's RESIDUAL open question and this check must not decide it; got error: %v", err)
 		}
 		byID := make(map[string]Op, len(manifest.Ops))
 		for _, op := range manifest.Ops {
@@ -127,9 +131,6 @@ func TestParseRecipeManifest_TemplatedTransformRuleFailsLoud(t *testing.T) {
 		}
 		if !strings.Contains(byID["seed-config"].Payload, placeholderOpen) {
 			t.Errorf("the parsed payload %q carries no placeholder; the scope guard would be vacuous", byID["seed-config"].Payload)
-		}
-		if !strings.Contains(byID["merge-settings"].Fragment, placeholderOpen) {
-			t.Errorf("the parsed fragment %q carries no placeholder; the scope guard would be vacuous", byID["merge-settings"].Fragment)
 		}
 	})
 

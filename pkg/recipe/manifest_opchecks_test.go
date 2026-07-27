@@ -114,8 +114,7 @@ ops:
     kind: merge
     target: config/registry.json
     format: json
-    fragment: |
-      {"adopted_by": "app"}
+    fragment: payload/registry.fragment.json
 `
 	m, err := ParseRecipeManifest([]byte(src))
 	if err != nil {
@@ -194,8 +193,7 @@ ops:
     kind: merge
     target: config/registry.json
     format: json
-    fragment: |
-      {"adopted_by": "app"}
+    fragment: payload/registry.fragment.json
 `
 		_, err := ParseRecipeManifest([]byte(src))
 		if err == nil {

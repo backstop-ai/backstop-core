@@ -1,7 +1,9 @@
 package recipe
 
 import (
+	"encoding/json"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -21,16 +23,17 @@ import (
 // with by coincidence.
 
 // templatedSitesRecipeID is the committed sibling recipe whose create, merge,
-// transform and insert ops ALL declare templated sites. It exists beside the
-// byte-intact `starter` recipe because starter's merge op declares an INLINE
-// fragment, which the shipped applier reads as a recipe-relative PATH.
+// transform and insert ops ALL declare templated sites. It exists beside
+// `starter`, which is the MIXED literal/templated recipe. Both now declare the
+// canon fragment form — a recipe-directory-relative PATH — since ISSUE-081's
+// Decision (2026-07-27) pinned it.
 const templatedSitesRecipeID = "templated-sites"
 
 // templatedSitesPin is the committed recipe's declared version, supplied as the
 // mandatory pin in the reference. It is a ref input, not an expectation.
 const templatedSitesPin = "1.0.0"
 
-// starterPin is the byte-intact committed starter recipe's declared version.
+// starterPin is the committed starter recipe's declared version.
 const starterPin = "1.2.0"
 
 // suppliedAppName is the caller-supplied value for the fixture's REQUIRED
@@ -249,19 +252,22 @@ func TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite(t *testing.T
 	}
 }
 
-// TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
-// drives the BYTE-INTACT committed `starter` recipe — the one ISSUE-079 names as
-// never having been driven through Apply — and pins both halves of what happens.
+// TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath drives the
+// committed `starter` recipe — the one ISSUE-079 names as never having been
+// driven through Apply, which is precisely how the three-way fragment
+// contradiction (applier said path, spec said nothing, fixture declared inline)
+// survived every test in the suite.
 //
-// Its create op runs FIRST and its templated target must resolve. Its merge op
-// then declares `fragment:` as INLINE content while the shipped applier reads
-// Fragment as a recipe-relative PATH, so the apply halts there.
+// It REPLACES, by rewrite, the halt-on-inline-fragment marker that stood here
+// while the form was open. ISSUE-081's Decision (2026-07-27) pinned `fragment:`
+// as a recipe-directory-relative PATH and the fixture was migrated to declare
+// one, so the marker retires — but keeping starter under Apply is the property
+// the migration must not give back, and this test is what keeps it. It now
+// proves the pinned form at the EXACT op that used to halt.
 //
-// ISSUE-081 ("Recipe Authoring Surface Underspecified: Merge Fragment Form + No
-// CLI Param Input") owns that second half. This assertion is a live, falsifiable
-// marker for it rather than a comment: whoever pins the fragment form updates
-// this test, and the committed recipe.yml itself is never touched.
-func TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment(t *testing.T) {
+// The split it pins: the declared PATH is resolved verbatim, while the fragment
+// FILE'S CONTENT is still substituted.
+func TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath(t *testing.T) {
 	resolved := resolveCommittedRecipe(t, "starter", starterPin)
 	supplied := map[string]string{"app_name": suppliedAppName}
 	params := effectiveParams(resolved.Manifest, supplied)
@@ -271,21 +277,37 @@ func TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFr
 	if !declared {
 		t.Fatalf("fixture defect: the committed starter recipe declares no create op; parsed ids = %v", opIDs(resolved.Manifest.Ops))
 	}
-	mergeOp := byID["merge-settings"]
+	mergeOp, mergeDeclared := byID["merge-settings"]
+	if !mergeDeclared {
+		t.Fatalf("fixture defect: the committed starter recipe declares no merge op; parsed ids = %v", opIDs(resolved.Manifest.Ops))
+	}
 	createTarget := renderDeclared(t, createOp.Target, params)
 	if createTarget == createOp.Target {
 		t.Fatalf("fixture defect: the starter create target %q carries no placeholder", createOp.Target)
 	}
+	// A fragment PATH is handed to resolveUnder verbatim, so it must carry no
+	// placeholder of its own — even though the file it names does.
+	if strings.Contains(mergeOp.Fragment, placeholderOpen) {
+		t.Fatalf("fixture defect: the starter fragment path %q carries a placeholder; a fragment path is never substituted", mergeOp.Fragment)
+	}
+	mergeTarget := renderDeclared(t, mergeOp.Target, params)
 
+	// applyMerge READS the target and the insert op needs the registrations
+	// anchor, so the consumer document must be on disk before the apply.
 	root := t.TempDir()
+	writeUnder(t, root, mergeTarget, templatedSitesSeededSettings)
+
 	_, err := Apply(resolved, ApplyOptions{
 		Mode:        ModeDirect,
 		ProjectRoot: root,
 		Params:      supplied,
 		Dispatch:    func(string, string) error { return nil },
 	})
+	if err != nil {
+		t.Fatalf("Apply of the committed starter recipe must succeed now that its fragment declares the canon PATH form; got error: %v", err)
+	}
 
-	// The templated create target resolved before the halt.
+	// The templated create target resolved.
 	tree := snapshotTree(t, root)
 	if _, materialized := tree[createTarget]; !materialized {
 		t.Errorf("the starter create op did not write at the substituted target %q; project tree = %v", createTarget, pathSet(tree))
@@ -296,14 +318,49 @@ func TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFr
 		}
 	}
 
-	// ...and then the apply halted on the merge op's inline fragment.
-	if err == nil {
-		t.Fatalf("Apply of the committed starter recipe succeeded; its merge op declares an INLINE fragment the shipped applier reads as a path, so it must fail loud (ISSUE-081)")
+	// THE CRUX: the op that used to halt now merges. The expectation is derived
+	// from the fragment FILE the recipe declares, rendered through the applier's
+	// own param scope, so a broken applier cannot agree with it by coincidence.
+	merged, present := tree[mergeTarget]
+	if !present {
+		t.Fatalf("the merge target %q is absent from the project tree %v", mergeTarget, pathSet(tree))
 	}
-	for _, want := range []string{mergeOp.ID, "fragment"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not identify the halting merge op via %q", err, want)
+
+	rawFragment, readErr := os.ReadFile(filepath.Join(resolved.Dir, mergeOp.Fragment))
+	if readErr != nil {
+		t.Fatalf("fixture defect: the declared fragment path %q names no file under the recipe directory: %v", mergeOp.Fragment, readErr)
+	}
+	wantFragment := renderDeclared(t, string(rawFragment), params)
+
+	var wantKeys map[string]any
+	if decodeErr := json.Unmarshal([]byte(wantFragment), &wantKeys); decodeErr != nil {
+		t.Fatalf("fixture defect: the substituted fragment %q is not valid json: %v", wantFragment, decodeErr)
+	}
+	if len(wantKeys) == 0 {
+		t.Fatal("fixture defect: the declared fragment contributes no keys; the assertion would be vacuous")
+	}
+	var got map[string]any
+	if decodeErr := json.Unmarshal([]byte(merged), &got); decodeErr != nil {
+		t.Fatalf("the merged target is not valid json: %v\n%s", decodeErr, merged)
+	}
+	for key, want := range wantKeys {
+		gotValue, carried := got[key]
+		if !carried {
+			t.Errorf("the merged target carries no %q key; the declared fragment PATH was not read and merged", key)
+			continue
 		}
+		if !reflect.DeepEqual(gotValue, want) {
+			t.Errorf("merged[%q] = %v, want %v (the fragment FILE's substituted content)", key, gotValue, want)
+		}
+	}
+
+	// The fragment file's CONTENT was substituted, even though its PATH was not.
+	if !strings.Contains(merged, suppliedAppName) {
+		t.Errorf("the merged target carries no supplied app_name %q; a fragment file's CONTENT must still be substituted", suppliedAppName)
+	}
+	// ...and the merge was ADDITIVE rather than a rewrite.
+	if !strings.Contains(merged, seededSiblingValue) {
+		t.Errorf("the merged target lost the seeded sibling %q; the merge must add to the consumer document, not replace it", seededSiblingValue)
 	}
 }
 

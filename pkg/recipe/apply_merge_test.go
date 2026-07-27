@@ -693,3 +693,101 @@ ops:
 		})
 	}
 }
+
+// TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract pins the
+// SECOND layer of ISSUE-081's path-only canon (CLM-004).
+//
+// Manifest validation refuses a fragment that is empty, spans lines, or carries a
+// `{{` placeholder. It deliberately does NOT refuse a single-line, placeholder-
+// free value that is really inline content but is syntactically a valid relative
+// filename — nothing at parse can tell `{"adopted_by": "app"}` from a file of
+// that name without a CONTENT SNIFF, which would mean guessing at document syntax
+// the manifest reader has no business knowing.
+//
+// So that residual case survives to APPLY, and this is what it must do there:
+// name the path-only contract and the declared value, rather than leaking a bare
+// "no such file or directory". The bare ENOENT is exactly what the live
+// 2026-07-25 dogfood produced and could not be acted on — an author who wrote
+// inline content had no way to learn the field is a path. Asserting only that the
+// error is non-nil would leave that undiagnosable message passing.
+func TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract(t *testing.T) {
+	const declaredTarget = "config/target.json"
+
+	cases := []struct {
+		name     string
+		fragment string
+	}{
+		{
+			// THE residual case: inline content that parse cannot distinguish
+			// from a filename.
+			name:     "a single-line inline document that is syntactically a filename",
+			fragment: `{"adopted_by": "app"}`,
+		},
+		{
+			name:     "a declared path naming nothing under the recipe directory",
+			fragment: "payload/absent.fragment.json",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recipeDir := t.TempDir()
+			projectRoot := t.TempDir()
+			captured := readMergeFixture(t, "target.json")
+
+			// The manifest must PARSE: this value is single-line, non-empty and
+			// placeholder-free, so the parse-time check lets it through by design.
+			resolved := resolvedFromManifest(t, recipeDir, fmt.Sprintf(`
+kind: scaffolding
+version: 1.0.0
+ops:
+  - id: op-merge-unreadable-fragment
+    kind: merge
+    target: %s
+    fragment: '%s'
+    format: json
+`, declaredTarget, testCase.fragment))
+			op := resolved.Manifest.Ops[0]
+			if op.Fragment != testCase.fragment {
+				t.Fatalf("Fragment = %q, want the declared value %q verbatim; the case is not exercising what it claims", op.Fragment, testCase.fragment)
+			}
+
+			writeUnder(t, projectRoot, op.Target, string(captured))
+
+			result, err := Apply(resolved, ApplyOptions{Mode: ModeDirect, ProjectRoot: projectRoot})
+			if err == nil {
+				t.Fatal("Apply: a fragment naming nothing on disk must fail loud, got none")
+			}
+			msg := err.Error()
+
+			// The operation that failed, the value that failed it, and the CANON
+			// the author needs in order to fix it.
+			for _, want := range []string{
+				"read declared fragment",
+				testCase.fragment,
+				"recipe-directory-relative path",
+				"read from disk",
+			} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("error must carry %q so the author learns the fragment field is a PATH, got: %v", want, err)
+				}
+			}
+			// The underlying ENOENT stays wrapped — it is still useful, it just
+			// must not be the whole story.
+			if !strings.Contains(msg, "no such file or directory") {
+				t.Errorf("error must keep the underlying read failure wrapped, got: %v", err)
+			}
+
+			if len(result.Written) != 0 || len(result.Preserved) != 0 {
+				t.Errorf("failed Apply reported a verdict: %+v, want the zero result", result)
+			}
+			after, readErr := os.ReadFile(filepath.Join(projectRoot, op.Target))
+			if readErr != nil {
+				t.Fatalf("read the target after the failed merge: %v", readErr)
+			}
+			if !reflect.DeepEqual(after, captured) {
+				t.Errorf("target changed under a failed merge:\ngot  %q\nwant %q", after, captured)
+			}
+		})
+	}
+}

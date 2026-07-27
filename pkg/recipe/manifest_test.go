@@ -34,8 +34,7 @@ ops:
     kind: merge
     target: "{{ config_dir }}/registry.json"
     format: json
-    fragment: |
-      {"adopted_by": "{{ app_name }}"}
+    fragment: payload/registry.fragment.json
   - id: rename-key
     kind: transform
     target: "{{ config_dir }}/app.settings"
@@ -113,9 +112,12 @@ func TestRecipeManifest_WellFormedValid(t *testing.T) {
 	if create.Kind != OpCreate || create.Target != "{{ config_dir }}/app.settings" || create.Payload != "payload/app.settings" {
 		t.Errorf("create op = %+v, want kind=create with declared target+payload", create)
 	}
+	// Fragment is a recipe-directory-relative PATH (ISSUE-081's pinned canon), so
+	// the assertion is on the declared path itself — the content string it used to
+	// carry inline no longer lives in the manifest at all.
 	merge := m.Ops[1]
-	if merge.Kind != OpMerge || merge.Format != "json" || !strings.Contains(merge.Fragment, "adopted_by") {
-		t.Errorf("merge op = %+v, want kind=merge with declared format+fragment", merge)
+	if merge.Kind != OpMerge || merge.Format != "json" || merge.Fragment != "payload/registry.fragment.json" {
+		t.Errorf("merge op = %+v, want kind=merge with declared format + the fragment PATH payload/registry.fragment.json", merge)
 	}
 	transform := m.Ops[2]
 	if transform.Kind != OpTransform || transform.Rule != "rules/rename-key.yml" || transform.Manual == "" {
