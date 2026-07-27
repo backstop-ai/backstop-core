@@ -199,7 +199,7 @@ func TestUpgradeCommand_ValidatesBeforeInstall(t *testing.T) {
 	}
 
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		validator,
 		&mockScanner{},
 		&mockRemediationGenerator{},

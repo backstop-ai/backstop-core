@@ -661,6 +661,22 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		return nil, fmt.Errorf("cloning pack %s at v%s: %w", coordinate, resolved, err)
 	}
 
+	// THE IDENTITY GATE, immediately after the clone and BEFORE tamper detection.
+	// Ordering matters: DetectTamper compares the installed tree against the cloned one,
+	// so running it first would report TAMPER on a version-drifted pack instead of the
+	// cheaper, more specific version diagnostic — telling an operator their pack was
+	// modified when the truth is the repository's manifest disagrees with its tag.
+	updateIdentity, identityErr := ValidateRemoteIdentity(coordinate, resolved, tmpDir)
+	if identityErr != nil {
+		return nil, fmt.Errorf("pack update %s: %w", packName, identityErr)
+	}
+	if updateIdentity.Diverged {
+		warnings = append(warnings, fmt.Sprintf(
+			"pack %s declares the name %s in its manifest; it is installed as %s at %s",
+			coordinate, updateIdentity.ManifestName,
+			updateIdentity.InstallName, filepath.Join(".backstop", "packs", updateIdentity.InstallName)))
+	}
+
 	// Validate against a SCRATCH COPY. Beyond the hash, this is what keeps the tamper
 	// comparison honest: DetectTamper below compares the installed tree against tmpDir,
 	// and a contaminated tmpDir would surface the validator's own writes as ADDED files
@@ -688,17 +704,17 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		}
 	}
 
-	contentHash, err := replaceInstalledPack(opts.ProjectDir, packName, tmpDir)
+	contentHash, err := replaceInstalledPack(opts.ProjectDir, updateIdentity.InstallName, tmpDir)
 	if err != nil {
 		return nil, fmt.Errorf("installing %s %s: %w", packName, resolved, err)
 	}
 
 	// Update backstop.yml.
-	if err := updatePackVersion(opts.ProjectDir, packName, resolved); err != nil {
+	if err := updatePackVersion(opts.ProjectDir, updateIdentity.InstallName, resolved); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.yml: %w", packName, resolved, err)
 	}
 
-	if err := recordGitPackInLock(opts.ProjectDir, packName, resolved, contentHash,
+	if err := recordGitPackInLock(opts.ProjectDir, updateIdentity.InstallName, resolved, contentHash,
 		recordedCoordinateFor(opts.ProjectDir, packName)); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.lock: %w", packName, resolved, err)
 	}
@@ -795,6 +811,19 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 		return nil, fmt.Errorf("cloning pack %s at v%s: %w", coordinate, targetVersion, err)
 	}
 
+	// THE IDENTITY GATE, immediately after the clone and BEFORE the violation scan —
+	// which already precedes the tool-config merge, upgrade's first consumer write.
+	upgradeIdentity, identityErr := ValidateRemoteIdentity(coordinate, targetVersion, tmpDir)
+	if identityErr != nil {
+		return nil, fmt.Errorf("pack upgrade %s: %w", packRef, identityErr)
+	}
+	if upgradeIdentity.Diverged {
+		warnings = append(warnings, fmt.Sprintf(
+			"pack %s declares the name %s in its manifest; it is installed as %s at %s",
+			coordinate, upgradeIdentity.ManifestName,
+			upgradeIdentity.InstallName, filepath.Join(".backstop", "packs", upgradeIdentity.InstallName)))
+	}
+
 	// Validate against a SCRATCH COPY — the identical defect add and update carried.
 	if err := RunValidationOnScratchCopy(c.validator, tmpDir,
 		fmt.Sprintf("%s at tag v%s", packName, targetVersion)); err != nil {
@@ -848,14 +877,14 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 		return nil, fmt.Errorf("tool_config conflict during upgrade:\n%s", describeConflicts(mergeResult.Conflicts))
 	}
 
-	contentHash, err := replaceInstalledPack(opts.ProjectDir, packName, tmpDir)
+	contentHash, err := replaceInstalledPack(opts.ProjectDir, upgradeIdentity.InstallName, tmpDir)
 	if err != nil {
 		return nil, fmt.Errorf("installing %s %s: %w", packName, targetVersion, err)
 	}
 
 	// Record provenance.
 	for i := range mergeResult.Merged {
-		mergeResult.Merged[i].SourcePack = packName
+		mergeResult.Merged[i].SourcePack = upgradeIdentity.InstallName
 	}
 	prov.Entries = append(prov.Entries, mergeResult.Merged...)
 	if err := WriteProvenance(provPath, prov); err != nil {
@@ -863,11 +892,11 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 	}
 
 	// Update backstop.yml.
-	if err := updatePackVersion(opts.ProjectDir, packName, targetVersion); err != nil {
+	if err := updatePackVersion(opts.ProjectDir, upgradeIdentity.InstallName, targetVersion); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.yml: %w", packName, targetVersion, err)
 	}
 
-	if err := recordGitPackInLock(opts.ProjectDir, packName, targetVersion, contentHash,
+	if err := recordGitPackInLock(opts.ProjectDir, upgradeIdentity.InstallName, targetVersion, contentHash,
 		recordedCoordinateFor(opts.ProjectDir, packName)); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.lock: %w", packName, targetVersion, err)
 	}

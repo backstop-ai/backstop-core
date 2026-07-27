@@ -388,7 +388,7 @@ func TestUpgradeCommandRun_UsesReceiverDependencies(t *testing.T) {
 	projectDir := setupUpgradeProject(t)
 
 	cmd, err := distribution.NewUpgradeCommand(
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
 		&mockScanner{violations: []string{"violation-1"}},
 		&mockRemediationGenerator{},

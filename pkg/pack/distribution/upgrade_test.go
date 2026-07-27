@@ -80,7 +80,7 @@ func TestPackUpgrade_AcceptsMajorVersionTarget(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{"violation-1"}}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{"violation-1"}}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestPackUpgrade_GeneratesRemediationBundle(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{"v1"}}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{"v1"}}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestPackUpgrade_BaselinesNewViolations(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{"v1", "v2", "v3"}}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{"v1", "v2", "v3"}}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -137,7 +137,7 @@ func TestPackUpgrade_ValidatesBeforeInstall(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestPackUpgrade_AbortsOnValidationFailure(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{checkFail: true}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{checkFail: true}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -167,7 +167,7 @@ func TestPackUpgrade_UpdatesToolConfig(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -193,7 +193,7 @@ func TestPackUpgrade_ToolConfigConflictExitsNonZero(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -212,7 +212,7 @@ func TestPackUpgrade_UpdatesBackstopYml(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -232,7 +232,7 @@ func TestPackUpgrade_UpdatesBackstopLock(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestPackUpgrade_RemediationBundleCoversAllViolations(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{"v1", "v2"}}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{"v1", "v2"}}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestPackUpgrade_RollbackOnRemediationFailure(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{"v1"}}, &mockRemediationGenerator{failWith: fmt.Errorf("remediation failed")})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{"v1"}}, &mockRemediationGenerator{failWith: fmt.Errorf("remediation failed")})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -314,7 +314,7 @@ func TestPackUpgrade_FailsWhenRunPackTestFails(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{testFail: true}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{testFail: true}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -329,7 +329,7 @@ func TestPackUpgrade_NoRemediationWhenNoViolations(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{violations: []string{}}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{violations: []string{}}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -351,7 +351,7 @@ func TestPackUpgrade_ResultOldVersion(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -370,7 +370,7 @@ func TestPackUpgrade_ResultContentHash(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	result, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -393,7 +393,7 @@ func TestPackUpgrade_CreatesLockfileWhenAbsent(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err != nil {
@@ -419,7 +419,7 @@ func TestPackUpgrade_FailsWhenBackstopYmlMissing(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -434,7 +434,7 @@ func TestPackUpgrade_ScanViolationsError(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScannerWithError{err: fmt.Errorf("scan failed")}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScannerWithError{err: fmt.Errorf("scan failed")}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -457,7 +457,7 @@ func TestPackUpgrade_ReadProvenanceError(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
+	upgrade := newTestUpgradeCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}, &mockValidator{}, &mockScanner{}, &mockRemediationGenerator{})
 
 	_, err := upgrade.Run("acme/valid-pack@2.0.0", opts)
 	if err == nil {
@@ -465,12 +465,38 @@ func TestPackUpgrade_ReadProvenanceError(t *testing.T) {
 	}
 }
 
+// TestPackUpgrade_MergeToolConfigError keeps its identifier and its assertion; only the
+// way it REACHES the merge failure changed (SPEC-056 edit-set item TWELVE).
+//
+// It is the UPGRADE twin of TestPackAdd_MergeToolConfigErrorRollsBack. Both used to
+// provoke the failure with an unparseable pack.yml, relying on MergeToolConfig ->
+// readPackManifest being the first thing to choke on it. After the identity gate reached
+// upgrade (TASK-038), such a pack is refused far earlier by ReadManifestIdentity, so the
+// test's PREMISE no longer held and it would have gone on asserting a refusal it never
+// actually reached.
+//
+// WHY THE PLAN'S SWEEP MISSED THIS ONE: the edit-set method paired every cloneDir literal
+// with its Run() ref, which finds every test pointing at a NAMED fixture. This test builds
+// its manifest INLINE in a t.TempDir(), so it has no fixture literal to pair and the sweep
+// was blind to it by construction.
+//
+// The manifest now PARSES and identity-validates (name and version both real, the version
+// matching the @2.0.0 ref the gate compares against). The failure comes from the merge
+// itself: .golangci.yml exists as a DIRECTORY, so writeConfigFile cannot write the merged
+// settings (config_merge.go:107), reached from upgrade at command.go:699.
 func TestPackUpgrade_MergeToolConfigError(t *testing.T) {
 	projectDir := setupUpgradeProject(t)
 
-	// Use a pack with invalid pack.yml in the cloned dir.
+	// Identity-VALID, but its tool_config cannot be applied.
 	badPackDir := t.TempDir()
-	writeFile(t, filepath.Join(badPackDir, "pack.yml"), "{{{invalid yaml")
+	writeFile(t, filepath.Join(badPackDir, "pack.yml"),
+		"name: acme/valid-pack\nversion: \"2.0.0\"\narchetype: rule-pack\n"+
+			"tool_config:\n  - config_file: \".golangci.yml\"\n    settings:\n      linters.enable.revive: true\n")
+
+	// The merge target is a DIRECTORY, so writing the merged config fails.
+	if mkErr := os.MkdirAll(filepath.Join(projectDir, ".golangci.yml"), 0o755); mkErr != nil {
+		t.Fatal(mkErr)
+	}
 
 	opts := distribution.UpgradeOptions{
 		ProjectDir: projectDir,
@@ -512,7 +538,7 @@ func TestPackUpgrade_ManifestWriteFailureNamesTheFile(t *testing.T) {
 	projectDir := setupUpgradeProject(t)
 
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
 		&mockScannerRemovingManifest{},
 		&mockRemediationGenerator{},

@@ -29,6 +29,14 @@ const (
 	jsonErrorKindValidation = "validation"
 	jsonErrorKindDependency = "dependency"
 	jsonErrorKindCapability = "capability"
+	// jsonErrorKindVersion covers BOTH *VersionUnresolvedError and
+	// *VersionMismatchError: each means "the version is wrong", and a consumer's
+	// response to either is the same.
+	jsonErrorKindVersion = "version"
+	// jsonErrorKindIdentity is SEPARATE from version on purpose. Its remedy differs —
+	// fix the manifest's name versus retag the repository — and a consumer switching on
+	// kind must be able to tell those apart.
+	jsonErrorKindIdentity = "identity"
 	// jsonErrorKindUnknown is the DEFAULT, and it is deliberately a real value rather
 	// than the empty string: a consumer's switch needs something to land on, and an
 	// empty kind turns every unclassified failure into a silent fall-through.
@@ -81,6 +89,21 @@ func classifyJSONErrorKind(err error) string {
 	var capabilityErr *distribution.CapabilityUnavailableError
 	if errors.As(err, &capabilityErr) {
 		return jsonErrorKindCapability
+	}
+
+	var versionUnresolvedErr *distribution.VersionUnresolvedError
+	if errors.As(err, &versionUnresolvedErr) {
+		return jsonErrorKindVersion
+	}
+
+	var versionMismatchErr *distribution.VersionMismatchError
+	if errors.As(err, &versionMismatchErr) {
+		return jsonErrorKindVersion
+	}
+
+	var identityErr *distribution.IdentityError
+	if errors.As(err, &identityErr) {
+		return jsonErrorKindIdentity
 	}
 
 	return jsonErrorKindUnknown

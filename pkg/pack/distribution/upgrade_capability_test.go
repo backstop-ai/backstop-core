@@ -59,7 +59,7 @@ func TestUpgradeCommand_ScannerInvokedUnconditionally(t *testing.T) {
 	generator := &recordingRemediationGenerator{bundle: "remediation-bundle.md"}
 
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
 		scanner,
 		generator,
@@ -90,7 +90,7 @@ func TestUpgradeCommand_RemediationFailureAbortsUpgrade(t *testing.T) {
 	generator := &recordingRemediationGenerator{failErr: fmt.Errorf("bundle writer refused")}
 
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
 		&recordingScanner{violations: []string{"v1", "v2"}},
 		generator,
@@ -130,7 +130,7 @@ func TestUpgradeCommand_PropagatesCapabilityUnavailableError(t *testing.T) {
 	}
 
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
 		&recordingScanner{err: unavailable},
 		&recordingRemediationGenerator{},
@@ -166,18 +166,36 @@ func TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation(t *testing.T) {
 
 	before := snapshotUpgradeArtifacts(t, projectDir)
 
+	scanner := &recordingScanner{err: &distribution.CapabilityUnavailableError{
+		Capability: "pack upgrade violation scanning",
+		Reference:  "BUNDLE-006 REQ-014",
+	}}
 	upgrade := newTestUpgradeCommand(t,
-		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
+		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
 		&mockValidator{},
-		&recordingScanner{err: &distribution.CapabilityUnavailableError{
-			Capability: "pack upgrade violation scanning",
-			Reference:  "BUNDLE-006 REQ-014",
-		}},
+		scanner,
 		&recordingRemediationGenerator{},
 	)
 
 	if _, err := upgrade.Run("acme/valid-pack@2.0.0", distribution.UpgradeOptions{ProjectDir: projectDir}); err == nil {
 		t.Fatal("upgrade must fail when its scan capability is unavailable")
+	}
+
+	// THE SCAN MUST HAVE BEEN REACHED, and this assertion is why the test still means
+	// something (SPEC-056 edit-set F).
+	//
+	// Everything below asserts only that Run errored and that five artifacts are
+	// unchanged. A *VersionMismatchError from SPEC-056's identity gate satisfies BOTH —
+	// it errors, and it refuses before any mutation — so when the gate landed, this test
+	// went on PASSING while the property it exists for (the scanner is reached, and its
+	// UNAVAILABILITY is what fails the upgrade) silently stopped being tested. Nothing
+	// turned red to prompt the fix.
+	//
+	// The double has always counted its calls; nothing read the count. Reading it is what
+	// stops the same vacuity returning the next time anything is inserted ahead of the
+	// scan.
+	if scanner.calls == 0 {
+		t.Fatal("the scanner was never invoked, so this test is not proving what it claims: something now refuses the upgrade BEFORE the scan, and the capability failure is no longer what fails it")
 	}
 
 	after := snapshotUpgradeArtifacts(t, projectDir)
