@@ -1,0 +1,46 @@
+name: demo-org/param-pack
+version: 1.0.0
+language: any
+archetype: code
+description: >
+  E2E fixture pack for `backstop recipe apply --param` (ISSUE-081 Gap 2). Its
+  `adopt` recipe declares a param that is `required: true` with NO `default:` —
+  the case that was UNREACHABLE through the shipped CLI before the repeatable
+  `--param key=value` flag existed — so an operator-supplied value is the only
+  way the apply can resolve. It carries no committed backstop.lock: nothing on
+  the `recipe apply` path reads one, and a hand-written content_hash would be a
+  fabricated fixture.
+engines:
+  # runRecipeApply calls provisionedEngineBinding UNCONDITIONALLY, before Apply
+  # and regardless of op family, and requires EXACTLY ONE provisioned binding —
+  # a pack declaring none fails with a config error before the recipe ever runs.
+  # `adopt` is create-only, so this tool is selected and trust-gated but NEVER
+  # executed, which keeps the fixture hermetic.
+  ast-grep:
+    command: ast-grep scan --update-all
+    input_mode: rule-flags
+    input_flag: "--rule"
+    scope_kind: file-args
+    gate_type: lint
+    category: mechanism
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+recipes:
+  adopt: recipes/adopt
+content:
+  scaffolds:
+    - id: adopt-companion
+      version: 1.0.0
+      tier: skeleton
+      path: scaffolds/adopt-companion
+      test_command: make test
+      description: >
+        Independent content.scaffolds entry, mirroring recipe-pack: it satisfies
+        the "content is required" check on its own terms instead of leaning on
+        the engines: OR-arm, so the recipes: index is proven to be a DISTINCT
+        top-level key from content.scaffolds.
+      use_when: [adopting the adopt recipe]
+      assumes: [project source tree]
+      pairs_with:
+        scaffolds: [adopt-companion-extras]

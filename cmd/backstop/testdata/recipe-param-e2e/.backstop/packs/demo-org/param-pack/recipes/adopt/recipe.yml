@@ -1,0 +1,22 @@
+# The CLI --param fixture recipe (ISSUE-081 Gap 2). `app_name` is `required: true`
+# with NO `default:`, so it can ONLY be resolved by an operator-supplied value —
+# the invocation the shipped command could not express before `--param` landed.
+# `config_dir` carries a default, and the create target is formed from BOTH, so a
+# test that exercised only the defaulted param would still pass against a CLI that
+# ignored --param entirely.
+#
+# One create op only: no transform, so no engine tool is ever executed and the
+# test stays hermetic.
+kind: scaffolding
+version: 1.0.0
+params:
+  - name: app_name
+    required: true
+  - name: config_dir
+    required: false
+    default: config
+ops:
+  - id: create-service
+    kind: create
+    target: "{{ config_dir }}/{{ app_name }}.json"
+    payload: payload/service.json

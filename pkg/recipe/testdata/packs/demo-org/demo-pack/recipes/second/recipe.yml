@@ -11,8 +11,7 @@ ops:
     kind: merge
     target: metadata.json
     format: json
-    fragment: |
-      {"owner": "{{ owner }}", "overview": "{{ doc_path }}"}
+    fragment: payload/metadata.fragment.json
   - id: link-overview
     kind: insert
     target: README.md

@@ -19,9 +19,9 @@ ops:
     kind: create
     target: "{{ config_dir }}/app.config.json"
     payload: payload/app.config.json
-  # The fragment is a recipe-relative FILE, which is the shipped contract and the
-  # reason this recipe exists alongside `starter` (whose inline fragment block is
-  # ISSUE-081's evidence and is left byte-intact).
+  # The fragment is a recipe-relative FILE path — the canon form, which `starter`
+  # now declares too; templated-sites remains the EVERY-site-templated recipe and
+  # starter the mixed literal/templated one.
   - id: merge-settings
     kind: merge
     target: "{{ config_dir }}/settings.json"

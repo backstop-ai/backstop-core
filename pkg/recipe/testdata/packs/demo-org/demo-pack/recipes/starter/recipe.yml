@@ -17,8 +17,7 @@ ops:
     kind: merge
     target: "{{ config_dir }}/settings.json"
     format: json
-    fragment: |
-      {"adopted_by": "{{ app_name }}"}
+    fragment: payload/settings.fragment.json
   - id: rename-config-key
     kind: transform
     target: "{{ config_dir }}/app.config.json"

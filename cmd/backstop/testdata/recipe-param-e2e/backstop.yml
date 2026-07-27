@@ -1,0 +1,3 @@
+project: recipe-param-e2e
+packs:
+  demo-org/param-pack: "1.0.0"

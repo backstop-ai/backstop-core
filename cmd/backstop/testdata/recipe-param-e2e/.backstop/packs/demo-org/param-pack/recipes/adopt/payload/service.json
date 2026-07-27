@@ -1,0 +1,5 @@
+{
+  "service": "declared-by-the-recipe",
+  "adopted_by": "{{ app_name }}",
+  "config_dir": "{{ config_dir }}"
+}
