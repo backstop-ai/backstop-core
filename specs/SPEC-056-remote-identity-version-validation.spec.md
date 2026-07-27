@@ -2,9 +2,10 @@
 title: "Remote Identity Version Validation"
 number: SPEC-056
 created: "2026-07-26"
-status: draft
+updated: "2026-07-27"
+status: implemented
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -1636,6 +1637,36 @@ mistake "pre-mutation ordering" for "transactional".
 
 ## Version History
 
+- **1.1.1** (2026-07-27): Status flip to `implemented`. Documentary only — no
+  requirement, claim, contract, or behavior changed; the delivered contract is the one
+  1.1.0 states. PLAN-SPEC-056 executed in full across all thirteen phases, commit series
+  `6bcfb61, a3f7161, 2762a58, 58d18b0, 24f35d5, 1a90e26, 575dbec, 223e351, d79304b,
+  373e129, 425225e, 22dc5be, 04a6ff2`: the hermetic fixtures and manifest-version-
+  preserving harness (phases 1–2), `pack.ValidatePackName` as the single name authority
+  (phase 3), `LockEntry.SourceCoordinate` landed ahead of its readers (phase 4),
+  `pkg/pack/distribution/identity.go` as pure functions with nothing yet calling it
+  (phase 5), `Warnings []string` carriers and the stderr renderer landed BEFORE anything
+  produced a warning (phase 6), `runValidationOnScratchCopy` in add, update and upgrade
+  so validation can no longer contaminate what is installed or hashed (phase 7),
+  `AddCommand.Run` reordered to resolve-clone-gate-then-mutate with every path on the
+  MANIFEST name (phase 8), the source coordinate recorded verbatim and preserved by every
+  rewrite (phase 9), install/update/upgrade/version-resolution reading the recorded
+  coordinate through one accessor and warning exactly once (phase 10), the identity gate
+  on update and upgrade with their divergence, refusal and JSON-kind claims (phase 11),
+  the end-to-end claims against real git and the real binary with separated streams
+  (phase 12), and final verification plus the codebase-map reconciliation (phase 13). The
+  four reviewer-sanctioned amendments the plan carried — the resolve-once-reuse settlement
+  on CLM-059, the REQ-037@1.0.0 "in place" reading that leaves that requirement unbumped,
+  the corrected `phase3.go` citation, and the second merged-buffer install test — are
+  evidenced in the delivered tree. Kill chain: build clean, `go test ./... -race` green
+  across seventeen packages, `artifact validate --all` clean, and the gate green on every
+  code dimension, its sole red being the pre-ruled SPEC-015 traceability set, which is
+  foreign to this spec. `identity.go` carries 100% coverage. ONE mandated test is skipped
+  and accountable: CLM-112's `TestPackUpgradeCommand_RendersWarningsToStderr`, because the
+  `pack upgrade` success path remains unreachable from production wiring until the
+  scanner/remediation seed lands — it retires with BUNDLE-006 REQ-014/REQ-018, the same
+  seed that owns SPEC-055's upgrade coverage waiver. PLAN-SPEC-056 moves to `completed`;
+  its `spec_version` pin stays at `1.1.0`, the version it was executed against.
 - **1.1.0** (2026-07-26): Review revision, six blockers and seven should-fixes.
   Extended REQ-008's scratch-copy pin to `pack update` and `pack upgrade`, which
   carry the identical contamination defect, and pinned the failure diagnostic to the
