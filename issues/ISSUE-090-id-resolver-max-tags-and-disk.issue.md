@@ -65,6 +65,41 @@ for the numbers that existed at backfill time, but does nothing to prevent the s
 reappearing the next time git ops fail (no remote, offline, auth failure, etc.) — that
 recurrence risk is what this issue tracks.
 
+### New evidence — display/reservation split within one call (2026-07-27 ~23:10)
+
+`backstop artifact new plan --slug pack-distribution-content-identity --source SPEC-057`
+printed `Created … (ID: 001)`, yet the durable outcomes were correct: the frontmatter is keyed
+`plan_id: PLAN-SPEC-057` (plans carry no bare numeric ID — verified in
+`plans/PLAN-SPEC-057-pack-distribution-content-identity.plan.yml`), and reservation tag
+`backstop/plan/111` exists at HEAD (verified via `git tag --points-at`; `git tag -l
+'backstop/plan/*'` shows the prior max was 110, so the tag path allocated correctly). Tracing
+the code (not just the symptom) shows this is not two independently-diverging resolvers as
+first suspected, but a single `ResolveID` call undermining its own successful reservation:
+`GitTagResolver.Resolve` runs `git tag -a` to create the local annotated tag *before* attempting
+`git push origin <tag>` (`idresolver.go:114-123`); this repo currently has no `origin` remote
+configured (`git remote` is empty), so the push fails non-conflict and is wrapped as a
+`FallbackError` (`idresolver.go:147-148`), which makes `ResolveID` discard the just-created
+"111" tag's ID and fall through to `LocalScanResolver` — but that tag was already written to
+`.git/refs` and persists as `backstop/plan/111` regardless. `LocalScanResolver` then computes
+its max from filenames matching `^PLAN-(\d+)` (`idresolver.go:172-173`), but every real plan
+filename is `PLAN-SPEC-NNN-...` or `PLAN-ISSUE-NNN-...` (`scaffold.go:107-115`) — the digit
+group never follows `PLAN-` directly — so this regex can never match an existing plan file,
+`maxNum` is always 0, and the fallback always prints `001` for the plan type no matter how many
+plans already exist on disk. Compounding this, `Filename()` and `Scaffold()`'s `"plan"` case
+(`scaffold.go:100-120,154-167`) never use the resolved `id` for the plan's actual filename or
+frontmatter at all — for plans, the resolved numeric ID governs only the git tag and the printed
+CLI message, so its correctness is externally unverifiable from the artifact itself. Two
+consequences for scoping the fix: (1) the printed ID, the created tag, and any filename number
+must all trace to one resolution outcome — a resolver must not create a durable local
+reservation and then report a different, unrelated number as "the" ID; and (2) for artifact
+types whose filenames don't carry a bare numeric ID (plan is the only one today —
+`Filename()`/`Scaffold()` key plans off `sourceID`, not `id`), `LocalScanResolver`'s
+`^PREFIX-(\d+)` filename scan is not just lagging but structurally incapable of ever finding the
+true max, so a real fallback for plans would collide at "001" on every single invocation, not
+merely on the first one after a gap — this is a strictly worse case than the general
+tag-vs-disk drift already described above and should be covered by the same fix's acceptance
+criteria, not treated as a separate follow-on.
+
 ## Expected
 
 `ResolveID` (or `GitTagResolver.Resolve` directly) computes the next number from
