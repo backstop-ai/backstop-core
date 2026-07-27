@@ -27,8 +27,9 @@ file is only WHERE things are.
 - `pkg/pack/` — CORE: manifest model + `engines:` parsing (`manifest.go`),
   coordinates.
   - `pkg/pack/distribution/` — pack lifecycle: `add/install/update/upgrade/
-    remove/relock.go`, `lockfile.go`, `hash.go`, `provenance.go`,
-    `config_merge.go`, `tamper.go`.
+    remove/relock.go`, `identity.go` (SPEC-056: the identity gate, the three
+    typed refusals, and `CoordinateForEntry`), `lockfile.go`, `hash.go`,
+    `provenance.go`, `config_merge.go`, `tamper.go`.
   - `pkg/pack/engine/` — engine bindings (`binding.go`), `GateType`
     (`gatetype.go`), pinned tool versions (`allowlist.go` — semgrep 1.96.0).
 - `pkg/check/` — findings execution + SARIF (`runner.go`, `parsers.go:42`
@@ -67,17 +68,49 @@ pack_engines: `packValidatorStep` (`gate.go:788`) → `provisionEngines` →
 SPEC-055) → `AddCommand.Run` (`add.go`). Free `distribution.Add/Install/
 Update/Upgrade` are DELETED; commands exist only via `New*Command`
 constructors that error naming any nil dependency (`command.go`).
-LOCAL path (`isLocalPath`): read pack.yml in place → `source_type:"local"`,
-project-relative `local_path` in lock. REMOTE `org/pack@version`
-(`parsePackRef`): `resolveGitURL` → `https://github.com/<name>.git` →
-`ExecGitCloner.Clone` (`gitcloner.go`) — real shallow tag clone, root
-`.git` STRIPPED before return so remote hashes are reproducible; validation
-runs UNCONDITIONALLY through the same `pkg/packval` pipeline `pack check`
-uses (`validator.go`). Common tail: copy → `.backstop/packs/<org>/<name>/`
-→ `ComputeContentHash` (`hash.go:17`) → config merge/provenance →
-`updateBackstopYml` → lockfile → ensureGitignore. Update/upgrade resolve
-versions via `TagVersionResolver` (`versionresolver.go`, strict semver over
-remote tags); upgrade scans BEFORE any consumer mutation.
+THE MANIFEST NAME IS THE INSTALL IDENTITY (SPEC-056). The requested
+`org/repository` is a SOURCE COORDINATE and nothing else: the install path,
+the backstop.yml key, the lock key and therefore the engine asset root all
+read the name the cloned `pack.yml` declares. When the two differ the add
+SUCCEEDS and reports it loudly — divergence is a diagnostic, never a refusal.
+
+LOCAL path (`isLocalPath`): `resolveLocalPackSource` reads identity through
+`ReadManifestIdentity` (`identity.go`) — the SAME reader the remote path uses,
+so there is one implementation of "what is this pack called" → `source_type:
+"local"`, project-relative `local_path` in lock, and NO `source_coordinate`.
+
+REMOTE `org/pack@version`: `ResolveEffectiveVersion` (`identity.go`) resolves
+EXACTLY ONE version BEFORE any git subprocess runs (`--version` beats the `@`
+suffix; strict `X.Y.Z` after at most one leading `v`) → `resolveGitURL` →
+`ExecGitCloner.Clone` (`gitcloner.go`) at that tag — real shallow tag clone,
+root `.git` STRIPPED so remote hashes are reproducible → THE IDENTITY GATE,
+`ValidateRemoteIdentity` (`identity.go`), which reads the cloned `pack.yml`
+and refuses BEFORE any consumer state is touched when the manifest version
+does not equal the tag, when the manifest is absent or unparseable, or when
+its name is unusable (decided by `pack.ValidatePackName` — one authority, not
+a copy). Typed refusals `*VersionUnresolvedError`, `*VersionMismatchError`
+and `*IdentityError` classify under `--json` as kinds `version` and `identity`
+(`cmd/backstop/json_error.go`). Validation then runs UNCONDITIONALLY through
+the same `pkg/packval` pipeline `pack check` uses (`validator.go`).
+
+Common tail: validate a SCRATCH COPY (`RunValidationOnScratchCopy`,
+`command.go`) → copy the PRISTINE materialized tree to
+`.backstop/packs/<manifest-name>/` → `ComputeContentHash` (`hash.go:17`) →
+config merge/provenance → `updateBackstopYml` → lockfile (recording
+`source_coordinate` VERBATIM for git sources) → ensureGitignore.
+
+THE SCRATCH COPY IS LOAD-BEARING, NOT HYGIENE. `pkg/packval` phase 3 renders
+every `tier: complete` scaffold's `sample_config` into the directory it
+validates, so validating in place and then hashing that same tree recorded a
+hash no fresh clone could reproduce — an install failure that looks exactly
+like tampering. Validating a copy is what makes the hash `pack add` records
+equal the hash `pack install` computes.
+
+Update/upgrade resolve versions via `TagVersionResolver` (`versionresolver.go`,
+strict semver over remote tags) at the RECORDED coordinate, run the same
+identity gate immediately after their clone, and PRESERVE `source_coordinate`
+across the rewrite; upgrade refuses a local-source pack outright (pointing at
+`pack relock`) and scans BEFORE any consumer mutation.
 
 ### Known gap — `pack relock` arg-shape asymmetry (ISSUE-074, residual)
 
@@ -87,6 +120,13 @@ filesystem PATH arg (`Use: "relock [path]"`, `pack_relock.go:13`) while
 remove/update/upgrade take a pack NAME — guessing wrong now errors loudly
 instead of silently, but the asymmetry itself is unresolved (identity/
 migration seed territory, where relock gains its migration role).
+
+Relock is NOT on SPEC-056's edit list for a reason worth recording: it does a
+READ-MODIFY-WRITE on the lock entry (`relock.go:59-61` — set ContentHash and
+InstallDate, write the same struct back), so it preserves `source_coordinate`
+and every other field it does not refresh BY CONSTRUCTION. That is CLM-050,
+and it contrasts with `recordGitPackInLock`, which REPLACES the whole entry
+and therefore had to be given the coordinate as an explicit parameter.
 
 ### Resolved 2026-07-26 — remote pack resolution (was ISSUE-073)
 
@@ -119,6 +159,7 @@ exit-2. Coverage is a separate channel: `dispatchPackCoverage`
 backstop.yml: schema `artifacts/backstop-yml/v1/schema.json`, loader
 `pkg/config/config.go`. backstop.lock: `distribution/lockfile.go`
 (`LockEntry{name,version,git_ref,content_hash,source_type,install_date,
+source_coordinate,
 local_path}`). Artifact schemas embedded via root `embed.go` (`SchemaFS`,
 `//go:embed all:artifacts`); on disk `artifacts/<type>/v<N>/schema.json`.
 
