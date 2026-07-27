@@ -520,7 +520,13 @@ func (c *InstallCommand) Run(opts InstallOptions) (*InstallResult, error) {
 			}
 			defer func() { _ = os.RemoveAll(tmpDir) }()
 
-			gitURL := resolveGitURL(name)
+			// The repository comes from the RECORDED coordinate, never from the lock
+			// key: after REQ-003 the key is the manifest name, so a divergent-name pack
+			// would otherwise be uninstallable from its own lock.
+			gitURL, coordWarning := RemoteURLForEntry(name, entry)
+			if coordWarning != "" {
+				result.Warnings = append(result.Warnings, coordWarning)
+			}
 			if cloneErr := c.git.Clone(gitURL, *entry.GitRef, tmpDir); cloneErr != nil {
 				rollback()
 				return nil, cloneErr
@@ -608,7 +614,17 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		}, nil
 	}
 
-	resolved, err := c.resolver.ResolveLatestCompatible(packName, currentVersion)
+	// RESOLVE THE COORDINATE EXACTLY ONCE (REQ-005 / CLM-059). Update needs it at TWO
+	// points — once for ls-remote below, once to build the clone URL further down — and
+	// two independent resolutions would emit two identical fallback warnings for a single
+	// invocation, which is the noise that teaches operators to ignore the signal.
+	coordinate, coordWarning := CoordinateForEntry(packName, lockedEntryFor(opts.ProjectDir, packName))
+	var warnings []string
+	if coordWarning != "" {
+		warnings = append(warnings, coordWarning)
+	}
+
+	resolved, err := c.resolver.ResolveLatestCompatible(coordinate, currentVersion)
 	if err != nil {
 		return nil, fmt.Errorf("resolving version: %w", err)
 	}
@@ -620,6 +636,9 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 			NewVersion: currentVersion,
 			NoOp:       true,
 			Message:    fmt.Sprintf("pack %s is already at latest compatible version %s", packName, currentVersion),
+			// A no-op update can still have fallen back on a coordinate; the
+			// diagnostic must not be swallowed by the early return.
+			Warnings: warnings,
 		}, nil
 	}
 
@@ -635,9 +654,11 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	gitURL := resolveGitURL(packName)
+	// The SAME coordinate resolved above — not a second RemoteURLForEntry call, which
+	// would be the double-emission CLM-059 forbids.
+	gitURL := resolveGitURL(coordinate)
 	if err := c.git.Clone(gitURL, "v"+resolved, tmpDir); err != nil {
-		return nil, fmt.Errorf("cloning pack %s at v%s: %w", packName, resolved, err)
+		return nil, fmt.Errorf("cloning pack %s at v%s: %w", coordinate, resolved, err)
 	}
 
 	// Validate against a SCRATCH COPY. Beyond the hash, this is what keeps the tamper
@@ -686,6 +707,7 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		OldVersion:  currentVersion,
 		NewVersion:  resolved,
 		ContentHash: contentHash,
+		Warnings:    warnings,
 	}, nil
 }
 
@@ -739,10 +761,26 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 	// Parse pack reference with explicit major version.
 	packName, targetVersion := parsePackRef(packRef)
 
-	// Read current version.
-	currentVersion, _, err := readPackVersion(opts.ProjectDir, packName)
+	// Read current version AND source type. The isLocal result used to be discarded
+	// here, so upgrade cloned unconditionally.
+	currentVersion, isLocal, err := readPackVersion(opts.ProjectDir, packName)
 	if err != nil {
 		return nil, fmt.Errorf("reading the current version of %s: %w", packName, err)
+	}
+
+	// ESTABLISH SOURCE TYPE BEFORE RESOLVING A COORDINATE (REQ-005). A local pack has no
+	// repository at all, so asking for its coordinate is a category error that would
+	// surface to the operator as a spurious fallback warning about a remote that does not
+	// exist.
+	if isLocal {
+		return nil, fmt.Errorf("pack %s is a local path pack and has no repository to upgrade from; run 'backstop pack relock' to refresh it from its source", packName)
+	}
+
+	// The repository comes from the recorded coordinate, resolved once.
+	coordinate, coordWarning := CoordinateForEntry(packName, lockedEntryFor(opts.ProjectDir, packName))
+	var warnings []string
+	if coordWarning != "" {
+		warnings = append(warnings, coordWarning)
 	}
 
 	// Clone new version.
@@ -752,9 +790,9 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	gitURL := resolveGitURL(packName)
+	gitURL := resolveGitURL(coordinate)
 	if err := c.git.Clone(gitURL, "v"+targetVersion, tmpDir); err != nil {
-		return nil, fmt.Errorf("cloning pack %s at v%s: %w", packName, targetVersion, err)
+		return nil, fmt.Errorf("cloning pack %s at v%s: %w", coordinate, targetVersion, err)
 	}
 
 	// Validate against a SCRATCH COPY — the identical defect add and update carried.
@@ -840,6 +878,7 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 		ContentHash:         contentHash,
 		RemediationBundle:   remediationBundle,
 		BaselinedViolations: len(violations),
+		Warnings:            warnings,
 	}, nil
 }
 
@@ -955,6 +994,17 @@ func recordGitPackInLock(projectDir, packName, version, contentHash, sourceCoord
 	}
 
 	return WriteLockfile(lockPath, lf)
+}
+
+// lockedEntryFor reads a pack's existing lock entry, or the zero entry when the lock is
+// absent or unreadable. The zero entry carries no coordinate, which is exactly what
+// CoordinateForEntry treats as "fall back and warn".
+func lockedEntryFor(projectDir, packName string) LockEntry {
+	lf, err := ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	if err != nil || lf == nil {
+		return LockEntry{}
+	}
+	return lf.Packs[packName]
 }
 
 // recordedCoordinateFor reads the coordinate an existing lock entry already carries, so a

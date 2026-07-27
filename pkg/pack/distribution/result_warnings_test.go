@@ -54,8 +54,6 @@ func TestAddResult_CarriesWarnings(t *testing.T) {
 // UpdateResult declares no warning field at all today (update.go:28-34) and pack update
 // renders nothing of the kind, so a warning computed inside update is currently dropped.
 func TestUpdateResult_CarriesWarnings(t *testing.T) {
-	t.Skip("update's coordinate-fallback and divergence warnings are wired in TASK-035 (phase 10); the carrier lands here first")
-
 	projectDir := setupUpdateProject(t)
 	update := newTestUpdateCommand(t,
 		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")},
@@ -77,8 +75,6 @@ func TestUpdateResult_CarriesWarnings(t *testing.T) {
 // TestUpgradeResult_CarriesWarnings requires upgrade to carry a diagnostic out (CLM-107).
 // UpgradeResult declares no warning field today either (upgrade.go:22-29).
 func TestUpgradeResult_CarriesWarnings(t *testing.T) {
-	t.Skip("upgrade's coordinate-fallback and divergence warnings are wired in TASK-035 (phase 10); the carrier lands here first")
-
 	projectDir := setupUpgradeProject(t)
 	upgrade := newTestUpgradeCommand(t,
 		&mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")},
@@ -105,8 +101,6 @@ func TestUpgradeResult_CarriesWarnings(t *testing.T) {
 // survive the same invocation — which is the bug that would silently delete whichever
 // warning was computed first.
 func TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether(t *testing.T) {
-	t.Skip("install's coordinate-fallback warning is wired in TASK-031 (phase 9); the reconciliation half already works and the carrier is shared")
-
 	projectDir := t.TempDir()
 
 	// A local pack that installs cleanly, so the run succeeds.

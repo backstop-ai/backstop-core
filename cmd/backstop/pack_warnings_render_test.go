@@ -134,42 +134,97 @@ func TestPackAddCommand_RendersWarningsToStderr(t *testing.T) {
 
 // TestPackUpdateCommand_RendersWarningsToStderr (CLM-111).
 //
-// pack update renders NOTHING of the kind today: UpdateResult has no warning field at all
-// (update.go:28-34) and the command has no loop. Both halves arrive in TASK-021; the
-// producing path arrives in TASK-035.
+// Driven against a HERMETIC remote for the same reason CLM-109 is: newPackUpdateCommand
+// assembles its own production dependencies inside RunE, so the only way to make the real
+// command emit a coordinate-fallback warning is to give it a real repository and a lock
+// entry that genuinely lacks a coordinate.
+//
+// The lock entry is stripped of its source_coordinate AFTER the add, which reproduces the
+// shape of every entry written before SPEC-056. The fallback resolves to the pack name,
+// which for this fixture is also the redirected coordinate, so the update completes
+// hermetically while still taking the fallback path.
 func TestPackUpdateCommand_RendersWarningsToStderr(t *testing.T) {
-	t.Skip("pack update produces no warning until the coordinate fallback is wired in TASK-035 (phase 10); the rendering loop lands in TASK-021")
+	packName, projectDir := remoteE2ESetup(t, "valid-pack", "v1.0.0", "v1.1.0")
 
-	projectDir := t.TempDir()
 	restore := chdirForTest(t, projectDir)
 	defer restore()
 
 	jsonFlag := false
-	stdout, stderr, _ := runWithSeparateStreams(t, newPackUpdateCommand(&jsonFlag), "acme/valid-pack")
+	if _, stderr, code := runWithSeparateStreams(t, newPackAddCommand(&jsonFlag), packName+"@1.0.0"); code != nil {
+		t.Fatalf("seeding the project with an add failed: %v\nstderr: %s", code, stderr)
+	}
+
+	stripRecordedCoordinate(t, projectDir, packName)
+
+	stdout, stderr, err := runWithSeparateStreams(t, newPackUpdateCommand(&jsonFlag), packName)
+	if err != nil {
+		t.Fatalf("update must succeed while warning: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
 
 	if !strings.Contains(strings.ToLower(stderr), "warning") {
-		t.Errorf("the fallback warning must render to STDERR; stderr was:\n%s", stderr)
+		t.Errorf("the coordinate-fallback warning must render to STDERR; stderr was:\n%s", stderr)
 	}
 	if strings.Contains(strings.ToLower(stdout), "warning") {
 		t.Errorf("the warning must NOT appear on stdout; stdout was:\n%s", stdout)
 	}
 }
 
+// stripRecordedCoordinate removes a lock entry's source_coordinate, reproducing the shape
+// of every entry written before SPEC-056.
+func stripRecordedCoordinate(t *testing.T, projectDir, packName string) {
+	t.Helper()
+	lockPath := filepath.Join(projectDir, "backstop.lock")
+	lf, err := distribution.ReadLockfile(lockPath)
+	if err != nil {
+		t.Fatalf("reading the lock to strip its coordinate: %v", err)
+	}
+	entry, ok := lf.Packs[packName]
+	if !ok {
+		t.Fatalf("no lock entry for %q to strip", packName)
+	}
+	entry.SourceCoordinate = ""
+	lf.Packs[packName] = entry
+	if writeErr := distribution.WriteLockfile(lockPath, lf); writeErr != nil {
+		t.Fatalf("writing the stripped lock: %v", writeErr)
+	}
+}
+
 // TestPackUpgradeCommand_RendersWarningsToStderr (CLM-112).
 //
-// Same shape as update: UpgradeResult has no warning field today (upgrade.go:22-29) and
-// pack upgrade has no loop. The loop goes INSIDE newPackUpgradeCommand's RunE — the
-// file's line-1 coverage waiver must not move.
+// SKIPPED FOR A STRUCTURAL REASON, NOT A MISSING PRODUCING PATH. Upgrade's coordinate
+// fallback IS wired (TASK-035) and its carrier IS populated — TestUpgradeResult_CarriesWarnings
+// proves that at the distribution level and passes. What cannot happen is the RENDERING.
+//
+// `pack upgrade` cannot succeed under production wiring: newProductionUpgradeCommand
+// assembles unavailableScanner{} and unavailableRemediationGenerator{} by design (SPEC-055
+// REQ-009), so every invocation returns "the pack upgrade violation scan is declared but
+// not yet available; it is tracked by BUNDLE-006 REQ-014" — verified by running it. The
+// rendering loop sits after the error check, and the plan forbids running a warning loop
+// on the failure path ("a command that already failed reports its failure through
+// packLifecycleFailure"), so there is no honest way to reach the renderer here.
+//
+// This is the SAME structural fact pack_upgrade.go's line-1 coverage waiver already
+// records: "upgrade success path unreachable until the scanner/remediation capability
+// seed (BUNDLE-006 REQ-014/018) lands". This skip retires with that seed, alongside the
+// waiver.
 func TestPackUpgradeCommand_RendersWarningsToStderr(t *testing.T) {
-	t.Skip("pack upgrade produces no warning until the coordinate fallback is wired in TASK-035 (phase 10); the rendering loop lands in TASK-021")
+	t.Skip("pack upgrade cannot succeed under production wiring (unavailableScanner, SPEC-055 REQ-009), so the renderer is unreachable; retires with BUNDLE-006 REQ-014/018 alongside pack_upgrade.go's line-1 coverage waiver")
 
-	projectDir := t.TempDir()
+	packName, projectDir := remoteE2ESetup(t, "valid-pack", "v1.0.0", "v2.0.0")
+
 	restore := chdirForTest(t, projectDir)
 	defer restore()
 
 	jsonFlag := false
-	stdout, stderr, _ := runWithSeparateStreams(t, newPackUpgradeCommand(&jsonFlag), "acme/valid-pack@2.0.0")
+	if _, stderr, code := runWithSeparateStreams(t, newPackAddCommand(&jsonFlag), packName+"@1.0.0"); code != nil {
+		t.Fatalf("seeding add failed: %v\nstderr: %s", code, stderr)
+	}
+	stripRecordedCoordinate(t, projectDir, packName)
 
+	stdout, stderr, err := runWithSeparateStreams(t, newPackUpgradeCommand(&jsonFlag), packName+"@2.0.0")
+	if err != nil {
+		t.Fatalf("upgrade must succeed while warning: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
 	if !strings.Contains(strings.ToLower(stderr), "warning") {
 		t.Errorf("the fallback warning must render to STDERR; stderr was:\n%s", stderr)
 	}

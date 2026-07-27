@@ -10,7 +10,10 @@ import (
 
 // VersionResolver abstracts semver version resolution.
 type VersionResolver interface {
-	ResolveLatestCompatible(packName, currentVersion string) (string, error)
+	// ResolveLatestCompatible takes the repository COORDINATE, not the pack name: after
+	// SPEC-056 REQ-003 the two differ for any pack whose manifest name is not its
+	// repository, and ls-remote must run against the repository.
+	ResolveLatestCompatible(coordinate, currentVersion string) (string, error)
 	IsMajorBump(current, resolved string) bool
 }
 

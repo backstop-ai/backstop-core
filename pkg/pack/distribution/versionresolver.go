@@ -52,26 +52,27 @@ func NewTagVersionResolver(git GitCloner) (*TagVersionResolver, error) {
 // currentVersion's MAJOR component, or currentVersion unchanged when the
 // repository publishes nothing newer.
 //
-// The pack's repository URL is resolved from its NAME through the package's own
-// construction, so resolution reaches the same repository every other lifecycle
-// operation reaches.
+// The repository URL is built from the COORDINATE it is PASSED, so resolution reaches the
+// same repository every other lifecycle operation reaches (SPEC-056 REQ-005). It used to
+// be derived from the pack NAME, which is wrong for any pack whose manifest name differs
+// from its repository — exactly the divergence REQ-003 made expressible.
 //
 // A listing failure PROPAGATES. It must never come back as currentVersion with a
 // nil error: an operator reads that as "already at the latest version", which is
 // a lie when the truth is that the remote could not be reached.
-func (r *TagVersionResolver) ResolveLatestCompatible(packName, currentVersion string) (string, error) {
+func (r *TagVersionResolver) ResolveLatestCompatible(coordinate, currentVersion string) (string, error) {
 	strictSemver := regexp.MustCompile(strictSemverPattern)
 
 	current, ok := parseVersionComponents(currentVersion, strictSemver)
 	if !ok {
-		return "", fmt.Errorf("cannot resolve versions for %s: its current version %q is not a strict MAJOR.MINOR.PATCH version", packName, currentVersion)
+		return "", fmt.Errorf("cannot resolve versions for %s: its current version %q is not a strict MAJOR.MINOR.PATCH version", coordinate, currentVersion)
 	}
 
-	url := resolveGitURL(packName)
+	url := resolveGitURL(coordinate)
 
 	tags, err := r.git.ListTags(url)
 	if err != nil {
-		return "", fmt.Errorf("cannot resolve the latest compatible version of %s: %w", packName, err)
+		return "", fmt.Errorf("cannot resolve the latest compatible version of %s: %w", coordinate, err)
 	}
 
 	latest := current
