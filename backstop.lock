@@ -1,12 +1,11 @@
 packs:
-    backstop/cobra-cli:
-        content_hash: c629393853f3955295e70dde49d0caf8e97ec7edc2cdda77747a726241d58d46
-        git_ref: null
-        install_date: 2026-07-25T19:11:38Z
-        local_path: ../backstop-cobra-cli-pack
-        name: backstop/cobra-cli
-        source_type: local
-        version: null
+    backstop-ai/cobra-cli-standards:
+        content_hash: d9d87c313022bddff02f640a881784b436c661c1dff511fa038d592850eeca4d
+        git_ref: v0.2.1
+        install_date: 2026-07-27T00:47:16Z
+        name: backstop-ai/cobra-cli-standards
+        source_type: git
+        version: 0.2.1
     backstop/contracts:
         content_hash: aee133db8525ec6bd2635530f3e40bb6714f4c6250b771158d18eaf2bca42c26
         git_ref: null
