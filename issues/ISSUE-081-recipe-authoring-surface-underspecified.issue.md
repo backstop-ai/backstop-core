@@ -233,6 +233,42 @@ reachability. This is the issue's remaining open question.
 
 Ready for `issue → plan` on Gaps 1 and 2.
 
+## Delivery (2026-07-27)
+
+PLAN-ISSUE-081 delivered Gap 1 and Gap 2 exactly as decided above. Gap 3 and the residual
+`Op.Payload` facet remain OPEN — this issue stays open for them.
+
+**Gap 1 — DELIVERED.** `fragment:` is canon as a recipe-directory-relative path; the committed
+`merge-settings` fixture corpus was migrated to the path form (00ef8f1), and `pkg/recipe`'s
+`ParseRecipeManifest` now rejects a non-path (inline) `fragment:` declaration as a parse error
+with a clear message, per the Decision. A captured-fixture regression test runs the path form
+through `Apply` end to end, not just `ParseRecipeManifest`.
+
+**Gap 2 — DELIVERED.** `newRecipeApplyCommand()` gained a repeatable `--param key=value` flag,
+threaded into `ApplyOptions.Params` in `runRecipeApply`; malformed, duplicate, and undeclared
+`--param` values are rejected with a `ConfigError` (exit 2), and a value carrying `,` or `=`
+survives intact. The fixture's own `app_name` param (`required: true`, no default) is now a
+valid example of a CLI-applicable recipe via `--param app_name=...`.
+
+Commits: 00ef8f1 (fixture corpus migrated to fragment path form), 0628705 (TDD red: 9 tests),
+8c80b2c (fragment path-only contract in `pkg/recipe` + repeatable `--param key=value` in the
+CLI, `ConfigError` exit-2 rejections), da9d599 (SPEC-054 v1.5.0: CLM-071 rewritten, nine new
+mandated test names). Verification: unfiltered gate green except the ruled inherited SPEC-015
+traceability set; both suites green under `-race`.
+
+**Gap 3 — remains OPEN.** No position taken on insert placement semantics
+(inline-after-anchor vs. new-line-after-anchor-line) or on stating SDLC-mediated mode's CLI
+reachability.
+
+**`Op.Payload` facet — remains OPEN.** Payload's path form and templatability were deliberately
+left unconstrained: `fragment:` was decided because it had a live contradiction across three
+artifacts (see Gap 1 above); `payload:` has none, so deciding it now would settle this facet
+from the wrong place, on no evidence.
+
+SPEC-054 v1.5.0's References section records this same narrowing: ISSUE-081 stays cited there,
+narrowed to Gap 3 and the residual `Op.Payload` facet — no requirement was removed and no
+existing test was dropped.
+
 ## References
 
 - `pkg/recipe/apply.go:617-659` (`applyMerge`) — path-only fragment resolution

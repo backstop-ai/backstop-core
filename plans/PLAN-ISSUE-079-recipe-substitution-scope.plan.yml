@@ -359,8 +359,11 @@ phases:
               This test FAILS today at the first assertion (the create lands at
               `<root>/{{ config_dir }}/app.config.json`).
 
-            - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
-              (CLM-001, CLM-011) — drives the BYTE-INTACT committed `starter`
+            - TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+              (CLM-001, CLM-011) — REPOINTED 2026-07-27, see the note at the end
+              of this bullet; originally delivered under the name
+              TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment.
+              Drives the BYTE-INTACT committed `starter`
               recipe (`<fixture pack>:starter@1.2.0`) through Apply. Its create op
               runs FIRST, so assert: `<root>/config/app.config.json` exists (the
               templated create target resolved) and no `{{ config_dir }}`
@@ -371,6 +374,27 @@ phases:
               pinned as a live, falsifiable marker instead of a comment. Reference
               ISSUE-081 in the test doc comment so whoever fixes the fragment form
               knows this assertion is theirs to update.
+
+              REPOINT NOTE (2026-07-27) — the marker DID its job and was collected.
+              PLAN-ISSUE-081 TASK-004 retired this test's original name BY
+              REWRITE, not by deletion: ISSUE-081 pinned `fragment:` as
+              path-only, TASK-001 migrated the committed `starter` fixture off
+              its inline fragment, and the halt assertion above became
+              unreachable. The rewritten test keeps the PROPERTY this task bought
+              — the committed `starter` recipe is driven through Apply rather
+              than only through ParseRecipeManifest, which is how the fragment
+              contradiction survived the whole suite in the first place — and now
+              asserts the merge SUCCEEDS against the declared fragment PATH.
+              SPEC-054 CLM-071 was reconciled to match at da9d599.
+
+              WHY THE NAME IS REPOINTED HERE RATHER THAN LEFT: this plan is
+              `completed`, so its `test_names` are PROMISES the
+              artifact_status_drift dimension checks for existence. A completed
+              plan naming a test that no longer exists is a broken promise, and
+              because that dimension applies to new code it would block the NEXT
+              edit to pkg/recipe/apply_substitution_test.go for a defect nobody
+              introduced. The delivered artifact is unchanged; only the name it
+              is recorded under moved.
 
             - TestApply_NoLiteralPlaceholderReachesTheFilesystem (CLM-008) —
               the invariant, and the one that would have caught the live repro
@@ -443,7 +467,10 @@ phases:
           - CLM-011
         test_names:
           - TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
-          - TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+          # Repointed 2026-07-27 — PLAN-ISSUE-081 TASK-004 retired the original
+          # name BY REWRITE under the pinned path-only fragment form. Same test,
+          # same property; see the REPOINT NOTE in TASK-002's description.
+          - TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
           - TestApply_NoLiteralPlaceholderReachesTheFilesystem
           - TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud
           - TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted
@@ -809,7 +836,10 @@ phases:
               no-literal-placeholder-on-the-filesystem invariant. Mandate the
               test names this plan delivers —
               TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite,
-              TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment,
+              TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+              (repointed 2026-07-27 — PLAN-ISSUE-081 TASK-004 retired the
+              original name by rewrite; SPEC-054 CLM-071 already carries the new
+              name as of da9d599, so this list and the spec agree),
               TestApply_NoLiteralPlaceholderReachesTheFilesystem,
               TestApply_UndeclaredPlaceholderInSiteFieldFailsLoud,
               TestApply_SDLCMediatedMode_SuppliedInjectionSiteIsSubstituted,
