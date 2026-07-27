@@ -416,10 +416,10 @@ func ParseManifestFile(path string) (*Manifest, error) {
 	}
 	manifest, err := ParseManifest(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse manifest %s: %w", path, err)
 	}
 	if err := validateRecipesIndex(manifest, filepath.Dir(path)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate recipes index for %s: %w", path, err)
 	}
 	return manifest, nil
 }
@@ -459,7 +459,24 @@ func validateRecipesIndex(m *Manifest, packRoot string) error {
 var namePartPattern = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
 var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
-func validateName(name string) error {
+// ValidatePackName reports whether name is a usable pack identity: exactly one slash,
+// both parts non-empty, and every character within namePartPattern.
+//
+// It is EXPORTED so pkg/pack/distribution can decide a cloned manifest's name with the
+// same authority the manifest model itself uses (SPEC-056 REQ-003 / CLM-037). REQ-003
+// makes the manifest name the install path, the backstop.yml key, the lock key, and the
+// engine asset root, so distribution must reject an unusable name BEFORE it writes any
+// consumer state — and doing that with a second copy of this rule is the failure the
+// requirement names outright. Two bodies that agree today drift tomorrow, and the drift
+// surfaces as a pack one package accepts and the other rejects.
+//
+// ONLY THE NAME RULE IS EXPORTED. validateSemver, semverPattern and namePartPattern
+// stay unexported deliberately: semverPattern accepts prerelease and build-metadata
+// suffixes, so a manifest declaring 1.0.0-rc1 is a VALID manifest that is nonetheless
+// not installable by tag, because no strict release tag can equal it. Identity's
+// version strictness must be NARROWER than the manifest model's, and exporting the
+// model's semver rule would invite exactly the reuse that reintroduces that acceptance.
+func ValidatePackName(name string) error {
 	parts := strings.Split(name, "/")
 	if len(parts) != 2 {
 		return fmt.Errorf("name must contain exactly one slash")
@@ -474,6 +491,12 @@ func validateName(name string) error {
 	}
 	return nil
 }
+
+// validateName is the manifest model's internal spelling of ValidatePackName. It is a
+// CALL-THROUGH, never a copy — one implementation is the entire point of CLM-037, and
+// TestValidatePackName_ExportsTheExistingNameRule fails the moment these two disagree
+// about any name, message included.
+func validateName(name string) error { return ValidatePackName(name) }
 
 func validateLanguageField(lang string) error {
 	return ValidateLanguage(lang)
