@@ -1,0 +1,702 @@
+---
+plan_id: PLAN-ISSUE-075
+spec_id: ISSUE-075
+created: "2026-07-26"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./tests/smoke/ -count=1 -race"
+coverage_threshold: 80
+
+notes: |
+  Implements ISSUE-075 — `TestSmoke_GateFailsMissingMandatedTest`
+  (`tests/smoke/smoke_test.go:486`) is the ONE smoke scenario meant to prove that
+  `test_verification` blocks on a spec's missing mandated test. It has been unable
+  to fail for the RIGHT reason since 2026-07-13 and, uncached, currently fails
+  outright.
+
+  ── ROOT CAUSE (already diagnosed in the issue — do NOT re-derive) ───────────
+  `createSpec` (`tests/smoke/smoke_test.go:136-140`) hardcodes `status: draft`
+  into the generated SPEC-999 frontmatter and `specOpts` has no status field, so
+  no caller can override it. ISSUE-054 (closed 2026-07-13, commit `2164994`)
+  scoped mandated tests to implemented-only specs:
+  `StepTestVerificationScopedFunc` (`pkg/gate/step_testverify.go:336`) calls
+  `filterDueMandatedTests` (line 353) → `contractsAreDue(status)` which is
+  literally `status == "implemented"` (`step_testverify.go:190-192`). SPEC-999 is
+  forced to `draft`, so its only mandated test (`TestCompute_ReturnsNil`) is
+  filtered out BEFORE the capability guard and the discovery walk, and the step
+  hits the `len(mandated) == 0` early return (`step_testverify.go:355-361`) — an
+  unconditional clean pass. The gate is behaving exactly as ISSUE-054 designed;
+  the FIXTURE is what is out of date. The ISSUE-075 fix changes NO production
+  code.
+
+  ── MEASURED BASELINE (2026-07-26, captured while authoring — trust but re-run) ─
+  `go test ./tests/smoke/ -count=1 -race` on the current tree fails with EXACTLY
+  ONE failure:
+
+      --- FAIL: TestSmoke_GateFailsMissingMandatedTest (0.11s)
+
+  Every other smoke scenario passes uncached. A repo-wide
+  `go test ./... -race -count=1` on the same tree reported
+  `github.com/bmanson/backstop-core/tests/smoke` as its ONLY failing package —
+  every other package is already green uncached. So the "sibling cache-masked
+  mismatch" sweep the issue calls for is EXPECTED TO BE A NO-OP, and the repo-wide
+  suite is expected to go fully green once this one scenario is fixed. If the
+  implementer's uncached run surfaces additional failures, that is new
+  information — see the escalation rule on TASK-005.
+
+  ── THE ISSUE-075 FIX (test-fixture only, 3 edits in one file) ──────────────
+    1. `specOpts` gains a `status string` field.
+    2. `createSpec` threads it into the frontmatter, DEFAULTING to `draft` when
+       empty — every existing caller keeps today's behavior byte-for-byte.
+    3. `TestSmoke_GateFailsMissingMandatedTest` passes `status: "implemented"`,
+       plus a comment naming the ISSUE-054 coupling so the next scoping change
+       cannot silently re-vacuate the scenario.
+
+  ── EXPECTED GATE SHAPE AFTER THE FLIP (verified by reading the gate code) ───
+  Flipping SPEC-999 to `implemented` makes it `ClassSuccessTerminal`
+  (`pkg/gate/artifact_status.go:95-97`). TWO dimensions therefore red on the same
+  missing test, both at `severity: error` (→ exit 1, NOT exit 2):
+
+    * `test_verification` — the intended target. `filterDueMandatedTests` now
+      KEEPS `TestCompute_ReturnsNil`, the go-toolchain fixture pack supplies test
+      globs + `test_name_patterns` so the capability guard passes, the discovery
+      walk finds only `TestSomethingElse`, and the step FAILS naming the missing
+      test. This is what the scenario asserts.
+    * `artifact_status_drift` — `ClassifyStatusDrift`
+      (`pkg/gate/status_drift.go:39-53`) emits an error-severity broken-promise
+      violation for a success-terminal artifact whose mandated test is absent.
+      This is CORRECT and EXPECTED collateral, not a regression. Do NOT suppress
+      it, do NOT assert against it, and do NOT revert the flip because of it.
+
+  Unaffected: `test_substantiveness`, `coverage_threshold`, and
+  `contract_signature` stay non-blocking `warning` for the FIXTURE PROJECT
+  (capability absent — the fixture installs no engine for them, this scenario
+  declares no contracts, and it uses `verification.level: static` with no coverage
+  threshold). `requirement_traceability` is unaffected for the fixture: SPEC-999
+  declares a bare `requirements:` array with no `supports:` refs to any bundle.
+  (These are statements about the TEMP-DIR fixture project the smoke test builds —
+  not about backstop-core's own gate, which is the subject of the next section.)
+
+  ── ACTIVATED DORMANT FINDINGS (reviewer control-vs-treatment, adjudicated) ──
+  Confirmed empirically by control-vs-treatment gate runs: `tests/smoke/
+  smoke_test.go` is UNCHANGED at HEAD, so in default diff scope its findings are
+  dormant. The moment this plan edits it, the file enters the change unit and
+  TWELVE findings activate — 9 `pack_engines` + 3 `test_substantiveness`. Per the
+  no-grandfather-on-changed-files rule (you touch it, you fix it), remediating
+  them is IN SCOPE for this plan, and TASK-003 owns it.
+
+  The twelve, and the adjudicated disposition of each (this ruling was made under
+  the work-together grant and is recorded here so the implementer executes it
+  rather than re-deciding it):
+
+  a. FIX IN CODE (4) — TASK-003:
+     * 1x errcheck on `defer os.RemoveAll(tmpDir)` (`smoke_test.go:23`). Capture
+       and handle the error.
+     * 3x hollow-test (`test_substantiveness`) on
+       `TestSmoke_GateBlocksDeclaredSubstantivenessWithoutPack` (line 614),
+       `...DeclaredCoverageWithoutPack` (line 620), and
+       `...DeclaredContractsWithoutPack` (line 626). Each is a bare one-line
+       delegation to `blocksDeclaredWithoutPack` with no assertion of its own.
+       Give each a real, falsifiable assertion on the delegated result. The check
+       is RIGHT here — a test whose body asserts nothing is exactly what
+       substantiveness exists to catch.
+
+  b. PACK-PRECISION, DO NOT FIX IN CODE (5) — external dependency of TASK-005:
+     * 5x `cli.core.exit-code-discipline` (pack `backstop-ai/cobra-cli-standards`,
+       v0.2.1 installed) on the `os.Exit` calls in `TestMain`
+       (`smoke_test.go:21,34,37`) and `findProjectRoot` (`smoke_test.go:45,54`).
+       THE CHECK IS WRONG: Go's testing contract REQUIRES `TestMain` to call
+       `os.Exit` with `m.Run()`'s result, and a package-level test harness helper
+       has no error channel to return through. Per the packs-learn-from-scenarios
+       doctrine, precision belongs in the PACK, never a code contortion — so this
+       is being fixed pack-side (rule scoping + version bump + republish +
+       reinstall) in a PARALLEL LANE, not here. This plan must NOT restructure
+       `TestMain`/`findProjectRoot` and must NOT waive these. TASK-005 instead
+       ASSERTS the reinstalled pack no longer fires on them, and treats a still-
+       firing rule as a blocking external dependency to report.
+
+  c. ESCALATED, PENDING FOUNDER — INTERIM WAIVER (3) — TASK-003:
+     * 1x `no-baked-tool-exec` (pack `backstop/self`) on
+       `exec.Command("go", "build", "-o", binaryPath, "./cmd/backstop/")`
+       (`smoke_test.go:29`).
+     * 2x `no-baked-language-token` (pack `backstop/self`) on the `"go.mod"`
+       literals at `smoke_test.go:48` and `smoke_test.go:228`.
+       Whether the self-pack's zero-baked-language rules should apply to backstop-
+       core's OWN test HARNESS (which must build and probe a Go module because
+       backstop-core IS a Go module) is a founder posture call about self-pack
+       scoping. It has been ESCALATED and is not this plan's to decide. Interim
+       disposition: accountable, EXPIRING `@waiver` tokens with reason `deferred`
+       and expiry `2026-10-24`, each noting the pending scoping decision. This is
+       the sanctioned application of the check-is-wrong interim-waiver doctrine
+       and is the EXPLICIT, ENUMERATED EXCEPTION to you-touch-it-you-fix-it for
+       this plan — it does not generalize. Waivers are otherwise a last resort:
+       do not add any waiver beyond these three.
+
+  Also present but NOT this plan's: 3 pre-existing `requirement_traceability`
+  reds belonging to the SPEC-015 lane. They are unrelated to any file this plan
+  changes, are not attributable to it, and must NOT be fixed, waived, or absorbed
+  here. TASK-005's acceptance enumerates them as expected-and-excluded.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────
+    * The status literal lives inside a `fmt.Sprintf` format string
+      (`smoke_test.go:136-176`) whose `%s` arguments are POSITIONAL. Adding a
+      verb means adding its argument in the matching position — an off-by-one
+      here silently writes the package name into the status field. The Phase 1
+      guard tests exist to catch that.
+    * The default MUST remain `draft`. `TestSmoke_GatePassesOnCompliantProject`
+      depends on it: its spec declares contracts + a coverage threshold, and at
+      `draft` those dimensions stay capability-absent warnings. Flipping the
+      DEFAULT would change that scenario's expected step statuses.
+    * WAIVER RULE-IDS MUST BE COPIED VERBATIM FROM GATE OUTPUT. Adjudication is
+      an EXACT string match — `pkg/waiver/adjudicate.go` ("the token's rule-id
+      must equal an associated finding's rule-id"); a near-miss id yields an
+      `unused`/dangling waiver AND leaves the finding red. Do not reconstruct the
+      id from the pack's `pack.yml`: the SARIF id is engine-derived and differs
+      from the manifest id. Precedent forms already in-tree:
+      `cmd/backstop/pack_gate.go:888` and `cmd/backstop/pack_gate_provision.go:119`.
+    * WAIVER PLACEMENT: the association window is the finding's OWN line plus the
+      ONE line immediately above it (`pkg/waiver/adjudicate.go` `windowLines`).
+      A token two lines above the finding does not associate.
+    * `backstop code check` DOES NOT EXIST (confirmed against
+      `./bin/backstop --help`: the subcommands are artifact / baseline /
+      commands / gate / pack / recipe / waiver). No task in this plan may
+      prescribe it. Scenario 6's stale skip message referencing it is noted in
+      the issue as explicitly OUT OF SCOPE — leave it alone.
+    * `go test` result caching is what hid this for 12 days. EVERY test run in
+      this plan is `-count=1`. A run without it proves nothing.
+    * `./bin/backstop` in the tree may be stale. Every task that gates REBUILDS
+      it first.
+    * BYTE-SCOPE CONTAINMENT: the remediation task widens WHAT is edited inside
+      `tests/smoke/smoke_test.go`, and nothing else. No production file, no other
+      test package, no pack file. If a remediation appears to require editing
+      `pkg/**`, `cmd/**`, or `.backstop/packs/**`, STOP and report.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue + the ruling) ──
+    REQ-001: The smoke fixture can express a spec status other than draft.
+      CLM-001  `specOpts` carries a status and `createSpec` emits it into the
+               generated SPEC-999 frontmatter.
+      CLM-002  the default is preserved — a `specOpts` with no status still emits
+               `status: draft`, leaving every existing caller unchanged.
+    REQ-002: The missing-mandated-test scenario actually exercises enforcement.
+      CLM-003  SPEC-999 in `TestSmoke_GateFailsMissingMandatedTest` is
+               `implemented`, so `filterDueMandatedTests` retains
+               `TestCompute_ReturnsNil` and the step reaches the discovery walk
+               instead of the `len(mandated) == 0` clean-pass return.
+      CLM-004  the scenario goes green for the RIGHT reason: gate exits 1,
+               `test_verification` status is `fail`, and a violation message
+               names `TestCompute_ReturnsNil`.
+    REQ-003: The coupling is documented so it cannot silently re-vacuate.
+      CLM-005  the scenario carries a comment naming the ISSUE-054
+               implemented-only scoping it depends on, so a future scoping change
+               is forced to confront this fixture.
+    REQ-004: Nothing else is cache-masked or regressed.
+      CLM-006  the ENTIRE smoke suite passes under `-count=1 -race`.
+      CLM-007  repo-wide `go test ./... -race -count=1` is fully green, and the
+               full gate reports ZERO violations attributable to the files this
+               plan changes EXCEPT the three enumerated waivered self-pack
+               findings and the three pre-existing SPEC-015
+               `requirement_traceability` reds.
+    REQ-005: Findings activated by touching the smoke file are remediated at
+             their CORRECT layer — code, pack, or accountable waiver.
+      CLM-008  the errcheck finding on the deferred temp-dir cleanup and the
+               three hollow delegator tests are fixed IN CODE, each delegator
+               gaining a substantive, falsifiable assertion (no contortion, no
+               assertion-free body).
+      CLM-009  the five `cli.core.exit-code-discipline` findings are NOT fixed in
+               code — the check is wrong and is corrected pack-side in a parallel
+               lane; this plan asserts the reinstalled pack no longer fires on
+               `TestMain`/`findProjectRoot`.
+      CLM-010  the three `backstop/self` findings carry accountable, expiring
+               `@waiver` tokens (reason `deferred`, expiry `2026-10-24`) citing
+               the pending founder scoping decision, and `waiver_resolution`
+               lists exactly those three as ACTIVE.
+
+  ── FILE SCOPE ──────────────────────────────────────────────────────────────
+    tests/smoke/smoke_test.go — the ONLY source file this plan modifies (plus
+    this plan artifact itself). No production code, no other test package, no
+    pack file.
+
+  ── WHY THREE PHASES AND NOT FOUR ───────────────────────────────────────────
+  The ISSUE-075 fix (TASK-002) and the remediation of the findings that fix
+  ACTIVATES (TASK-003) edit the SAME file and must be strictly ordered. The plan
+  schema forbids a `refactor` task depending on a `verification` task (REQ-005),
+  so an intermediate verification between them would leave the two tasks
+  parallel-eligible on a shared file and violate D-081. They therefore share
+  Phase 2 as a linear implementation → refactor → verification chain. The
+  "prove the ISSUE-075 fix in isolation before piling on remediation" beat is
+  preserved as the mandatory FIRST STEP inside TASK-003.
+
+  Structure:
+    Phase 1: TDD red — fixture-invariant guard tests for the status override
+             (fail to compile today: `specOpts` has no status field).
+    Phase 2: TDD green + remediation — add the override, flip the scenario,
+             document the ISSUE-054 coupling; then remediate the twelve findings
+             the edit activates (4 in code, 3 by accountable waiver, 5 deferred
+             to the pack lane); verify the whole suite uncached.
+    Phase 3: Comprehensive verification — repo-wide uncached run + rebuilt
+             `backstop gate` against the scoped acceptance + `artifact validate`.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — Guard the Fixture Invariant
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Fixture-Invariant Guard Tests for the Status Override"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write failing guard tests that createSpec honors a status override and defaults to draft"
+        description: |
+          The scenario this issue fixes is ALREADY red — running
+          `go test ./tests/smoke/ -count=1 -race` today fails
+          `TestSmoke_GateFailsMissingMandatedTest`. That red proves the symptom
+          but not the mechanism, and it cannot guard the fix's two invariants
+          (override honored / default preserved). This task adds the tests that
+          can.
+
+          Add two tests to `tests/smoke/smoke_test.go`. They are pure fixture
+          tests — they call `createSpec` and read the file it writes. They do NOT
+          invoke the backstop binary, so they must NOT gate on `binaryPath`.
+
+          Mandated test names (exact):
+
+            - TestSmoke_CreateSpecHonorsStatusOverride (CLM-001): call
+              `createSpec(t, t.TempDir(), specOpts{...})` with the new status
+              field set to `"implemented"` and a minimal claim set, read the
+              returned spec path, and assert the generated frontmatter contains
+              a `status: implemented` line and does NOT contain `status: draft`.
+              Assert on the FRONTMATTER region (the content before the closing
+              `---`), not a bare substring of the whole file, so a body mention
+              can never satisfy it.
+
+            - TestSmoke_CreateSpecDefaultsToDraftStatus (CLM-002): call
+              `createSpec` with a `specOpts` whose status is left at its zero
+              value and assert the frontmatter contains `status: draft`. This is
+              the regression guard that keeps
+              `TestSmoke_GatePassesOnCompliantProject` and
+              `TestSmoke_ArtifactValidateCatchesMissingClaims` on their current
+              behavior — if someone later flips the default, this test reds
+              instead of those scenarios silently changing shape.
+
+          Both tests FAIL TO COMPILE today because `specOpts` has no status
+          field. That non-compiling state IS the intended red — do not add the
+          field in this task, and do not stub it.
+
+          Place the tests next to the other helper-level code in the file (near
+          the `createSpec` / `specOpts` definitions, above the Scenario 1
+          section) so the fixture contract sits with the fixture.
+
+          Do NOT modify `createSpec`, `specOpts`, or any scenario in this task.
+        files:
+          - tests/smoke/smoke_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        test_names:
+          - TestSmoke_CreateSpecHonorsStatusOverride
+          - TestSmoke_CreateSpecDefaultsToDraftStatus
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green + Remediation of the Findings the Edit Activates
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green, Then Remediate — Status Override, Scenario Flip, and the Twelve Activated Findings"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add a status override to specOpts/createSpec and set SPEC-999 to implemented in the missing-mandated-test scenario"
+        description: |
+          Make the Phase 1 guard tests pass and turn
+          `TestSmoke_GateFailsMissingMandatedTest` green for the right reason.
+          Three edits, all in `tests/smoke/smoke_test.go`:
+
+          1. `specOpts` (~line 183) gains a `status string` field. Document it in
+             a short comment: empty means `draft`.
+
+          2. `createSpec` (~lines 136-176) stops hardcoding `status: draft`.
+             Resolve the effective status at the top of the function —
+
+                 specStatus := opts.status
+                 if specStatus == "" {
+                     specStatus = "draft"
+                 }
+
+             — and thread it through the existing `fmt.Sprintf`. The format
+             string's `%s` verbs are POSITIONAL: the current call passes
+             `opts.implPackage`, `verificationYAML`, `claimsYAML`,
+             `contractsYAML` in that order. Adding the status verb means adding
+             its argument in the MATCHING position. Get this wrong and the
+             package name lands in the status field; TASK-001's tests catch it.
+             (CLM-001, CLM-002)
+
+          3. `TestSmoke_GateFailsMissingMandatedTest` (~line 518) passes
+             `status: "implemented"` in its `createSpec` call, and gains a
+             comment above that call naming the coupling explicitly — something
+             carrying these facts (CLM-005):
+
+               * `test_verification` scopes mandated tests to IMPLEMENTED specs
+                 only (ISSUE-054, commit `2164994`) via
+                 `filterDueMandatedTests` → `contractsAreDue` in
+                 `pkg/gate/step_testverify.go`;
+               * so SPEC-999 MUST be `implemented` here or its mandated test is
+                 filtered out before the discovery walk and this scenario
+                 becomes a vacuous pass (that is ISSUE-075);
+               * a future change to that scoping rule must revisit THIS fixture.
+
+             Write it as a real explanation, not a bare `// ISSUE-054` marker —
+             the comment is the artifact that stops the next scoping change from
+             silently re-vacuating the test. (CLM-003, CLM-005)
+
+          Do NOT change the assertions in
+          `TestSmoke_GateFailsMissingMandatedTest`. They already assert the
+          right things (exit code 1, `test_verification` status `fail`, a
+          violation message naming `TestCompute_ReturnsNil`) — the whole point is
+          that they now actually execute. (CLM-004)
+
+          EXPECTED COLLATERAL — do not "fix" it: with SPEC-999 at `implemented`
+          it becomes `ClassSuccessTerminal`, so `artifact_status_drift` ALSO emits
+          an error-severity broken-promise violation for the same absent test
+          (`pkg/gate/status_drift.go:39-53`). Both are `severity: error`, so the
+          gate still exits 1 and the scenario's assertions hold. That second red
+          is correct behavior, not a regression.
+
+          Do NOT remediate the activated dormant findings in this task — that is
+          TASK-003's job, deliberately separated so this diff stays readable as
+          the ISSUE-075 fix. Touch NO production code and NO other test file.
+          Leave Scenario 6's stale `backstop code check` skip message alone — the
+          issue scopes it out explicitly.
+        files:
+          - tests/smoke/smoke_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: refactor
+        title: "Remediate the twelve findings activated by touching smoke_test.go, each at its correct layer"
+        description: |
+          FIRST STEP — PROVE THE ISSUE-075 FIX IN ISOLATION before remediating
+          anything. Run:
+
+              go test ./tests/smoke/ -count=1 -race
+
+          and confirm the two Phase 1 guard tests pass (CLM-001, CLM-002), that
+          `TestSmoke_GateFailsMissingMandatedTest` now PASSES — meaning the gate it
+          shells out to EXITS 1, its `test_verification` step status is `fail`, and
+          a violation message names `TestCompute_ReturnsNil` (CLM-003, CLM-004) —
+          and that every other scenario still passes (CLM-006). If it still fails,
+          read the JSON the failure prints and diagnose by exit code: exit 0 with
+          `test_verification` passing means the status never reached the
+          frontmatter (positional-`%s` mistake in TASK-002, or the default
+          overrode the caller); exit 2 means a dimension escalated to a config
+          error, which is NOT the expected shape (both expected reds are
+          `severity: error` → exit 1) — report the offending step rather than
+          tuning the assertion to accept exit 2. Do not begin remediation until
+          this run is clean; otherwise a remediation failure and a fix failure
+          become indistinguishable.
+
+          THEN REMEDIATE. `tests/smoke/smoke_test.go` was UNCHANGED at HEAD, so
+          its findings were dormant in diff scope. TASK-002 put it in the change
+          unit, activating twelve — 9 `pack_engines` + 3 `test_substantiveness`
+          (confirmed by the reviewer's control-vs-treatment gate runs).
+          You-touch-it-you-fix-it applies. The disposition of each was ADJUDICATED
+          during review (see the plan notes) — EXECUTE the ruling, do not re-decide
+          it.
+
+          Run the gate to see the twelve for yourself and to capture the EXACT
+          rule ids you will need:
+
+              go build -o ./bin/backstop ./cmd/backstop/
+              ./bin/backstop gate --json
+
+          ── (a) FIX IN CODE — 4 findings (CLM-008) ──────────────────────────
+
+          1. errcheck on `defer os.RemoveAll(tmpDir)` (`smoke_test.go:23`).
+             Capture and handle the error. `TestMain` has no `*testing.T`, so
+             follow the error-reporting idiom already used throughout this file
+             (`fmt.Fprintf(os.Stderr, ...)`) — wrap the cleanup in a deferred
+             closure that reports a non-nil removal error to stderr. Do not
+             silence it with `_ =`; that trades one vacuous green for another.
+
+          2-4. The three hollow delegators — `TestSmoke_GateBlocksDeclared
+             SubstantivenessWithoutPack` (line 614),
+             `...DeclaredCoverageWithoutPack` (line 620), and
+             `...DeclaredContractsWithoutPack` (line 626). Each is currently a
+             bare one-line call to `blocksDeclaredWithoutPack` with no assertion
+             in its own body, which is precisely what `test_substantiveness`
+             exists to catch — the check is RIGHT.
+
+             Fix by giving each delegator a real, falsifiable assertion on the
+             delegated result rather than by inlining the shared body (which
+             would triple the duplication) or by adding a decorative assertion
+             (which would defeat the check). The clean shape: have
+             `blocksDeclaredWithoutPack` RETURN what it verified — the resolved
+             `stepResult` for the dimension it was asked about — and have each
+             caller assert on it. Each test should then pin something specific to
+             ITS dimension, at minimum that the returned step is the one it named
+             (`test_substantiveness` / `coverage_threshold` /
+             `contract_signature`) and that it carries the dimension's
+             `<dim>_declared_intent_unmet` violation. Keep the shared helper's
+             existing internal assertions intact — this ADDS a return value and
+             per-caller assertions, it does not move the verification out of the
+             helper.
+
+             The bar: each assertion must be able to FAIL if the gate regressed.
+             If you find yourself writing something that cannot fail, stop and
+             reconsider the shape.
+
+          ── (b) DO NOT TOUCH — 5 findings deferred to the pack lane (CLM-009) ─
+
+          The five `cli.core.exit-code-discipline` findings (pack
+          `backstop-ai/cobra-cli-standards`) on the `os.Exit` calls in `TestMain`
+          (`smoke_test.go:21,34,37`) and `findProjectRoot` (`smoke_test.go:45,54`)
+          are a WRONG CHECK, not a code defect: Go's testing contract REQUIRES
+          `TestMain` to call `os.Exit` with `m.Run()`'s result, and a package-level
+          harness helper has no error channel to return through. Precision belongs
+          in the pack (packs-learn-from-scenarios), so this is being fixed pack-side
+          in a PARALLEL LANE.
+
+          In this task: do NOT restructure `TestMain` or `findProjectRoot`, do NOT
+          add waivers for these five, and do NOT change how the binary is built or
+          the project root is found. They are expected to still fire until the
+          republished pack is reinstalled; TASK-005 asserts they are gone.
+
+          ── (c) ACCOUNTABLE INTERIM WAIVERS — 3 findings (CLM-010) ───────────
+
+          Three `backstop/self` findings on the test harness:
+            * `no-baked-tool-exec` on
+              `exec.Command("go", "build", "-o", binaryPath, "./cmd/backstop/")`
+              (`smoke_test.go:29`);
+            * `no-baked-language-token` on the `"go.mod"` literal at
+              `smoke_test.go:48` (inside `findProjectRoot`);
+            * `no-baked-language-token` on the `"go.mod"` literal at
+              `smoke_test.go:228` (inside `createGoMod`).
+
+          Whether the self-pack's zero-baked-language rules should bind
+          backstop-core's OWN test harness — which must build and probe a Go
+          module because backstop-core IS a Go module — is a founder posture call
+          on self-pack scoping. It is ESCALATED and PENDING. Do not decide it, do
+          not restructure the harness to dodge the rules, and do not edit the
+          self pack.
+
+          Interim disposition, per the check-is-wrong interim-waiver doctrine:
+          add exactly THREE `@waiver` tokens, one per finding:
+
+              @waiver:<RULE-ID>:deferred:2026-10-24 <note>
+
+          Requirements on each token:
+            * `<RULE-ID>` MUST be copied VERBATIM from the gate's own JSON output
+              for that finding. Adjudication is an EXACT string match
+              (`pkg/waiver/adjudicate.go`) — a reconstructed or near-miss id
+              produces a dangling `unused` waiver AND leaves the finding red. Do
+              NOT derive the id from `.backstop/packs/backstop/self/pack.yml`; the
+              SARIF id is engine-derived and differs from the manifest id. See the
+              in-tree precedent tokens at `cmd/backstop/pack_gate.go:888` and
+              `cmd/backstop/pack_gate_provision.go:119` for the shape.
+            * Reason code MUST be `deferred` and expiry MUST be `2026-10-24`.
+            * The note MUST state that self-pack scoping over backstop-core's own
+              test harness is escalated and pending a founder decision, and that
+              the waiver is removed when that decision lands. A reader must be
+              able to tell WHY this is waived and WHAT retires it.
+            * PLACEMENT: the association window is the finding's own line plus the
+              ONE line immediately above it. Put each token on the line directly
+              above its finding. A token two lines up does not associate.
+
+          These three are the ONLY waivers this plan sanctions. Adding a fourth —
+          in particular to dodge (a) or (b) — is out of scope and a review failure.
+
+          ── SCOPE ───────────────────────────────────────────────────────────
+          Every edit lands in `tests/smoke/smoke_test.go`. No production file, no
+          other test package, no pack file. If a remediation appears to require
+          editing `pkg/**`, `cmd/**`, or `.backstop/packs/**`, STOP and report
+          rather than widening scope.
+        files:
+          - tests/smoke/smoke_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run the entire smoke suite uncached after remediation and read the gate's effect on the twelve"
+        description: |
+          Run the ISSUE-075 verification command — the ENTIRE smoke package, never
+          a `-run` filter, and always `-count=1` (result caching is what hid this
+          bug for 12 days):
+
+              go test ./tests/smoke/ -count=1 -race
+
+          Confirm:
+            - `TestSmoke_CreateSpecHonorsStatusOverride` and
+              `TestSmoke_CreateSpecDefaultsToDraftStatus` PASS (CLM-001, CLM-002);
+            - `TestSmoke_GateFailsMissingMandatedTest` PASSES — the gate it shells
+              out to exits 1, `test_verification` is `fail`, and a violation
+              message names `TestCompute_ReturnsNil` (CLM-003, CLM-004);
+            - the ENTIRE suite passes, including after the remediation's change to
+              the shared `blocksDeclaredWithoutPack` helper signature (CLM-006);
+            - the three `TestSmoke_GateBlocksDeclared*WithoutPack` tests pass WITH
+              their new per-test assertions — and sanity-check falsifiability by
+              confirming each new assertion references the dimension that test
+              actually names, so a copy-paste across the three did not leave all
+              three asserting the same dimension (CLM-008).
+
+          Then rebuild and run the gate to read the remediation's effect on the
+          twelve:
+
+              go build -o ./bin/backstop ./cmd/backstop/
+              ./bin/backstop gate --json
+
+          Report the ACTUAL per-step output — the `pack_engines` and
+          `test_substantiveness` violation lists and the `waiver_resolution` step —
+          never a pass/fail verdict of your own. Expected at this point: the 4 code
+          findings GONE, the 3 self-pack findings SUPPRESSED with the three waivers
+          listed ACTIVE by `waiver_resolution`, and the 5
+          `cli.core.exit-code-discipline` findings STILL FIRING until the pack lane
+          lands (that is expected here, not a failure of this task).
+
+          If `waiver_resolution` reports any of the three as `unused`/dangling or
+          `malformed`, the rule id was not copied verbatim or the token is
+          misplaced relative to its finding line — fix the token, do not fix the
+          code it covers.
+
+          Do not prescribe or run `backstop code check` — that subcommand does not
+          exist (confirmed: `./bin/backstop --help` lists artifact, baseline,
+          commands, gate, pack, recipe, waiver).
+        files:
+          - tests/smoke/smoke_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-008
+          - CLM-010
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Comprehensive Verification — Repo-Wide Uncached Run + Full Gate
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Comprehensive Verification — Repo-Wide Uncached Run and Scoped Gate Acceptance"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Run the repo-wide uncached suite and the full gate against the scoped acceptance"
+        description: |
+          Final comprehensive verification, in this order. Throughout: REPORT THE
+          ACTUAL STEP OUTPUT — violation counts, rule ids, files, and step
+          statuses as the tool printed them. Never substitute a verdict of your
+          own, and never claim a step passed without having read its output.
+
+          1. REPO-WIDE UNCACHED SUITE:
+
+                 go test ./... -race -count=1
+
+             `TestSmoke_GateFailsMissingMandatedTest` was the last known uncached
+             failure in the tree. With it fixed, this run is expected to go FULLY
+             GREEN — call that out explicitly in the completion report, because it
+             is the first time the repo-wide suite passes uncached. (CLM-007)
+
+             SIBLING ESCALATION RULE — the issue asks for this run specifically to
+             flush other cache-masked mismatches. Measured on 2026-07-26 while
+             authoring this plan, `go test ./tests/smoke/ -count=1 -race` had
+             EXACTLY ONE failure (`TestSmoke_GateFailsMissingMandatedTest`) and the
+             repo-wide run's only failing package was `tests/smoke`, so zero
+             siblings are expected. If this run nevertheless surfaces others:
+               - fix them here ONLY if each is the same shape as this one — a
+                 fixture that drifted from a scoping change, fixable inside the
+                 test file with no production change;
+               - if any failure needs a production change, needs judgment about
+                 which side is right, or the count exceeds roughly two, STOP and
+                 REPORT it as a follow-on finding rather than absorbing it into
+                 this plan. Do not paper over a failure by loosening an assertion,
+                 adding a `t.Skip`, or narrowing a `-run` filter.
+
+          2. REBUILD, THEN GATE. The checked-in `./bin/backstop` may be stale, and
+             this plan's whole subject is a stale-artifact false green — gating
+             with a stale binary would repeat the mistake:
+
+                 go build -o ./bin/backstop ./cmd/backstop/
+                 ./bin/backstop gate --json
+
+          3. ACCEPTANCE — SCOPED, NOT "THE GATE PASSES". A bare green is NOT
+             achievable here and must not be claimed. The acceptance is:
+
+             ZERO violations attributable to the files this plan changes, with
+             exactly two enumerated exception sets:
+
+               EXCEPTION SET 1 — the three waivered `backstop/self` findings on
+               `tests/smoke/smoke_test.go`: one `no-baked-tool-exec` (line 29) and
+               two `no-baked-language-token` (lines 48 and 228). These must appear
+               SUPPRESSED, and `waiver_resolution` must list all THREE as ACTIVE
+               waivers — not `unused`, not `malformed`, not `expired`. If
+               `waiver_resolution` does not list exactly these three as active,
+               that is a FAILURE of this task. (CLM-010)
+
+               EXCEPTION SET 2 — the three pre-existing `requirement_traceability`
+               reds belonging to the SPEC-015 lane. They are NOT attributable to
+               any file this plan changes. Report them, confirm they are the same
+               three that predate this work, and do NOT fix, waive, or absorb
+               them. (CLM-007)
+
+             Anything else attributable to `tests/smoke/smoke_test.go` is a
+             failure of this plan. In particular:
+
+               - The 5 `cli.core.exit-code-discipline` findings on `TestMain`
+                 (lines 21, 34, 37) and `findProjectRoot` (lines 45, 54) MUST BE
+                 GONE — resolved by the republished `backstop-ai/cobra-cli-standards`
+                 pack, reinstalled before this run. THIS IS AN EXTERNAL DEPENDENCY:
+                 the pack fix ships in a PARALLEL LANE (rule scoping + version bump
+                 + republish + reinstall from `backstop-ai/cobra-cli-standards`,
+                 v0.2.1 installed at plan-authoring time). Verify the reinstalled
+                 pack version before gating. If those five STILL FIRE, the pack
+                 lane has not landed or did not fix them — STOP and REPORT that as
+                 a blocked external dependency. Do NOT restructure
+                 `TestMain`/`findProjectRoot` to satisfy them and do NOT waive
+                 them; Go's testing contract requires that `os.Exit`. (CLM-009)
+
+               - The 4 code findings from TASK-003 (1 errcheck + 3 hollow tests)
+                 MUST BE GONE, fixed in code. (CLM-008)
+
+          4. ARTIFACT VALIDATION — this plan adds a `.plan.yml` artifact, so
+             validate the artifact surface explicitly:
+
+                 ./bin/backstop artifact validate --plan PLAN-ISSUE-075
+
+          REPORT: the repo-wide result (green, or the exact failures); the gate's
+          actual per-step output with the violation lists for `pack_engines`,
+          `test_substantiveness`, `waiver_resolution`, and
+          `requirement_traceability`; the installed `cobra-cli-standards` version;
+          and the artifact-validation result. State plainly which of the two
+          exception sets appeared and whether anything outside them did.
+        files:
+          - tests/smoke/smoke_test.go
+          - plans/PLAN-ISSUE-075-smoke-fixture-implemented-status.plan.yml
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
