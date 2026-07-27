@@ -1,0 +1,1134 @@
+---
+plan_id: PLAN-SPEC-057
+spec_id: SPEC-057
+spec_version: "1.0.0"
+created: "2026-07-27"
+status: draft
+test_command: "go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS
+  ─────────────────────────────────────────────────────────────────────────
+  ONE unexported predicate and TWO walk-body edits. That is the entire
+  production surface:
+
+    pkg/pack/distribution/hash.go
+      + isRootRepositoryMetadata(rel string) bool     (new, ~6 lines)
+      ~ ComputeContentHash's filepath.Walk callback   (reordered + 4 lines)
+
+    pkg/pack/distribution/add.go
+      ~ copyDirRecursive's filepath.Walk callback     (4 lines)
+
+  Plus the tests that falsify them, one CLI-level convergence test, and the
+  in-repo lock reconciliation the spec's Sharp Edges makes this plan's
+  STATED OBLIGATION.
+
+  NO signature changes. NO new exported symbols. NO call-site edits — there
+  are seven ComputeContentHash call sites (command.go:272, command.go:538,
+  command.go:992, install.go:78, list.go:143, relock.go:54, verify.go:64)
+  and seven copyDirRecursive call sites (command.go:48, command.go:267,
+  command.go:466, command.go:477, command.go:554, command.go:988,
+  install.go:90). EVERY ONE of them inherits the new boundary through the
+  function it already calls. A task that edits a call site has
+  misunderstood the design.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMAND REALITY — READ THIS BEFORE EVERY VERIFICATION TASK
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop code check` DOES NOT EXIST. Verified 2026-07-27 against the
+  binary this plan targets:
+
+      $ ./bin/backstop code check --help
+      Error: unknown command "code" for "backstop"
+
+  `backstop --help` lists exactly: artifact, baseline, commands, completion,
+  gate, help, pack, recipe, version, waiver. Any agent definition or
+  precedent instructing you to run `backstop code check` is stale
+  (ISSUE-076 is that class). The real verification loop, in this order,
+  every time:
+
+      go build -o bin/backstop ./cmd/backstop     # ALWAYS — see below
+      go test <the packages this phase touched> -race -count=1
+      ./bin/backstop gate                          # the full kill chain
+
+  THE REBUILD IS UNCONDITIONAL, in every verification task, not "when cmd/
+  changed". bin/backstop statically links everything under pkg/, so a phase
+  touching only pkg/pack/distribution/hash.go still changes what the gate
+  binary would contain. Running the gate against a stale binary reports a
+  verdict about code that is not in the binary, and that reads exactly like
+  a real result.
+
+  TRUE EXIT CODES, NEVER A GREP PIPE. Read `$?` from the command itself.
+  `go test ... | grep -q FAIL` reports grep's status, and a suite that fails
+  to BUILD emits no "FAIL" line at all, so the pipe reports success for a
+  tree that does not compile.
+
+  ALL gate dimensions run at EVERY verification step (the no-check-filtering
+  razor). Verification tasks never scope or categorize what was touched.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ THE GATE IS ALREADY RED, AND THIS PLAN DOES NOT MAKE IT GREEN ★
+  ─────────────────────────────────────────────────────────────────────────
+  READ THIS BEFORE THE FIRST VERIFICATION TASK OR YOU WILL CHASE A RED THAT
+  IS NOT YOURS.
+
+  `./bin/backstop gate` on this tree, run 2026-07-27 BEFORE any work in this
+  plan, exits FAIL. Recorded baseline:
+
+      pack_lock_verification              pass
+      artifact_validation                 pass
+      pack_engines                        pass
+      test_verification                   pass
+      test_substantiveness                pass
+      coverage_threshold                  pass
+      artifact_status_drift               pass   (7 violations, warn-tier)
+      artifact_status_drift_advisory      warn   (5 violations)
+      requirement_traceability            FAIL   (2 violations)
+      requirement_traceability_advisory   warn   (169 violations)
+      waiver_resolution                   pass
+      baseline_comparison                 skipped
+      ledger_integrity                    skipped
+
+      Steps: 9 passed, 1 failed, 2 skipped, 2 warned
+
+  THE TWO BLOCKING VIOLATIONS ARE EXACTLY THESE, VERBATIM:
+
+      supports ref pack-distribution-lifecycle:REQ-021@1.0.0 pins an older
+      major/minor than current pack-distribution-lifecycle:REQ-021@1.1.0;
+      rework or add a new implemented spec for the current requirement
+      (specs/SPEC-015-pack-distribution.spec.md)
+
+      plan PLAN-SPEC-015 targets spec SPEC-015 whose bundle requirement
+      chain does not verify (plans/PLAN-SPEC-015-pack-distribution.plan.yml)
+
+  BOTH ARE SPEC-015's STALE PIN — the exact thing SPEC-057 exists to
+  succeed. They are NOT this plan's to fix, and they CANNOT be fixed from
+  inside it: SPEC-015 retires `replaced` with
+  `replaced-by: [SPEC-056, SPEC-057]` only ONCE SPEC-057 IS IMPLEMENTED,
+  routed through the spec-author agent, after this plan completes. Artifacts
+  are never hand-edited.
+
+  SO THE VERIFICATION BAR IN EVERY PHASE IS: the gate result is UNCHANGED
+  from this baseline — same one failed step, same TWO violations, same
+  text. Not "green". A THIRD violation, a different failing step, or a
+  changed violation count is this plan's regression and must be fixed here.
+  A verification task that reports "gate failed" and stops has misread this
+  section; a task that reports "gate green" has run a different tree.
+
+  A task tempted to fix the red by editing SPEC-015, retiring it early, or
+  touching PLAN-SPEC-015 must STOP and report instead. That sequencing is
+  deliberate and belongs to the spec-author after the flip.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE PREDICATE IS ONE FUNCTION. IT MUST STAY ONE FUNCTION.
+  ─────────────────────────────────────────────────────────────────────────
+  isRootRepositoryMetadata lives in hash.go and is CONSUMED by add.go. It
+  must not be copied, re-implemented, or paraphrased into a second inline
+  comparison, and it must not introduce a second ".git" string literal — it
+  consumes the package's EXISTING gitDirectoryName constant
+  (gitcloner.go:29).
+
+  MEASURED BASELINE for spec Review Question 2, taken 2026-07-27:
+
+      $ grep -n '\.git"' pkg/pack/distribution/*.go | grep -v _test.go
+      add.go:109:      "https://github.com/" + packName + ".git"
+      gitcloner.go:29: const gitDirectoryName = ".git"
+
+  EXACTLY TWO HITS. That count must be TWO again when this plan finishes. A
+  third hit is the drift the one-rule design exists to prevent, and it is a
+  mechanical check any verification task can run.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE HASH WALK NEEDS A REORDER, NOT JUST AN INSERT
+  ─────────────────────────────────────────────────────────────────────────
+  This is the one non-obvious edit, worth stating precisely because the
+  naive insert produces a suite that skips nothing.
+
+  ComputeContentHash (hash.go:17-42) today returns early on directories
+  BEFORE it computes `rel`:
+
+      if info.IsDir() { return nil }              // line 24
+      rel, relErr := filepath.Rel(dir, path)      // line 28
+      rel = filepath.ToSlash(rel)                 // line 33
+
+  The predicate takes `rel`, so `rel` must be computed FIRST and the
+  predicate tested BEFORE the IsDir early return. The resulting shape:
+
+      rel, relErr := filepath.Rel(dir, path)
+      if relErr != nil { return fmt.Errorf("computing relative path: %w", relErr) }
+      rel = filepath.ToSlash(rel)
+      if isRootRepositoryMetadata(rel) {
+          if info.IsDir() { return filepath.SkipDir }
+          return nil
+      }
+      if info.IsDir() { return nil }
+      ...unchanged...
+
+  Insert the predicate AFTER the existing `if info.IsDir() { return nil }`
+  instead and a root `.git` DIRECTORY is never tested at all — the walk
+  returns nil for it, descends into it, and hashes every object file inside
+  under paths like `.git/objects/…`. CLM-001 and CLM-005 red immediately,
+  which is the intended safety net, but the failure looks like a predicate
+  bug rather than an ordering bug and costs a debugging cycle.
+
+  SkipDir versus nil is load-bearing in the same edit. Returning nil for a
+  `.git` DIRECTORY skips the directory entry and descends anyway; only
+  filepath.SkipDir prunes the subtree. Returning SkipDir for a `.git` FILE
+  or SYMLINK would skip THE REST OF THE PARENT DIRECTORY — every sibling
+  after it in walk order silently vanishes from the manifest, a correctness
+  defect no claim in this spec would catch.
+
+  copyDirRecursive (add.go:222-247) already computes `rel` before its IsDir
+  branch, so it needs the insert without the reorder — but it does NOT
+  currently normalize to slashes, so the predicate call must pass
+  filepath.ToSlash(rel).
+
+  ─────────────────────────────────────────────────────────────────────────
+  ROOT-RELATIVE IS A CONSTRAINT, NOT AN IMPLEMENTATION DETAIL
+  ─────────────────────────────────────────────────────────────────────────
+  Two of copyDirRecursive's seven call sites are NOT pack-root copies:
+  install's rollback snapshot (command.go:466, packsDir → snapshotDir) and
+  its restore (command.go:477, back again). Their walk root is
+  .backstop/packs/, so a pack's metadata sits at `<org>/<name>/.git` —
+  three segments deep, NOT equal to ".git" — and is therefore correctly NOT
+  excluded. A rollback restores exactly what it snapshotted.
+
+  "Improving" the predicate to match `.git` at any depth breaks that, and it
+  also breaks the point of the spec: the cloner strips exactly ONE path
+  (gitcloner.go:258), so a depth-agnostic copy boundary would stop agreeing
+  with the clone and the local/remote convergence would be silently lost.
+  Exact name equality at the walk's own root. Nothing else.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SCOPE FENCES — DO NOT CROSS THESE
+  ─────────────────────────────────────────────────────────────────────────
+  * NO migration diagnostic. A legacy local lock fails with the EXISTING
+    generic `hash mismatch for local pack %s: computed=%s locked=%s`
+    (install.go:83). The typed migration-required error is REQ-041@1.1.0 in
+    a later seed, and spec Review Question 1 says adding one here is scope
+    creep the reviewer should call.
+  * NO change to `pack relock`'s argument shape. It takes a filesystem PATH
+    where its siblings take a NAME; that asymmetry is the ISSUE-074
+    residual and is explicitly out of scope. This plan USES relock as it is.
+  * NO .hg / .svn / .bzr. DD-24 decided `.git`. Widening the predicate is a
+    bundle decision, not a quiet regex addition.
+  * NO re-pinning of REQ-020@1.1.0. SPEC-056 owns it and is implemented.
+    `replaced-by` accepts a list (pkg/validate/terminal.go:37-38).
+  * NO nested-`.git` handling. A `.git` below the walk root stays authored
+    content, deliberately (spec Sharp Edges, Review Question 3). CLM-008 and
+    CLM-013 exist to PIN that residual, not to fix it.
+  * NO "fixing" the scratch-validation copy. RunValidationOnScratchCopy
+    (command.go:48) will validate a `.git`-free tree after this change and
+    that is BENIGN — the spec checked it: pkg/packval has no `.git`
+    reference in any non-test file. Do not restore the metadata for it.
+  * NO touching SPEC-015, PLAN-SPEC-015, or ISSUE-088. See the gate-baseline
+    section and the downstream section.
+
+  ─────────────────────────────────────────────────────────────────────────
+  EDIT-SET SWEEP — ALREADY RUN, RESULT: CLEAN
+  ─────────────────────────────────────────────────────────────────────────
+  Swept 2026-07-27 for tests pinning a hash this change moves, or asserting
+  `.git` presence, across both named-fixture and inline-authored tests.
+  Findings, so no phase re-derives them:
+
+  * NO test in any package pins any of the six lock hashes or the bundle's
+    measured 639f74fb/bb86715c pair. The only 64-hex literals in
+    pkg/pack/distribution/*_test.go are hash_test.go:95
+    (b94d27b9… = sha256("hello world")) and hash_test.go:209
+    (e3b0c442… = sha256("")), both asserted against ComputeFileHash, which
+    this plan does not touch.
+  * Every `.git` string in pkg/pack/distribution/*_test.go is either
+    `.gitignore` (add_test.go, add_identity_test.go — the ensureGitignore
+    tests, unaffected) or gitcloner_test.go:260-310, which asserts the
+    CLONER's strip: it proves the source repo HAS a root `.git` and the
+    returned tree does NOT. Those expectations are unchanged by this plan
+    and that test must stay green.
+  * ALL 40 test files in pkg/pack/distribution are `package
+    distribution_test`. The predicate is unexported, so it is exercised ONLY
+    through ComputeContentHash and the Add/Install/Relock commands. Do not
+    add an in-package test file to reach it directly.
+
+  Consequence: NO existing test needs editing. If a task finds itself
+  changing an existing assertion, STOP and report — that is a signal the
+  change went wider than the spec.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE IN-REPO LOCK RECONCILIATION — MEASURED, AND ONE SPEC CORRECTION
+  ─────────────────────────────────────────────────────────────────────────
+  Re-measured 2026-07-27 by recomputing the documented manifest over each
+  installed pack directory both ways (walking every file vs. pruning a root
+  `.git`). The spec's count of THREE is CONFIRMED and its digits confirmed:
+
+    ENTRY                             LOCKED (with .git)  AFTER (no .git)
+    backstop/self                     3eb4324c…           cdb5c64f…
+    backstop/go-standards             a3fdd4a2…           bf58849d…
+    backstop/go-toolchain             be64300e…           7c0486ad…
+
+    backstop/contracts                aee133db…           aee133db…  (same)
+    backstop/substantiveness          fa2925ce…           fa2925ce…  (same)
+    backstop-ai/cobra-cli-standards   d9d87c31…           d9d87c31…  (same)
+
+  The first three installed directories carry a root `.git` today; the other
+  three do not. `./bin/backstop pack list` currently reports all six as
+  current/locked, and the first three flip to `stale` the moment this lands.
+
+  ★ ONE CORRECTION TO THE SPEC, VERIFIED BY RUNNING IT ★
+
+  Spec Sharp Edges says "without it, `pack install` fails in-repo on
+  `backstop/self` with a hash mismatch", and Review Question 7 asks whether
+  `pack install` succeeds in-repo afterwards. Both assume `pack install`
+  currently works here. IT DOES NOT, and it did not before this spec:
+
+      $ ./bin/backstop pack install
+      Error: local pack "backstop/contracts" has no recorded source path
+      (local_path) in backstop.lock; cannot materialize it (re-add the pack)
+
+  Four of the five local lock entries (contracts, go-standards, go-toolchain,
+  substantiveness) carry NO `local_path`, and materializeLocalPack
+  (install.go:63-66) refuses them by name before any hash is computed. The
+  run aborts at `backstop/contracts` — alphabetically first — and NEVER
+  REACHES backstop/self. Pre-existing, unrelated, and NOT this plan's to fix
+  or to paper over.
+
+  So the honest in-repo verification surface is `pack list`'s LOCK STATUS
+  column, which hashes the installed directory against the lock for EVERY
+  entry including local ones (list.go:135-158). "All six current/locked" is
+  the assertion. Do NOT write a task claiming `pack install` succeeds
+  in-repo, and do NOT expand scope to make it succeed — if the reconciliation
+  tempts someone to backfill `local_path`, that is a separate issue.
+
+  ★ DOES RELOCK ALONE SUFFICE? YES — CHECKED, NOT ASSUMED ★
+
+  `pack relock <path>` reads the pack NAME from the pack.yml at <path>, then
+  recomputes the hash over the INSTALLED directory .backstop/packs/<name>
+  (relock.go:54). The installed copies still physically carry their `.git`
+  — the copy boundary only affects FUTURE copies — but relock hashes them
+  through the NEW ComputeContentHash, which prunes it. The recomputed value
+  is therefore exactly the metadata-free authored hash in the table above.
+  Relock alone is sufficient; no re-add, no re-install, no cleaning.
+
+  The physical `.git` left inside .backstop/packs/backstop/{self,
+  go-standards,go-toolchain} is COSMETIC RESIDUAL after this lands: no code
+  path reads it, every hash of it now excludes it, and any future re-add or
+  re-install produces a clean tree. DO NOT DELETE IT as part of this plan —
+  deleting changes no hash, touches gitignored content the operator may be
+  using, and no claim asks for it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE GATE WILL NOT WARN ABOUT THE LOCK — SEQUENCE IT, DO NOT WAIT FOR RED
+  ─────────────────────────────────────────────────────────────────────────
+  pack_lock_verification calls distribution.VerifyLock
+  (cmd/backstop/pack_gate.go:193), which `continue`s past every entry with
+  source_type "local" (verify.go:46-48). All three contaminated entries are
+  local. pack_lock_verification passes before the relock and passes after
+  it. Nobody gets a reminder.
+
+  That is why TASK-008 sits in the same phase as the code change and why
+  TASK-009 asserts `pack list` explicitly: a passing lock dimension proves
+  nothing here.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DOWNSTREAM ARTIFACT WORK THIS PLAN DOES NOT DO
+  ─────────────────────────────────────────────────────────────────────────
+  Not tasks. Named so nobody adds them as tasks, and nobody forgets them:
+
+  * ISSUE-088 is the reactive twin of this spec and is CLOSED BY this
+    implementation. Its closure rides the implementation and is routed
+    through the issue-author agent afterwards, never hand-edited.
+  * SPEC-015 retires `replaced` with `replaced-by: [SPEC-056, SPEC-057]`
+    ONCE SPEC-057 IS IMPLEMENTED — via the spec-author agent, after this
+    plan completes and the spec flips. NOT this plan's work, NOT this plan's
+    file scope, and the reason the gate's two blocking traceability
+    violations stay standing throughout.
+  * EXPECT ZERO requirement_traceability CHANGE from this plan — the count
+    stays at exactly 2 blocking violations, both SPEC-015's. A delta in
+    either direction means something outside this plan's scope moved.
+    Report it; do not absorb it.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: The hash boundary — REQ-001, and the predicate's home
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: The hash boundary — root repository metadata leaves the manifest (REQ-001)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the ten ComputeContentHash exclusion tests against REAL on-disk shapes"
+        description: |
+          Create pkg/pack/distribution/hash_metadata_test.go, `package
+          distribution_test`, carrying EXACTLY these ten mandated test names.
+          They are the spec's, verbatim — do not rename, merge, or split:
+
+            TestComputeContentHash_RootGitDirectoryExcluded              (CLM-001)
+            TestComputeContentHash_RootGitFileExcluded                   (CLM-002)
+            TestComputeContentHash_RootGitSymlinkExcludedAndNotFollowed  (CLM-003)
+            TestComputeContentHash_DanglingRootGitSymlinkDoesNotFailTheWalk (CLM-004)
+            TestComputeContentHash_IdenticalWithAndWithoutRootGitMetadata   (CLM-005)
+            TestComputeContentHash_AuthoredDotfilesRemainContent         (CLM-006)
+            TestComputeContentHash_RootGitPrefixedNamesAreNotMetadata     (CLM-007)
+            TestComputeContentHash_NestedGitDirectoryRemainsContent       (CLM-008)
+            TestComputeContentHash_DirectoryHoldingOnlyRootGitHashesAsEmpty  (CLM-009)
+            TestComputeContentHash_MetadataFreeTreeMatchesDocumentedManifest (CLM-010)
+
+          THIS IS THE TDD RED PHASE. Write them, RUN them, and confirm the
+          ones that must fail DO fail before TASK-002 exists. Expected RED
+          here: CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-009.
+          Expected GREEN already: CLM-006, CLM-007, CLM-008, CLM-010 — they
+          pin behavior that must NOT change, and green is the correct result
+          there, not a missing assertion. Record which ones red; a run where
+          CLM-001 passes before TASK-002 means the fixture built no real
+          `.git`.
+
+          REAL ON-DISK SHAPES ONLY (spec Review Question 4). Every fixture is
+          built with t.TempDir() plus os.MkdirAll / os.WriteFile / os.Symlink.
+          No stubs, no interface seams, no table of names standing in for the
+          filesystem:
+
+            * CLM-001 — an actual directory `.git/` holding at least two
+              files at different depths (e.g. .git/HEAD and
+              .git/objects/ab/cdef), so a fix that skips the entry without
+              pruning the subtree still reds.
+            * CLM-002 — an actual FILE named `.git` containing a worktree
+              pointer line (`gitdir: /somewhere/.git/worktrees/x`).
+            * CLM-003 — an actual os.Symlink whose target is a real file with
+              distinctive content, living OUTSIDE the walk root. Assert the
+              target's content never reaches the hash by comparing against
+              the same tree built with no symlink at all.
+            * CLM-004 — an actual DANGLING os.Symlink (create it, then remove
+              the target). This is the one that fails TODAY: filepath.Walk
+              lstats, so info.IsDir() is false, ComputeFileHash calls
+              os.Open, os.Open FOLLOWS the link, and the walk errors. Assert
+              err == nil AND a usable hash — a test asserting only "no panic"
+              asserts nothing.
+            * CLM-005 — build ONE authored tree, hash it, then create a root
+              `.git` beside the same files and hash again. Assert EQUALITY.
+              This is the measured 639f74fb/bb86715c divergence, closed.
+            * CLM-006 — root `.gitignore`, `.gitattributes`, and `.github/`
+              with a file inside. Assert the hash CHANGES when each is added
+              and when its content changes. Presence alone is not enough; a
+              predicate that wrongly excluded them would still pass a
+              "hash is non-empty" check.
+            * CLM-007 — the exact-vs-prefix proof. Root entries `.gitignore`,
+              `.gitattributes`, `.github`, `.git-hooks` all present, NO root
+              `.git`. Assert every one of the four contributes (removing any
+              one changes the hash). A prefix-matching predicate reds here.
+            * CLM-008 — `subdir/.git/` with a file inside, NO root `.git`.
+              Assert its content DOES contribute. This PINS the deliberate
+              residual; it is not a bug to fix (spec Review Question 3).
+            * CLM-009 — a directory whose ONLY entry is a root `.git`
+              directory. Assert it hashes to the SAME value
+              ComputeContentHash returns for a genuinely empty t.TempDir(),
+              computed in the test rather than pasted.
+            * CLM-010 — the anti-vacuity anchor. Build a small metadata-free
+              tree, then RECOMPUTE the documented manifest independently
+              inside the test: for each file, `relpath + ":" +
+              hex(sha256(content))`, forward slashes, sorted with
+              sort.Strings, joined with "\n", then sha256 of that string,
+              hex-encoded. Assert ComputeContentHash equals it. DO NOT paste
+              a digest the implementation printed (spec Review Question 5) —
+              a captured digest asserts only that the code equals itself.
+
+          SYMLINK PORTABILITY: if os.Symlink errors on the host, t.Skip with
+          that error. Do NOT silently degrade the fixture to a regular file —
+          that turns CLM-003 and CLM-004 into vacuous passes.
+
+          NO in-package test file. The predicate is unexported and every
+          other test in this package is `distribution_test`; reach it only
+          through ComputeContentHash.
+        files:
+          - pkg/pack/distribution/hash_metadata_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        test_names:
+          - TestComputeContentHash_RootGitDirectoryExcluded
+          - TestComputeContentHash_RootGitFileExcluded
+          - TestComputeContentHash_RootGitSymlinkExcludedAndNotFollowed
+          - TestComputeContentHash_DanglingRootGitSymlinkDoesNotFailTheWalk
+          - TestComputeContentHash_IdenticalWithAndWithoutRootGitMetadata
+          - TestComputeContentHash_AuthoredDotfilesRemainContent
+          - TestComputeContentHash_RootGitPrefixedNamesAreNotMetadata
+          - TestComputeContentHash_NestedGitDirectoryRemainsContent
+          - TestComputeContentHash_DirectoryHoldingOnlyRootGitHashesAsEmpty
+          - TestComputeContentHash_MetadataFreeTreeMatchesDocumentedManifest
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Add isRootRepositoryMetadata and apply it inside ComputeContentHash's walk"
+        description: |
+          Edit pkg/pack/distribution/hash.go ONLY. Two changes.
+
+          1. THE PREDICATE. Add, unexported, with the signature the spec's
+             contract declares:
+
+               func isRootRepositoryMetadata(rel string) bool
+
+             It takes a path already normalized to forward slashes and
+             RELATIVE to the walk's own root, and returns true only for
+             EXACT equality with gitDirectoryName. It must CONSUME that
+             constant (declared gitcloner.go:29) — writing `rel == ".git"`
+             introduces the third `.git"` literal spec Review Question 2
+             greps for and defeats the one-rule design. No strings.HasPrefix,
+             no strings.HasSuffix, no strings.Contains, no filepath.Base, no
+             depth walk. One equality.
+
+             Document WHY it is root-relative: the cloner strips exactly one
+             path (gitcloner.go:258) and this predicate mirrors that scope,
+             which is what makes local and remote identity CONVERGE rather
+             than merely both change. Note that the walk root itself arrives
+             as "." and is therefore never excluded.
+
+          2. THE WALK. Restructure ComputeContentHash's filepath.Walk
+             callback so `rel` is computed and slash-normalized BEFORE the
+             `info.IsDir()` early return, then test the predicate there:
+
+               rel, relErr := filepath.Rel(dir, path)
+               if relErr != nil {
+                   return fmt.Errorf("computing relative path: %w", relErr)
+               }
+               rel = filepath.ToSlash(rel)
+               if isRootRepositoryMetadata(rel) {
+                   if info.IsDir() {
+                       return filepath.SkipDir
+                   }
+                   return nil
+               }
+               if info.IsDir() {
+                   return nil
+               }
+               // ...ComputeFileHash and append, unchanged...
+
+             THE REORDER IS THE POINT — see the plan notes. Inserting after
+             the existing IsDir return leaves a root `.git` DIRECTORY
+             untested, descended, and fully hashed.
+
+             SkipDir for the DIRECTORY shape ONLY. Returning SkipDir for a
+             `.git` FILE or SYMLINK skips the remainder of the parent
+             directory, silently dropping sibling files from the manifest —
+             a correctness defect no claim here would catch.
+
+             The symlink shapes are handled by this one branch. filepath.Walk
+             lstats, so a `.git` symlink arrives with IsDir() false and
+             returns nil WITHOUT ComputeFileHash ever calling os.Open. That
+             is precisely why a dangling one stops failing the walk
+             (CLM-004); do NOT add an os.Stat or os.Lstat to "detect" it.
+
+          KEEP the existing explicit walk-error handling and the
+          `walking directory %s: %w` wrap. ComputeFileHash is UNCHANGED — do
+          not touch it.
+
+          NO new exported symbol, NO signature change, NO call-site edit, NO
+          new diagnostic message anywhere (spec Review Question 1). Run
+          TASK-001's tests; all ten green.
+        files:
+          - pkg/pack/distribution/hash.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the hash boundary: rebuild, race the distribution suite, gate against baseline, re-count the .git literals"
+        description: |
+          Rebuild unconditionally, then run, reading the TRUE exit code of
+          each command:
+
+            go build -o bin/backstop ./cmd/backstop
+            go test ./pkg/pack/distribution/... -race -count=1
+            ./bin/backstop gate
+
+          THE GATE BAR IS "UNCHANGED FROM BASELINE", NOT "GREEN". The gate
+          exits FAIL on this tree before any of this work, with exactly ONE
+          failed step (requirement_traceability) and exactly TWO violations,
+          both SPEC-015's stale REQ-021@1.0.0 pin. Read the gate-baseline
+          section of the plan notes for the verbatim text. Confirm the
+          failed-step count is still 1 and the violation count still 2. A
+          THIRD violation, a different failing step, or any change to those
+          two messages is this phase's regression and is fixed HERE. Do not
+          attempt to make the gate green, and do not edit SPEC-015 or
+          PLAN-SPEC-015.
+
+          Then the mechanical anti-drift check from spec Review Question 2:
+
+            grep -n '\.git"' pkg/pack/distribution/*.go | grep -v _test.go
+
+          EXACTLY TWO hits — add.go's
+          `"https://github.com/" + packName + ".git"` URL suffix and
+          gitcloner.go's `const gitDirectoryName = ".git"`. A third means
+          TASK-002 wrote its own literal instead of consuming the constant;
+          that is a defect to FIX here, not to note.
+
+          Confirm specifically that the CLONER's own strip test stays green,
+          since gitcloner_test.go:260-310 asserts on `.git` presence and
+          absence and is the nearest thing to a collision:
+
+            go test ./pkg/pack/distribution/ -run TestExecGitCloner -race -count=1
+
+          The whole distribution suite runs, not a filtered subset, and every
+          gate dimension runs. The targeted re-run above is IN ADDITION to
+          the full run, never instead of it.
+
+          EXPECT pack_lock_verification TO PASS AND SAY NOTHING about the
+          three contaminated entries: they are source_type "local" and
+          VerifyLock `continue`s past every local entry (verify.go:46-48).
+          That silence is expected and is NOT evidence the lock is fine.
+          Phase 3 owns the lock.
+        files:
+          - pkg/pack/distribution/hash.go
+          - pkg/pack/distribution/hash_metadata_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The copy boundary — REQ-002, the same predicate, second walk
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: The copy boundary — no installed pack carries root metadata (REQ-002)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write the five lifecycle tests for the copy boundary and local hash convergence"
+        description: |
+          Create pkg/pack/distribution/add_metadata_test.go, `package
+          distribution_test`, with these five mandated names verbatim:
+
+            TestAddCommand_Run_LocalSourceRootGitNotInstalled         (CLM-011)
+            TestAddCommand_Run_LocalSourceHashMatchesMetadataFreeCopy (CLM-012)
+            TestAddCommand_Run_LocalSourceNestedGitStillInstalled     (CLM-013)
+            TestInstallCommand_Run_LocalSourceGitChurnStillVerifies   (CLM-014)
+            TestRelock_LocalPackReproducesAddTimeHash                 (CLM-015)
+
+          TDD RED PHASE. Write, run, confirm all five red before TASK-005.
+
+          Drive these through the COMMAND CONSTRUCTORS, not free functions —
+          `distribution.Add/Install/Update/Upgrade` were DELETED by SPEC-055
+          and the commands exist only via New*Command constructors that error
+          on any nil dependency (command.go). Read the existing add_test.go /
+          install_test.go / relock_test.go setup helpers and REUSE them
+          rather than inventing a second harness.
+
+          Fixture shape, per test:
+
+            * CLM-011 — a local pack source directory with a valid pack.yml
+              AND a real root `.git/` holding files. Run the add, then assert
+              os.Stat(.backstop/packs/<name>/.git) is IsNotExist. ALSO assert
+              the authored files ARE present, so a copy that dropped
+              everything cannot pass.
+            * CLM-012 — build TWO byte-identical local sources from the same
+              file map, give one a root `.git/` and the other none, add each
+              in a SEPARATE project directory (an add refuses an
+              already-installed pack), and assert the two recorded lock
+              content_hash values are EQUAL. Assert they are also non-empty;
+              two empty strings are equal.
+            * CLM-013 — a local source with `rules/.git/` (nested, NOT root)
+              holding a file. Assert the installed tree still contains
+              .backstop/packs/<name>/rules/.git/<file> with content intact.
+              This PINS the residual root-relativity buys; it is not a bug
+              (spec Review Question 3).
+            * CLM-014 — add a local pack whose source carries a root `.git/`,
+              then MUTATE that `.git/` after the add (write a new file into
+              it, change an existing one — standing in for reflog churn),
+              then run install and assert it SUCCEEDS. materializeLocalPack
+              hashes the SOURCE directory (install.go:78), so this is the
+              test proving the HASH boundary — not just the copy boundary —
+              reaches the local install path. The lock entry needs a
+              `local_path` for install to materialize it: set the fixture up
+              so the add records one, or pass InstallOptions.LocalPackDir. A
+              run erroring with "no recorded source path" proves nothing and
+              is a fixture bug, not a code bug.
+            * CLM-015 — add a local pack with a root `.git/` source, capture
+              the recorded hash, then run Relock against the INSTALLED
+              directory and assert the returned ContentHash EQUALS the
+              add-time hash. Note relock takes a filesystem PATH containing a
+              pack.yml, not a pack name (relock.go:29, the ISSUE-074 residual
+              this plan does not touch) — pass .backstop/packs/<name>.
+
+          Every `.git` fixture is built with os.MkdirAll and os.WriteFile so
+          it is a real directory with real bytes. A test whose "source
+          repository" is an EMPTY directory named `.git` passes whether or
+          not the exclusion works, because an empty directory contributes no
+          manifest entries either way.
+
+          This task must NOT depend on TASK-002 — it is a test task and TDD
+          ordering forbids it. It may be written in parallel with TASK-001
+          and TASK-007; the three file scopes are disjoint.
+        files:
+          - pkg/pack/distribution/add_metadata_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        test_names:
+          - TestAddCommand_Run_LocalSourceRootGitNotInstalled
+          - TestAddCommand_Run_LocalSourceHashMatchesMetadataFreeCopy
+          - TestAddCommand_Run_LocalSourceNestedGitStillInstalled
+          - TestInstallCommand_Run_LocalSourceGitChurnStillVerifies
+          - TestRelock_LocalPackReproducesAddTimeHash
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Apply the same predicate inside copyDirRecursive's walk"
+        description: |
+          Edit pkg/pack/distribution/add.go ONLY, and only inside
+          copyDirRecursive (add.go:222-247). It already computes `rel` before
+          its IsDir branch, so this is an insert with no reorder — but it
+          does NOT normalize to slashes today, so the call must:
+
+            rel, relErr := filepath.Rel(src, path)
+            if relErr != nil {
+                return relErr
+            }
+            if isRootRepositoryMetadata(filepath.ToSlash(rel)) {
+                if info.IsDir() {
+                    return filepath.SkipDir
+                }
+                return nil
+            }
+            target := filepath.Join(dst, rel)
+            // ...unchanged...
+
+          CONSUME the predicate TASK-002 added to hash.go. Do not re-declare
+          it, do not inline an equivalent comparison, do not add a `.git`
+          literal to this file — add.go already has one at line 109 (the
+          `https://github.com/…​.git` URL suffix) and that is the only one it
+          is allowed to have.
+
+          SkipDir for the directory shape only, nil otherwise — same
+          reasoning as TASK-002: SkipDir on a non-directory abandons the
+          remaining siblings and silently truncates the copy.
+
+          DO NOT TOUCH ANY CALL SITE. All seven inherit this. Specifically,
+          and deliberately:
+            * command.go:466 and command.go:477 — install's rollback snapshot
+              and restore — walk .backstop/packs/, where a pack's metadata
+              sits at `<org>/<name>/.git`, three segments deep and NOT equal
+              to ".git". They correctly keep copying it, so a rollback
+              restores exactly what it snapshotted. Do NOT "fix" this.
+            * command.go:48 (RunValidationOnScratchCopy) now validates a
+              `.git`-free tree. BENIGN and pre-checked: pkg/packval has no
+              `.git` reference in any non-test file. Do not restore the
+              metadata for it.
+            * command.go:554 and command.go:988 are fed by an ExecGitCloner
+              clone whose root `.git` was already stripped, so they have
+              nothing left to exclude — EXCEPT command.go:554's
+              opts.CachePath branch (command.go:509-513), which reads a
+              pre-populated cache no cloner touched. That branch is exactly
+              why the exclusion belongs at the copy rather than being trusted
+              to the clone.
+
+          NO signature change, NO new exported symbol, NO new diagnostic. Run
+          TASK-004's five tests; all green.
+        files:
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-004
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the copy boundary: rebuild, race distribution plus cmd/backstop, gate against baseline"
+        description: |
+          Rebuild unconditionally, then run, reading the TRUE exit code of
+          each:
+
+            go build -o bin/backstop ./cmd/backstop
+            go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            ./bin/backstop gate
+
+          cmd/backstop joins the suite here because copyDirRecursive sits on
+          the install and update paths the CLI-level pack tests exercise; a
+          copy that silently drops files surfaces there, not in the
+          distribution package alone.
+
+          THE GATE BAR IS "UNCHANGED FROM BASELINE", NOT "GREEN" — one failed
+          step (requirement_traceability), two violations, both SPEC-015's.
+          See the plan notes. Any third violation is this phase's regression.
+
+          Re-run the literal count from TASK-003 — still EXACTLY TWO, and
+          add.go still contributing only its line-109 URL suffix.
+
+          Confirm the pre-existing tests touching this surface stay green and
+          UNEDITED: the ensureGitignore tests (add_test.go:415-475,
+          add_test.go:930-960), the validation-contamination tests
+          (validation_contamination_test.go, which hashes testdata pack
+          fixtures — none carry a root `.git`, so their pristine hashes are
+          unchanged), and scratch_validation_test.go. If any needed an edit
+          to pass, STOP and report: the change went wider than the spec.
+
+          All gate dimensions, whole suites, no filtering.
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/add_metadata_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Convergence at the CLI boundary, and this repository's lock
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Local/remote convergence end to end, and the in-repo lock reconciliation this plan owes"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Add the local/remote hash convergence E2E test beside the existing round trip"
+        description: |
+          Extend cmd/backstop/pack_remote_e2e_test.go with ONE new test:
+
+            TestE2E_PackAdd_LocalAndRemoteHashesConverge   (CLM-016)
+
+          CLM-017's mandated test,
+          TestE2E_PackAddThenInstall_RoundTripHashesMatch, ALREADY EXISTS in
+          this file at line 191 (delivered by SPEC-055 as its CLM-065).
+          SPEC-057 re-cites it deliberately, because REQ-002's convergence
+          clause is meaningless without naming the remote baseline the local
+          half must meet. DO NOT rewrite it, rename it, or duplicate it —
+          this task asserts it still passes UNCHANGED and adds the local
+          counterpart next to it.
+
+          THE FIXTURE MUST BE ONE PACK, TWO DELIVERY PATHS (spec Review
+          Question 6). Use testdata/hermetic-remote/valid-pack as the single
+          authored source for BOTH sides, so a failure means the algorithms
+          diverged and never that the two fixtures were never the same pack:
+
+            * REMOTE side — remoteE2ESetup(t, validPackFixture, "v1.0.0")
+              builds a hermetic repository from that fixture, redirects the
+              production URL at it, and returns the coordinate plus a fresh
+              consumer project. Run `pack add <name>@1.0.0` there and read
+              the recorded hash with remoteE2ELockEntry.
+            * LOCAL side — copy the SAME testdata/hermetic-remote/valid-pack
+              tree into a t.TempDir(), give the copy a real root `.git/` with
+              files in it, and run `pack add <that path>` in a SEPARATE
+              consumer project (newConsumerProject). Read its recorded hash
+              the same way.
+
+          Assert the two hashes are EQUAL and non-empty.
+
+          THE LOCAL `.git` IS LOAD-BEARING. Without it the test proves only
+          that two copies of the same files hash the same, which was true
+          before this spec and would pass on an unmodified tree.
+
+          The remote clone arrives already `.git`-stripped by ExecGitCloner
+          (SPEC-055 CLM-101/CLM-102), so the equality holds only if the local
+          path now computes the same function of the same authored bytes.
+          That is the whole claim.
+
+          HERMETICITY IS NOT OPTIONAL. Go through remoteE2ESetup, which
+          PROVES the GIT_CONFIG_GLOBAL insteadOf redirect actually reaches
+          the child process. A hand-rolled remote silently sends the child to
+          github.com and the suite becomes network-dependent with nothing
+          turning red.
+
+          This is a test task and must not depend on any implementation task.
+          Its file scope is disjoint from TASK-001's and TASK-004's, so all
+          three may be written in parallel.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+        claims:
+          - CLM-016
+          - CLM-017
+        test_names:
+          - TestE2E_PackAdd_LocalAndRemoteHashesConverge
+          - TestE2E_PackAddThenInstall_RoundTripHashesMatch
+        depends_on: []
+
+      - id: TASK-008
+        type: implementation
+        title: "Relock the three .git-contaminated local entries in this repository's backstop.lock"
+        description: |
+          THE SPEC'S STATED OBLIGATION, not a follow-up. Landing phases 1 and
+          2 moves three of this repository's own lock hashes, and nothing
+          warns about it.
+
+          REBUILD FIRST — relock recomputes through the NEW
+          ComputeContentHash, and a stale binary would rewrite the lock with
+          the OLD contaminated values, which is strictly worse than not
+          relocking at all:
+
+            go build -o bin/backstop ./cmd/backstop
+
+          RE-MEASURE BEFORE AND AFTER. The spec says re-measure rather than
+          trust a number, and it is right — a review pass first counted one
+          entry; the real count is three. Run:
+
+            ./bin/backstop pack list
+
+          and record the LOCK STATUS column. Expect exactly THREE entries
+          reading `stale` — backstop/self, backstop/go-standards,
+          backstop/go-toolchain — with the other three (backstop/contracts,
+          backstop/substantiveness, backstop-ai/cobra-cli-standards) still
+          current/locked. Any other set means re-measure and REPORT; do not
+          proceed on the plan's numbers over the tool's.
+
+          Then relock exactly those three. `pack relock` takes a filesystem
+          PATH to a directory containing a pack.yml (the ISSUE-074 residual
+          this plan does not touch) and recomputes over the INSTALLED
+          directory, so point it at the installed trees:
+
+            ./bin/backstop pack relock .backstop/packs/backstop/self
+            ./bin/backstop pack relock .backstop/packs/backstop/go-standards
+            ./bin/backstop pack relock .backstop/packs/backstop/go-toolchain
+
+          EXPECTED RESULTS, measured 2026-07-27 as a cross-check — report any
+          disagreement rather than forcing the file to match:
+
+            backstop/self          3eb4324c85cb1be7… → cdb5c64f…
+            backstop/go-standards  a3fdd4a2c15b3b23… → bf58849d…
+            backstop/go-toolchain  be64300ee7f3b40d… → 7c0486ad…
+
+          RELOCK ALONE IS SUFFICIENT — checked, not assumed. The installed
+          copies still physically carry their `.git` (the copy boundary only
+          affects FUTURE copies), but relock hashes them through the new
+          ComputeContentHash, which prunes it, so the recomputed value IS the
+          metadata-free authored hash. DO NOT delete `.git` from
+          .backstop/packs/**: it changes no hash, it touches gitignored
+          content, and no claim asks for it.
+
+          DO NOT run `./bin/backstop pack install` as a success check. It
+          fails in this repository TODAY, before this change, for an
+          unrelated pre-existing reason — four local lock entries carry no
+          `local_path` and materializeLocalPack (install.go:63-66) refuses
+          `backstop/contracts` by name before any hash is computed. Fixing
+          that is NOT in scope, and backfilling `local_path` here would be
+          scope creep. The plan notes carry the verbatim error.
+
+          backstop.lock is TRACKED. These three hash updates and their
+          refreshed install_date fields are part of this phase's commit. The
+          file's other three entries must be left byte-identical — a diff
+          touching contracts, substantiveness, or cobra-cli-standards means
+          relock was pointed at the wrong tree.
+
+          This task writes ONLY backstop.lock. It does not touch backstop.yml,
+          any pack source, or anything under .backstop/packs/.
+        files:
+          - backstop.lock
+        claims:
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-007
+          - TASK-005
+
+      - id: TASK-009
+        type: verification
+        title: "Verify convergence end to end and the reconciled lock, with pack list as the anchor"
+        description: |
+          Rebuild unconditionally, then run, reading TRUE exit codes:
+
+            go build -o bin/backstop ./cmd/backstop
+            go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            ./bin/backstop gate
+
+          Gate bar is UNCHANGED FROM BASELINE — one failed step, two
+          violations, both SPEC-015's. See the plan notes.
+
+          Then the in-repo lock assertion, which is the ONLY honest one
+          available here:
+
+            ./bin/backstop pack list
+
+          ALL SIX entries must read current or locked. This is the anchor
+          because the GATE CANNOT TELL YOU: pack_lock_verification calls
+          distribution.VerifyLock (cmd/backstop/pack_gate.go:193) which
+          `continue`s past every source_type "local" entry (verify.go:46-48),
+          and all three reconciled entries are local. That dimension passes
+          before TASK-008 and passes after it. Do not read its pass as
+          evidence the lock is reconciled — that is spec Review Question 7,
+          and it is unanswerable from the gate.
+
+          `pack install` is NOT the check (see TASK-008): it fails in-repo
+          for a pre-existing unrelated reason and did so before this plan.
+          Report it as a known pre-existing defect if asked; do not fix it
+          and do not claim it succeeds.
+
+          Confirm `git diff backstop.lock` shows exactly three changed
+          content_hash values plus their install_date fields, and nothing
+          else.
+
+          Confirm the new convergence test and the pre-existing round trip
+          both pass:
+
+            go test ./cmd/backstop/ -run 'TestE2E_PackAdd_LocalAndRemoteHashesConverge|TestE2E_PackAddThenInstall_RoundTripHashesMatch' -race -count=1
+
+          — and confirm their anti-vacuity twin
+          TestE2E_PackInstall_GitSourceHashMismatchIsLoud is still green too.
+          Equality claims are satisfiable by deleting hash verification
+          entirely; that twin is what stops it, and it must never be dropped
+          as redundant.
+
+          Whole suites, all gate dimensions. The targeted re-runs above are
+          IN ADDITION to the full run, never instead of it.
+        files:
+          - backstop.lock
+          - cmd/backstop/pack_remote_e2e_test.go
+        claims:
+          - CLM-012
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Full-chain verification over the complete edit set
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Full-chain verification — the whole edit set, the whole gate, the whole suite"
+    tasks:
+      - id: TASK-010
+        type: verification
+        title: "Final verification: rebuild, full race suite, full gate, artifact validation, and the scope fences"
+        description: |
+          The complete kill chain over the complete edit set. Rebuild
+          unconditionally, then run every command and read its TRUE exit code
+          — no grep pipes, no filtering, no per-dimension scoping:
+
+            go build -o bin/backstop ./cmd/backstop
+            go test ./... -race -count=1
+            ./bin/backstop gate
+            ./bin/backstop artifact validate
+
+          The full-repo test run is deliberate. This plan changed two
+          functions with FOURTEEN call sites — all inside
+          pkg/pack/distribution (seven each, enumerated in the plan notes),
+          but reached transitively from pkg/gate and cmd/backstop through the
+          pack lifecycle and the pack_lock_verification step. The distribution
+          and cmd/backstop suites the earlier phases ran are necessary, not
+          sufficient.
+
+          `artifact validate` must PASS clean — the gate's artifact_validation
+          dimension passes at baseline and this plan authors no artifact
+          content, so any artifact violation here is a regression.
+
+          GATE BAR: UNCHANGED FROM THE RECORDED BASELINE. Exactly one failed
+          step (requirement_traceability) carrying exactly TWO violations,
+          both SPEC-015's stale REQ-021@1.0.0 pin, verbatim as recorded in
+          the plan notes. NOT green — SPEC-015's retirement to
+          `replaced-by: [SPEC-056, SPEC-057]` is what clears those, it
+          happens via the spec-author agent AFTER this plan and after
+          SPEC-057 flips to implemented, and it is not this plan's work. A
+          third violation, a different failing step, or altered text is this
+          plan's regression and is fixed here.
+
+          Coverage must hold at or above the spec's 80% threshold for the
+          touched packages. The gate's coverage dimension reports it; do not
+          compute a separate number.
+
+          THEN CONFIRM THE SCOPE FENCES HELD. Each is a spec Review Question
+          and each is mechanical:
+
+          1. `grep -n '\.git"' pkg/pack/distribution/*.go | grep -v _test.go`
+             returns EXACTLY TWO hits (add.go:109 URL suffix, gitcloner.go:29
+             constant). A third means a duplicate literal was introduced.
+          2. `grep -rn 'isRootRepositoryMetadata' pkg/pack/distribution/`
+             shows ONE declaration in hash.go plus its call sites in hash.go
+             and add.go, and nothing else. Two declarations is the drift the
+             design exists to prevent.
+          3. NO new diagnostic message about migration, legacy hashes, or
+             relock-required exists anywhere in the diff. A legacy local lock
+             still fails with the pre-existing generic
+             `hash mismatch for local pack %s: computed=%s locked=%s`
+             (install.go:83). Inventing a typed one is REQ-041@1.1.0 scope
+             creep (spec Review Question 1).
+          4. NO branch anywhere treats a `.git` BELOW the walk root as
+             metadata (spec Review Question 3). CLM-008 and CLM-013 pin the
+             opposite and must be green.
+          5. NO existing test was edited. `git diff --stat` over
+             pkg/pack/distribution/*_test.go and cmd/backstop/*_test.go
+             should show only the two NEW files plus the single added test in
+             pack_remote_e2e_test.go. An edited assertion means the change
+             went wider than the spec.
+          6. `pack relock`'s argument shape is UNCHANGED (ISSUE-074 residual,
+             explicitly out of scope), and no `.hg` / `.svn` / `.bzr`
+             handling was added (DD-24 decided `.git` alone).
+          7. SPEC-015, PLAN-SPEC-015, and ISSUE-088 are all UNTOUCHED. Their
+             sequencing belongs to the spec-author and issue-author agents
+             after this plan, and artifacts are never hand-edited.
+
+          ISSUE-088 is closed BY this implementation and its closure is
+          routed through the issue-author agent afterwards. Do not add it to
+          any file scope.
+
+          Report: the exit code of every command above, the six-row
+          `pack list` output, the gate's step and violation counts against
+          baseline, the `.git` literal count, and the `git diff --stat` of
+          the whole edit set.
+        files:
+          - pkg/pack/distribution/hash.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/hash_metadata_test.go
+          - pkg/pack/distribution/add_metadata_test.go
+          - cmd/backstop/pack_remote_e2e_test.go
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-008
+          - TASK-003
+          - TASK-006
+          - TASK-009
