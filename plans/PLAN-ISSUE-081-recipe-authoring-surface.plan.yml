@@ -1,0 +1,1162 @@
+---
+plan_id: PLAN-ISSUE-081
+spec_id: ISSUE-081
+created: "2026-07-27"
+status: draft
+target_repo: backstop-core
+target_module: github.com/bmanson/backstop-core
+test_command: "go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-081 GAPS 1 AND 2 ONLY, against the founder Decision recorded
+  in the issue on 2026-07-27.
+
+    Gap 1 — DECIDED (Option A, path-only): `fragment:` is canon as a
+      recipe-directory-relative FILE PATH, matching applyMerge's shipped behavior
+      (apply.go:881-888). An inline block is a PARSE ERROR with a clear message,
+      not a silently-accepted alternate form.
+    Gap 2 — DECIDED: `backstop recipe apply` gains a repeatable
+      `--param key=value`, threaded into ApplyOptions.Params in runRecipeApply.
+
+  GAP 3 IS EXPLICITLY OUT OF SCOPE and this plan must not touch it. No task here
+  changes applyInsert's splice point, extends TestApply_InsertOp_AtAnchor's
+  placement assertion, or states a position on SDLC-mediated mode's CLI
+  reachability. ISSUE-081 stays OPEN after this plan lands; Gap 3 (plus the
+  residual `payload:` facet named below) is what remains.
+
+  ── DECISION: WIDENING THE PARSE-TIME `{{` REJECTION ────────────────────────
+  ISSUE-079's plan deliberately narrowed the parse-time placeholder rejection to
+  `rule:` ALONE, PENDING this issue's decision — see PLAN-ISSUE-079:475-480 and
+  the scope-guard comment at pkg/recipe/manifest_ruleplaceholder_test.go:18-24,
+  which says in terms that widening the check "would decide that question
+  silently." SPEC-054 records the same deferral at spec:212-213, spec:1110-1114,
+  spec:1165 and spec:1438-1446.
+
+  THE DECISION HAS NOW LANDED, so the widening is sanctioned — but ONLY as far
+  as the decision actually reaches:
+
+    WIDEN TO `fragment:`  — YES. Under path-only canon, a fragment PATH is
+      handed to resolveUnder verbatim and is never substituted (only the fragment
+      FILE'S CONTENT is — apply.go:892, the spec matrix row that stays unchanged).
+      A `{{` in `fragment:` is therefore GUARANTEED-DEAD syntax whose only
+      possible outcome is an ENOENT at apply time. Rejecting it at parse is not a
+      new policy: it is the direct consequence of the founder's "inline block =
+      parse error with a clear message," whose whole purpose is to make the
+      fragment form unambiguous at parse rather than at apply.
+
+    WIDEN TO `payload:`   — NO. The founder Decision (issue:205-234) pins
+      `fragment:` explicitly and is SILENT on payload, and the two fields are not
+      in the same evidentiary position. Fragment had a live THREE-WAY
+      contradiction (applier says path, spec says nothing, committed fixture says
+      inline). Payload has none: apply.go's renderPayload resolves it under the
+      recipe dir, every committed fixture declares it as a path, and no artifact
+      disagrees. Deciding payload's templatability here would settle a question
+      from the wrong place on no evidence — precisely the discipline ISSUE-079
+      applied to fragment. The asymmetry is justified by evidence, not timidity,
+      and it is stated in the spec (TASK-010) so the next reader can tell a
+      decision from an oversight. `Op.Payload`'s form/templatability remains a
+      RESIDUAL ISSUE-081 facet alongside Gap 3.
+
+  The narrowed scope guard is what keeps this honest and falsifiable from below:
+  manifest_ruleplaceholder_test.go's `templatedPayloadAndFragmentManifest` splits
+  into a payload-only ACCEPT case (still parses clean) and a fragment REJECT
+  case. A future uniformity refactor that widens to payload fails the accept
+  case, exactly as the current guard was designed to.
+
+  ── THE "NOT A PATH" PREDICATE (pin it; do not invent more) ─────────────────
+  A `merge` op's `fragment:` is REFUSED at manifest validation when the declared
+  value:
+    1. is empty or whitespace-only        — a merge op cannot merge nothing, and
+                                            the apply-time failure today is a
+                                            bare "the op declares no path";
+    2. contains a newline                 — a path never spans lines; this is the
+                                            YAML block-scalar shape the committed
+                                            `starter` and `second` fixtures use,
+                                            i.e. the exact form the Decision
+                                            names;
+    3. contains the `{{` open delimiter   — dead syntax, per the widening
+                                            rationale above.
+
+  DELIBERATELY NOT REFUSED: a single-line, placeholder-free value that is really
+  inline content but is syntactically a valid relative filename (e.g.
+  `fragment: '{"a": 1}'`). Nothing at parse can distinguish that from a file
+  named `{"a": 1}` without a CONTENT SNIFF — guessing at document syntax the
+  manifest reader has no business knowing. Do NOT add a leading-`{`/`[` sniff.
+  That residual case fails at APPLY, and CLM-004 requires that failure to name
+  the path-only contract instead of leaking a bare ENOENT. Two layers, one canon,
+  both stated.
+
+  Scope of the check: `m.Ops` only, NOT variant ops — variants validate
+  structurally only (manifest.go:166-167), and this plan does not change that.
+  Do not add an escape-path (`../`) check either: resolveUnder already refuses
+  escapes at apply, and widening there is not this issue's.
+
+  ── BLAST RADIUS (verified against the tree 2026-07-27; do not re-derive) ────
+  INLINE `fragment: |` declarations that become INVALID under path-only:
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+      (merge-settings) — the issue's PRIMARY EVIDENCE ARTIFACT, kept byte-intact
+      by PLAN-ISSUE-079 precisely so THIS plan could migrate it.
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml
+      (merge-ownership).
+    * pkg/recipe/manifest_test.go:37 — the `wellFormedRecipeYAML` reference
+      const. TestRecipeManifest_WellFormedValid also asserts
+      `strings.Contains(merge.Fragment, "adopted_by")` (manifest_test.go:117),
+      which must become an assertion on the declared PATH.
+    * pkg/recipe/manifest_opchecks_test.go:117 and :197 — two test-local
+      manifests.
+    * pkg/recipe/manifest_ruleplaceholder_test.go:71-72 — inside
+      `templatedPayloadAndFragmentManifest`, the scope guard being split.
+  ALREADY path-form and therefore UNTOUCHED: apply_merge_test.go (272, 301, 352,
+  417, 551, 660), apply_multi_test.go (197, 207), and the committed
+  `templated-sites` recipe (`fragment: payload/settings.fragment.json`), which
+  PLAN-ISSUE-079 added as the runnable path-form sibling. `fragment:` at
+  apply_merge_test.go:610-643 is a GO STRUCT FIELD, not YAML — not in scope.
+
+  ── SECOND BLAST RADIUS: THE ERROR-STRING SWEEP ────────────────────────────
+  METHOD LESSON, recorded because the first pass of this plan missed it: a
+  DATA-CORPUS sweep and a MESSAGE-CORPUS sweep are DIFFERENT SWEEPS. The sweep
+  above answers "which fixtures declare the old FORM"; it says nothing about
+  which tests pin the DIAGNOSTIC STRING that TASK-007 rewrites. Any task that
+  restates an error message must grep the exact fmt string across `*_test.go`,
+  because wantMessage tables pin messages by substring and a hit inside an
+  in-scope file still needs a NAMED disposition — being in scope is not a
+  disposition.
+
+  Sweep of the strings TASK-007 touches (verified against the tree 2026-07-27):
+    * pkg/recipe/apply_merge_test.go:617 — `wantMessage: "read declared
+      fragment"`, the "the declared fragment is absent from the recipe" case of
+      TestApply_MergeOp_FailureLeavesTargetUntouched. THE ONLY HIT. TASK-004 owns
+      the file and carries the disposition; TASK-007 carries the matching
+      constraint.
+    * pkg/recipe/apply_merge_test.go:624 (`substitute declared fragment`) and
+      :630 (`read declared target`) — checked, NOT hit: TASK-007 does not touch
+      the substitution or target-read wrappers.
+    * pkg/recipe/apply_core_test.go:462 (`declares no path`) — checked, NOT hit:
+      that is the create/payload path, which this plan leaves alone.
+
+  ── HALT-MARKER DISPOSITION (retire by REWRITE, not by deletion) ────────────
+  TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+  (apply_substitution_test.go:252-308) asserts the CURRENT halt-on-ENOENT
+  behavior, and its SPEC-054 claim CLM-071 carries the words "ISSUE-081 marker;
+  this claim retires when the fragment form is pinned" (spec:368-376). The form
+  is NOW pinned, so BOTH retire together, in the same commit:
+
+    * The TEST is REWRITTEN, not deleted, as
+      TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath. Deleting it
+      would give back the property ISSUE-079 bought — that the committed
+      `starter` recipe is actually DRIVEN THROUGH Apply rather than only through
+      ParseRecipeManifest, which is how the contradiction survived every test in
+      the suite in the first place. The rewritten test keeps starter under Apply
+      and now proves the PINNED form at the exact op that used to halt.
+    * CLM-071 is REWRITTEN by TASK-010's /spec dispatch to claim the pinned form,
+      with its mandated test name updated to match. The claim id is REUSED rather
+      than retired-and-replaced so the requirement keeps its coverage.
+    * The stale doc comments naming the inline fragment
+      (apply_substitution_test.go:23-27 and 252-263) are corrected in the same
+      task — a comment that still calls starter "the inline-fragment evidence"
+      after the migration is drift.
+
+  ── SPEC-054 COUPLING (spec and code move in the SAME commit) ───────────────
+  SPEC-054 is `implemented` at spec_version 1.4.0 and is guarded by
+  pkg/recipe/contract_signature_test.go, which compares the spec's `signature:`
+  strings against go/printer output for pkg/recipe/apply.go. Checked: this plan
+  changes NO contracted signature — ApplyOptions.Params already exists,
+  ParseRecipeManifest's signature is unchanged, and runRecipeApply is an
+  unexported CLI function with no contract entry. The spec edits are therefore
+  `notes:`/prose/claims only and will not trip the signature guard. This is
+  stated so the implementer does not go looking for a guard failure that will not
+  come — but the spec still moves in the same commit, because the shipped
+  behavior and the contract note must never be observably out of step.
+
+  ALSO LANDING HERE (deferred to this plan by PLAN-ISSUE-080:270-290): the
+  SPEC-AUTHOR-FACING form of the contract-coupling warning. 080 widened
+  contract_signature_test.go's guard and recorded that adding a new `kind: type`
+  entry for pkg/recipe/apply.go to SPEC-054's frontmatter makes
+  `go test ./pkg/recipe/` RED until the name is also added to `contractedTypes()`
+  — while `backstop artifact validate` stays GREEN, so the artifact tooling gives
+  the spec author no signal. That instruction currently lives only in the test's
+  own doc comment. 080 named ISSUE-081 as the next natural SPEC-054 touch; this
+  is it, so TASK-010 carries it into SPEC-054's own Sharp Edges.
+
+  ── GAP 2 CONTRACT (pin the flag's grammar; do not improvise) ───────────────
+    * `--param` is registered as a pflag StringArray, NOT StringSlice.
+      StringSlice comma-splits its values, which would silently truncate
+      `--param greeting=a,b` into two params. CLM-010 exists to fail that choice.
+    * Read the flag INSIDE RunE via `cmd.Flags().GetStringArray("param")` rather
+      than binding a captured variable. NewRootCommand() is constructed fresh per
+      test; a captured var invites cross-invocation bleed and trips
+      go.core.no-global-mutable-state if it is ever hoisted.
+    * `key=value` splits on the FIRST `=` only, so a value may contain `=`.
+    * An EMPTY value (`--param x=`) is legal and supplies the empty string — that
+      is a supplied value, meaningfully distinct from unsupplied.
+    * MALFORMED (no `=`, or an empty key) is a fail-loud *check.ConfigError
+      (exit 2), naming the offending argument verbatim.
+    * A DUPLICATE key is likewise a fail-loud ConfigError, not last-wins. A map
+      write silently keeps the last; saying so out loud is the honest behavior
+      and costs the operator nothing.
+    * An UNDECLARED param name (not in the resolved recipe's `params:`) is a
+      fail-loud ConfigError. JUDGMENT CALL, stated so the reviewer can weigh it:
+      the founder Decision says only "threaded into ApplyOptions.Params," but
+      without this check a typo (`--param app_nmae=x`) is silently dropped and
+      resurfaces as an unresolvable-`{{ app_name }}` failure the operator cannot
+      attribute — the SAME undiagnosable shape ISSUE-081 was filed about. It is
+      implemented at the CLI layer ONLY, after ResolveRecipe and before Apply, so
+      pkg/recipe.Apply and every SDLC-mediated library caller are UNCHANGED.
+    * Exit-code placement follows runRecipeApply's existing documented split
+      (recipe_apply.go:160-166): everything that happens BEFORE the apply is a
+      ConfigError/exit 2 because nothing was applied and the INVOCATION is what
+      must change. Every rejection above is pre-apply.
+    * `effectiveParams` (apply.go:1157-1170) is NOT changed. Supplied params
+      already override declared defaults, and a required-no-default param already
+      has a supplied-value path — the CLI simply never populated it.
+
+  ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ────────────
+    middle: go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary
+            gates the OLD code and reports a vacuous green)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-081
+            ./bin/backstop artifact validate --spec SPEC-054
+  House constraints that apply to every task: -race -count=1 on every run; TRUE
+  process exits (never a skip standing in for a pass); separated stdout/stderr
+  buffers for any stream assertion; report actual command output, never an
+  asserted pass.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Decision) ───
+    REQ-001: `fragment:` is path-only, and a non-path declaration is refused at
+             parse with a message that states the canon.
+      CLM-001  a merge op whose `fragment:` value contains a NEWLINE (the inline
+               block-scalar form) is refused at manifest validation, fail-loud,
+               naming the op index, the op id and the FIELD, and stating that
+               fragment is a recipe-directory-relative path to a file read from
+               disk.
+      CLM-002  a merge op whose `fragment:` carries a `{{` placeholder is refused
+               at parse — a fragment PATH is resolved verbatim and never
+               substituted — and the check is scoped to `fragment:`: the SAME
+               manifest with a templated `payload:` still parses CLEANLY.
+      CLM-003  a merge op with an empty or whitespace-only `fragment:` is refused
+               at parse rather than surfacing at apply as "the op declares no
+               path".
+      CLM-004  the residual apply-time failure — a single-line value that is
+               syntactically a filename but names nothing on disk — reports the
+               path-only contract by name instead of a bare ENOENT, naming the
+               op and the declared value.
+    REQ-002: The committed corpus and the reference manifest declare the canon
+             form, and that form is proven END TO END through Apply.
+      CLM-005  the committed `starter` recipe declares `merge-settings`'
+               `fragment:` as a real recipe-relative file that exists under the
+               recipe directory, and driving starter through Apply MERGES it —
+               retiring, by rewrite, the halt-on-inline-fragment marker.
+      CLM-006  every remaining inline-fragment declaration in the committed
+               corpus and in the Go test manifests declares the path form, and
+               the whole corpus parses clean under the pinned rule.
+    REQ-003: `backstop recipe apply` accepts operator-supplied params.
+      CLM-007  a repeatable `--param key=value` threads into
+               ApplyOptions.Params, so a `required: true` param declaring no
+               `default:` resolves through the shipped CLI.
+      CLM-008  a malformed `--param` (no `=`, empty key) and a DUPLICATE key are
+               fail-loud config errors (exit 2) naming the offending argument —
+               never silently ignored, never last-wins.
+      CLM-009  a `--param` naming a param the recipe does not declare is a
+               fail-loud config error, so a typo'd name never degrades into an
+               unattributable unresolvable-placeholder failure.
+      CLM-010  a value containing `=` or `,` survives intact — split on the FIRST
+               `=` only, and no comma-splitting (the StringArray-not-StringSlice
+               guard).
+      CLM-011  E2E through the SHIPPED command over an INSTALLED pack: a recipe
+               declaring a required-no-default param applies with
+               `--param <name>=<value>`, the output lands at the substituted
+               path with the supplied value, and the command exits 0.
+    REQ-004: SPEC-054 pins what shipped.
+      CLM-012  SPEC-054 moves `Op.Fragment`-as-a-PATH into the substitution-scope
+               matrix as NOT-substituted-with-a-parse-time-refusal, narrows the
+               out-of-scope paragraph and CLM-076's clean-parse guard to
+               `Op.Payload` ALONE, rewrites CLM-071 from the halt marker to the
+               pinned form, adds the `--param` claims, and carries the
+               PLAN-ISSUE-080 spec-author-facing contract-coupling Sharp Edge.
+
+  Structure:
+    Phase 1: Fixture precondition — migrate the committed corpus to the path
+             form, and stage a NEW consumer project for the CLI param E2E.
+             (The suite is RED between phases 1 and 2 by design: migrating
+             starter invalidates the halt-marker assertion before phase 2
+             rewrites it. That is the red phase, not a defect.)
+    Phase 2: TDD red — three parallel, file-disjoint failing test tasks (manifest
+             validation, apply-side fragment path, CLI --param).
+    Phase 3: TDD green — three parallel implementation tasks (manifest.go,
+             apply.go, recipe_apply.go) + package verification.
+    Phase 4: SPEC-054 reconciliation via /spec + comprehensive verification
+             (rebuilt binary, full gate, artifact validate).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Fixture precondition — migrate the corpus, stage the E2E project
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixture Precondition — Migrate the Committed Corpus to the Path Form, Stage the CLI Param E2E Project"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Migrate the committed demo-pack fixtures to path-form fragments (starter + second), adding the fragment files they now name"
+        description: |
+          PLAN-ISSUE-079 kept these two recipes BYTE-INTACT as ISSUE-081's
+          evidence artifacts, on the explicit understanding that this plan would
+          migrate them once the form was pinned. It is pinned. Migrate them.
+
+          1. pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+             The `merge-settings` op currently declares:
+
+                 fragment: |
+                   {"adopted_by": "{{ app_name }}"}
+
+             Replace with a recipe-relative PATH:
+
+                 fragment: payload/settings.fragment.json
+
+             and CREATE that file with the byte-identical content the inline
+             block carried — `{"adopted_by": "{{ app_name }}"}` plus its trailing
+             newline. MOVE the bytes; do not re-type them. The `{{ app_name }}`
+             stays IN THE FILE: fragment file CONTENT is substituted (apply.go:
+             892) and always has been. Only the PATH is now placeholder-free.
+
+             Do NOT change starter's version (1.2.0 — `starterPin` in
+             apply_substitution_test.go:34 pins it), its params, its op ids, its
+             op ORDER, or any other op. The migration is one field plus one new
+             file.
+
+          2. pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml
+             Same migration for the `merge-ownership` op:
+
+                 fragment: payload/metadata.fragment.json
+
+             with the file carrying
+             `{"owner": "{{ owner }}", "overview": "{{ doc_path }}"}` verbatim
+             from the inline block. Version stays 2.0.1.
+
+          3. Update the header comment in
+             recipes/templated-sites/recipe.yml that currently explains this
+             recipe "exists alongside `starter` (whose inline fragment block is
+             ISSUE-081's evidence and is left byte-intact)". That rationale is
+             now historical. Restate it in one line: templated-sites remains the
+             EVERY-site-templated recipe; starter is the mixed literal/templated
+             one. Both now declare the canon fragment form. Do not otherwise edit
+             templated-sites — its own `fragment: payload/settings.fragment.json`
+             is already correct and is the form being ratified.
+
+          WHY SETUP AND NOT REFACTOR: nothing here changes shipped behavior; it
+          moves fixture bytes so the corpus stops contradicting the applier. The
+          suite goes RED at this point (the halt-marker test asserts a halt that
+          no longer happens) and TASK-004 turns it green. That is the intended
+          red phase.
+        files:
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/payload/settings.fragment.json
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/payload/metadata.fragment.json
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/recipe.yml
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Stage a NEW consumer fixture project whose recipe declares a required-no-default param, for the CLI --param E2E"
+        description: |
+          Gap 2's E2E needs an INSTALLED pack whose recipe declares a param with
+          `required: true` and NO `default:` — the case that is unreachable
+          through the CLI today. The existing
+          cmd/backstop/testdata/recipe-apply-e2e/ project cannot host it: it
+          ships a COMMITTED backstop.lock, so adding a param or a recipe to
+          demo-org/recipe-pack stales that lock's content_hash, and a fabricated
+          replacement hash is exactly the fabricated-fixture failure this repo
+          has already been burned by. Ship a NEW project instead — the same
+          disposition PLAN-ISSUE-080 took for the same reason, and it keeps this
+          task's file set disjoint from TASK-001's for parallel execution.
+
+          Create cmd/backstop/testdata/recipe-param-e2e/ :
+
+            backstop.yml
+              project: recipe-param-e2e
+              packs:
+                demo-org/param-pack: "1.0.0"
+
+            NO backstop.lock. Nothing on the `recipe apply` path reads one
+            (loadInstalledPacks reads backstop.yml and the pack directories), and
+            omitting it is honest where a hand-written hash would not be.
+
+            .backstop/packs/demo-org/param-pack/pack.yml
+              Mirror the SHAPE of
+              cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/pack.yml.
+
+              REQUIRED FIELDS, spelled out because pack.ParseManifestFile refuses
+              a manifest missing any of them (pkg/pack/manifest.go:263-277) and
+              the refusal surfaces from INSIDE loadInstalledPacks as an opaque
+              failure with no pointer to the fixture:
+
+                  name: demo-org/param-pack
+                  version: 1.0.0
+                  language: any
+                  archetype: code
+                  description: >
+                    <one line saying what this fixture proves>
+
+              `archetype: code` EXPLICITLY. This is a CROSS-LANE TRAP: the
+              archetype enum today is `enforcement` or `code` ONLY
+              (pkg/pack/manifest.go:487, validateArchetype). A recipes- or
+              scaffolding-flavored archetype does NOT validate until
+              PLAN-ISSUE-085 lands, and that plan is in a different lane — do not
+              anticipate it, do not borrow its spelling, and do not take a cue
+              from a pack.yml written after it merges. If PLAN-ISSUE-085 has
+              already landed by the time this task runs, `code` still validates,
+              so `code` is correct either way.
+
+              ENGINES — LOAD-BEARING, do not skip: runRecipeApply calls
+              provisionedEngineBinding UNCONDITIONALLY (recipe_apply.go:190),
+              before Apply and regardless of op family, and it requires EXACTLY
+              ONE provisioned engine binding. A pack declaring none fails with a
+              config error before the recipe ever runs. Declare the same single
+              allowlisted ast-grep binding at the version
+              engine.TrustedToolAllowlist() pins. The recipe below is create-only,
+              so the tool is selected and gated but NEVER executed — the fixture
+              stays hermetic.
+
+              Also declare a `recipes:` index mapping the recipe id to its
+              directory. A `content:` block is NOT strictly required here — the
+              content-is-required check (manifest.go:281-288) is satisfied by the
+              `engines:` block alone — but declare one anyway, mirroring
+              recipe-pack, so the fixture proves `recipes:` is a DISTINCT
+              top-level key rather than leaning on the engines OR-arm.
+
+            .backstop/packs/demo-org/param-pack/recipes/adopt/recipe.yml
+              kind: scaffolding, version 1.0.0, ONE create op.
+              params:
+                - name: app_name        # required: true, NO default — the point
+                - name: config_dir      # required: false, default: config
+              op target: "{{ config_dir }}/{{ app_name }}.json" so BOTH the
+              supplied param and the defaulted one are load-bearing in the
+              resulting path — a test that only exercised the defaulted one would
+              pass against a CLI that ignored --param entirely.
+
+            .backstop/packs/demo-org/param-pack/recipes/adopt/payload/service.json
+              Payload content referencing `{{ app_name }}`, so the supplied value
+              must appear in the written BYTES as well as in the path.
+
+          Keep every path, name and value language-neutral: this fixture must
+          name no language, toolchain, or framework.
+        files:
+          - cmd/backstop/testdata/recipe-param-e2e/backstop.yml
+          - cmd/backstop/testdata/recipe-param-e2e/.backstop/packs/demo-org/param-pack/pack.yml
+          - cmd/backstop/testdata/recipe-param-e2e/.backstop/packs/demo-org/param-pack/recipes/adopt/recipe.yml
+          - cmd/backstop/testdata/recipe-param-e2e/.backstop/packs/demo-org/param-pack/recipes/adopt/payload/service.json
+        claims:
+          - CLM-011
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD red — three parallel, file-disjoint failing test tasks
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Fragment-Form Validation, Path-Form Apply, and CLI --param Tests"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Failing manifest-validation tests: an inline / templated / empty `fragment:` is refused at parse; the scope guard narrows to payload alone"
+        description: |
+          Write the parse-time half of Gap 1, RED first.
+
+          NEW FILE pkg/recipe/manifest_fragmentform_test.go:
+
+            * TestParseRecipeManifest_InlineFragmentRefused — a merge op
+              declaring `fragment: |` with a JSON block scalar is a validation
+              error. Assert the message NAMES the op index (`ops[N]`), the op id,
+              and the field (`fragment`), and states the canon — that fragment is
+              a recipe-directory-relative path to a file read from disk. A
+              generic "invalid op" tells a pack author nothing about which
+              declaration to change, which is the whole complaint in ISSUE-081.
+              Include a case whose inline block carries NO placeholder, so the
+              newline rule is proven to stand on its own rather than riding on
+              the `{{` rule.
+            * TestParseRecipeManifest_TemplatedFragmentPathRefused — a merge op
+              declaring `fragment: "payload/{{ variant }}.json"` (single line,
+              placeholder-bearing) is refused, with a message naming the field
+              and explaining that a fragment PATH is never substituted. Shape the
+              manifest so nothing ELSE could reject it — literal `rule:` listed
+              in transform_rules, unique non-empty ids, manuals present — so the
+              test cannot pass for the wrong reason.
+            * TestParseRecipeManifest_EmptyFragmentOnMergeOpRefused — a merge op
+              with `fragment: ""` and one with a whitespace-only value are both
+              refused at parse.
+            * A companion ACCEPT case in the same file: a merge op declaring
+              `fragment: payload/settings.fragment.json` parses clean and
+              round-trips that exact string onto Op.Fragment. Without it the
+              rejection tests would be satisfied by a check that refused every
+              fragment.
+
+          REWRITE pkg/recipe/manifest_ruleplaceholder_test.go — split the scope
+          guard, keeping TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
+          as the test name (SPEC-054 CLM-076 mandates it):
+
+            * Rename `templatedPayloadAndFragmentManifest` to
+              `templatedPayloadManifest` and REMOVE its templated inline merge op
+              (manifest_ruleplaceholder_test.go:67-72), leaving the templated
+              `payload:` as the accept case. Its subtest becomes "a templated
+              payload still parses clean" and keeps the vacuity check that the
+              parsed Payload actually carries a placeholder.
+            * Update the file's header comment (lines 8-24). It currently says
+              widening the check would decide ISSUE-081's question silently and
+              break two committed artifacts. Both halves are now stale: the
+              question is DECIDED for fragment (issue Decision 2026-07-27) and
+              TASK-001 migrated the artifacts. Restate the line the guard still
+              holds — payload templatability is undecided, and this accept case
+              is what fails a uniformity refactor that widens to it.
+
+          UPDATE the two inline-fragment test manifests at
+          pkg/recipe/manifest_opchecks_test.go:117 and :197 to the path form.
+          These manifests exist to exercise OTHER op checks (ids, manuals); the
+          fragment field is incidental to them, so change only that field.
+
+          UPDATE pkg/recipe/manifest_test.go: `wellFormedRecipeYAML` (line 37)
+          declares the inline form and is documented as "the reference recipe.yml
+          — every field REQ-009 declares structurally valid," so it MUST show the
+          canon form. Change it to `fragment: payload/registry.fragment.json`,
+          and change TestRecipeManifest_WellFormedValid's assertion (line 117)
+          from `strings.Contains(merge.Fragment, "adopted_by")` to an assertion
+          on the declared PATH — the content string is gone from the manifest.
+
+          Run `go test ./pkg/recipe/... -race -count=1` and CONFIRM the new tests
+          fail for the right reason (no rejection yet), not on a compile error.
+        files:
+          - pkg/recipe/manifest_fragmentform_test.go
+          - pkg/recipe/manifest_ruleplaceholder_test.go
+          - pkg/recipe/manifest_opchecks_test.go
+          - pkg/recipe/manifest_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        test_names:
+          - TestParseRecipeManifest_InlineFragmentRefused
+          - TestParseRecipeManifest_TemplatedFragmentPathRefused
+          - TestParseRecipeManifest_EmptyFragmentOnMergeOpRefused
+          - TestParseRecipeManifest_TemplatedTransformRuleFailsLoud
+          - TestRecipeManifest_WellFormedValid
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: test
+        title: "Failing apply-side tests: the migrated starter recipe merges its declared fragment PATH; an unreadable fragment names the path-only contract"
+        description: |
+          Write the apply-time half of Gap 1, RED first, and RETIRE the halt
+          marker by rewriting it.
+
+          REWRITE, in pkg/recipe/apply_substitution_test.go, the test currently
+          named
+          TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+          (lines 252-308) as:
+
+            TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+
+          It keeps the property ISSUE-079 bought — the committed `starter` recipe
+          is DRIVEN THROUGH Apply, not merely through ParseRecipeManifest, which
+          is how the three-way contradiction survived the whole suite — and now
+          proves the PINNED form at the exact op that used to halt. It must:
+
+            * resolve the committed starter recipe at `starterPin` and supply
+              `app_name` (required, no default) as the existing test does;
+            * SEED the consumer document the merge and insert ops both address
+              BEFORE applying. applyMerge READS the target (apply.go:897) and
+              applyInsert needs the `"registrations": [` anchor, so a bare
+              t.TempDir() cannot succeed. Reuse the established pattern —
+              writeUnder(t, root, renderDeclared(t, mergeOp.Target, params),
+              <seeded settings>) — mirroring applyTemplatedSitesFixture
+              (apply_substitution_test.go:101-139) with a stub Dispatch;
+            * assert Apply returns NO error, that the create target materialized
+              at the SUBSTITUTED path, and — the crux — that the merge target's
+              bytes now carry the fragment file's substituted content
+              (`adopted_by` = the supplied app_name) ALONGSIDE the seeded
+              sibling key, so the merge is provably ADDITIVE rather than a
+              rewrite;
+            * keep the no-literal-placeholder path sweep the current test
+              performs.
+
+          Also update the now-stale doc comments in the same file:
+          apply_substitution_test.go:23-27 (`templatedSitesRecipeID` — "It exists
+          beside the byte-intact `starter` recipe because starter's merge op
+          declares an INLINE fragment") and the rewritten test's own comment
+          block. Leaving them would be exactly the fixture/comment drift this
+          issue is about.
+
+          ADD, in pkg/recipe/apply_merge_test.go:
+
+            TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract —
+            a merge op whose `fragment:` is a single-line, placeholder-free value
+            that names nothing on disk (the residual case parse deliberately
+            cannot distinguish from a filename — see the plan's predicate note)
+            fails the apply, and the ERROR states the path-only contract and the
+            declared value rather than leaking a bare os.ReadFile ENOENT. Assert
+            on the message, not just on non-nil: a bare ENOENT is what the live
+            2026-07-25 dogfood produced and could not be acted on.
+
+          NAMED DISPOSITION — apply_merge_test.go:617 PINS THE STRING TASK-007
+          REWRITES. The "the declared fragment is absent from the recipe" case of
+          TestApply_MergeOp_FailureLeavesTargetUntouched declares
+          `wantMessage: "read declared fragment"`, matched by substring. It is
+          the ONLY such hit (see the error-string sweep in the notes). Disposition,
+          in order of preference:
+
+            1. PREFERRED — TASK-007 EXTENDS the message and PRESERVES the
+               "read declared fragment" prefix, so :617 keeps passing UNCHANGED.
+               That table is a message-identity guard, not incidental coupling:
+               keeping the prefix is the better design independent of this test,
+               because the prefix is what names the failing OPERATION while the
+               new sentence names the CONTRACT. VERIFY it still passes — do not
+               assume; a substring guard that silently stopped matching would be
+               invisible.
+            2. FALLBACK — if TASK-007's phrasing cannot keep the prefix, update
+               :617's wantMessage HERE, in this task, which owns
+               apply_merge_test.go. Do not leave it for the implementation task
+               to reach across a file boundary, and do not weaken the expectation
+               to a substring so generic it would match the old message too.
+
+          Do NOT touch :624 (`substitute declared fragment`) or :630 (`read
+          declared target`) — both were checked and are outside TASK-007's edit.
+
+          Run `go test ./pkg/recipe/... -race -count=1`. The rewritten starter
+          test should now PASS on TASK-001's migrated fixture alone (that is the
+          fixture migration proving itself); the unreadable-fragment message test
+          must FAIL until TASK-007 lands. State which is which in the report.
+        files:
+          - pkg/recipe/apply_substitution_test.go
+          - pkg/recipe/apply_merge_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+          - TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: test
+        title: "Failing CLI tests: repeatable --param supplies a required-no-default param; malformed, duplicate and undeclared params fail loud"
+        description: |
+          Write Gap 2, RED first, driving the SHIPPED command over the INSTALLED
+          fixture pack TASK-002 staged. Every test here goes through
+          NewRootCommand() — a unit test of a parsing helper alone would leave
+          the flag-to-ApplyOptions thread unproven, which is the integration gap
+          this repo keeps rediscovering.
+
+          NEW FILE cmd/backstop/recipe_apply_param_e2e_test.go. Follow the
+          established e2e shape in cmd/backstop/recipe_apply_e2e_test.go —
+          stage the fixture project into a temp dir, t.Chdir into it, build the
+          root command, SetArgs, Execute.
+
+          STAGING — build a LOCAL stager in this file over the package-level
+          `copyTree` helper (cmd/backstop/gate_waiver_e2e_test.go:13), which is
+          already shared and needs no change. Do NOT parameterize
+          stageRecipeE2EProject (recipe_apply_e2e_test.go:45): it hardcodes
+          `recipeE2EProject`, and recipe_apply_e2e_test.go is OUT OF THIS TASK'S
+          FILE SCOPE — widening a shared helper's signature from here would also
+          force edits in every existing caller. `stagedRecipe`
+          (recipe_apply_e2e_test.go:61) IS reusable as-is: it already takes
+          packName and recipeID, so call it directly to parse the staged pack and
+          recipe and derive the pinned ref from DATA rather than a test literal.
+
+          Use SEPARATED stdout and stderr buffers
+          (root.SetOut / root.SetErr to DIFFERENT buffers), not the shared buffer
+          runRecipeApplyCLI uses: several assertions below are about which stream
+          a diagnostic lands on, and a merged buffer makes those unfalsifiable.
+
+            * TestRecipeApply_CLI_ParamFlagSuppliesRequiredNoDefaultParam —
+              `recipe apply demo-org/param-pack:adopt@1.0.0 --param app_name=<v>`
+              exits 0; the file lands at the path formed from BOTH the supplied
+              param and the defaulted `config_dir`; the written BYTES carry the
+              supplied value. Derive the expected path from the parsed manifest's
+              declared target + declared defaults (the `declaredParamDefaults`
+              pattern at recipe_apply_substitution_e2e_test.go:28-36), not from a
+              hardcoded string, so the assertion cannot agree with a broken
+              applier by coincidence. Also assert the SAME invocation WITHOUT
+              `--param` fails — that is what proves the flag is load-bearing
+              rather than decorative.
+            * TestRecipeApply_CLI_MalformedParamFlagFailsLoud — `--param
+              app_name` (no `=`) and `--param =value` (empty key) each fail with
+              a config error (exit 2 shape — assert via errors.As on
+              *check.ConfigError, matching how the existing recipe e2e tests
+              distinguish the two exit classes) whose message quotes the
+              offending argument. Assert NOTHING was written beneath the project
+              root.
+            * TestRecipeApply_CLI_DuplicateParamKeyFailsLoud — `--param x=1
+              --param x=2` fails loud naming the duplicated key. Assert it is NOT
+              silently last-wins by confirming no file was written.
+            * TestRecipeApply_CLI_UndeclaredParamFailsLoud — `--param
+              not_a_param=v` fails loud naming the undeclared param, and the
+              message does NOT read as an unresolvable-placeholder failure. A
+              subtest must confirm the recipe's DECLARED params are still
+              accepted, so the check cannot pass by rejecting everything.
+            * TestRecipeApply_CLI_ParamValueWithSeparatorsSurvivesIntact — a
+              value containing BOTH `,` and `=` (e.g. `--param app_name=a,b=c`)
+              reaches ApplyOptions.Params whole. This is the StringSlice trap:
+              pflag's StringSlice would deliver `a` and `b=c` as two params and
+              this test is what fails that choice. Assert on the resulting
+              written bytes/path, not on an internal map, so it stays an
+              end-to-end claim.
+
+          Run `go test ./cmd/backstop/... -race -count=1` and confirm every new
+          test fails because the flag does not exist yet (an "unknown flag"
+          error), not on a compile error in the fixture staging.
+        files:
+          - cmd/backstop/recipe_apply_param_e2e_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        test_names:
+          - TestRecipeApply_CLI_ParamFlagSuppliesRequiredNoDefaultParam
+          - TestRecipeApply_CLI_MalformedParamFlagFailsLoud
+          - TestRecipeApply_CLI_DuplicateParamKeyFailsLoud
+          - TestRecipeApply_CLI_UndeclaredParamFailsLoud
+          - TestRecipeApply_CLI_ParamValueWithSeparatorsSurvivesIntact
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD green — three parallel implementations + package verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — Refuse a Non-Path Fragment at Parse, Name the Contract at Apply, Wire --param"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "pkg/recipe/manifest.go — refuse a non-path `fragment:` on a merge op at parse time"
+        description: |
+          Make TASK-003's tests pass. Extend validateRecipeOps (manifest.go:
+          168-220) with the fragment-form check, applied to `merge` ops only.
+
+          Implement EXACTLY the predicate the plan notes pin — refuse when the
+          declared value is empty/whitespace-only, contains a newline, or
+          contains `placeholderOpen`. Do NOT add a content sniff on a leading
+          `{`/`[`, and do NOT add an escape-path check; both are named in the
+          notes as deliberate exclusions with reasons.
+
+          Placement and style, matching the `rule:` check immediately above it
+          (manifest.go:194-216):
+
+            * inside the existing `for i, op := range m.Ops` loop, so the op
+              INDEX is available for the message;
+            * gated on `op.Kind == OpMerge` — the field is meaningless on the
+              other families and this plan does not widen it;
+            * errors formatted through `recipeLabel(m)` like every sibling
+              check, naming the op index, the op id and the FIELD;
+            * DISTINCT messages per cause. A single "invalid fragment" for three
+              different defects would be the same undiagnosable failure ISSUE-081
+              was filed about. The newline case must state the canon in the words
+              the Decision uses — fragment is a recipe-directory-relative path to
+              a file read from disk, not inline content — and point the author at
+              the fix (move the content into a file under the recipe directory
+              and declare its path). The placeholder case must say a fragment
+              PATH is resolved verbatim and never substituted, while the fragment
+              FILE'S CONTENT still is, so the author is not left thinking
+              templating is gone.
+
+          Update the `Op` struct's doc comment (manifest.go:56-65) to state the
+          pinned form on the `Fragment` field, and the ParseRecipeManifest doc
+          comment if it enumerates the checks. The comment at manifest.go:
+          201-209 currently ends "Whether op.payload / op.fragment may be
+          templated is a separate, open authoring-surface question and is NOT
+          decided here" — that is now HALF stale. Rewrite it to say fragment is
+          decided (path-only, refused just below) and payload is not, citing
+          ISSUE-081's Decision. A comment that still calls a settled question
+          open is drift.
+
+          Do NOT touch payload handling anywhere in this file.
+        files:
+          - pkg/recipe/manifest.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-003
+
+      - id: TASK-007
+        type: implementation
+        title: "pkg/recipe/apply.go — the fragment read failure names the path-only contract"
+        description: |
+          Make TASK-004's unreadable-fragment test pass.
+
+          applyMerge (apply.go:881-888) currently wraps the read as `read
+          declared fragment %q: %w`, which surfaces to an operator as a bare
+          "no such file or directory" — the exact output the 2026-07-25 live
+          dogfood produced and could not act on. Restate it so the message
+          carries the canon: the declared value is a RECIPE-DIRECTORY-RELATIVE
+          PATH, resolved under the recipe directory and read from disk, and
+          inline content is not a supported form. Keep the underlying error
+          wrapped (%w) — the ENOENT is still useful, it just must not be the
+          whole story.
+
+          PRESERVE THE "read declared fragment" PREFIX. pkg/recipe/apply_merge_test.go:617
+          pins that substring (TestApply_MergeOp_FailureLeavesTargetUntouched,
+          the absent-fragment case), and TASK-004 carries the full disposition.
+          Extending the message after the prefix keeps that guard green with no
+          cross-file edit, and it is the better shape anyway: the prefix names the
+          failing OPERATION, the new sentence names the CONTRACT. If you conclude
+          the prefix genuinely cannot survive, STOP and say so rather than editing
+          apply_merge_test.go — that file belongs to TASK-004.
+
+          Do the same for the resolveUnder failure immediately above it
+          (apply.go:882-883), which is what a path escaping the recipe directory
+          hits.
+
+          Update the doc comment on the fragment substitution at apply.go:890-891
+          if it now under-describes the split — the PATH is verbatim, the
+          CONTENT is substituted. That distinction is the whole of Gap 1 and it
+          should be readable at the call site.
+
+          SCOPE: this is a diagnostics change on the merge path ONLY. Do not
+          change applyMerge's control flow, do not change what it reads or
+          writes, and do not touch applyInsert (Gap 3, explicitly out of scope)
+          or renderPayload (payload is the residual undecided facet).
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-004
+
+      - id: TASK-008
+        type: implementation
+        title: "cmd/backstop/recipe_apply.go — repeatable `--param key=value` threaded into ApplyOptions.Params"
+        description: |
+          Make TASK-005's tests pass. Implement exactly the flag contract the
+          plan notes pin — re-read them before writing; every rule there exists
+          because a plausible alternative is silently wrong.
+
+          1. Register the flag on the command newRecipeApplyCommand() returns
+             (recipe_apply.go:36-78). The function currently returns a composite
+             literal; restructure minimally to a named `cmd` so the flag can be
+             registered before returning it.
+
+                 cmd.Flags().StringArray("param", nil, <usage>)
+
+             StringArray, NOT StringSlice — StringSlice comma-splits values.
+             Read it INSIDE RunE via cmd.Flags().GetStringArray("param"), not
+             through a captured variable.
+
+             The usage string is operator-facing documentation: say the flag is
+             repeatable, that it supplies a param the recipe DECLARES, and that
+             declared defaults still fill anything left unsupplied. Extend the
+             command's Long text with a short paragraph on the same, since a
+             required-no-default param was previously unusable here and an
+             operator needs to learn the flag exists. `backstop commands`
+             (root.go:126-139) surfaces flags to agents automatically via
+             buildCommandTree, so no separate discovery wiring is needed.
+
+          2. Add a parsing helper in the same file — split on the FIRST `=`,
+             reject a missing `=` and an empty key, allow an empty value, allow
+             `=` inside the value, reject a duplicate key. Return
+             *check.ConfigError so main.go maps it to exit 2 unchanged; the RunE
+             body already relays a ConfigError unwrapped (recipe_apply.go:62-70),
+             so route the failure through the same path rather than adding a
+             second error convention.
+
+          3. Thread it: change runRecipeApply's signature to take the supplied
+             params and set `Params:` on the ApplyOptions it builds
+             (recipe_apply.go:204-211). This is an unexported CLI function with
+             no SPEC-054 contract entry, so the signature guard in
+             pkg/recipe/contract_signature_test.go is unaffected.
+
+          4. Undeclared-param check, at the CLI layer only: AFTER
+             recipe.ResolveRecipe returns (recipe_apply.go:183) and BEFORE
+             recipe.Apply is called, compare every supplied key against
+             resolved.Manifest.Params and fail loud with a ConfigError naming the
+             undeclared key. Report the names DETERMINISTICALLY (sort them) —
+             map iteration order would make the message nondeterministic across
+             runs. Do NOT change pkg/recipe.Apply or effectiveParams: SDLC-
+             mediated library callers keep their current behavior, and this check
+             is CLI-invocation hygiene, not applier policy.
+
+          5. Extend the doc comment on runRecipeApply's exit-code split
+             (recipe_apply.go:160-166) to place the new rejections: all four are
+             PRE-APPLY, so all four are ConfigError/exit 2 — nothing was applied
+             and the invocation is what must change. Keep that reasoning explicit
+             so the next person adding a rejection puts it on the right side.
+        files:
+          - cmd/backstop/recipe_apply.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+
+      - id: TASK-009
+        type: verification
+        title: "Package verification — the recipe package and the CLI recipe suites green under race"
+        description: |
+          Run the full suites for both touched packages:
+
+              go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+          -count=1 is mandatory: a cached PASS over the pre-migration fixtures
+          would be a vacuous green on exactly the corpus this plan changed.
+
+          Confirm specifically, and report the actual output for each:
+
+            1. Every test named in TASK-003/004/005 passes.
+            2. The whole COMMITTED corpus parses clean under the new rule — no
+               recipe.yml anywhere under pkg/recipe/testdata/ or
+               cmd/backstop/testdata/ still declares an inline fragment. Grep for
+               `fragment: |` across both trees and report the result; the
+               expected result is zero hits (CLM-006).
+            3. TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite and
+               TestApply_NoLiteralPlaceholderReachesTheFilesystem — ISSUE-079's
+               crux regressions over the same fixture pack — still pass.
+            4. SWEEP for tests that assert the shape of the apply SUCCESS REPORT,
+               which PLAN-ISSUE-080 widened: grep both testdata-driven CLI suites
+               for "applied recipe", "wrote ", "preserved ", "nothing was written
+               or preserved". Known hit at
+               cmd/backstop/recipe_apply_divergence_e2e_test.go:209 (a NEGATIVE
+               assertion on a failure path). Confirm each hit still holds — this
+               plan does not change the report, so any break is a real regression,
+               not an expected update.
+            5. Gap 3 is untouched: `git diff` shows NO change to applyInsert's
+               splice logic (apply.go:445-478 region), to
+               TestApply_InsertOp_AtAnchor, or to the hardcoded
+               `Mode: recipe.ModeDirect` — which lives in the ApplyOptions literal
+               at recipe_apply.go:205 (inside the 204-211 block TASK-008 edits to
+               add Params), NOT at the pre-TASK-008 line 142.
+
+          Fix real failures in the OWNING task's files. Do not widen a task's
+          file scope to make a test pass; if a fix needs a file no task owns, say
+          so rather than reaching for it.
+        files:
+          - pkg/recipe/manifest.go
+          - pkg/recipe/apply.go
+          - cmd/backstop/recipe_apply.go
+          - pkg/recipe/manifest_fragmentform_test.go
+          - cmd/backstop/recipe_apply_param_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-011
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: SPEC-054 reconciliation + comprehensive gate verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: SPEC-054 Reconciliation via /spec + Comprehensive Gate Verification"
+    tasks:
+      - id: TASK-010
+        type: documentation
+        title: "SPEC-054 — pin fragment as path-only, retire the CLM-071 halt marker, add the --param claims, carry the deferred contract-coupling Sharp Edge"
+        description: |
+          SPEC-054 is `implemented` at spec_version 1.4.0 and currently records
+          the fragment form as ISSUE-081's OPEN question in six places. The
+          question is decided and the behavior ships in this change, so the spec
+          moves in the SAME commit.
+
+          ROUTE THIS THROUGH THE SPEC AGENT — do NOT hand-edit the spec file
+          (CLAUDE.md: never hand-edit artifacts). Dispatch /spec (spec-author)
+          with these instructions:
+
+            * SUBSTITUTION-SCOPE MATRIX (spec:1102-1116). Add a row for
+              `Op.Fragment` as a PATH: families merge; Substituted? **NO** — the
+              declared path is resolved under the recipe directory and read from
+              disk unchanged; failure policy — a non-path value (inline content,
+              a placeholder, or empty) is REFUSED at manifest validation. The
+              existing "payload / fragment CONTENT — YES" row is CORRECT and must
+              stay: the file's content is still substituted. Make the
+              path-vs-content split explicit so the two rows are not read as
+              contradicting each other.
+              Then NARROW the paragraph immediately below the matrix
+              (spec:1110-1115) from "`Op.Payload` and `Op.Fragment` as PATHS are
+              deliberately OUT OF SCOPE" to `Op.Payload` ALONE, and state WHY the
+              asymmetry: fragment had a live three-way contradiction between
+              applier, spec and committed fixture; payload has none, so deciding
+              it here would settle a question from the wrong place on no
+              evidence. Keep the "this omission is a DECISION, not a gap"
+              framing that the paragraph already carries.
+
+            * MANIFEST-VALIDATION TABLE (spec:1157-1167). Add a row for op
+              `fragment:` (merge): required on a merge op; must be a
+              recipe-directory-relative path — an inline value, a `{{`
+              placeholder, or an empty value is a fail-loud validation error
+              naming the op index, id and field. Update the existing op `rule:`
+              placeholder row, whose cell currently reads "`payload:`/`fragment:`
+              placeholders are NOT checked here (ISSUE-081)" — it is now
+              `payload:` alone.
+
+            * REQ-009 TEXT (spec:212-213). The sentence "This check is scoped to
+              `rule:` ONLY — a placeholder in `payload:` or `fragment:` is NOT
+              rejected here (whether those may be templated is ISSUE-081's open
+              question)" is now wrong for fragment. Restate: the rule-placeholder
+              check remains scoped to `rule:`, and `fragment:` is separately
+              constrained to a path form by the new fragment check; `payload:`
+              remains unchecked and undecided.
+
+            * CLM-076 (spec:726-736). Its text mandates that "the SAME manifest
+              with a literal `rule:` but a templated `payload:` and a templated
+              `fragment:` still parses CLEANLY." Narrow the scope guard to
+              `payload:` alone, matching TASK-003's split of
+              templatedPayloadAndFragmentManifest. Keep the mandated test name
+              TestParseRecipeManifest_TemplatedTransformRuleFailsLoud.
+
+            * CLM-071 (spec:368-376) — THE HALT MARKER, RETIRED. Its text says
+              the starter apply "halts on the recipe's inline fragment (ISSUE-081
+              marker; this claim retires when the fragment form is pinned)."
+              REWRITE it in place (reuse the id; do not retire-and-replace, so
+              REQ-002 keeps its coverage) to claim the pinned form: driving the
+              committed starter recipe through Apply resolves its templated
+              create target AND merges its declared fragment PATH additively into
+              the seeded consumer document. Update its mandated test name from
+              TestApply_CommittedStarterRecipe_SubstitutesCreateTargetThenHaltsOnInlineFragment
+              to TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath.
+
+            * NEW CLAIMS for what this plan delivers, mandating the exact test
+              names so the traceability dimensions bind spec to delivered tests:
+                - fragment-form parse refusal (inline / templated / empty), with
+                  the payload-clean scope guard —
+                  TestParseRecipeManifest_InlineFragmentRefused,
+                  TestParseRecipeManifest_TemplatedFragmentPathRefused,
+                  TestParseRecipeManifest_EmptyFragmentOnMergeOpRefused;
+                - the apply-time failure names the path-only contract —
+                  TestApply_MergeOp_UnreadableFragmentPathNamesThePathOnlyContract;
+                - CLI param input (Gap 2), under REQ-003 alongside CLM-015, whose
+                  text ("Direct mode self-applies the recipe's ops from the
+                  recipe-declared defaults/params", spec:428-433) is defensible
+                  only for a recipe whose required params all carry defaults and
+                  must now be complemented rather than contradicted: a repeatable
+                  `--param key=value` supplies a required-no-default param
+                  through the shipped CLI, and a malformed, duplicate or
+                  undeclared param is refused pre-apply as a config error —
+                  TestRecipeApply_CLI_ParamFlagSuppliesRequiredNoDefaultParam,
+                  TestRecipeApply_CLI_MalformedParamFlagFailsLoud,
+                  TestRecipeApply_CLI_DuplicateParamKeyFailsLoud,
+                  TestRecipeApply_CLI_UndeclaredParamFailsLoud,
+                  TestRecipeApply_CLI_ParamValueWithSeparatorsSurvivesIntact.
+
+            * CONTRACT NOTES. Update the `Op` contract note (spec:842) to pin
+              Fragment as a recipe-directory-relative path read from disk,
+              mirroring how Rule is already documented as a path, and the
+              ParseRecipeManifest note (spec:850) to list the fragment-form
+              rejection among its fail-loud checks. These are `notes:` prose —
+              no `signature:` string changes, so
+              pkg/recipe/contract_signature_test.go is unaffected.
+
+            * SHARP EDGES. Replace the "`Op.Payload` / `Op.Fragment` path form is
+              UNDECIDED here, and the silence is load-bearing" bullet
+              (spec:1438-1446) with a narrowed payload-only version plus the
+              fragment decision and its date. AND add the bullet
+              PLAN-ISSUE-080:269-289 deferred to this touch: adding a new
+              `kind: type` entry for pkg/recipe/apply.go to this spec's
+              frontmatter makes `go test ./pkg/recipe/` RED until the same name
+              is added to contractedTypes() in
+              pkg/recipe/contract_signature_test.go, while
+              `backstop artifact validate` stays GREEN throughout — so the
+              artifact tooling gives the spec author NO signal. State it in
+              spec-author terms (PLAN-ISSUE-080:270-290 records the deferral and
+              its reasoning); that instruction currently lives only in the test's
+              own doc comment, discoverable only by someone already reading the
+              test.
+
+            * REFERENCES / VERSION HISTORY. Cite ISSUE-081's Decision section
+              (2026-07-27) as the source for both positions. Record that Gap 3
+              (insert placement semantics, SDLC-mediated CLI reachability) and
+              the residual `Op.Payload` facet remain OPEN under ISSUE-081, so the
+              existing ISSUE-081 reference at spec:1616-1617 is narrowed rather
+              than removed. Bump spec_version per the spec agent's convention and
+              keep status `implemented`.
+
+          Do not restate this plan's tasks in the spec; the spec declares the
+          contract, the plan delivers it.
+        files:
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-012
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Comprehensive verification — rebuilt binary, full gate kill chain, artifact validation"
+        description: |
+          Final verification over BOTH work categories this plan touched: Go code
+          and artifacts.
+
+          1. REBUILD the binary FIRST. A stale ./bin/backstop gates the OLD code
+             and reports a vacuous green:
+
+                 go build -o bin/backstop ./cmd/backstop/
+
+          2. Full kill chain, no filtering and no per-dimension selection:
+
+                 ./bin/backstop gate
+
+             Fix real violations in the owning task's files. Do not waive, do not
+             baseline, do not scope the run down. Violations in files THIS change
+             touched must be fixed outright — you touch it, you fix it; no
+             grandfathering on changed files.
+
+          3. Artifact validation for both artifacts this plan touched:
+
+                 ./bin/backstop artifact validate --plan PLAN-ISSUE-081
+                 ./bin/backstop artifact validate --spec SPEC-054
+
+             Both must pass. If TASK-010's spec edit broke schema conformance,
+             route the correction back through /spec — never hand-edit the spec
+             to satisfy the validator.
+
+          4. Re-run the suites against the rebuilt tree:
+
+                 go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+             Then confirm the traceability binding actually closed: every test
+             name TASK-010 mandated in SPEC-054 EXISTS in the tree. A mandated
+             name with no test is a broken promise the status-drift dimension
+             will find later; find it here.
+
+          5. Confirm the SCOPE BOUNDARY one last time, since this plan
+             deliberately left two things undecided. `git diff` must show:
+               - NO change to applyInsert's splice point or to
+                 TestApply_InsertOp_AtAnchor (Gap 3);
+               - NO change to recipe_apply.go's hardcoded Mode: recipe.ModeDirect
+                 beyond the surrounding ApplyOptions gaining Params (Gap 3);
+               - NO parse-time or apply-time check added against `payload:`
+                 (the residual undecided facet);
+               - the payload-clean scope guard in
+                 manifest_ruleplaceholder_test.go still PRESENT and PASSING —
+                 that accept case is what keeps the boundary falsifiable.
+
+          Report the actual command output for every step. Do not assert a pass
+          you did not run.
+        files:
+          - pkg/recipe/manifest.go
+          - pkg/recipe/apply.go
+          - cmd/backstop/recipe_apply.go
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+          - pkg/recipe/manifest_ruleplaceholder_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-007
+          - CLM-012
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-008
+          - TASK-010
