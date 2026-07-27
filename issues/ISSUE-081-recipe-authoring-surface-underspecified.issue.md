@@ -202,6 +202,37 @@ Whichever position is taken for Gap 2, it determines whether the fixture's own `
 (required, no default) is a valid example of a CLI-applicable recipe or needs a default added to
 stay a clean demo of direct mode.
 
+## Decision (2026-07-27)
+
+Founder-ratified positions for Gap 1 and Gap 2; Gap 3 remains open (see below).
+
+**Gap 1 — DECIDED: Option A, path-only.** `fragment:` is canon as a **recipe-directory-relative
+file path**, matching `applyMerge`'s existing behavior (`pkg/recipe/apply.go:628,632`) and how
+`Payload`/`Rule` are already documented as paths. An inline block (as the committed
+`merge-settings` fixture currently declares) is a **parse error with a clear message**, not a
+silently-accepted alternate form — this dissolves the `{{ }}`-in-fragment substitution-timing
+ambiguity Gap 1 raised, since inline fragments no longer exist as a form to disambiguate.
+Follow-through: fix the `merge-settings` op in
+`pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml` to point at a real
+fragment file under the recipe directory; add the path-only sentence to SPEC-054's `Op` contract
+note; add a captured-fixture regression test that runs the path form through `Apply` (not just
+`ParseRecipeManifest`), per [[feedback_fixtures_from_real_output]]; and add the parse-time
+rejection for an inline (non-path) `fragment:` value with a clear error message.
+
+**Gap 2 — DECIDED: CLI gains `--param key=value`.** `newRecipeApplyCommand()` gets a repeatable
+`--param key=value` flag, threaded into `ApplyOptions.Params` in `runRecipeApply`. Declared
+defaults still fill any optional param left unsupplied; a `required: true` param with no default
+becomes CLI-reachable via the flag instead of being permanently unusable through direct-mode apply.
+This resolves the fixture's own `app_name` param (`required: true`, no default) as a valid example
+of a CLI-applicable recipe once supplied via `--param app_name=...` — no fixture change needed to
+give it a default.
+
+**Gap 3 — remains open.** No position taken on insert placement semantics
+(inline-after-anchor vs. new-line-after-anchor-line) or on stating SDLC-mediated mode's CLI
+reachability. This is the issue's remaining open question.
+
+Ready for `issue → plan` on Gaps 1 and 2.
+
 ## References
 
 - `pkg/recipe/apply.go:617-659` (`applyMerge`) — path-only fragment resolution

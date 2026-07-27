@@ -46,15 +46,17 @@ directives:
 # Unhomed bundles — expressions of intent awaiting directive homes.
 # Position = priority within this tier. Ordering founder-ratified 2026-07-26
 # (001/002 held low deliberately); reorder to reprioritize.
+# 2026-07-27: 021 leads because its OQ-3 sandbox-profile contract must
+# resolve before ISSUE-020's Linux scoping re-derives it.
 bundles:
-  - id: BUNDLE-020
-    title: Pack Core Version Compatibility
   - id: BUNDLE-021
     title: Pack Command Execution Governance
-  - id: BUNDLE-017
-    title: Recipe Provenance Ledger
+  - id: BUNDLE-020
+    title: Pack Core Version Compatibility
   - id: BUNDLE-019
     title: Runbooks
+  - id: BUNDLE-017
+    title: Recipe Provenance Ledger
   - id: BUNDLE-001
     title: Pack Distribution, Verification, and Review (ambitious — post-launch, held deliberately)
   - id: BUNDLE-002

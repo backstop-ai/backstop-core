@@ -116,6 +116,36 @@ check — since `pkg/packval`'s `Content` struct does not even parse `recipes:` 
 still require the pack to carry a non-recipes content field (scaffolds, as in the field-guide
 case) to clear phase1's `"content is required"` check.
 
+## Decision (2026-07-27)
+
+Founder-ratified: **direction 1 — new archetype, with teeth.**
+
+Add a `recipes`/scaffolding archetype to `pkg/packval` (`phase1.go`'s archetype enum,
+`phase4.go`'s per-archetype branch) that:
+
+- Admits **scaffolds + recipes content with no pack-level ruleset** — the field-guide shape from
+  the live reproduction above validates without the whack-a-mole rule/engine/`pairs_with` padding.
+- **Requires `enforcement.rules` on every NON-TEMPLATING recipe in the pack** — every
+  `scaffolding`- and `implementing`-kind recipe must declare its own `enforcement.rules`;
+  `templating`-kind recipes are exempt.
+
+Rationale: the recipe **applier itself is the drift enforcement** for `scaffolding` and
+`implementing` kinds — regenerate-by-default plus accountable `@waiver` divergence, live-proven
+2026-07-26 — so a pack-level ruleset is the wrong enforcement unit for a recipes-primary pack.
+`templating`-kind recipes are check-free by design (no drift story to enforce), so they carry no
+`enforcement.rules` obligation. The new archetype encodes "recipes must carry their own drift
+story" at the recipe grain instead of demanding semgrep-shaped rules at the pack grain — this is
+direction 1 from the Solution options above, not direction 2 (relaxing `code`/`enforcement`, which
+would blur what those archetypes mean) or direction 3 (padding the field guide with a decoy rule,
+which teaches the wrong pack shape).
+
+This is coupled to (not blocked by) the SPEC-054-named `Recipes`-field/content-required widening
+described in the Solution section above — the new archetype still needs `pkg/packval`'s `Content`
+struct to parse `recipes:` for a recipes-only (no-scaffolds) pack to clear phase1's
+"content is required" check.
+
+Ready for `issue → plan`.
+
 ## References
 
 - `pkg/packval/phase1.go:42-44` — only two archetypes recognized (`code`, `enforcement`)
