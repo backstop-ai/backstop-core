@@ -9,6 +9,7 @@ directive:
   source:
     - "BUNDLE-006"
     - "SPEC-055"
+    - "ISSUE-084"
 ---
 
 ## Description
@@ -23,7 +24,7 @@ fail-closed command wiring, and ten packs were published today under the
 `typescript-substantiveness@1.1.0`, `secrets@1.1.0`), each proven by a real
 remote `pack add` — a clean consumer holds all ten as `source_type: git`.
 That is delivered context, cited here rather than re-scoped. What remains is
-four repo-and-fleet threads, all in the same "packs are external, the tap
+five repo-and-fleet threads, all in the same "packs are external, the tap
 is the durable thing" shape as DIR-026, but landing as ecosystem work rather
 than core mechanism:
 
@@ -70,6 +71,29 @@ than core mechanism:
    directory actually contains. That asymmetry has no separate fix — it
    resolves per-consumer, automatically, as each pack in threads 1-3 above
    moves from local to remote.
+5. **Publisher-side gating (ISSUE-084).** Nothing gates the ten pack repos
+   themselves — a publisher can push a broken tag and it ships with no
+   check ever running against it; consumer-side validation (SPEC-055
+   REQ-008) only discovers the mistake downstream, per-consumer, after the
+   tag is already public. Add a CI workflow to each pack repo running
+   `backstop pack check` + `backstop pack test` on every push, plus a
+   tag-time job asserting manifest version == tag version — the same rule
+   BUNDLE-006 REQ-039 will eventually enforce consumer-side (still
+   deferred, tracked under this directive's dependency note above),
+   applied here at the source instead, where the mistake is cheapest to
+   catch. Write this workflow as **deliberately temporary**, with a named
+   successor: BUNDLE-015 REQ-018 already commits to a CI recipe pack
+   (github/gitlab/bitbucket/jenkins gate-workflow recipes, built in
+   `backstop-packs` as the packs-only acceptance test for the recipe-
+   scaffolding capability) — once it lands, it subsumes these hand-written
+   workflows, and the ten published pack repos become REQ-018's first real
+   consumers, resolving the no-consumer gap that capability currently has.
+   Do not wait for REQ-018 to land before doing this — hand-write the gate
+   now, since a bad tag ships silently until something gates the push, and
+   REQ-018 has no committed timeline. Sequence this alongside threads 1-3:
+   the pack repos those threads open (extraction, harness reconciliation,
+   fleet migration) are the same repos this thread gates, so land the CI
+   workflow in the same pass rather than a separate round-trip per repo.
 
 **Dependency, not scope.** The legacy-lock content-hash migration and
 `pack relock`/remote-migration repair (BUNDLE-006 REQ-041, DD-28) is
@@ -94,6 +118,10 @@ mechanism.
   deliberately-local development pack.
 - A fresh clone of each consumer, with no sibling directories present,
   installs its full pack set from its lock file alone.
+- Every published pack repo has a CI workflow that runs `backstop pack
+  check` + `backstop pack test` on push and asserts manifest version ==
+  tag version on a tag push; the workflow is marked as temporary pending
+  BUNDLE-015 REQ-018.
 
 ## Notes
 
@@ -118,4 +146,10 @@ per the PM's 2026-07-26 escalation, and REQ-041 is where its Half B
   Clone-strip, the ten published packs' proof of remote install
 - ISSUE-074 (`pack relock` silent failure / path-vs-name argument) — related,
   not owned; home decision pending
+- ISSUE-084 (`published-packs-ungated-at-tag-time`) — publisher-side CI
+  gating for the fleet (thread 5); names BUNDLE-015 REQ-018 (CI recipe
+  pack) as the named temporary-workflow successor and BUNDLE-006 REQ-039
+  (manifest/tag identity) as the consumer-side counterpart still deferred
+- `bundles/BUNDLE-015-pack-scaffolding-recipes.bundle.md` — REQ-018, the CI
+  recipe pack that eventually subsumes thread 5's hand-written workflows
 - `docs/CODEBASE-MAP.md` "Pack lifecycle" section

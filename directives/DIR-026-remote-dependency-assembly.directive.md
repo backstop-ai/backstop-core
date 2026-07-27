@@ -9,6 +9,7 @@ directive:
   source:
     - "BUNDLE-006"
     - "SPEC-055"
+    - "ISSUE-083"
 ---
 
 ## Description
@@ -91,8 +92,32 @@ SPEC-055 didn't scope:
 code-side seeds above have not yet been specced. Update to `done` (with
 `directive.completed`) once they land and the gate is proven green.
 
+**ISSUE-083 (`resolveGitURL` hardcodes the GitHub host) — cited here, not
+scoped for work yet, with two guards traveling with the citation:**
+
+Sequencing: ISSUE-083 is post-launch. Every launch pack is first-party on
+`github.com/backstop-ai` and every consumer installs rather than authors —
+host-generality has zero real-world exposure before launch. It must not be
+picked up ahead of REQ-039 (version/identity validation, the highest-value
+remaining seed per PM assessment) within this directive's work.
+
+Do not plan ISSUE-083 until the founder picks the resolution model. The
+issue's own `uncertainty: exploratory` flag is load-bearing, not
+decorative: its three candidate mechanisms — a host field in `backstop.yml`,
+full-URL-as-coordinate accepted alongside the shorthand, or resolver
+indirection (a host-prefix convention) — are three different architectures,
+not variations on one. Full-URL-as-coordinate in particular would reopen
+the `name == coordinate` convention ratified 2026-07-26 (the ten-pack
+publication this directive's Notes section describes above), since a URL
+is not a name. The founder question to put verbatim when planning is
+proposed: "does a pack's identity stay its GitHub coordinate, or does the
+coordinate become separable from the name?"
+
 ## References
 
 - ISSUE-073 — original defect report (nil `GitCloner`, panic site, no
   production implementation)
+- ISSUE-083 (`pack-resolution-hardcodes-github-host`) — `resolveGitURL`
+  fixed-host defect; post-launch, unhomed pending founder resolution-model
+  decision (see Notes guard above)
 - `docs/CODEBASE-MAP.md` "Known gap — remote pack resolution" section
