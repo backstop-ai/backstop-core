@@ -1,0 +1,3317 @@
+---
+plan_id: PLAN-SPEC-056
+spec_id: SPEC-056
+spec_version: "1.1.0"
+created: "2026-07-27"
+status: draft
+test_command: "go test ./pkg/pack/distribution/... ./cmd/backstop/... ./pkg/packval/... ./pkg/pack/... -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS (BUNDLE-006 identity seed, REQ-039@1.1.0 / DD-31)
+  ─────────────────────────────────────────────────────────────────────────
+  One new production file (pkg/pack/distribution/identity.go) carrying the
+  identity gate and three typed errors; one exported name rule in pkg/pack;
+  one new lock field; one shared scratch-copy validation seam; warning
+  carriers on three result types and renderers on four CLI commands; and the
+  rewiring of add / install / update / upgrade so the MANIFEST name is the
+  install identity and the RECORDED coordinate is the repository.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMAND REALITY — READ THIS BEFORE EVERY VERIFICATION TASK
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop code check` DOES NOT EXIST (ISSUE-076). Any agent definition or
+  precedent telling you to run it is stale. The real verification loop is:
+
+      go build -o bin/backstop ./cmd/backstop     # ALWAYS — see below
+      go test <the packages this phase touched> -race -count=1
+      ./bin/backstop gate                          # the full kill chain
+
+  THE REBUILD IS UNCONDITIONAL, in every verification task, not "when cmd/
+  changed". bin/backstop statically links everything under pkg/ as well as
+  cmd/backstop, so a phase that adds only pkg/pack/distribution/identity.go
+  still changes what the gate binary would contain. Running the gate against
+  a stale binary reports a verdict about code that is not in the binary and
+  it is indistinguishable from a real green (ISSUE-077 is that class).
+
+  TRUE EXIT CODES, NEVER A GREP PIPE. Run the command and read `$?` from the
+  command itself. `go test ... | grep -q FAIL` reports grep's exit status,
+  not the suite's, and a suite that fails to BUILD produces no "FAIL" line at
+  all — so the pipe reports success for a tree that does not compile.
+
+  ALL gate dimensions run at EVERY verification step (the no-check-filtering
+  razor). Verification tasks never scope or categorize what was touched.
+
+  ─────────────────────────────────────────────────────────────────────────
+  COMPILE-SAFETY — WHY THE PHASE ORDER IS WHAT IT IS
+  ─────────────────────────────────────────────────────────────────────────
+  Every phase boundary must hand off a tree that COMPILES and a suite that is
+  GREEN. Three orderings are load-bearing and must not be "optimized":
+
+  1. THE LOCK FIELD (phase 4) LANDS BEFORE THE IDENTITY MODULE (phase 5).
+     CoordinateForEntry takes a LockEntry and reads SourceCoordinate off it.
+     Writing identity.go first means it does not compile.
+
+  2. THE WARNING CARRIERS (phase 6) LAND BEFORE ANYTHING PRODUCES A WARNING
+     (phases 8/10/11). UpdateResult and UpgradeResult have NO warning field
+     today (update.go:28-34, upgrade.go:22-29) and pack update / pack upgrade
+     render nothing of the kind. A divergence diagnostic computed before its
+     carrier exists is computed and dropped, which is worse than not
+     computing it because the code looks right (spec REQ-011).
+
+  3. THE SCRATCH-COPY SEAM (phase 7) LANDS BEFORE THE IDENTITY REWIRING
+     (phase 8+). Phases 8-12 assert on recorded content hashes. If validation
+     is still contaminating the hashed tree when those assertions are
+     written, they pin the WRONG hash and the later fix reds tests that were
+     green for the wrong reason.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE EDIT SET — RE-DERIVED AGAINST THE CURRENT TREE, NOT TAKEN ON FAITH
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC-056 names TWO invalidated tests. THE REAL COUNT IS ELEVEN ITEMS ACROSS
+  SIX FILES: the five (A)–(E) below, plus the six individual tests of item (F).
+  Ten of the eleven are single test functions; item (E) is a whole suite
+  (~22 test functions in one file, one mechanical repair). The nine items the
+  spec does not name are not defects in the spec — they are the kind of thing
+  only a mechanical sweep surfaces — but they ARE breakage, and an implementer
+  who meets one mid-phase will mistake it for a bug in their own change.
+
+  METHOD CORRECTION, RECORDED BECAUSE IT IS THE REUSABLE PART. This plan's
+  first sweep was scoped to "the six distribution suites" — the named list
+  SPEC-055 and spec015_lineage_test.go use — and it MISSED six breakages,
+  because pkg/pack/distribution holds TWENTY-NINE _test.go files. DERIVE AN
+  EDIT-SET SWEEP FROM FIXTURE-VERSUS-REF PAIRINGS ACROSS THE WHOLE PACKAGE:
+  grep every cloneDir literal and every Run() ref in `*_test.go`, pair them,
+  and check each pair against the new refusal. NEVER sweep from a named suite
+  list — that list describes where tests used to live, and the compiler does
+  not honor it.
+
+  SECOND METHOD POINT, AND IT IS THE ONE THAT COSTS MOST: for every hit, check
+  the FAILURE MODE, not just that it is a hit. A test that already expects an
+  error and snapshots state passes VACUOUSLY under a new, earlier refusal —
+  the mandated name survives while the property it asserts is gone. One of the
+  eleven is exactly that shape (item (F) below) and NOTHING TURNS RED to
+  prompt the fix.
+
+  The eleven, grouped by disposition:
+
+  (A) TestPackAdd_MergeToolConfigErrorRollsBack (add_test.go:1229)
+      NAMED BY THE SPEC. Builds a git-source pack whose pack.yml is binary
+      garbage ("\x00\x01\x02 binary garbage") and asserts the failure text
+      contains "merging tool_config". After phase 8 that pack is rejected far
+      earlier by ReadManifestIdentity. NOT a mandated name (verified: it
+      appears in no spec's tests: list). DISPOSITION: rewrite in place —
+      keep the identifier and the rollback assertions, and reach the merge
+      failure the way the test intends, with a manifest that PARSES and
+      identity-validates (name acme/bad-pack, version 1.0.0) but carries a
+      tool_config entry MergeToolConfig cannot apply.
+
+  (B) TestPackAdd_LocalPathValidatesInPlace (add_test.go:710)
+      NAMED BY THE SPEC. IS MANDATED — SPEC-015 CLM-071 lists it
+      (specs/SPEC-015-pack-distribution.spec.md:819). DISPOSITION: THE NAME
+      SURVIVES VERBATIM; the assertion updates. It is re-listed under
+      SPEC-056 CLM-087 as the local half of that claim: a local-path add
+      still validates and still succeeds, and the operator's source directory
+      is unchanged afterward. Today the test body only asserts success — it
+      does not assert the in-place mechanism — so the update is an ADDITION
+      of the not-mutated assertion, not a rewrite. Do not delete, do not
+      rename, do not merge it into another test.
+
+  (C) TestPackAdd_LocalPathMissingName (add_test.go:841) — NOT NAMED BY THE
+      SPEC. Points add at a local directory whose pack.yml declares only a
+      version, and asserts the error text contains the exact string
+      "local pack manifest missing name" (command.go:778). Phase 8 routes the
+      local branch through ReadManifestIdentity, which returns an
+      *IdentityError with different wording. NOT mandated (verified absent
+      from every spec's tests: list). DISPOSITION: keep the identifier,
+      update the assertion to require an *IdentityError via errors.As AND a
+      message naming the `name` field. Asserting the TYPE rather than a
+      literal is the stronger form and is what CLM-033 asserts for the remote
+      side, so the two halves agree.
+
+  (D) TestPackUpdate_AppliesPatchVersion (update_test.go:242) — NOT NAMED BY
+      THE SPEC, AND IT IS MANDATED (SPEC-015 CLM-061,
+      specs/SPEC-015-pack-distribution.spec.md:750). Its cloner serves
+      testdata/valid-pack (manifest version 1.0.0) while its resolver returns
+      "1.0.1", so after REQ-002 the identity gate refuses with a
+      *VersionMismatchError and the test reds. DISPOSITION: THE NAME SURVIVES
+      VERBATIM and the FIXTURE moves — repoint the cloner at a directory
+      whose manifest declares 1.0.1. testdata/tamper-pack-severity-downgrade
+      and testdata/tamper-pack-rule-removed already declare
+      name: acme/valid-pack / version: "1.0.1", but they exist to carry
+      TAMPER shapes and reusing one here would couple a patch-version claim
+      to a tamper fixture. TASK-004 authors testdata/valid-pack-v1-0-1/ for
+      this. Do NOT change the resolver to "1.0.0" — that would turn the test
+      into the already-at-latest no-op case and silently delete the patch
+      claim.
+
+  (E) THE ENTIRE UPGRADE SUITE — NOT NAMED BY THE SPEC, AND IT IS THE LARGEST
+      ITEM. Every one of the ~22 tests in upgrade_test.go calls
+      `upgrade.Run("acme/valid-pack@2.0.0", …)` while its cloner serves
+      testdata/valid-pack-v2, whose manifest declares version "1.1.0". After
+      REQ-002 the identity gate refuses ALL of them (effective 2.0.0 vs
+      manifest 1.1.0). DISPOSITION: this is a FIXTURE repair, not a test
+      repair. TASK-004 authors testdata/valid-pack-v3/ as a byte-for-byte
+      copy of valid-pack-v2 with the version line changed to "2.0.0" — the
+      tool_config block, the rules, and testdata/fixture.json must all
+      survive, because TestPackUpgrade_UpdatesToolConfig,
+      TestPackUpgrade_ToolConfigConflictExitsNonZero and
+      TestPackUpgrade_MergeToolConfigError all depend on that content. Then
+      phase 11 repoints every upgrade_test cloneDir from valid-pack-v2 to
+      valid-pack-v3. EVERY TEST IDENTIFIER IN upgrade_test.go SURVIVES
+      VERBATIM; only the cloneDir literal changes. Several are SPEC-015
+      mandated names. TASK-039 owns it.
+
+  (F) SIX MORE OF THE SAME SHAPE, IN THREE FILES THE FIRST SWEEP NEVER LOOKED
+      AT — the six that make the count eleven. Identical cause: an `@2.0.0`
+      ref against a cloner serving valid-pack-v2 (manifest "1.1.0"). Identical
+      repair: repoint the cloneDir at valid-pack-v3. Every identifier survives;
+      five of the six are SPEC-055 MANDATED NAMES. TASK-040 owns it.
+
+        upgrade_capability_test.go:55   TestUpgradeCommand_ScannerInvokedUnconditionally       (SPEC-055 CLM-056)
+        upgrade_capability_test.go:87   TestUpgradeCommand_RemediationFailureAbortsUpgrade      (SPEC-055 CLM-057)
+        upgrade_capability_test.go:124  TestUpgradeCommand_PropagatesCapabilityUnavailableError (SPEC-055 CLM-058)
+        upgrade_capability_test.go:164  TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation (SPEC-055 CLM-059)
+        validation_gate_test.go:190     TestUpgradeCommand_ValidatesBeforeInstall               (SPEC-055 CLM-053)
+        command_test.go:387             TestUpgradeCommandRun_UsesReceiverDependencies          (unmandated)
+
+      THE LAST OF THESE — CLM-059's
+      TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation — IS THE
+      DANGEROUS ONE, AND IT IS THE REASON THE FAILURE-MODE CHECK IS A METHOD
+      POINT ABOVE. It asserts only that Run errors and that five artifacts are
+      unchanged. A *VersionMismatchError satisfies BOTH — it errors, and it
+      refuses before any mutation — so THE TEST GOES ON PASSING while the
+      property it exists for (the scanner is reached, and its unavailability is
+      what fails the upgrade) silently stops being tested. A mandated name
+      surviving with its meaning gutted is worse than a red, because a green
+      suite is indistinguishable from a correct one. TASK-040 repoints it
+      ANYWAY and adds the missing scanner-was-invoked assertion.
+
+      TWO NEAR-MISSES IN THOSE SAME FILES THAT MUST NOT BE TOUCHED:
+      validation_gate_test.go's three AddCommand tests use @1.0.0 against
+      valid-pack and are unaffected; command_test.go:359
+      TestUpdateCommandRun_UsesReceiverDependencies serves valid-pack-v2 but is
+      an UPDATE whose resolver returns "1.1.0", which MATCHES. Repointing
+      either would break a passing test.
+
+  IF YOU FIND A TWELFTH, STOP AND REPORT IT. This enumeration is now derived
+  from a package-wide fixture-versus-ref pairing over all 29 test files, not
+  from a suite list, so it should be closed. A twelfth means the pairing method
+  missed a class too, which is worth knowing before it is absorbed silently as
+  "just fixing a test".
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE THREE COINCIDENCES THIS PLAN DEPENDS ON (verify, do not assume)
+  ─────────────────────────────────────────────────────────────────────────
+  The corpus survives REQ-002 and REQ-003 mostly by luck, and the luck is
+  worth naming so nobody "tidies" it away:
+
+  1. pkg/pack/distribution/testdata/valid-pack/pack.yml declares
+     name: acme/valid-pack and version: "1.0.0". Every add_test git call site
+     uses the ref acme/valid-pack@1.0.0 AND newTestAddOptions (add_test.go:85)
+     sets Version: "1.0.0". So coordinate == manifest name (no divergence
+     warning) and effective version == manifest version (no mismatch). The
+     ad-hoc inline fixtures — acme/with-deps, acme/sdk-pack,
+     acme/no-config-pack, acme/simple-pack — each declare a manifest name
+     equal to their coordinate and version "1.0.0" too. Rename any fixture
+     directory or edit any of those version literals and dozens of tests turn
+     into divergence or mismatch cases.
+
+  2. cmd/backstop/testdata/hermetic-remote/{valid,invalid,fixture-fail}-pack
+     each declare `hermetic/<directory>`, which is exactly what remoteE2ESetup
+     builds the coordinate from — and newHermeticRemote rewrites pack.yml's
+     version to each tag, so the manifest always agrees with the tag. SPEC-055's
+     whole remote e2e suite therefore stays green through REQ-002/REQ-003. That
+     rewrite is ALSO why REQ-010 needs a second constructor: with
+     newHermeticRemote, a version-drift fixture is silently repaired into a
+     passing one and CLM-016 tests nothing.
+
+  3. testdata/local-pack/pack.yml declares name: internal/local-rules and NO
+     VERSION AT ALL. TestPackAdd_LocalPathRelativeDot,
+     TestPackAdd_LocalPathRelativeParent,
+     TestPackAdd_DeclaredButNotMaterializedInstalls and
+     TestPackAdd_LocalPathValidatesInPlace all expect it to add successfully.
+     CONSEQUENCE, AND IT IS A DESIGN CONSTRAINT ON identity.go:
+     ReadManifestIdentity MUST NOT reject a missing version. It returns
+     (name, version, err) and errors only for an absent, unparseable, or
+     NAMELESS manifest. Version strictness — CLM-017's missing version,
+     CLM-018's non-strict version, CLM-019's prerelease, CLM-020's doubled
+     prefix — is decided in ValidateRemoteIdentity, which only the REMOTE
+     tag-cloning path calls. Put the version check in ReadManifestIdentity
+     and every local-path add in the corpus reds.
+
+  ─────────────────────────────────────────────────────────────────────────
+  STREAM SEPARATION — THE MERGED-BUFFER TRAP HAS TWO CALLERS, NOT ONE
+  ─────────────────────────────────────────────────────────────────────────
+  executeCommand (root_test.go:17-23) points cobra's SetOut AND SetErr at the
+  SAME bytes.Buffer. Against it, "renders to stderr" passes for a command that
+  printed to stdout. TWO existing tests read install's warnings through that
+  merged buffer and BOTH stay green through the stdout→stderr move in phase 6:
+
+    • TestPackInstallCommand_PrintsStaleLockWarning (pack_install_test.go:26,
+      asserting at :73-79)
+    • TestPackInstallE2E_StaleLockWarnsInstallsDeclared
+      (pack_install_e2e_test.go:83, asserting at :122-128)
+
+  That is convenient and it is a trap: it means the existing suite CANNOT tell
+  the two streams apart, so every stream claim in this spec has to be driven
+  either through cobra with SEPARATE SetOut/SetErr buffers (the CLM-109..112
+  renderer unit claims) or through runBackstopStreams
+  (run_backstop_streams_test.go:31) against the BUILT binary (CLM-113/114 and
+  every e2e claim). NO SPEC-056 stream claim may be driven by executeCommand
+  or by runBackstop's CombinedOutput. Leave both existing tests alone — they
+  legitimately do not care about streams — but do not mistake their green for
+  evidence.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE CONTRACTS GATE CANNOT SEE A STRUCT FIELD — THE CLAIMS ARE THE ENFORCEMENT
+  ─────────────────────────────────────────────────────────────────────────
+  packs/contracts/scripts/compile-signature.sh reduces ANY signature whose
+  leading token is `type ` to the ast-grep pattern `type <Name> $$$` (its
+  "type "* branch), and for an interface to `type <Name> interface { $$$ }`.
+  It NEVER compares a field list. So:
+
+    • LockEntry.SourceCoordinate (REQ-004)
+    • AddResult.Warnings / UpdateResult.Warnings / UpgradeResult.Warnings
+      (REQ-011)
+    • RemoteIdentity's six fields
+
+  are ALL invisible to the contracts dimension. The contract entries in
+  SPEC-056 for those types are satisfied by the bare type existing. CLM-040
+  through CLM-050 and CLM-105 through CLM-112 are the only things that
+  actually hold those fields. Do not drop any of them as "already covered by
+  the contract" — that is exactly the reduction that would make them vacuous.
+  This plan therefore does NOT add a contracts congruence test of its own:
+  SPEC-056 mandates no name for one, and a bespoke congruence mechanism is
+  outside this seed. The disposition is recorded here so the absence is a
+  decision rather than an oversight.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE LINE-1 WAIVER ON cmd/backstop/pack_upgrade.go IS UNTOUCHABLE
+  ─────────────────────────────────────────────────────────────────────────
+  pack_upgrade.go carries a `@waiver:coverage_threshold:…` token on LINE 1.
+  coverage_threshold is a LOCATIONLESS gate dimension — its violations carry a
+  file but no line — so the gate anchors them at the file's first line and
+  scans THAT LINE ALONE for an annotation (pkg/gate/step_waiver.go:19,
+  coverageAnnotationLine). Phase 6 adds a warning-rendering loop to this file.
+  Add it INSIDE newPackUpgradeCommand's RunE. Do not move, reflow, reformat,
+  or prepend anything above the token. Moving it down onto the function, where
+  a reader would naturally expect it, makes it a DANGLING waiver AND brings
+  the coverage red back — two failures for one tidy.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ANTI-VACUOUS-GREEN GUARDS (the ways this ships dark)
+  ─────────────────────────────────────────────────────────────────────────
+  1. A DRIFT FIXTURE BUILT WITH newHermeticRemote. It rewrites pack.yml's
+     version to match every tag, so the drift is repaired before the test
+     runs and CLM-016 passes over a fixture that cannot fail. Spec Review
+     Question 7. TASK-005's constructor exists for exactly this and CLM-100's
+     test asserts the drift SURVIVES tagging.
+  2. A SCRATCH-COPY SEAM PROVEN ONLY BY A TEST DOUBLE. A mockValidator that
+     writes a file proves the seam plumbing; it does not prove packval's real
+     phase-3 rendering is contained. CLM-080 characterizes the real mutation
+     and CLM-090 drives a REAL tier:complete pack through add→install with
+     hash equality. Spec Review Question 6. Neither may be dropped as
+     redundant with the other.
+  3. SCRATCH VALIDATION IN add ONLY. update (command.go:539) and upgrade
+     (command.go:654) carry the identical defect. Spec Review Question 3.
+     CLM-083/084 are what catch a partial fix.
+  4. SCRATCH VALIDATION ON THE REMOTE BRANCH ONLY. For a local-path add the
+     directory packval mutates is the OPERATOR'S OWN WORKING TREE. Spec
+     Review Question 4. CLM-087 is what catches it.
+  5. A CASE-FOLDED COMPARISON. `strings.EqualFold` or `strings.ToLower`
+     anywhere in the identity path silently reintroduces the GitHub host
+     assumption DD-31 removed. Spec Review Question 12. CLM-041 and CLM-066
+     are what catch it.
+  6. AN EXIT-CODE-ONLY ASSERTION. An exit-1 with empty stderr satisfies
+     `if code != 1`. Every refusal claim asserts on the DIAGNOSTIC TEXT, on
+     the correct stream (CLM-097 asserts the non-empty stderr directly).
+  7. A FALLBACK WARNING EMITTED TWICE. pack update resolves the coordinate at
+     two points — once for ls-remote, once for the clone. Two independent
+     resolutions produce two identical warnings for one invocation, which
+     trains operators to ignore the signal. CLM-059 is what holds it.
+  8. THE IDENTITY GATE LEAKING INTO INSTALL. install is the hash-verified
+     restore path and re-validates nothing (DD-12). Spec Review Question 13.
+     CLM-025 is what catches it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ZERO BAKED LANGUAGE/TOOL KNOWLEDGE (the standing invariant)
+  ─────────────────────────────────────────────────────────────────────────
+  `git` is distribution's declared TRANSPORT (BUNDLE-006 DD-1) and `sh` is
+  what packval's DefaultExecutor.RunScaffoldTest already invokes
+  (executor.go:107-112); both are on backstop/self Family A's allowed exec
+  literal list. NOTHING ELSE is. Family B2 (no-baked-language-token) is GLOBAL
+  and blocking and matches whole tokens in ANY .go file including testdata, so
+  the scaffold fixture's test_command, sample_config keys, and file paths must
+  carry no foreign-language token — and its test_command must be a POSIX
+  SHELL BUILTIN (REQ-010 / CLM-103), which is also what makes it hermetic.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN DOES *NOT* DELIVER (do not widen scope to "make it work")
+  ─────────────────────────────────────────────────────────────────────────
+  • The shared staged-filesystem transaction coordinator and rollback for
+    failures AFTER the identity gate (bundle REQ-040@1.1.0). REQ-007
+    guarantees nothing is written BEFORE the gate; it guarantees nothing
+    about after. AddCommand.Run's existing best-effort `rollback` closure
+    stays exactly as it is, with all its existing gaps.
+  • The legacy Git-metadata-inclusive hash migration and pack relock's
+    argument shape (REQ-041@1.1.0 / ISSUE-074). relock still takes a
+    filesystem PATH while remove/update/upgrade take a NAME. Do not fix it
+    here.
+  • The general authored-content copy/hash boundary for ALL sources including
+    local-path `.git` exclusion (REQ-021@1.1.0). This spec closes only the
+    VALIDATOR-CONTAMINATION half and deliberately does not claim the
+    requirement. Widening the boundary would mark REQ-021 covered at its
+    current version in the traceability gate while two thirds of it remain
+    unbuilt.
+  • The hermetic lifecycle parity suite (REQ-042@1.1.0).
+  • resolveGitURL's hardcoded GitHub host (ISSUE-083, post-launch). The URL
+    builder keeps its current construction; only the STRING it is handed
+    changes, from the pack name to the recorded coordinate.
+  • pkg/pack's validateSemver stays UNEXPORTED. Exporting it alongside
+    ValidatePackName would invite exactly the prerelease-accepting reuse
+    REQ-002 forbids (spec Review Question 14).
+
+  ─────────────────────────────────────────────────────────────────────────
+  PLAN VERSION HISTORY
+  ─────────────────────────────────────────────────────────────────────────
+  - Folded against SPEC-056 v1.1.0, with four reviewer-sanctioned amendments
+    applied at authoring time rather than through a spec revision:
+      • N1 — CLM-059 settled on resolve-once-reuse: update resolves the
+        coordinate at two points and emits the fallback warning EXACTLY ONCE.
+        Written into phase 10 — TASK-034 (the test, requiring exactly 1),
+        TASK-035 (the single CoordinateForEntry call), TASK-036 (the
+        verification that reads the assertion for `>= 1`).
+      • N2 — REQ-008's rationale reads bundle REQ-037@1.0.0's "validate the
+        pack in place" as contrasting with CLONE-then-validate, NOT with
+        COPY-then-validate. REQ-037@1.0.0's own text pairs "validate the pack
+        in place" with "skip git resolution and cloning" in the same sentence,
+        which is what settles the reading. (The pin is @1.0.0 — REQ-037 has no
+        1.1.0; only REQ-038 and above were bumped.) REQ-037 is therefore NOT
+        flagged to the bundle and needs no version bump.
+        FOR FUTURE "IN PLACE" AUDITS, SO NOBODY READS DRIFT WHERE THERE IS
+        NONE: after this spec, a local-path `pack add` runs pack check and
+        pack test against a TEMP COPY of the operator's directory rather than
+        against the directory itself. REQ-037's guarantees are unchanged —
+        nothing is cloned, the pack still loads from its source path, the lock
+        still records local_path — but the literal directory handed to packval
+        is now a scratch copy, and REQ-008 is why.
+      • N3 — the phase3.go citation is corrected to 145-169 (the
+        tier:complete loop opens at 145; the sample_config render loop runs
+        148-169; RunScaffoldTest is at 173). Earlier drafts cited 143-168.
+      • N4 — TestPackInstallE2E_StaleLockWarnsInstallsDeclared is added
+        alongside TestPackInstallCommand_PrintsStaleLockWarning as the
+        SECOND merged-buffer test that stays green through the stderr move.
+      • BONUS — TASK-024 adds the tamper-adjacent regression assertion inside
+        CLM-083's test: the scratch copy is what keeps a contaminated tmpDir
+        from producing DetectTamper false positives on update.
+  - Reworked after plan review. ONE BLOCKER: the edit set closes at ELEVEN,
+    not five. The original sweep was scoped to "the six distribution suites"
+    and missed six breakages in upgrade_capability_test.go,
+    validation_gate_test.go and command_test.go — five of them SPEC-055
+    mandated names, and one (CLM-059's
+    TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation) that goes
+    VACUOUS rather than red. TASK-040 added to own them; the enumeration and
+    the sweep METHOD are restated above. Four secondary corrections: N2's pin
+    is REQ-037@1.0.0; N1 and BONUS now point at the tasks that actually carry
+    them; four line cites corrected to their `func` declaration lines
+    (add_test.go:1229 and :710, update_test.go:242, versionresolver.go:151);
+    and parseVersionComponents' `strictSemver *regexp.Regexp` parameter is
+    named in the reuse instruction.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: The fixture corpus and the harness variant (setup only)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Hermetic fixtures, the edit-set repair fixtures, and the manifest-version-preserving harness (setup only)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author the version-drift hermetic fixture: manifest 0.1.3 against tags that stop at v0.1.1"
+        description: |
+          Create cmd/backstop/testdata/hermetic-remote/version-drift-pack/ —
+          a pack SOURCE reproducing the shape of the PUBLISHED harness
+          toolchain pack (DIR-027 item 2), which is this check's waiting first
+          customer: the manifest declares 0.1.3 while the repository's tags
+          stop at v0.1.1.
+
+          pack.yml must declare:
+            - name: hermetic/version-drift-pack
+            - version: 0.1.3   ← DELIBERATELY not any tag this fixture gets
+            - the same claimless engine-model shape valid-pack/pack.yml uses,
+              so `pack check` reaches its verdict without executing anything.
+              READ cmd/backstop/testdata/hermetic-remote/valid-pack/pack.yml
+              and copy its `engines:` + `content:` structure; do not invent a
+              new one.
+
+          The fixture is a PLAIN TREE. It carries no .git — TASK-005's
+          constructor is what turns it into a tagged repository at test time,
+          and newHermeticRemote already fatals if a source arrives carrying
+          one.
+
+          THIS FIXTURE IS INERT WITHOUT TASK-005. Built through the EXISTING
+          newHermeticRemote, its version line is rewritten to match each tag
+          and the drift disappears silently. That is spec Review Question 7
+          and it is the single easiest way to ship CLM-016 vacuous.
+
+          NEUTRAL CONTENT REQUIRED: backstop/self Family B2 matches whole
+          tokens in any .go file including testdata paths, so keep the pack's
+          declared globs, extensions and tool names off that list. The pack's
+          tool and rule names are DECLARED DATA in pack.yml, never literals
+          in Go source.
+
+          These are DATA. No Go source is added by this task.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/version-drift-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/version-drift-pack/rules/forbidden-marker.yml
+          - cmd/backstop/testdata/hermetic-remote/version-drift-pack/README.md
+        claims:
+          - CLM-100
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author the divergent-name hermetic fixture: manifest name differs from its repository directory"
+        description: |
+          Create cmd/backstop/testdata/hermetic-remote/divergent-name-pack/ —
+          a pack SOURCE whose manifest NAME is deliberately not derivable from
+          the directory (and therefore not from the coordinate remoteE2ESetup
+          builds).
+
+          pack.yml must declare:
+            - name: hermetic/renamed-pack   ← NOT hermetic/divergent-name-pack
+            - version: 1.0.0
+            - the same claimless engine-model shape valid-pack uses.
+
+          THE DIVERGENCE IS THE POINT AND IT MUST BE BYTE-LEVEL, NOT
+          CASE-LEVEL. This fixture drives CLM-028..031 and CLM-062..067,
+          CLM-070: install path, backstop.yml key, lock key and engine asset
+          root must all come from `hermetic/renamed-pack` while the recorded
+          source_coordinate stays `hermetic/divergent-name-pack`. A fixture
+          whose two names differ only in case would conflate the general
+          divergence claims with CLM-066's case-only claim; CLM-066 gets its
+          divergence from the CALLER varying the ref's case, not from a second
+          fixture.
+
+          THE RULE FILE IS LOAD-BEARING FOR CLM-031. That claim resolves the
+          pack's declared rule file under the manifest-name asset root after a
+          divergent add, so the pack must actually DECLARE a rule file that
+          exists in the tree — a content-less fixture would make the claim
+          unfalsifiable.
+
+          Plain tree, no .git. These are DATA. No Go source is added here.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/divergent-name-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/divergent-name-pack/rules/forbidden-marker.yml
+          - cmd/backstop/testdata/hermetic-remote/divergent-name-pack/README.md
+        claims:
+          - CLM-101
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Author the corpus's FIRST tier:complete scaffold fixture, with a POSIX-builtin test command"
+        description: |
+          Create cmd/backstop/testdata/hermetic-remote/scaffold-config-pack/ —
+          the fixture REQ-008's whole observable contract rests on. No pack.yml
+          in this repository declares a `tier: complete` scaffold today
+          (verified: the only `tier: complete` in the tree is
+          pkg/pack/testdata/valid-enforcement-pack.yml, a manifest-MODEL
+          fixture that is never validated as a pack directory). This is the
+          first, which is why CLM-104 requires it to pass `pack check` and
+          `pack test` on its own.
+
+          pack.yml declares, alongside the usual name / version 1.0.0 /
+          engines / content shape copied from valid-pack:
+
+            scaffolds:
+              - id: <id>
+                tier: complete
+                path: <a directory that EXISTS in the fixture>
+                test_command: "true"      ← see below
+                sample_config:
+                  <relPath>: "<contents>"
+                use_when: [...]
+                assumes: [...]
+                pairs_with: { rules: [...] }
+
+          FOUR CONSTRAINTS, EACH VERIFIED AGAINST THE CURRENT CODE:
+
+          1. THE sample_config TARGET MUST NOT EXIST IN THE AUTHORED TREE.
+             CLM-102 asserts exactly this. pkg/packval/phase3.go:145-169
+             renders each entry to <packDir>/<scaffold.path>/<relPath>; if the
+             file is already authored there, a rendered file is
+             INDISTINGUISHABLE from an authored one and CLM-081/082's
+             "validator writes do not reach the installed tree" assertions
+             cannot fail.
+
+          2. test_command MUST BE A POSIX SHELL BUILTIN.
+             DefaultExecutor.RunScaffoldTest (executor.go:107-112) runs
+             exec.Command("sh", "-c", testCommand) UNCONDITIONALLY for a
+             tier:complete scaffold, and PackvalValidator supplies no executor
+             (validator.go's runPackvalPipeline passes none on purpose), so a
+             shell subprocess is UNAVOIDABLE on this path. The hermetic
+             property is therefore "reaches no network and no toolchain or
+             provisioned binary", NOT "spawns no process" — writing the claim
+             the other way would be false by construction. `true` is the
+             builtin; anything that resolves to a binary on PATH breaks
+             CLM-103.
+
+          3. scaffold.Path MUST BE A REAL DIRECTORY IN THE FIXTURE. RunScaffoldTest
+             sets cmd.Dir = packDir + "/" + scaffoldPath; a missing directory
+             makes the subprocess fail for a reason that has nothing to do with
+             what is under test.
+
+          4. THE MANIFEST MUST SATISFY validateScaffold (pkg/pack/manifest.go:642).
+             test_command, use_when, assumes and pairs_with are ALL required and
+             every sample_config VALUE must be a string. A scaffold missing any
+             of them fails `pack check` for a structural reason and CLM-104 goes
+             red for the wrong cause.
+
+          PROVE IT, DO NOT ASSERT IT. Run
+            ./bin/backstop pack check cmd/backstop/testdata/hermetic-remote/scaffold-config-pack
+            ./bin/backstop pack test  cmd/backstop/testdata/hermetic-remote/scaffold-config-pack
+          yourself and iterate until both exit 0 — reading the TRUE exit code,
+          not a grep. Then `git status` the fixture directory: `pack test` will
+          have RENDERED the sample_config file into it. That rendered file is
+          the mutation this whole requirement exists to contain; do not commit
+          it, and do not "fix" the fixture by authoring it.
+
+          Plain tree, no .git. These are DATA. No Go source is added here.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/scaffold-config-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-config-pack/rules/forbidden-marker.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-config-pack/README.md
+        claims:
+          - CLM-102
+          - CLM-103
+        depends_on: []
+
+      - id: TASK-004
+        type: setup
+        title: "Author the two distribution fixtures the edit set needs: valid-pack-v3 (2.0.0) and valid-pack-v1-0-1 (1.0.1)"
+        description: |
+          THIS TASK IS THE EDIT-SET REPAIR (E) AND (D) FROM THE PLAN NOTES. It
+          adds fixtures so that ~23 existing tests keep their identifiers and
+          their assertions while surviving REQ-002's identity gate. Nothing
+          about the production change requires it; the corpus does.
+
+          FIXTURE 1 — pkg/pack/distribution/testdata/valid-pack-v3/
+            A BYTE-FOR-BYTE COPY of testdata/valid-pack-v2/ with exactly one
+            edit: `version: "1.1.0"` becomes `version: "2.0.0"`. Copy BOTH
+            files — pack.yml and testdata/fixture.json. The rules block, the
+            three rule ids, and above all the `tool_config:` block declaring
+            two .golangci.yml settings must survive verbatim, because
+            TestPackUpgrade_UpdatesToolConfig,
+            TestPackUpgrade_ToolConfigConflictExitsNonZero and
+            TestPackUpgrade_MergeToolConfigError all assert against exactly
+            that content. `name:` stays acme/valid-pack — the upgrade suite
+            operates on that pack and a name change would turn all 22 tests
+            into divergence cases on top of everything else.
+
+            WHY: every test in upgrade_test.go runs
+            upgrade.Run("acme/valid-pack@2.0.0", …) against a cloner serving
+            valid-pack-v2, whose manifest says 1.1.0. Phase 11's identity gate
+            refuses all of them. Repointing the cloner at a 2.0.0-declaring
+            fixture is the name-preserving repair.
+
+          FIXTURE 2 — pkg/pack/distribution/testdata/valid-pack-v1-0-1/
+            A copy of testdata/valid-pack/ with `version: "1.0.0"` becoming
+            `version: "1.0.1"`. name stays acme/valid-pack.
+
+            WHY: TestPackUpdate_AppliesPatchVersion (update_test.go:242) pairs
+            a cloner serving testdata/valid-pack (1.0.0) with
+            mockVersionResolver{latestMinor: "1.0.1"}. It is SPEC-015
+            CLM-061-mandated, so the identifier cannot move; the fixture can.
+            Do NOT reuse testdata/tamper-pack-severity-downgrade or
+            tamper-pack-rule-removed — both already declare 1.0.1, but they
+            exist to carry TAMPER shapes and borrowing one would couple a
+            patch-version claim to a tamper fixture.
+
+          DO NOT EDIT valid-pack-v2 OR valid-pack IN PLACE. Both are the
+          matched pair the tamper and update suites compare against; changing
+          a version literal in either moves a fixture 40+ tests depend on.
+
+          These are DATA. No Go source is added by this task; the call-site
+          repointing happens in TASK-034 (upgrade) and TASK-024 (update).
+        files:
+          - pkg/pack/distribution/testdata/valid-pack-v3/pack.yml
+          - pkg/pack/distribution/testdata/valid-pack-v3/testdata/fixture.json
+          - pkg/pack/distribution/testdata/valid-pack-v1-0-1/pack.yml
+        claims:
+          - CLM-024
+          - CLM-049
+          - CLM-069
+        depends_on: []
+
+      - id: TASK-005
+        type: setup
+        title: "Extend the hermetic harness with a constructor that tags WITHOUT rewriting the manifest version"
+        description: |
+          Add newHermeticRemoteKeepingManifestVersion to
+          cmd/backstop/hermetic_remote_harness_test.go — helper source only,
+          still no `func Test…` in this file.
+
+            func newHermeticRemoteKeepingManifestVersion(t *testing.T,
+                packSourceDir string, tags ...string) *hermeticRemote
+
+          BOTH CONSTRUCTORS SHARE ONE BODY. Extract the existing
+          newHermeticRemote body (harness_test.go:53-82) into an unexported
+          helper taking a `rewriteVersion bool`, and make both exported
+          constructors one-line call-throughs. The redirect machinery, the
+          already-a-repository guard, the identity env and the returned
+          hermeticRemote shape must NOT be duplicated — a second copy is a
+          second thing to drift.
+
+          THE ONLY BEHAVIORAL DIFFERENCE is the setPackVersion call at
+          harness_test.go:73. With rewriteVersion false, each tag is created
+          directly against the imported source commit and pack.yml's declared
+          version is whatever the fixture author wrote.
+
+          CONSEQUENCE WORTH STATING: with the rewrite off, every tag points at
+          the SAME commit, so two tags name identical content. That is correct
+          for a drift fixture and WRONG for the newer-compatible-version case
+          — which is exactly why newHermeticRemote keeps the rewrite and stays
+          the default. EXISTING CALLERS ARE UNTOUCHED: verify by grepping
+          `newHermeticRemote(` across cmd/backstop and confirming every hit
+          still resolves to the rewriting constructor.
+
+          No production code changes. No existing test changes.
+        files:
+          - cmd/backstop/hermetic_remote_harness_test.go
+        claims:
+          - CLM-099
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The fixtures and the harness prove themselves (test only)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Characterize the fixtures, the harness variant, and packval's real sample_config mutation (test only)"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Prove each new hermetic fixture has the property its consuming claims depend on"
+        description: |
+          Create cmd/backstop/hermetic_fixtures_test.go with the five REQ-010
+          characterization tests. These are DELIBERATELY green on arrival:
+          they characterize DATA authored in phase 1, and their job is to red
+          later if someone "tidies" a fixture into uselessness.
+
+            TestHermeticRemote_TagsWithoutRewritingManifestVersion (CLM-099)
+              Build version-drift-pack through
+              newHermeticRemoteKeepingManifestVersion at v0.1.0 and v0.1.1,
+              then read pack.yml OUT OF THE REPOSITORY AT EACH TAG (git show
+              <tag>:pack.yml, or check out into a temp worktree) and require it
+              still declares 0.1.3. ASSERT THE CONTRAST: build the SAME source
+              through the ordinary newHermeticRemote and require the version at
+              v0.1.1 to be 0.1.1. Without the contrast arm a constructor that
+              silently rewrote anyway would still pass.
+
+            TestHermeticFixture_VersionDriftPackHasDriftingManifest (CLM-100)
+              The fixture publishes v0.1.0 and v0.1.1 while its manifest
+              declares 0.1.3 — assert all three values, not just inequality, so
+              a fixture edited to 9.9.9 still reds.
+
+            TestHermeticFixture_DivergentNamePackNameDiffersFromRepository (CLM-101)
+              Read the manifest name and require it differs from the fixture
+              DIRECTORY name — and that the difference is not case-only, since
+              a case-only fixture would silently make the general divergence
+              claims duplicates of CLM-066.
+
+            TestHermeticFixture_ScaffoldConfigPackDeclaresUnauthoredSampleConfig (CLM-102)
+              Parse the manifest, find the tier:complete scaffold, and require
+              that for every sample_config key the target path
+              <fixture>/<scaffold.path>/<relPath> does NOT exist on disk. This
+              is what makes a rendered file detectable.
+
+            TestHermeticFixture_ScaffoldTestCommandIsAShellBuiltin (CLM-103)
+              Require the declared test_command resolves to NO executable on
+              PATH (exec.LookPath returns an error for its first word). State
+              in a comment WHY the assertion is shaped that way: a shell
+              subprocess is unavoidable here (executor.go:107-112), so the
+              hermetic property is network-free and toolchain-free, not
+              process-free.
+
+            TestHermeticFixture_NewFixturesPassPackCheckAndPackTest (CLM-104)
+              Drive the BUILT binary — buildBackstopBinary, then
+              runBackstopStreams — with `pack check <dir>` and `pack test <dir>`
+              against each of the three new fixtures, requiring exit 0 from the
+              PROCESS EXIT CODE. This includes the corpus's first tier:complete
+              scaffold, which is the one most likely to be structurally wrong.
+              A hand-written fixture that merely satisfies whatever the
+              validator happened to accept is a mirror, not a fixture; this test
+              is what makes it a fixture.
+
+              AFTERWARDS: `pack test` on the scaffold fixture RENDERS the
+              sample_config file into the testdata tree. Clean it up in the test
+              (t.Cleanup removing the rendered path) or the next run's CLM-102
+              assertion reds against a file the previous run created. Prefer
+              copying the fixture into t.TempDir() and validating the COPY —
+              which is, not coincidentally, the same move REQ-008 makes.
+
+          All six live in one file because they share the fixture-path helpers;
+          no other task writes to it.
+        files:
+          - cmd/backstop/hermetic_fixtures_test.go
+        claims:
+          - CLM-099
+          - CLM-100
+          - CLM-101
+          - CLM-102
+          - CLM-103
+          - CLM-104
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+          - TASK-005
+
+      - id: TASK-007
+        type: test
+        title: "Characterize packval's real sample_config mutation — the defect REQ-008 exists to contain"
+        description: |
+          Create pkg/packval/phase3_scaffold_config_test.go with:
+
+            TestRunFixtures_CompleteScaffoldWritesSampleConfigIntoPackDir (CLM-080)
+
+          Build a pack directory in t.TempDir() declaring one tier:complete
+          scaffold with a sample_config entry whose target does not exist, call
+          packval.RunFixtures(pack, packDir, executor) directly, and assert the
+          target file EXISTS afterward with the declared contents.
+
+          THIS IS A CHARACTERIZATION TEST, NOT A REGRESSION TEST. It pins
+          behavior that is CORRECT for packval and WRONG for anything that
+          hashes the directory afterward. Say so in the test's own comment: the
+          mutation stays; what changes in this spec is that no command hands
+          packval a directory it is about to hash. If phase 3's rendering ever
+          moves, this test is what tells you REQ-008's whole seam has become
+          decorative rather than letting CLM-081..090 quietly pass over a
+          mutation that no longer happens.
+
+          Supply a MockExecutor (executor.go:117) whose ScaffoldTestFn returns
+          Passed so the test never spawns a shell — the rendering happens at
+          phase3.go:145-169, strictly BEFORE the RunScaffoldTest call at :173,
+          so the assertion holds without any subprocess.
+
+          This is the only pkg/packval change in the plan; no production code
+          in that package is touched.
+        files:
+          - pkg/packval/phase3_scaffold_config_test.go
+        claims:
+          - CLM-080
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Pass 1 — the name rule, exported
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: pkg/pack exports its own name rule as ValidatePackName, so distribution has one authority rather than a copy"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Write the failing test that pack.ValidatePackName applies exactly the rule validateName applied"
+        description: |
+          Create pkg/pack/validate_pack_name_test.go with:
+
+            TestValidatePackName_ExportsTheExistingNameRule (CLM-037)
+
+          Table-driven over the FOUR outcomes validateName
+          (pkg/pack/manifest.go:462) actually produces, so the exported rule is
+          pinned to the rule and not merely to "returns an error sometimes":
+
+            "hermetic/valid-pack"  → nil
+            "validpack"            → error, "exactly one slash"
+            "a/b/c"                → error, "exactly one slash"
+            "hermetic/"            → error, "non-empty"
+            "/valid-pack"          → error, "non-empty"
+            "hermetic/valid pack"  → error, "invalid characters"
+            "hermetic/valid_pack"  → error (underscore is outside
+                                     namePartPattern `^[A-Za-z0-9-]+$`)
+            ""                     → error
+
+          ASSERT THE DISTINGUISHING MESSAGE, not just non-nil. Three failure
+          modes with three different fixes collapse into one unfalsifiable
+          assertion otherwise, and CLM-034/035/036 downstream depend on
+          distribution being able to tell them apart.
+
+          ONE MORE ASSERTION, AND IT IS THE POINT OF THE CLAIM: the test must
+          also establish there is no SECOND copy. A `pkg/pack` test cannot see
+          distribution, so assert it structurally here — scan
+          pkg/pack/manifest.go's source for exactly one occurrence of the
+          `parts != 2` / namePartPattern logic, or assert validateName and
+          ValidatePackName return IDENTICAL errors across the whole table.
+          The latter is simpler and stronger: it fails the moment the
+          call-through is replaced by a divergent reimplementation.
+
+          RUN IT AND WATCH IT FAIL TO COMPILE. `pack.ValidatePackName` does not
+          exist yet; that is the red.
+        files:
+          - pkg/pack/validate_pack_name_test.go
+        claims:
+          - CLM-037
+        depends_on: []
+
+      - id: TASK-009
+        type: implementation
+        title: "Export ValidatePackName and reduce validateName to a call-through"
+        description: |
+          In pkg/pack/manifest.go:
+
+            // ValidatePackName reports whether name is a usable pack identity …
+            func ValidatePackName(name string) error { …the current body… }
+
+            func validateName(name string) error { return ValidatePackName(name) }
+
+          MOVE the body, do not copy it. The whole point of CLM-037 is that
+          there is ONE implementation; two bodies that happen to agree today
+          is precisely the second copy REQ-003 forbids.
+
+          EXPORT ONLY THE NAME RULE. Do NOT export validateSemver, semverPattern,
+          or namePartPattern alongside it (spec Review Question 14). identity.go's
+          version strictness must be NARROWER than the manifest model's:
+          semverPattern (manifest.go:460) accepts prerelease and build-metadata
+          suffixes, so a manifest declaring 1.0.0-rc1 is a VALID manifest that is
+          not installable by tag, because no strict release tag can equal it.
+          Exporting the semver rule would invite exactly the reuse that
+          reintroduces that acceptance.
+
+          CYCLE-SAFETY, VERIFIED: pkg/pack imports nothing from
+          pkg/pack/distribution (confirm with `go list -deps`), so distribution
+          may import pkg/pack freely. distribution already does not — this is
+          the first such import, which is why the check is worth doing rather
+          than assuming.
+
+          Nothing outside pkg/pack changes in this task. No caller is rewired
+          yet.
+        files:
+          - pkg/pack/manifest.go
+        claims:
+          - CLM-037
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the exported name rule: pkg/pack green, no second copy, no semver export"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading each command's TRUE exit code (never through
+          a grep pipe — a tree that fails to build emits no FAIL line and the
+          pipe reports success):
+
+            1. go build -o bin/backstop ./cmd/backstop
+               UNCONDITIONAL. bin/backstop statically links pkg/pack.
+            2. go test ./pkg/pack/... -race -count=1
+            3. go test ./... -race -count=1
+               The whole module: validateName has callers throughout the
+               manifest validator and a botched move breaks them silently.
+            4. ./bin/backstop gate
+               ALL dimensions, never filtered to what was touched.
+
+          Confirm by GREP, not by inspection:
+            - `grep -n "func ValidatePackName\|func validateName" pkg/pack/manifest.go`
+              shows exactly two functions, one of which is a one-line
+              call-through.
+            - `grep -n "func ValidateSemver\|func ValidateSemVer" pkg/pack/*.go`
+              returns NOTHING. Exporting it is the failure mode spec Review
+              Question 14 names.
+            - The `parts != 2` / namePartPattern logic appears exactly ONCE in
+              pkg/pack.
+        files:
+          - pkg/pack/manifest.go
+          - pkg/pack/validate_pack_name_test.go
+        claims:
+          - CLM-037
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Pass 3 — the lock field (BEFORE identity, which reads it)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: LockEntry.SourceCoordinate — the field CoordinateForEntry reads, landed first so the identity module compiles"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Write the failing lockfile tests: round-trip, legacy tolerance, and alphabetical key position"
+        description: |
+          Add to pkg/pack/distribution/lockfile_test.go:
+
+            TestLockfile_SourceCoordinateRoundTrips (CLM-045)
+              Write a lockfile whose entry carries SourceCoordinate, read it
+              back, and require the value is byte-identical. Include a
+              MIXED-CASE, -pack-SUFFIXED coordinate in the fixture — e.g.
+              "Backstop-AI/backstop-harness-toolchain-pack" — so a
+              normalization added anywhere in the write or read path reds here
+              rather than three phases later in CLM-041.
+
+            TestLockfile_LegacyEntryWithoutCoordinateRoundTripsUnchanged (CLM-046)
+              Start from lockfile TEXT that has no source_coordinate key — the
+              shape of every entry written before this spec, including all six
+              in this repository's own backstop.lock. Read it, write it back,
+              and require the emitted YAML contains NO source_coordinate key at
+              all. `omitempty` on the struct tag is not sufficient by itself
+              because buildSortedLockEntryNode builds the node by hand
+              (lockfile.go:100-136); the guard has to be written there too, the
+              way LocalPath's already is at :119-121.
+
+            TestLockfile_SourceCoordinateSortsBetweenNameAndSourceType (CLM-047)
+              Assert on the emitted TEXT's key ORDER, not on the parsed map.
+              The file's invariant is alphabetical keys —
+              content_hash, git_ref, install_date, local_path, name,
+              source_coordinate, source_type, version — and a map assertion
+              cannot see order at all.
+
+          RUN THEM AND WATCH THEM FAIL. The field does not exist yet.
+        files:
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-047
+        depends_on: []
+
+      - id: TASK-012
+        type: implementation
+        title: "Add LockEntry.SourceCoordinate and emit it in alphabetical order, only when non-empty"
+        description: |
+          Two edits in pkg/pack/distribution/lockfile.go:
+
+          1. LockEntry gains, with a comment modeled on LocalPath's at :24-27:
+
+               SourceCoordinate string `yaml:"source_coordinate,omitempty"`
+
+             It records the requested org/repository VERBATIM for git sources
+             and is empty for local ones, whose source is already recorded by
+             local_path. Like LocalPath it is PROVENANCE AND RESOLUTION INPUT
+             and is NOT part of ComputeContentHash — where a pack came from is
+             not pack content, and folding it in would make every existing
+             lock entry's hash unreproducible.
+
+          2. buildSortedLockEntryNode emits it between `name` and `source_type`
+             (lockfile.go:123-124), guarded by non-emptiness exactly as
+             local_path is at :119-121.
+
+          `omitempty` IS LOAD-BEARING, NOT COSMETIC. Without the guard in the
+          node builder, every legacy entry gains a blank `source_coordinate: ""`
+          key on its first rewrite — a diff in every consumer's tracked
+          backstop.lock, for a field they have no value for.
+
+          NOTHING ELSE CHANGES IN THIS TASK. No command writes the field yet;
+          that is phase 9.
+        files:
+          - pkg/pack/distribution/lockfile.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-047
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the lock field: round-trips clean, legacy entries gain nothing, key order intact"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Then confirm the thing no unit test can see:
+            - `git diff backstop.lock` after running the suite shows NOTHING.
+              This repository's own six entries are all source_type: local and
+              must be entirely unaffected. A diff here means the omitempty
+              guard in buildSortedLockEntryNode was skipped and every consumer
+              is about to get a spurious lock churn.
+            - `grep -n "source_coordinate" pkg/pack/distribution/hash.go`
+              returns nothing — the field must not have leaked into
+              ComputeContentHash.
+        files:
+          - pkg/pack/distribution/lockfile.go
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-047
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Pass 2 — the identity module, pure and called by nothing yet
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: pkg/pack/distribution/identity.go — the whole gate as pure functions, with nothing calling it yet"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Write the failing ResolveEffectiveVersion suite: nine claims covering both supply paths and every refusal"
+        description: |
+          Create pkg/pack/distribution/identity_version_test.go (package
+          distribution_test) with the nine REQ-001 unit claims:
+
+            TestResolveEffectiveVersion_RefSuffixSuppliesVersion (CLM-001)
+              "acme/pack@1.2.3", no override → coordinate "acme/pack",
+              version "1.2.3". Also assert the TAG the caller will clone is
+              "v1.2.3" — one prefix, exactly.
+            TestResolveEffectiveVersion_FlagSuppliesVersionWhenRefHasNone (CLM-002)
+              "acme/pack", override "1.2.3" → "1.2.3".
+            TestResolveEffectiveVersion_FlagOverridesDisagreeingRefSuffix (CLM-003)
+              "acme/pack@2.0.0", override "1.2.3" → "1.2.3". The flag wins,
+              matching its documented "overrides version in pack reference"
+              contract (pack_add.go:57).
+            TestResolveEffectiveVersion_AgreeingRefAndFlagResolveOnce (CLM-004)
+              "acme/pack@1.2.3" + override "1.2.3" → "1.2.3", no error. The
+              agreeing case is claimed separately from CLM-003 because an
+              implementation that ERRORED on any dual supply would still pass
+              CLM-003.
+            TestResolveEffectiveVersion_NoVersionAnywhereIsTypedRefusal (CLM-005)
+              "acme/pack", no override → *VersionUnresolvedError via errors.As,
+              whose message names the REFERENCE and BOTH ways to supply a
+              version (the @suffix and --version).
+            TestResolveEffectiveVersion_NonStrictVersionIsTypedRefusal (CLM-006)
+              "1.0" → *VersionUnresolvedError.
+            TestResolveEffectiveVersion_PrereleaseVersionIsTypedRefusal (CLM-007)
+              "1.0.0-rc1" → *VersionUnresolvedError. NOT a resolution to some
+              nearby released tag.
+            TestResolveEffectiveVersion_DoubledPrefixIsTypedRefusal (CLM-008)
+              "vv1.0.0" → *VersionUnresolvedError. parseVersionComponents
+              (versionresolver.go:151) strips at most ONE prefix via
+              TrimPrefix, so "vv1.0.0" survives as "v1.0.0" and fails the
+              pattern. That is the intended reading, not an accident.
+            TestResolveEffectiveVersion_SingleLeadingPrefixNormalizes (CLM-009)
+              "v1.2.3" → recorded version "1.2.3" (NO prefix) and cloned tag
+              "v1.2.3" (EXACTLY one). Assert both halves; asserting only the
+              recorded form lets a doubled-prefix tag through.
+
+          COORDINATE PURITY IS PART OF THIS SUITE. In every passing case assert
+          the returned coordinate has ONLY the @version suffix removed —
+          mixed case preserved, a `-pack` suffix preserved, no host
+          normalization. CLM-043 re-asserts this at the lock level in phase 9;
+          asserting it here too is what localizes a regression to one function.
+
+          NO GIT ANYWHERE IN THIS SUITE. ResolveEffectiveVersion is a free
+          function precisely because rejecting a malformed reference needs no
+          dependency, and a test that needed a cloner would prove the opposite.
+        files:
+          - pkg/pack/distribution/identity_version_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-015
+        type: test
+        title: "Write the failing ValidateRemoteIdentity suite: version equality, manifest reading, and name validity"
+        description: |
+          Create pkg/pack/distribution/identity_gate_test.go with the fourteen
+          gate claims. Each builds a pack directory in t.TempDir() carrying a
+          hand-written pack.yml and calls ValidateRemoteIdentity(coordinate,
+          effectiveVersion, packDir) directly — no clone, no command.
+
+          VERSION EQUALITY — the four passing shapes and the mismatches:
+            TestValidateRemoteIdentity_PrefixedTagUnprefixedManifestPasses (CLM-012)
+              effective "v1.0.0", manifest "1.0.0" → pass.
+            TestValidateRemoteIdentity_UnprefixedBothSidesPasses (CLM-013)
+              effective "1.0.0", manifest "1.0.0" → pass.
+            TestValidateRemoteIdentity_PrefixedManifestPasses (CLM-014)
+              effective "v1.0.0", manifest "v1.0.0" → pass. One prefix
+              normalizes on EACH side.
+            TestValidateRemoteIdentity_ManifestVersionMismatchIsTypedRefusal (CLM-015)
+              effective "v1.0.0", manifest "1.0.1" → *VersionMismatchError
+              whose message names ALL FOUR of coordinate, tag, manifest
+              version and expected version.
+            TestValidateRemoteIdentity_HarnessPackVersionDriftRefuses (CLM-016)
+              effective "v0.1.1", manifest "0.1.3" — the PUBLISHED harness
+              pack's exact shape (DIR-027 item 2). Assert BOTH "0.1.3" and
+              "0.1.1" appear in the message: an operator debugging that pack
+              needs to see them side by side to know the fix is a retag, not a
+              reinstall.
+
+          MANIFEST DEFECTS — all *IdentityError, all naming the offending field:
+            TestValidateRemoteIdentity_MissingManifestVersionIsIdentityError (CLM-017)
+            TestValidateRemoteIdentity_NonStrictManifestVersionIsIdentityError (CLM-018)
+              manifest "1.0" → IdentityError.
+            TestValidateRemoteIdentity_PrereleaseManifestVersionIsIdentityError (CLM-019)
+              manifest "1.0.0-rc1" → IdentityError. STATE THE CONTRAST IN THE
+              TEST: pkg/pack's semverPattern (manifest.go:460) ACCEPTS this, so
+              it is a valid manifest; it is refused here because no strict
+              release tag can equal it. A reader who does not see that contrast
+              will "fix" this by reusing pack.validateSemver.
+            TestValidateRemoteIdentity_DoubledPrefixManifestVersionIsIdentityError (CLM-020)
+              manifest "vv1.0.0" → IdentityError.
+            TestValidateRemoteIdentity_UnreadableManifestIsIdentityError (CLM-021)
+              TWO sub-cases: pack.yml ABSENT, and pack.yml present but
+              unparseable (binary bytes). Both → IdentityError naming the
+              COORDINATE and the TAG, because at that point the pack.yml path
+              is a temp directory the operator cannot inspect.
+
+          NAME VALIDITY — the four failure modes, all *IdentityError:
+            TestValidateRemoteIdentity_EmptyManifestNameIsIdentityError (CLM-033)
+              Covers both an absent `name:` key and `name: ""`.
+            TestValidateRemoteIdentity_UnqualifiedManifestNameIsIdentityError (CLM-034)
+              "validpack" — no slash.
+            TestValidateRemoteIdentity_EmptyNamePartIsIdentityError (CLM-035)
+              "hermetic/" and "/valid-pack".
+            TestValidateRemoteIdentity_InvalidNameCharactersIsIdentityError (CLM-036)
+              "hermetic/valid pack" — a space is outside `[A-Za-z0-9-]`.
+
+          THE ORDER OF THE FIVE CHECKS IS ITSELF ASSERTABLE and the spec fixes
+          it (Implementation § "Validation passes performed by the identity
+          gate"): version available → version strict → manifest readable with
+          name and version → manifest version equals effective → name valid.
+          Include at least one test whose pack.yml is BOTH version-mismatched
+          AND name-invalid and require the diagnostic names the VERSION
+          problem, so the ordering is asserted rather than merely arranged.
+
+          ASSERT Diverged IS SET, NOT RECOMPUTED. In the passing cases, check
+          identity.Diverged against a byte-exact coordinate/name comparison and
+          check identity.InstallName == identity.ManifestName. Diverged is a
+          FIELD so the comparison rule lives in one place; a test that
+          recomputes it in the assertion cannot catch a wrong rule.
+
+          MUTATION-FREENESS: after every call, passing or failing, assert the
+          packDir's file set and contents are unchanged. ValidateRemoteIdentity
+          must never write, because REQ-007 makes it the thing that runs before
+          anything is safe to write.
+        files:
+          - pkg/pack/distribution/identity_gate_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+        depends_on:
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-016
+        type: test
+        title: "Write the failing coordinate-accessor and typed-error-renderer suites"
+        description: |
+          Create pkg/pack/distribution/identity_coordinate_test.go:
+
+            TestCoordinateForEntry_RecordedCoordinateReturnsNoWarning (CLM-051)
+              An entry carrying SourceCoordinate returns it verbatim with an
+              EMPTY warning string. Assert the warning is empty — a
+              always-warning implementation passes a coordinate-only
+              assertion.
+            TestCoordinateForEntry_MissingCoordinateFallsBackWithWarning (CLM-052)
+              An entry with no SourceCoordinate returns the packName AND a
+              non-empty warning that NAMES THE PACK and NAMES THE REMEDY
+              (re-add or relock). A warning that says only "no coordinate
+              recorded" leaves an operator with nothing to do.
+            TestRemoteURLForEntry_BuildsURLFromTheSharedCoordinate (CLM-053)
+              For BOTH the recorded and the fallback case, assert
+              RemoteURLForEntry's URL equals resolveGitURL applied to whatever
+              CoordinateForEntry returned, and that its warning is the SAME
+              string. This is what makes it impossible for the resolver and
+              the cloner to disagree about which repository a pack came from.
+              Include a DIVERGENT case — entry keyed "backstop/harness-toolchain"
+              with coordinate "backstop-ai/backstop-harness-toolchain-pack" —
+              and require the URL names the COORDINATE, because a test where
+              the two strings coincide cannot fail.
+
+          Create pkg/pack/distribution/identity_errors_test.go:
+
+            TestVersionUnresolvedError_ErrorNamesReferenceAndRemedy (CLM-091)
+              The message quotes the reference the operator typed and states
+              BOTH ways to supply a version.
+            TestVersionMismatchError_ErrorNamesBothVersions (CLM-092)
+              All four fields — coordinate, tag, manifest version, expected
+              version — appear in the rendered message.
+            TestIdentityError_ErrorNamesCoordinateAndField (CLM-093)
+              The coordinate and the offending pack.yml FIELD appear, so the
+              diagnostic points at a line the pack author can fix.
+
+          These are direct Error() tests over hand-built values, so they stay
+          meaningful even when the plumbing changes. Assert on SUBSTRINGS of
+          the rendered text, never on the whole message: a whole-message
+          assertion turns every future wording improvement into a red.
+
+          Two files rather than one so this task's parallel siblings
+          (TASK-014, TASK-015) never contend for a file (D-081).
+        files:
+          - pkg/pack/distribution/identity_coordinate_test.go
+          - pkg/pack/distribution/identity_errors_test.go
+        claims:
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-091
+          - CLM-092
+          - CLM-093
+        depends_on:
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-017
+        type: implementation
+        title: "Write pkg/pack/distribution/identity.go: the tuple, the three typed errors, and the five pure functions"
+        description: |
+          Create pkg/pack/distribution/identity.go carrying exactly what
+          SPEC-056's contracts declare for that file, and nothing else. NOTHING
+          CALLS IT YET — that is deliberate, so this phase is verifiable on its
+          own.
+
+            type RemoteIdentity struct {
+              Coordinate, EffectiveVersion, Tag, ManifestName, InstallName string
+              Diverged bool
+            }
+              Coordinate is the requested org/repository VERBATIM.
+              EffectiveVersion is the normalized X.Y.Z with NO prefix; Tag is
+              that value re-prefixed with exactly one "v" and is what Clone is
+              called with. InstallName aliases ManifestName so the field that
+              builds the install path, the backstop.yml key, the lock key and
+              the engine asset root READS as an identity rather than as a name
+              that happens to be reused. Diverged is a FIELD, not a
+              recomputation, so the comparison rule lives in one place.
+
+            func ResolveEffectiveVersion(reference, overrideVersion string)
+                (coordinate string, version string, err error)
+            func ValidateRemoteIdentity(coordinate, effectiveVersion, packDir string)
+                (*RemoteIdentity, error)
+            func ReadManifestIdentity(packDir string) (name, version string, err error)
+            func CoordinateForEntry(packName string, entry LockEntry)
+                (coordinate string, warning string)
+            func RemoteURLForEntry(packName string, entry LockEntry)
+                (url string, warning string)
+
+            type VersionUnresolvedError struct { Reference, Problem string }
+            type VersionMismatchError struct { Coordinate, Tag, ManifestVersion, ExpectedVersion string }
+            type IdentityError struct { Coordinate, Tag, Field, Problem string }
+
+          SIX CONSTRAINTS, EACH LOAD-BEARING:
+
+          1. REUSE parseVersionComponents (versionresolver.go:151). Do not add
+             a second normalizer. That helper is what TagVersionResolver
+             already applies to tags, and reusing it is what makes a tag, a
+             manifest version and a resolved version mean the same thing
+             everywhere. It strips at most ONE prefix, which is exactly
+             CLM-008/CLM-020's rule.
+
+             ITS SIGNATURE TAKES THE PATTERN AS A PARAMETER:
+               func parseVersionComponents(value string,
+                   strictSemver *regexp.Regexp) (versionComponents, bool)
+             so identity.go must compile `strictSemverPattern`
+             (versionresolver.go:18) and pass it in. Do NOT introduce a second
+             package-level pattern constant, and do NOT
+             regexp.MustCompile inside a hot path — the existing callers
+             (ResolveLatestCompatible, IsMajorBump) each compile once per call
+             and identity.go should follow whichever convention the reviewer
+             of that file prefers rather than inventing a third.
+
+          2. CALL pack.ValidatePackName. Do not restate the rule (spec Review
+             Question 14). This is the import that makes TASK-009 worth doing.
+
+          3. ReadManifestIdentity MUST TOLERATE A MISSING VERSION. Read only
+             the two identity fields; error for an ABSENT, UNPARSEABLE or
+             NAMELESS manifest, and return "" for an absent version.
+             pkg/pack/distribution/testdata/local-pack/pack.yml declares NO
+             version and four existing local-path add tests expect it to
+             install. Version strictness belongs in ValidateRemoteIdentity,
+             which only the remote path calls.
+
+          4. ReadManifestIdentity REPLACES the inline yaml.Unmarshal into
+             map[string]interface{} at command.go:770-779. Do not leave the
+             inline reader standing; phase 8 rewires resolveLocalPackSource
+             onto this function so local and remote read identity through ONE
+             implementation (CLM-038).
+
+          5. NO CASE FOLDING ANYWHERE. Diverged is `ManifestName != Coordinate`
+             — byte-exact on the full org/name strings. No strings.ToLower, no
+             EqualFold, no suffix stripping. Case-insensitivity is a GITHUB
+             property; packs may be hosted anywhere, and DD-31 removed that
+             assumption on purpose (spec Review Question 12).
+
+          6. ValidateRemoteIdentity MUST NOT MUTATE packDir and must not touch
+             the consumer project at all. Calling it is always safe, which is
+             what lets REQ-007 put it before every write.
+
+          THE FIVE CHECKS RUN IN THIS ORDER and a refusal at any one means none
+          of the later ones ran: version available → version strict → manifest
+          readable with a name → manifest version equals effective → name
+          valid. Divergence is computed AFTER check five and is a diagnostic,
+          never a sixth refusal.
+        files:
+          - pkg/pack/distribution/identity.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-051
+          - CLM-052
+          - CLM-053
+          - CLM-091
+          - CLM-092
+          - CLM-093
+        depends_on:
+          - TASK-014
+          - TASK-015
+          - TASK-016
+
+      - id: TASK-018
+        type: verification
+        title: "Verify the identity module in isolation: every branch claimed, no second name rule, no case folding"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Confirm by GREP, not inspection:
+            - `grep -n "ToLower\|EqualFold\|ToUpper" pkg/pack/distribution/identity.go`
+              returns NOTHING (spec Review Question 12).
+            - `grep -n "namePartPattern\|exactly one slash" pkg/pack/distribution/identity.go`
+              returns NOTHING — the name rule must arrive via
+              pack.ValidatePackName, not as a copy (spec Review Question 14).
+            - `grep -rn "identity\." pkg/pack/distribution/command.go` returns
+              NOTHING. Nothing may call this module yet; if something does,
+              the phase ordering has been shortcut and the later phases'
+              assertions are running against a half-wired pipeline.
+            - `grep -n "map\[string\]interface{}" pkg/pack/distribution/command.go`
+              STILL shows the inline manifest read at :771. It is retired in
+              phase 8, not here — confirm it is untouched so the two phases
+              stay separable.
+
+          COVERAGE OF THE NEW FILE. identity.go is new production code with a
+          claim on every branch and must not ride the 80% combined floor. Run
+            go test ./pkg/pack/distribution/... -coverprofile=/tmp/cover-056.out
+            go tool cover -func=/tmp/cover-056.out | grep identity.go
+          and read it. A branch below 100% names a claim whose test is missing,
+          not a threshold to lower.
+        files:
+          - pkg/pack/distribution/identity.go
+          - pkg/pack/distribution/identity_version_test.go
+          - pkg/pack/distribution/identity_gate_test.go
+          - pkg/pack/distribution/identity_coordinate_test.go
+          - pkg/pack/distribution/identity_errors_test.go
+        claims:
+          - CLM-005
+          - CLM-015
+          - CLM-016
+          - CLM-021
+          - CLM-036
+          - CLM-052
+          - CLM-053
+          - CLM-091
+          - CLM-092
+          - CLM-093
+        depends_on:
+          - TASK-017
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Pass 4 — warning carriers and stderr renderers, before anything warns
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Warnings []string on three result types and a stderr renderer on all four commands — landed BEFORE anything produces a warning"
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Write the failing carrier tests for AddResult, UpdateResult, UpgradeResult, and InstallResult"
+        description: |
+          Add to pkg/pack/distribution/result_warnings_test.go (new file):
+
+            TestAddResult_CarriesWarnings (CLM-105)
+            TestUpdateResult_CarriesWarnings (CLM-106)
+            TestUpgradeResult_CarriesWarnings (CLM-107)
+            TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether (CLM-108)
+
+          A FIELD ASSERTION ALONE IS NOT ENOUGH and must not be written that
+          way. `result.Warnings = []string{"x"}; if result.Warnings[0] != "x"`
+          tests the Go compiler. Each test must drive the COMMAND and require
+          a warning the command PRODUCED to arrive on the result:
+
+            CLM-105 — a divergent-name add (a mock cloner serving a pack whose
+              manifest name differs from the ref) yields a non-empty
+              AddResult.Warnings. This test stays RED until phase 8 wires the
+              divergence diagnostic. THAT IS CORRECT AND EXPECTED: write it
+              here, mark it t.Skip with an explicit "wired in TASK-027"
+              message, and REMOVE the skip in TASK-027. Do not weaken it into
+              a field test to make this phase green — a field test would still
+              pass after someone deleted the diagnostic.
+
+              (Same disposition for CLM-106/107: their producing paths land in
+              TASK-035. CLM-108's producing path — install's fallback warning
+              alongside its existing stale-lock warning — lands in TASK-031.)
+
+            CLM-108 specifically requires BOTH KINDS AT ONCE: an install over a
+            lock holding a stale entry AND a git entry with no
+            source_coordinate must yield both the reconciliation warning and
+            the coordinate fallback warning. An implementation that OVERWRITES
+            Warnings rather than appending passes each kind alone and fails
+            only this test.
+
+          The carriers themselves are still what makes the file compile, so the
+          suite is red on arrival for the right reason.
+        files:
+          - pkg/pack/distribution/result_warnings_test.go
+        claims:
+          - CLM-105
+          - CLM-106
+          - CLM-107
+          - CLM-108
+        depends_on:
+          - TASK-018
+
+      - id: TASK-020
+        type: test
+        title: "Write the failing CLI renderer tests with genuinely separated cobra streams"
+        description: |
+          Create cmd/backstop/pack_warnings_render_test.go:
+
+            TestPackAddCommand_RendersWarningsToStderr (CLM-109)
+            TestPackInstallCommand_RendersWarningsToStderr (CLM-110)
+            TestPackUpdateCommand_RendersWarningsToStderr (CLM-111)
+            TestPackUpgradeCommand_RendersWarningsToStderr (CLM-112)
+
+          DO NOT USE executeCommand. root_test.go:17-23 points SetOut AND
+          SetErr at the SAME bytes.Buffer, so "renders to stderr" passes for a
+          command that printed to stdout, and every one of these four claims
+          would be vacuous. Build the cobra command directly and give it TWO
+          buffers:
+
+            cmd := newPackAddCommand(boolPtr(false))
+            var out, errBuf bytes.Buffer
+            cmd.SetOut(&out); cmd.SetErr(&errBuf)
+
+          Then assert the warning text appears in errBuf and NOT in out. The
+          negative half is the load-bearing half: a renderer that writes to
+          BOTH satisfies the positive assertion alone.
+
+          FOR install (CLM-110) the claim is specifically that the EXISTING
+          loop at pack_install.go:32 MOVES from cmd.Printf (stdout) to
+          cmd.ErrOrStderr(). Assert the stale-lock warning lands on stderr and
+          the "Installed N packs" summary lands on stdout, so the move is
+          pinned in both directions.
+
+          FOR update and upgrade (CLM-111/112) the path renders NOTHING of the
+          kind today. Say so in each test's comment — a reader who assumes a
+          loop exists will look for a bug rather than adding the loop.
+
+          EXIT CODES ARE UNCHANGED BY A WARNING. Each of the four asserts the
+          command returned no error while emitting the warning. CLM-113
+          re-asserts this end-to-end through the process exit code; asserting
+          it here too localizes a regression to the renderer.
+
+          LEAVE THE TWO MERGED-BUFFER TESTS ALONE.
+          TestPackInstallCommand_PrintsStaleLockWarning (pack_install_test.go:26)
+          and TestPackInstallE2E_StaleLockWarnsInstallsDeclared
+          (pack_install_e2e_test.go:83) both read a merged buffer and both stay
+          green through the stdout→stderr move. That is convenient and it is
+          also the trap: their green is not evidence about streams.
+        files:
+          - cmd/backstop/pack_warnings_render_test.go
+        claims:
+          - CLM-109
+          - CLM-110
+          - CLM-111
+          - CLM-112
+        depends_on:
+          - TASK-018
+
+      - id: TASK-021
+        type: implementation
+        title: "Add the three Warnings fields and the four stderr rendering loops"
+        description: |
+          DISTRIBUTION SIDE — three struct-field additions, mirroring
+          InstallResult.Warnings (install.go), including its `json:"warnings,omitempty"`
+          tag so a --json consumer sees the same shape from all four commands:
+
+            add.go       AddResult.Warnings []string
+            update.go    UpdateResult.Warnings []string   (none today, :28-34)
+            upgrade.go   UpgradeResult.Warnings []string  (none today, :22-29)
+
+          WARNINGS RIDE THE RESULT, NEVER AN INJECTED WRITER. pkg/pack/distribution
+          owns no output stream and must not acquire a dependency in order to
+          carry a string. The CHECK happens in distribution; the RENDERING
+          happens where every other CLI message is rendered.
+
+          CLI SIDE — four rendering loops, all to cmd.ErrOrStderr():
+
+            pack_add.go       NEW loop, before the success line goes to stdout.
+            pack_install.go   MOVE the existing loop at :32 from cmd.Printf to
+                              fmt.Fprintf(cmd.ErrOrStderr(), …). Keep the
+                              "warning: %s" prefix — two existing tests match
+                              on the lowercase word "warning".
+            pack_update.go    NEW loop, before either the no-op message or the
+                              "Updated %s: %s -> %s" line.
+            pack_upgrade.go   NEW loop, INSIDE newPackUpgradeCommand's RunE.
+
+          THE pack_upgrade.go LINE-1 WAIVER MUST NOT MOVE. That file opens with
+          a `@waiver:coverage_threshold:…` token on line 1. coverage_threshold
+          is a LOCATIONLESS dimension, so the gate anchors its violations at
+          the file's first line and scans THAT LINE ALONE for an annotation
+          (pkg/gate/step_waiver.go:19, coverageAnnotationLine). Do not move it,
+          do not reflow the comment block beneath it, do not prepend an import
+          or a build tag above it. Moved down onto the function it stops
+          adjudicating: dangling waiver AND the coverage red returns.
+
+          RENDERING A WARNING NEVER CHANGES AN EXIT CODE. No loop may set an
+          error, and none may run on the failure path — a command that already
+          failed reports its failure through packLifecycleFailure.
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/upgrade.go
+          - cmd/backstop/pack_add.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_update.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-105
+          - CLM-106
+          - CLM-107
+          - CLM-108
+          - CLM-109
+          - CLM-110
+          - CLM-111
+          - CLM-112
+        depends_on:
+          - TASK-019
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify the carriers and renderers, and confirm the line-1 waiver still adjudicates"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          THE WAIVER CHECK IS THE POINT OF THIS TASK and it is not covered by
+          any unit test:
+            - `head -1 cmd/backstop/pack_upgrade.go` still begins with the
+              `// @waiver:coverage_threshold:` token.
+            - The gate reports NO dangling-waiver finding and NO
+              coverage_threshold red for cmd/backstop. Both appear together if
+              the token moved; either alone means something else changed.
+
+          Also confirm:
+            - `grep -n "cmd.Printf(\"warning" cmd/backstop/pack_install.go`
+              returns NOTHING — the loop moved off stdout rather than being
+              duplicated onto stderr.
+            - The two merged-buffer install tests are still GREEN and still
+              UNEDITED: TestPackInstallCommand_PrintsStaleLockWarning and
+              TestPackInstallE2E_StaleLockWarnsInstallsDeclared. If either
+              needed an edit, the "warning: " prefix changed and a consumer's
+              grep just broke.
+            - The four CLM-105..108 tests carrying a t.Skip are the ONLY skips
+              introduced, and each names the task that removes it.
+        files:
+          - cmd/backstop/pack_upgrade.go
+          - cmd/backstop/pack_install.go
+          - cmd/backstop/pack_warnings_render_test.go
+          - pkg/pack/distribution/result_warnings_test.go
+        claims:
+          - CLM-109
+          - CLM-110
+          - CLM-111
+          - CLM-112
+        depends_on:
+          - TASK-021
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: Pass 5 — the scratch-copy validation seam, in all three commands
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: runValidationOnScratchCopy — validation can no longer contaminate what is installed or hashed, in add AND update AND upgrade"
+    tasks:
+      - id: TASK-023
+        type: test
+        title: "Write the failing scratch-seam unit tests: removal on both paths, and failures quoting the SOURCE not the scratch dir"
+        description: |
+          Create pkg/pack/distribution/scratch_validation_test.go:
+
+            TestRunValidationOnScratchCopy_RemovesScratchOnSuccess (CLM-085)
+              Capture the directory the validator was HANDED (a mockValidator
+              recording its packDir argument), require it differs from the
+              packDir passed in, and require it no longer exists when the
+              function returns.
+
+            TestRunValidationOnScratchCopy_RemoteFailureNamesCoordinateNotScratchPath (CLM-088)
+              With a validator that fails, require the returned error names the
+              supplied sourceLabel (a coordinate and tag) and require it does
+              NOT contain the scratch directory path or the OS temp-dir prefix.
+              runPackvalPipeline renders "pack validation (%s) of %s failed in
+              %s" with the directory it was handed (validator.go:69-71), so an
+              unmodified implementation shows an operator a /var/folders path
+              that will not exist by the time they look at it.
+
+            TestRunValidationOnScratchCopy_LocalFailureNamesSourcePathNotScratchPath (CLM-089)
+              The same, with the operator's local path as the sourceLabel.
+
+          ASSERT THE ABSENCE OF THE SCRATCH PATH, not merely the presence of
+          the label. A wrapper that PREPENDS the label while leaving the inner
+          message intact satisfies a presence-only assertion and still shows
+          the operator a dead path.
+
+          THE SEAM TAKES A LABEL, NOT ONLY A DIRECTORY. That is why its
+          signature is (validator, packDir, sourceLabel) — a function that only
+          received a directory could not report against anything else.
+        files:
+          - pkg/pack/distribution/scratch_validation_test.go
+        claims:
+          - CLM-085
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-022
+
+      - id: TASK-024
+        type: test
+        title: "Write the failing contamination tests for add, update, and upgrade — plus the two local-source claims"
+        description: |
+          Add to pkg/pack/distribution/validation_contamination_test.go (new
+          file) a mockValidator variant that WRITES A MARKER FILE into the
+          directory it is handed, then:
+
+            TestAddCommand_Run_ValidatorWritesDoNotReachInstalledContent (CLM-081)
+              After a successful add, the marker is ABSENT from
+              .backstop/packs/<name>/.
+            TestAddCommand_Run_ContentHashExcludesValidatorWrites (CLM-082)
+              The recorded hash EQUALS ComputeContentHash over the pristine
+              source tree. Assert EQUALITY against an independently computed
+              hash, not merely that two adds agree — two adds contaminated
+              identically also agree.
+            TestUpdateCommand_Run_ValidatorWritesReachNeitherContentNorHash (CLM-083)
+            TestUpgradeCommand_Run_ValidatorWritesReachNeitherContentNorHash (CLM-084)
+              The same two properties for the other two validating commands.
+              command.go:539 (update) and command.go:654 (upgrade) carry the
+              IDENTICAL defect add has at :154; a fix landing in add alone
+              leaves two thirds standing (spec Review Question 3).
+            TestAddCommand_Run_ScratchCopyRemovedOnValidationFailure (CLM-086)
+              A failing validator leaves no scratch dir AND no installed
+              content AND no lock entry — three assertions, because a scratch
+              cleanup that ran while the install was left half-written is not
+              the property REQ-008 wants.
+
+            TestAddCommand_Run_LocalSourceDirectoryNotMutatedByValidation (CLM-087)
+              Copy testdata/local-pack into t.TempDir(), snapshot the file set
+              and the bytes, add from that directory, and require the snapshot
+              still matches. For a local-path add the directory packval mutates
+              is the OPERATOR'S OWN WORKING TREE (spec Review Question 4).
+
+            TestPackAdd_LocalPathValidatesInPlace (CLM-087, SECOND TEST)
+              THIS IS AN EXISTING, SPEC-015-MANDATED NAME (SPEC-015 CLM-071).
+              IT LIVES AT add_test.go:710 AND MUST NOT MOVE, BE RENAMED, BE
+              MERGED, OR BE DELETED. Its current body asserts only that a
+              local-path add succeeds. UPDATE IT IN PLACE by ADDING the
+              not-mutated assertion: the pack it was pointed at is still
+              validated, the add still succeeds, and the source directory is
+              unchanged afterward. The name stays accurate in the sense
+              SPEC-015 cared about — local paths are validated rather than
+              skipped — and stops asserting the in-place MECHANISM that was
+              never the point (spec Review Question 15).
+
+              Because this edit touches add_test.go, that file is in THIS
+              task's scope. Change nothing else in it here.
+
+            EDIT-SET ITEM (D) LANDS HERE TOO, in the same file:
+              TestPackUpdate_AppliesPatchVersion (update_test.go:242) pairs a
+              cloner serving testdata/valid-pack (manifest 1.0.0) with
+              mockVersionResolver{latestMinor: "1.0.1"}. Phase 11's identity
+              gate refuses that combination. Repoint its cloneDir at
+              testdata/valid-pack-v1-0-1 (TASK-004). THE IDENTIFIER SURVIVES
+              VERBATIM — it is SPEC-015 CLM-061-mandated. Do NOT change the
+              resolver to "1.0.0": that turns the test into the
+              already-at-latest no-op case and silently deletes the patch
+              claim. Doing it now rather than in phase 11 keeps update_test.go
+              out of two tasks' file scopes.
+
+          THE TAMPER-ADJACENT REGRESSION (fold-in, no claim of its own but
+          worth a real assertion): update runs DetectTamper(currentPackDir,
+          tmpDir) at command.go:549. If validation contaminated tmpDir, the
+          rendered sample_config files appear as ADDED files and DetectTamper
+          reports tamper on a pack nobody touched — an operator is told their
+          installed pack was modified when the tool modified the comparison
+          input. Add an assertion inside CLM-083's test that the update
+          SUCCEEDS with a contaminating validator and reports no tamper. It is
+          cheap, and it names the second-order failure the scratch copy
+          prevents.
+        files:
+          - pkg/pack/distribution/validation_contamination_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/update_test.go
+        claims:
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-086
+          - CLM-087
+        depends_on:
+          - TASK-022
+
+      - id: TASK-025
+        type: implementation
+        title: "Implement runValidationOnScratchCopy and rewire all three validating commands through it"
+        description: |
+          Add to pkg/pack/distribution/command.go:
+
+            func runValidationOnScratchCopy(validator Validator, packDir, sourceLabel string) error
+
+          It copies packDir into a fresh os.MkdirTemp directory, runs
+          RunPackCheck then RunPackTest against the COPY, and removes the copy
+          on BOTH the success and the failure path. A validation failure is
+          re-reported against sourceLabel rather than against the scratch path.
+
+          IT TAKES THE VALIDATOR AS A PARAMETER rather than reading a receiver,
+          so all three commands share one implementation instead of three
+          methods that drift.
+
+          REWIRE THREE CALL SITES, each passing the label its failures should
+          quote:
+            AddCommand.Run     command.go:154-159 — label is the coordinate and
+                               tag for a git source, the LOCAL PATH for a local
+                               one. Both branches route through the seam; the
+                               local branch is not an exception (spec Review
+                               Question 4).
+            UpdateCommand.Run  command.go:539-544 — label is the coordinate and
+                               the resolved tag.
+            UpgradeCommand.Run command.go:654-659 — label is the coordinate and
+                               the target tag.
+
+          THE PRISTINE TREE IS WHAT GETS COPIED AND HASHED. After this task,
+          the directory handed to copyDirRecursive → the install path and to
+          ComputeContentHash must be the MATERIALIZED tree that no validator
+          has written to. That is the whole observable contract: the hash
+          `pack add` records equals the hash `pack install` computes from a
+          fresh clone of the same tag, for a pack declaring a tier:complete
+          scaffold (CLM-090).
+
+          DO NOT WIDEN THE COPY BOUNDARY. This closes the
+          VALIDATOR-CONTAMINATION half only. `.git` exclusion for local-path
+          sources and the legacy-lock migration are bundle REQ-021@1.1.0 and
+          REQ-041@1.1.0; claiming them here would mark REQ-021 covered at its
+          current version while two thirds of it remain unbuilt.
+
+          NO NEW DEPENDENCY. copyDirRecursive already exists in this package —
+          use it.
+        files:
+          - pkg/pack/distribution/command.go
+        claims:
+          - CLM-081
+          - CLM-082
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-086
+          - CLM-087
+          - CLM-088
+          - CLM-089
+        depends_on:
+          - TASK-023
+          - TASK-024
+
+      - id: TASK-026
+        type: verification
+        title: "Verify the seam landed in all THREE commands and on BOTH branches, and that no in-place validation survives"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... ./pkg/packval/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Confirm by GREP, not inspection — the partial fix is the likely
+          failure and it looks exactly like the complete one:
+            - `grep -n "c.validator.RunPackCheck\|c.validator.RunPackTest" pkg/pack/distribution/command.go`
+              returns NOTHING. Every direct call is now inside
+              runValidationOnScratchCopy.
+            - `grep -n "runValidationOnScratchCopy" pkg/pack/distribution/command.go`
+              shows FOUR hits: the definition plus one call in each of
+              AddCommand.Run, UpdateCommand.Run, UpgradeCommand.Run.
+            - Read AddCommand.Run and confirm the LOCAL branch reaches the seam
+              too (spec Review Question 4). A `if !isLocal` around the
+              validation call is the exact regression.
+
+          Then answer explicitly:
+            - Is CLM-082's hash assertion comparing against an INDEPENDENTLY
+              computed hash of the pristine tree, or merely against a second
+              add? Two contaminated adds agree with each other.
+            - Does TestPackAdd_LocalPathValidatesInPlace still exist BY THAT
+              EXACT NAME (spec Review Question 15)? Grep for it.
+            - Does TestPackUpdate_AppliesPatchVersion still exist by that exact
+              name, now pointing at valid-pack-v1-0-1? Both names are SPEC-015
+              mandated.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/scratch_validation_test.go
+          - pkg/pack/distribution/validation_contamination_test.go
+        claims:
+          - CLM-081
+          - CLM-083
+          - CLM-084
+          - CLM-085
+          - CLM-087
+          - CLM-088
+        depends_on:
+          - TASK-025
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Pass 6 — AddCommand.Run reordered; the manifest name IS the identity
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: AddCommand.Run reordered — resolve version, clone, gate identity, then mutate; every path uses the MANIFEST name"
+    tasks:
+      - id: TASK-027
+        type: test
+        title: "Write the failing identity-as-install-name tests, the pre-mutation refusal tests, and the divergence diagnostics"
+        description: |
+          Create pkg/pack/distribution/add_identity_test.go. Build a mock
+          cloner serving a pack whose manifest declares `other/renamed-pack`
+          while the ref is `acme/divergent@1.0.0`, and assert:
+
+          IDENTITY (REQ-003):
+            TestAddCommand_Run_InstallPathComesFromManifestName (CLM-028)
+              .backstop/packs/other/renamed-pack/ EXISTS and
+              .backstop/packs/acme/divergent/ DOES NOT.
+            TestAddCommand_Run_ManifestKeyComesFromManifestName (CLM-029)
+              backstop.yml's packs: key is other/renamed-pack.
+            TestAddCommand_Run_LockKeyComesFromManifestName (CLM-030)
+              BOTH the lock map key AND the entry's `name` field are
+              other/renamed-pack. Assert both; the key alone lets a mismatched
+              `name` field through.
+            TestAddCommand_Run_EqualNameAndCoordinateInstallsUnchanged (CLM-032)
+              The fleet-convention case behaves exactly as before.
+            TestAddCommand_Run_LocalPathIdentityComesFromSharedResolution (CLM-038)
+              A local-path add takes its name from the manifest through
+              ReadManifestIdentity, not through a second reader. Assert
+              behaviorally (the name arrives) AND structurally: grep
+              command.go for `map[string]interface{}` and require zero hits.
+              The claim is that there is ONE implementation, and only the
+              structural half can see a second one.
+            TestRemove_DivergentNamePackRemovesEverySurfaceByManifestName (CLM-039)
+              After a divergent add, Remove(manifestName) clears the installed
+              tree, the backstop.yml entry, and the lock entry. Remove needs no
+              change of its own — it looks a pack up by the key REQ-003 sets —
+              so this test PROVES that rather than exercising new code.
+
+          PRE-CLONE REFUSAL (REQ-001):
+            TestAddCommand_Run_UnresolvableVersionRefusesBeforeCloning (CLM-010)
+              A cloner double that RECORDS EVERY INVOCATION must record ZERO.
+              Asserting only that an error came back cannot distinguish
+              "refused before git" from "cloned, then refused".
+
+          PRE-MUTATION REFUSAL (REQ-007) — one test per consumer-state surface,
+          each driving a VERSION-MISMATCH refusal:
+            TestAddCommand_Run_IdentityRefusalWritesNoInstalledContent (CLM-071)
+              No directory under .backstop/packs for the manifest name OR the
+              coordinate. Check both; a refusal that created the coordinate
+              path passes a manifest-name-only check.
+            TestAddCommand_Run_IdentityRefusalLeavesManifestUntouched (CLM-072)
+              backstop.yml BYTE-identical to its pre-command content.
+            TestAddCommand_Run_IdentityRefusalLeavesLockUntouched (CLM-073)
+              backstop.lock byte-identical, and ABSENT when it did not exist.
+              The absent case is the one a naive "read, modify, write" breaks.
+            TestAddCommand_Run_IdentityRefusalWritesNoProvenanceOrToolConfig (CLM-074)
+            TestAddCommand_Run_IdentityRefusalLeavesGitignoreUntouched (CLM-075)
+              Byte-identical, and absent when it did not exist.
+            TestAddCommand_Run_IdentityGatePrecedesValidation (CLM-076)
+              A pack that is BOTH identity-invalid AND validation-failing
+              reports the IDENTITY diagnostic. This pins the ordering
+              deliberately, so SPEC-055's coincidence (hermetic/invalid-pack
+              happens to have a valid name and a harness-rewritten version) is
+              not the only thing holding it.
+            TestAddCommand_Run_IdentityRefusalLeavesNoTemporaryDirectories (CLM-077)
+              The clone temp dir and the scratch dir are both gone. Capture
+              them via the recording cloner and the recording validator rather
+              than scanning the OS temp dir, which is shared and flaky.
+
+          DIVERGENCE IS LOUD AND NEVER FATAL (REQ-006):
+            TestAddCommand_Run_DivergentIdentitySucceedsWithWarning (CLM-063)
+              err is nil AND Warnings is non-empty. REMOVE TASK-019's t.Skip
+              from TestAddResult_CarriesWarnings in this task — its producing
+              path now exists.
+            TestAddCommand_Run_DivergenceWarningNamesAllThreeIdentities (CLM-064)
+              The diagnostic names the requested COORDINATE, the MANIFEST NAME,
+              and the RESOLVED INSTALL PATH. All three; two of three leaves an
+              operator unable to find where the pack went.
+            TestAddCommand_Run_EqualIdentitiesEmitNoWarning (CLM-065)
+              Silence is the signal that the name == coordinate fleet
+              convention still holds, so an always-warning implementation must
+              red here.
+            TestAddCommand_Run_CaseOnlyDifferenceCountsAsDivergent (CLM-066)
+              `Acme/Valid-Pack` against manifest `acme/valid-pack` IS
+              divergent. Comparison is byte-exact; GitHub would treat them as
+              one repository and a different host would not (spec Review
+              Question 12).
+            TestAddCommand_Run_DivergenceRecordsBothIdentities (CLM-067)
+              The pack installs and the lock records the manifest name and the
+              coordinate INDEPENDENTLY, so a consumer can answer "what is it
+              called here?" and "where did it come from?" separately.
+        files:
+          - pkg/pack/distribution/add_identity_test.go
+          - pkg/pack/distribution/result_warnings_test.go
+        claims:
+          - CLM-010
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-038
+          - CLM-039
+          - CLM-063
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-071
+          - CLM-072
+          - CLM-073
+          - CLM-074
+          - CLM-075
+          - CLM-076
+          - CLM-077
+          - CLM-105
+        depends_on:
+          - TASK-026
+
+      - id: TASK-028
+        type: implementation
+        title: "Reorder AddCommand.Run onto the identity gate and replace every parsePackRef-derived name"
+        description: |
+          Rewire pkg/pack/distribution/command.go's AddCommand.Run
+          (:101-277). REORDERED, NOT REWRITTEN — the pipeline's steps and its
+          existing rollback closure survive; what changes is their order and
+          which string they use.
+
+          THE GIT BRANCH BECOMES:
+            ResolveEffectiveVersion(packRef, opts.Version)   ← before any git
+            → Clone at identity.Tag
+            → ValidateRemoteIdentity(coordinate, effectiveVersion, tmpDir)
+            → isPackInstalledAndCurrent(projectDir, identity.InstallName)
+            → runValidationOnScratchCopy(...)
+            → mutate
+
+          THE ALREADY-INSTALLED-AND-CURRENT CHECK MOVES (currently :134-136,
+          before the clone). It is keyed on the INSTALL name, which for a git
+          source is not knowable until the manifest is read. CONSEQUENCE,
+          DELIBERATE AND STATED IN THE SPEC'S SHARP EDGES: re-adding a current
+          git pack now costs one shallow single-ref clone. The alternative —
+          keying the short-circuit on the coordinate — would reintroduce
+          exactly the coordinate-as-identity assumption this spec removes. Do
+          not "optimize" it back.
+
+          THE LOCAL BRANCH keeps its position (a local pack's manifest is
+          readable without cloning) but routes its manifest read through
+          ReadManifestIdentity, RETIRING the inline yaml.Unmarshal into
+          map[string]interface{} at :770-779 inside resolveLocalPackSource.
+          One implementation for both sources (CLM-038).
+
+          REPLACE EVERY REMAINING USE of the parsePackRef-derived name with
+          identity.InstallName, at all four sites:
+            :162  installedPath := filepath.Join(projectDir, ".backstop", "packs", packName)
+            :230  mergeResult.Merged[i].SourcePack = packName
+            :239  updateBackstopYml(projectDir, packName, …)
+            :251  lf.Packs[packName] = LockEntry{Name: packName, …}
+          and AddResult.PackName, which is now the MANIFEST name — what the
+          CLI's success line should have been printing all along.
+
+          parsePackRef IS UNCHANGED IN SHAPE BUT DEMOTED IN MEANING: its first
+          return is the source COORDINATE, never the pack name.
+          ResolveEffectiveVersion should be its only caller that reads a
+          version from it.
+
+          DIVERGENCE: compute `identity.Diverged` byte-exactly, append the
+          three-identity diagnostic to AddResult.Warnings, and PROCEED. Never a
+          refusal, never an exit-code change. OQ-9 resolved to option (b) and
+          rejected option (a) by name.
+
+          THE ROLLBACK CLOSURE STAYS AS IT IS, with all its existing gaps.
+          REQ-007 guarantees nothing is written BEFORE the gate; it guarantees
+          nothing about after. Bundle REQ-040@1.1.0's staged transaction
+          coordinator is the fix and is not delivered here — a reader must not
+          mistake "pre-mutation ordering" for "transactional".
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-010
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-038
+          - CLM-063
+          - CLM-064
+          - CLM-065
+          - CLM-066
+          - CLM-067
+          - CLM-071
+          - CLM-072
+          - CLM-073
+          - CLM-074
+          - CLM-075
+          - CLM-076
+          - CLM-077
+        depends_on:
+          - TASK-027
+
+      - id: TASK-029
+        type: refactor
+        title: "Repair edit-set items (A) and (C): the two add_test tests the identity gate invalidates"
+        description: |
+          Two existing tests in pkg/pack/distribution/add_test.go now fail for
+          reasons that have nothing to do with what they assert. Both keep
+          their identifiers.
+
+          (A) TestPackAdd_MergeToolConfigErrorRollsBack (add_test.go:1229)
+              It builds a git-source pack whose pack.yml is
+              "\x00\x01\x02 binary garbage" and asserts the error text contains
+              "merging tool_config". After TASK-028 that pack is rejected far
+              earlier, by ReadManifestIdentity, so the test's PREMISE no longer
+              holds. It is NOT a mandated name — verified absent from every
+              spec's tests: list.
+              DISPOSITION: rewrite in place. Keep the identifier and keep BOTH
+              rollback assertions (no installed content, backstop.yml
+              unchanged). Reach the merge failure the way the test intends,
+              with a pack.yml that PARSES and identity-validates —
+              `name: acme/bad-pack`, `version: "1.0.0"` — but carries a
+              tool_config entry MergeToolConfig cannot apply. Read
+              config_merge.go to find a shape that genuinely fails there; do
+              not guess, and do not settle for a pack that fails for some other
+              reason, which would make the assertion unfalsifiable in a new
+              way.
+
+          (C) TestPackAdd_LocalPathMissingName (add_test.go:841)
+              It points add at a local directory whose pack.yml declares only a
+              version, and asserts the error text contains the exact literal
+              "local pack manifest missing name" (command.go:778 today). After
+              TASK-028 the local branch routes through ReadManifestIdentity,
+              whose *IdentityError words it differently. NOT mandated —
+              verified absent from every spec's tests: list.
+              DISPOSITION: keep the identifier; replace the literal-substring
+              assertion with errors.As over *IdentityError PLUS a requirement
+              that the message names the `name` field. Asserting the TYPE is
+              strictly stronger than asserting a sentence, and it is the same
+              assertion CLM-033 makes on the remote side, so the local and
+              remote halves now agree.
+
+          CHANGE NOTHING ELSE IN add_test.go. TASK-024 already edited
+          TestPackAdd_LocalPathValidatesInPlace in this file; this task touches
+          only these two functions. If a THIRD test in this file reds, stop and
+          report it — the edit-set enumeration is supposed to be closed.
+        files:
+          - pkg/pack/distribution/add_test.go
+        claims:
+          - CLM-038
+          - CLM-087
+        depends_on:
+          - TASK-028
+
+      - id: TASK-030
+        type: verification
+        title: "Verify the manifest name reaches every identity surface and nothing is written before the gate"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          ANSWER SPEC REVIEW QUESTION 1 BY GREP, not by inspection: does every
+          use of a pack name to build a filesystem path, a backstop.yml key, a
+          lock key, or an engine asset root read the MANIFEST name, with NO
+          surviving path from parsePackRef's first return to any of the four?
+            - `grep -n "parsePackRef" pkg/pack/distribution/*.go` — every hit
+              must feed ResolveEffectiveVersion or a coordinate, never an
+              install path, a manifest key, or a lock key.
+            - `grep -n "map\[string\]interface{}" pkg/pack/distribution/command.go`
+              returns NOTHING — the inline manifest read is retired (CLM-038).
+            - `grep -n "ToLower\|EqualFold" pkg/pack/distribution/command.go`
+              returns NOTHING (spec Review Question 12).
+
+          ANSWER SPEC REVIEW QUESTION 2: is the gate's position ASSERTED, not
+          merely arranged? CLM-071..077 are the assertions. Read CLM-076's test
+          and confirm it would FAIL if the gate ran after validation — a
+          passing test that cannot fail proves nothing.
+
+          THE COINCIDENCE CHECK. SPEC-055's remote e2e suite should still be
+          green because the hermetic fixtures all declare
+          `hermetic/<directory>`, which is exactly what remoteE2ESetup builds
+          the coordinate from. Confirm TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks
+          and TestE2E_PackAdd_ValidationFailureIsLoud pass. If either reds, a
+          fixture's manifest name and its directory have drifted apart and
+          every SPEC-055 remote claim has silently become a divergence case.
+
+          THE EDIT SET IS CLOSED AT ELEVEN, and only items (A) through (D) are
+          due by the END OF THIS PHASE — (E) and (F) are phase 11's, because
+          the upgrade identity gate does not land until TASK-038. Confirm the
+          four are done and that nothing ELSE in add_test.go or update_test.go
+          needed touching. A twelfth item anywhere means the package-wide
+          fixture-versus-ref pairing missed a class — report it rather than
+          absorbing it as "just fixing a test".
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/add_identity_test.go
+        claims:
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-038
+          - CLM-039
+          - CLM-064
+          - CLM-066
+          - CLM-076
+          - CLM-077
+        depends_on:
+          - TASK-028
+          - TASK-029
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: Pass 7 — the coordinate on the WRITE side
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: The source coordinate recorded verbatim on add, and preserved by every rewrite"
+    tasks:
+      - id: TASK-031
+        type: test
+        title: "Write the failing coordinate-recording tests, including the three verbatim shapes and the three preservation paths"
+        description: |
+          Create pkg/pack/distribution/coordinate_record_test.go:
+
+          RECORDING (REQ-004):
+            TestAddCommand_Run_RecordsSourceCoordinate (CLM-040)
+              A git add writes the requested org/repository into the lock
+              entry's source_coordinate.
+            TestAddCommand_Run_RecordsMixedCaseCoordinateVerbatim (CLM-041)
+              `Backstop-AI/Go-Standards` is recorded byte-for-byte. Assert
+              EQUALITY with the exact input string, not case-insensitive
+              containment — the assertion is the only thing standing between
+              here and a "helpful" fold.
+            TestAddCommand_Run_RecordsSuffixedCoordinateVerbatim (CLM-042)
+              `backstop-ai/backstop-harness-toolchain-pack` keeps its `-pack`
+              suffix. The published fleet's real shape.
+            TestAddCommand_Run_RecordedCoordinateExcludesVersionSuffix (CLM-043)
+              `acme/pack@1.0.0` records `acme/pack`. The @version suffix is
+              removed and NOTHING ELSE is.
+            TestAddCommand_Run_LocalSourceRecordsNoCoordinate (CLM-044)
+              A local-path add records an EMPTY source_coordinate, because
+              local_path already records its source. Assert the emitted lock
+              TEXT carries no source_coordinate key at all, not merely that the
+              struct field is "" — that is what CLM-046's omitempty guard is
+              for and this is where it is exercised end to end.
+
+          PRESERVATION (REQ-004):
+            TestUpdateCommand_Run_PreservesRecordedCoordinate (CLM-048)
+            TestUpgradeCommand_Run_PreservesRecordedCoordinate (CLM-049)
+              Seed a lock entry with a coordinate DIFFERENT from the pack name,
+              run the command, and require the coordinate survives the
+              rewrite. A test where the two strings coincide cannot fail.
+              recordGitPackInLock (command.go:812-832) currently REPLACES the
+              whole LockEntry, so an unpatched helper silently drops the field.
+            TestRelock_PreservesEveryFieldItDoesNotRefresh (CLM-050)
+              Relock refreshes content_hash and install_date and leaves every
+              other field — source_coordinate included — exactly as found.
+              Relock (relock.go:29-68) already does a read-modify-write on the
+              entry, so this is a CHARACTERIZATION test: it passes on arrival
+              and reds if someone converts relock to a whole-entry replace the
+              way recordGitPackInLock does it today. Say so in the comment.
+        files:
+          - pkg/pack/distribution/coordinate_record_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-048
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-030
+
+      - id: TASK-032
+        type: implementation
+        title: "Record SourceCoordinate on add and give recordGitPackInLock the coordinate parameter"
+        description: |
+          Two edits in pkg/pack/distribution/command.go, plus one in add.go.
+
+          1. AddCommand.Run writes the coordinate into the lock entry it builds
+             at :251-259 — the value ResolveEffectiveVersion returned, VERBATIM
+             — for git sources, and leaves it EMPTY for local ones. Also expose
+             it on AddResult.SourceCoordinate so a caller can see what was
+             requested alongside what it is called.
+
+          2. recordGitPackInLock gains the parameter:
+
+               func recordGitPackInLock(projectDir, packName, version,
+                   contentHash, sourceCoordinate string) error
+
+             A PARAMETER RATHER THAN A READ-MODIFY-WRITE INSIDE THE HELPER. The
+             helper replaces the whole LockEntry (:822-829); making it silently
+             preserve fields would hide exactly the class of bug CLM-048/049
+             exist to catch. A caller with no coordinate to preserve has to say
+             so at the call site.
+
+          3. Update and upgrade read the coordinate from the EXISTING lock
+             entry and pass it through, so a rewrite cannot drop it. They do
+             not re-derive it from the pack name — that is precisely the
+             derivation REQ-003 removes.
+
+          NO CASE FOLDING, NO SUFFIX STRIPPING, NO HOST-SPECIFIC NORMALIZATION
+          of any kind, on any path (spec Review Question 12). The coordinate is
+          a SOURCE LOCATION recorded as the operator wrote it.
+
+          THE COORDINATE IS NOT PACK CONTENT. It must not enter
+          ComputeContentHash, for the same reason LocalPath does not: where a
+          pack came from is provenance, and folding it in would make every
+          existing entry's hash unreproducible.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-048
+          - CLM-049
+        depends_on:
+          - TASK-031
+
+      - id: TASK-033
+        type: verification
+        title: "Verify the coordinate is recorded verbatim, survives every rewrite, and stays out of the hash"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Confirm by GREP:
+            - `grep -n "recordGitPackInLock" pkg/pack/distribution/*.go` — every
+              call site passes five arguments, and no call site passes the pack
+              NAME where the coordinate belongs.
+            - `grep -n "SourceCoordinate" pkg/pack/distribution/hash.go` returns
+              NOTHING.
+            - `git diff backstop.lock` is still EMPTY. This repository's own six
+              entries are all local; if any gained a key, the git/local branch
+              split is wrong.
+
+          Then read CLM-048's and CLM-049's tests and confirm the seeded
+          coordinate DIFFERS from the pack name. If they coincide, both tests
+          pass against an implementation that re-derives the coordinate from
+          the name — which is the exact bug.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/coordinate_record_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-044
+          - CLM-048
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-032
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: Pass 8 — the coordinate on the READ side, and the upgrade local guard
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: Install, update, upgrade and version resolution read the RECORDED coordinate — through one accessor, warning once"
+    tasks:
+      - id: TASK-034
+        type: test
+        title: "Write the failing read-side tests: four rewired call sites, the single-emission claim, and the three local-source guards"
+        description: |
+          Create pkg/pack/distribution/coordinate_read_test.go. Every test
+          seeds a lock entry whose coordinate DIFFERS from its key — e.g. key
+          `backstop/harness-toolchain`, coordinate
+          `backstop-ai/backstop-harness-toolchain-pack` — and uses a cloner and
+          a resolver that RECORD the URL and coordinate they were handed. A
+          fixture where key and coordinate coincide cannot falsify any of this.
+
+            TestInstallCommand_Run_ClonesFromRecordedCoordinate (CLM-054)
+            TestUpdateCommand_Run_ResolvesTagsAtRecordedCoordinate (CLM-055)
+              The resolver is handed the COORDINATE, not the pack name.
+            TestUpdateCommand_Run_ClonesFromRecordedCoordinate (CLM-056)
+            TestUpgradeCommand_Run_ClonesFromRecordedCoordinate (CLM-057)
+            TestTagVersionResolver_ResolveLatestCompatible_UsesSuppliedCoordinate (CLM-058)
+              The resolver builds its ls-remote URL from the coordinate it was
+              PASSED (versionresolver.go:70), not from anything it derives.
+
+            TestUpdateCommand_Run_FallbackWarningEmittedOncePerInvocation (CLM-059)
+              THE LOAD-BEARING ONE. Update needs the coordinate at TWO points —
+              once for ls-remote, once for the clone — and resolves it ONCE,
+              emitting the fallback warning EXACTLY ONCE. Seed an entry with NO
+              source_coordinate, run update, and COUNT the matching entries in
+              UpdateResult.Warnings. Require exactly 1. `>= 1` passes for the
+              double-emission this claim exists to prevent, and two identical
+              warnings for one invocation is the noise that trains operators to
+              ignore the signal.
+
+          LOCAL SOURCES HAVE NO REMOTE — establish source type BEFORE resolving:
+            TestInstallCommand_Run_LocalSourceNeedsNoCoordinate (CLM-060)
+              Materializes from local_path, resolves no coordinate, and emits
+              NO fallback warning despite carrying none.
+            TestUpdateCommand_Run_LocalSourceRemainsNoOpWithoutIdentityGate (CLM-026)
+              Still a no-op; no clone, no identity gate, no coordinate.
+            TestUpgradeCommand_Run_LocalSourceRefusedBeforeIdentityGate (CLM-027)
+              Refused by the NEW local guard, with a diagnostic naming
+              `pack relock` as the local path forward. Assert the cloner
+              recorded ZERO invocations.
+            TestUpgradeCommand_Run_LocalSourceResolvesNoCoordinate (CLM-061)
+              No coordinate resolved and NO fallback warning, because the guard
+              refuses first. Without the guard, REQ-005's fallback would fire
+              on a pack that has no repository at all.
+
+          INSTALL DOES NOT RE-VALIDATE IDENTITY (DD-12):
+            TestInstallCommand_Run_DoesNotApplyManifestVersionEquality (CLM-025)
+              A hash-matching entry installs SUCCESSFULLY even when the cloned
+              manifest's declared version disagrees with the locked version.
+              Applying the equality check here would make install fail on a
+              repository whose manifest drifted after a successful add, even
+              though the bytes it restored are exactly the bytes that were
+              locked (spec Review Question 13).
+        files:
+          - pkg/pack/distribution/coordinate_read_test.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+        depends_on:
+          - TASK-033
+
+      - id: TASK-035
+        type: implementation
+        title: "Route four call sites through RemoteURLForEntry/CoordinateForEntry and add the upgrade local guard"
+        description: |
+          FOUR REWIRINGS, all replacing `resolveGitURL(name)` or a name-derived
+          coordinate:
+
+            InstallCommand.Run   command.go:418 → RemoteURLForEntry(name, entry),
+                                 appending the fallback warning to
+                                 result.Warnings. Its LOCAL branch (:393-400)
+                                 resolves no coordinate at all.
+            UpdateCommand.Run    command.go:506 (the resolver call) and :533
+                                 (the clone URL). RESOLVE ONCE: call
+                                 CoordinateForEntry a single time near the top
+                                 of the git path, pass the coordinate to
+                                 ResolveLatestCompatible AND build the clone URL
+                                 from that same value, and append the warning
+                                 ONCE (CLM-059). Do NOT call
+                                 RemoteURLForEntry a second time to get the URL
+                                 — that is the double-emission.
+            UpgradeCommand.Run   command.go:648 → the recorded coordinate.
+            TagVersionResolver   versionresolver.go — rename
+                                 ResolveLatestCompatible's first parameter from
+                                 packName to `coordinate`, and rename it in the
+                                 VersionResolver interface (update.go) too. THE
+                                 SIGNATURE SHAPE IS UNCHANGED, so no existing
+                                 test double breaks; what changes is what
+                                 callers pass and what the diagnostics quote.
+                                 Update the doc comment, which currently says
+                                 "resolved from its NAME" — leaving it is a
+                                 comment that actively lies.
+
+          THE UPGRADE LOCAL GUARD (REQ-005/CLM-027/061). UpgradeCommand.Run
+          discards readPackVersion's isLocal result today — command.go:636
+          reads `currentVersion, _, err` — and clones unconditionally. STOP
+          DISCARDING IT and refuse a local-source pack BEFORE any coordinate
+          resolution, with a diagnostic naming `pack relock` as the local path
+          forward. Without the guard, REQ-005's fallback warning fires on a
+          pack that has no repository (spec Review Question 11).
+
+          ESTABLISH SOURCE TYPE BEFORE RESOLVING A COORDINATE, in all three
+          commands. A local entry has no remote, so asking for its coordinate
+          is a category error that surfaces as a spurious warning.
+
+          REMOVE TASK-019's t.Skip from TestUpdateResult_CarriesWarnings,
+          TestUpgradeResult_CarriesWarnings and
+          TestInstallResult_CarriesReconciliationAndFallbackWarningsTogether —
+          their producing paths now exist.
+
+          INSTALL PERFORMS NO IDENTITY OR MANIFEST-VERSION CHECK. It is the
+          hash-verified restore path (DD-12) and this task must not leak the
+          gate into it.
+
+          resolveGitURL's construction is UNCHANGED. ISSUE-083's hardcoded
+          GitHub host is explicitly out of scope; only the string it receives
+          changes.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/versionresolver.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/result_warnings_test.go
+        claims:
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-106
+          - CLM-107
+          - CLM-108
+        depends_on:
+          - TASK-034
+
+      - id: TASK-036
+        type: verification
+        title: "Verify there is exactly ONE place a lock entry becomes a coordinate, and that update warns once"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          ANSWER SPEC REVIEW QUESTION 8 BY GREP: is there exactly one place a
+          lock entry becomes a coordinate?
+            - `grep -n "resolveGitURL(" pkg/pack/distribution/*.go` — the only
+              non-test hits are inside RemoteURLForEntry and
+              TagVersionResolver.ResolveLatestCompatible, both operating on a
+              COORDINATE. Any hit taking a pack NAME is a surviving derivation.
+            - `grep -n "CoordinateForEntry" pkg/pack/distribution/command.go`
+              shows update calling it ONCE per invocation, not twice.
+
+          ANSWER SPEC REVIEW QUESTION 11: `grep -n "currentVersion, _, err" pkg/pack/distribution/command.go`
+          returns NOTHING. If it survives, a local-source pack reaches
+          coordinate resolution and warns about a repository it does not have.
+
+          ANSWER SPEC REVIEW QUESTION 13: run
+          TestInstallCommand_Run_DoesNotApplyManifestVersionEquality by name
+          and confirm it is GREEN. The identity gate must not have leaked into
+          the restore path.
+
+          Then read CLM-059's test and confirm it asserts EXACTLY ONE
+          occurrence, not at-least-one. An `>= 1` assertion passes for the
+          double-emission the claim exists to prevent.
+        files:
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/versionresolver.go
+          - pkg/pack/distribution/update.go
+          - pkg/pack/distribution/coordinate_read_test.go
+        claims:
+          - CLM-025
+          - CLM-027
+          - CLM-055
+          - CLM-058
+          - CLM-059
+          - CLM-061
+        depends_on:
+          - TASK-035
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 11: Pass 9 — identity on update and upgrade, plus the JSON kinds
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-11
+    name: "Phase 11: The identity gate on update and upgrade, their divergence and refusal claims, and the version/identity JSON kinds"
+    tasks:
+      - id: TASK-037
+        type: test
+        title: "Write the failing update/upgrade identity tests, their refusal-surface tests, and the JSON classification tests"
+        description: |
+          Create pkg/pack/distribution/update_upgrade_identity_test.go:
+
+            TestUpdateCommand_Run_ResolvedTagVersionDriftRefuses (CLM-023)
+              The resolver resolves 1.1.0; the cloner serves a manifest
+              declaring something else → *VersionMismatchError.
+            TestUpgradeCommand_Run_TargetTagVersionDriftRefuses (CLM-024)
+              The ref targets @2.0.0; the cloned manifest declares 1.1.0 →
+              *VersionMismatchError. (This is the shape TASK-004's
+              valid-pack-v3 exists to let the OTHER 22 upgrade tests avoid.)
+            TestUpdateCommand_Run_CarriesDivergenceWarning (CLM-068)
+            TestUpgradeCommand_Run_CarriesDivergenceWarning (CLM-069)
+              A divergent-name pack's diagnostic arrives on the RESULT. Before
+              this spec these result types had no warning field at all, so a
+              diagnostic computed inside them would have been dropped.
+            TestUpdateCommand_Run_IdentityRefusalLeavesEverySurfaceUntouched (CLM-078)
+              The previously installed tree, backstop.yml and backstop.lock are
+              all exactly as they were. Assert the installed tree byte-wise,
+              not merely that it exists — a refusal that replaced it with the
+              new content and then errored still passes an existence check.
+            TestUpgradeCommand_Run_IdentityRefusalLeavesEverySurfaceUntouched (CLM-079)
+              Those three plus provenance, tool config, and any remediation
+              artifact. Upgrade's first consumer write is the tool-config merge
+              (command.go:699), so the gate must precede the violation scan,
+              which already precedes it.
+
+          Create cmd/backstop/json_error_identity_test.go:
+
+            TestClassifyJSONErrorKind_VersionUnresolvedIsVersionKind (CLM-094)
+            TestClassifyJSONErrorKind_VersionMismatchIsVersionKind (CLM-095)
+            TestClassifyJSONErrorKind_IdentityErrorIsIdentityKind (CLM-096)
+
+          TEST THE WRAPPED FORM, NOT ONLY THE BARE VALUE. The pipelines wrap
+          their typed errors for context (fmt.Errorf("cloning pack %s: %w",…)),
+          and a classifier using a type ASSERTION classifies bare values
+          correctly while sending every wrapped one — which is most of what a
+          real failure looks like — to "unknown". Each of the three must assert
+          on a value wrapped at least one level deep. Also assert that the
+          EXISTING kinds (git, validation, dependency, capability) are
+          unchanged, so a new arm inserted in the wrong position reds here.
+        files:
+          - pkg/pack/distribution/update_upgrade_identity_test.go
+          - cmd/backstop/json_error_identity_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-068
+          - CLM-069
+          - CLM-078
+          - CLM-079
+          - CLM-094
+          - CLM-095
+          - CLM-096
+        depends_on:
+          - TASK-036
+
+      - id: TASK-038
+        type: implementation
+        title: "Call ValidateRemoteIdentity in update and upgrade, and add the two JSON error kinds"
+        description: |
+          DISTRIBUTION — both cloning commands call ValidateRemoteIdentity
+          IMMEDIATELY AFTER their clone and BEFORE anything else:
+
+            UpdateCommand.Run   after the clone at command.go:534, BEFORE
+                                tamper detection (:549) and before any
+                                mutation. Tamper detection compares the
+                                installed tree against the cloned one; running
+                                it before the gate means a version-drifted pack
+                                produces a tamper report instead of the
+                                cheaper, more specific version diagnostic.
+            UpgradeCommand.Run  after the clone at command.go:649, BEFORE the
+                                violation scan — which already precedes the
+                                tool-config merge, upgrade's first consumer
+                                write.
+
+          Both use the MANIFEST name for the install path, the backstop.yml key
+          and the lock key, exactly as add does, and both append the divergence
+          diagnostic to their result's Warnings.
+
+          cmd/backstop/json_error.go — two new kind constants and three new
+          errors.As arms:
+
+            jsonErrorKindVersion  = "version"   ← *VersionUnresolvedError
+                                                  AND *VersionMismatchError
+            jsonErrorKindIdentity = "identity"  ← *IdentityError
+
+          The arms go BESIDE the existing git/validation/dependency/capability
+          arms and BEFORE the `unknown` default. NO EXISTING CLASSIFICATION
+          CHANGES. Use errors.As, never a type assertion, for the reason the
+          file's own comment at :61-64 already gives.
+
+          THREE TYPES, TWO KINDS, DELIBERATELY. VersionUnresolvedError and
+          VersionMismatchError share a kind because both mean "the version is
+          wrong"; IdentityError is separate because its remedy is different —
+          fix the manifest versus retag the repository — and a consumer
+          switching on kind must be able to tell them apart.
+        files:
+          - pkg/pack/distribution/command.go
+          - cmd/backstop/json_error.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-068
+          - CLM-069
+          - CLM-078
+          - CLM-079
+          - CLM-094
+          - CLM-095
+          - CLM-096
+        depends_on:
+          - TASK-037
+
+      - id: TASK-039
+        type: refactor
+        title: "Repair edit-set item (E): repoint the whole upgrade suite at valid-pack-v3"
+        description: |
+          THE LARGEST EDIT-SET ITEM, AND IT IS PURELY MECHANICAL. Every test in
+          pkg/pack/distribution/upgrade_test.go calls
+          `upgrade.Run("acme/valid-pack@2.0.0", …)` while its cloner serves
+          testdata/valid-pack-v2, whose manifest declares version "1.1.0".
+          TASK-038's identity gate refuses all ~22 of them with a
+          *VersionMismatchError.
+
+          THE REPAIR: change every
+            &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v2")}
+          in upgrade_test.go to
+            &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v3")}
+
+          EVERY TEST IDENTIFIER SURVIVES VERBATIM. Several are SPEC-015
+          mandated names. Change ONLY the cloneDir literal — never a
+          `func TestX` identifier, never an assertion, never a merge of two
+          tests, never a "tidy".
+
+          DO NOT change the refs to @1.1.0 instead. upgrade requires an
+          EXPLICIT MAJOR target and TestPackUpgrade_AcceptsMajorVersionTarget
+          asserts exactly that; a minor target would delete the claim.
+
+          DO NOT edit valid-pack-v2 in place. It is the matched pair the UPDATE
+          suite compares against — 20+ update tests serve it as the newer
+          version — and moving its version literal breaks them instead.
+
+          TWO TESTS NEED A SECOND LOOK, not a blind substitution:
+            - TestPackUpgrade_FailsWhenCloneFails uses a failing cloner with no
+              cloneDir; leave it alone.
+            - TestPackUpgrade_MergeToolConfigError and
+              TestPackUpgrade_ToolConfigConflictExitsNonZero depend on
+              valid-pack-v2's tool_config block. TASK-004 copied it verbatim
+              into v3; VERIFY that by running these two by name rather than
+              assuming.
+
+          AFTERWARDS, RE-COUNT. `grep -c "valid-pack-v2" upgrade_test.go`
+          should be 0 and `grep -c "valid-pack-v3"` should equal the number of
+          cloner constructions you changed. If a v2 reference survives, one
+          test is still refusing and it will look like a production bug.
+
+          THIS TASK OWNS upgrade_test.go ONLY. Six MORE tests of the identical
+          shape live in upgrade_capability_test.go, validation_gate_test.go and
+          command_test.go — edit-set item (F) — and TASK-040 owns them. Do not
+          reach into those files here; do not assume they are fine because this
+          file is. One of them passes VACUOUSLY under the refusal rather than
+          reddening, which is exactly why it has its own task with its own
+          instructions.
+        files:
+          - pkg/pack/distribution/upgrade_test.go
+        claims:
+          - CLM-024
+          - CLM-069
+          - CLM-079
+        depends_on:
+          - TASK-038
+
+      - id: TASK-040
+        type: refactor
+        title: "Repair the SIX upgrade breakages OUTSIDE upgrade_test.go — including the one that goes vacuous instead of red"
+        description: |
+          THE SWEEP THAT PRODUCED TASK-039 WAS SCOPED WRONG, AND THIS TASK IS
+          THE CORRECTION. It enumerated "the six distribution suites" — the
+          named list SPEC-055 and spec015_lineage_test.go use — but
+          pkg/pack/distribution holds TWENTY-NINE _test.go files. Six more
+          tests carry the identical `@2.0.0` ref against a cloner serving
+          testdata/valid-pack-v2 (manifest version "1.1.0"), so TASK-038's
+          identity gate refuses them too.
+
+          THE METHOD CORRECTION, WHICH MATTERS MORE THAN THE SIX HITS: derive
+          an edit-set sweep from FIXTURE-VERSUS-REF PAIRINGS ACROSS THE WHOLE
+          PACKAGE — grep every cloneDir literal and every Run() ref in
+          `*_test.go` and pair them — never from a named suite list. A suite
+          list is a description of where tests USED to live; the compiler does
+          not honor it.
+
+          THE REPAIR IS THE SAME MECHANICAL ONE TASK-039 APPLIES: repoint each
+          cloneDir from testdata/valid-pack-v2 to testdata/valid-pack-v3
+          (TASK-004 already builds it). EVERY IDENTIFIER SURVIVES VERBATIM.
+          Five of the six are SPEC-055 MANDATED NAMES.
+
+          upgrade_capability_test.go — four, all SPEC-055 mandated:
+            :55  TestUpgradeCommand_ScannerInvokedUnconditionally      (CLM-056)
+            :87  TestUpgradeCommand_RemediationFailureAbortsUpgrade     (CLM-057)
+            :124 TestUpgradeCommand_PropagatesCapabilityUnavailableError (CLM-058)
+            :164 TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation (CLM-059)
+
+          validation_gate_test.go — one, SPEC-055 mandated:
+            :190 TestUpgradeCommand_ValidatesBeforeInstall              (CLM-053)
+            (The three AddCommand tests in this file use @1.0.0 against
+            valid-pack and are unaffected. Do not touch them.)
+
+          command_test.go — one, unmandated:
+            :387 TestUpgradeCommandRun_UsesReceiverDependencies
+            (TestUpdateCommandRun_UsesReceiverDependencies at :359 also serves
+            valid-pack-v2, but it is an UPDATE whose resolver returns "1.1.0",
+            which MATCHES the manifest. It survives. Leave it alone — changing
+            it to v3 would break it.)
+
+          ONE OF THE SIX GOES VACUOUS INSTEAD OF RED, AND THE IMPLEMENTER MUST
+          BE TOLD SO EXPLICITLY, BECAUSE NOTHING WILL TURN RED TO PROMPT IT:
+
+            TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
+            (upgrade_capability_test.go:164, SPEC-055 CLM-059) asserts exactly
+            two things — that Run returns a non-nil error, and that five
+            consumer-state artifacts are unchanged. A *VersionMismatchError
+            from the identity gate satisfies BOTH: it errors, and it refuses
+            before any mutation. THE TEST PASSES. What it stops proving is the
+            property it exists for — that the SCANNER is reached and its
+            unavailability is what fails the upgrade — because the gate now
+            refuses before the scan runs at all, and this test never checks
+            that its recordingScanner was invoked.
+
+            THE MANDATED NAME SURVIVES WHILE ITS MEANING IS GUTTED. That is
+            ISSUE-014 drift with the sign flipped, and it is the single most
+            expensive outcome available in this phase, because a green suite
+            is indistinguishable from a correct one. REPOINTING THE cloneDir IS
+            MANDATORY HERE DESPITE NOTHING FAILING.
+
+            WHILE YOU ARE IN IT, close the hole that let it go quiet: add an
+            assertion that the recordingScanner WAS invoked. The double already
+            records; nothing reads the recording. Without that, the same
+            vacuity returns the next time anything is inserted ahead of the
+            scan.
+
+          AFTERWARDS, RE-COUNT ACROSS THE PACKAGE:
+            grep -rn "valid-pack-v2" pkg/pack/distribution/*_test.go
+          The only surviving hits must be the UPDATE-suite cloners (whose
+          resolvers return 1.1.0), tamper_test.go:129 and update_test.go:357
+          (both non-tamper-diff comparisons against the v2 CONTENT, not
+          identity), and TestUpdateCommandRun_UsesReceiverDependencies. Any
+          `@2.0.0` still paired with v2 is a seventh breakage — report it.
+        files:
+          - pkg/pack/distribution/upgrade_capability_test.go
+          - pkg/pack/distribution/validation_gate_test.go
+          - pkg/pack/distribution/command_test.go
+        claims:
+          - CLM-024
+          - CLM-069
+          - CLM-079
+        depends_on:
+          - TASK-038
+
+      - id: TASK-041
+        type: verification
+        title: "Verify the gate reaches all three cloning commands, the suites survived, and the JSON kinds classify"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/pack/distribution/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Confirm by GREP:
+            - `grep -n "ValidateRemoteIdentity" pkg/pack/distribution/command.go`
+              shows THREE calls — one each in AddCommand.Run,
+              UpdateCommand.Run, UpgradeCommand.Run — and NONE in
+              InstallCommand.Run (spec Review Question 13).
+            - `grep -rn "valid-pack-v2" pkg/pack/distribution/*_test.go` —
+              PACKAGE-WIDE, not just upgrade_test.go. The only permitted
+              survivors are the UPDATE-suite cloners (resolvers returning
+              1.1.0, which matches), tamper_test.go:129 and update_test.go:357
+              (content comparisons, not identity), and
+              TestUpdateCommandRun_UsesReceiverDependencies
+              (command_test.go:359). Any `@2.0.0` still paired with v2 is a
+              breakage the eleven-item enumeration missed.
+            - `grep -n "jsonErrorKindVersion\|jsonErrorKindIdentity" cmd/backstop/json_error.go`
+              shows both constants declared and both used in
+              classifyJSONErrorKind.
+
+          THE VACUITY CHECK — THE ONE NO OTHER STEP COVERS. Run
+          TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
+          (upgrade_capability_test.go:164, SPEC-055 CLM-059) BY NAME and then
+          READ IT. It passes whether or not TASK-040 repointed its fixture,
+          because a *VersionMismatchError satisfies both its assertions. Confirm
+          two things by reading, not by running: its cloneDir is
+          valid-pack-v3, and it now asserts its recordingScanner WAS invoked. A
+          green here without both is a mandated name whose meaning was deleted.
+
+          THE MANDATED-NAME LEDGER. SPEC-015 mandates 100 test names and
+          SPEC-055 mandates its own. Confirm every one that lives ANYWHERE in
+          pkg/pack/distribution still exists — reading the names FROM
+          specs/SPEC-015-pack-distribution.spec.md and
+          specs/SPEC-055-production-remote-dependency-assembly.spec.md rather
+          than from memory, and sweeping all 29 test files rather than a named
+          suite list. This plan renames NOTHING and retires NOTHING; a missing
+          name means a "tidy" happened somewhere in phases 7-11.
+
+          Then answer: does CLM-078's test assert the installed tree BYTE-WISE?
+          A refusal that replaced the tree and then errored passes an
+          existence check and fails the property REQ-007 actually states.
+        files:
+          - pkg/pack/distribution/command.go
+          - cmd/backstop/json_error.go
+          - pkg/pack/distribution/upgrade_test.go
+          - pkg/pack/distribution/upgrade_capability_test.go
+          - pkg/pack/distribution/validation_gate_test.go
+          - pkg/pack/distribution/command_test.go
+          - pkg/pack/distribution/update_upgrade_identity_test.go
+        claims:
+          - CLM-023
+          - CLM-024
+          - CLM-068
+          - CLM-069
+          - CLM-078
+          - CLM-079
+          - CLM-094
+          - CLM-095
+          - CLM-096
+        depends_on:
+          - TASK-038
+          - TASK-039
+          - TASK-040
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 12: End to end, through the built binary, against hermetic remotes
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-12
+    name: "Phase 12: The end-to-end claims — real git, real binary, separated streams, hermetic throughout"
+    tasks:
+      - id: TASK-042
+        type: test
+        title: "Write the ten end-to-end claims against hermetic repositories through the built binary"
+        description: |
+          Create cmd/backstop/pack_identity_e2e_test.go. Every test builds the
+          binary with buildBackstopBinary, sets up a hermetic remote, PROVES
+          the redirect reached a child process (assertPackURLRedirected), and
+          drives the binary with runBackstopStreams — which captures stdout and
+          stderr INDEPENDENTLY. Never runBackstop's CombinedOutput; never
+          executeCommand's merged buffer.
+
+            TestE2E_PackAdd_VersionlessReferenceRefusesWithGuidance (CLM-011)
+              `pack add <org/name>` with no version and no --version: exit
+              non-zero, the diagnostic on STDERR naming both ways to supply a
+              version, and NO git error about a nonexistent branch. Today
+              parsePackRef returns "" and the pipeline clones the ref "v", so
+              the operator's diagnostic is git complaining about a branch. That
+              regression is what this asserts against.
+
+            TestE2E_PackAdd_ManifestVersionDriftRefusesLoudly (CLM-022)
+              Against version-drift-pack built with
+              newHermeticRemoteKeepingManifestVersion: exit non-zero, the
+              mismatch on stderr, and NO success line on stdout. IF THIS
+              FIXTURE IS BUILT WITH newHermeticRemote THE DRIFT WAS REWRITTEN
+              AWAY AND THE CLAIM IS VACUOUS (spec Review Question 7).
+
+            TestE2E_GateResolvesPackAssetsUnderManifestName (CLM-031)
+              After a DIVERGENT add, run `backstop gate` in the consumer and
+              require it resolves the pack's declared rule file under the
+              MANIFEST-name asset root with no missing-asset finding. This is
+              the claim that ties the whole spec back to the reported defect:
+              the harness consumer's `missing convert script`.
+
+            TestE2E_DivergentNamePack_AddThenInstallRoundTrip (CLM-062)
+              Add a divergent pack in one project, copy ONLY backstop.yml and
+              backstop.lock into a FRESH consumer, run `pack install`, and
+              require it installs green with MATCHING content hashes. This is
+              the claim that proves REQ-005 makes REQ-003 survivable: without
+              the recorded coordinate the fresh consumer would try to clone
+              `other/renamed-pack` and find nothing.
+
+            TestE2E_PackAdd_DivergentIdentityWarnsOnStderrAndSucceeds (CLM-070)
+              Exit ZERO, the divergence diagnostic on STDERR, the success line
+              on STDOUT. All three, on separated streams.
+
+            TestE2E_ScaffoldConfigPack_AddThenInstallHashesMatch (CLM-090)
+              THE CLAIM REQ-008 EXISTS FOR. Add scaffold-config-pack (the
+              corpus's first tier:complete declaration), then install it into a
+              fresh consumer from the lock, and require the hashes MATCH.
+              Before the scratch copy, packval's phase-3 rendering leaves files
+              present at add-hash time and absent at install-hash time, and the
+              install fails with a mismatch that looks exactly like tampering.
+              This must drive a REAL pack declaring a real scaffold — a
+              mock-validator proof does not reach packval at all.
+
+            TestE2E_IdentityRefusalNeverExitsSilently (CLM-097)
+              For EACH refusal shape — unresolvable version, version mismatch,
+              invalid manifest name — exit non-zero AND stderr non-empty. An
+              exit-1 with empty stderr satisfies `if code != 1` and is the
+              exact defect class this repo has shipped before.
+
+            TestE2E_IdentityRefusalEmitsNoStackTrace (CLM-098)
+              Neither stream contains "goroutine " or a `.go:NN` panic frame.
+              pack_add.go's AddOptions once carried a nil GitCloner that
+              nil-dereferenced (ISSUE-073); a panic is not a diagnostic.
+
+            TestE2E_WarningDoesNotChangeExitCode (CLM-113)
+              A divergent add exits 0 while emitting a warning; a fallback
+              install exits 0 while emitting one. Read the PROCESS exit code.
+
+            TestE2E_WarningsAndOutputOccupySeparateStreams (CLM-114)
+              With the streams read separately, warnings appear ONLY on stderr
+              and command output ONLY on stdout. Assert BOTH directions: a
+              renderer writing to both satisfies either half alone.
+
+          HERMETICITY IS LOAD-BEARING AND FRAGILE. The mechanism is a
+          `url.<file://repo>.insteadOf = https://github.com/<org>/<pack>.git`
+          rewrite installed via GIT_CONFIG_GLOBAL, and it only survives the
+          process boundary because runBackstopStreams passes os.Environ()
+          through (run_backstop_streams_test.go:37). Do not build a filtered
+          env for any child here; a scrubbed env sends the clone to GitHub and
+          the suite goes silently network-dependent with nothing turning red.
+
+          The redirect for a DIVERGENT pack is keyed on the COORDINATE the ref
+          names — `hermetic/divergent-name-pack` — not on the manifest name. A
+          redirect registered against the manifest name simply MISSES, and the
+          clone reaches the network.
+        files:
+          - cmd/backstop/pack_identity_e2e_test.go
+        claims:
+          - CLM-011
+          - CLM-022
+          - CLM-031
+          - CLM-062
+          - CLM-070
+          - CLM-090
+          - CLM-097
+          - CLM-098
+          - CLM-113
+          - CLM-114
+        depends_on:
+          - TASK-041
+
+      - id: TASK-043
+        type: verification
+        title: "Verify the end-to-end suite is hermetic, stream-separated, and driving real packs rather than doubles"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          THEN ANSWER EACH OF THESE EXPLICITLY, by grepping or by reading the
+          test, not by assuming:
+
+            - Does `go test ./...` still pass with NETWORKING DISABLED? Run it
+              that way. Any hermetic leak surfaces here and nowhere else.
+            - `grep -n "runBackstop(" cmd/backstop/pack_identity_e2e_test.go`
+              returns NOTHING. Every claim in this file must use
+              runBackstopStreams; the merged helper makes every stream claim
+              vacuous.
+            - `grep -n "newHermeticRemote(" cmd/backstop/pack_identity_e2e_test.go`
+              — the version-drift claim (CLM-022) must use
+              newHermeticRemoteKeepingManifestVersion. A plain
+              newHermeticRemote there rewrote the drift away (spec Review
+              Question 7).
+            - Does CLM-090 drive a REAL pack that declares a tier:complete
+              scaffold with sample_config, rather than a test double? A double
+              proves the seam plumbing and proves nothing about packval (spec
+              Review Question 6).
+            - Does CLM-031 assert on the GATE's output, or merely on the
+              install path? The install path is CLM-028; the point of CLM-031
+              is that the gate's asset resolution agrees with it.
+            - Does anything in the new code carry a language, tool or platform
+              literal beyond the sanctioned `git` and `sh`? backstop/self
+              should say so if it does — and if it says so, that is the
+              eradication backlog naming itself, which is a finding to FILE,
+              not to waive.
+        files:
+          - cmd/backstop/pack_identity_e2e_test.go
+          - cmd/backstop/hermetic_remote_harness_test.go
+          - cmd/backstop/testdata/hermetic-remote/version-drift-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/divergent-name-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-config-pack/pack.yml
+        claims:
+          - CLM-011
+          - CLM-022
+          - CLM-031
+          - CLM-062
+          - CLM-070
+          - CLM-090
+          - CLM-097
+          - CLM-098
+          - CLM-113
+          - CLM-114
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+          - TASK-005
+          - TASK-038
+          - TASK-042
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 13: Final verification — full kill chain over code and artifacts
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-13
+    name: "Phase 13: Final verification — the whole module with race, the full gate, artifact validation, then reconcile the codebase map"
+    tasks:
+      - id: TASK-044
+        type: verification
+        title: "Full kill chain: rebuild, whole-module race suite, backstop gate, artifact validate"
+        description: |
+          THE FINAL KILL CHAIN. `backstop code check` DOES NOT EXIST
+          (ISSUE-076) — do not run it.
+
+          Run, in order, reading each command's TRUE exit code, and read every
+          result:
+
+            1. go build -o bin/backstop ./cmd/backstop
+               NON-OPTIONAL. This plan changed both pkg/pack/distribution and
+               cmd/backstop extensively; a gate run against a stale binary
+               reports a verdict about code that is not in the tree and it
+               looks exactly like a real green.
+            2. go test ./... -race -count=1
+               The WHOLE module, not the four packages the spec's test_command
+               names. The identity gate reaches further than it looks: pkg/pack
+               gained an export, pkg/packval gained a characterization test,
+               and pkg/gate consumes installed packs by name.
+            3. ./bin/backstop gate
+               The full chain: pack lock verification, artifact validation,
+               pack engines (backstop/self over this diff), test verification,
+               substantiveness, coverage, contracts, status drift, requirement
+               traceability, waiver resolution, baseline comparison, ledger
+               integrity. ALL DIMENSIONS, NEVER FILTERED to what was touched.
+            4. ./bin/backstop artifact validate --all
+               This plan's own artifacts (PLAN-SPEC-056, SPEC-056) plus the
+               corpus.
+
+          COVERAGE. The spec's threshold is 80 at integration level over
+          ./pkg/pack/distribution/... ./cmd/backstop/... ./pkg/packval/...
+          ./pkg/pack/.... That is a FLOOR ON THE COMBINED PROFILE, not a
+          per-package target, and identity.go must not benefit from it: it is
+          new production code with a claim on every branch. Run
+            go test <those four> -race -coverprofile=cover.out
+            go tool cover -func=cover.out | grep identity.go
+          and read it. A gap names a claim whose test is missing, not a
+          threshold to lower.
+
+          THE WAIVER LEDGER. Confirm the gate reports NO dangling waiver. The
+          only waiver this plan interacts with is
+          cmd/backstop/pack_upgrade.go's line-1 coverage token, which must
+          still be on line 1 (`head -1` it) and must still be adjudicating.
+
+          FINAL HONESTY CHECKS — answer each explicitly rather than assuming:
+            - Does every use of a pack name to build a filesystem path, a
+              backstop.yml key, a lock key, or an engine asset root read the
+              MANIFEST name, with no surviving path from parsePackRef's first
+              return to any of the four? (Review Question 1)
+            - Is scratch-copy validation applied in all THREE validating
+              commands and on BOTH the remote and the local branch? (Review
+              Questions 3 and 4)
+            - Does a validation failure quote the original coordinate or local
+              path rather than a /var/folders scratch directory? (Review
+              Question 5)
+            - Is the content hash proven over a tree no validator wrote to, by
+              a FIXTURE that actually declares a tier:complete scaffold with
+              sample_config — not by a test double alone? (Review Question 6)
+            - Does the version-drift fixture use the manifest-version-preserving
+              constructor? (Review Question 7)
+            - Is there exactly ONE place a lock entry becomes a coordinate, and
+              does pack update emit the fallback warning once rather than
+              twice? (Review Question 8)
+            - Do UpdateResult and UpgradeResult actually CARRY a Warnings
+              field, and do pack update and pack upgrade actually RENDER it?
+              The contracts gate checks that the symbols exist, not their
+              shape — `type X $$$` in compile-signature.sh never compares a
+              field list — so only the claims catch a warning that is computed
+              and dropped. (Review Question 9)
+            - Are all four commands rendering to stderr, with the stream claims
+              driven through the BUILT BINARY rather than executeCommand's
+              merged buffer? (Review Question 10)
+            - Does any comparison in the identity path apply ToLower, EqualFold,
+              or any normalization to a coordinate or a manifest name beyond
+              the single optional `v` on a version? (Review Question 12)
+            - Does pack install still succeed on a hash-matching entry whose
+              remote manifest version disagrees with the lock? (Review
+              Question 13)
+            - Does distribution call pack.ValidatePackName rather than carrying
+              a copy, and did validateSemver stay unexported? (Review
+              Question 14)
+            - Does TestPackAdd_LocalPathValidatesInPlace still exist by that
+              exact name, with an updated assertion rather than a deletion?
+              (Review Question 15)
+            - Was the edit set exactly the ELEVEN items this plan enumerated
+              across six files? A twelfth is a finding to report,
+              not to absorb. And was the sweep that confirmed it derived from a
+              PACKAGE-WIDE fixture-versus-ref pairing over all 29 test files
+              rather than from a named suite list? The named-list scope is what
+              hid six of the eleven the first time.
+            - Did TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
+              (SPEC-055 CLM-059) get repointed at valid-pack-v3 AND gain its
+              scanner-was-invoked assertion? It passes either way, so a green
+              suite is not evidence here — read the test.
+
+          Report the actual command output. Do not assert green without having
+          read it.
+        files:
+          - plans/PLAN-SPEC-056-remote-identity-version-validation.plan.yml
+          - specs/SPEC-056-remote-identity-version-validation.spec.md
+          - pkg/pack/distribution/identity.go
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/lockfile.go
+          - cmd/backstop/json_error.go
+          - cmd/backstop/pack_upgrade.go
+        claims:
+          - CLM-011
+          - CLM-022
+          - CLM-031
+          - CLM-037
+          - CLM-046
+          - CLM-059
+          - CLM-062
+          - CLM-076
+          - CLM-080
+          - CLM-087
+          - CLM-090
+          - CLM-097
+          - CLM-104
+          - CLM-108
+          - CLM-114
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-010
+          - TASK-013
+          - TASK-018
+          - TASK-022
+          - TASK-026
+          - TASK-030
+          - TASK-033
+          - TASK-036
+          - TASK-038
+          - TASK-039
+          - TASK-041
+          - TASK-043
+
+      - id: TASK-045
+        type: documentation
+        title: "Reconcile docs/CODEBASE-MAP.md against what actually shipped, and keep it tracked"
+        description: |
+          RUN THIS AFTER TASK-044'S KILL CHAIN PASSES, not before — the map must
+          describe what actually shipped, and until the gate is green "what
+          shipped" is not settled.
+
+          docs/CODEBASE-MAP.md is PROSE, not a schema'd artifact: `backstop
+          artifact validate` does not read it and cannot catch its staleness.
+          CLAUDE.md AUTO-LOADS it into every session, so a confidently wrong
+          map misinforms every future agent. Verify each edit against the
+          AS-BUILT code before writing; do not transcribe this description.
+
+          FIVE EDITS:
+
+          1. "## Pack lifecycle (`pack add <ref>`)" is FALSIFIED in its
+             central claim. It currently describes the flow as
+             `parsePackRef` → `resolveGitURL` → clone → "copy →
+             .backstop/packs/<org>/<name>/". After this spec the install path,
+             the backstop.yml key and the lock key all come from the MANIFEST
+             name, and the flow gains ResolveEffectiveVersion before the clone
+             and ValidateRemoteIdentity immediately after it. Rewrite the
+             section around the gate.
+
+          2. The "Common tail" in that same section must gain the SCRATCH-COPY
+             step: validation now runs against a copy, and the tree that is
+             copied to the install path and passed to ComputeContentHash is the
+             pristine materialized one. That ordering is what makes an
+             add-recorded hash reproducible by install.
+
+          3. "## Config & schemas" lists LockEntry's fields inline
+             (`LockEntry{name,version,git_ref,content_hash,source_type,
+             install_date,local_path}`). Add source_coordinate.
+
+          4. The `pkg/pack/distribution/` bullet in the Package map should list
+             identity.go alongside the existing lifecycle files.
+
+          5. ISSUE-074's "### Known gap — `pack relock` silent failure" section
+             STAYS. Its argument-shape half is untouched by this spec —
+             relock still takes a filesystem PATH while remove/update/upgrade
+             take a NAME — and SPEC-056 explicitly wills that to the migration
+             seed (REQ-041). VERIFY against cmd/backstop/pack_relock.go before
+             writing anything; do not assume. Do not delete a section that
+             describes a live gap, and do not widen it either.
+
+             DO ADD ONE SENTENCE to it: relock now also preserves
+             source_coordinate, because it does a read-modify-write on the
+             entry rather than a whole-entry replace. That is CLM-050 and it is
+             worth recording as the reason relock is NOT on this spec's edit
+             list.
+
+          KEEP THE FILE TRACKED. `git status` at plan-authoring time showed
+          docs/CODEBASE-MAP.md as untracked (`??`). If it is still untracked,
+          `git add` it in this change — an untracked map is invisible to every
+          other clone and to CI, and it silently disappears on a fresh checkout
+          while CLAUDE.md still references it.
+
+          Regenerate line-number references only where you actually changed the
+          surrounding text. A wholesale re-derivation of every line number in
+          the file is a different job and is not asked for here.
+
+          COMPLETION CRITERIA — RUN THE GATE AFTER STAGING THE FILE:
+
+              git add docs/CODEBASE-MAP.md
+              ./bin/backstop gate
+
+          This is NOT a duplicate of TASK-044. If the map was untracked, `git
+          add` puts it into the diff-scoped gate FOR THE FIRST TIME, so
+          TASK-044's green was computed over a tree that did not contain it and
+          nothing else in this plan covers the state this task creates. This
+          task is last; if the newly staged file trips a dimension, nothing
+          downstream would catch it.
+
+          Read the gate output and REPORT IT. If a dimension reds on the map,
+          fix the map — do not untrack the file to make the gate quiet, which
+          restores exactly the non-durability this task exists to close.
+        files:
+          - docs/CODEBASE-MAP.md
+        claims:
+          - CLM-028
+          - CLM-040
+          - CLM-050
+          - CLM-082
+        depends_on:
+          - TASK-044
