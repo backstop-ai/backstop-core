@@ -20,12 +20,17 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to remove temp dir %s: %v\n", tmpDir, err)
+		}
+	}()
 
 	binaryPath = filepath.Join(tmpDir, "backstop")
 
 	// Build from the cmd/backstop package relative to the project root.
 	projectRoot := findProjectRoot()
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-tool-exec:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/backstop/")
 	cmd.Dir = projectRoot
 	cmd.Stderr = os.Stderr
@@ -45,6 +50,7 @@ func findProjectRoot() string {
 		os.Exit(1)
 	}
 	for {
+		// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
@@ -133,11 +139,20 @@ func createSpec(t *testing.T, dir string, opts specOpts) string {
 `
 	}
 
+	// Default to draft: this is the status createSpec hardcoded before ISSUE-075,
+	// and TestSmoke_GatePassesOnCompliantProject / ...ArtifactValidateCatchesMissingClaims
+	// depend on it (at draft, the substantiveness/coverage/contracts dimensions stay
+	// capability-absent warnings). TestSmoke_CreateSpecDefaultsToDraftStatus guards it.
+	specStatus := opts.status
+	if specStatus == "" {
+		specStatus = "draft"
+	}
+
 	content := fmt.Sprintf(`---
 title: "SPEC-999: Smoke Test Spec"
 number: SPEC-999
 created: "2026-01-01"
-status: draft
+status: %s
 schema_version: spec/v1
 spec_version: 1.0.0
 
@@ -173,7 +188,7 @@ Implementation details.
 ## Verification
 
 Tests verify behavior.
-`, opts.implPackage, verificationYAML, claimsYAML, contractsYAML)
+`, specStatus, opts.implPackage, verificationYAML, claimsYAML, contractsYAML)
 
 	specPath := filepath.Join(specsDir, "SPEC-999-smoke-test.spec.md")
 	writeFile(t, specPath, content)
@@ -181,11 +196,14 @@ Tests verify behavior.
 }
 
 type specOpts struct {
-	implPackage      string
-	claims           []claimOpts
-	contracts        []contractOpts
+	// status is the spec frontmatter status. Empty means "draft" — the historical
+	// hardcoded value every existing caller relies on.
+	status            string
+	implPackage       string
+	claims            []claimOpts
+	contracts         []contractOpts
 	coverageThreshold int
-	testPkg          string
+	testPkg           string
 }
 
 type claimOpts struct {
@@ -225,6 +243,7 @@ func createGoTest(t *testing.T, dir, pkgName, code string) string {
 func createGoMod(t *testing.T, dir, module string) {
 	t.Helper()
 	content := fmt.Sprintf("module %s\n\ngo 1.21\n", module)
+	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 	writeFile(t, filepath.Join(dir, "go.mod"), content)
 }
 
@@ -383,6 +402,72 @@ func stepNames(r gateResult) []string {
 	return names
 }
 
+// specFrontmatter reads the spec at path and returns ONLY its YAML frontmatter —
+// the region between the opening and closing `---` delimiters. Status assertions
+// must be scoped to this region so a mention anywhere in the markdown body can
+// never satisfy them.
+func specFrontmatter(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read spec %s: %v", path, err)
+	}
+	content := string(raw)
+	const opener = "---\n"
+	if !strings.HasPrefix(content, opener) {
+		t.Fatalf("spec %s does not open with a frontmatter delimiter; got:\n%s", path, content)
+	}
+	rest := content[len(opener):]
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 {
+		t.Fatalf("spec %s has no closing frontmatter delimiter; got:\n%s", path, content)
+	}
+	return rest[:end]
+}
+
+// TestSmoke_CreateSpecHonorsStatusOverride pins half of the fixture contract the
+// ISSUE-075 fix rests on: a caller can force the generated SPEC-999 to a status
+// other than draft. Without the override, test_verification's implemented-only
+// mandated-test scoping (ISSUE-054) filters every mandated test out before the
+// discovery walk and the missing-mandated-test scenario becomes a vacuous pass.
+func TestSmoke_CreateSpecHonorsStatusOverride(t *testing.T) {
+	specPath := createSpec(t, t.TempDir(), specOpts{
+		status:      "implemented",
+		implPackage: "pkg/smoke",
+		claims: []claimOpts{
+			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
+		},
+	})
+
+	fm := specFrontmatter(t, specPath)
+	if !strings.Contains(fm, "status: implemented") {
+		t.Errorf("expected frontmatter to declare `status: implemented`, got:\n%s", fm)
+	}
+	if strings.Contains(fm, "status: draft") {
+		t.Errorf("expected the hardcoded draft status to be replaced, but frontmatter still declares `status: draft`:\n%s", fm)
+	}
+}
+
+// TestSmoke_CreateSpecDefaultsToDraftStatus guards the other half: a specOpts that
+// supplies no status must still emit `status: draft`, preserving today's behavior
+// byte-for-byte for every existing caller. TestSmoke_GatePassesOnCompliantProject
+// and TestSmoke_ArtifactValidateCatchesMissingClaims both depend on draft keeping
+// substantiveness/coverage/contracts at capability-absent warnings, so flipping the
+// default reds HERE rather than silently reshaping those scenarios.
+func TestSmoke_CreateSpecDefaultsToDraftStatus(t *testing.T) {
+	specPath := createSpec(t, t.TempDir(), specOpts{
+		implPackage: "pkg/smoke",
+		claims: []claimOpts{
+			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
+		},
+	})
+
+	fm := specFrontmatter(t, specPath)
+	if !strings.Contains(fm, "status: draft") {
+		t.Errorf("expected frontmatter to default to `status: draft`, got:\n%s", fm)
+	}
+}
+
 // --- Scenario 1: Happy path — gate passes on compliant project ---
 
 func TestSmoke_GatePassesOnCompliantProject(t *testing.T) {
@@ -515,7 +600,23 @@ func TestSomethingElse(t *testing.T) {
 `)
 
 	// Spec mandates TestCompute_ReturnsNil but it does not exist.
+	//
+	// SPEC-999 MUST be `implemented` here, and that is load-bearing rather than
+	// incidental. test_verification scopes mandated tests to IMPLEMENTED specs only
+	// (ISSUE-054, commit 2164994): StepTestVerificationScopedFunc calls
+	// filterDueMandatedTests → contractsAreDue in pkg/gate/step_testverify.go, which
+	// drops the mandated tests of any spec whose status is not "implemented" — a draft
+	// spec has not yet promised anything. At the fixture's previous hardcoded `draft`,
+	// TestCompute_ReturnsNil was filtered out BEFORE the capability guard and the
+	// discovery walk, the step hit its `len(mandated) == 0` early clean-pass return,
+	// and this scenario passed while observing nothing at all. That was ISSUE-075: for
+	// twelve days the one smoke test meant to prove test_verification blocks on a
+	// broken test promise was structurally unable to fail.
+	//
+	// If the implemented-only scoping rule ever changes, THIS fixture must be revisited
+	// in the same change — otherwise the scenario silently re-vacuates exactly as before.
 	createSpec(t, dir, specOpts{
+		status:      "implemented",
 		implPackage: "pkg/smoke",
 		claims: []claimOpts{
 			{id: "CLM-001", text: "Compute works", tests: []string{"TestCompute_ReturnsNil"}},
@@ -567,10 +668,11 @@ func TestSomethingElse(t *testing.T) {
 // blocksDeclaredWithoutPack is the shared body for the three broken-promise
 // scenarios: a project declaring dim via enforcement.toolchain with no providing
 // pack must BLOCK (exit 2) with the dimension's declared_intent_unmet violation.
-func blocksDeclaredWithoutPack(t *testing.T, dim, stepName string) {
+func blocksDeclaredWithoutPack(t *testing.T, dim, stepName string) stepResult {
 	t.Helper()
 	if binaryPath == "" {
 		t.Skip("binary not built")
+		return stepResult{}
 	}
 
 	dir := t.TempDir()
@@ -607,24 +709,60 @@ func blocksDeclaredWithoutPack(t *testing.T, dim, stepName string) {
 	if !found {
 		t.Errorf("expected a %s_declared_intent_unmet broken-promise violation, got: %+v", dim, step.Violations)
 	}
+
+	// Returned so each scenario can pin ITS OWN dimension against the literal rule id
+	// rather than the one this helper derives from its `dim` argument — a caller that
+	// gets threaded the wrong dimension reds in the caller, where it is readable.
+	return step
+}
+
+// hasViolationRule reports whether step carries a violation with exactly rule.
+func hasViolationRule(step stepResult, rule string) bool {
+	for _, v := range step.Violations {
+		if v.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Scenario 3: substantiveness declared, no pack → block ---
 
 func TestSmoke_GateBlocksDeclaredSubstantivenessWithoutPack(t *testing.T) {
-	blocksDeclaredWithoutPack(t, "substantiveness", "test_substantiveness")
+	step := blocksDeclaredWithoutPack(t, "substantiveness", "test_substantiveness")
+
+	if step.StepName != "test_substantiveness" {
+		t.Fatalf("expected the substantiveness dimension to resolve to the test_substantiveness step, got %q", step.StepName)
+	}
+	if !hasViolationRule(step, "substantiveness_declared_intent_unmet") {
+		t.Errorf("expected a substantiveness_declared_intent_unmet violation on test_substantiveness, got: %+v", step.Violations)
+	}
 }
 
 // --- Scenario 4: coverage declared, no pack → block ---
 
 func TestSmoke_GateBlocksDeclaredCoverageWithoutPack(t *testing.T) {
-	blocksDeclaredWithoutPack(t, "coverage", "coverage_threshold")
+	step := blocksDeclaredWithoutPack(t, "coverage", "coverage_threshold")
+
+	if step.StepName != "coverage_threshold" {
+		t.Fatalf("expected the coverage dimension to resolve to the coverage_threshold step, got %q", step.StepName)
+	}
+	if !hasViolationRule(step, "coverage_declared_intent_unmet") {
+		t.Errorf("expected a coverage_declared_intent_unmet violation on coverage_threshold, got: %+v", step.Violations)
+	}
 }
 
 // --- Scenario 5: contracts declared, no pack → block ---
 
 func TestSmoke_GateBlocksDeclaredContractsWithoutPack(t *testing.T) {
-	blocksDeclaredWithoutPack(t, "contracts", "contract_signature")
+	step := blocksDeclaredWithoutPack(t, "contracts", "contract_signature")
+
+	if step.StepName != "contract_signature" {
+		t.Fatalf("expected the contracts dimension to resolve to the contract_signature step, got %q", step.StepName)
+	}
+	if !hasViolationRule(step, "contracts_declared_intent_unmet") {
+		t.Errorf("expected a contracts_declared_intent_unmet violation on contract_signature, got: %+v", step.Violations)
+	}
 }
 
 // --- Scenario 6: Code standards violation — code check catches it ---
