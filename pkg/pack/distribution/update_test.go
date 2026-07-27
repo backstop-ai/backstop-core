@@ -246,7 +246,15 @@ func TestPackUpdate_AppliesPatchVersion(t *testing.T) {
 		ProjectDir: projectDir,
 	}
 
-	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.1"})
+	// The cloner serves valid-pack-v1-0-1, whose manifest DECLARES 1.0.1, because the
+	// resolver below resolves to 1.0.1 and phase 11's identity gate requires the two to
+	// agree. Serving valid-pack (manifest 1.0.0) against a 1.0.1 resolution is exactly
+	// the *VersionMismatchError this spec adds. The identifier is SPEC-015 CLM-061
+	// mandated and does not move; the FIXTURE does.
+	//
+	// Do NOT "fix" this by changing the resolver to 1.0.0 — that turns the test into the
+	// already-at-latest no-op case and silently deletes the patch-version claim.
+	update := newTestUpdateCommand(t, &mockGitCloner{cloneDir: filepath.Join("testdata", "valid-pack-v1-0-1")}, &mockValidator{}, &mockVersionResolver{latestMinor: "1.0.1"})
 
 	result, err := update.Run("acme/valid-pack", opts)
 	if err != nil {

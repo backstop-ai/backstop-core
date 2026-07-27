@@ -12,6 +12,68 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// scratchValidationDirPattern is the os.MkdirTemp pattern for the directory validation
+// runs against. It is distinct from the clone temp dir so a leftover of either kind
+// names which stage leaked it.
+const scratchValidationDirPattern = "backstop-pack-validate-*"
+
+// RunValidationOnScratchCopy runs pack check and pack test against a COPY of packDir,
+// removes the copy on BOTH the success and the failure path, and reports any failure
+// against sourceLabel rather than against the scratch directory (SPEC-056 REQ-008).
+//
+// WHY A COPY. pkg/packval MUTATES the directory it validates: phase 3 renders every
+// tier:complete scaffold's declared sample_config into <packDir>/<scaffold.path>/ before
+// running that scaffold's test command. All three of add, update and upgrade used to
+// validate a tree in place and then copy and hash THAT tree, so for any pack declaring
+// such a scaffold the hash recorded at add time could never be reproduced by a fresh
+// clone of the same tag. The tree that reaches the install path and ComputeContentHash
+// must be the pristine materialized tree that no validator has written to.
+//
+// WHY A LABEL AND NOT ONLY A DIRECTORY. runPackvalPipeline renders its diagnostic with
+// the directory it was handed (validator.go:69-71). Reporting that directly would show
+// an operator a temp path that no longer exists by the time they read it, so the failure
+// is re-reported against the ORIGINAL source — the coordinate and tag for a remote pack,
+// the local path for a local one.
+//
+// IT TAKES THE VALIDATOR AS A PARAMETER rather than reading a receiver, so all three
+// commands share ONE implementation instead of three methods that drift apart.
+func RunValidationOnScratchCopy(validator Validator, packDir, sourceLabel string) error {
+	scratch, err := os.MkdirTemp("", scratchValidationDirPattern)
+	if err != nil {
+		return fmt.Errorf("creating validation scratch dir for %s: %w", sourceLabel, err)
+	}
+	// Removed on BOTH paths: a validation failure must not leak a temp tree either.
+	defer func() { _ = os.RemoveAll(scratch) }()
+
+	if copyErr := copyDirRecursive(packDir, scratch); copyErr != nil {
+		return fmt.Errorf("preparing validation copy of %s: %w", sourceLabel, copyErr)
+	}
+
+	if checkErr := validator.RunPackCheck(scratch); checkErr != nil {
+		return &ValidationError{Message: fmt.Sprintf("pack check for %s failed: %s",
+			sourceLabel, scrubScratchPath(checkErr.Error(), scratch))}
+	}
+	if testErr := validator.RunPackTest(scratch); testErr != nil {
+		return &ValidationError{Message: fmt.Sprintf("pack test for %s failed: %s",
+			sourceLabel, scrubScratchPath(testErr.Error(), scratch))}
+	}
+
+	return nil
+}
+
+// scrubScratchPath removes the scratch directory from a validator's message.
+//
+// PREPENDING THE LABEL IS NOT ENOUGH. runPackvalPipeline embeds the directory it was
+// handed inside its own text, so a wrapper that only prefixed the source would still
+// hand the operator a dead path further along the same line. The scratch directory is
+// replaced with the label so the message stays readable rather than developing a hole.
+func scrubScratchPath(message, scratch string) string {
+	if scratch == "" {
+		return message
+	}
+	return strings.ReplaceAll(message, scratch, "the validation copy")
+}
+
 // MissingDependencyError is the fail-closed refusal a lifecycle command's
 // constructor returns when a required dependency was explicitly passed as nil.
 //
@@ -150,12 +212,18 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 		packDir = tmpDir
 	}
 
-	// Validate: run pack check and then pack test, both BEFORE any copy.
-	if err := c.validator.RunPackCheck(packDir); err != nil {
-		return nil, fmt.Errorf("pack check for %s: %w", packName, err)
+	// Validate against a SCRATCH COPY, BOTH branches. The local branch is not an
+	// exception: for a local-path add the directory packval would mutate is the
+	// OPERATOR'S OWN WORKING TREE (SPEC-056 REQ-008, spec Review Question 4).
+	//
+	// The label is what a failure quotes — the coordinate and tag for a git source, the
+	// operator's own path for a local one.
+	validationLabel := packDir
+	if !isLocal {
+		validationLabel = fmt.Sprintf("%s at tag v%s", packName, version)
 	}
-	if err := c.validator.RunPackTest(packDir); err != nil {
-		return nil, fmt.Errorf("pack test for %s: %w", packName, err)
+	if err := RunValidationOnScratchCopy(c.validator, packDir, validationLabel); err != nil {
+		return nil, fmt.Errorf("pack add %s: %w", packRef, err)
 	}
 
 	// Copy pack to .backstop/packs/org/pack-name/ (both git and local).
@@ -535,12 +603,13 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		return nil, fmt.Errorf("cloning pack %s at v%s: %w", packName, resolved, err)
 	}
 
-	// Validate.
-	if err := c.validator.RunPackCheck(tmpDir); err != nil {
-		return nil, fmt.Errorf("pack check for %s: %w", packName, err)
-	}
-	if err := c.validator.RunPackTest(tmpDir); err != nil {
-		return nil, fmt.Errorf("pack test for %s: %w", packName, err)
+	// Validate against a SCRATCH COPY. Beyond the hash, this is what keeps the tamper
+	// comparison honest: DetectTamper below compares the installed tree against tmpDir,
+	// and a contaminated tmpDir would surface the validator's own writes as ADDED files
+	// — telling an operator their pack was modified when the tool modified the input.
+	if err := RunValidationOnScratchCopy(c.validator, tmpDir,
+		fmt.Sprintf("%s at tag v%s", packName, resolved)); err != nil {
+		return nil, fmt.Errorf("pack update %s: %w", packName, err)
 	}
 
 	// Tamper detection.
@@ -650,12 +719,10 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 		return nil, fmt.Errorf("cloning pack %s at v%s: %w", packName, targetVersion, err)
 	}
 
-	// Validate.
-	if err := c.validator.RunPackCheck(tmpDir); err != nil {
-		return nil, fmt.Errorf("pack check for %s: %w", packName, err)
-	}
-	if err := c.validator.RunPackTest(tmpDir); err != nil {
-		return nil, fmt.Errorf("pack test for %s: %w", packName, err)
+	// Validate against a SCRATCH COPY — the identical defect add and update carried.
+	if err := RunValidationOnScratchCopy(c.validator, tmpDir,
+		fmt.Sprintf("%s at tag v%s", packName, targetVersion)); err != nil {
+		return nil, fmt.Errorf("pack upgrade %s: %w", packRef, err)
 	}
 
 	// Scan for violations the new major introduces — before any mutation.

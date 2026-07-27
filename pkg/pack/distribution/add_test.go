@@ -707,21 +707,60 @@ func TestPackAdd_LocalPathSkipsGit(t *testing.T) {
 	}
 }
 
+// TestPackAdd_LocalPathValidatesInPlace is SPEC-015 CLM-071-mandated and keeps that
+// name. What it asserts has been SHARPENED by SPEC-056 CLM-087.
+//
+// SPEC-015 cared that a local path is VALIDATED rather than skipped, and that is still
+// asserted here — the validator is invoked and the add succeeds. What it never actually
+// asserted was the in-place MECHANISM, which was never the point: after SPEC-056 REQ-008
+// a local-path add validates a TEMP COPY of the operator's directory. Nothing is cloned,
+// the pack still loads from its source path, and the lock still records local_path, so
+// REQ-037@1.0.0's guarantees are unchanged.
+//
+// The added assertion is the one with teeth: the OPERATOR'S OWN WORKING TREE must be
+// unchanged afterward. The validator used here deliberately writes a file into whatever
+// directory it is handed, so an in-place implementation reds this immediately.
 func TestPackAdd_LocalPathValidatesInPlace(t *testing.T) {
 	projectDir := setupAddProject(t)
 
-	localPackDir := filepath.Join("testdata", "local-pack")
-	absPath := mustAbs(t, localPackDir)
+	// A copy, never the committed fixture — a contaminating validator pointed at
+	// testdata/local-pack would dirty the repository itself.
+	operatorSource := filepath.Join(t.TempDir(), "local-pack")
+	if mkErr := os.MkdirAll(operatorSource, 0o755); mkErr != nil {
+		t.Fatal(mkErr)
+	}
+	if cpErr := copyDir(filepath.Join("testdata", "local-pack"), operatorSource); cpErr != nil {
+		t.Fatalf("seeding the operator source: %v", cpErr)
+	}
+
+	before := snapshotTree(t, operatorSource)
 
 	opts := distribution.AddOptions{
 		ProjectDir: projectDir,
 	}
 
-	add := newTestAddCommand(t, defaultTestPackCloner(), &mockValidator{})
+	validator := newContaminatingValidator()
+	add := newTestAddCommand(t, defaultTestPackCloner(), validator)
 
-	_, err := add.Run(absPath, opts)
+	_, err := add.Run(operatorSource, opts)
 	if err != nil {
 		t.Fatalf("Add local: %v", err)
+	}
+
+	// Still VALIDATED — the property SPEC-015 mandated this name for.
+	if validator.calls == 0 {
+		t.Error("a local-path add must still run validation; skipping it would satisfy the not-mutated assertion vacuously")
+	}
+
+	// And the operator's directory is untouched.
+	after := snapshotTree(t, operatorSource)
+	if len(before) != len(after) {
+		t.Fatalf("validation changed the operator's source file set: %d before, %d after", len(before), len(after))
+	}
+	for i := range before {
+		if before[i] != after[i] {
+			t.Errorf("validation wrote into the operator's own working tree; entry %d differs", i)
+		}
 	}
 }
 
