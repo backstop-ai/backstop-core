@@ -92,18 +92,9 @@ func (p *Pipeline) Run() *Result {
 			failedPhase = phase.name
 		}
 	}
-	if p.opts.Mode == "check" {
-		found := false
-		for _, ph := range out.Phases {
-			if ph.Phase == "phase3-fixtures" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			// expected in check mode
-		}
-	}
+	// Check mode legitimately produces no phase3-fixtures entry; the phase list above
+	// simply never appends it. A dead scan that computed that absence and did nothing
+	// with it used to sit here.
 	out.FinalizeStatus()
 	return out
 }

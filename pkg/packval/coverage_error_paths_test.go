@@ -238,7 +238,9 @@ func TestPackVal_P5_Layer3ValidatorFileNotFound(t *testing.T) {
 func TestPackVal_P5_Layer3OtherMissingJustification(t *testing.T) {
 	dir := t.TempDir()
 	validatorPath := filepath.Join(dir, "v.sh")
-	os.WriteFile(validatorPath, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	if err := os.WriteFile(validatorPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
 		ID: "r1", Layer: 3, Category: "other", InputScope: "single-file", Validator: "v.sh", Justification: "",
@@ -378,7 +380,9 @@ func TestPackVal_P3_SemgrepRuleFileReadError(t *testing.T) {
 
 func TestPackVal_P3_SemgrepPositiveFixtureFails(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
 		ID: "r1", Engine: "semgrep", File: "rule.yml",
 		Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
@@ -405,7 +409,9 @@ func TestPackVal_P3_SemgrepPositiveFixtureFails(t *testing.T) {
 
 func TestPackVal_P3_SemgrepNegativeNotTriggered(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "rule.yml"), []byte("rules:\n  - id: r1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
 		ID: "r1", Engine: "semgrep", File: "rule.yml",
 		Claims: []Claim{{ID: "c1", Fixtures: Fixtures{
