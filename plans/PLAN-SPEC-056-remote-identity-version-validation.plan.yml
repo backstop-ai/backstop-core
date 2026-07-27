@@ -69,32 +69,58 @@ notes: |
   ─────────────────────────────────────────────────────────────────────────
   THE EDIT SET — RE-DERIVED AGAINST THE CURRENT TREE, NOT TAKEN ON FAITH
   ─────────────────────────────────────────────────────────────────────────
-  SPEC-056 names TWO invalidated tests. THE REAL COUNT IS ELEVEN ITEMS ACROSS
-  SIX FILES: the five (A)–(E) below, plus the six individual tests of item (F).
-  Ten of the eleven are single test functions; item (E) is a whole suite
-  (~22 test functions in one file, one mechanical repair). The nine items the
-  spec does not name are not defects in the spec — they are the kind of thing
-  only a mechanical sweep surfaces — but they ARE breakage, and an implementer
-  who meets one mid-phase will mistake it for a bug in their own change.
+  SPEC-056 names TWO invalidated tests. THE REAL COUNT IS TWELVE ITEMS ACROSS
+  SIX FILES: the five (A)–(E) below, the six individual tests of item (F), and
+  item (G). Eleven of the twelve are single test functions; item (E) is a whole
+  suite (~22 test functions in one file, one mechanical repair). The ten items
+  the spec does not name are not defects in the spec — they are the kind of
+  thing only a mechanical sweep surfaces — but they ARE breakage, and an
+  implementer who meets one mid-phase will mistake it for a bug in their own
+  change.
 
-  METHOD CORRECTION, RECORDED BECAUSE IT IS THE REUSABLE PART. This plan's
-  first sweep was scoped to "the six distribution suites" — the named list
-  SPEC-055 and spec015_lineage_test.go use — and it MISSED six breakages,
-  because pkg/pack/distribution holds TWENTY-NINE _test.go files. DERIVE AN
-  EDIT-SET SWEEP FROM FIXTURE-VERSUS-REF PAIRINGS ACROSS THE WHOLE PACKAGE:
-  grep every cloneDir literal and every Run() ref in `*_test.go`, pair them,
-  and check each pair against the new refusal. NEVER sweep from a named suite
-  list — that list describes where tests used to live, and the compiler does
-  not honor it.
+  METHOD CORRECTION, RECORDED BECAUSE IT IS THE REUSABLE PART. It has TWO
+  halves, and this plan learned them one at a time — the second only after the
+  first had been applied and the enumeration declared closed.
+
+  HALF ONE — SWEEP THE WHOLE PACKAGE, NOT A NAMED SUITE LIST. This plan's first
+  sweep was scoped to "the six distribution suites" — the list SPEC-055 and
+  spec015_lineage_test.go use — and MISSED six breakages, because
+  pkg/pack/distribution holds TWENTY-NINE _test.go files. Derive the sweep from
+  FIXTURE-VERSUS-REF PAIRINGS across the whole package: grep every cloneDir
+  literal and every Run() ref in `*_test.go`, pair them, and check each pair
+  against the new refusal. A suite list describes where tests used to live, and
+  the compiler does not honor it.
+
+  HALF TWO — PAIRING IS BLIND BY CONSTRUCTION TO INLINE-AUTHORED MANIFESTS, SO
+  ADD A SECOND SCAN. A fixture-versus-ref pairing can only find tests that POINT
+  AT a named fixture. A test that builds its pack in a `t.TempDir()` and writes
+  its own `pack.yml` has no fixture literal to pair, so it is invisible to that
+  grep no matter how wide the file scope. Item (G) surfaced exactly this way,
+  AFTER eleven items had been enumerated and the set declared closed.
+
+    COMPLETE SWEEP = fixture-versus-ref pairing
+                   + a scan for IN-TEST MANIFEST AUTHORSHIP
+                     (WriteFile/heredoc of a pack.yml into a t.TempDir that is
+                     later handed to a cloner or an add)
+
+  Those inline manifests are the HIGHEST-SIGNAL population for a new
+  manifest-validating refusal, precisely because they live outside testdata/
+  where nobody audits them and where they are usually deliberately malformed —
+  which is the whole reason a new parse-time gate catches them first.
+
+  KEEP THE STOP-AND-REPORT TRIPWIRE. The "if you find an Nth+1, STOP AND REPORT
+  IT" line below is what converted item (G) from a silent test fix into this
+  recorded method correction. It earns its keep; do not drop it when the count
+  changes.
 
   SECOND METHOD POINT, AND IT IS THE ONE THAT COSTS MOST: for every hit, check
   the FAILURE MODE, not just that it is a hit. A test that already expects an
   error and snapshots state passes VACUOUSLY under a new, earlier refusal —
   the mandated name survives while the property it asserts is gone. One of the
-  eleven is exactly that shape (item (F) below) and NOTHING TURNS RED to
+  twelve is exactly that shape (item (F) below) and NOTHING TURNS RED to
   prompt the fix.
 
-  The eleven, grouped by disposition:
+  The twelve, grouped by disposition:
 
   (A) TestPackAdd_MergeToolConfigErrorRollsBack (add_test.go:1229)
       NAMED BY THE SPEC. Builds a git-source pack whose pack.yml is binary
@@ -195,11 +221,42 @@ notes: |
       an UPDATE whose resolver returns "1.1.0", which MATCHES. Repointing
       either would break a passing test.
 
-  IF YOU FIND A TWELFTH, STOP AND REPORT IT. This enumeration is now derived
-  from a package-wide fixture-versus-ref pairing over all 29 test files, not
-  from a suite list, so it should be closed. A twelfth means the pairing method
-  missed a class too, which is worth knowing before it is absorbed silently as
-  "just fixing a test".
+  (G) TestPackUpgrade_MergeToolConfigError (upgrade_test.go:468) — THE TWELFTH,
+      FOUND BY THIS PLAN'S OWN TRIPWIRE DURING PHASE 11, AFTER THE SET HAD BEEN
+      DECLARED CLOSED AT ELEVEN. It is the exact UPGRADE-SIDE TWIN of item (A):
+      it writes `{{{invalid yaml` into an inline t.TempDir cloneDir and asserts
+      the failure text contains "merging tool_config". TASK-038's identity gate
+      refuses that unparseable manifest through ReadManifestIdentity long before
+      MergeToolConfig is reached (command.go:871), so the premise no longer
+      holds. NOT mandated — verified absent from every spec's tests: list.
+
+      WHY BOTH EARLIER SWEEPS MISSED IT, WHICH IS THE POINT: its cloneDir is a
+      `t.TempDir()` with a hand-written pack.yml, not a `testdata` literal. The
+      fixture-versus-ref pairing had nothing to pair. This plan even told
+      TASK-039 to run this test BY NAME rather than assume — and that
+      instruction is what caught it.
+
+      DISPOSITION: (A)-shaped, and TASK-039 owns it. Keep the identifier and
+      keep both assertions (the error is non-nil, and its text names the
+      tool_config merge). Replace the garbage manifest with one that PARSES and
+      IDENTITY-VALIDATES — name acme/valid-pack, version 2.0.0 so it agrees
+      with the @2.0.0 ref — and make the MERGE fail on its own terms instead.
+      The sanctioned mechanism is a DIRECTORY-TARGET construction: declare a
+      tool_config whose config_file resolves to a path that already exists in
+      the consumer project AS A DIRECTORY, so writeConfigFile's write fails and
+      MergeToolConfig returns "writing config %s: %w"
+      (config_merge.go:106-107), which UpgradeCommand.Run wraps as
+      "merging tool_config: %w" at command.go:871 — the exact text the
+      assertion pins. Note the merge only writes when a setting actually merged
+      (config_merge.go:104), so the tool_config must contribute a setting;
+      a declaration that merges nothing never reaches the write and the test
+      goes green for the wrong reason.
+
+  IF YOU FIND A THIRTEENTH, STOP AND REPORT IT. This enumeration is now derived
+  from BOTH halves of the method above — package-wide fixture-versus-ref pairing
+  over all 29 test files, PLUS a scan for in-test manifest authorship — so it
+  should finally be closed. A thirteenth means both halves missed a class, which
+  is worth knowing before it is absorbed silently as "just fixing a test".
 
   ─────────────────────────────────────────────────────────────────────────
   THE THREE COINCIDENCES THIS PLAN DEPENDS ON (verify, do not assume)
@@ -432,6 +489,35 @@ notes: |
     (add_test.go:1229 and :710, update_test.go:242, versionresolver.go:151);
     and parseVersionComponents' `strictSemver *regexp.Regexp` parameter is
     named in the reuse instruction.
+  - Amended during phase 3 implementation (evidenced): TASK-003's scaffold
+    fixture command is `:`, not `true`. The plan's premise — "`true` is the
+    builtin" — was FALSE: /usr/bin/true exists and exec.LookPath("true")
+    returns a nil error, so the fixture would have failed CLM-103's own
+    mandated assertion. `:` is a POSIX SPECIAL builtin with no external
+    counterpart; LookPath(":") errors and `sh -c ':'` exits 0.
+  - Amended during phase 6 implementation (evidenced): the skip count is SEVEN,
+    not four. Renderer tests for CLM-109/111/112 also require skips, because a
+    renderer test needs a warning to EXIST and cmd/backstop has no injection
+    seam — every RunE calls a zero-argument newProduction*Command(). CLM-110 is
+    excluded: install already emits reconciliation warnings.
+  - Amended during phase 10 implementation (evidenced): SIX of the seven skips
+    retire in this plan, not all seven. CLM-112's renderer is UNREACHABLE —
+    newProductionUpgradeCommand assembles unavailableScanner{} by SPEC-055
+    REQ-009 design and UpgradeCommand.Run calls the scanner unconditionally, so
+    production `pack upgrade` always errors and TASK-021 forbids rendering on
+    the failure path. It retires with BUNDLE-006 REQ-014/REQ-018, alongside
+    pack_upgrade.go's line-1 coverage waiver — one deferral, one trigger.
+  - Amended during phase 11 implementation (evidenced): the edit set is TWELVE,
+    not eleven. Item (G), TestPackUpgrade_MergeToolConfigError
+    (upgrade_test.go:468), was caught by this plan's own stop-and-report
+    tripwire after the set had been declared closed. SECOND METHOD CORRECTION,
+    and the reusable part: a fixture-versus-ref PAIRING is blind BY
+    CONSTRUCTION to tests that author a manifest INLINE (t.TempDir + WriteFile
+    pack.yml — there is no fixture literal to pair), so a complete sweep is
+    pairing PLUS a scan for in-test manifest authorship. Those inline manifests
+    are the highest-signal population for a new manifest-validating refusal,
+    because they live outside testdata/ and are usually deliberately malformed.
+    TASK-039 owns the (A)-shaped repair; the tripwire is retained at thirteen.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -2324,12 +2410,12 @@ phases:
           fixture's manifest name and its directory have drifted apart and
           every SPEC-055 remote claim has silently become a divergence case.
 
-          THE EDIT SET IS CLOSED AT ELEVEN, and only items (A) through (D) are
-          due by the END OF THIS PHASE — (E) and (F) are phase 11's, because
-          the upgrade identity gate does not land until TASK-038. Confirm the
-          four are done and that nothing ELSE in add_test.go or update_test.go
-          needed touching. A twelfth item anywhere means the package-wide
-          fixture-versus-ref pairing missed a class — report it rather than
+          THE EDIT SET IS CLOSED AT TWELVE, and only items (A) through (D) are
+          due by the END OF THIS PHASE — (E), (F) and (G) are phase 11's,
+          because the upgrade identity gate does not land until TASK-038.
+          Confirm the four are done and that nothing ELSE in add_test.go or
+          update_test.go needed touching. A thirteenth item anywhere means BOTH
+          halves of the sweep method missed a class — report it rather than
           absorbing it as "just fixing a test".
         files:
           - pkg/pack/distribution/command.go
@@ -2898,14 +2984,53 @@ phases:
           suite compares against — 20+ update tests serve it as the newer
           version — and moving its version literal breaks them instead.
 
-          TWO TESTS NEED A SECOND LOOK, not a blind substitution:
+          THREE TESTS NEED A SECOND LOOK, not a blind substitution:
             - TestPackUpgrade_FailsWhenCloneFails uses a failing cloner with no
               cloneDir; leave it alone.
-            - TestPackUpgrade_MergeToolConfigError and
-              TestPackUpgrade_ToolConfigConflictExitsNonZero depend on
+            - TestPackUpgrade_ToolConfigConflictExitsNonZero depends on
               valid-pack-v2's tool_config block. TASK-004 copied it verbatim
-              into v3; VERIFY that by running these two by name rather than
-              assuming.
+              into v3; VERIFY that by running it by name rather than assuming.
+            - TestPackUpgrade_MergeToolConfigError (:468) IS EDIT-SET ITEM (G)
+              AND NEEDS A REAL REWRITE, not a cloneDir swap. See below.
+
+          EDIT-SET ITEM (G) LANDS IN THIS TASK — THE TWELFTH, AND THE ONLY ONE
+          IN THIS FILE THAT IS NOT A ONE-LITERAL CHANGE.
+          TestPackUpgrade_MergeToolConfigError (:468) has NO testdata cloneDir
+          at all: it writes `{{{invalid yaml` into a t.TempDir and asserts the
+          failure names the tool_config merge. TASK-038's gate refuses that
+          manifest through ReadManifestIdentity long before MergeToolConfig is
+          reached (command.go:871), so the premise is gone. It is the
+          upgrade-side twin of item (A) and takes (A)'s disposition:
+
+            KEEP the identifier and BOTH assertions — err non-nil, and its text
+            names the tool_config merge.
+            REPLACE the garbage manifest with one that PARSES and IDENTITY-
+            VALIDATES: name acme/valid-pack, version 2.0.0 (it must agree with
+            the @2.0.0 ref or the gate refuses for the new reason instead of
+            the intended one).
+            MAKE THE MERGE FAIL ON ITS OWN TERMS via a DIRECTORY-TARGET
+            construction: declare a tool_config whose config_file resolves to a
+            path that already exists in the consumer project AS A DIRECTORY.
+            writeConfigFile's write then fails, MergeToolConfig returns
+            "writing config %s: %w" (config_merge.go:106-107), and
+            UpgradeCommand.Run wraps it as "merging tool_config: %w" — the
+            exact text the assertion pins.
+
+          THE TRAP IN THAT CONSTRUCTION, VERIFIED IN THE CODE: MergeToolConfig
+          only WRITES when a setting actually merged for that file
+          (config_merge.go:104, `if mergedForFile`). A tool_config that
+          contributes no setting never reaches writeConfigFile, the merge
+          succeeds, and the test fails on its own first assertion. The declared
+          tool_config must genuinely merge a setting into the directory-shadowed
+          path. Run the test and READ the failure text; do not assume the wrap
+          reached the assertion.
+
+          WHY THIS ONE ESCAPED TWO SWEEPS, worth knowing before you look for a
+          thirteenth: it authors its manifest INLINE, so it has no fixture
+          literal for a fixture-versus-ref pairing to find. That is the second
+          half of the sweep method recorded in this plan's notes. If your own
+          work here turns up another inline-manifest test the gate now refuses,
+          STOP AND REPORT IT rather than folding a thirteenth in silently.
 
           AFTERWARDS, RE-COUNT. `grep -c "valid-pack-v2" upgrade_test.go`
           should be 0 and `grep -c "valid-pack-v3"` should equal the number of
@@ -3038,7 +3163,7 @@ phases:
               (content comparisons, not identity), and
               TestUpdateCommandRun_UsesReceiverDependencies
               (command_test.go:359). Any `@2.0.0` still paired with v2 is a
-              breakage the eleven-item enumeration missed.
+              breakage the twelve-item enumeration missed.
             - `grep -n "jsonErrorKindVersion\|jsonErrorKindIdentity" cmd/backstop/json_error.go`
               shows both constants declared and both used in
               classifyJSONErrorKind.
@@ -3362,12 +3487,14 @@ phases:
             - Does TestPackAdd_LocalPathValidatesInPlace still exist by that
               exact name, with an updated assertion rather than a deletion?
               (Review Question 15)
-            - Was the edit set exactly the ELEVEN items this plan enumerated
-              across six files? A twelfth is a finding to report,
-              not to absorb. And was the sweep that confirmed it derived from a
-              PACKAGE-WIDE fixture-versus-ref pairing over all 29 test files
-              rather than from a named suite list? The named-list scope is what
-              hid six of the eleven the first time.
+            - Was the edit set exactly the TWELVE items this plan enumerated
+              across six files? A thirteenth is a finding to report, not to
+              absorb. And was the sweep that confirmed it run in BOTH halves —
+              a package-wide fixture-versus-ref pairing over all 29 test files,
+              AND a scan for in-test manifest authorship (a pack.yml written
+              into a t.TempDir)? The named-list scope hid six of the twelve on
+              the first pass; the pairing's blindness to inline manifests hid a
+              seventh, item (G), until phase 11.
             - Did TestUpgradeCommand_UnavailableCapabilityFailsBeforeMutation
               (SPEC-055 CLM-059) get repointed at valid-pack-v3 AND gain its
               scanner-was-invoked assertion? It passes either way, so a green
