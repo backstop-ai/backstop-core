@@ -372,11 +372,12 @@ func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
 	}
 
 	return &AddResult{
-		PackName:      packName,
-		Version:       version,
-		ContentHash:   contentHash,
-		InstalledPath: installedPath,
-		Warnings:      warnings,
+		PackName:         packName,
+		Version:          version,
+		ContentHash:      contentHash,
+		InstalledPath:    installedPath,
+		SourceCoordinate: coordinate,
+		Warnings:         warnings,
 	}, nil
 }
 
@@ -676,7 +677,8 @@ func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult,
 		return nil, fmt.Errorf("recording %s %s in backstop.yml: %w", packName, resolved, err)
 	}
 
-	if err := recordGitPackInLock(opts.ProjectDir, packName, resolved, contentHash); err != nil {
+	if err := recordGitPackInLock(opts.ProjectDir, packName, resolved, contentHash,
+		recordedCoordinateFor(opts.ProjectDir, packName)); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.lock: %w", packName, resolved, err)
 	}
 
@@ -827,7 +829,8 @@ func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResul
 		return nil, fmt.Errorf("recording %s %s in backstop.yml: %w", packName, targetVersion, err)
 	}
 
-	if err := recordGitPackInLock(opts.ProjectDir, packName, targetVersion, contentHash); err != nil {
+	if err := recordGitPackInLock(opts.ProjectDir, packName, targetVersion, contentHash,
+		recordedCoordinateFor(opts.ProjectDir, packName)); err != nil {
 		return nil, fmt.Errorf("recording %s %s in backstop.lock: %w", packName, targetVersion, err)
 	}
 
@@ -923,7 +926,15 @@ func replaceInstalledPack(projectDir, packName, sourceDir string) (string, error
 
 // recordGitPackInLock writes the git pack's new version, ref, and hash into
 // backstop.lock, creating the lockfile when it is missing.
-func recordGitPackInLock(projectDir, packName, version, contentHash string) error {
+// recordGitPackInLock rewrites a git pack's lock entry after an update or upgrade.
+//
+// sourceCoordinate IS A PARAMETER RATHER THAN SOMETHING THIS HELPER PRESERVES ON ITS OWN.
+// The function REPLACES the whole LockEntry, so any field it does not explicitly carry is
+// dropped — which is precisely how source_coordinate went missing on every rewrite before
+// SPEC-056 REQ-004. Making the helper quietly read-modify-write would hide that class of
+// bug rather than fix it: a caller with no coordinate to preserve now has to say so at the
+// call site, in the open.
+func recordGitPackInLock(projectDir, packName, version, contentHash, sourceCoordinate string) error {
 	lockPath := filepath.Join(projectDir, "backstop.lock")
 	lf, err := ReadLockfile(lockPath)
 	if err != nil || lf == nil {
@@ -934,15 +945,32 @@ func recordGitPackInLock(projectDir, packName, version, contentHash string) erro
 
 	ref := "v" + version
 	lf.Packs[packName] = LockEntry{
-		Name:        packName,
-		Version:     version,
-		GitRef:      &ref,
-		ContentHash: contentHash,
-		SourceType:  "git",
-		InstallDate: time.Now().UTC().Format(time.RFC3339),
+		Name:             packName,
+		Version:          version,
+		GitRef:           &ref,
+		ContentHash:      contentHash,
+		SourceType:       "git",
+		InstallDate:      time.Now().UTC().Format(time.RFC3339),
+		SourceCoordinate: sourceCoordinate,
 	}
 
 	return WriteLockfile(lockPath, lf)
+}
+
+// recordedCoordinateFor reads the coordinate an existing lock entry already carries, so a
+// rewrite carries it forward VERBATIM.
+//
+// It deliberately does NOT re-derive the coordinate from the pack name when the field is
+// absent: that derivation is exactly what REQ-003 removes, and inventing a value here
+// would write a guess into the lock as though it were recorded fact. An entry with no
+// coordinate carries none forward; REQ-005's accessor is what decides, at RESOLUTION
+// time, that the pack name is the compatibility fallback — and warns while doing it.
+func recordedCoordinateFor(projectDir, packName string) string {
+	lf, err := ReadLockfile(filepath.Join(projectDir, "backstop.lock"))
+	if err != nil || lf == nil {
+		return ""
+	}
+	return lf.Packs[packName].SourceCoordinate
 }
 
 // describeConflicts renders tool_config conflicts one per line, naming the file,

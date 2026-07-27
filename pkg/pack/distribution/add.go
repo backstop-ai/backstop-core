@@ -56,6 +56,11 @@ type AddResult struct {
 	// re-install. It lets the CLI print a clear "already installed and up to date" message
 	// instead of a misleading error or a silent zero-output exit.
 	AlreadyCurrent bool `json:"already_current,omitempty"`
+	// SourceCoordinate is the org/repository the operator requested, recorded verbatim
+	// alongside PackName so a caller can answer "what is this pack called here?" and
+	// "where did it come from?" independently (SPEC-056 REQ-004). Empty for local
+	// sources, whose origin is already the path the operator gave.
+	SourceCoordinate string `json:"source_coordinate,omitempty"`
 	// Warnings carries diagnostics the add produced without failing — today the
 	// manifest-name-versus-coordinate divergence (SPEC-056 REQ-006). Divergence is LOUD
 	// and never a refusal, so it needs somewhere to ride out of a SUCCESSFUL command.
