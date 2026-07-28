@@ -180,6 +180,47 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # THE SAME LAYER-0 TOOLS THE GATE JOB INSTALLS, and they are not optional here.
+      # `baseline generate` runs a FULL-SCOPE gate, and provisionEngines fails loud
+      # (exit 2) when a nil-Provision tool is absent from PATH. This job shipped
+      # without them and its first ever run (main, 30398137055) died exactly that way.
+      # Job parity is asserted by TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate
+      # so the two cannot silently diverge again.
+      - name: Install golangci-lint binary
+        # TWO FACTS, and consolidating these pins later brings the break back:
+        #
+        #  1. It must be a real BINARY on PATH. provisionEngines resolves the
+        #     executable BY NAME, so `go tool golangci-lint` does not satisfy it.
+        #  2. It must be v2. The go-toolchain pack declares
+        #     `golangci-lint run --output.sarif.path stdout --show-stats=false`,
+        #     which is v2-only syntax — and go.mod's tool directive pins v1.64.8
+        #     for unrelated reasons, so installing THAT breaks the lint dimension
+        #     with an unknown-flag error.
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.6.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install provisioned engine tools at their allowlist pins
+        # These versions are the pins in pkg/pack/engine/allowlist.go. The dispatch
+        # gate compares what it finds against those pins and refuses a mismatch
+        # with an exit-2 config error, so nothing here floats.
+        #
+        # Nothing is installed for the SANDBOX, deliberately. The mechanism is
+        # Landlock + seccomp: kernel APIs with no package to install. The
+        # ruled-out alternative measured present-and-broken on this exact runner
+        # image — see pkg/packval/testdata/ubuntu-runner-probe.txt. The sandbox's
+        # real requirement is a kernel property, and it is asserted by
+        # pkg/packval/sandbox_linux_exec_test.go, which fails loudly on a host
+        # without Landlock and runs inside the gate below.
+        run: |
+          pipx install semgrep==1.96.0
+          curl -sSfL "https://github.com/ast-grep/ast-grep/releases/download/0.43.0/app-x86_64-unknown-linux-gnu.zip" -o ast-grep.zip
+          mkdir -p "$HOME/.local/bin"
+          unzip -o -q ast-grep.zip -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/ast-grep"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Build backstop CLI
         run: go build -o ./backstop ./cmd/backstop
 

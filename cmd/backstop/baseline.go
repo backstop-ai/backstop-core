@@ -63,12 +63,20 @@ func runBaselineGenerate(_ *cobra.Command, _ []string) error {
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, scope)), gate.WithScope(scope), gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
 	result, gateExit := g.Run(context.Background())
-	// Exit 2 is a CONFIG error, and the gate returns it BEFORE running any step —
-	// result.Steps is empty. An artifact built from zero steps is a vacuous
-	// baseline, and publishing one ratchets the project against nothing (the same
-	// hazard class as the packless baseline in ISSUE-086). Refuse to write rather
-	// than snapshot a gate that never ran.
+	// Exit 2 is a CONFIG error. An artifact built from a gate that never really ran is
+	// a vacuous baseline, and publishing one ratchets the project against nothing (the
+	// same hazard class as the packless baseline in ISSUE-086), so refuse to write.
+	//
+	// ⚠ THE OLD COMMENT HERE CLAIMED result.Steps IS ALWAYS EMPTY AND WAS WRONG. It is
+	// empty only when the gate fails BEFORE building steps; a config error raised
+	// INSIDE a step — provisionEngines refusing because a Layer-0 tool is missing from
+	// PATH — leaves a step carrying ConfigErr and a violation that NAMES the tool. The
+	// wrapper discarded it, so the baseline job's first ever run (main, 30398137055)
+	// reported "exit 2" and nothing else. Surface whatever the gate actually said.
 	if gateExit == ExitConfigError {
+		if diagnostic := configErrorDiagnostic(result.Steps); diagnostic != "" {
+			return fmt.Errorf("baseline generate: gate reported a configuration error (exit %d); refusing to write a baseline: %s", gateExit, diagnostic)
+		}
 		return fmt.Errorf("baseline generate: gate reported a configuration error (exit %d); refusing to write a baseline from a gate that produced no steps", gateExit)
 	}
 	artifact := gate.NewBaselineArtifactFromSteps(result.Steps, time.Now().UTC().Format(time.RFC3339), gitSHA(projectRoot), version)
@@ -272,4 +280,29 @@ func ghAPI(projectRoot, endpoint string) ([]byte, error) {
 		return nil, fmt.Errorf("%s", strings.TrimSpace(string(output)))
 	}
 	return output, nil
+}
+
+// configErrorDiagnostic renders what a config-erroring gate actually reported.
+//
+// It returns "" when nothing carries ConfigErr — a gate that failed before building
+// any step genuinely has nothing to add, and inventing a diagnostic there would be
+// worse than saying less.
+func configErrorDiagnostic(steps []gate.StepResult) string {
+	parts := []string{}
+	for _, step := range steps {
+		if !step.ConfigErr {
+			continue
+		}
+		detail := strings.TrimSpace(step.Reason)
+		for _, v := range step.Violations {
+			if msg := strings.TrimSpace(v.Message); msg != "" {
+				detail = strings.TrimSpace(detail + " " + msg)
+			}
+		}
+		if detail == "" {
+			detail = "no detail reported"
+		}
+		parts = append(parts, step.StepName+": "+detail)
+	}
+	return strings.Join(parts, "; ")
 }
