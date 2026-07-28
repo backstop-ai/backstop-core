@@ -41,3 +41,13 @@ prototype/
 .backstop/packs/
 .backstop/pack-config-provenance.json
 .backstop/baseline.json
+
+# CI RUN DETRITUS — files the workflow's own steps leave in the workspace.
+#
+# The gate's diff scope INCLUDES UNTRACKED FILES, and several steps run before it:
+# the engine-tools step downloads ast-grep.zip and the diagnostic capture step writes
+# gate-report.json. Measured on run 30386673582, which reported 11 in-scope files of
+# which TWO were these — CI was gating its own build output. cover.out was already
+# ignored, which is why it never appeared and is the precedent this follows.
+ast-grep.zip
+gate-report.json
