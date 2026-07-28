@@ -1565,6 +1565,35 @@ notes: |
                The falsifier is a RUNNER measurement; a green local suite proves
                nothing here, because the file does not compile on darwin at all.
 
+    REQ-011: What the instrument cannot observe is split out and declared, not hidden.
+      CLM-043  every exec-erased statement lives in `sandbox_linux_helper.go` and
+               nowhere else — the five exec-only functions plus
+               `MaybeRunSandboxHelper`'s helper branch — so the declared exclusion
+               names exactly the code the coverage instrument cannot observe, and
+               every remaining statement in the sandbox implementation is measured
+               with no exemption. Structurally locked by AST tests in both
+               directions: nothing exec-side left in the measured file, nothing
+               measurable hidden in the excluded one.
+      CLM-044  the exclusion is DECLARED BY THE PACK and carries a JUSTIFICATION
+               STRING that the producer echoes into the coverage record, so an
+               exclusion is visible in the gate's own output rather than silent.
+               The justification standard is "the instrument cannot observe it,
+               here is the profile" — NOT "this is hard to test". The mechanism must
+               make a casual exclusion HARDER than fixing the coverage, or it
+               becomes the waiver route this plan rejected twice.
+
+    REQ-012: CI gates only files an author wrote.
+      CLM-045  no workflow step leaves an ungitignored file behind, so the diff
+               scope contains only author-written files. The two known droppings —
+               `ast-grep.zip` (tool-install leftover, and the original 6-vs-5
+               scope-count culprit) and `gate-report.json` (the gate's own `--json`
+               output) — are gitignored or relocated, and an explicit allowed-
+               leftovers set makes any new dropping a test failure rather than a
+               silent addition to someone's diff. This does NOT change the scope
+               rule: diff-scope-includes-untracked is founder-ratified by design
+               (ISSUE-004), because an author's new file must be gated before it is
+               committed. The defect is CI dropping files, not the gate seeing them.
+
     REQ-009: Landlock rules match the file type of the path they name.
       CLM-040  every `path_beneath` rule carries only rights VALID FOR ITS PATH'S
                TYPE: for a non-directory, the whole DIRECTORY-ONLY class is dropped
@@ -3593,20 +3622,29 @@ phases:
           statements' worth of tests against a counter that cannot record them is
           the most expensive way to discover it.
 
-          THE HYPOTHESIS (plausible, and already strongly circumstantially
-          supported): the helper-side functions run in a process that `unix.Exec`s
-          (`sandbox_linux.go:154`), which REPLACES THE PROCESS IMAGE — so Go's
-          coverage counters for everything that executed in the helper are never
-          flushed. The structural split supports it exactly:
-            HELPER-SIDE, exec'd away — `applyRestrictionsAndExec`, `applyLandlock`,
-              `applySeccomp`, `seccompAuditArch`, `seccompSyscallNumbers`,
-              `probeLandlockABI`, `kernelRelease`, `filterHelperEnv`
-            PARENT-SIDE, counted normally — `platformSandboxedRun`,
-              `platformSandboxedRunStdout`, `newSandboxHelperCommand`
-          AND THE RUN ALREADY ARGUES FOR IT: the sandbox INSTALLED AND HELD on the
-          runner, which means `applyLandlock` and `applySeccomp` demonstrably
-          executed to completion. If they had been counted, 30.6% is impossible.
-          The counters are lying, not the code. Confirm it; do not assume it.
+          ── EXECUTED. HYPOTHESIS CONFIRMED (run 30386673582). ─────────────────
+          Evidence committed at
+          `pkg/packval/testdata/sandbox-linux-coverage-profile.txt`.
+
+          FIVE functions measure exactly 0.0% while having PROVABLY EXECUTED — the
+          clincher being that `applyLandlock` is where the earlier EINVAL was raised
+          FROM, so it demonstrably ran to completion in an earlier run:
+
+            applyRestrictionsAndExec   0/19    seccompSyscallNumbers   0/8
+            applyLandlock              0/29    seccompAuditArch        0/4
+            applySeccomp               0/19
+
+          19+29+19+8+4 = 79 of 134 statements STRUCTURALLY UNMEASURABLE. The ceiling
+          for the file is therefore (134-79)/134 = 41.0% — SUBTRACTION, NOT
+          JUDGEMENT. No test can raise it, because the instrument cannot observe the
+          code. The measured 41/134 (30.6%) is already near that ceiling.
+
+          THE PLAN'S PREDICTED SPLIT WAS WRONG ABOUT THREE FUNCTIONS, corrected
+          here so nobody re-derives the wrong list: `probeLandlockABI` (4/5, 80%),
+          `kernelRelease` and `filterHelperEnv` are ALSO CALLED FROM THE PARENT, so
+          they carry counters. Only the five above are exec-only. Parent-side and
+          counted normally: `platformSandboxedRun`, `platformSandboxedRunStdout`
+          (9/10), `newSandboxHelperCommand`.
 
           STEP 1 — GET THE DATA. Add `--json` to the gate invocation in
           `.github/workflows/ci.yml`, KEEPING the human output (tee both, or run
@@ -3647,14 +3685,18 @@ phases:
                 pack hardcodes `"excluded":false`, so this is a CROSS-REPO change on
                 DIR-027's clock.
 
-          THE EVIDENCE STANDARD FOR CHOOSING: (a) is preferred if and only if the
-          child-exits-normally form can be shown to measure the helper functions
-          WITHOUT altering the production exec path. Otherwise (b), with the
-          justification written against the confirmed profile rather than against
-          this hypothesis. If the diagnosis REFUTES the hypothesis — if the helper
-          functions do carry counters — then the original error-path test plan
-          stands and the fork is moot. Report which world you are in before
-          proceeding.
+          ── RULED 2026-07-28: (b') SPLIT, THEN EXCLUDE THE SPLIT PATH. ────────
+          Neither (a) nor (b) as originally posed. The five exec-only functions move
+          to their own file, and THAT FILE is what carries the declared exclusion —
+          so the exclusion is scoped to precisely the code the instrument cannot
+          observe, and the remainder is measured normally with no exemption at all.
+          This is what keeps the exclusion from being a blanket over a whole
+          subsystem: after the split, a reviewer can see exactly which 79 statements
+          are excluded and why, and every other statement in the sandbox
+          implementation still has to earn its coverage.
+
+          TASK-033 owns the core split; phase-4e owns the pack-side mechanism the
+          exclusion needs to exist at all.
 
           `pkg/packval/sandbox_linux.go` measured 41/134 (30.6%) on the first runner
           measurement. The exec tests cover the happy trampoline; 93 statements of
@@ -3676,13 +3718,34 @@ phases:
 
       - id: TASK-032
         type: test
-        title: "Linux-side tests per the fork TASK-031 chose"
+        title: "Lock the exec-side split, and test what conventional tests can still reach"
         description: |
-          Write the tests the diagnosis calls for — and ONLY if it called for them.
-          If TASK-031 confirmed the exec-erases-counters hypothesis and chose the
-          exclusion fork, this task shrinks to the tests that still earn their keep
-          on behavioral grounds rather than coverage grounds; say so and move on
-          rather than writing tests whose only purpose is a number that cannot move.
+          TASK-031 confirmed the hypothesis and ruled (b'). So this task has TWO
+          jobs, and the first one is the one that keeps the exclusion honest.
+
+          JOB 1 — LOCK THE SPLIT STRUCTURALLY, in a portable (untagged) test file
+          `pkg/packval/sandbox_split_test.go`:
+
+          `TestSandboxLinuxHelperFile_ContainsEveryExecSideStatement` — parse both
+          files with `go/ast` and assert the five exec-only functions live in
+          `sandbox_linux_helper.go` and NOT in `sandbox_linux.go`. This is the test
+          that makes the exclusion auditable: the exclusion covers a FILE, so the
+          file's contents are the exclusion's real boundary.
+
+          `TestSandboxLinuxFile_HasNoExecErasedStatements` — the inverse, and the
+          one that catches the drift that matters: assert `sandbox_linux.go`
+          contains no call to `unix.Exec` and no function that reaches it. A future
+          edit that moves exec-side logic back into the measured file would
+          otherwise silently re-create an unmeasurable-but-not-excluded region, and
+          the number would drop with no explanation.
+
+          Both are AST tests over source, so they run on darwin — deliberately, for
+          the same reason as every other structural guard in this plan.
+
+          JOB 2 — the linux-side behavioral tests below, which remain worth writing
+          for the paths that DO carry counters. Do NOT write tests whose only
+          purpose is a number the instrument cannot record; that was the trap
+          TASK-031 existed to find.
 
           THE CONSTRAINT THAT SHAPES EVERY CHOICE HERE: these tests only EXECUTE ON
           THE RUNNER. The file is `//go:build linux`, so the local suite cannot see
@@ -3712,18 +3775,45 @@ phases:
         files:
           - pkg/packval/sandbox_linux_exec_test.go
           - pkg/packval/sandbox_linux_errors_test.go
+          - pkg/packval/sandbox_split_test.go
         claims:
           - CLM-042
+          - CLM-043
         depends_on:
           - TASK-013
           - TASK-031
 
       - id: TASK-033
         type: refactor
-        title: "Introduce syscall seams, and name the unreachable-by-contract set"
+        title: "Split the exec-only functions into their own file"
         description: |
-          Most of the uncovered statements are reachable only by making a syscall
-          fail, and `sandbox_linux.go` calls `unix.*` directly. Introduce the
+          Move the FIVE exec-only functions — `applyRestrictionsAndExec`,
+          `applyLandlock`, `applySeccomp`, `seccompAuditArch`,
+          `seccompSyscallNumbers` — into a new `pkg/packval/sandbox_linux_helper.go`
+          carrying the SAME `//go:build linux` tag. That file is what phase-4e's
+          declared exclusion will name.
+
+          ⚠ SPLIT `MaybeRunSandboxHelper` TOO — THIS IS A DESIGN REQUIREMENT, NOT A
+          FOOTNOTE. That function is partially counted (the parent calls it and it
+          returns nil immediately when the process is not a helper), but its HELPER
+          BRANCH — roughly six statements — runs on the exec side and is erased just
+          like the five. Leaving it whole would strand those statements in the
+          MEASURED file, where they can never be covered and are not excluded
+          either: the worst of both, and precisely the kind of residue that makes a
+          coverage number unexplainable six months later. Split it so the parent-side
+          gate check stays in `sandbox_linux.go` and every exec-side statement lands
+          in the helper file.
+
+          DO NOT PROMISE 90% FOR THE REMAINDER. The post-split number for
+          `sandbox_linux.go` is a RE-MEASUREMENT on the runner, not an arithmetic
+          certainty — the profile tells us what is erased today, not what the
+          remainder will measure after the boundary moves. Predict it, state the
+          prediction, and treat a follow-up move of further statements into the
+          helper file as a LOUD, EXPECTED POSSIBILITY rather than a failure. Report
+          the predicted and actual side by side.
+
+          The seams-and-unreachable-set work below applies to whatever remains
+          measurable after the split. Introduce the
           minimum injection seams the inventory shows are needed — package-
           level function variables are NOT the answer here (`go.core.
           no-global-mutable-state`, and the `root.go:20` exception is
@@ -3751,8 +3841,10 @@ phases:
           reshaping the code around the number.
         files:
           - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_linux_helper.go
         claims:
           - CLM-042
+          - CLM-043
         depends_on:
           - TASK-032
 
@@ -3791,6 +3883,198 @@ phases:
           - CLM-042
         depends_on:
           - TASK-033
+
+  - id: phase-4e
+    name: "Phase 4e: Give the pack a declared-exclusion mechanism"
+    tasks:
+      - id: TASK-035
+        type: test
+        title: "Dogfood falsifier: a declared exclusion is honoured and visible"
+        description: |
+          The core mechanism already exists — `CoverageRecord.Excluded`
+          (`pkg/check/coverage.go:38`) and the threshold skip at
+          `pkg/gate/step_coverage.go:170`. What does not exist is any way for a
+          consumer to DECLARE one: the go-toolchain pack's producer hardcodes
+          `"excluded":false` into every record it writes
+          (`scripts/coverage-to-records.sh:98`, the only occurrence of the word).
+
+          Write the RED dogfood tests in `pack_fleet_test.go` (the root package that
+          already asserts against the real repo's pack state):
+
+          `TestCoverageExclusion_DeclaredPathIsSkippedNotFailed` — with
+          `sandbox_linux_helper.go` declared excluded, the coverage dimension SKIPS
+          the threshold check for it rather than reporting `coverage_unmeasured` or
+          a below-threshold failure. Those three outcomes are easy to confuse and
+          only one is correct.
+
+          `TestCoverageExclusion_CarriesAJustification` — the record for an excluded
+          path carries a non-empty justification string. An exclusion with no stated
+          reason is indistinguishable from a mistake, and it is what makes the next
+          one easy.
+
+          `TestCoverageExclusion_UndeclaredPathStillFails` — the guard against the
+          mechanism becoming a blanket: a path NOT declared excluded still fails
+          below threshold. Without this, a broken exclusion matcher that excluded
+          everything would look like success.
+        files:
+          - pack_fleet_test.go
+        claims:
+          - CLM-044
+        depends_on:
+          - TASK-034
+
+      - id: TASK-036
+        type: implementation
+        title: "Add the declared-exclusion mechanism to the go-toolchain pack, then relock"
+        description: |
+          CROSS-REPO, and sanctioned: the packs-learn-from-scenarios law says a
+          scenario the packs cannot express is fixed IN THE PACK, versioned, never
+          scarred into consumer code. The same evidence bar applies, and
+          `pkg/packval/testdata/sandbox-linux-coverage-profile.txt` IS that evidence
+          — a measured profile showing 79 statements the instrument cannot observe.
+
+          In `backstop-ai/go-toolchain`: design how a consumer DECLARES excluded
+          paths. Weigh pack config in `backstop.yml` against a file convention, and
+          record WHY — this is a pack-design decision that outlives this plan, since
+          every language toolchain pack will eventually want it. Then teach
+          `scripts/coverage-to-records.sh` to emit `"excluded":true` plus the
+          justification for a declared path instead of the hardcoded false.
+
+          ⚠ DESIGN AGAINST CASUAL USE. This mechanism's failure mode is not being
+          broken; it is being CONVENIENT. Require a justification string in the
+          declaration and echo it into the record (CLM-044) so an exclusion is
+          visible in gate output and reviewable in a diff. Prefer a shape where
+          excluding a path is more work than covering it. If the design makes
+          `# nocover`-style annotation easy, it is the wrong design — this plan
+          rejected exclusion twice on waiver-shaped grounds and only accepted it for
+          a boundary where the instrument provably cannot see.
+
+          Then: version bump, publish the tag, and `backstop pack relock` in
+          backstop-core so the lock records the new version. Declare
+          `pkg/packval/sandbox_linux_helper.go` excluded, with the justification
+          citing the profile and its run URL.
+
+          Follow the pack-fleet migration recipe's silent steps — a relock that
+          leaves the lock and the installed tree disagreeing fails quietly.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-044
+        depends_on:
+          - TASK-035
+
+      - id: TASK-037
+        type: verification
+        title: "Verify the exclusion is scoped, justified, and not a blanket"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop pack install
+            ./bin/backstop gate
+
+          Then confirm, from the gate's own output:
+            - `sandbox_linux_helper.go` is reported as EXCLUDED with its
+              justification visible — not silently absent from the report.
+            - EVERY OTHER file, including `sandbox_linux.go`, is still measured and
+              still subject to the threshold. Name them; an exclusion that
+              accidentally matched a prefix would show up here and nowhere else.
+            - the lock records the new pack version and the installed tree matches.
+
+          If the exclusion cannot be seen in the output, it fails CLM-044 even if it
+          works — the point of the justification is that a reader encounters it.
+        files:
+          - backstop.lock
+          - pack_fleet_test.go
+        claims:
+          - CLM-044
+        depends_on:
+          - TASK-036
+
+  - id: phase-4f
+    name: "Phase 4f: Stop CI steps leaving ungitignored droppings in the diff scope"
+    tasks:
+      - id: TASK-038
+        type: test
+        title: "Shape test: the gate's own steps leave no ungitignored files"
+        description: |
+          PR #1's scope list contained `ast-grep.zip` (a tool-install leftover — the
+          original 6-vs-5 culprit, now identified) and `gate-report.json` (our own
+          diagnostic output). Both were UNTRACKED and therefore IN SCOPE, so CI
+          gated files no author wrote.
+
+          STATE THE DIAGNOSIS PRECISELY, because the tempting fix is the wrong one:
+          diff-scope-includes-untracked is BY DESIGN and founder-ratified
+          (ISSUE-004) — an author's new file must be gated before it is committed,
+          or the gate misses every new file. The defect is CI STEPS LEAVING
+          DROPPINGS, not the scope rule. Do not "fix" this by excluding untracked
+          files from scope; that would silently stop gating every newly added file
+          in the repo.
+
+          Add to `workflows_test.go`:
+
+          `TestCIWorkflow_LeavesNoUngitignoredArtifacts` — assert that every file a
+          workflow step is known to create is either written to a gitignored path or
+          listed in an explicit allowed-leftovers set. Enumerating the allowed set
+          is the point: it turns "what did CI drop this time" into a reviewable
+          list, and a new dropping fails the test rather than quietly entering
+          someone's diff scope.
+        files:
+          - workflows_test.go
+        claims:
+          - CLM-045
+        depends_on:
+          - TASK-034
+
+      - id: TASK-039
+        type: implementation
+        title: "Gitignore the tool leftover and relocate the gate report"
+        description: |
+          Turn TASK-038 green:
+            - `ast-grep.zip` — the installer leftover. Gitignore it, or better,
+              delete it in the install step: a downloaded archive has no reason to
+              survive its own extraction.
+            - `gate-report.json` — our own `--json` output from TASK-031. Write it to
+              a gitignored path. It is diagnostic output; it should never have been
+              a candidate for the diff scope it is reporting on, which is a small
+              ouroboros worth avoiding on principle as well as in practice.
+
+          Keep the JSON itself — TASK-031 added it for good reasons and this only
+          changes where it lands.
+        files:
+          - .github/workflows/ci.yml
+          - .gitignore
+        claims:
+          - CLM-045
+        depends_on:
+          - TASK-038
+
+      - id: TASK-040
+        type: verification
+        title: "Verify the workflow leaves a clean tree"
+        description: |
+          Run and report true exit codes for:
+
+            go test . -race -count=1 -run 'TestCIWorkflow' -v
+            go run github.com/rhysd/actionlint/cmd/actionlint@latest \
+              .github/workflows/ci.yml
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          The real proof is on the runner and belongs to TASK-019's re-run: report
+          the in-scope file list from the next run and confirm it contains ONLY
+          author-written files. That list is the falsifier; a green shape test only
+          says the workflow matches what we currently know it drops.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+        claims:
+          - CLM-045
+        depends_on:
+          - TASK-039
 
   - id: phase-5
     name: "Phase 5: Close the acceptance criterion on a real Linux runner"
@@ -3898,9 +4182,26 @@ phases:
                30381252600, and it is why the push run is a separate, required step
                rather than a formality after a green PR.
 
-          Also settle the banked 6-vs-5 scope-count observation on the re-run: read
-          the JSON scope output and name the sixth path. One read, and it either
-          confirms the untracked-file hypothesis or opens a real question.
+          THE 6-VS-5 OBSERVATION IS SETTLED — and it was the untracked hypothesis,
+          confirmed with names: `ast-grep.zip` (a tool-install leftover) and
+          `gate-report.json` (the gate's own diagnostic output) were untracked and
+          therefore in scope. Phase 4f fixes the droppings, NOT the scope rule.
+          Still report the in-scope file list on the re-run and confirm it contains
+          only author-written files — that list is CLM-045's falsifier.
+
+          ── THE LAST BLOCKERS OF CLM-028, as of 2026-07-28 ────────────────────
+          Everything else in this plan is done or proven. What remains:
+            phase-4d  split the exec-erased statements out (TASK-033)
+            phase-4e  the pack-side declared-exclusion mechanism (cross-repo)
+            phase-4f  stop CI dropping ungitignored files into the diff scope
+            ISSUE-098 the ISSUE-036 resolver — a SEPARATE LANE awaiting founder go,
+                      and part of the artifact_status_drift external blocker. It is
+                      not this plan's to schedule or to work around.
+          When those land, the re-run is expected to close CLM-028, CLM-027 and
+          CLM-029's CI half. Expect the coverage number for `sandbox_linux.go` to be
+          a RE-MEASUREMENT rather than a certainty (TASK-033), and treat a follow-up
+          move of further statements into the helper file as an anticipated outcome,
+          not a setback.
         files:
           - .github/workflows/ci.yml
           - pkg/packval/sandbox.go
@@ -3917,6 +4218,8 @@ phases:
           - TASK-027
           - TASK-030
           - TASK-034
+          - TASK-037
+          - TASK-040
 
       - id: TASK-020
         type: verification
