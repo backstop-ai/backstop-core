@@ -417,10 +417,18 @@ func platformSandboxedRunStdout(command string, args []string, packDir string, s
 	if stdin != nil {
 		helper.Stdin = bytes.NewReader(stdin)
 	}
-	var stdout bytes.Buffer
+	// TWO SEPARATE BUFFERS, and they must never be aliased to each other. stdout is
+	// what the gate parses as SARIF; stderr is where the helper writes the reason it
+	// could not install the sandbox. Pointing both at one buffer would satisfy every
+	// test here and reintroduce the stderr-in-SARIF corruption this arm was built to
+	// prevent — surfacing far from here as unparseable SARIF from any converter that
+	// writes a banner. Leaving stderr NIL is the other trap, and the one that
+	// actually shipped: os/exec sends a nil Stderr to /dev/null, which is how the
+	// helper's CLM-015 diagnostic was lost in CI run 30381252600.
+	var stdout, stderr bytes.Buffer
 	helper.Stdout = &stdout
-	if runErr := helper.Run(); runErr != nil {
-		return stdout.Bytes(), fmt.Errorf("sandboxed run (stdout) failed: %w", runErr)
-	}
-	return stdout.Bytes(), nil
+	helper.Stderr = &stderr
+
+	runErr := helper.Run()
+	return foldHelperStderrIntoError(stdout.Bytes(), stderr.Bytes(), runErr)
 }
