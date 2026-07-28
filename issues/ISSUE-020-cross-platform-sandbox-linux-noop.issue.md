@@ -6,16 +6,63 @@ issue:
   id: ISSUE-020
   title: "Linux sandbox is a hard error — pack convert scripts and validators run fully unsandboxed on Linux"
   type: bug
-  status: open
+  status: closed
   created: "2026-06-21"
+  closed: "2026-07-28"
 
 complexity:
   scope: cross-cutting
   uncertainty: exploratory
   risk: critical
+
+delivered_by: PLAN-ISSUE-020
 ---
 
 # ISSUE-020: Linux sandbox is a hard error — pack convert scripts and validators run fully unsandboxed on Linux
+
+## Resolution
+
+Delivered by PLAN-ISSUE-020 (status: completed) across five forced-order phases: (1) the pack
+fleet made materializable on a fresh checkout, (2) the gate given an explicit diff base so CI's
+clean checkout doesn't produce a vacuous empty-diff green, (3) the Linux sandbox mechanism
+itself, (4) `.github/workflows/ci.yml`'s blocking job flipped to the real `backstop gate`, (5)
+the welded acceptance criterion closed against a real `ubuntu-latest` run.
+
+**The welded acceptance criterion is met.** "`backstop gate` runs green in CI on Linux" — proven
+by a real `backstop gate` run, against real installed packs, on a real Linux CI host, with the
+same change flipping CI over to call `backstop gate` — is satisfied by two runs: `30397821258`
+(PR, first green) and `30398912938` (main, green plus backstop's first-ever published baseline
+artifact), commits through `5f4ef89`.
+
+**Caveat carried forward, not swept:** the main/merge run's diff scope was four files. The
+substantive sandbox-and-coverage proof lives in the PR runs (`30395875188` especially) — any
+future citation of this closure should cite both the main run (green on Linux) and the PR runs
+(and it was actually checking something), not the merge run alone.
+
+**Mechanism:** Landlock (ABI-graduated) + seccomp via a re-exec trampoline. Bubblewrap was
+falsified by a measured probe — stock Ubuntu GHA runners carry
+`apparmor_restrict_unprivileged_userns=1`, which breaks unprivileged `--unshare-user` — and the
+founder ruled Landlock+seccomp as the mechanism on 2026-07-28. Four runner failures were fixed at
+source, zero waivers lane-wide: bubblewrap's runtime unavailability (→ mechanism re-ruled), a
+helper diagnostic the parent process discarded (→ folded into the error so the next failure was
+legible), a directory-only Landlock right applied to a regular file (→ narrowed by inode type),
+and a coverage instrument unable to observe exec-erased code (→ split, then a justified, declared
+exclusion). Every one of these was invisible to a green local suite.
+
+**Residuals at close, named rather than swept:**
+- Four documented loud handlers (recorded in the plan's task record).
+- The justified helper-file coverage exclusion (CLM-043/044/046).
+- OQ-3's remaining unsandboxed surface — corrected from the issue's original citation of TWO
+  files (`substantiveness_q1_dispatch.go` and `contract_equivalence.go`) to ONE:
+  `pkg/gate/contract_equivalence.go` was renamed to test-harness code in commit `824530e` and no
+  longer runs pack scripts in a user's gate. The real production surface is two call sites in one
+  file — `substantiveness_q1_dispatch.go:86` (unsandboxed engine exec) and `:98` (unsandboxed
+  `/bin/sh` convert) — deliberately left unsandboxed as OQ-3's open half (BUNDLE-021), not part of
+  this issue's hard-error defect.
+- Producers stay unsandboxed by design (the ISSUE-045 carve-out, preserved verbatim).
+- Zero waivers, lane-wide.
+
+Fail-closed held through every intermediate red on the way to green.
 
 ## Problem
 

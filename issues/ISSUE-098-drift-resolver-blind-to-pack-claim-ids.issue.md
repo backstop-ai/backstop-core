@@ -6,16 +6,44 @@ issue:
   id: ISSUE-098
   title: "Drift Resolver Blind To Pack Claim Ids"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-07-28"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: safe
+
+delivered_by: PLAN-ISSUE-098
 ---
 
 # ISSUE-098: Drift Resolver Blind To Pack Claim Ids
+
+## Resolution
+
+Delivered by PLAN-ISSUE-098 (status: completed) as a scoped resolver extension — one new index,
+one new presence union, one wiring thread — not a redesign. The existing Go-test resolution path
+(`collectTestFuncNames`, `ResolveMandatedTestPaths`'s source-function match) is unchanged.
+
+**Fix:** `computeDriftSurfaces` now resolves a mandated name PRESENT when either the existing
+Go-test-function index matches it, OR an installed pack manifest declares a `claims[].id` equal
+to it. Declaration-presence, not fixture re-execution, is the chosen semantics: the drift step
+does not re-run `backstop pack test` or re-execute fixtures. The integrity-chain argument backing
+that choice (pack_lock_verification halts the gate on any hash mismatch before the drift step
+ever runs; `pack add`/`pack install` already ran the full `pkg/packval` phase-3 fixture pipeline;
+`ParseManifestFile` requires every claim to declare a positive AND negative fixture pair) is
+recorded in the code's doc comments, along with the ISSUE-042-symmetry argument for why this is
+consistent with how the existing Go-test path already trusts the classifier/matcher.
+
+**Verification, on the real corpus:**
+- `artifact_status_drift` violations went from 5 to 0 with **zero edits** to ISSUE-036 — the
+  restoration trigger ISSUE-036's CLM-008 recorded was honored exactly as written: the fix is in
+  the resolver, not a repoint dressed up as one.
+- The falsifier held: a fabricated claim id declared by no installed pack (`no-such-claim-go`)
+  still resolves ABSENT and still blocks.
+- All seven pre-existing drift tests passed unchanged.
+- Green on main: run `30398912938`.
 
 ## Problem
 
