@@ -1,0 +1,142 @@
+# LINUX COVERAGE PROFILE FOR pkg/packval/sandbox_linux.go — CAPTURED EVIDENCE
+#
+# PROVENANCE
+#   Run:     https://github.com/backstop-ai/backstop-core/actions/runs/30386673582
+#   Commit:  4d41397 (branch fix/issue-020-sandbox-diagnostic, pull_request event)
+#   Date:    2026-07-28
+#   Host:    ubuntu-latest. Captured from the go-toolchain pack's coverage producer
+#            (`go test -coverprofile=cover.out ./...`, pack.yml stdout_artifact),
+#            uploaded by ci.yml's "Upload the gate JSON report" step.
+#
+# WHY THIS FILE EXISTS (TASK-031 STEP 2)
+#   The gate measured sandbox_linux.go at 41/134 (30.6%) and the question was WHY.
+#   A diagnosis that lives only in a task report cannot be re-checked by whoever
+#   implements the fix, so the raw evidence is committed here.
+#
+#   THIS IS AN EXTRACT, NOT THE WHOLE PROFILE. The runner profile is ~507KB covering
+#   the entire repo; only the sandbox_linux.go blocks are reproduced below, because
+#   they are the ones the diagnosis turns on. The full artifact is retrievable from
+#   the run URL above while the retention window lasts.
+#
+# THE FINDING: FIVE FUNCTIONS SIT AT EXACTLY ZERO, AND THEY PROVABLY EXECUTED.
+#   applyLandlock and applySeccomp DEMONSTRABLY RAN on this very host — the sandbox
+#   installed and held, and the previous run's EINVAL diagnostic was raised from
+#   inside applyLandlock. A function that provably executed and reports 0/29 is a
+#   MEASUREMENT failure, not an untested-code failure.
+#
+#   The mechanism: these five run inside the re-exec helper, which ends in
+#   unix.Exec (sandbox_linux.go). exec REPLACES THE PROCESS IMAGE, so Go never
+#   flushes the helper's coverage counters. The counters are lying, not the code.
+#
+# THE DECISIVE ARITHMETIC
+#   79 of 134 statements are structurally unmeasurable under the current producer.
+#   Even 100% coverage of every remaining statement caps this file at 55/134 = 41.0%,
+#   which is less than half the 90% floor. NO conventional test can make this file
+#   green. That is what rules out the naive form of the "just write more tests" fork.
+#
+# PER-FUNCTION CLASSIFICATION (covered/total, from the profile below)
+#   MaybeRunSandboxHelper          3/9     33.3%  counted
+#   applyRestrictionsAndExec       0/19     0.0%  ZERO-COUNTER (exec-erased)
+#   filterHelperEnv                5/6     83.3%  counted
+#   applyLandlock                  0/29     0.0%  ZERO-COUNTER (exec-erased)
+#   seccompAuditArch               0/4      0.0%  ZERO-COUNTER (exec-erased)
+#   seccompSyscallNumbers          0/8      0.0%  ZERO-COUNTER (exec-erased)
+#   applySeccomp                   0/19     0.0%  ZERO-COUNTER (exec-erased)
+#   kernelRelease                  3/4     75.0%  counted
+#   probeLandlockABI               4/5     80.0%  counted
+#   newSandboxHelperCommand       11/14    78.6%  counted
+#   platformSandboxedRun           6/7     85.7%  counted
+#   platformSandboxedRunStdout     9/10    90.0%  counted
+#   TOTAL                         41/134   30.6%
+#
+# RAW BLOCKS (file:startLine.startCol,endLine.endCol numStmt count; mode: set)
+mode: set
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:93.36,95.14 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:95.14,97.3 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:99.2,100.63 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:100.63,102.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:104.2,104.58 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:104.58,106.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:112.2,112.79 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:117.67,127.73 3 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:127.73,129.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:131.2,131.52 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:131.52,133.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:134.2,134.51 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:134.51,136.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:138.2,138.23 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:138.23,139.49 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:139.49,141.4 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:144.2,145.16 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:145.16,147.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:152.2,154.63 3 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:154.63,156.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:157.2,157.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:162.53,164.36 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:164.36,165.56 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:165.56,166.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:168.3,168.29 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:170.2,170.13 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:175.63,183.16 3 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:183.16,187.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:188.2,188.15 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:188.15,188.49 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:190.2,190.46 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:190.46,192.17 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:192.17,193.21 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:193.21,195.5 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:198.4,198.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:209.3,210.59 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:210.59,214.21 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:214.21,216.5 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:217.4,217.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:219.3,233.17 5 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:233.17,235.4 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:236.3,236.22 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:236.22,238.4 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:241.2,241.95 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:241.95,243.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:244.2,244.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:252.41,253.24 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:254.15,255.45 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:256.15,257.46 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:258.10,259.86 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:266.62,282.29 3 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:282.29,284.13 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:284.13,289.4 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:290.3,290.44 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:292.2,292.21 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:302.62,303.42 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:303.42,305.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:307.2,308.16 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:308.16,310.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:311.2,312.16 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:312.16,314.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:316.2,334.33 4 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:334.33,338.3 2 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:339.2,350.16 3 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:350.16,352.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:353.2,353.12 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:357.29,359.43 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:359.43,361.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:362.2,362.60 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:366.46,373.16 3 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:373.16,375.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:376.2,376.31 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:382.96,384.16 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:384.16,386.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:388.2,395.16 3 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:395.16,397.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:399.2,400.16 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:400.16,402.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:404.2,407.20 4 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:416.90,418.16 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:418.16,420.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:421.2,422.16 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:422.16,424.3 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:425.2,425.17 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:433.110,435.16 2 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:435.16,437.3 1 0
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:438.2,438.18 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:438.18,440.3 1 1
+github.com/backstop-ai/backstop-core/pkg/packval/sandbox_linux.go:449.2,454.74 5 1
