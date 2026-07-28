@@ -1028,3 +1028,45 @@ func TestCIWorkflow_NoProbeWorkflowRemains(t *testing.T) {
 		t.Fatalf("stat %s: %v", probeWorkflowFile, err)
 	}
 }
+
+// TestCIWorkflow_LeavesNoUngitignoredDroppings is the guard against CI gating its
+// own build output.
+//
+// The gate's diff scope INCLUDES UNTRACKED FILES, and several steps run before it,
+// so anything a step writes into the workspace lands in the set of files the gate
+// then blocks on. This is not hypothetical: run 30386673582 reported 11 in-scope
+// files, of which ast-grep.zip (the engine-tools download) and gate-report.json (the
+// diagnostic capture) were STEP OUTPUT rather than source. cover.out was already
+// gitignored, which is exactly why it never appeared — and is the precedent this
+// test generalises.
+//
+// The assertion is deliberately about GITIGNORE rather than about cleanup: a step
+// that removes its own output is one `set -e` away from not running, whereas an
+// ignored path cannot enter diff scope at all.
+func TestCIWorkflow_LeavesNoUngitignoredDroppings(t *testing.T) {
+	ignored, err := os.ReadFile(".gitignore")
+	if err != nil {
+		t.Fatalf("reading .gitignore: %v", err)
+	}
+	patterns := map[string]bool{}
+	for _, line := range strings.Split(string(ignored), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			patterns[line] = true
+		}
+	}
+
+	// Artifacts the blocking job's own steps write into the workspace. Each MUST be
+	// gitignored or the gate blocks on a file CI created seconds earlier.
+	for artifact, producedBy := range map[string]string{
+		"ast-grep.zip":     "the provisioned-engine-tools download",
+		"gate-report.json": "the diagnostic --json capture step",
+		"cover.out":        "the go-toolchain pack's coverage producer",
+	} {
+		if !patterns[artifact] {
+			t.Errorf(".gitignore does not cover %q, written by %s. Diff scope includes untracked files, so "+
+				"the gate would block on output its own job produced — measured on run 30386673582, where "+
+				"two such files were in scope", artifact, producedBy)
+		}
+	}
+}

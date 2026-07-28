@@ -1,11 +1,13 @@
 package backstopcore_test
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -449,4 +451,150 @@ func matchRetiredCoordinate(value string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// ─── COVERAGE EXCLUSION: DOGFOOD OVER THE REAL INSTALLED PACK ──────────────────
+//
+// These drive the ACTUAL converter the gate runs
+// (.backstop/packs/backstop-ai/go-toolchain/scripts/coverage-to-records.sh) by
+// feeding it a profile on stdin and parsing the records it emits — the same
+// contract dispatchPackCoverage uses. They are dogfood, not fixtures: if the
+// installed pack cannot declare an exclusion, these fail.
+//
+// THE DECLARATION CHANNEL. The converter is PARSE-ONLY and runs SANDBOXED, so it
+// has no project or toolchain access; everything it knows arrives as plain-text
+// comment lines the un-sandboxed producer folds into the profile
+// (`#backstop-module`, `#backstop-gofile`). An exclusion declaration therefore
+// travels the same way — `#backstop-coverage-exclude <path> <justification>` —
+// rather than through a new channel the sandbox would block.
+const coverageExclusionDirective = "#backstop-coverage-exclude"
+
+// coverageRecord mirrors the wire shape of check.CoverageRecord for parsing the
+// converter's output without importing the consumer.
+type coverageRecord struct {
+	Path          string `json:"path"`
+	Covered       int    `json:"covered"`
+	Total         int    `json:"total"`
+	Measured      bool   `json:"measured"`
+	Excluded      bool   `json:"excluded"`
+	Metric        string `json:"metric"`
+	Justification string `json:"justification"`
+}
+
+// runInstalledCoverageConvert pipes profile into the real installed converter and
+// returns the records it emitted.
+func runInstalledCoverageConvert(t *testing.T, profile string) []coverageRecord {
+	t.Helper()
+	script := filepath.Join(".backstop", "packs", "backstop-ai", "go-toolchain", "scripts", "coverage-to-records.sh")
+	if _, err := os.Stat(script); err != nil {
+		t.Fatalf("the go-toolchain pack is not installed at %s: %v — these are dogfood tests over the "+
+			"REAL pack, so an absent pack is a failure rather than a skip", script, err)
+	}
+
+	cmd := exec.Command("/bin/sh", script)
+	cmd.Stdin = strings.NewReader(profile)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("running %s: %v\noutput: %s", script, err, string(out))
+	}
+
+	var records []coverageRecord
+	if err := json.Unmarshal(out, &records); err != nil {
+		t.Fatalf("the converter did not emit a JSON array of coverage records: %v\ngot: %s", err, string(out))
+	}
+	return records
+}
+
+// coverageProfileFixture builds an enriched Go profile naming two files: the helper
+// (declared excluded) and its measured sibling (not declared).
+func coverageProfileFixture(declareExclusion bool) string {
+	const module = "github.com/backstop-ai/backstop-core"
+	var b strings.Builder
+	b.WriteString("mode: set\n")
+	b.WriteString("#backstop-module " + module + "\n")
+	if declareExclusion {
+		b.WriteString(coverageExclusionDirective + " pkg/packval/sandbox_linux_helper.go " +
+			"the exec boundary erases these counters; see testdata/sandbox-linux-coverage-profile.txt\n")
+	}
+	// Helper: deliberately BELOW any threshold, so a failure to honour the exclusion
+	// shows up as a threshold verdict rather than as silence.
+	b.WriteString(module + "/pkg/packval/sandbox_linux_helper.go:10.1,12.2 10 0\n")
+	// Sibling: also below threshold, and never declared excluded.
+	b.WriteString(module + "/pkg/packval/sandbox_linux.go:10.1,12.2 10 0\n")
+	return b.String()
+}
+
+func findCoverageRecord(records []coverageRecord, path string) (coverageRecord, bool) {
+	for _, r := range records {
+		if r.Path == path {
+			return r, true
+		}
+	}
+	return coverageRecord{}, false
+}
+
+// TestCoverageExclusion_DeclaredPathIsSkippedNotFailed asserts the declared path is
+// marked EXCLUDED rather than reported as a shortfall.
+//
+// Three outcomes are easy to confuse here and only one is correct: excluded (the
+// threshold is skipped and the suppression is surfaced as a warning), measured-and-
+// below-threshold (a blocking failure), and unmeasured (also blocking). A converter
+// that dropped the record entirely would produce the third while looking like the
+// first.
+func TestCoverageExclusion_DeclaredPathIsSkippedNotFailed(t *testing.T) {
+	records := runInstalledCoverageConvert(t, coverageProfileFixture(true))
+
+	got, found := findCoverageRecord(records, "pkg/packval/sandbox_linux_helper.go")
+	if !found {
+		t.Fatalf("the converter emitted no record for the declared-excluded path; a MISSING record reads "+
+			"to the gate as UNMEASURED, which blocks — the opposite of an exclusion. got: %+v", records)
+	}
+	if !got.Excluded {
+		t.Errorf("the declared path came back excluded=false (%d/%d) — the gate would apply the threshold "+
+			"and fail it", got.Covered, got.Total)
+	}
+}
+
+// TestCoverageExclusion_CarriesAJustification asserts the excluded record states WHY.
+//
+// An exclusion with no stated reason is indistinguishable from a mistake, and it is
+// what makes the next one easy. The gate does not require this — core deliberately
+// accepts an unjustified exclusion — so THIS test is where the requirement lives for
+// backstop-core's own pack.
+func TestCoverageExclusion_CarriesAJustification(t *testing.T) {
+	records := runInstalledCoverageConvert(t, coverageProfileFixture(true))
+
+	got, found := findCoverageRecord(records, "pkg/packval/sandbox_linux_helper.go")
+	if !found {
+		t.Fatalf("no record for the declared-excluded path: %+v", records)
+	}
+	if strings.TrimSpace(got.Justification) == "" {
+		t.Errorf("the excluded record carries no justification. The gate falls back to generic wording, so "+
+			"the suppression would appear in the report with no way to tell a deliberate exclusion from a "+
+			"mistake. record: %+v", got)
+	}
+}
+
+// TestCoverageExclusion_UndeclaredPathStillFails is the guard against the mechanism
+// becoming a blanket.
+//
+// Without it, a matcher that excluded EVERYTHING would satisfy both tests above and
+// silently switch the coverage dimension off across the repo — a vacuous green
+// wearing an exclusion's clothes. The sibling here is equally uncovered and simply
+// not declared, so the only thing separating them is the declaration.
+func TestCoverageExclusion_UndeclaredPathStillFails(t *testing.T) {
+	records := runInstalledCoverageConvert(t, coverageProfileFixture(true))
+
+	got, found := findCoverageRecord(records, "pkg/packval/sandbox_linux.go")
+	if !found {
+		t.Fatalf("no record for the undeclared sibling: %+v", records)
+	}
+	if got.Excluded {
+		t.Errorf("an UNDECLARED path came back excluded=true — the exclusion matcher is a blanket, and the "+
+			"coverage dimension is off for every file it touches. record: %+v", got)
+	}
+	if got.Justification != "" {
+		t.Errorf("an undeclared path carries a justification (%q); only a declared exclusion should",
+			got.Justification)
+	}
 }

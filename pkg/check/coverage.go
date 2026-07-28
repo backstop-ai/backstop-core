@@ -37,6 +37,19 @@ type CoverageRecord struct {
 	Measured bool `json:"measured"`
 	// Excluded marks a pack-DECLARED exclusion (generated/vendored/no-executable).
 	Excluded bool `json:"excluded"`
+	// Justification is the pack-declared REASON for an exclusion, surfaced verbatim on
+	// the gate's exclusion warning and never interpreted.
+	//
+	// It is omitempty and purely additive: every producer that predates it — including
+	// packs still emitting a bare `"excluded":false` — stays wire-compatible, and the
+	// gate falls back to its generic wording when it is absent. The gate deliberately
+	// does NOT reject an unjustified exclusion; requiring one is a PACK's policy to
+	// enforce (backstop-core's own dogfood test does exactly that), not knowledge baked
+	// into the binary.
+	//
+	// The reason it exists at all: an exclusion with no stated reason is
+	// indistinguishable from a mistake, and that is what makes the next one easy.
+	Justification string `json:"justification,omitempty"`
 	// Metric is the pack-declared measurement label (statement/line/branch/…). It is
 	// surfaced on the report and NEVER interpreted by the gate; an empty Metric on a
 	// measured record is a fail-loud error (REQ-005).

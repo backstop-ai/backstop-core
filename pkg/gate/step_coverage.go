@@ -245,7 +245,19 @@ func coverageMetricLabel(r check.CoverageRecord) string {
 // surfacing of a changed-file exclusion (CLM-025). The canonical record carries
 // no free-form reason field, so the surfaced detail names the declaring source
 // (the Metric label when present) so the suppression is attributable.
+// coverageExclusionReason renders the parenthetical suffix appended to an exclusion
+// warning.
+//
+// MIND THE NAME: for most of this function's life it returned no reason at all — only
+// the declared METRIC, or a bare generic phrase — so a reader who trusted the name
+// would have concluded the record carried a justification when nothing in it could.
+// It now prefers a pack-declared Justification and falls back to the old wording, so
+// the name is finally accurate; the fallbacks are kept because the gate does not
+// require packs to justify their exclusions.
 func coverageExclusionReason(r check.CoverageRecord) string {
+	if why := strings.TrimSpace(r.Justification); why != "" {
+		return ": " + why
+	}
 	if metric := strings.TrimSpace(r.Metric); metric != "" {
 		return " (declared metric: " + metric + ")"
 	}

@@ -220,6 +220,51 @@ func landlockReadRights() uint64 {
 	return AccessFSReadFile | AccessFSReadDir
 }
 
+// landlockDirectoryOnlyRights is the class of access rights the kernel accepts ONLY on
+// a directory. It exists as one named classification so that adding a right means
+// classifying it in exactly one place, rather than open-coding a bitmask wherever the
+// distinction happens to matter.
+//
+// Getting this wrong is not a soft failure. landlock_add_rule rejects a path_beneath
+// rule whose allowed_access carries any of these against a non-directory, and ONE
+// rejected rule aborts the ENTIRE restriction install — there is no partial
+// application. CI run 30383453888 is the recorded case: mask 0xc
+// (READ_FILE|READ_DIR) against /etc/ld.so.cache, a regular file, returned EINVAL and
+// took the whole sandbox down.
+//
+// REFER is included where the ABI has it (2+): it governs moving files BETWEEN
+// directories and is meaningless on a file. narrowToABI drops it on older kernels.
+func landlockDirectoryOnlyRights() uint64 {
+	return AccessFSReadDir |
+		AccessFSRemoveDir | AccessFSRemoveFile |
+		AccessFSMakeChar | AccessFSMakeDir | AccessFSMakeReg |
+		AccessFSMakeSock | AccessFSMakeFifo | AccessFSMakeBlock | AccessFSMakeSym |
+		AccessFSRefer
+}
+
+// narrowRuleToInodeType returns the rights valid for a path_beneath rule against an
+// inode of the given kind: a directory keeps the mask intact, a non-directory loses
+// every directory-only right and keeps every file-applicable one.
+//
+// isDir is a PARAMETER rather than something this function discovers, and that is a
+// deliberate testability choice, not an inconvenience. The capability -> restriction
+// -spec derivation is a pure function of the capability struct (CLM-012), which is the
+// only reason it can be tested on darwin at all; a stat inside it would make the whole
+// capability untestable off-Linux. Both defects this lane has found were correct as a
+// spec and wrong against a real host, so keeping the ARITHMETIC portable — and letting
+// the caller supply the one fact only a Linux host knows — is what keeps them
+// catchable here.
+//
+// Narrow only path RULES. The ruleset's handled_access_fs mask is NOT subject to the
+// kernel's inode-type check, so narrowing it would fix nothing and would silently
+// un-restrict those operations everywhere.
+func narrowRuleToInodeType(mask uint64, isDir bool) uint64 {
+	if isDir {
+		return mask
+	}
+	return mask &^ landlockDirectoryOnlyRights()
+}
+
 // narrowToABI masks rights down to what the running kernel knows.
 //
 // This is a correctness requirement, not tidiness: landlock_create_ruleset returns

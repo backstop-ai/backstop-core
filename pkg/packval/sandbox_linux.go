@@ -5,13 +5,10 @@ package packval
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -62,6 +59,21 @@ import (
 // subcommand would also be a user-facing surface promising something it is not.
 const sandboxHelperEnvVar = "BACKSTOP_SANDBOX_HELPER_SPEC"
 
+// ─── THE FOUR STATEMENTS THAT STAY UNCOVERED, AND WHY THAT IS CORRECT ──────────
+// Measured on run 30389988184: kernelRelease's Uname failure, probeLandlockABI's
+// errno branch, and newSandboxHelperCommand's json.Marshal and os.Executable
+// failures. Every one is the error return of a call that CANNOT fail on a healthy
+// host — Uname succeeds, the Landlock probe succeeds, os.Executable succeeds, and
+// marshalling a struct with no channels or funcs cannot fail.
+//
+// They are LOUD FAILURE HANDLERS, not untested logic: they are what makes a broken
+// host legible instead of silent. Reaching them would need a syscall-function struct
+// and a marshal seam, and that is the thick-seam direction this file deliberately
+// avoids — every indirection between this code and the kernel is a place the test
+// and production paths can diverge, which is what produced two of this lane's runner
+// failures. Do NOT delete them to raise the number; the ABI-prober seam above is the
+// one seam judged worth its risk, and it ships with a wiring guard.
+
 // sandboxHelperRequest is what the parent hands the helper.
 type sandboxHelperRequest struct {
 	Capability SandboxCapability `json:"capability"`
@@ -90,71 +102,26 @@ type sandboxHelperRequest struct {
 // `go test` the exe is the TEST binary, so both entry points need it; either one
 // missing is a silent hole — the shipped binary sandboxes nothing, or the suite
 // cannot reach the helper at all.
+//
+// ─── THE SPLIT ──────────────────────────────────────────────────────────────────
+// This function is SPLIT DELIBERATELY, and the seam is a measurement boundary
+// rather than a design preference.
+//
+// Everything below runs in EVERY backstop process: the env lookup and the
+// not-a-helper return are the overwhelmingly common path, and they are honestly
+// measurable. Everything past the dispatch runs only inside the re-exec helper,
+// which ends in unix.Exec — the process image is replaced and Go never flushes
+// those counters (evidence: pkg/packval/testdata/sandbox-linux-coverage-profile
+// .txt). Left whole, this function stranded ~6 permanently-unmeasurable statements
+// in a file that IS measured and IS enforced, where they could neither be covered
+// nor excluded. The exec-side half now lives in sandbox_linux_helper.go, which the
+// pack declares excluded.
 func MaybeRunSandboxHelper() error {
 	spec, present := os.LookupEnv(sandboxHelperEnvVar)
 	if !present {
 		return nil
 	}
-
-	var request sandboxHelperRequest
-	if err := json.Unmarshal([]byte(spec), &request); err != nil {
-		return fmt.Errorf("decode the sandbox helper request: %w", err)
-	}
-
-	if err := applyRestrictionsAndExec(request); err != nil {
-		return fmt.Errorf("install the sandbox restrictions: %w", err)
-	}
-
-	// UNREACHABLE BY CONTRACT: applyRestrictionsAndExec ends in unix.Exec, which
-	// replaces the process image. Returning nil here would report "not a helper" to
-	// a caller that IS one, which is the silent pass-through this whole mechanism
-	// exists to prevent — so the impossible case is an error, not a success.
-	return errors.New("the sandbox helper returned without exec'ing the command")
-}
-
-// applyRestrictionsAndExec installs the restrictions on the CURRENT THREAD and execs.
-// On success it does not return.
-func applyRestrictionsAndExec(request sandboxHelperRequest) error {
-	// STEP 1 of the pair. Must precede the restriction syscalls and must not be
-	// unlocked before the exec — see the file header.
-	runtime.LockOSThread()
-
-	restrictions := DeriveSandboxRestrictions(request.Capability)
-
-	// PR_SET_NO_NEW_PRIVS is REQUIRED before landlock_restrict_self and before a
-	// seccomp filter, absent CAP_SYS_ADMIN. Forget it and BOTH return EPERM, which
-	// presents as "the sandbox is unavailable" rather than as a missing prctl.
-	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
-		return fmt.Errorf("prctl(PR_SET_NO_NEW_PRIVS): %w", err)
-	}
-
-	if err := applyLandlock(restrictions); err != nil {
-		return err
-	}
-	if err := applySeccomp(restrictions); err != nil {
-		return err
-	}
-
-	if request.Dir != "" {
-		if err := unix.Chdir(request.Dir); err != nil {
-			return fmt.Errorf("chdir %s: %w", request.Dir, err)
-		}
-	}
-
-	resolved, err := exec.LookPath(request.Command)
-	if err != nil {
-		return fmt.Errorf("resolve %s: %w", request.Command, err)
-	}
-
-	// STEP 5 of the pair: exec FROM THIS LOCKED THREAD. execve replaces the process
-	// image and kills sibling threads, so the new image inherits exactly the domain
-	// installed above.
-	argv := append([]string{resolved}, request.Args...)
-	environment := filterHelperEnv(os.Environ())
-	if err := unix.Exec(resolved, argv, environment); err != nil {
-		return fmt.Errorf("exec %s: %w", resolved, err)
-	}
-	return nil
+	return runSandboxHelper(spec)
 }
 
 // filterHelperEnv strips the helper variable so the exec'd command — which may
@@ -168,168 +135,6 @@ func filterHelperEnv(environment []string) []string {
 		kept = append(kept, entry)
 	}
 	return kept
-}
-
-// applyLandlock creates the ruleset, adds the derived path rules, and restricts the
-// calling thread to it.
-func applyLandlock(restrictions SandboxRestrictionSpec) error {
-	attr := unix.LandlockRulesetAttr{Access_fs: restrictions.HandledAccessFS}
-	rulesetFD, _, errno := unix.Syscall(
-		unix.SYS_LANDLOCK_CREATE_RULESET,
-		uintptr(unsafe.Pointer(&attr)),
-		unsafe.Sizeof(attr),
-		0,
-	)
-	if errno != 0 {
-		return fmt.Errorf("landlock_create_ruleset(handled_access_fs=0x%x): %w — an unrecognised "+
-			"right returns EINVAL, so the mask must be narrowed to the running ABI",
-			restrictions.HandledAccessFS, errno)
-	}
-	defer func() { _ = unix.Close(int(rulesetFD)) }()
-
-	for _, rule := range restrictions.PathRules {
-		pathFD, err := unix.Open(rule.Path, unix.O_PATH|unix.O_CLOEXEC, 0)
-		if err != nil {
-			if rule.Required {
-				return fmt.Errorf("open required sandbox path %s: %w", rule.Path, err)
-			}
-			// A system library directory that does not exist on this distro is
-			// normal (/usr/lib64 vs /lib64) and is not a sandbox failure.
-			continue
-		}
-		beneath := unix.LandlockPathBeneathAttr{
-			Allowed_access: rule.AllowedAccess,
-			Parent_fd:      int32(pathFD),
-		}
-		_, _, errno := unix.Syscall6(
-			unix.SYS_LANDLOCK_ADD_RULE,
-			rulesetFD,
-			unix.LANDLOCK_RULE_PATH_BENEATH,
-			uintptr(unsafe.Pointer(&beneath)),
-			0, 0, 0,
-		)
-		closeErr := unix.Close(pathFD)
-		if errno != 0 {
-			return fmt.Errorf("landlock_add_rule(%s, 0x%x): %w", rule.Path, rule.AllowedAccess, errno)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("close %s: %w", rule.Path, closeErr)
-		}
-	}
-
-	if _, _, errno := unix.Syscall(unix.SYS_LANDLOCK_RESTRICT_SELF, rulesetFD, 0, 0); errno != 0 {
-		return fmt.Errorf("landlock_restrict_self: %w (PR_SET_NO_NEW_PRIVS must precede this)", errno)
-	}
-	return nil
-}
-
-// seccompAuditArch returns the AUDIT_ARCH value for the running architecture.
-//
-// The filter validates this and KILLs on mismatch. Without the check, an i386 or x32
-// entry point reaches the same kernel with DIFFERENT syscall numbers, so every
-// comparison below would match the wrong call — the standard seccomp bypass.
-func seccompAuditArch() (uint32, error) {
-	switch runtime.GOARCH {
-	case "amd64":
-		return uint32(unix.AUDIT_ARCH_X86_64), nil
-	case "arm64":
-		return uint32(unix.AUDIT_ARCH_AARCH64), nil
-	default:
-		return 0, fmt.Errorf("no seccomp audit arch mapping for GOARCH %s", runtime.GOARCH)
-	}
-}
-
-// seccompSyscallNumbers maps the derived syscall NAMES to numbers for this
-// architecture. Names are used in the derivation so the spec is portable and
-// assertable on darwin; the numbers only exist here.
-func seccompSyscallNumbers(names []string) ([]uint32, error) {
-	byName := map[string]int{
-		"socket":         unix.SYS_SOCKET,
-		"socketpair":     unix.SYS_SOCKETPAIR,
-		"connect":        unix.SYS_CONNECT,
-		"bind":           unix.SYS_BIND,
-		"sendto":         unix.SYS_SENDTO,
-		"sendmsg":        unix.SYS_SENDMSG,
-		"sendmmsg":       unix.SYS_SENDMMSG,
-		"recvfrom":       unix.SYS_RECVFROM,
-		"recvmsg":        unix.SYS_RECVMSG,
-		"recvmmsg":       unix.SYS_RECVMMSG,
-		"io_uring_setup": unix.SYS_IO_URING_SETUP,
-		"io_uring_enter": unix.SYS_IO_URING_ENTER,
-	}
-	numbers := make([]uint32, 0, len(names))
-	for _, name := range names {
-		number, known := byName[name]
-		if !known {
-			// Loud: a name the derivation produces but this table cannot resolve
-			// would otherwise be silently un-denied, leaving a hole in the exact
-			// surface CLM-030 rests on.
-			return nil, fmt.Errorf("no syscall number for %q on %s", name, runtime.GOARCH)
-		}
-		numbers = append(numbers, uint32(number))
-	}
-	return numbers, nil
-}
-
-// applySeccomp installs the derived filter on the calling thread.
-//
-// The program is a TARGETED DENY with a default of ALLOW. That is not a style
-// choice: between this install and the execve above, the Go runtime still makes
-// syscalls, so a default-deny allowlist kills the helper before it can exec. It is
-// also the correct parity call — darwin denies network, it does not enumerate
-// permitted syscalls.
-func applySeccomp(restrictions SandboxRestrictionSpec) error {
-	if len(restrictions.SeccompDenied) == 0 {
-		return nil
-	}
-
-	auditArch, err := seccompAuditArch()
-	if err != nil {
-		return err
-	}
-	numbers, err := seccompSyscallNumbers(restrictions.SeccompDenied)
-	if err != nil {
-		return err
-	}
-
-	const (
-		loadWord    = unix.BPF_LD | unix.BPF_W | unix.BPF_ABS
-		jumpEqual   = unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K
-		returnValue = unix.BPF_RET | unix.BPF_K
-		// Offsets into struct seccomp_data: nr at 0, arch at 4.
-		offsetNR   = 0
-		offsetArch = 4
-	)
-	denyEPERM := uint32(unix.SECCOMP_RET_ERRNO | uint32(unix.EPERM))
-
-	program := []unix.SockFilter{
-		// Validate the audit arch; KILL the process on mismatch.
-		{Code: loadWord, K: offsetArch},
-		{Code: jumpEqual, Jt: 1, Jf: 0, K: auditArch},
-		{Code: returnValue, K: uint32(unix.SECCOMP_RET_KILL_PROCESS)},
-		// Load the syscall number for the comparisons below.
-		{Code: loadWord, K: offsetNR},
-	}
-	for _, number := range numbers {
-		// On a match, jump over the remaining comparisons to the EPERM return.
-		program = append(program, unix.SockFilter{Code: jumpEqual, Jt: 0, Jf: 1, K: number})
-		program = append(program, unix.SockFilter{Code: returnValue, K: denyEPERM})
-	}
-	program = append(program, unix.SockFilter{Code: returnValue, K: uint32(unix.SECCOMP_RET_ALLOW)})
-
-	fprog := unix.SockFprog{
-		Len:    uint16(len(program)),
-		Filter: &program[0],
-	}
-	if _, _, errno := unix.Syscall(
-		unix.SYS_SECCOMP,
-		uintptr(unix.SECCOMP_SET_MODE_FILTER),
-		0,
-		uintptr(unsafe.Pointer(&fprog)),
-	); errno != 0 {
-		return fmt.Errorf("seccomp(SECCOMP_SET_MODE_FILTER): %w (PR_SET_NO_NEW_PRIVS must precede this)", errno)
-	}
-	return nil
 }
 
 // kernelRelease reports the running kernel release for diagnostics.
@@ -358,8 +163,16 @@ func probeLandlockABI() (int, string, error) {
 // newSandboxHelperCommand builds the parent-side command that re-execs this binary
 // in helper mode. It negotiates the Landlock ABI first and REFUSES loudly when the
 // mechanism is unavailable, executing nothing.
-func newSandboxHelperCommand(command string, args []string, packDir string) (*exec.Cmd, error) {
-	abi, err := resolveLandlockMechanism(probeLandlockABI)
+// probeABI is a PARAMETER so the refusal path is reachable from a test: on a healthy
+// host the probe always succeeds, so the "mechanism unavailable" branch — and the two
+// callers' error wraps that depend on it — could never execute. The seam is
+// deliberately THIN, matching the shape resolveLandlockMechanism already takes one
+// level down: it substitutes the ABI ANSWER, never what a Landlock rule is or how it
+// is applied. TestSandboxLinux_ProductionPathUsesTheRealABIProbe asserts both
+// production call sites hand it the real probeLandlockABI, so the seam cannot become a
+// place where test and production diverge.
+func newSandboxHelperCommand(command string, args []string, packDir string, probeABI LandlockABIProbe) (*exec.Cmd, error) {
+	abi, err := resolveLandlockMechanism(probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("negotiate the Landlock mechanism: %w", err)
 	}
@@ -389,11 +202,23 @@ func newSandboxHelperCommand(command string, args []string, packDir string) (*ex
 // platformSandboxedRun is the linux arm of SandboxedRun. It preserves that function's
 // CombinedOutput contract exactly.
 //
-// The name is the build-tagged dispatch seam shared with sandbox_darwin.go and
-// sandbox_unsupported.go: sandbox.go calls it unqualified and the linker resolves
-// whichever file the build tags admitted.
+// The name is the build-tagged dispatch seam it shares with sandbox_nonlinux.go:
+// sandbox.go calls it unqualified and the linker resolves whichever file the build
+// tags admitted.
+// The dispatch seam keeps its PLATFORM-NEUTRAL signature and delegates. The prober
+// is not a parameter here on purpose: platformSandboxedRun is defined identically in
+// sandbox_nonlinux.go, and threading a Landlock-only dependency through it would leak
+// a linux concept into a contract darwin also implements — forcing the darwin arm to
+// accept an argument it can never use.
 func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir)
+	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+}
+
+// linuxSandboxedRunWith is platformSandboxedRun's body with the ABI prober injected,
+// which is what makes the refusal wrap below reachable: on a healthy host the real
+// probe always succeeds, so without this seam the wrap could never execute.
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
@@ -409,18 +234,34 @@ func platformSandboxedRun(command string, args []string, packDir string) ([]byte
 // stdout-captured-so-far returned alongside the error on a non-zero exit. Those are
 // what keep a converter's stderr banner out of the SARIF the gate parses, so the
 // trampoline has to be transparent to them.
+// Same neutral-signature-plus-delegation shape as platformSandboxedRun above, and for
+// the same reason.
 func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir)
+	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+}
+
+// linuxSandboxedRunStdoutWith is platformSandboxedRunStdout's body with the ABI prober
+// injected. See linuxSandboxedRunWith for why the seam exists.
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
 	if stdin != nil {
 		helper.Stdin = bytes.NewReader(stdin)
 	}
-	var stdout bytes.Buffer
+	// TWO SEPARATE BUFFERS, and they must never be aliased to each other. stdout is
+	// what the gate parses as SARIF; stderr is where the helper writes the reason it
+	// could not install the sandbox. Pointing both at one buffer would satisfy every
+	// test here and reintroduce the stderr-in-SARIF corruption this arm was built to
+	// prevent — surfacing far from here as unparseable SARIF from any converter that
+	// writes a banner. Leaving stderr NIL is the other trap, and the one that
+	// actually shipped: os/exec sends a nil Stderr to /dev/null, which is how the
+	// helper's CLM-015 diagnostic was lost in CI run 30381252600.
+	var stdout, stderr bytes.Buffer
 	helper.Stdout = &stdout
-	if runErr := helper.Run(); runErr != nil {
-		return stdout.Bytes(), fmt.Errorf("sandboxed run (stdout) failed: %w", runErr)
-	}
-	return stdout.Bytes(), nil
+	helper.Stderr = &stderr
+
+	runErr := helper.Run()
+	return foldHelperStderrIntoError(stdout.Bytes(), stderr.Bytes(), runErr)
 }
