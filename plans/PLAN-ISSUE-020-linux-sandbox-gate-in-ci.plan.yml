@@ -44,6 +44,89 @@ notes: |
   whole-repo threshold is precisely what the founder ruled against, and ISSUE-094
   owns the visibility half.
 
+  ── THE STRUCTURAL COVERAGE PROBLEM, AND WHY PHASE 3b FIXES CODE ───────────
+  RAISED AND RESOLVED 2026-07-28, after Phase 3 committed three coverage findings
+  RED and named. This is a genuine plan-level defect, not an as-built note: left
+  alone it makes CLM-028 — `backstop gate` GREEN on Linux — UNACHIEVABLE.
+
+  THE THREE FINDINGS, and which survive the trip to the runner:
+
+    (a) `cmd/backstop/main.go` 9/17. Was ALREADY RED at HEAD (9/14, measured in a
+        detached worktree), so Phase 3 inherited it and added three statements to
+        it. `main()` is unreachable from tests, full stop. PERSISTS ON THE RUNNER.
+    (b) `pkg/packval/sandbox.go` 31/36, identical at HEAD, net-new zero. The
+        `switch runtime.GOOS` means whichever platform runs, the OTHER platform's
+        arms are dead code. PERSISTS ON THE RUNNER — and gets WORSE there, which
+        is the part worth stating precisely: on darwin the dead arms are the small
+        linux ones (31/36); on linux the dead arms are the LARGE darwin bodies, so
+        the ratio falls rather than rises. The runner number is UNMEASURED, and
+        nobody should quote one until it is; the direction, however, follows from
+        the structure.
+    (c) `pkg/packval/sandbox_linux.go` — unmeasurable on darwin (`//go:build
+        linux`), and it RESOLVES on the runner where the exec tests exercise it.
+        No action. Whether it then clears the floor is a first-run measurement,
+        not a prediction.
+
+  So (a) and (b) both land in the first CI run's diff scope — the push carrying
+  these very commits puts them there — and the plan's own no-grandfather rule says
+  a touched file carries ALL its findings. CLM-028 fails on coverage unless
+  something changes.
+
+  THE DECISION: FIX THE CODE. Phase 3b adds a `run()` seam to main.go and converts
+  sandbox.go's runtime switch to COMPILE-TIME dispatch. Both are real improvements
+  that happen to clear the floor, which is the only kind of coverage fix this repo
+  accepts.
+
+    For (a): `main()` becomes one statement — `os.Exit(run(os.Stdout, os.Stderr))`
+    — and everything it did moves into a testable `run() int`. This is the fix the
+    implementer memory ALREADY NAMES, together with an instruction that resolves
+    here: "an architecture change no single plan task authorizes, so surface it to
+    the plan owner rather than inventing it." It was surfaced; this is the plan
+    owner sanctioning it. Two things make it cheap now that were not true when the
+    landmine was recorded: main.go ALREADY carries the `writeDiagnostic(w
+    io.Writer, message string) bool` helper whose assign-and-return-bool shape is
+    the recorded escape from the errcheck trap (moving `fmt.Fprintln(os.Stderr,
+    ...)` behind an `io.Writer` parameter makes errcheck fire, and `_, _ =` is NOT
+    an escape — go-standards GO-010 matches it verbatim); and `reportError` and
+    `writeDiagnostic` are already covered by `report_error_test.go` and
+    `exit_surfacing_seam_test.go`, so the uncovered statements are precisely the
+    ones `run()` liberates — INCLUDING the three the Phase 3 helper gate just
+    added, which become testable rather than permanently dead.
+
+    For (b): the exported functions keep their signatures and delegate to an
+    unexported platform function whose implementations live in build-tagged files.
+    Each platform then compiles only code it can execute, so there are no dead arms
+    to measure. This is not coverage gaming — it deletes genuinely unreachable code
+    from every build, and it removes the reason `sandbox_nonlinux.go` exists at all
+    (see the Phase 3 as-built note: that file is a stub-symbol shim the runtime
+    switch forces into existence).
+
+  THE TWO OPTIONS NOT TAKEN, with the evidence that ruled them out:
+
+    PACK-LEVEL COVERAGE EXCLUSION — REJECTED, and it is further away than it
+    looks. The mechanism EXISTS in core: `CoverageRecord.Excluded` marks "a
+    pack-DECLARED exclusion" (`pkg/check/coverage.go:38`) and
+    `pkg/gate/step_coverage.go:170` skips the threshold check for an excluded path.
+    But the go-toolchain pack NEVER EMITS ONE — `scripts/coverage-to-records.sh:98`
+    hardcodes `"excluded":false` into every record it writes, and that is the only
+    occurrence of the word in the script. Using this route therefore means a
+    CROSS-REPO pack change (fix, version bump, `pack relock`) in
+    `backstop-ai/go-toolchain`, on DIR-027's clock rather than this plan's. And it
+    would be the wrong change even if it were free: excluding `main.go` and every
+    GOOS-dispatch file permanently suppresses real files to avoid fixing two
+    tractable structural problems, which is waiving wearing a pack's clothes. FIX
+    beats WAIVE, and here the fix is smaller than the waiver.
+
+    REWORDING CLM-028 TO NAME THE RESIDUAL — REJECTED, and it deserves the
+    hardest argument because it is the cheapest. It would make "green" mean "red
+    but explained", in the one claim whose entire purpose is that the acceptance
+    criterion cannot be satisfied by explanation. ISSUE-020 exists because the gate
+    "checks documents and not software"; the plan's own notes call vacuous green
+    the enemy; and a residual named in a claim is a residual that gets renewed. If
+    the first CI run is red on coverage, the honest outcome is a red run reported
+    as red, not a green definition widened to fit it. CLM-028 is strengthened
+    rather than softened, below.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -446,10 +529,55 @@ notes: |
   WIRING, because this is the cross-package seam this repo has been burned on:
   `/proc/self/exe` is the backstop binary, so the helper gate has to run before
   Cobra sees argv. `cmd/backstop/main.go` calls an exported
-  `packval.MaybeRunSandboxHelper()` as its FIRST statement. Under `go test` the
-  exe is the TEST binary, so `pkg/packval` needs a `TestMain` calling the same
-  gate — there is no TestMain in that package today, so TASK-013 creates one.
-  Without both, the linux tests pass while the shipped binary sandboxes nothing.
+  `packval.MaybeRunSandboxHelper()` as its FIRST statement, CHECKING ITS ERROR and
+  exiting `sandboxHelperExitCode` (126) on failure — see the Phase 3 as-built note;
+  the gate returns an error rather than calling `os.Exit` from a library. Under
+  `go test` the exe is the TEST binary, so `pkg/packval` needs a `TestMain` calling
+  the same gate — there is no TestMain in that package today, so TASK-013 creates
+  one. Without both, the linux tests pass while the shipped binary sandboxes
+  nothing.
+
+  ── PHASE 3 AS-BUILT, 2026-07-28 (COMMITTED 92ca5b1) ───────────────────────
+  1. THE GATE RETURNS AN ERROR; MAIN OWNS THE EXIT. This plan wrote
+     `packval.MaybeRunSandboxHelper()` as a BARE STATEMENT in six places. As built
+     it returns an `error`, and `cmd/backstop/main.go` owns the exit through a
+     documented `const sandboxHelperExitCode = 126` (the shell convention for
+     "found but could not be executed", which is exactly what a failed sandbox
+     install means — deliberately neither ExitViolations nor ExitConfigError).
+
+     The reason is not cosmetic. The two `os.Exit(126)` calls the bare-statement
+     shape implied inside `pkg/packval` were BLOCKING
+     `cli.core.exit-code-discipline` findings, and the implementer judged the rule
+     CORRECT rather than reaching for a waiver: libraries return errors, `main`
+     owns exit policy. Fixed at source — seven pack findings to zero, no waivers.
+     A THIRD error case guards the "returned without exec'ing" hole, which is the
+     one that matters most: a helper that neither execs nor errors would fall
+     through and run pack code unsandboxed.
+
+     Every "call `MaybeRunSandboxHelper()`" instruction in this plan means the
+     error-handling shape: check the error, write the diagnostic, exit 126. A bare
+     call is now WRONG wherever it appears.
+
+  2. TWO FILES THE PLAN DID NOT ENUMERATE, both mandatory rather than incidental:
+     `pkg/packval/sandbox_nonlinux.go` exists because `sandbox.go` dispatches on
+     `runtime.GOOS` AT RUN TIME, so a darwin build still has to resolve the linux
+     entry points as SYMBOLS. Its companion `sandbox_nonlinux_test.go` was added to
+     clear the 0/2 coverage red that the new file opened (now 2/2) — the
+     new-file-coverage-floor pattern, arriving exactly as recorded. Both belong to
+     TASK-012. The constants-parity test took its own file,
+     `sandbox_linux_constants_test.go`, so it would not collide with TASK-013's
+     exec-test file.
+
+     Note the smell for later: `sandbox_nonlinux.go` exists ONLY to satisfy a
+     runtime switch. Phase 3b removes the switch, and the file's reason to exist
+     with it.
+
+  3. TASK-013/014 ACTUALS: the eight mandated exec tests are present and compile
+     under `GOOS=linux go vet`, UNEXECUTED as the plan intends (runner-only);
+     `TestMain` first-statement wiring landed in a new `pkg/packval/main_test.go`;
+     `go mod tidy` is byte-stable with `golang.org/x/sys` DIRECT, six direct
+     dependencies, zero cgo (CLM-033 satisfied as measured); all six darwin sandbox
+     tests pass UNMODIFIED under `-race` (CLM-016 satisfied).
 
   ── NETWORK DENIAL IS SECCOMP'S JOB, NOT LANDLOCK'S ────────────────────────
   Landlock gained network rights at ABI 4 and the runner reports ABI 7, so using
@@ -837,7 +965,8 @@ notes: |
       CLM-017  the exported sandbox interface is unchanged — no caller in
                `pkg/packval/executor.go` or `cmd/backstop/pack_gate.go` changes.
                The ONE addition is the trampoline gate: `cmd/backstop/main.go`
-               calls `packval.MaybeRunSandboxHelper()` as its first statement, and
+               calls `packval.MaybeRunSandboxHelper()` as its first statement and
+               owns the exit on its error (126, `sandboxHelperExitCode`), and
                a `TestMain` in `pkg/packval` calls the same gate so the helper is
                reachable under `go test`. Both are required; either one alone
                yields a binary or a suite that sandboxes nothing.
@@ -940,7 +1069,33 @@ notes: |
                not errored — proven by that run's own JSON.
       CLM-028  the acceptance criterion is closed ONLY by TASK-019's real CI run.
                No local result, and no green unit test over the sandbox, may be
-               reported as satisfying it.
+               reported as satisfying it. STRENGTHENED 2026-07-28: green means
+               UNCONDITIONALLY green. No dimension is expected-red, no residual is
+               pre-excused, and no finding may be reported as "known" or
+               "explained" in satisfaction of this claim. The three structural
+               coverage findings that prompted this wording are FIXED by Phase 3b,
+               not annotated. If the first run is red, the correct report is a red
+               run — widening what green means is the one move this claim exists
+               to forbid.
+
+    REQ-007: The coverage floor is reachable on every platform the gate runs on.
+      CLM-035  `cmd/backstop/main.go` clears the floor because `main()` is reduced
+               to a single `os.Exit(run(...))` statement and everything it did is
+               testable inside `run() int` — including the sandbox helper gate's
+               error handling, which Phase 3 added as three permanently-dead
+               statements. The `writeDiagnostic` assign-and-return-bool helper
+               stays: routing `fmt.Fprintln` through an `io.Writer` parameter is
+               what makes errcheck fire, and `_, _ =` is not an escape from it.
+      CLM-036  `pkg/packval/sandbox.go` contains no platform-dead code: the
+               exported functions keep their signatures and delegate to an
+               unexported platform function implemented in build-tagged files, so
+               each platform compiles and measures only code it can execute. The
+               runtime `switch runtime.GOOS` is gone, and with it the reason
+               `sandbox_nonlinux.go` existed as a stub-symbol shim.
+      CLM-037  neither change alters behavior: the darwin sandbox tests still pass
+               UNMODIFIED, the exported sandbox signatures are untouched, and
+               `backstop`'s exit codes for every existing path are unchanged —
+               these are refactors that clear a floor, never coverage gaming.
 
 phases:
   - id: phase-1
@@ -1674,7 +1829,8 @@ phases:
               ABI 0 / ENOSYS / Landlock absent from the LSM list => return the loud
               CLM-015 error naming Landlock, the kernel version and ISSUE-020, and
               run NOTHING.
-            - the helper, reached through an exported `MaybeRunSandboxHelper()` gate
+            - the helper, reached through an exported `MaybeRunSandboxHelper() error`
+              gate
               keyed on an env var (NOT a user-facing Cobra subcommand): lock the OS
               thread, `PR_SET_NO_NEW_PRIVS`, create/add/restrict the Landlock
               ruleset, install the seccomp filter, then `unix.Exec` the real command
@@ -1696,8 +1852,12 @@ phases:
           gate parses, and the trampoline must be transparent to them.
 
           `cmd/backstop/main.go`: call `packval.MaybeRunSandboxHelper()` as the
-          FIRST statement in `main`, before `NewRootCommand()`. This is one line and
-          it is the whole difference between a shipped binary that sandboxes and one
+          FIRST statement in `main`, before `NewRootCommand()`. AS BUILT it returns
+          an error and `main` owns the exit through a documented
+          `const sandboxHelperExitCode = 126` — a library must not call `os.Exit`
+          (the `cli.core.exit-code-discipline` rule, honoured rather than waived),
+          and a third error case guards the "returned without exec'ing" hole. This
+          is the whole difference between a shipped binary that sandboxes and one
           that does not — `/proc/self/exe` is the backstop binary, so the gate has
           to run before Cobra sees argv. This repo has a recorded history of
           implementations that pass their unit tests and miss exactly this kind of
@@ -1718,6 +1878,8 @@ phases:
         files:
           - pkg/packval/sandbox_capability.go
           - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/sandbox_nonlinux_test.go
           - pkg/packval/sandbox.go
           - cmd/backstop/main.go
           - go.mod
@@ -1749,9 +1911,9 @@ phases:
           FIRST, THE TESTMAIN — without it every test below fails for the wrong
           reason. Under `go test`, `/proc/self/exe` is the TEST binary, so the
           helper gate must run there too. `pkg/packval` has NO `TestMain` today;
-          create one whose first statement is `packval.MaybeRunSandboxHelper()`,
-          then `os.Exit(m.Run())`. This is the test-side half of CLM-017's wiring
-          pair.
+          create one whose first statement calls `packval.MaybeRunSandboxHelper()`
+          and handles its error, then `os.Exit(m.Run())`. This is the test-side half
+          of CLM-017's wiring pair.
 
           The triple, and it is a triple for a reason — a bare non-zero exit cannot
           distinguish "the sandbox denied correctly" from "the sandbox never
@@ -1805,6 +1967,7 @@ phases:
           add a skip.
         files:
           - pkg/packval/sandbox_linux_exec_test.go
+          - pkg/packval/sandbox_linux_constants_test.go
           - pkg/packval/main_test.go
         claims:
           - CLM-014
@@ -1836,9 +1999,22 @@ phases:
               after: five to six is expected, seven is a finding (CLM-033).
             - `grep -rn 'import "C"'` over the tree still returns nothing.
             - `cmd/backstop/main.go` calls `MaybeRunSandboxHelper()` as its FIRST
-              statement, and `pkg/packval/main_test.go` calls it in `TestMain`.
-              Confirm BOTH by reading the files. Each alone is a silent hole: the
-              binary sandboxes nothing, or the suite cannot reach the helper.
+              statement AND checks its error, exiting 126; `pkg/packval/main_test.go`
+              calls it in `TestMain`. Confirm BOTH by reading the files. Each alone
+              is a silent hole: the binary sandboxes nothing, or the suite cannot
+              reach the helper. An UNCHECKED call is a third hole — the helper can
+              fail to install the sandbox and return, and an unchecked caller then
+              runs pack code unsandboxed.
+
+          RECORD THE THREE STRUCTURAL COVERAGE FINDINGS RATHER THAN CLEARING THEM
+          HERE. As built, this phase committed red on `cmd/backstop/main.go` (9/17,
+          already 9/14 at HEAD), `pkg/packval/sandbox.go` (31/36, identical at HEAD,
+          net-new zero) and `pkg/packval/sandbox_linux.go` (unmeasurable on darwin).
+          None is clearable inside this phase's file scope: the first needs a
+          `run()` seam, the second needs compile-time dispatch, and the third
+          resolves only on a Linux host. Phase 3b owns the first two. Report them
+          with their HEAD-vs-NOW measurements and do NOT waive, exclude, or
+          baseline-refresh any of them.
 
           The darwin sandbox tests — `TestSandboxSecurityDenialsHold`,
           `TestSandboxDeniesProjectFileRead`, `TestSandboxDeniesFileWrite`,
@@ -1862,6 +2038,190 @@ phases:
           - CLM-033
         depends_on:
           - TASK-012
+
+  - id: phase-3b
+    name: "Phase 3b: Make the coverage floor reachable on both platforms"
+    tasks:
+      - id: TASK-021
+        type: test
+        title: "Tests for the run() seam and compile-time sandbox dispatch"
+        description: |
+          Write the RED tests for both refactors before either lands. Read the
+          notes block "THE STRUCTURAL COVERAGE PROBLEM" first — it carries the
+          evidence for why these are code fixes rather than exclusions.
+
+          FOR THE `run()` SEAM, in a new `cmd/backstop/run_test.go`:
+
+          `TestRun_ReturnsExitCodeFromCommandError` — `run` returns the code
+          `reportError` produces for a classified `*ExitCodeError`, and writes its
+          diagnostic to the writer it was handed rather than to `os.Stderr`.
+
+          `TestRun_SuccessReturnsZero` — a command that succeeds returns 0 and
+          writes no diagnostic.
+
+          `TestRun_SandboxHelperErrorExitsOneTwentySix` — the case Phase 3 could
+          not cover at all. When the helper gate returns an error, `run` returns
+          `sandboxHelperExitCode` and writes the error. Inject the gate; do not
+          depend on the process actually being a helper. This test is the reason
+          the seam is worth more than its coverage arithmetic: it is the first time
+          the "sandbox could not be installed" path is exercised anywhere.
+
+          `TestRun_RoutesOutputToStdoutAndErrorsToStderr` — the streams the current
+          `main` wires via `SetOut`/`SetErr` stay wired the same way through the
+          seam.
+
+          FOR COMPILE-TIME DISPATCH, in a new
+          `pkg/packval/sandbox_dispatch_test.go` (no build tag):
+
+          `TestSandboxDispatch_ExportedSignaturesUnchanged` — `SandboxedRun` and
+          `SandboxedRunStdout` keep their exact signatures and output contracts.
+          This is the CLM-017 lock, and it is what stops the refactor from becoming
+          a behavior change.
+
+          `TestSandboxDispatch_NoRuntimeGOOSSwitchRemains` — assert via `go/ast`
+          over `sandbox.go` that no `runtime.GOOS` switch survives. Structural, not
+          textual: the whole point is that platform selection moved to build tags,
+          and a test asserting the absence of the construct is what keeps someone
+          from reintroducing it for "clarity" later.
+
+          Both files are new, and both must be genuinely RED before the refactors:
+          `run` does not exist yet and the switch does.
+        files:
+          - cmd/backstop/run_test.go
+          - pkg/packval/sandbox_dispatch_test.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-014
+
+      - id: TASK-022
+        type: refactor
+        title: "Extract a testable run() seam from main()"
+        description: |
+          Turn TASK-021's `run` tests green. Reduce `main()` to exactly one
+          statement:
+
+            func main() { os.Exit(run(os.Stdout, os.Stderr)) }
+
+          Everything `main` does today moves into `run(stdout, stderr io.Writer)
+          int`: the sandbox helper gate and its 126 exit, `NewRootCommand`, the
+          `SetOut`/`SetErr` wiring, `Execute`, and the `reportError` call — all
+          returning a code rather than calling `os.Exit`.
+
+          MIND THE RECORDED LANDMINE. Routing `fmt.Fprintln(os.Stderr, ...)` behind
+          an `io.Writer` parameter makes errcheck fire where it did not before:
+          golangci-lint's `DefaultExcludedSymbols` excludes
+          `fmt.Fprintln(os.Stderr)` by the ARGUMENT EXPRESSION, so the identical
+          call through a parameter is a NET-NEW finding. `_, _ =` is not an escape
+          — go-standards GO-010 matches `_, _ = $FUNC(...)` verbatim. The escape
+          that works is already in the file: `writeDiagnostic` assigns the error and
+          returns a bool. Keep it, route every write through it, and do not
+          reintroduce a bare `Fprintln` on the seam.
+
+          Read the pack's own `.golangci.yml` (inside the installed go-toolchain
+          pack) rather than the repo-root one when predicting lint here — the root
+          file is a v1 config that golangci-lint v2 cannot load, so it is not the
+          config that runs.
+
+          `main.go` should land at 16/17 or better. Report the measured before and
+          after, and confirm the three helper-gate statements Phase 3 added are now
+          covered rather than merely relocated.
+        files:
+          - cmd/backstop/main.go
+        claims:
+          - CLM-035
+          - CLM-037
+        depends_on:
+          - TASK-021
+
+      - id: TASK-023
+        type: refactor
+        title: "Convert sandbox dispatch from runtime GOOS to build tags"
+        description: |
+          Turn TASK-021's dispatch tests green. `SandboxedRun` and
+          `SandboxedRunStdout` keep their signatures and their output contracts
+          exactly — `CombinedOutput` for the first, the explicit stdout buffer plus
+          stdin pipe and "stdout captured so far alongside the error" for the second
+          — and delegate to an unexported platform function.
+
+          The implementations move into build-tagged files: the darwin
+          `sandbox-exec` path into `sandbox_darwin.go`, the Landlock+seccomp path
+          into the existing `sandbox_linux.go`, and the refusal into
+          `sandbox_nonlinux.go` for everything else. `darwinSandboxProfile` MOVES
+          UNCHANGED — not one character of the profile string, and no change to what
+          it returns for a given packDir.
+
+          Delete the `switch runtime.GOOS`. With it goes the reason
+          `sandbox_nonlinux.go` had to declare linux entry points as symbols, so
+          that file becomes a real platform implementation rather than a shim.
+
+          THE POINT IS DEAD CODE, NOT PERCENTAGES. Each platform now compiles only
+          what it can execute, so nothing unreachable is measured on either. Say so
+          in the commit and in the report: this is the same file count and less
+          dead code, and the coverage movement is a consequence rather than the
+          goal. If the numbers move but `sandbox.go` still contains a platform
+          branch, the refactor did not happen.
+
+          CLM-016 IS THE HARD CONSTRAINT. All six darwin sandbox tests —
+          `TestSandboxSecurityDenialsHold`, `TestSandboxDeniesProjectFileRead`,
+          `TestSandboxDeniesFileWrite`, `TestSandboxDeniesNetwork`,
+          `TestSandboxConvertWithRealInterpreter`,
+          `TestSandboxProfileAllowsDyldLibraries` — must pass UNMODIFIED. If any
+          needs an edit, stop: the darwin path was changed, and that is out of
+          scope for a dispatch refactor.
+        files:
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_darwin.go
+          - pkg/packval/sandbox_nonlinux.go
+        claims:
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-021
+
+      - id: TASK-024
+        type: verification
+        title: "Verify both refactors clear the floor without changing behavior"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...
+            GOOS=linux go vet ./pkg/packval/
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          Then report the coverage arithmetic that is the point of this phase:
+            - `cmd/backstop/main.go` before and after (9/17 -> expected 16/17 or
+              better).
+            - `pkg/packval/sandbox.go` before and after on THIS platform, and state
+              plainly that the linux-side number remains UNMEASURED until TASK-019.
+              Do not extrapolate it.
+            - confirm no `runtime.GOOS` switch remains in `sandbox.go`, and that
+              `sandbox_nonlinux.go` no longer exists solely to provide symbols.
+
+          BEHAVIOUR NON-REGRESSION, which matters more than the percentages: all six
+          darwin sandbox tests pass unmodified, the exported sandbox signatures are
+          unchanged, and `backstop`'s exit codes for existing paths are unchanged.
+          Report any deviation rather than adjusting a test to match.
+
+          If `./bin/backstop gate` is red here, the refactors are not done. Do not
+          proceed to Phase 4 expecting CI to sort it out — the entire purpose of
+          this phase is that TASK-019 has no coverage residual to explain away.
+        files:
+          - cmd/backstop/main.go
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_darwin.go
+        claims:
+          - CLM-035
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-022
+          - TASK-023
 
   - id: phase-4
     name: "Phase 4: Flip CI's blocking job to the real gate"
@@ -2225,6 +2585,7 @@ phases:
           - TASK-012
           - TASK-016
           - TASK-018
+          - TASK-024
 
       - id: TASK-020
         type: verification
