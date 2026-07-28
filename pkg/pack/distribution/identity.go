@@ -118,7 +118,7 @@ var errManifestNameMissing = errors.New("manifest declares no name") // nosemgre
 // The returned coordinate has ONLY the @version suffix removed: no case folding, no
 // suffix stripping, no host normalization. The returned version is the normalized X.Y.Z
 // with no prefix, so re-prefixing it yields exactly one "v".
-func ResolveEffectiveVersion(reference, overrideVersion string) (string, string, error) {
+func ResolveEffectiveVersion(reference, overrideVersion string) (coordinate string, version string, err error) {
 	coordinate, refVersion := parsePackRef(reference)
 
 	supplied := refVersion
@@ -233,7 +233,7 @@ func ValidateRemoteIdentity(coordinate, effectiveVersion, packDir string) (*Remo
 //
 // The fields are read as yaml.Node so the RAW scalar text survives: a manifest declaring
 // `version: 1.0` must be reported as "1.0", not silently coerced through a float.
-func ReadManifestIdentity(packDir string) (string, string, error) {
+func ReadManifestIdentity(packDir string) (name string, version string, err error) {
 	manifestPath := filepath.Join(packDir, "pack.yml")
 
 	data, err := os.ReadFile(manifestPath)
@@ -249,7 +249,7 @@ func ReadManifestIdentity(packDir string) (string, string, error) {
 		return "", "", fmt.Errorf("parsing pack manifest: %w", unmarshalErr)
 	}
 
-	name := fields.Name.Value
+	name = fields.Name.Value
 	if name == "" {
 		return "", "", errManifestNameMissing
 	}
@@ -270,7 +270,7 @@ func ReadManifestIdentity(packDir string) (string, string, error) {
 // The fallback is a COMPATIBILITY path, not the primary one, and is never silent: every
 // lock entry written before this spec carries no coordinate, and using the pack name as a
 // repository is a guess that happens to be right only while name == coordinate holds.
-func CoordinateForEntry(packName string, entry LockEntry) (string, string) {
+func CoordinateForEntry(packName string, entry LockEntry) (coordinate string, warning string) {
 	if entry.SourceCoordinate != "" {
 		return entry.SourceCoordinate, ""
 	}
@@ -282,7 +282,7 @@ func CoordinateForEntry(packName string, entry LockEntry) (string, string) {
 // RemoteURLForEntry is LAYERED on CoordinateForEntry rather than duplicating its
 // fallback, so the resolver and the cloner cannot disagree about which repository a pack
 // came from. It passes the warning straight through — it does not produce a second one.
-func RemoteURLForEntry(packName string, entry LockEntry) (string, string) {
+func RemoteURLForEntry(packName string, entry LockEntry) (url string, warning string) {
 	coordinate, warning := CoordinateForEntry(packName, entry)
 	return resolveGitURL(coordinate), warning
 }
