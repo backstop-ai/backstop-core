@@ -154,6 +154,19 @@ Worth designing before sub-artifact retirement becomes common, but not blocking 
   1.0.1` for a single `maxDuration` contract-signature change): the founder observed a bare `spec_version`
   bump is coarse — it says "something changed" but nothing pins *which* claim, and the plan→claim edge
   (~109 bare `CLM-NNN` refs in PLAN-SPEC-009) cannot detect a claim whose meaning changed under it.
+- THIRD surfacing 2026-07-23 (bclabs-portal SPEC-007 CLM-029, during BUNDLE-003 Seed C spec authoring): a
+  live, `implemented`-spec gated claim whose ASSERTION must NARROW — CLM-029 "an unauthenticated session
+  reads no engagement rows" (anon-sees-nothing) → "anon reads only public rows, none non-public" — because
+  Seed C's public-browse (SPEC-016/REQ-011) adds a `public` column + anon-only RLS policy. The IDEAL is a
+  typed claim SUPERSESSION: CLM-029 superseded-by the narrowed claim, with a mechanical link to the deciding
+  requirement (REQ-011)/seed, history preserved (which for this trust-product IS the feature). No such
+  primitive exists, so the founder chose (2026-07-23) to AMEND IN PLACE (rename the mandated test + reseed a
+  public engagement in `tenancy.seam.test.ts` + `spec_version 1.0.0 → 1.1.0`, executed as a Seed C plan
+  task) and log this surfacing — the same excise-and-narrate pattern as the SPEC-010/SPEC-009 cases above,
+  audit trail in git + version-history prose rather than a typed supersession link. Note this is NOT the
+  fully-silent Gap 3 drift (the amend renames the mandated test, so `artifact_status_drift` does fire); it is
+  the missing-typed-supersession facet — a live claim whose meaning is deliberately replaced with no
+  first-class superseded-by record. The cleanest motivating case for the primitive yet.
 - Verified against the model: `pkg/validate/terminal.go` (artifact-level retirement statuses +
   typed `replaced-by`/`obsoleted-by` refs); no per-requirement/claim `status` field in the spec
   schema; spec schema `claims` item keys are `id`/`requirement`/`text`/`tests`/`kind`/`subject` — **no
