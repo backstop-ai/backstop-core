@@ -155,12 +155,14 @@ notes: |
       if _, err := os.Stat(packDir); err != nil { ... "missing_pack" ... }
 
   `VerifyLock` SKIPS local entries and HARD-FAILS git entries whose directory is
-  absent. Today five of six entries are local, so the packless `baseline` job
-  (`cmd/backstop/baseline.go:50-75` — `runBaselineGenerate` builds the full gate
-  step set with NO `pack install` anywhere before it) produces exactly ONE
-  `missing_pack` failure, for the single git entry. TASK-003 converts all six to
-  git. Change nothing else and that job goes from one baked-in failure to SIX,
-  published into the baseline artifact that main's ratchet is compared against.
+  absent. BEFORE Phase 1 five of six entries were local, so the packless `baseline`
+  job (`cmd/backstop/baseline.go:50-75` — `runBaselineGenerate` builds the full
+  gate step set with NO `pack install` anywhere before it) produced exactly ONE
+  `missing_pack` failure, for the single git entry. TASK-003 has now converted all
+  six to git, so this is no longer a prediction: change nothing else and that job
+  goes from one baked-in failure to SIX, published into the baseline artifact that
+  main's ratchet is compared against. TASK-016's `pack install` step is what stops
+  it, and Phase 1 landing first means the window is OPEN until that task lands.
 
   That would be making ISSUE-086 materially worse while quoting a note that says
   not to. So TASK-016 adds a `pack install` step to the `baseline` job — the
@@ -174,6 +176,46 @@ notes: |
   put on hold can now proceed. Adding the install step here is damage control on a
   break this plan would otherwise cause, and it should be reported to ISSUE-086's
   owner as an input, not as a resolution.
+
+  ── PHASE 1 ACTUALS, RECORDED 2026-07-28 (PHASE 1 IS COMPLETE, GATE GREEN) ─
+  Phase 1 has been executed. The blocks above are the plan as written; this one is
+  what actually happened, recorded because three things differed from the
+  prediction and each is reusable knowledge rather than a one-off.
+
+  THE FLEET AS IT NOW STANDS — all SIX entries `source_type: git`, each with a
+  `source_coordinate` and a pinned version:
+
+    backstop-ai/backstop-self        1.1.2
+    backstop-ai/cobra-cli-standards  0.2.1
+    backstop-ai/go-contracts         1.2.0     (was backstop/contracts)
+    backstop-ai/go-standards         1.2.1
+    backstop-ai/go-substantiveness   1.2.0     (was backstop/substantiveness)
+    backstop-ai/go-toolchain         1.2.0     (was backstop/go-toolchain)
+
+  1. THE EIGHTH SILENT STEP: `pack add` NO-OPS ON A SOURCE-TYPE-ONLY CHANGE.
+     Converting a pack that is already installed at the SAME version from local to
+     git does nothing and reports success — the lock keeps `source_type: local`
+     and the operation looks done. The working sequence is REMOVE-THEN-ADD. Filed
+     as ISSUE-095. Add it to the seven-step list below as an eighth member of the
+     same family: a silent failure whose only tell is that nothing changed.
+
+  2. `pack remove` DOES WORK ON A STALE COORDINATE — WHEN THE DIRECTORY EXISTS.
+     Step 5 below says `pack remove <old-name>` cannot prune a stale entry
+     ("pack is not installed"). That is TRUE ONLY once the directory is already
+     gone. With the install directory still present, `pack remove` succeeds and
+     COLLAPSES STEPS 2, 4 AND 5 into one command — it drops the backstop.yml key,
+     the directory and the lock entry together. The ordering lesson: remove BEFORE
+     deleting anything by hand, and the hand-editing in steps 2/4/5 mostly
+     evaporates. The step-5 caveat stands as written only for an entry whose
+     directory was already removed.
+
+  3. A SIXTH ENTRY NEEDED REPAIR, NOT JUST THE FIVE PLANNED.
+     `backstop-ai/cobra-cli-standards` was already `source_type: git` — and was
+     recording NO `source_coordinate`, so `CoordinateForEntry` fell back and
+     warned. Re-added at 0.2.1: content hash UNCHANGED (so the pack content was
+     never in doubt), provenance now recorded. It was inside TASK-003's file scope
+     already; it simply was not visible as broken from the lock's `source_type`
+     column, which is the only column the plan's survey read.
 
   ── THE RENAME IS A SEVEN-STEP SILENT-FAILURE SEQUENCE ─────────────────────
   Recorded from the two renames already executed. Steps 2 through 7 all fail
@@ -191,8 +233,11 @@ notes: |
     4. `rm -rf .backstop/packs/<old-org>/<old-name>` — `detectExtraUnlocked`
        (`pkg/pack/distribution/verify.go:91`) walks packsDir org/pack and FAILS
        any directory not in the lock.
-    5. Prune the stale backstop.lock entries. `pack remove <old-name>` CANNOT do
-       it ("pack is not installed"); edit the lock. Note `VerifyLock` SKIPS
+    5. Prune the stale backstop.lock entries. AMENDED BY THE ACTUALS ABOVE: with
+       the install directory still present, `pack remove <old-name>` does this AND
+       steps 2 and 4 in one command. The "pack is not installed" refusal — and the
+       hand-editing of the lock it forces — applies only once the directory has
+       already been deleted, so remove FIRST. Note `VerifyLock` SKIPS
        `source_type: local`, so a stale local entry passes verification while
        lying about a pack that is gone.
     6. Re-key `@waiver:` comments — the waiver rule-ID embeds the pack path
@@ -278,7 +323,12 @@ notes: |
                    satisfy provisionEngines)
     semgrep       1.96.0   (allowlist pin, pkg/pack/engine/allowlist.go)
     ast-grep      0.43.0   (allowlist pin, pkg/pack/engine/allowlist.go)
-    bubblewrap             (the Linux sandbox mechanism)
+
+  The sandbox is NOT on that list. Amended 2026-07-28: the mechanism is Landlock +
+  seccomp, both kernel APIs, so there is nothing to install and no PATH entry to
+  provide. What the runner must supply instead is a KERNEL — Landlock compiled in
+  and enabled in the LSM list, which the probe measured at ABI 7 on
+  ubuntu-24.04.
 
   A missing tool must remain a loud exit-2. Never add a conditional that skips a
   dimension because its tool is absent.
@@ -315,45 +365,284 @@ notes: |
   about Go or golangci-lint. It is a consumer project provisioning the toolchain
   its own declared packs require, which is exactly the Layer-0 contract.
 
-  ── MECHANISM: BUBBLEWRAP, UNLESS THE RUNNER PROBE FALSIFIES IT ────────────
-  ISSUE-020's spike (2026-07-27) narrowed OQ-3 to bubblewrap vs Landlock+seccomp
-  and left bubblewrap modestly ahead: it is packaged, and its enforcement was
-  demonstrably real (the assertion triple passed). Landlock got ZERO signal —
-  `ENOSYS` in the Docker test bed is a kernel-compile fact (LinuxKit builds
-  neither AppArmor nor Landlock), not ABI evidence. Any ranking of Landlock from
-  that probe would be fabricated.
+  ── AMENDED 2026-07-28: THE MECHANISM IS LANDLOCK + SECCOMP, NOT BUBBLEWRAP ─
+  FOUNDER RULING (Brandon, 2026-07-28). Phase 3 was written against bubblewrap on
+  the strength of the 2026-07-27 Docker spike. TASK-001 ran the probe on a real
+  `ubuntu-latest` runner and FALSIFIED that choice. Phase 3 is rewritten; Phases
+  1, 2, 4 and 5 are mechanism-independent and are unchanged.
 
-  The one open risk to the bwrap path is AppArmor's
-  `apparmor_restrict_unprivileged_userns`, which was UNMEASURABLE in containers
-  and could still break unprivileged `--unshare-user` on a real Ubuntu runner.
-  TASK-001 reads it on the real runner. READ THE VALUE; DO NOT ASSUME IT. If it
-  falsifies bwrap, STOP AND ESCALATE — do not silently switch to Landlock, and do
-  not weaken the sandbox to make the job green.
+  EVIDENCE — `pkg/packval/testdata/ubuntu-runner-probe.txt`, captured from run
+  https://github.com/backstop-ai/backstop-core/actions/runs/30364880850
+  (ubuntu-24.04 image 20260720.247.2, kernel 6.17.0-1020-azure, runner uid 1001):
 
-  Two negative results, recorded so they are not re-tried: `apparmor=unconfined`
-  changed nothing (there was nothing to unconfine in that kernel), and
-  `--cap-add SYS_ADMIN` is the wrong lever (bwrap then skips the user-namespace
-  path and lacks CAP_NET_ADMIN).
+    apparmor_restrict_unprivileged_userns = 1        RESTRICTED
+    all SEVEN bwrap invocations exited 1, INCLUDING BOTH POSITIVE CONTROLS
+      (ITEM3_0, reading a BOUND path, which must succeed under a working
+       sandbox; and ITEM3_3, `getent` WITHOUT --unshare-net, which must exit 0)
+    signatures: "loopback: Failed RTM_NEWADDR: Operation not permitted" and
+      "setting up uid map: Permission denied"
+    `unshare -Urn /bin/true` fails identically -> host policy, not a bwrap defect
+    bwrap NOT preinstalled; apt install succeeds and does NOT help
+    LANDLOCK_ABI = 7; LSM list = lockdown,capability,landlock,yama,apparmor,ima,evm
 
-  Corrected invocation from the spike, proven exit-0 both as root and as uid 1001:
+  READ THE PROBE FILE'S "READ THIS FIRST" SECTION BEFORE TOUCHING PHASE 3. Its
+  point 3 is the trap this plan would otherwise have walked into: two legs of the
+  assertion triple came back non-zero, which the naive reading scores as "denied
+  == PASS". They are non-zero because BWRAP NEVER STARTED. The positive control
+  is non-zero too. The triple proves the mechanism is UNAVAILABLE; it does not
+  prove denial. This is exactly why the spike specified a control leg, and it is
+  the reason a "green" sandbox test can be worth nothing.
 
-    bwrap --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
-      --symlink usr/lib64 /lib64 --unshare-user --unshare-net --dev /dev \
-      --proc /proc /bin/true
+  FOUNDER RATIONALE, which is the part that generalizes beyond CI: the restriction
+  is stock consumer Ubuntu 24.04, not a GitHub Actions quirk. The sandbox has to
+  work UNPRIVILEGED on hosts we do not control, and "run sudo first" is not a
+  promise backstop makes. A mechanism that needs a host policy change is not a
+  mechanism.
 
-  It is a STARTING POINT, not the finished argv. Two additions are required for
-  the real call and are not optional: `--ro-bind <packDir> <packDir>` (bwrap
-  builds a fresh root; without this the pack's own convert script does not exist
-  inside the sandbox) and `--chdir <packDir>` (the darwin path sets `c.Dir =
-  packDir`; parity requires the same working directory).
+  The 2026-07-27 spike's bubblewrap material — the corrected invocation, the
+  `apparmor=unconfined` and `--cap-add SYS_ADMIN` negative results — stays in
+  ISSUE-020 as RECORDED HISTORY of how the choice was made. It is no longer
+  current truth and nothing in this plan builds on it.
+
+  ── WHAT LANDLOCK + SECCOMP FORCES: A RE-EXEC TRAMPOLINE ───────────────────
+  This is the load-bearing architectural consequence of the ruling, and it is not
+  a detail. Bubblewrap is a WRAPPER BINARY — you build an argv and exec it.
+  Landlock and seccomp are neither: they are SELF-APPLIED, PER-THREAD, IRREVOCABLE
+  restrictions that a process installs on ITSELF and that are then inherited across
+  `fork` and `execve`.
+
+  So `SandboxedRun`/`SandboxedRunStdout` CANNOT apply them in-process. Doing so
+  would permanently confine the backstop process itself — no further project
+  reads, no report writing, no subsequent gate steps, and no way to undo it. The
+  design is a re-exec trampoline:
+
+    parent (unrestricted):  spawn /proc/self/exe in a hidden helper mode, passing
+                            the capability set and the real command
+    helper (child):         1. runtime.LockOSThread()
+                            2. prctl(PR_SET_NO_NEW_PRIVS, 1)
+                            3. landlock_create_ruleset / _add_rule / _restrict_self
+                            4. install the seccomp filter
+                            5. unix.Exec(cmd) FROM THAT SAME LOCKED THREAD
+
+  STEPS 1 AND 5 ARE A PAIR, AND SPLITTING THEM IS A SILENT HOLE. Both restrictions
+  attach to the CALLING THREAD. Go's scheduler migrates goroutines across OS
+  threads at will, so restricting on one thread and exec'ing from another produces
+  an UNCONFINED child while every unit test still passes — the sandbox looks
+  installed and confines nothing. `runtime.LockOSThread` pins the goroutine, and
+  `execve` from that thread replaces the process image (killing sibling threads),
+  so the new image inherits that thread's Landlock domain and seccomp filter.
+  TASK-013 must prove the confinement CARRIED INTO THE CHILD, not merely that the
+  syscalls returned 0 in the helper.
+
+  Two more hazards, both of which surface as "sandbox unavailable" if missed:
+    - `PR_SET_NO_NEW_PRIVS` is REQUIRED before `landlock_restrict_self` and before
+      a seccomp filter, absent CAP_SYS_ADMIN. Forget it and both return EPERM.
+    - the seccomp filter must be a TARGETED DENY, not a default-deny allowlist.
+      Between filter install and `execve` the Go runtime still makes syscalls; a
+      default-deny program kills the helper before it can exec. A targeted deny is
+      also the correct parity call — darwin denies network, it does not enumerate
+      permitted syscalls.
+
+  WIRING, because this is the cross-package seam this repo has been burned on:
+  `/proc/self/exe` is the backstop binary, so the helper gate has to run before
+  Cobra sees argv. `cmd/backstop/main.go` calls an exported
+  `packval.MaybeRunSandboxHelper()` as its FIRST statement. Under `go test` the
+  exe is the TEST binary, so `pkg/packval` needs a `TestMain` calling the same
+  gate — there is no TestMain in that package today, so TASK-013 creates one.
+  Without both, the linux tests pass while the shipped binary sandboxes nothing.
+
+  ── NETWORK DENIAL IS SECCOMP'S JOB, NOT LANDLOCK'S ────────────────────────
+  Landlock gained network rights at ABI 4 and the runner reports ABI 7, so using
+  them is available — and it is still the wrong primary mechanism. Two reasons,
+  the second decisive:
+
+    1. LANDLOCK NET IS TCP-ONLY. `LANDLOCK_ACCESS_NET_BIND_TCP` and
+       `LANDLOCK_ACCESS_NET_CONNECT_TCP` are the entire surface (verified in
+       x/sys v0.31.0 `zerrors_linux.go:1810-1811`). UDP, unix, netlink and raw
+       sockets are untouched — so DNS, which is UDP, still resolves. A
+       "deny-network" claim resting on that would be false in the most obvious
+       case anyone tests.
+    2. IT DEGRADES EXACTLY WHERE THE FOUNDER RATIONALE BITES. Ubuntu 22.04 ships
+       kernel 5.15 = Landlock ABI 1, which has NO network rights at all. Resting
+       network denial on Landlock means a consumer on 22.04 gets filesystem
+       confinement and SILENTLY NO NETWORK DENIAL. seccomp filters have been
+       universally available since ~3.5 and are ABI-independent.
+
+  So: SECCOMP denies the socket family; LANDLOCK confines the filesystem. The
+  seccomp program is small and specific — validate the audit arch (KILL on
+  mismatch, the standard guard against an i386/x32 bypass), return EPERM for the
+  denied set below, and ALLOW everything else. Landlock's TCP rights are layered on
+  TOP when ABI >= 4, as defence in depth — never as the claim's basis.
+
+  THE DENIED SET, in two tiers (revised 2026-07-28 — the first list had two holes):
+
+    CREATION — the primary guarantee:
+      socket, socketpair
+    USE OF AN ALREADY-OPEN SOCKET — defence in depth against an fd that arrives
+    despite the parent passing none:
+      connect, bind
+      sendto, sendmsg, sendmmsg
+      recvfrom, recvmsg, recvmmsg
+      io_uring_setup, io_uring_enter
+
+  The two additions, and why silence on them was not an option under this plan's
+  own "state the surface EXACTLY" rule:
+
+    THE RECEIVE HALF was missing. The original list denied the send calls and left
+    `recvfrom`/`recvmsg`/`recvmmsg` open, plus `sendmmsg` on the send side. The
+    inherited-fd rationale covers RECEIVING exactly as much as sending — a script
+    that can read from a socket it did not create is not network-denied — so the
+    asymmetry was an oversight, not a decision.
+
+    IO_URING IS THE STANDARD SECCOMP BYPASS for this class. Network operations can
+    be submitted as ring entries, so the filtered syscalls are never invoked and a
+    socket-name-based filter sees nothing. macOS `(deny network*)` has no analogous
+    hole, so parity argues for closing it. Nothing a convert script legitimately
+    does needs io_uring.
+
+  KNOWINGLY OUTSIDE THE SURFACE, stated rather than left silent:
+
+    io_uring_register — a ring cannot be created (`io_uring_setup` denied) and an
+      inherited one cannot be submitted to (`io_uring_enter` denied), so
+      registering buffers against it achieves nothing. Denying submission is the
+      chokepoint; this is deliberate economy, not an omission.
+    accept, accept4, listen — reaching them requires a LISTENING socket, which
+      requires `socket` + `bind` + `listen`, all denied at creation. The parent
+      passes no socket fds: Go's `exec.Cmd` hands the child only stdin, stdout,
+      stderr and anything in `ExtraFiles`, and the trampoline puts nothing there.
+
+  State this surface, and these exclusions, in BOTH the claim and the code comment.
+  "Denies network" is the kind of sentence that quietly becomes untrue, and the
+  exclusions above are exactly the sentences a future reader will otherwise have to
+  re-derive under time pressure.
+
+  RISK TO MEASURE, NOT ASSUME: blocking `socket(2)` may break an interpreter that
+  opens a socket during startup (glibc NSS/nscd paths, node's platform init). jq
+  and python3 are expected to be fine; nobody has measured node. TASK-013 owes the
+  linux analogue of darwin's `TestSandboxConvertWithRealInterpreter` — a REAL
+  interpreter running a REAL convert script under the filter. If a needed
+  interpreter cannot start, that is a capability question for BUNDLE-021 OQ-2,
+  not a licence to widen the filter silently.
+
+  ── EXECUTE IS NOT HANDLED, AND THAT IS THE PARITY-CORRECT ANSWER ──────────
+  ADDED 2026-07-28. `LANDLOCK_ACCESS_FS_EXECUTE` (0x1) exists from ABI 1, so the
+  handled mask has to make a decision about it, and both directions are wrong in
+  different ways:
+
+    HANDLE IT AND FORGET TO GRANT IT -> the trampoline's own `execve` of the pack
+      script dies, and so does the interpreter's, and EVERY convert fails. This is
+      the loud failure, and it is the one that costs a debugging session because
+      the error surfaces as a broken convert rather than as a sandbox decision.
+    HANDLE IT AND GRANT IT on the interpreter paths -> works, but it is strictly
+      more restrictive than macOS with no threat-model justification for the
+      divergence.
+    DO NOT HANDLE IT -> execution is unrestricted. THIS IS THE DECISION.
+
+  The parity argument is textual, not a judgment call. The darwin profile
+  (`pkg/packval/sandbox.go:57`) reads:
+
+    (deny default)(allow process*)(allow file-read* <scoped>)(deny network*)(deny file-write*)
+
+  `(allow process*)` is macOS permitting process execution outright. Landlock's
+  equivalent of "do not restrict this class at all" is to leave the right out of
+  `handled_access_fs`, because Landlock only restricts what the mask handles. So
+  omitting EXECUTE IS the parity-correct translation of `(allow process*)`, not a
+  gap in it. The confinement that matters — what the executed process can READ and
+  WRITE, and whether it can reach the network — is unaffected.
+
+  THE READ RIGHTS ARE WHERE THE REAL TRAP IS, AND ISSUE-029 IS THE PRECEDENT.
+  Leaving EXECUTE unhandled does not make the interpreter work: the dynamic loader
+  still opens the interpreter binary and its shared libraries with O_RDONLY, which
+  is `LANDLOCK_ACCESS_FS_READ_FILE` (0x4), plus `READ_DIR` (0x8) where a directory
+  is traversed. If the readable set does not cover the system library paths, the
+  interpreter dies at load time with an error that looks nothing like a permission
+  decision.
+
+  That is the SAME defect ISSUE-029 fixed on macOS, where the sandbox profile
+  blocked interpreter dyld reads and broke every convert script. Darwin carries
+  `TestSandboxProfileAllowsDyldLibraries` as its permanent regression lock —
+  TASK-014 lists it among the darwin tests that must pass unmodified. Linux needs
+  its own lock, and TASK-011 owes it as a PURE DERIVATION test: it must assert
+  which read and execute rights the derived rules grant on the system paths, and it
+  must run WITHOUT a Linux host. Deferring that assertion to the Phase 5 runner
+  test would mean discovering the ISSUE-029 failure mode in CI, one push at a time,
+  which is exactly the loop the darwin lock exists to prevent.
+
+  ── THE ABI FLOOR IS 1, AND BELOW IT THE ANSWER IS "NO" ────────────────────
+  Landlock's ABI is queried with
+  `landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)`. The
+  capability struct must carry the ACHIEVED level, not pretend to a fixed one:
+
+    ABI >= 1   filesystem confinement available. Mask the handled-access rights
+               DOWN to what the running ABI knows — requesting a right the kernel
+               does not recognise returns EINVAL, and each level adds some (2:
+               refer, 3: truncate, 5: ioctl_dev). Record the achieved level and
+               the exact handled set in the diagnostic so a degraded run is
+               LEGIBLE rather than merely permitted.
+    ABI 1      is a FULLY FUNCTIONAL configuration for this plan's parity claim,
+               because network denial rests on seccomp. This is the payoff of the
+               previous block: the only thing that degrades on an older kernel is
+               filesystem granularity, never the network guarantee.
+    ABI 0 /    Landlock absent, not compiled, or not in the kernel's LSM list —
+    ENOSYS     exactly the LinuxKit case the 2026-07-27 spike hit. REFUSE. Return
+               the loud error CLM-015 requires, naming Landlock, the kernel
+               version and ISSUE-020, and run NOTHING. This is ISSUE-020's own
+               acceptance item 4: an unavailable mechanism fails loudly, because a
+               silent pass-through IS the defect being fixed.
+
+  DO NOT reach for a "best effort" helper that silently downgrades. Negotiating
+  the ABI explicitly is the difference between a recorded degradation and an
+  invisible one.
+
+  ── DEPENDENCY DECISION: x/sys DIRECTLY, NO NEW MODULE, NO CGO ─────────────
+  Measured 2026-07-28 against this repo, not recalled:
+
+    go.mod declares FIVE direct dependencies, all pure Go (doublestar, go-toml,
+      cobra, pflag, yaml.v3).
+    `import "C"` appears in ZERO files in the tree.
+    `golang.org/x/sys v0.31.0` is ALREADY in the module graph, as indirect.
+    Everything Landlock needs is in it: types `LandlockRulesetAttr` and
+      `LandlockPathBeneathAttr` (ztypes_linux.go:4400,4406), syscall numbers
+      SYS_LANDLOCK_CREATE_RULESET/ADD_RULE/RESTRICT_SELF = 444/445/446 on BOTH
+      amd64 and arm64, `LANDLOCK_CREATE_RULESET_VERSION`, and the full
+      `LANDLOCK_ACCESS_FS_*` / `LANDLOCK_ACCESS_NET_*` constant sets.
+    Everything seccomp needs is in it too: `PR_SET_NO_NEW_PRIVS`,
+      `PR_SET_SECCOMP`, `SECCOMP_MODE_FILTER`, `SECCOMP_SET_MODE_FILTER`, and the
+      `SockFilter` / `SockFprog` types (ztypes_linux.go:801,808).
+
+  There are NO `func Landlock*` wrappers at v0.31.0, so the three calls go through
+  `unix.Syscall(unix.SYS_LANDLOCK_*, ...)` against the typed attrs above. That is
+  a handful of raw syscalls, not a project.
+
+  DECISION: promote `golang.org/x/sys` from indirect to DIRECT and use it for both
+  halves. No new module.
+
+  `landlock-lsm/go-landlock` was evaluated and rejected on grounds that hold
+  without needing to inspect it: it would be this repo's sixth direct dependency;
+  it covers only the Landlock half, so seccomp's BPF program is hand-written
+  either way (libseccomp-golang is cgo, and this tree has zero cgo — a posture
+  worth keeping); and its ergonomic selling point is best-effort ABI negotiation,
+  which is precisely the silent downgrade the previous block forbids. Adding a
+  module to get a behaviour we must then work around is a bad trade.
 
   ── DARWIN PARITY IS THE SPEC, AND IT MEANS NO WRITABLE PATHS ──────────────
   The darwin profile is `(deny default) (allow process*) (allow file-read* <scoped
   subpaths>) (deny network*) (deny file-write*)`. Parity therefore means the
-  convert/validator capability set has an EMPTY writable-paths list. Do not add a
-  `--tmpfs /tmp` for convenience: a writable /tmp is a real divergence from the
-  macOS trust model, and if a convert script turns out to need scratch space that
-  is a capability question for BUNDLE-021 OQ-2, not a quiet unilateral grant here.
+  convert/validator capability set has an EMPTY writable-paths list — under
+  Landlock, NO path_beneath rule granting any write right, anywhere.
+
+  THE SUBTLETY THAT MAKES THIS EASY TO GET SILENTLY WRONG: Landlock only restricts
+  the access types named in the ruleset's `handled_access_fs` mask. Anything not
+  handled stays UNRESTRICTED. A ruleset that handles only the read rights leaves
+  writes fully permitted while looking like a working sandbox. The handled mask
+  must name the WRITE rights (`WRITE_FILE`, `MAKE_REG`, `MAKE_DIR`, `REMOVE_FILE`,
+  `REMOVE_DIR`, the `MAKE_*` family, and `TRUNCATE` where the ABI has it) and then
+  grant none of them. Handle-everything, grant-only-reads is the shape.
+
+  Do not carve out a writable scratch directory for convenience: it is a real
+  divergence from the macOS trust model, and if a convert script turns out to need
+  scratch space that is a capability question for BUNDLE-021 OQ-2, not a quiet
+  unilateral grant here.
 
   ── OQ-2 IS DEFERRED, AND THE HEDGE IS STRUCTURAL ──────────────────────────
   BUNDLE-021 OQ-2 (should packs DECLARE behavior rather than backstop matching on
@@ -398,7 +687,7 @@ notes: |
     fixture SOURCES that `pkg/pack/distribution/contracts_local_install.go`
     installs into temp projects under their own names. They are not the fleet.
   - The legacy `backstop/self` waiver rule-IDs (see above).
-  - FOUR SYNTHETIC CARRIERS of old-coordinate literals, named individually here
+  - FIVE SYNTHETIC CARRIERS of old-coordinate literals, named individually here
     because each one looks like an incomplete sweep and is not:
       * `pkg/gate/testdata/self-rule/pack-name-keyed-capability.go` and
         `pkg/gate/testdata/self-rule/rule-id-keyed-routing.go` — NEGATIVE-EXAMPLE
@@ -412,8 +701,22 @@ notes: |
         coordinate (`smoke_test.go:265-275` writes a `backstop/go-toolchain`
         manifest and lock into a scratch dir). The literal is local to the fixture
         and means nothing outside it.
-    True carrier count across the tree is 37, not 36 — `tests/smoke/smoke_test.go`
-    sits outside the `pkg`/`cmd` sweep and is easy to miss in either direction.
+      * `pkg/pack/distribution/contracts_local_install_test.go` — ADDED 2026-07-28
+        from Phase 1's evidence, and it was a genuine internal contradiction rather
+        than an oversight: TASK-004's prose already held this file out of scope as
+        the clearest synthetic case, while the exclusion list here named only four
+        and omitted it. It asserts the INSTALLED NAME of the repo-root
+        `packs/contracts` fixture, which stays at `backstop/contracts` because the
+        fixture does. The two halves of the plan disagreed; this is the half that
+        was wrong.
+
+    CARRIER ARITHMETIC, corrected 2026-07-28 by re-measurement. The TOTAL of 37 was
+    right; the split was not. It is 35 under `pkg/` + `cmd/`, 1 under `tests/`, and
+    1 at the repo root (`module_path_test.go`) — the plan's "36 in pkg+cmd" had
+    silently folded the root file into the pkg+cmd count. Anyone re-deriving this
+    should also expect the root count to read 2 now: `pack_fleet_test.go`, created
+    by TASK-002, names the retired coordinates because its whole job is to assert
+    their absence.
 
   ── SHARP EDGE: THE RENAME PULLS GO FILES INTO DIFF SCOPE ──────────────────
   The gate scopes findings to CHANGED FILES, and file-level diff scope activates
@@ -467,7 +770,7 @@ notes: |
                an old coordinate anywhere in real-repo Go — no string literal, map
                key, path join or comparison. Doc-comment MENTIONS of a retired
                coordinate are explicitly permitted and are not a violation; so are
-               the four named synthetic carriers. The claim is about what the code
+               the five named synthetic carriers. The claim is about what the code
                keys on, not about what the prose says.
       CLM-004  after the migration `go test ./... -race -count=1` is green and a
                REBUILT `./bin/backstop gate` passes — the migration's falsifier.
@@ -495,35 +798,89 @@ notes: |
 
     REQ-003: A Linux sandbox with darwin-parity denials.
       CLM-011  an internal capability struct — readable paths, writable paths,
-               network bool — is what the Linux invocation is BUILT from, not a
-               second hardcoded profile literal, and it carries a code comment at
-               its definition site pointing at BUNDLE-021 OQ-2.
+               network bool, plus the ACHIEVED Landlock ABI — is what the Linux
+               ruleset and seccomp filter are DERIVED from, not a second hardcoded
+               profile literal, and it carries a code comment at its definition
+               site pointing at BUNDLE-021 OQ-2.
       CLM-012  graduated-profile-capable: changing the capability set changes the
-               argv (network allowed drops `--unshare-net`; an added readable path
-               adds a `--ro-bind`), proven by a pure-function argv test that runs
-               on any platform including darwin.
-      CLM-013  on linux both `SandboxedRun` and `SandboxedRunStdout` EXECUTE the
-               command under bubblewrap with the spike's corrected invocation plus
-               the packDir bind and chdir, with deny-network, no writable paths,
-               and no readable project path outside packDir.
-      CLM-014  the falsifiable assertion triple holds on a real Linux host: read of
-               an unbound path is denied; `getent hosts` under `--unshare-net`
-               exits non-zero; the SAME command WITHOUT `--unshare-net` exits zero
-               — the control leg that proves the denial is the sandbox and not an
-               unrelated failure. These assertions EXECUTE in the CI run: the
-               go-toolchain pack's go-test engine runs `go test` project-wide
-               (`project_target: "./..."`, package-scoped), so a new
-               `//go:build linux` test file is compiled and run by the gate itself
-               and lands in diff scope as a new file. This is a determined fact,
-               not a hope — no separate CI step is needed to exercise it.
-      CLM-015  when the mechanism is unavailable the call returns an explicit error
-               naming the mechanism and ISSUE-020 — never a silent pass-through to
-               an unsandboxed exec, and the Linux execution tests FAIL rather than
-               skip when bwrap is absent.
+               DERIVED restriction spec (network allowed drops the socket-denial
+               rules; an added readable path adds a `path_beneath` rule; a lower
+               ABI narrows the handled-access mask), proven by pure-function tests
+               over the derived spec that run on any platform including darwin.
+      CLM-013  on linux both `SandboxedRun` and `SandboxedRunStdout` execute the
+               command through a re-exec trampoline that, on a LOCKED OS THREAD,
+               sets `PR_SET_NO_NEW_PRIVS`, installs a Landlock ruleset and a
+               seccomp filter, and then `execve`s the command FROM THAT SAME
+               THREAD — with no writable path anywhere, no readable path outside
+               the capability's readable set, and no network. The backstop parent
+               process is never restricted.
+      CLM-014  the falsifiable assertion triple holds on a real Linux host: a read
+               outside the readable set is denied; a network attempt is denied; and
+               a POSITIVE CONTROL — reading a file inside packDir, plus the same
+               network call under a network-allowed capability — SUCCEEDS. The
+               control leg is not optional: the 2026-07-28 probe is the recorded
+               case where two denials and a failing positive control together meant
+               "the mechanism never started", not "denial works". These assertions
+               EXECUTE in the CI run: the go-toolchain pack's go-test engine runs
+               `go test` project-wide (`project_target: "./..."`, package-scoped),
+               so a new `//go:build linux` test file is compiled and run by the gate
+               itself and lands in diff scope as a new file. This is a determined
+               fact, not a hope — no separate CI step is needed to exercise it.
+      CLM-015  when the mechanism is unavailable — Landlock ABI 0, ENOSYS, or
+               Landlock absent from the kernel's LSM list — the call returns an
+               explicit error naming Landlock, the kernel version and ISSUE-020,
+               and runs NOTHING. Never a silent pass-through to an unsandboxed
+               exec, and the Linux execution tests FAIL rather than skip when the
+               mechanism is missing.
       CLM-016  darwin is untouched: `darwinSandboxProfile` is unchanged and every
                existing darwin sandbox test passes unmodified.
-      CLM-017  the exported interface is unchanged — no caller in
+      CLM-017  the exported sandbox interface is unchanged — no caller in
                `pkg/packval/executor.go` or `cmd/backstop/pack_gate.go` changes.
+               The ONE addition is the trampoline gate: `cmd/backstop/main.go`
+               calls `packval.MaybeRunSandboxHelper()` as its first statement, and
+               a `TestMain` in `pkg/packval` calls the same gate so the helper is
+               reachable under `go test`. Both are required; either one alone
+               yields a binary or a suite that sandboxes nothing.
+      CLM-030  network denial is SECCOMP's, not Landlock's, and the denial surface
+               is stated exactly. The filter validates the audit arch and returns
+               EPERM for: `socket` and `socketpair` (creation); `connect` and
+               `bind`; `sendto`, `sendmsg` and `sendmmsg`; `recvfrom`, `recvmsg`
+               and `recvmmsg`; and `io_uring_setup` and `io_uring_enter` — the
+               last pair because network operations submitted as ring entries
+               never invoke the filtered syscalls at all, which is the standard
+               bypass for a filter of this shape. Everything else is allowed.
+               KNOWINGLY OUTSIDE the surface, with reasons recorded in the code
+               comment: `io_uring_register` (a ring can neither be created nor
+               submitted to, so registration achieves nothing) and
+               `accept`/`accept4`/`listen` (they need a listening socket, whose
+               every precursor is denied, and the trampoline passes no socket fds).
+               Landlock's TCP-only net rights are layered on top when ABI >= 4 as
+               defence in depth, never as the basis of the claim — resting it on
+               them would leave UDP, and therefore DNS, open, and would vanish
+               entirely on a Landlock ABI 1 host.
+      CLM-034  `LANDLOCK_ACCESS_FS_EXECUTE` is deliberately NOT in the handled
+               mask, which is the parity-correct translation of darwin's
+               `(allow process*)` — Landlock restricts only what the mask handles,
+               so omitting the right is how "do not restrict this class" is
+               expressed. The confinement that matters is unaffected. Separately
+               and non-negotiably, the derived read grants MUST cover the system
+               library paths with `READ_FILE` and `READ_DIR`, or the dynamic
+               loader dies and every convert script fails — the Linux instance of
+               the ISSUE-029 dyld defect, proven by a PURE DERIVATION test that
+               runs without a Linux host rather than by the Phase 5 runner.
+      CLM-031  the Landlock ABI is negotiated EXPLICITLY: the achieved level and
+               the exact handled-access mask are recorded in the diagnostic, the
+               mask is narrowed to what the running kernel knows, ABI 1 is a fully
+               functional configuration for this parity claim, and ABI 0 is a loud
+               refusal. No silent best-effort downgrade.
+      CLM-032  the restriction and the `execve` happen on the SAME locked OS
+               thread, and the proof is that confinement is observed IN THE CHILD
+               — a test that only asserts the helper's syscalls returned 0 would
+               pass against an unconfined child, which is the exact failure this
+               claim exists to catch.
+      CLM-033  no new module: `golang.org/x/sys` is promoted from indirect to
+               direct and supplies both halves; direct dependencies go from five to
+               six, and the tree still contains zero `import "C"`.
 
     REQ-004: CI blocks on the real gate, diff-scoped, on push AND pull_request.
       CLM-018  ci.yml's blocking job builds the binary, installs the locked packs,
@@ -545,9 +902,11 @@ notes: |
                (`pkg/pack/engine/allowlist.go`); golangci-lint from an explicit
                v2.6.0 pin IN ci.yml, because the allowlist has no entry for it and
                go.mod's v1.64.8 tool directive would break the pack's v2-only
-               `--output.sarif.path` command; bubblewrap pinned by the runner's
-               package install. A missing tool stays a loud exit-2, never a skipped
-               dimension.
+               `--output.sarif.path` command. The sandbox contributes NO tool: as
+               of the 2026-07-28 ruling the mechanism is Landlock + seccomp, which
+               are kernel APIs with nothing to install — ci.yml must therefore
+               carry no sandbox install step at all. A missing tool stays a loud
+               exit-2, never a skipped dimension.
       CLM-022  a `pack install` failure fails the job BEFORE the gate runs, so the
                gate never executes against a partially materialized fleet.
       CLM-023  the temporary probe workflow is removed by the same change that
@@ -567,10 +926,15 @@ notes: |
                repository still carries its known whole-repo debt.
 
     REQ-006: Proven on the real runner, not simulated.
-      CLM-026  the ubuntu-latest probe values — apparmor_restrict_unprivileged_
-               userns, bwrap presence and version, kernel release, Landlock ABI —
-               are CAPTURED from real output, and the mechanism choice is confirmed
-               against them or escalated.
+      CLM-026  SATISFIED 2026-07-28. The ubuntu-latest probe values —
+               apparmor_restrict_unprivileged_userns=1, seven failing bwrap
+               invocations including both positive controls, kernel
+               6.17.0-1020-azure, Landlock ABI 7 — were CAPTURED from real output
+               and committed at `pkg/packval/testdata/ubuntu-runner-probe.txt`. The
+               mechanism choice was NOT confirmed against them: they falsified it,
+               it was escalated, and the founder ruled for Landlock + seccomp the
+               same day. The claim is met by the escalation, which was the branch
+               it always named.
       CLM-027  a real `backstop gate` run on ubuntu-latest shows the pack_engines
                and coverage dimensions ACTUALLY EXECUTING — not capability_absent,
                not errored — proven by that run's own JSON.
@@ -586,6 +950,17 @@ phases:
         type: setup
         title: "Probe the real ubuntu-latest runner for the sandbox mechanism facts"
         description: |
+          STATUS: DONE, 2026-07-28. Its captured output is committed at
+          `pkg/packval/testdata/ubuntu-runner-probe.txt` (run
+          https://github.com/backstop-ai/backstop-core/actions/runs/30364880850),
+          and it FALSIFIED this plan's original mechanism. The founder ruled the
+          same day for Landlock + seccomp; see the AMENDED block in the notes. The
+          task description below is kept as written because it is the record of what
+          was asked and how, and because the probe file it produced is still
+          required reading for TASK-011 and TASK-012 — those edges now point at
+          evidence that ruled AGAINST the hypothesis the probe was built to test,
+          which is the most useful thing a probe can do.
+
           Add a TEMPORARY workflow that answers ISSUE-020's re-probe list on a real
           GitHub Actions Linux runner. The spike's Docker test bed could not answer
           these — LinuxKit compiles in neither AppArmor nor Landlock, so any
@@ -667,22 +1042,43 @@ phases:
 
           `TestNoLiveKeyingOnRetiredPackCoordinates` — the falsifier for CLM-003's
           Go leg, and the reason that claim is worded around KEYING rather than
-          around textual absence. Walk `pkg/`, `cmd/` and `tests/` with `go/parser`
-          in `ParseComments` mode and inspect only `*ast.BasicLit` string values —
-          NOT raw file bytes. A retired coordinate appearing in a doc comment is
-          permitted (the reviewer verified the survivors at
-          `cmd/backstop/gate.go:442,475,484`, `pack_separation.go:13` and
-          `gate_substantiveness_e2e.go:102` are comments with no live keying); a
-          retired coordinate appearing in a string literal is a failure, because a
-          literal is what a map key, a path join or a comparison is built from.
+          around textual absence.
 
-          Exempt the four named synthetic carriers by path — the two
-          `pkg/gate/testdata/self-rule/` fixtures,
-          `pkg/pack/distribution/contracts_provisioning_test.go`, and
-          `tests/smoke/smoke_test.go` — with the reason for each exemption written
-          in the test, not just the path. An unexplained exemption list decays into
-          a place to hide failures. The repo already uses go/ast for absence tests;
-          follow that precedent rather than grepping.
+          AMENDED 2026-07-28 TO MATCH WHAT WAS BUILT. The shape this task
+          originally mandated — "no retired coordinate in any string literal under
+          pkg/, cmd/ and tests/, minus a path-listed exemption set" — was
+          FALSE BY CONSTRUCTION. Measurement during Phase 1 found 23 synthetic
+          fixture carriers, every one of which TASK-004 forbids renaming, so the
+          literal-absence assertion could only ever pass by growing an exemption
+          list long enough to hollow it out. A path list that long is a place to
+          hide failures, which is the failure mode the original wording was trying
+          to avoid.
+
+          As implemented, the guard tests CLM-003's ACTUAL claim across three
+          surfaces, each independently falsified red→green by injection:
+
+            (a) THE REAL DECLARED SURFACE — `backstop.yml` pack keys,
+                `backstop.lock` keys, and the `.backstop/packs/` install tree. This
+                is where a retired coordinate genuinely changes behavior, and it
+                fails loudly on an empty surface so it cannot pass vacuously.
+            (b) PRODUCTION GO STRING LITERALS via `go/parser` — `*ast.BasicLit`
+                values, not raw bytes, so a retired coordinate in a doc comment is
+                permitted (the survivors at `cmd/backstop/gate.go:442,475,484`,
+                `pack_separation.go:13` and `gate_substantiveness_e2e.go:102` are
+                comments with no live keying). Tests and testdata are EXCLUDED, with
+                the 23-carrier measurement recorded in the file so the exclusion
+                reads as a measured boundary rather than a convenience.
+            (c) SYNTHETIC CARRIERS excluded STRUCTURALLY, not by path list — which
+                is what makes (b)'s exclusion self-maintaining instead of a list
+                someone has to remember to extend.
+
+          THE EVIDENCE THAT THE BOUNDARY IS DRAWN IN THE RIGHT PLACE: after the
+          migration, `go test ./... -race` stayed GREEN across the whole repo. The
+          plan predicted roughly eight test failures, extrapolating from the two
+          earlier renames. Zero failures means no test in the tree asserted on a
+          real-repo retired coordinate — the carriers really are synthetic, and the
+          seven-step sequence's step 7 was a no-op this time. Record that as a
+          measured result, not as luck.
 
           These are dogfood tests over the REAL repo state, not synthetic fixtures.
           Assert on parsed YAML and parsed Go, never on golden text.
@@ -702,20 +1098,42 @@ phases:
         type: implementation
         title: "Migrate the pack fleet to remote coordinates at pinned tags"
         description: |
-          Turn TASK-002 green by moving all five non-git lock entries to public
-          remote coordinates at pinned tags. Follow the seven-step sequence in the
-          plan notes EXACTLY — steps 2 through 7 all fail silently.
+          Turn TASK-002 green by putting ALL SIX lock entries on public remote
+          coordinates at pinned tags with recorded provenance — the five non-git
+          entries this task was scoped around, plus the already-git entry whose
+          missing `source_coordinate` only surfaced during execution. Follow the
+          seven-step sequence in the plan notes EXACTLY — steps 2 through 7 all fail
+          silently, and so does the eighth the actuals block adds.
 
-          The five `pack add` invocations:
+          AMENDED 2026-07-28 — THREE ACTUALS FROM EXECUTION, detailed in the
+          "PHASE 1 ACTUALS" notes block:
+            - it was SIX entries, not five. `backstop-ai/cobra-cli-standards` was
+              already `source_type: git` but recorded no `source_coordinate`, so
+              `CoordinateForEntry` fell back and warned. Re-added at 0.2.1; content
+              hash unchanged, provenance now recorded. The lock's `source_type`
+              column — the only column this task's original survey read — could not
+              show it was broken.
+            - the two SAME-VERSION local→git conversions need REMOVE-THEN-ADD.
+              `pack add` silently no-ops on a source-type-only change and reports
+              success (ISSUE-095). Treat it as an eighth member of the seven-step
+              silent-failure family.
+            - run `pack remove` BEFORE deleting any install directory by hand: with
+              the directory present it drops the backstop.yml key, the directory and
+              the lock entry together, collapsing steps 2, 4 and 5.
+
+          The `pack add` invocations:
             ./bin/backstop pack add backstop-ai/go-contracts@1.2.0
             ./bin/backstop pack add backstop-ai/go-substantiveness@1.2.0
             ./bin/backstop pack add backstop-ai/go-toolchain@1.2.0
             ./bin/backstop pack add backstop-ai/backstop-self@1.1.2
             ./bin/backstop pack add backstop-ai/go-standards@1.2.1
+            ./bin/backstop pack add backstop-ai/cobra-cli-standards@0.2.1
 
-          The last two are same-version local->git conversions; their names are
+          The middle two are same-version local->git conversions; their names are
           already correct, so they are pure source-type changes with no rename
-          fallout. The first three are renames.
+          fallout — and they are exactly the case `pack add` no-ops on, so each
+          needs a `pack remove` first. The first three are renames. The last is the
+          provenance repair described above.
 
           Expect and REPORT the SPEC-056 identity divergence message on the first
           three: the requested coordinate is `backstop-ai/go-contracts` while the
@@ -776,7 +1194,7 @@ phases:
           SOURCE into a temp project under its own declared name. That source is a
           fixture, not a fleet member, and it stays at `backstop/contracts`.
 
-          FOUR CARRIERS ARE OUT OF SCOPE BY NAME. They are absent from this task's
+          FIVE CARRIERS ARE OUT OF SCOPE BY NAME. They are absent from this task's
           file list on purpose, and "completing the sweep" into any of them is a
           regression, not thoroughness:
             - `pkg/gate/testdata/self-rule/pack-name-keyed-capability.go`
@@ -790,13 +1208,23 @@ phases:
               Both write their own temp pack under the old coordinate
               (`smoke_test.go:265-275` writes a `backstop/go-toolchain` manifest and
               lock into a scratch dir). The literal never leaves the fixture.
+            - `pkg/pack/distribution/contracts_local_install_test.go`
+              It asserts the INSTALLED NAME of the repo-root `packs/contracts`
+              fixture. The prose below already called this file the clearest
+              synthetic case while the exclusion list omitted it; added explicitly
+              2026-07-28 so the two halves agree.
 
-          The true carrier count across the tree is 37, not 36 — `tests/smoke/` sits
-          outside a `pkg`+`cmd` grep and is missed in both directions.
+          Carrier count across the tree is 37: 35 under `pkg/` + `cmd/`, 1 under
+          `tests/`, 1 at the repo root. The earlier "36 in pkg+cmd" folded the root
+          file into that count.
 
           Expect the touched set to be well under 37. Report the number you changed
           AND the number you deliberately left, with the reason for the split — a
-          reviewer cannot check this judgment without both numbers.
+          reviewer cannot check this judgment without both numbers. MEASURED
+          OUTCOME, 2026-07-28: the post-migration `go test ./... -race` run stayed
+          green repo-wide against a predicted eight failures, so on this rename the
+          real-repo touched set was effectively empty and every carrier was
+          synthetic.
 
           Then read the sharp edge in the notes: every real Go file you touch enters
           diff scope and activates ALL of its dormant findings. Fix what activates;
@@ -1071,115 +1499,194 @@ phases:
           - TASK-009
 
   - id: phase-3
-    name: "Phase 3: Linux sandbox — capability struct plus bubblewrap"
+    name: "Phase 3: Linux sandbox — capability struct plus Landlock and seccomp"
     tasks:
       - id: TASK-011
         type: test
-        title: "Capability-to-argv tests, runnable on any platform"
+        title: "Capability-to-restriction-spec tests, runnable on any platform"
         description: |
-          Write the RED tests for the capability struct and the pure argv builder.
-          These must NOT be build-constrained to linux: the builder is a pure
-          function, and keeping it testable on darwin is what lets the mechanism be
-          reviewed and regression-locked on the machine where development happens.
+          Write the RED tests for the capability struct and the PURE derivation of
+          the restriction spec — the Landlock ruleset description and the seccomp
+          filter program the trampoline will install. These must NOT be
+          build-constrained to linux. The derivation is a pure function over the
+          capability set, and keeping it testable on darwin is what lets the
+          mechanism be reviewed and regression-locked on the machine where
+          development happens; it is also the only part of the mechanism that CAN
+          be proven there.
 
-          `TestSandboxCapabilityArgv_DeniesNetworkAndScopesReads` — the
-          convert/validator capability set produces an argv carrying
-          `--unshare-user`, `--unshare-net`, the `/usr` read-only bind with the
-          merged-`/usr` symlinks, `--dev /dev`, `--proc /proc`, a `--ro-bind` of
-          packDir onto itself, and `--chdir <packDir>`. Assert the packDir bind and
-          the chdir explicitly: the spike's recorded invocation omits both, and
-          without them the pack's own convert script does not exist inside the
-          sandbox.
+          `TestSandboxCapability_HandlesWriteRightsAndGrantsNone` — the
+          convert/validator capability set produces a ruleset whose
+          `handled_access_fs` mask INCLUDES the write family (`WRITE_FILE`,
+          `MAKE_REG`, `MAKE_DIR`, `REMOVE_FILE`, `REMOVE_DIR`, the `MAKE_*` set,
+          and `TRUNCATE` where the ABI has it) while NO `path_beneath` rule grants
+          any of them. This is the single easiest way to ship a sandbox that
+          confines nothing: Landlock restricts only what the mask HANDLES, so a
+          read-rights-only mask leaves writes fully permitted and everything still
+          looks correct.
 
-          `TestSandboxCapabilityArgv_NoWritablePathsByDefault` — the default
-          capability set grants NO writable bind and no tmpfs. Darwin denies
-          `file-write*` outright; parity is the spec, and a convenience `/tmp` is a
-          real divergence.
+          `TestSandboxCapability_ReadRulesCoverPackDirOnly` — the derived
+          `path_beneath` read rules cover packDir and the declared system paths and
+          NOTHING else; assert no rule covers the project root or any parent of
+          packDir.
 
-          `TestSandboxCapabilityArgv_NoProjectPathReadable` — a readable set of
-          exactly {packDir, system paths} produces no bind of the project root or
-          any parent of packDir.
+          `TestSandboxCapability_SeccompDeniesSocketFamily` — the derived filter
+          validates the audit arch and returns EPERM for the full denied set:
+          `socket`, `socketpair`, `connect`, `bind`, `sendto`, `sendmsg`,
+          `sendmmsg`, `recvfrom`, `recvmsg`, `recvmmsg`, `io_uring_setup` and
+          `io_uring_enter`. Assert the RECEIVE half and the io_uring pair by name —
+          they are the two holes the first draft of this surface had, and a test
+          that checks only the send calls would have passed over both. Assert the
+          default-allow shape explicitly too: a default-deny program would kill the
+          helper between filter install and `execve`.
 
-          `TestSandboxCapabilityArgv_NetworkAllowedDropsUnshareNet` and
-          `TestSandboxCapabilityArgv_AddedReadablePathAddsRoBind` — the
-          graduated-profile proof (CLM-012). The argv is DERIVED from the capability
-          struct, so changing the struct changes the argv. If these two pass while
-          the others do, the flags are hardcoded and the struct is decorative.
+          `TestSandboxCapability_SystemPathsKeepInterpreterReadable` — the Linux
+          regression lock for the ISSUE-029 defect class, and the reason it is HERE
+          rather than in TASK-013: it must run on the development machine, not wait
+          for a Linux runner. Assert two things about the derived rules:
+            - the system library paths carry `LANDLOCK_ACCESS_FS_READ_FILE` and
+              `LANDLOCK_ACCESS_FS_READ_DIR` grants. Without them the dynamic loader
+              cannot open the interpreter's shared libraries and every convert
+              script dies at load time, looking like a broken converter rather than
+              a sandbox decision — precisely how ISSUE-029 presented on macOS.
+            - `LANDLOCK_ACCESS_FS_EXECUTE` appears in NEITHER the handled mask nor
+              any grant. Landlock restricts only what the mask handles, so leaving
+              EXECUTE out is how darwin's `(allow process*)`
+              (`pkg/packval/sandbox.go:57`) translates. Assert its ABSENCE from the
+              mask, not merely that execution works — those are different facts, and
+              only the first survives someone "tightening" the mask later.
+          Darwin's counterpart is `TestSandboxProfileAllowsDyldLibraries`; this test
+          is that lock's Linux twin and should say so in a comment.
 
-          `TestSandboxUnavailableMechanismIsLoudError` — when the mechanism cannot
-          be resolved, the returned error names the mechanism and ISSUE-020, and no
-          command is executed. Inject the resolver; do not depend on the host
-          lacking bwrap.
+          `TestSandboxCapability_NetworkAllowedDropsSocketDenial` and
+          `TestSandboxCapability_AddedReadablePathAddsPathBeneathRule` — the
+          graduated-profile proof (CLM-012). The spec is DERIVED from the capability
+          struct, so changing the struct changes the spec. If the other tests pass
+          while these two fail, the restrictions are hardcoded and the struct is
+          decorative.
+
+          `TestSandboxCapability_AbiMaskNarrowsToRunningKernel` — deriving against a
+          declared ABI of 1 produces a handled mask free of the rights ABI 1 does
+          not know (no `TRUNCATE`, no net rights), and deriving against ABI 7
+          includes them. Requesting an unknown right returns EINVAL from the
+          kernel, so this is a correctness requirement, not tidiness — and it is
+          how CLM-031's explicit negotiation is proven without a Linux host.
+
+          `TestSandboxUnavailableMechanismIsLoudError` — with an injected ABI probe
+          reporting 0 / ENOSYS, the call returns an error naming Landlock, the
+          kernel version and ISSUE-020, and executes NOTHING. Inject the probe; do
+          not depend on the host's kernel.
 
           `TestSandboxUnsupportedPlatformStillErrors` — the `default` branch keeps
           refusing, so a third platform does not silently inherit the Linux path.
 
           READ `pkg/packval/testdata/ubuntu-runner-probe.txt` BEFORE WRITING THESE
-          ASSERTIONS. Every bwrap-specific expectation above presumes the probe
-          confirmed the mechanism on the real runner. That file is the reason this
-          task depends on TASK-001 rather than only on TASK-010: if the probe
-          recorded a restricted `apparmor_restrict_unprivileged_userns` or a failing
-          `--unshare-user`, these tests would be encoding a mechanism that cannot
-          run, and the correct move is to STOP AND ESCALATE before writing them.
+          ASSERTIONS. That file is why this task depends on TASK-001, and the
+          dependency now means something different from when it was written: the
+          probe RULED AGAINST the plan's original hypothesis. It measured
+          `apparmor_restrict_unprivileged_userns=1` and seven failing bwrap
+          invocations including both positive controls, and it measured Landlock
+          live at ABI 7. Read its "READ THIS FIRST" section for the vacuous-triple
+          warning before writing any assertion about denial — it is the recorded
+          case of denials that meant "the mechanism never started".
         files:
           - pkg/packval/sandbox_capability_test.go
         claims:
           - CLM-011
           - CLM-012
           - CLM-015
+          - CLM-030
+          - CLM-031
+          - CLM-034
         depends_on:
           - TASK-001
           - TASK-010
 
       - id: TASK-012
         type: implementation
-        title: "Implement the capability struct and the bubblewrap Linux branch"
+        title: "Implement the capability struct, the Landlock+seccomp trampoline, and its wiring"
         description: |
-          Turn TASK-011 green.
+          Turn TASK-011 green. Read the notes blocks "WHAT LANDLOCK + SECCOMP
+          FORCES", "NETWORK DENIAL IS SECCOMP'S JOB", "THE ABI FLOOR IS 1" and
+          "DEPENDENCY DECISION" first — this task is where all four land.
 
-          In a new `pkg/packval/sandbox_capability.go` (NO build tag — the builder
-          must compile and be testable everywhere), define the capability struct:
-          readable paths, writable paths, network bool. Give it the doc comment
-          BUNDLE-021 OQ-2 requires — leg 2 of the issue's triple-tracked hedge —
-          stating plainly that this is an INTERNAL representation chosen so a future
-          pack-DECLARED capability can be slotted in without a rewrite, that it does
-          NOT resolve OQ-2, and that BUNDLE-021 owns that question. Then the pure
-          argv builder: capability set plus packDir plus command and args in, full
-          bwrap argv out.
+          `pkg/packval/sandbox_capability.go` (NO build tag — it must compile and be
+          testable everywhere): the capability struct (readable paths, writable
+          paths, network bool, achieved Landlock ABI) plus the PURE derivation of
+          the restriction spec. Give the struct the doc comment BUNDLE-021 OQ-2
+          requires — leg 2 of the issue's triple-tracked hedge — stating plainly
+          that this is an INTERNAL representation chosen so a future pack-DECLARED
+          capability can slot in without a rewrite, that it does NOT resolve OQ-2,
+          and that BUNDLE-021 owns that question.
 
-          Define the convert/validator capability set as the darwin-parity default:
-          readable = {packDir, the system paths the merged-`/usr` layout needs},
-          writable = {} (empty — see the notes), network = false.
+          The convert/validator capability set is the darwin-parity default:
+          readable = {packDir, the system paths an interpreter needs}, writable = {}
+          (empty), network = false.
 
-          In `pkg/packval/sandbox.go`, replace BOTH `case "linux":` hard errors with
-          the real execution path. Resolve the mechanism binary; on failure return an
-          error naming bubblewrap and ISSUE-020 and execute nothing. Otherwise build
-          the argv and run it, preserving each function's existing output contract
-          exactly: `SandboxedRun` keeps `CombinedOutput`; `SandboxedRunStdout` keeps
-          the explicit stdout buffer, the stdin pipe, and the "return stdout captured
-          so far alongside the error" behavior on non-zero exit. Those contracts are
-          what keep a converter's stderr banner out of the SARIF the gate parses.
+          TWO THINGS THE DERIVATION MUST GET RIGHT, both with their own notes block:
+            - `LANDLOCK_ACCESS_FS_EXECUTE` stays OUT of the handled mask (darwin's
+              `(allow process*)`), while the readable grants MUST carry `READ_FILE`
+              and `READ_DIR` on the system library paths or the dynamic loader dies
+              — the Linux face of ISSUE-029.
+            - the seccomp denied set is the FULL list in the notes, receive half and
+              io_uring pair included.
+          Write the denial surface AND the knowing exclusions (`io_uring_register`,
+          `accept`/`accept4`/`listen`) into the code comment beside the filter, with
+          their reasons. A future reader tightening this filter under time pressure
+          should not have to re-derive why three syscalls are absent.
+
+          `pkg/packval/sandbox_linux.go` (`//go:build linux`): the mechanism.
+            - ABI probe via
+              `landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)`.
+              ABI 0 / ENOSYS / Landlock absent from the LSM list => return the loud
+              CLM-015 error naming Landlock, the kernel version and ISSUE-020, and
+              run NOTHING.
+            - the helper, reached through an exported `MaybeRunSandboxHelper()` gate
+              keyed on an env var (NOT a user-facing Cobra subcommand): lock the OS
+              thread, `PR_SET_NO_NEW_PRIVS`, create/add/restrict the Landlock
+              ruleset, install the seccomp filter, then `unix.Exec` the real command
+              FROM THAT SAME LOCKED THREAD. The lock and the exec are a pair; see
+              the notes for why splitting them yields an unconfined child that every
+              unit test still passes.
+            - use `golang.org/x/sys/unix` for both halves and promote it in go.mod
+              from indirect to direct. The Landlock calls go through
+              `unix.Syscall(unix.SYS_LANDLOCK_*, ...)` against `LandlockRulesetAttr`
+              / `LandlockPathBeneathAttr`; there are no `func Landlock*` wrappers at
+              v0.31.0. Add NO other module, and keep the tree free of `import "C"`.
+
+          `pkg/packval/sandbox.go`: replace BOTH `case "linux":` hard errors with a
+          spawn of the trampoline, preserving each function's output contract
+          EXACTLY — `SandboxedRun` keeps `CombinedOutput`; `SandboxedRunStdout`
+          keeps the explicit stdout buffer, the stdin pipe, and the "return stdout
+          captured so far alongside the error" behaviour on non-zero exit. Those
+          contracts are what keep a converter's stderr banner out of the SARIF the
+          gate parses, and the trampoline must be transparent to them.
+
+          `cmd/backstop/main.go`: call `packval.MaybeRunSandboxHelper()` as the
+          FIRST statement in `main`, before `NewRootCommand()`. This is one line and
+          it is the whole difference between a shipped binary that sandboxes and one
+          that does not — `/proc/self/exe` is the backstop binary, so the gate has
+          to run before Cobra sees argv. This repo has a recorded history of
+          implementations that pass their unit tests and miss exactly this kind of
+          cross-package wiring; treat it as part of the deliverable, not as glue.
 
           Do not touch `darwinSandboxProfile`, the darwin branches, or the exported
-          signatures. Callers in `pkg/packval/executor.go:46` and
+          sandbox signatures. Callers in `pkg/packval/executor.go:46` and
           `cmd/backstop/pack_gate.go:472,693` must not change — verify by building,
           not by inspection.
 
-          THE PROBE RECORD IS A PRECONDITION, NOT BACKGROUND READING. Open
-          `pkg/packval/testdata/ubuntu-runner-probe.txt` and check the mechanism
-          against it before committing to bubblewrap: the
-          `apparmor_restrict_unprivileged_userns` value, whether the corrected
-          invocation exited 0 as the unprivileged runner user, and whether bwrap was
-          preinstalled or needed apt. Cite the probe file in the implementation's
-          doc comment so the next reader can see what the choice rests on.
-
-          If the probe falsified the bwrap path, STOP HERE and escalate. Do not
-          implement a fallback mechanism on your own authority, and do not proceed
-          on the assumption that a real runner behaves like the container test bed —
-          the spike established it does not.
+          Cite `pkg/packval/testdata/ubuntu-runner-probe.txt` in the
+          implementation's doc comment, and record in that comment WHY the mechanism
+          is Landlock+seccomp rather than bubblewrap: the probe measured
+          `apparmor_restrict_unprivileged_userns=1` on stock ubuntu-24.04 and every
+          bwrap invocation failed including both positive controls, so the founder
+          ruled on 2026-07-28 that an unprivileged sandbox cannot depend on user
+          namespaces. The next reader should not have to reconstruct that.
         files:
           - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_linux.go
           - pkg/packval/sandbox.go
+          - cmd/backstop/main.go
+          - go.mod
         claims:
           - CLM-011
           - CLM-012
@@ -1187,6 +1694,11 @@ phases:
           - CLM-015
           - CLM-016
           - CLM-017
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
         depends_on:
           - TASK-001
           - TASK-011
@@ -1195,40 +1707,74 @@ phases:
         type: test
         title: "The falsifiable assertion triple as real Linux execution"
         description: |
-          Write the `//go:build linux` execution tests. These do not run on the
-          development machine; they are what Phase 5 proves in CI, and they are the
-          difference between "a Linux branch exists" and "the Linux branch denies
-          anything".
+          Write the `//go:build linux` execution tests plus the `TestMain` the
+          trampoline needs. These do not run on the development machine; they are
+          what Phase 5 proves in CI, and they are the difference between "a Linux
+          branch exists" and "the Linux branch denies anything".
 
-          The triple, from the spike, and it is a triple for a reason — a bare
-          "exit 0" cannot distinguish "the sandbox denied correctly" from "the
-          sandbox did nothing":
+          FIRST, THE TESTMAIN — without it every test below fails for the wrong
+          reason. Under `go test`, `/proc/self/exe` is the TEST binary, so the
+          helper gate must run there too. `pkg/packval` has NO `TestMain` today;
+          create one whose first statement is `packval.MaybeRunSandboxHelper()`,
+          then `os.Exit(m.Run())`. This is the test-side half of CLM-017's wiring
+          pair.
 
-          `TestLinuxSandbox_DeniesReadOfUnboundPath` — reading a path outside the
-          capability's readable set fails with a not-found/denied error.
+          The triple, and it is a triple for a reason — a bare non-zero exit cannot
+          distinguish "the sandbox denied correctly" from "the sandbox never
+          started". The 2026-07-28 probe is the recorded instance of exactly that
+          confusion; read its "READ THIS FIRST" point 3 before writing these.
 
-          `TestLinuxSandbox_DeniesNetwork` — `getent hosts` under the default
-          capability exits non-zero.
+          `TestLinuxSandbox_DeniesReadOutsideReadableSet` — reading a path outside
+          the capability's readable set fails with a denied error.
 
-          `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` — the SAME command
-          with network allowed exits zero. THE CONTROL LEG. Without it, the previous
-          test could be passing because of an unrelated failure.
+          `TestLinuxSandbox_DeniesNetwork` — a network attempt under the default
+          capability fails. Use a UDP or DNS-shaped attempt as well as a TCP one:
+          Landlock's net rights are TCP-only, so a TCP-only assertion would pass
+          even if the seccomp filter — which is what CLM-030 actually rests on —
+          were missing entirely.
 
-          `TestLinuxSandbox_ReadsPackDirContents` — a file inside packDir IS
-          readable, so the denials above are not simply "nothing works".
+          `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` — the SAME call under
+          a network-allowed capability succeeds. THE CONTROL LEG.
+
+          `TestLinuxSandbox_ReadsPackDirContents` — the SECOND positive control. A
+          file inside packDir IS readable, so the denials above are not simply
+          "nothing works". The probe's ITEM3_0 is why this is mandatory: it is the
+          assertion that failed and exposed the vacuous triple.
+
+          `TestLinuxSandbox_WriteInsidePackDirIsDenied` — writes are denied even
+          where reads are allowed, which is what proves the handled-access mask
+          covers the write family rather than only the read rights.
+
+          `TestLinuxSandbox_ConfinementCarriesIntoTheExecdChild` — CLM-032, and the
+          one test that catches the thread-migration hole. Assert the restriction
+          from INSIDE the exec'd process (have the child attempt the denied
+          operation and report), not by checking the helper's syscall return codes.
+          A helper whose syscalls all returned 0 while the goroutine migrated off
+          the locked thread produces an unconfined child and a passing test suite.
 
           `TestLinuxSandbox_ConvertScriptProducesCleanStdout` — a real convert-shaped
           script that writes a banner to stderr and payload to stdout, run through
           `SandboxedRunStdout`, yields payload only. This is the actual gate path.
 
-          When bwrap is absent these tests must FAIL, not `t.Skip`. A skip is how a
-          Linux sandbox stays unproven for another six months; the founder's posture
-          is that failures are loud and attributed. Say so in a comment at the top of
-          the file so a future reader does not "helpfully" add a skip.
+          `TestLinuxSandbox_RealInterpreterRunsUnderTheFilter` — the linux analogue
+          of darwin's `TestSandboxConvertWithRealInterpreter`, and the measurement
+          the notes call for rather than assume: a REAL interpreter running a REAL
+          convert script under the socket-denying filter. If an interpreter cannot
+          start because it opens a socket during init, report that as a finding —
+          it is a BUNDLE-021 OQ-2 capability question, not a licence to widen the
+          filter.
+
+          When Landlock is unavailable these tests must FAIL, not `t.Skip`. A skip
+          is how a Linux sandbox stays unproven for another six months; the
+          founder's posture is that failures are loud and attributed. Say so in a
+          comment at the top of the file so a future reader does not "helpfully"
+          add a skip.
         files:
           - pkg/packval/sandbox_linux_exec_test.go
+          - pkg/packval/main_test.go
         claims:
           - CLM-014
+          - CLM-032
         depends_on:
           - TASK-011
 
@@ -1241,11 +1787,24 @@ phases:
             go build ./...
             GOOS=linux go build ./...          (the linux branch must COMPILE here,
                                                 where nobody can run it yet)
+            GOOS=linux go vet ./pkg/packval/   (plain `go vet` never sees the
+                                                //go:build linux file at all)
             go vet ./pkg/packval/
             go test ./... -race -count=1
             go test ./pkg/packval/ -race -count=1 -run 'Sandbox' -v
             go build -o bin/backstop ./cmd/backstop/
             ./bin/backstop gate
+
+          Then verify the dependency and wiring claims, which a passing test suite
+          does not cover:
+            - `go mod tidy` leaves `golang.org/x/sys` as a DIRECT requirement and
+              adds no other module. Report the direct-dependency count before and
+              after: five to six is expected, seven is a finding (CLM-033).
+            - `grep -rn 'import "C"'` over the tree still returns nothing.
+            - `cmd/backstop/main.go` calls `MaybeRunSandboxHelper()` as its FIRST
+              statement, and `pkg/packval/main_test.go` calls it in `TestMain`.
+              Confirm BOTH by reading the files. Each alone is a silent hole: the
+              binary sandboxes nothing, or the suite cannot reach the helper.
 
           The darwin sandbox tests — `TestSandboxSecurityDenialsHold`,
           `TestSandboxDeniesProjectFileRead`, `TestSandboxDeniesFileWrite`,
@@ -1260,9 +1819,13 @@ phases:
         files:
           - pkg/packval/sandbox.go
           - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_linux.go
+          - cmd/backstop/main.go
+          - go.mod
         claims:
           - CLM-016
           - CLM-017
+          - CLM-033
         depends_on:
           - TASK-012
 
@@ -1332,14 +1895,23 @@ phases:
           pack's declared command if you can reach it; otherwise assert v2.x and
           cite the flag in the comment.
 
-          `TestCIWorkflow_InstallsBubblewrap` — a step installs bubblewrap. It is
-          the most load-bearing tool in the plan and the only one with no fallback:
-          without it every sandboxed convert script fails on Linux, which is the
-          exact defect ISSUE-020 was filed for. Assert the install is unconditional
-          — no `if`, no "only when missing" guard — because the runner image's
-          preinstall status is not a contract and can change under us. Whether
-          TASK-001's probe found it preinstalled does not matter: installing it
-          explicitly is what makes the job reproducible.
+          `TestCIWorkflow_InstallsNoSandboxTooling` — the inverse of the assertion
+          this slot held before the 2026-07-28 ruling, and it is a real falsifier
+          rather than a formality. Landlock and seccomp are kernel APIs: there is
+          nothing to install, so assert that NO step in the workflow installs
+          bubblewrap or any other sandbox helper. A reappearing `apt-get install
+          bubblewrap` means someone is reviving the ruled-out mechanism, and the
+          probe (`pkg/packval/testdata/ubuntu-runner-probe.txt`) shows installing it
+          does not even help — it is present-and-broken under
+          `apparmor_restrict_unprivileged_userns=1`. Name the ruling and the probe
+          file in the test comment so the next person meets the evidence before
+          re-adding the step.
+
+          The sandbox's actual runner requirement is a KERNEL property, not a
+          package, and it is asserted where it can be: TASK-013's execution tests
+          fail loudly on a host without Landlock, and they run inside the gate.
+          There is deliberately no workflow-level kernel-probe step — that would be
+          a second, weaker copy of an assertion the tests already make.
 
           `TestCIWorkflow_GoVersionComesFromGoMod` — setup-go uses
           `go-version-file: go.mod`, so the Go toolchain has ONE authority rather
@@ -1395,7 +1967,13 @@ phases:
               beside the pin, or the two pins get "consolidated" later and the break
               comes back.
             - install semgrep 1.96.0 and ast-grep 0.43.0 — the pins in
-              `pkg/pack/engine/allowlist.go` — and bubblewrap. Nothing here floats.
+              `pkg/pack/engine/allowlist.go`. Nothing here floats.
+            - install NOTHING for the sandbox. Amended 2026-07-28: the mechanism is
+              Landlock + seccomp, kernel APIs with no package. Do not add
+              `apt-get install -y bubblewrap`; the probe measured that bubblewrap
+              installs fine on the runner and still fails every invocation under
+              `apparmor_restrict_unprivileged_userns=1`, so the step would buy
+              nothing and would suggest the ruled-out mechanism is still live.
             - `go build -o ./bin/backstop ./cmd/backstop`
             - `./bin/backstop pack install`
             - derive the base (below)
