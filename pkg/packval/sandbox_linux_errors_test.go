@@ -3,9 +3,14 @@
 package packval
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // Error-path coverage for the PARENT-SIDE half of the Linux sandbox.
@@ -97,5 +102,77 @@ func TestKernelRelease_ReportsSomething(t *testing.T) {
 	if got == "unknown" {
 		t.Errorf("kernelRelease fell back to %q on a real Linux host — Uname failed, which should not "+
 			"happen here and would silently degrade every sandbox diagnostic", got)
+	}
+}
+
+// TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable drives the
+// refusal branch through the injected prober.
+//
+// This is the statement that gates two more: platformSandboxedRun and
+// platformSandboxedRunStdout both wrap this failure, and neither wrap can execute
+// unless this one does. On a healthy runner the probe always succeeds, so without
+// the seam all three are permanently unreachable.
+//
+// The behaviour it locks is CLM-015's: an unavailable mechanism REFUSES rather than
+// falling through to an unsandboxed exec. A version that logged and continued would
+// run pack-supplied code with no confinement — the defect ISSUE-020 exists to fix.
+func TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable(t *testing.T) {
+	unavailable := func() (int, string, error) {
+		return 0, "6.17.0-test", unix.ENOSYS
+	}
+
+	helper, err := newSandboxHelperCommand("/bin/echo", []string{"hi"}, t.TempDir(), unavailable)
+
+	if err == nil {
+		t.Fatalf("an unavailable Landlock mechanism must REFUSE; got a runnable command (%v) and no error. "+
+			"Falling through here runs pack-supplied code unsandboxed", helper)
+	}
+	if helper != nil {
+		t.Errorf("a refusal must return no command, got %v — a caller that ignored the error would exec it", helper)
+	}
+	if !strings.Contains(err.Error(), "negotiate the Landlock mechanism") {
+		t.Errorf("the refusal must name what failed; got: %v", err)
+	}
+}
+
+// TestSandboxLinux_ProductionPathUsesTheRealABIProbe is the WIRING GUARD for the seam
+// the test above introduces.
+//
+// A seam that a test can fill is a seam PRODUCTION can be left holding the wrong
+// thing in. That divergence — test and production taking different paths through the
+// same code — caused two of this lane's three runner failures, so the seam ships with
+// a structural assertion that both real call sites pass the real prober. Parsing,
+// not executing, because these lines only run on a host with a sandbox.
+func TestSandboxLinux_ProductionPathUsesTheRealABIProbe(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "sandbox_linux.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing sandbox_linux.go: %v", err)
+	}
+
+	callSites := 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok || ident.Name != "newSandboxHelperCommand" {
+			return true
+		}
+		callSites++
+		last, ok := call.Args[len(call.Args)-1].(*ast.Ident)
+		if !ok || last.Name != "probeLandlockABI" {
+			t.Errorf("a production call to newSandboxHelperCommand at %s does not pass probeLandlockABI as "+
+				"its prober. The sandbox would negotiate its ABI through something other than the kernel, "+
+				"which is the test/production divergence this guard exists to prevent",
+				fset.Position(call.Pos()))
+		}
+		return true
+	})
+
+	if callSites != 2 {
+		t.Fatalf("expected 2 production call sites (SandboxedRun and SandboxedRunStdout), found %d — this "+
+			"guard asserts a property OF those call sites and is meaningless if they moved", callSites)
 	}
 }

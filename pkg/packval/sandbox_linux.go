@@ -59,6 +59,21 @@ import (
 // subcommand would also be a user-facing surface promising something it is not.
 const sandboxHelperEnvVar = "BACKSTOP_SANDBOX_HELPER_SPEC"
 
+// ─── THE FOUR STATEMENTS THAT STAY UNCOVERED, AND WHY THAT IS CORRECT ──────────
+// Measured on run 30389988184: kernelRelease's Uname failure, probeLandlockABI's
+// errno branch, and newSandboxHelperCommand's json.Marshal and os.Executable
+// failures. Every one is the error return of a call that CANNOT fail on a healthy
+// host — Uname succeeds, the Landlock probe succeeds, os.Executable succeeds, and
+// marshalling a struct with no channels or funcs cannot fail.
+//
+// They are LOUD FAILURE HANDLERS, not untested logic: they are what makes a broken
+// host legible instead of silent. Reaching them would need a syscall-function struct
+// and a marshal seam, and that is the thick-seam direction this file deliberately
+// avoids — every indirection between this code and the kernel is a place the test
+// and production paths can diverge, which is what produced two of this lane's runner
+// failures. Do NOT delete them to raise the number; the ABI-prober seam above is the
+// one seam judged worth its risk, and it ships with a wiring guard.
+
 // sandboxHelperRequest is what the parent hands the helper.
 type sandboxHelperRequest struct {
 	Capability SandboxCapability `json:"capability"`
@@ -148,8 +163,16 @@ func probeLandlockABI() (int, string, error) {
 // newSandboxHelperCommand builds the parent-side command that re-execs this binary
 // in helper mode. It negotiates the Landlock ABI first and REFUSES loudly when the
 // mechanism is unavailable, executing nothing.
-func newSandboxHelperCommand(command string, args []string, packDir string) (*exec.Cmd, error) {
-	abi, err := resolveLandlockMechanism(probeLandlockABI)
+// probeABI is a PARAMETER so the refusal path is reachable from a test: on a healthy
+// host the probe always succeeds, so the "mechanism unavailable" branch — and the two
+// callers' error wraps that depend on it — could never execute. The seam is
+// deliberately THIN, matching the shape resolveLandlockMechanism already takes one
+// level down: it substitutes the ABI ANSWER, never what a Landlock rule is or how it
+// is applied. TestSandboxLinux_ProductionPathUsesTheRealABIProbe asserts both
+// production call sites hand it the real probeLandlockABI, so the seam cannot become a
+// place where test and production diverge.
+func newSandboxHelperCommand(command string, args []string, packDir string, probeABI LandlockABIProbe) (*exec.Cmd, error) {
+	abi, err := resolveLandlockMechanism(probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("negotiate the Landlock mechanism: %w", err)
 	}
@@ -183,7 +206,7 @@ func newSandboxHelperCommand(command string, args []string, packDir string) (*ex
 // sandbox.go calls it unqualified and the linker resolves whichever file the build
 // tags admitted.
 func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir)
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeLandlockABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
@@ -200,7 +223,7 @@ func platformSandboxedRun(command string, args []string, packDir string) ([]byte
 // what keep a converter's stderr banner out of the SARIF the gate parses, so the
 // trampoline has to be transparent to them.
 func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir)
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeLandlockABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
