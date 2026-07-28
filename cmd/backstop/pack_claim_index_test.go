@@ -315,15 +315,18 @@ func TestMergePackClaimIndex_IsPackAgnostic(t *testing.T) {
 	}
 }
 
-// issue036MandatedClaimIDs are the five pack claim ids ISSUE-036's CLM-008 mandates.
-// They are the restoration trigger for ISSUE-098: today the drift resolver cannot see
-// them and reports five false broken promises.
-var issue036MandatedClaimIDs = []string{
-	"type-signature-go",
-	"const-signature-go",
-	"var-signature-go",
-	"method-signature-go",
-	"interface-signature-go",
+// issue036MandatedClaimIDs returns the five pack claim ids ISSUE-036's CLM-008 mandates.
+// They are the restoration trigger for ISSUE-098: before the fix the drift resolver could
+// not see them and reported five false broken promises. It is a function rather than a
+// package-level var so the list cannot be mutated by one test and observed by another.
+func issue036MandatedClaimIDs() []string {
+	return []string{
+		"type-signature-go",
+		"const-signature-go",
+		"var-signature-go",
+		"method-signature-go",
+		"interface-signature-go",
+	}
 }
 
 // installedContractsPackName is the pack that actually declares them — the INSTALLED,
@@ -357,7 +360,7 @@ func TestMergePackClaimIndex_InstalledContractsPackDeclaresISSUE036ClaimIDs(t *t
 
 	idx := mergePackClaimIndex(manifests)
 
-	for _, claimID := range issue036MandatedClaimIDs {
+	for _, claimID := range issue036MandatedClaimIDs() {
 		if !idx.Has(claimID) {
 			// Not an expectation to relax: this means the installed, locked pack no
 			// longer declares an id ISSUE-036 promises — a real broken promise.

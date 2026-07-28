@@ -728,7 +728,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// The wiring emits TWO surfaces: the policied BLOCK step (StepArtifactStatusDrift) and
 	// the non-policied WARN advisory (StepArtifactStatusDriftAdvisory), so the WARN
 	// direction is structurally non-blocking (no policy can upgrade it).
-	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, classifier, matcher)
+	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, classifier, matcher, mergePackClaimIndex(packs))
 	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot)
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
@@ -896,7 +896,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 // walks all of projectRoot, NOT activeScope), so a stale-status artifact whose file is out
 // of the diff is still caught (CLM-007). No pass/fail is threaded and no suite is re-run
 // (CLM-005/008) — a present-but-failing mandated test is caught by the pack_engines step.
-func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) (gate.StepFunc, gate.StepFunc) {
+func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier, matcher gate.TestNameMatcher, packClaims gate.PackClaimIndex) (gate.StepFunc, gate.StepFunc) {
 	var (
 		once           sync.Once
 		blockResult    gate.StepResult
@@ -915,7 +915,7 @@ func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier,
 			}
 			advisoryResult = gate.StepResult{StepName: gate.StepArtifactStatusDriftAdvisory, Status: "pass", Violations: []gate.Violation{}}
 		} else {
-			blockResult, advisoryResult = computeDriftSurfaces(projectRoot, res, classifier, matcher)
+			blockResult, advisoryResult = computeDriftSurfaces(projectRoot, res, classifier, matcher, packClaims)
 		}
 	}
 	block := func(context.Context) gate.StepResult {
@@ -934,18 +934,26 @@ func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier,
 // ResolveMandatedTestPaths resolves each mandated test name against the whole-repo
 // found-test set (NOT activeScope), so an out-of-diff stale artifact is still caught. No
 // pass/fail is threaded (CLM-005/008).
-func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) (gate.StepResult, gate.StepResult) {
+//
+// EXISTENCE resolves against BOTH mandated-test vocabularies (ISSUE-098). A mandated name
+// is present when a source test FUNCTION carries it OR when an installed pack DECLARES a
+// claim by that name — a pack's claims are that pack's tests, and no test-file glob or
+// test-name regex can ever match a claim id in a pack.yml, so the source sweep alone
+// reports pack-side evidence as a false broken promise.
+//
+// The union happens HERE and deliberately NOT inside ResolveMandatedTestPaths: a
+// pack-claim hit must never fill MandatedTest.FilePath, because the test substantiveness
+// Q2 noTarget join below skips a mandated test only when FilePath is empty. Giving a
+// pack-resolved test the path of its pack.yml would make that join ask whether a manifest
+// references the target package and emit a false "does not call package" violation
+// against it (CLM-004).
+func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution, classifier gate.SourceClassifier, matcher gate.TestNameMatcher, packClaims gate.PackClaimIndex) (gate.StepResult, gate.StepResult) {
 	var all []gate.MandatedTest
 	for _, rec := range res.Records {
 		all = append(all, rec.MandatedTests...)
 	}
 	all = gate.ResolveMandatedTestPaths(all, projectRoot, classifier, matcher)
-	present := make(map[string]bool, len(all))
-	for _, mt := range all {
-		if mt.FilePath != "" {
-			present[mt.FuncName] = true
-		}
-	}
+	present := gate.ResolvePresentTestNames(all, packClaims)
 	combined := gate.ClassifyStatusDrift(res.Records, present)
 	// Normalize each violation's File to the ONE canonical repo-relative form so its
 	// baseline identity is scope-stable (ISSUE-046), matching test_verification.

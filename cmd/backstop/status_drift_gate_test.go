@@ -103,7 +103,7 @@ func driftStepsFor(t *testing.T, root string) (block, advisory gate.StepFunc) {
 	if mErr != nil {
 		t.Fatalf("mergeTestNameMatcher: %v", mErr)
 	}
-	return buildStatusDriftSteps(root, classifier, matcher)
+	return buildStatusDriftSteps(root, classifier, matcher, mergePackClaimIndex(packs))
 }
 
 func runStep(step gate.StepFunc) gate.StepResult { return step(context.Background()) }
