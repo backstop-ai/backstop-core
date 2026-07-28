@@ -3797,6 +3797,22 @@ phases:
           TASK-031 confirmed the hypothesis and ruled (b'). So this task has TWO
           jobs, and the first one is the one that keeps the exclusion honest.
 
+          ⚠ JOB 1 WAS NOT BUILT AT CLOSE, AND SHIPPED WITH NO AS-BUILT NOTE.
+          Found by review after the completion flip: `sandbox_split_test.go` does not
+          exist, and neither guard function appears anywhere in the tree. It is
+          being built now as a review follow-up. Recorded here so the `completed`
+          status stays HONEST in the interval — a plan marked complete with a silent
+          hole in it is worse than one marked incomplete, because the marker is what
+          everyone downstream trusts.
+
+          The omission matters more than a missing test usually would, and the task
+          text below already says why: this guard pair is what makes the coverage
+          exclusion AUDITABLE. The exclusion covers a FILE, so the file's contents
+          are the exclusion's real boundary — without these tests, a later edit can
+          move exec-side logic back into the measured file, or measurable logic into
+          the excluded one, and nothing fails. The justified exclusion (CLM-043/044)
+          rests on a boundary that, until this lands, nothing enforces.
+
           JOB 1 — LOCK THE SPLIT STRUCTURALLY, in a portable (untagged) test file
           `pkg/packval/sandbox_split_test.go`:
 
@@ -4166,9 +4182,25 @@ phases:
 
           Add to `workflows_test.go`:
 
-          `TestCIWorkflow_LeavesNoUngitignoredArtifacts` — assert that every file a
-          workflow step is known to create is either written to a gitignored path or
-          listed in an explicit allowed-leftovers set. Enumerating the allowed set
+          `TestCIWorkflow_LeavesNoUngitignoredDroppings` (AS BUILT,
+          `workflows_test.go:1046`, substantive body confirmed) — mandated here as
+          `...Artifacts`, which appears in no file. The PLAN is amended to the
+          shipped name rather than the test renamed: renaming a shipped, working
+          test to satisfy a document is the more expensive direction, and it changes
+          working code to match prose.
+
+          WORTH NAMING, BECAUSE IT IS THIS PLAN'S OWN MEDICINE: this is exactly the
+          mandated-name drift class recorded above for ISSUE-018's `TestCutover_*`
+          — a test that shipped under a different name than its artifact mandated,
+          leaving the artifact describing something that does not exist. It took one
+          review to catch here and went unnoticed for far longer there. The rule
+          that follows is the one the ISSUE-018 finding already implies: the names
+          must agree SOMEWHERE AUTHORITATIVE, and when they diverge the cheap fix is
+          to correct the document — but only if somebody is looking.
+
+          The assertion itself: every file a workflow step is known to create is
+          either written to a gitignored path or listed in an explicit
+          allowed-leftovers set. Enumerating the allowed set
           is the point: it turns "what did CI drop this time" into a reviewable
           list, and a new dropping fails the test rather than quietly entering
           someone's diff scope.
