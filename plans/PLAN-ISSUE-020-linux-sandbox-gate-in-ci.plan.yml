@@ -510,15 +510,32 @@ notes: |
   itself incrementally as packs move local→remote, so Phase 1 advances it as a
   side effect without owning it.
 
-  ── PRE-EXISTING, NOT YOURS TO FIX: THE STALE backstop/self WAIVERS ────────
+  ── PRE-EXISTING, NOT YOURS TO FIX: THE INERT FAIL-OPEN backstop/self WAIVERS ─
   Two live waivers in `cmd/backstop/pack_gate.go:888` and
   `cmd/backstop/pack_gate_provision.go:119` carry the rule-ID
   `backstop.packs.backstop.self.rules.no-structural-name-split-on-spine`, while
-  the pack has been `backstop-ai/backstop-self` since 2026-07-27. They appear
-  UNBOUND — a step-6 casualty of the earlier rename. Recorded here so a reviewer
-  does not mistake them for damage this plan caused. Do NOT fix them in this
-  plan: re-keying a waiver changes which findings are suppressed, which is a
-  scope change dressed as a typo fix. Report them; they want their own issue.
+  the pack has been `backstop-ai/backstop-self` since 2026-07-27. Filed as
+  ISSUE-097.
+
+  SHARPENED 2026-07-28 by TASK-020's honesty pass — "appear unbound" was too soft,
+  and the measured state is worse and more precise: they are STALE **AND INERT AND
+  FAIL-OPEN**. Three findings, not one:
+    STALE      the pack path they key on exists NOWHERE — not in `packs/`, not in
+               `backstop.lock`, not in `backstop.yml`.
+    INERT      the rule currently matches NOTHING on either file. Two independent
+               engines agree: `gate --file` returns zero, and a whole-ruleset
+               semgrep run returns zero. So re-keying them TODAY would change
+               nothing observable, which is exactly why this is easy to shrug off.
+    FAIL-OPEN  and this is the part that matters — IF the rule ever matches those
+               lines again, the waivers will NOT suppress it. They are dormant
+               no-ops that fail open. A waiver that silently stops waiving is
+               strictly worse than no waiver, because the comment tells every
+               future reader the finding was adjudicated.
+
+  Recorded here so a reviewer does not mistake them for damage this plan caused.
+  Do NOT fix them in this plan: re-keying a waiver changes which findings are
+  suppressed, which is a scope change dressed as a typo fix — and the inertness
+  above means there is no urgency to justify taking it. ISSUE-097 owns them.
 
   ── THERE IS NO AUTO-PROVISIONER. THE RUNNER MUST SUPPLY EVERY TOOL ────────
   This is the second premise correction, and getting it wrong produces an exit-2
@@ -926,13 +943,31 @@ notes: |
   not a rebuild.
 
   ── DELIBERATELY NOT CHANGED (each of these is a documented non-goal) ──────
-  - `pkg/gate/substantiveness_q1_dispatch.go:89` (`runConvert`) and
-    `pkg/gate/contract_equivalence.go:257` (`runScriptStdin`) shell pack scripts
-    through `/bin/sh` with NO sandbox on ANY platform. ISSUE-020 names them
-    explicitly as out of scope ("a related gap to note for the planner"). They
-    already work on Linux — they are not part of the hard-error defect — so
-    touching them here would widen the trust boundary while pretending to fix a
-    portability bug. Leave them. They belong to the OQ-3 widening conversation.
+  - THE UNSANDBOXED SITES IN `pkg/gate` — CORRECTED 2026-07-28, AND THE ORIGINAL
+    CITATION WAS WRONG FROM THIS PLAN'S FIRST DRAFT. It named
+    `pkg/gate/contract_equivalence.go:257` (`runScriptStdin`). THAT FILE DOES NOT
+    EXIST: commit 824530e (the legacy-codecheck collapse) RENAMED it to
+    `pkg/gate/contract_equivalence_harness_test.go`, where `runScriptStdin`
+    survives at :257 as TEST HARNESS code that never runs pack scripts in a user's
+    gate. The citation was inherited from ISSUE-020's own text and carried forward
+    unverified through every amendment; a reader chasing it finds nothing and may
+    reasonably conclude the site was already fixed.
+
+    THE RE-DERIVED PRODUCTION INVENTORY (`pkg/gate`, non-test, measured):
+      scope.go:293                        `exec.Command("git", ...)` — allowed
+                                          infrastructure, not a pack-code path
+      substantiveness_q1_dispatch.go:86   parametric UNSANDBOXED engine exec
+      substantiveness_q1_dispatch.go:98   the UNSANDBOXED `/bin/sh` convert
+                                          (this plan said :89 — line drift)
+
+    So OQ-3's open half is TWO sites in ONE file, not two files: one unsandboxed
+    convert shell-out and one unsandboxed engine dispatch, both in
+    `substantiveness_q1_dispatch.go`. ISSUE-020 names them out of scope ("a related
+    gap to note for the planner"). They already work on Linux — they are not part
+    of the hard-error defect — so touching them here would widen the trust boundary
+    while pretending to fix a portability bug. Leave them; they belong to the OQ-3
+    widening conversation. Re-derive the line numbers when that work starts rather
+    than trusting these, which is the lesson this correction teaches.
   - PRODUCERS stay unsandboxed. `pack_gate.go:428` dispatches the go-toolchain
     coverage producer with full toolchain access by design; ISSUE-045 established
     and verified that carve-out after a deny-all sandbox made producers
@@ -3242,9 +3277,13 @@ phases:
           Then the honesty pass, reported as findings rather than filed as work:
             - the stale `@waiver:backstop/self/...` rule-IDs at
               `cmd/backstop/pack_gate.go:888` and
-              `cmd/backstop/pack_gate_provision.go:119`, which appear unbound after
-              the 2026-07-27 rename. Confirm or refute by reading `rule` from
-              `gate --file <f> --json`. Do not fix them here.
+              `cmd/backstop/pack_gate_provision.go:119`. EXECUTED 2026-07-28 and the
+              answer was sharper than "unbound": STALE (the pack path exists in no
+              `packs/`, lock or yml), INERT (the rule matches nothing on either
+              file — `gate --file` zero AND whole-ruleset semgrep zero, two
+              independent engines agreeing), and FAIL-OPEN (if the rule ever
+              matches again, the waivers will not suppress it). Filed as ISSUE-097.
+              Not fixed here.
             - ISSUE-086: the baseline job is NO LONGER packless — TASK-016 added a
               `pack install` step, because this plan's fleet migration would
               otherwise have left it exiting 2 at `pack_loading` and publishing
@@ -3254,13 +3293,32 @@ phases:
               correct, what to do with the already-published packless artifacts, and
               whether the coverage-baseline refresh PLAN-ISSUE-087 put on hold can
               now proceed.
-            - the two unsandboxed `/bin/sh` sites in `pkg/gate`, unchanged by
-              design, and still the open half of OQ-3.
+            - the unsandboxed sites in `pkg/gate`, unchanged by design and still the
+              open half of OQ-3. EXECUTED 2026-07-28, and the inventory this plan
+              carried was WRONG: `contract_equivalence.go` does not exist (renamed
+              to a test harness in 824530e), so the real production pair is
+              `substantiveness_q1_dispatch.go:86` (parametric engine exec) and :98
+              (the `/bin/sh` convert) — two sites in ONE file. See the corrected
+              notes block.
             - which of this plan's claims rest on TASK-019's real run rather than on
               anything reproducible locally.
 
           Do not report the plan complete while the gate is red or while TASK-019
           is unproven.
+
+          ── EXECUTED 2026-07-28. OUTCOME: PLAN NOT COMPLETE. ──────────────────
+          The honesty pass ran and returned the answer its own disqualifying
+          conditions require: NOT COMPLETE, citing the red TASK-019 run
+          (30381252600) and CLM-028 unmet. That is the task working exactly as
+          designed — a final verification whose job includes refusing to sign off is
+          only worth having if it will actually refuse, and this one did.
+
+          It also produced the two corrections above, both of which fix errors this
+          PLAN was carrying rather than errors in the code: a citation inherited
+          from ISSUE-020 and never verified across every amendment, and a
+          too-generous characterization of the waivers. Re-run the pass after
+          TASK-019 goes green; its findings are re-derived each time, not inherited
+          from this record.
         files:
           - plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml
           - pkg/packval/sandbox.go
