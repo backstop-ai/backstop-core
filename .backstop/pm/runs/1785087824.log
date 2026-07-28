@@ -1,0 +1,36 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+**ISSUE-082 triaged — clear fit, slotted. But the INBOX write is blocked again.**
+
+**Classification: clear-fit DIR-024 (Gate/Engine Quality).** Its own Notes declare it "the catch-all for gate/engine-quality gaps that aren't contracts-engine, pack-distribution, or traceability themed" — a dead-entry + false-doc-comment cleanup in `pkg/pack/engine/allowlist.go` is squarely that. Slotted via directive-author under the standing grant: `source:` += ISSUE-082, a third Description bullet, Notes reworded, plus a sequencing caveat (DIR-024 sits at position 3 on the strength of ISSUE-020, the Linux/CI launch blocker — ISSUE-082 is tier-2 and must not be picked up first by anyone working the directive top-down). Validates clean.
+
+**No interviews needed, no reorder proposed.** `allowlist.go` is clean in the working tree, no plan artifact exists, and the one active session touching that file (`b45e79da`, SPEC-054 recipe implementation) touches it incidentally. Nothing in flight subsumes this. ISSUE-082 doesn't move BACKLOG.yml — it rides an already-positioned directive.
+
+**Worth your judgment (the part I didn't act on):** DIR-014 (Thin-Executor Eradication) is the closer *substantive* match — the entries being deleted are baked TypeScript tool names in a core Go file, sitting under a `nosemgrep: no-baked-language-token` suppression, which is exactly the eradication charter. It's `done` as of 2026-07-06, so I filed under DIR-024 rather than reopening it. If you'd rather this land as evidence the eradication arc left a residue, say so and I'll move it.
+
+**Two things need you:**
+
+1. **BUNDLE-021 has no directive home and was never triaged** — it never hit `pending.log` despite being filed in the same sweep as ISSUE-082, so the pm-trigger hook's bundle path is worth a look. It owns the governance question ISSUE-082 explicitly refuses to answer (pack-declared commands outside the Provision/lock path — `grep` as a Layer-0 presence pin, the whole ungated `typescript-toolchain` surface). It fits neither DIR-024 (cleanup catch-all; a security-boundary design isn't cleanup) nor DIR-023 (distribution, not execution). My recommendation: a new directive — "Pack Execution Trust Boundary" or similar — queued *below* the three launch blockers, since the exposure is real but unchanged since SPEC-035 and the bundle has no OQs drafted yet. Alternative: leave it uncited until it reaches `defined`.
+
+2. **The PM write path is still broken.** `.claude/pm/INBOX.md` and `pending.log` both refuse Edit and Write as "sensitive file," and Bash fallbacks are refused too. This is *not* a missing allow rule — `settings.json:90-91` already grants `Write(.claude/pm/**)` and `Edit(.claude/pm/**)`; the harness's `.claude/**` sensitive-path check overrides the allowlist, and headless runs can't approve. Fix is either relocating the queue outside `.claude/` or exempting the PM agent — settings are enforcement code, so I didn't touch them. Saved to agent memory so future runs fall back cleanly instead of thrashing.
+
+Paste-ready, INBOX newest-at-top:
+
+```markdown
+## FYI ISSUE-082 — slotted into DIR-024 under the standing grant (2026-07-26T17:46Z)
+- Classification: clear-fit DIR-024
+- Action taken: slotted via directive-author — `source:` += ISSUE-082, third Description bullet, Notes reworded + sequencing caveat. Directive validates clean.
+- Recommendation: DIR-024 self-describes as the catch-all for gate/engine-quality gaps that aren't contracts-engine, pack-distribution, or traceability themed. DIR-014 is the closer substantive match (baked TS tool names in core Go under a nosemgrep suppression) but is `done` (2026-07-06), so I did not reopen it. No in-flight coverage: clean tree on `allowlist.go`, no plan artifact. Zero interviews.
+- Needs from Brandon: nothing — FYI. Reverse if you'd rather this hang off a reopened DIR-014.
+
+## ESCALATION BUNDLE-021 — no directive home, never triaged (2026-07-26T17:46Z)
+- Classification: no-fit (new-directive candidate)
+- Action taken: none — awaiting Brandon. BUNDLE-021 never hit `pending.log`; check the pm-trigger hook's bundle path.
+- Recommendation: new directive ("Pack Execution Trust Boundary") sourcing BUNDLE-021, queued below the three launch blockers. Not DIR-024 (cleanup catch-all), not DIR-023 (distribution, not execution). Alternative: leave uncited until `defined`.
+- Needs from Brandon: (1) new directive now or wait for maturity? (2) if now, confirm name + that it lands below DIR-002/DIR-001.
+```
+
+And the `pending.log` line to replace line 4:
+
+```
+2026-07-26T17:43:44Z issues/ISSUE-082-tool-allowlist-unreachable-entries.issue.md [triaged]
+```

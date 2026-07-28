@@ -196,3 +196,15 @@ There is no "pass with suggestions." Either it's right or it's not.]
 - **Be specific.** "The spec is incomplete" is useless. "REQ-003 claims to enforce TDD but doesn't specify what happens when depends_on is empty" is actionable.
 - **Every issue is a blocker.** There is no distinction between blocking and non-blocking. If something isn't right, it must be fixed. The verdict is PASS or FAIL, nothing in between.
 - **Run the validator.** Always. Structural issues should be caught mechanically, not by you.
+
+
+## Existence-in-World Check
+
+Coverage-vs-bundle is not sufficient. Verify no OTHER spec (committed or working tree) already
+claims this spec's surface; overlapping claims territory or file surface with an existing spec
+is a finding that blocks PASS until the overlap is dispositioned (supersede, merge, or narrow).
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

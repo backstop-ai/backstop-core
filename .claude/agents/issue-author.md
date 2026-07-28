@@ -57,3 +57,16 @@ Issues have progressive requirements based on status:
 
 - **Never write summary or report files to the repository.**
 - **Run the validator before declaring done.**
+
+
+## Existence-in-World Check (MANDATORY, before filing)
+
+Before filing, search BOTH `issues/` (open issues covering the same defect) AND `bundles/`
+(seeds whose charter already owns the work). Filing an issue that duplicates an open issue or
+a bundle seed's charter creates competing ownership of the same surface. On a hit: STOP and
+report the owning artifact instead — recommend annotating it rather than filing anew.
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

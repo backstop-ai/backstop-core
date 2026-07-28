@@ -1,0 +1,18 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+Triaged **ISSUE-083** — escalated, nothing touched.
+
+**Classification: ambiguous** (DIR-023 vs DIR-026).
+
+The substance: `resolveGitURL` (`add.go:95`) hardcodes `https://github.com/…`, and it's the single choke point every remote flow funnels through. It was inert until today — pre-SPEC-055 the remote path panicked — so shipping the real cloner plus DIR-027's `<org>/<pack-name>` identity convention just made "publish to GitHub or you can't author an installable pack" a live constraint. It also contradicts a premise BUNDLE-006 DD-31 already accepted ("packs may be hosted anywhere") for lock recording.
+
+**My recommendation: DIR-023, not DIR-026.** DIR-026 is a launch blocker with a narrow remainder (REQ-039, transactions/parity) and its charter — make remote consumption *work* — is discharged; appending non-blocking capability expansion dilutes the blocker. DIR-023 is queued and explicitly framed "on the road to the registry era," and ISSUE-083 shares one root cause with its ISSUE-058 thread: core has no data source for where a pack lives, so it bakes one. A registry is the thing that retires the hardcode. Alternative worth your call: a standalone "pack ecosystem openness" directive pairing it with BUNDLE-001 OQ-30 (non-GitHub *publisher* support, still open) — resolving the consume side without the publish side leaves the story half-open.
+
+Not launch-blocking, so **no reorder proposed**.
+
+Three things to flag:
+
+1. **In-flight coverage check was corpus-based only.** This headless run's sandbox blocks reads outside the project dir, so `~/.claude/projects/*.jsonl` was unreachable — no session discovery or fork-interviews. Coverage is implausible on corpus evidence (SPEC-055 deliberately kept the shorthand; DIR-027's four threads are enumerated and silent on host generality), but it's an inference, not a proven absence. Manual/interactive sweeps still get transcript access.
+2. **DIR-027 number collision in the INBOX.** Earlier entries recommend creating a DIR-027 "Gate Verdict Honesty" (ISSUE-066/067/070/075). That was never created and the number went to "Pack Fleet Publication & Migration." The gate-honesty cluster is still unhomed and needs a fresh number — I noted this inline so the older entries don't read as already-actioned.
+3. **Memory write refused.** I tried to record the headless-interview limitation to agent memory; `.claude/**` is classified sensitive and the edit was blocked, so that lesson didn't persist — it'll need re-deriving next headless run unless the path gets allowlisted.
+
+INBOX entry is at the top of `.backstop/pm/INBOX.md`; `pending.log` marked triaged.

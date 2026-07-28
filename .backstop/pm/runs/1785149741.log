@@ -1,0 +1,17 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+Triaged ISSUE-086 — **escalated, nothing slotted, nothing reordered.**
+
+**The finding that decided it:** ISSUE-086's Fact 1 (core `ci.yml` hand-bakes Go instead of calling `backstop gate`) is already folded into **ISSUE-020**, along with your verbatim 2026-07-26 ruling: *"this does not get its own issue… Do not re-file this as a standalone issue."* It's welded to ISSUE-020's acceptance bar (`backstop gate` runs green in CI on Linux) precisely so the sandbox fix can't be claimed done without the CI wiring. ISSUE-086 cites ISSUE-020 five times but never mentions that ruling — reads as the ruling not being in view, not a considered override.
+
+**Fact 2 is genuinely new and nothing else tracks it:** the `baseline` job has no `pack install` step, so the published `backstop-baseline-v1` is generated with zero pack engines. Every semgrep/ast-grep dimension is structurally absent, not clean. Refreshing the tracked baseline against it would ratchet-declare those dimensions green without ever evaluating them.
+
+**Recommendation:** split — narrow ISSUE-086 to Fact 2, cite it in **DIR-003** (CI baseline generation is its literal charter, and Fact 2 breaks its premise), leave Fact 1 in ISSUE-020 under DIR-024.
+
+**Needs from you (in `.backstop/pm/INBOX.md`, top entry):**
+1. Does 2026-07-27 override the do-not-re-file ruling, or does Fact 1 come out of ISSUE-086?
+2. If the narrowed issue survives — DIR-003 (my rec) or DIR-001?
+3. Hold the pending coverage-baseline refresh until the baseline job installs packs.
+
+No reorder proposed — DIR-024 (4) → DIR-001 (5) → DIR-003 (6) already encodes this issue's dependency chain, and BUNDLE-021 already leads the bundles tier. I logged that non-move as a PROPOSAL so it's deliberate rather than an omission.
+
+Two caveats: the in-flight-coverage read is corpus-based, not interview-confirmed — `claude --resume` is sandbox-blocked in headless runs (I saved that constraint to memory, along with the workaround that transcript grep *does* work). And the INBOX now has 19 items awaiting you.

@@ -1,0 +1,25 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+Triaged. **ISSUE-090 is a duplicate stub that retracts itself** — no frontmatter, no body, just a note saying it was scaffolded in error and pointing at ISSUE-061.
+
+**Classification: no-fit. Nothing slotted, nothing touched.**
+
+I verified every claim the stub makes, and they hold:
+- ISSUE-061 exists, is `open`, and was amended today with the new SPEC-056 phase-5 evidence (second occurrence + minimal two-file repro). That amendment is uncommitted.
+- ISSUE-061 is already cited by **DIR-021**, which flags it as the one hard-deadline item in that directive.
+- ISSUE-090 is untracked (`??`), never `git add`ed, no `backstop/issue/090` tag.
+
+So the substance is correctly homed and needs no action from me. I recommend deleting the stub but did **not** run the `rm` — corpus deletion isn't in my grant.
+
+**One thing worth your attention that I found while checking the ID-safety of that deletion:**
+
+Artifact IDs allocate from git tags only (`max(tag) + 1`, `pkg/scaffold/idresolver.go:73`), with a silent filesystem fallback whenever a git op fails — including `FetchTags` and tag push. This repo has **no remote**, so every recent scaffold has quietly taken the fallback. Result: 88 issue tags (001–088) vs 89 issue files. ISSUE-089 is committed with no reservation tag.
+
+That's harmless today. It stops being harmless the moment you add the real `backstop-ai/backstop-core` remote — a named launch task. `FetchTags` starts succeeding, the tag path reactivates, finds max tag 088, and hands out **089** to the next new issue, colliding with the committed ISSUE-089. The hazard is created by a launch step, so it wants fixing before that step rather than after.
+
+I couldn't file it as an issue (the trigger hook would recurse into me).
+
+**Needs from you — two small calls, both in `.backstop/pm/INBOX.md`:**
+1. Yes/no on `rm issues/ISSUE-090-...issue.md`.
+2. Home for the ID-reservation bug — I'd argue DIR-001, since the trigger is literally "add the remote." Then either tell me to have issue-author file it, or file it yourself. Worth deciding before the remote goes in.
+
+Note the INBOX now has 23 items awaiting you.

@@ -162,3 +162,17 @@ go run /tmp/validate_spec.go <path-to-spec>
 - Generate a `Review Questions` section in the spec body with adversarial questions that probe risks not fully captured by claims.
 - Ensure review questions are concrete and implementation-checkable by the impl-reviewer.
 - Apply DD-13 escalation-over-guessing: if standards do not cover the exact case, escalate to the human and do not invent rule mappings.
+
+
+## Existence-in-World Check (MANDATORY, before authoring)
+
+Before authoring a spec from a bundle seed, search `specs/` (committed AND working tree) for
+an existing spec already covering the seed's surface — same requirements, same claims
+territory, same file surface. On a hit: STOP and report the owning spec, the overlap, and a
+recommended disposition rather than authoring. A duplicate spec is a defect even if internally
+excellent.
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

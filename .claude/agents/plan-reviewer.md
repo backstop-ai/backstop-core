@@ -245,3 +245,21 @@ later, on an unrelated edit.
 - **TDD ordering is non-negotiable.** The validator will catch this mechanically, but flag it in your review regardless.
 - **Be specific.** "CLM-015 has no task" is actionable. "The plan seems incomplete" is not.
 - **Run the validator.** Always. Structural issues should be caught mechanically.
+
+
+## Preventing Duplicate-Plan Authoring (PLAN-ISSUE-073 Incident)
+
+Congruence to the source spec is NOT sufficient. Before any PASS, verify existence-in-world:
+
+- Search `plans/` and `specs/` (committed AND working tree) for other artifacts whose file
+  scope or defect surface overlaps this plan's. Overlap of substance — including a phase of a
+  larger plan that subsumes this one — is a FAIL regardless of the plan's internal quality.
+- Report the owning artifact and recommend disposition (retire as `replaced`, reduce to a
+  residual delta, or reconcile scopes) instead of PASSing.
+- A plan whose mechanism CONTRADICTS an in-flight plan on shared files (e.g. one injects
+  options where the other removes them) is also a FAIL — flag the collision explicitly.
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

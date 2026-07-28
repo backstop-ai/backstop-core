@@ -9,6 +9,15 @@
             "command": ".claude/hooks/backstop-standards-context.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-pm-nudge.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -64,7 +73,23 @@
             "command": ".claude/hooks/backstop-validate-artifact.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/backstop-pm-trigger.sh"
+          }
+        ]
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Write(.backstop/pm/**)",
+      "Edit(.backstop/pm/**)",
+      "Write(.claude/agent-memory/backlog-pm/**)"
     ]
   }
 }

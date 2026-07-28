@@ -52,6 +52,12 @@ case "$AGENT_NAME" in
   adr-author*) [[ "$FILE_PATH" == *.adr.md ]] && exit 0 || wblock ;;
   issue-author*) [[ "$FILE_PATH" == *.issue.md ]] && exit 0 || wblock ;;
   planner*) [[ "$FILE_PATH" == *.plan.yml ]] && exit 0 || wblock ;;
+  backlog-pm*)
+    # PM may write ONLY its own queue and memory — never artifacts, never BACKLOG.yml.
+    case "$FILE_PATH" in
+      *.backstop/pm/*|*.claude/agent-memory/backlog-pm/*) exit 0 ;;
+      *) wblock ;;
+    esac ;;
   directive-author*)
     [[ "$FILE_PATH" == *.directive.md ]] && exit 0
     [[ "$(basename "$FILE_PATH")" == "BACKLOG.yml" ]] && exit 0

@@ -96,3 +96,16 @@ Include a brief summary of what changed in each version.
 - **Work through OQs one at a time.** Don't batch-resolve them.
 - **Always capture the rationale for decisions.** The "why" matters more than the "what."
 - **Run the validator when advancing maturity.**
+
+
+## Existence-in-World Check (MANDATORY, before authoring)
+
+Before creating a bundle, search `bundles/` for an existing bundle whose problem space
+overlaps — including `exploring` bundles whose OQs already cover the territory. On a hit:
+STOP and report; recommend evolving the existing bundle instead. Two bundles owning one
+problem space guarantees divergent decisions.
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

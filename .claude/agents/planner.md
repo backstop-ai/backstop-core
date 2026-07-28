@@ -221,3 +221,23 @@ go run /tmp/validate_plan.go <path-to-plan>
 - **TDD is non-negotiable.** Two implementation tasks in a row = rejected. No exceptions.
 - **Maximize parallelism** where D-081 allows it. Sequential plans waste time.
 - **No time estimates.** Focus on what, not how long.
+
+
+## Existence-in-World Check (MANDATORY, before scaffolding)
+
+Before reserving an ID or authoring anything, verify no existing artifact already owns the
+surface you are about to plan:
+
+1. Search `plans/` and `specs/` (committed AND working tree) for artifacts covering the same
+   defect, requirement, or file surface — grep for the defect's key identifiers, the files you
+   expect to scope, and the source issue/spec number.
+2. Coverage includes SUBSUMPTION: a phase inside a larger committed plan that delivers your
+   plan's substance counts as ownership, even if no artifact names your issue.
+3. On a hit: STOP. Do not author. Report the owning artifact, the overlap, and a recommended
+   disposition (fold in, plan only the residual delta, or retire the request). Authoring a
+   duplicate plan is a defect even if the plan is perfect.
+
+(Incident, 2026-07-26: PLAN-ISSUE-073 was authored and review-PASSED while the
+already-committed PLAN-SPEC-055 owned the same surface — the duplicate was caught only by
+cross-session mediation, after both plans were complete. Congruence-to-source was checked;
+existence-in-world was not.)

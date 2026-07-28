@@ -1,0 +1,42 @@
+2026-07-26T17:29:07Z issues/ISSUE-074-pack-relock-silent-failure.issue.md [triaged — report in INBOX]
+2026-07-26T17:29:32Z bundles/BUNDLE-020-pack-core-version-compatibility.bundle.md [preexisting — seeded, no triage]
+2026-07-26T17:29:32Z issues/ISSUE-073-pack-add-nil-git-cloner-panic.issue.md [preexisting — seeded, no triage]
+2026-07-26T17:43:44Z issues/ISSUE-082-tool-allowlist-unreachable-entries.issue.md [triaged — report in INBOX]
+2026-07-26T17:58:53Z bundles/BUNDLE-021-pack-command-execution-governance.bundle.md [triaged — report in INBOX]
+2026-07-26T23:20:00Z FULL SWEEP (manual) — 82 issues / 26 directives / 25 bundles / BACKLOG.yml reconciled [triaged]
+2026-07-26T23:20:00Z issues/ISSUE-079-recipe-apply-target-paths-not-substituted.issue.md [triaged — slotted DIR-019; in-flight coverage proven absent]
+2026-07-26T23:20:00Z issues/ISSUE-081-recipe-authoring-surface-underspecified.issue.md [triaged — slotted DIR-019]
+2026-07-26T23:20:00Z specs/SPEC-054-recipe-apply-and-manifest.spec.md [triaged — slotted DIR-019]
+2026-07-26T23:20:00Z issues/ISSUE-078-contracts-pack-const-signature-support.issue.md [triaged — slotted DIR-022]
+2026-07-26T23:20:00Z issues/ISSUE-080-recipe-apply-silent-violation-errors.issue.md [triaged — HELD, ambiguous DIR-019/DIR-026, awaiting Brandon]
+2026-07-26T23:20:00Z issues/ISSUE-065-contracts-engine-by-declared-capability.issue.md [triaged — escalated, ambiguous]
+2026-07-26T23:20:00Z issues/ISSUE-066-gate-runs-full-test-package-not-run-filter.issue.md [triaged — escalated, DIR-027 candidate]
+2026-07-26T23:20:00Z issues/ISSUE-067-go-test-engine-opaque-crash-masks-failures.issue.md [triaged — escalated, DIR-027 candidate]
+2026-07-26T23:20:00Z issues/ISSUE-070-gate-diffscope-leaks-projectwide-lint.issue.md [triaged — escalated, DIR-027 candidate]
+2026-07-26T23:20:00Z issues/ISSUE-075-gate-test-verification-vacuous-green-missing-mandated-test.issue.md [triaged — escalated, DIR-027 candidate]
+2026-07-26T23:20:00Z issues/ISSUE-071-gate-allows-vacuous-done-issue.issue.md [triaged — escalated, rec: leave deliberately unhomed]
+2026-07-26T23:20:00Z issues/ISSUE-072-sub-artifact-retirement-primitive.issue.md [triaged — escalated, rec: DIR-021]
+2026-07-26T23:20:00Z issues/ISSUE-076-plan-verification-commands-unresolvable.issue.md [triaged — escalated, no-fit]
+2026-07-26T23:20:00Z issues/ISSUE-077-stale-gate-binary-phantom-violations.issue.md [triaged — escalated, no-fit]
+2026-07-27T00:05:03Z issues/ISSUE-083-pack-resolution-hardcodes-github-host.issue.md [triaged — escalated, ambiguous DIR-023/DIR-026, rec: DIR-023]
+2026-07-27T10:55:41Z issues/ISSUE-086-core-ci-hand-baked-and-baseline-packless.issue.md [triaged — escalated: Fact 1 duplicates ISSUE-020's folded scope vs founder do-not-re-file ruling; Fact 2 novel, rec DIR-003]
+2026-07-27T11:10:50Z issues/ISSUE-087-ci-driven-release-pipeline.issue.md [triaged — clear fit, slotted into DIR-001; PROPOSAL: DIR-025 ordering vs its own with-or-before-DIR-001 coupling]
+2026-07-27T13:54:15Z issues/ISSUE-090-go-standards-error-type-suffix-cross-declaration-fp.issue.md [triaged — no-fit: duplicate stub of ISSUE-061 (already in DIR-021), self-retracted; rec rm. Adjacent escalation: ID-reservation tag/file drift will re-issue 089 once the remote is added]
+2026-07-27T22:47Z APPLY PASS (founder-ratified batch via orchestrator) [triaged]
+2026-07-27T22:47Z   ISSUE-086 SPLIT APPLIED — narrowed to the packless-baseline fact only, retitled + file renamed, cited in DIR-003; Fact 1 left welded to ISSUE-020. Supersedes the 10:55Z escalation.
+2026-07-27T22:47Z   DIR-003 — ISSUE-086 slotted; Notes record (a) directive not completable off the packless artifact, (b) coverage-baseline refresh HELD until the baseline job installs packs.
+2026-07-27T22:47Z   DIR-025 — hard coupling to DIR-001 retired + stale position claim retracted; reasoning recorded (GitHub/Homebrew analytics cover half 2; half 1 low-value at launch scale). No reorder.
+2026-07-27T22:47Z   ID-reservation escalation RESOLVED — backfill verified: issue tags 90 (max 090) vs 87 files; every type's max tag now leads its file count. Collision hazard closed; resolver fix = ISSUE-090.
+2026-07-27T22:47Z   ISSUE-090 escalation RESOLVED — stub removed, but the ID was REUSED: 090 is now the committed resolver-fix issue (bad2178), not a dead number.
+2026-07-27T22:47Z CONFIDENCE PASS (manual) — BACKLOG.yml membership clean (13/13 non-terminal). Findings: DIR-026 Notes false (REQ-039 delivered by SPEC-056, which no directive cites); DIR-019 Notes stale (079/085 closed but read as pending); ISSUE-070 + ISSUE-075 status-drifted (fixes merged, plans completed, still open) which shrinks the gate-honesty cluster to 066+067; uncited open issues down 15 -> 10.
+2026-07-27T22:47Z issues/ISSUE-088-local-pack-git-residual-content-hash.issue.md [triaged — uncited; SPEC-057 in flight against it, also uncited. No home yet.]
+2026-07-27T22:47Z issues/ISSUE-089-artifact-validate-vacuous-green-on-missing-path.issue.md [triaged — uncited, no home yet]
+2026-07-27T22:47Z issues/ISSUE-090-id-resolver-max-tags-and-disk.issue.md [triaged — uncited; DIR-001 is the reported intent, not yet reflected in the corpus]
+2026-07-27T22:58Z   ISSUE-090 SLOTTED into DIR-001 source (clear fit, founder-named home) — resolver fix = max(tags, disk); sequenced before "add the remote". Validates clean. ID-reservation escalation now fully closed (backfill + fix both landed).
+2026-07-27T22:59Z CONFIDENCE-PASS FOLLOW-UPS (4, approved by team lead under the grant) [triaged]
+2026-07-27T22:59Z   DIR-026 — SPEC-056 added to source (was cited by NO directive); REQ-039 rewritten seed->DELIVERED; remainder corrected to transactions+parity; done-readiness flagged as a founder call. Status stays active. ISSUE-083 guards untouched.
+2026-07-27T22:59Z   DIR-019 — stale sequencing retired (079 closed, 081 Gaps 1-2 delivered); ISSUE-085 rewritten past-tense as delivered; next-up re-pointed to ISSUE-080 remainder. recipes/ emptiness re-verified before restating. Status stays active.
+2026-07-27T22:59Z   ISSUE-070 CLOSED — verified the ISSUE-068 revert (334b441) did NOT regress the fix; FilterViolations live at gate.go:842; 8 mandated tests pass under -race.
+2026-07-27T22:59Z   ISSUE-075 CLOSED — verified uncached (-count=1) AND falsified in a scratch copy: reintroducing the defect makes the smoke test fail. Non-vacuous guard confirmed.
+2026-07-27T22:59Z   ESCALATION UPDATED — gate-honesty cluster narrowed 4 -> 2 (066+067). Recommendation CHANGED: append to DIR-024, no new directive. Also noted DIR-027 is taken; a standalone would need DIR-028.
+2026-07-27T22:59Z   artifact validate --all GREEN after all four.

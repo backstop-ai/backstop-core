@@ -33,6 +33,10 @@ not repeat it. Keep this file short.
 - **Never hand-edit artifacts.** Route all artifact authoring/evolution to the purpose-built
   agents via the slash commands (`/bundle`, `/spec`, `/plan`, `/implement`). Hand-editing
   freeform prose drifts from the schema. [agent-guard + validate-artifact]
+- **No implementation without a validated plan.** "Fix ISSUE-NNN" means *plan it first*:
+  `/plan` from the issue, validate, then `/implement` against the plan. A session editing
+  source with no in-flight plan artifact is off-track — regardless of how small the fix
+  looks. (Aspires to be hook-enforced; until then, it is still law.)
 - **Bundles start at `exploring` with real open questions.** The user drives OQ resolution
   AND promotion — do NOT pre-resolve OQs or self-promote maturity.
 - **Promotion to `defined`+ is structural:** needs Draft Requirements / Draft Design Decisions /
@@ -52,7 +56,14 @@ not repeat it. Keep this file short.
 - **Dogfood rules as packs.** Never bake check logic into the CLI binary; backstop consumes
   its own rules as a pack like any project.
 
+## Codebase map (auto-loaded — where everything lives)
+@docs/CODEBASE-MAP.md
+
 ## Tooling
+- **Cross-session/agent questions:** any Bash-capable agent may fork-interview any
+  session — protocol in `~/.claude/skills/consult/SKILL.md` (identity, context,
+  numbered questions, output contract, do-NOT-implement guard). Multi-party
+  alignment: the /mediate skill. Answers are claims-with-citations, not facts.
 - CLI: `./bin/backstop`. Validate artifacts: `backstop artifact validate`. Gate: `backstop gate`.
 - This Claude Code setup is a stopgap to unblock the opencode runtime — optimize for
   watch/steer and fewer interventions, not for determinism or auditability.

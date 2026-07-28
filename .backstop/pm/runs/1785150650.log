@@ -1,0 +1,14 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+**ISSUE-087 triaged — clear fit, slotted. No interviews needed (transcript grep + tree state sufficed).**
+
+**Slotted (standing grant):** `ISSUE-087` added to DIR-001's `source:` via directive-author, with Notes recording it as the launch-minimal slice and pinning the two carve-outs that stay open under DIR-001 after it closes — self-gating via `backstop gate` (needs macOS runner + ISSUE-020's Linux sandbox for matrix parity) and the Homebrew tap. Status left `queued`; BACKLOG.yml untouched. `artifact validate --directive DIR-001` passes.
+
+**Two things worth your eye:**
+
+1. **The tag-integrity workflow is the third hand-baked-CI instance.** ISSUE-087 lands it hand-written with a placeholder header pointing at DIR-019/REQ-018's CI recipe pack — joining `ci.yml`'s gate job (ISSUE-086) and the pack repos (ISSUE-084). Right call for a 1–1.5 day launch slice, but the placeholder only stays honest if REQ-018 actually ships; if recipes slip, it's permanent debt by default.
+
+2. **PROPOSAL, not applied — DIR-025 (Telemetry) contradicts itself.** Its Description calls the coupling hard ("must land WITH OR BEFORE DIR-001… day-zero baseline is lost permanently") and its Notes claim it's "positioned directly after DIR-001." That was true before 2026-07-27; DIR-001 moved to position 5, DIR-025 stayed at 8, with DIR-003 and DIR-002 between. ISSUE-087 is what makes it bite — it turns "day one of first release" into something reachable this cycle. Proposed diff: move DIR-025 from 8 to 6. Caveat: BUNDLE-016 is still `exploring` with unpopulated sections, so DIR-025 can't be spec'd today regardless — the move buys ordering honesty, not throughput. The honest alternative is the opposite: leave the order and retire the coupling claim from DIR-025's Notes. Leaving both as-is means one of them is lying. **Your call — (a) reorder, or (b) I route a Notes correction.**
+
+**In-flight note:** `/plan` for ISSUE-087 is live right now — a stub plan was scaffolded at 11:11Z, one minute after the issue. It's an empty `phases: []` skeleton, so `artifact validate --all` is red in the tree until the planner fills it. Expected mid-authoring, not a defect, and unrelated to the DIR-001 edit. No release code exists yet: no `.goreleaser.yml`, `ci.yml` is the only workflow, module path still `bmanson/`.
+
+INBOX now has 21 items; the ISSUE-086 escalation directly above these still needs your ruling on whether Fact 1 comes out of it.
