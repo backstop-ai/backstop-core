@@ -1460,8 +1460,41 @@ phases:
           since the merge-base with the given revision, and that it is for CI, where
           the working tree is clean and the bare diff scope is empty. Someone
           reading `--help` should understand why the flag exists.
+
+          AS-BUILT, 2026-07-28 (committed a09df4f) — AN ACCEPTED SCOPE DEVIATION.
+          This task declared only `cmd/backstop/gate.go`, and that was wrong: half
+          of CLM-010 cannot be delivered there. The human-output half lives in
+          `gate.FormatHuman` (`pkg/gate/output.go:25`), which is the SINGLE
+          AUTHORITY for gate human output — `cmd/` only calls it. The implementer
+          made a four-line addition in `output.go` rather than printing a second
+          scope line from `cmd/`, flagged the deviation, and the orchestrator
+          accepted it.
+
+          That was the right call and the plan was the thing at fault. Printing the
+          scope from `cmd/` would have produced TWO scope reports in two places —
+          the duplicate-authority anti-pattern the self-pack exists to catch, and a
+          guaranteed future divergence between what the human output says and what
+          the JSON says. `pkg/gate/output.go` is added to the file list above to
+          make the as-built scope true.
+
+          Note also that the accompanying test,
+          `TestFormatHuman_ReportsExplicitBaseResolution`, landed in
+          `pkg/gate/scope_base_test.go` — TASK-006's file — rather than in a new
+          one, so no test-side scope change was needed.
+
+          FIRST GATE RUN WAS RED, WITH TWO SELF-INFLICTED FINDINGS, both cleared
+          with HEAD-vs-NOW net-new-0 proof. Recorded because they are the predicted
+          consequence of this plan's own no-grandfather rule, arriving on schedule:
+            - error-wrapping on the new return path in `scope.go`, from the
+              go-standards pack.
+            - `output.go` coverage below threshold, lifted 89.7% -> 91.2% by the
+              FormatHuman test above.
+          Neither was pre-existing debt activated by the diff; both were introduced
+          by this task and fixed in it. That is the rule working as designed, not a
+          tax on it.
         files:
           - cmd/backstop/gate.go
+          - pkg/gate/output.go
         claims:
           - CLM-008
           - CLM-010
@@ -1489,6 +1522,7 @@ phases:
         files:
           - pkg/gate/scope.go
           - cmd/backstop/gate.go
+          - pkg/gate/output.go
         claims:
           - CLM-005
           - CLM-006
