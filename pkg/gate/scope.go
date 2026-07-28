@@ -22,15 +22,54 @@ const (
 
 // GateScope describes the single file scope computed at gate startup.
 type GateScope struct {
-	Mode        GateScopeMode `json:"mode"`
-	Files       []string      `json:"files"`
-	Warnings    []string      `json:"warnings,omitempty"`
-	ProjectRoot string        `json:"-"`
-	fileSet     map[string]struct{}
+	Mode     GateScopeMode `json:"mode"`
+	Files    []string      `json:"files"`
+	Warnings []string      `json:"warnings,omitempty"`
+	// RequestedBase is the revision the operator asked to diff against, recorded
+	// VERBATIM as written. MergeBase is what it actually resolved to. Both are
+	// reported so an empty CI scope is VISIBLE rather than silent — the difference
+	// between a legible "green over 12 files since <sha>" and an unexplained green
+	// over zero. Empty for every scope that did not use an explicit base.
+	RequestedBase string `json:"requested_base,omitempty"`
+	MergeBase     string `json:"merge_base,omitempty"`
+	ProjectRoot   string `json:"-"`
+	fileSet       map[string]struct{}
 }
 
 // ComputeGateScope resolves the gate scope once for a gate run.
+//
+// It is a THIN WRAPPER over ComputeGateScopeWithBase with an empty base, and that
+// is deliberate: 40+ call sites depend on this signature, and there must be exactly
+// ONE implementation of "what changed". A second resolver grown alongside this one
+// is how the two silently disagree.
 func ComputeGateScope(projectRoot string, mode GateScopeMode, files []string) (*GateScope, error) {
+	return ComputeGateScopeWithBase(projectRoot, mode, files, "")
+}
+
+// ComputeGateScopeWithBase is the full-arity entry point. An EMPTY base reproduces
+// bare diff mode exactly; a non-empty base scopes the run to the files changed since
+// merge-base(HEAD, base) plus untracked files.
+//
+// WHY AN EXPLICIT BASE EXISTS AT ALL: a CI checkout is pristine. Bare diff mode
+// resolves merge-base(HEAD, origin/main), which on a push to main IS HEAD, so
+// `git diff --name-only HEAD` returns nothing — and there are no untracked files
+// either. That is not a wrong scope, it is an EMPTY one, and an empty scope passes
+// every dimension. On a pull_request at the default fetch-depth there is no
+// origin/main remote-tracking ref at all, so both merge-base attempts fail and the
+// code falls through to the same empty result carrying only a warning. An explicit
+// base is what makes a CI run check anything.
+//
+// THERE IS NO FALLBACK PATH when a base is given — not to --all, not to HEAD, not
+// to an empty list. Bare diff mode's fallbacks are precisely what make CI silent
+// today, so inheriting them here would defeat the flag.
+func ComputeGateScopeWithBase(projectRoot string, mode GateScopeMode, files []string, base string) (*GateScope, error) {
+	// A base with any non-diff mode is a programming error the CLI layer should
+	// already have rejected. Erroring beats ignoring it: silently dropping the base
+	// would run a scope the caller did not ask for while it believed otherwise.
+	if base != "" && mode != GateScopeModeDiff {
+		return nil, fmt.Errorf("--base applies to diff scope only, but scope mode is %q", mode)
+	}
+
 	switch mode {
 	case GateScopeModeAll:
 		resolved, warnings, err := resolveGateScopeAll(projectRoot)
@@ -41,11 +80,79 @@ func ComputeGateScope(projectRoot string, mode GateScopeMode, files []string) (*
 		}
 		return newGateScope(projectRoot, mode, files, nil), nil
 	case GateScopeModeDiff:
+		if base != "" {
+			resolved, mergeBase, err := resolveGateScopeExplicitBase(projectRoot, base)
+			if err != nil {
+				// Return NO scope: a caller must not be handed something it could
+				// mistake for a valid, merely-empty result. The wrap names the layer
+				// that failed; the wrapped error already names the ref and the reason,
+				// and the CLI surfaces the whole chain unchanged.
+				return nil, fmt.Errorf("computing gate scope: %w", err)
+			}
+			scope := newGateScope(projectRoot, mode, resolved, nil)
+			scope.RequestedBase = base
+			scope.MergeBase = mergeBase
+			return scope, nil
+		}
 		resolved, warnings, err := resolveGateScopeDiff(projectRoot)
 		return newGateScope(projectRoot, mode, resolved, warnings), err
 	default:
 		return nil, fmt.Errorf("unknown gate scope mode: %s", mode)
 	}
+}
+
+// resolveGateScopeExplicitBase resolves an EXPLICIT diff base. Every failure is loud
+// and names what could not resolve; none of them degrades into a usable scope.
+//
+// It returns the in-scope files and the RESOLVED MERGE-BASE SHA, so the run can
+// report which commit it actually compared against.
+func resolveGateScopeExplicitBase(projectRoot, base string) ([]string, string, error) {
+	// STEP 1: does the rev resolve to a commit at all? The `^{commit}` peel matters —
+	// a tag object resolves under a bare rev-parse but is not something merge-base
+	// can use.
+	resolvedOut, err := gitOutput(projectRoot, "rev-parse", "--verify", base+"^{commit}")
+	if err != nil {
+		return nil, "", fmt.Errorf("--base %q does not resolve to a commit in this repository "+
+			"(in CI this usually means the checkout is shallow — set fetch-depth: 0): %w", base, err)
+	}
+	resolved := strings.TrimSpace(resolvedOut)
+
+	// HEAD is read only so the STEP 2 failure can name both sides: "no merge base"
+	// without saying between what is unactionable in a CI log.
+	headOut, headErr := gitOutput(projectRoot, "rev-parse", "--verify", "HEAD^{commit}")
+	if headErr != nil {
+		return nil, "", fmt.Errorf("--base %q resolved to %s, but HEAD does not resolve to a commit: %w",
+			base, resolved, headErr)
+	}
+	head := strings.TrimSpace(headOut)
+
+	// STEP 2: do they share history? The rev RESOLVES by here, so a step-1-only guard
+	// would pass — this is what catches unrelated histories, the shape a force-push or
+	// a grafted shallow clone produces.
+	mergeBaseOut, mergeErr := gitOutput(projectRoot, "merge-base", "HEAD", resolved)
+	if mergeErr != nil {
+		return nil, "", fmt.Errorf("--base %q (resolved %s) shares no merge-base with HEAD (%s): "+
+			"the two revisions have unrelated histories, which a force-push or a grafted "+
+			"shallow clone produces: %w", base, resolved, head, mergeErr)
+	}
+	mergeBase := strings.TrimSpace(mergeBaseOut)
+	if mergeBase == "" {
+		return nil, "", fmt.Errorf("--base %q (resolved %s) shares no merge-base with HEAD (%s): "+
+			"git merge-base returned no commit", base, resolved, head)
+	}
+
+	// STEP 3: the same two commands bare diff mode runs, with no fallback around them.
+	tracked, diffErr := gitLines(projectRoot, "diff", "--name-only", mergeBase)
+	if diffErr != nil {
+		return nil, "", fmt.Errorf("--base %q: diffing against merge-base %s failed: %w", base, mergeBase, diffErr)
+	}
+	untracked, untrackedErr := gitLines(projectRoot, "ls-files", "--others", "--exclude-standard")
+	if untrackedErr != nil {
+		// Parity with bare diff mode: the tracked diff is still authoritative, so
+		// proceed tracked-only rather than aborting the scope computation.
+		untracked = nil
+	}
+	return append(tracked, untracked...), mergeBase, nil
 }
 
 // GateScopeModeFromCheck maps existing check scope modes to gate scope modes.

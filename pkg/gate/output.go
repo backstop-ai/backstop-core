@@ -44,6 +44,14 @@ func FormatHuman(result GateResult, noColor bool) string {
 				sb.WriteString(fmt.Sprintf("Gate running against %d changed files (use --all for full sweep).\n", len(result.Scope.Files)))
 			}
 		}
+		// An EXPLICIT base gets its resolution spelled out. Without this a CI reader
+		// cannot tell "green over 12 files since <sha>" from an unexplained green over
+		// zero — and the zero case is the vacuous green --base exists to prevent, so
+		// the number it checked has to be legible in the log itself.
+		if result.Scope.RequestedBase != "" {
+			sb.WriteString(fmt.Sprintf("Scope mode: %s | requested base: %s | resolved merge-base: %s | in-scope files: %d\n",
+				result.Scope.Mode, result.Scope.RequestedBase, result.Scope.MergeBase, len(result.Scope.Files)))
+		}
 		sb.WriteString(strings.Repeat("─", 60) + "\n")
 	}
 

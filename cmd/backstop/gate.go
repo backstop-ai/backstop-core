@@ -33,8 +33,9 @@ type StepResult = gate.StepResult
 func newGateCommand(jsonFlag *bool) *cobra.Command {
 	var allFlag bool
 	var fileFlag string
+	var baseFlag string
 	cmd := &cobra.Command{
-		Use:   "gate [--all | --file FILE [FILE...]]",
+		Use:   "gate [--all | --file FILE [FILE...] | --base REV]",
 		Short: "Run full verification gate",
 		Long: `Runs the complete backstop gate: the full reconciliation kill chain
 that orchestrates artifact validation, code checking, test verification,
@@ -50,6 +51,11 @@ it's green, it ships.`,
 	}
 	cmd.Flags().BoolVar(&allFlag, "all", false, "run the full project sweep")
 	cmd.Flags().StringVar(&fileFlag, "file", "", "scope gate to one or more explicit files")
+	cmd.Flags().StringVar(&baseFlag, "base", "",
+		"scope gate to files changed since the merge-base with REV, plus untracked files. "+
+			"For CI: a fresh checkout has a clean working tree, so the default diff scope "+
+			"resolves to nothing and checks zero files. Pass the pull-request base sha or the "+
+			"push before-sha. An unresolvable REV is a config error, never a silent full sweep.")
 	return cmd
 }
 
@@ -75,11 +81,21 @@ func runGate(cmd *cobra.Command, args []string) error {
 
 	allFlag, allErr := cmd.Flags().GetBool("all")
 	fileValue, fileErr := cmd.Flags().GetString("file")
-	if flagErr := firstNonNil(allErr, fileErr); flagErr != nil {
+	baseValue, baseErr := cmd.Flags().GetString("base")
+	if flagErr := firstNonNil(allErr, fileErr, baseErr); flagErr != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", flagErr)}
 	}
+	// The three scope selectors are mutually exclusive. This EXTENDS the existing
+	// check rather than adding a parallel one, so there is a single place that
+	// decides which scope a run uses.
 	if allFlag && fileValue != "" {
 		return &ExitCodeError{Code: ExitConfigError, Message: "config: --all and --file are mutually exclusive"}
+	}
+	if baseValue != "" && allFlag {
+		return &ExitCodeError{Code: ExitConfigError, Message: "config: --base and --all are mutually exclusive"}
+	}
+	if baseValue != "" && fileValue != "" {
+		return &ExitCodeError{Code: ExitConfigError, Message: "config: --base and --file are mutually exclusive"}
 	}
 
 	scopeMode := gate.GateScopeModeDiff
@@ -94,7 +110,10 @@ func runGate(cmd *cobra.Command, args []string) error {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: unexpected gate arguments: %s", strings.Join(args, " "))}
 	}
 
-	scope, scopeErr := gate.ComputeGateScope(projectRoot, scopeMode, explicitFiles)
+	// A base-resolution failure surfaces as exit 2 carrying the scope layer's own
+	// message unchanged — it already names the ref and why it could not resolve.
+	// Exit 2 rather than 1 is the point: exit 1 would claim violations were found.
+	scope, scopeErr := gate.ComputeGateScopeWithBase(projectRoot, scopeMode, explicitFiles, baseValue)
 	if scopeErr != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", scopeErr)}
 	}
