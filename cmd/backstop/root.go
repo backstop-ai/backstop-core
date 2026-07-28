@@ -12,7 +12,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// version is set at build time via -ldflags.
+// version is the raw link-time build stamp, set by goreleaser via
+// `-ldflags "-X main.version=..."`. It is NOT what callers should read: an
+// uninjected build leaves it "dev" while build info may still name a real
+// released version. Read effectiveVersion() (version.go) instead, which applies
+// the injection-wins precedence and rejects VCS-synthesized pseudo-versions.
 var version = "dev" // nosemgrep: go.core.no-global-mutable-state — link-time build stamp; -ldflags -X can only write a package-level var, and it is never mutated at runtime
 
 // NewRootCommand builds the Cobra command tree with all namespaces and
@@ -100,10 +104,13 @@ backstop by shelling out to CLI commands.`,
 				return fmt.Errorf("listing schemas: %w", err)
 			}
 			schemaCohort := computeCohortID(schemas)
+			// Resolved ONCE and shared by both renderings so the JSON payload and
+			// the text output cannot drift apart.
+			reportedVersion := effectiveVersion()
 
 			if jsonFlag {
 				data := map[string]interface{}{
-					"version":        version,
+					"version":        reportedVersion,
 					"schema_cohort":  schemaCohort,
 					"go_version":     runtime.Version(),
 					"schema_version": "cli/v1",
@@ -114,7 +121,7 @@ backstop by shelling out to CLI commands.`,
 				}
 				cmd.Println(string(out))
 			} else {
-				cmd.Printf("backstop version %s\n", version)
+				cmd.Printf("backstop version %s\n", reportedVersion)
 				cmd.Printf("schema cohort: %s\n", schemaCohort)
 				cmd.Printf("go version: %s\n", runtime.Version())
 			}
