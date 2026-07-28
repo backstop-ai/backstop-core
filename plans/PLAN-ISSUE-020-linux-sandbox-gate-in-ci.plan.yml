@@ -846,6 +846,51 @@ notes: |
     by TASK-002, names the retired coordinates because its whole job is to assert
     their absence.
 
+  ── PHASE 4 AS-BUILT, 2026-07-28 (BUILT; COMMIT PENDING ONE FIX) ───────────
+  1. A PRE-EXISTING TEST ASSERTS THE THING THIS PLAN DELETES. `cmd/backstop/
+     integration_test.go`'s `TestBaselineCIContract_PullRequestGateKeepsChangedCode
+     Enforcement` (line 251) asserts ci.yml literally contains
+     `go test -race -coverprofile=cover.out -covermode=atomic ./...` — the exact
+     raw invocation TASK-016 removes and TASK-015's
+     `TestCIWorkflow_BlockingJobHasNoRawToolInvocations` forbids. The two tests
+     cannot both pass.
+
+     STATE AS OF THIS AMENDMENT: ci.yml is flipped (zero occurrences of the raw
+     line, two `backstop gate` invocations) and the assertion is UNCHANGED, so it
+     is RED right now. This is the "one authorized fix" the commit is pending; it
+     is recorded here as REQUIRED, not as done.
+
+     The orchestrator-approved resolution is a REPOINT, not a deletion: the
+     assertion keeps its name and its contract — "the pull_request gate executes
+     verification that fails changed-code regressions" — and checks that the
+     blocking job runs `backstop gate` with `--base`. Same guarantee, post-flip
+     mechanism. Deleting the test would have quietly dropped a contract; renaming
+     it would have broken the baseline-contract set's naming. `cmd/backstop/
+     integration_test.go` is added to TASK-016's file list.
+
+     Its two sibling assertions were satisfied honestly rather than edited around:
+     the baseline job's `--all` comment wording was restored accurately, with a
+     disambiguating note (`ci.yml:160-162`) that the `--all` there is the
+     BASELINE's scope and is unrelated to the blocking job's `--base` scope.
+
+  2. WORKFLOW ASSERTIONS MATCH DECOMMENTED SCRIPTS, NOT RAW TEXT. The
+     `stepScript` / `stepMentions` helpers (`workflows_test.go:604,619`) strip
+     comments before matching. This is forced by the plan itself and is worth
+     stating so nobody "simplifies" it back: this plan MANDATES load-bearing
+     comments in ci.yml — the base-derivation rationale, the golangci pin
+     explanation, the install-nothing-for-sandbox note — and every one of them
+     NAMES the strings other tests forbid. Raw substring matching would make the
+     plan's own required comments fail the plan's own required tests. Assert on
+     what the runner executes, not on what the file says.
+
+  3. TASK-018 IS SPLIT, DELIBERATELY. The baseline-job empty-packs verification
+     was NOT run in the shared tree — sibling lanes are live in it, and
+     `rm -rf .backstop/packs` would have broken them. It runs in a DETACHED
+     WORKTREE instead, which is the correct isolation for a destructive
+     verification and should have been specified that way from the start. The
+     probe workflow was deleted per TASK-016; its values remain durable in
+     `pkg/packval/testdata/ubuntu-runner-probe.txt`.
+
   ── SHARP EDGE: THE RENAME PULLS GO FILES INTO DIFF SCOPE ──────────────────
   The gate scopes findings to CHANGED FILES, and file-level diff scope activates
   ALL of a touched file's dormant findings — not only the lines the diff touched.
@@ -964,10 +1009,14 @@ notes: |
                existing darwin sandbox test passes unmodified.
       CLM-017  the exported sandbox interface is unchanged — no caller in
                `pkg/packval/executor.go` or `cmd/backstop/pack_gate.go` changes.
-               The ONE addition is the trampoline gate: `cmd/backstop/main.go`
-               calls `packval.MaybeRunSandboxHelper()` as its first statement and
-               owns the exit on its error (126, `sandboxHelperExitCode`), and
-               a `TestMain` in `pkg/packval` calls the same gate so the helper is
+               The ONE addition is the trampoline gate. POST-PHASE-3b the gate is
+               the FIRST statement of `run()`, and `cmd/backstop/main.go` owns the
+               126 exit through `run()`'s RETURN VALUE rather than by calling
+               `os.Exit` itself — TASK-022 moves both, so a claim describing
+               `main()` as the caller would be stale the moment Phase 3b lands.
+               (TASK-014's identical wording is deliberately NOT updated: it
+               executes BEFORE Phase 3b and describes the tree it verifies.) A
+               `TestMain` in `pkg/packval` calls the same gate so the helper is
                reachable under `go test`. Both are required; either one alone
                yields a binary or a suite that sandboxes nothing.
       CLM-030  network denial is SECCOMP's, not Landlock's, and the denial surface
@@ -2070,6 +2119,22 @@ phases:
           `main` wires via `SetOut`/`SetErr` stay wired the same way through the
           seam.
 
+          `TestRun_SandboxGateRunsBeforeAnyCommandWork` — THE ORDERING LOCK, and
+          without it the other four tests are all satisfied by a `run()` that gets
+          this exactly wrong. A `run()` that built and executed the Cobra command
+          BEFORE calling the gate would return the right codes, write to the right
+          streams, and pass every assertion above — while a real helper process
+          printed help text to stdout before trampolining. "First statement" is a
+          behavioral requirement, not a stylistic one: the helper is invoked with no
+          arguments and keys only on an environment variable, so anything that
+          parses argv first is already wrong.
+
+          Assert it directly. Inject the gate alongside a command-construction spy
+          and assert the gate ran first; or, equivalently, assert that when the gate
+          returns an error NOTHING was written to stdout and NO command was
+          constructed. Either shape falsifies the reordering; a test that only
+          checks the return code does not.
+
           FOR COMPILE-TIME DISPATCH, in a new
           `pkg/packval/sandbox_dispatch_test.go` (no build tag):
 
@@ -2147,15 +2212,44 @@ phases:
           — and delegate to an unexported platform function.
 
           The implementations move into build-tagged files: the darwin
-          `sandbox-exec` path into `sandbox_darwin.go`, the Landlock+seccomp path
-          into the existing `sandbox_linux.go`, and the refusal into
-          `sandbox_nonlinux.go` for everything else. `darwinSandboxProfile` MOVES
-          UNCHANGED — not one character of the profile string, and no change to what
-          it returns for a given packDir.
+          `sandbox-exec` path into `sandbox_darwin.go` (`//go:build darwin`), the
+          Landlock+seccomp path into the existing `sandbox_linux.go`, and the
+          refusal into a file tagged for everything else. `darwinSandboxProfile`
+          MOVES UNCHANGED — not one character of the profile string, and no change
+          to what it returns for a given packDir.
 
-          Delete the `switch runtime.GOOS`. With it goes the reason
-          `sandbox_nonlinux.go` had to declare linux entry points as symbols, so
-          that file becomes a real platform implementation rather than a shim.
+          ⚠ DO NOT NARROW `sandbox_nonlinux.go` TO `!linux && !darwin`. This is the
+          trap, and the file's own doc comment names it. That file is
+          `//go:build !linux` today and it holds THE ONLY NON-LINUX DEFINITION OF
+          `MaybeRunSandboxHelper` (`sandbox_nonlinux.go:24`, a `return nil` stub)
+          alongside the `linuxSandboxedRun`/`linuxSandboxedRunStdout` stubs.
+          `cmd/backstop/main.go` — and, after TASK-022, `run()` — calls
+          `MaybeRunSandboxHelper` UNCONDITIONALLY on every platform. Narrow the tag
+          and the darwin build loses the symbol and stops compiling.
+
+          The "obvious fix" at that point is the dangerous one, which is exactly why
+          it is written here: dropping the call from main.go makes the build go green
+          and SILENTLY DISARMS THE LINUX SANDBOX. Nothing in the darwin test suite
+          would notice.
+
+          So the split introduces THREE tag scopes, not two, and one of them is not
+          about dispatch at all:
+            - the platform dispatch function: defined once per platform, in
+              `sandbox_darwin.go` (darwin), `sandbox_linux.go` (linux), and a
+              `!linux && !darwin` file for the refusal.
+            - `MaybeRunSandboxHelper`'s non-linux stub: STAYS AT `!linux`, because
+              its contract is "every platform that is not linux has a no-op helper
+              gate", which the dispatch split does not change.
+          The helper gate's cross-platform symbol requirement is a REAL CONSTRAINT
+          that this refactor does not dissolve. Deleting the `switch runtime.GOOS`
+          removes the reason the file carries the `linuxSandboxedRun*` STUBS; it does
+          not remove the reason the file exists.
+
+          `sandbox_nonlinux_test.go` is in this task's file scope for that reason: its
+          two tests (`TestNonLinuxSandboxStubsFailClosed`,
+          `TestNonLinuxMaybeRunSandboxHelperReturns`) call the stub symbols DIRECTLY,
+          so they are the wiring lock that catches a mis-tagged split at compile
+          time rather than at runtime on a user's Mac.
 
           THE POINT IS DEAD CODE, NOT PERCENTAGES. Each platform now compiles only
           what it can execute, so nothing unreachable is measured on either. Say so
@@ -2175,6 +2269,7 @@ phases:
           - pkg/packval/sandbox.go
           - pkg/packval/sandbox_darwin.go
           - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/sandbox_nonlinux_test.go
         claims:
           - CLM-036
           - CLM-037
@@ -2202,6 +2297,19 @@ phases:
               Do not extrapolate it.
             - confirm no `runtime.GOOS` switch remains in `sandbox.go`, and that
               `sandbox_nonlinux.go` no longer exists solely to provide symbols.
+
+          RE-VERIFY THE HELPER WIRING POST-REFACTOR. TASK-014 checked it against the
+          pre-3b tree, where the gate lived in `main()`; both refactors move it, so
+          the check has to be redone against what now exists. Confirm by READING the
+          files:
+            - the gate is the FIRST statement of `run()`, its error is checked, and
+              `main()` returns 126 through `run()`'s return value rather than
+              calling `os.Exit` itself.
+            - `pkg/packval/main_test.go`'s `TestMain` still calls the gate.
+            - `MaybeRunSandboxHelper` still resolves on darwin. `go build ./...` on
+              this machine proves it, and a failure here means
+              `sandbox_nonlinux.go`'s tag was narrowed — re-read TASK-023's warning
+              rather than deleting the call site.
 
           BEHAVIOUR NON-REGRESSION, which matters more than the percentages: all six
           darwin sandbox tests pass unmodified, the exported sandbox signatures are
@@ -2234,6 +2342,15 @@ phases:
           RED shape tests over `.github/workflows/ci.yml`. Assert on PARSED YAML
           structure, never on golden text — a test that breaks on reindentation
           teaches the next person to delete it.
+
+          MATCH DECOMMENTED SCRIPTS, NOT RAW STEP TEXT (as built: the `stepScript` /
+          `stepMentions` helpers at `workflows_test.go:604,619` strip comments before
+          matching). This is not a stylistic choice — it is forced by this plan.
+          TASK-016 MANDATES load-bearing comments in ci.yml explaining the base
+          derivation, the golangci pin, and the install-nothing-for-sandbox
+          decision, and each of those comments NAMES a string another test forbids.
+          Raw substring matching would make the plan's own required comments fail
+          the plan's own required tests. Assert on what the runner EXECUTES.
 
           `TestCIWorkflow_BlockingJobRunsBackstopGate` — the blocking job builds the
           binary, runs `pack install`, and invokes `backstop gate` with a `--base`
@@ -2423,9 +2540,22 @@ phases:
           Delete `.github/workflows/linux-sandbox-probe.yml`. The probe's VALUES are
           durable in `pkg/packval/testdata/ubuntu-runner-probe.txt` (TASK-001); the
           workflow that produced them is scaffolding and goes.
+
+          REPOINT THE PRE-EXISTING CONTRACT TEST THIS FLIP BREAKS. `cmd/backstop/
+          integration_test.go:251`
+          (`TestBaselineCIContract_PullRequestGateKeepsChangedCodeEnforcement`)
+          asserts ci.yml literally contains the raw `go test -race -coverprofile...`
+          line this task deletes — it goes red the moment the flip lands, and it
+          directly contradicts TASK-015's
+          `TestCIWorkflow_BlockingJobHasNoRawToolInvocations`. Keep the NAME and the
+          CONTRACT; change only the mechanism it checks, to `backstop gate` with
+          `--base`. Do not delete it (that drops a contract silently) and do not
+          rename it (that breaks the BaselineCIContract set's naming). See the
+          Phase 4 as-built notes.
         files:
           - .github/workflows/ci.yml
           - .github/workflows/linux-sandbox-probe.yml
+          - cmd/backstop/integration_test.go
         claims:
           - CLM-018
           - CLM-019
@@ -2463,9 +2593,40 @@ phases:
           grandfather. Without this, the previous test is satisfied by any gate that
           ignores the baseline entirely.
 
+          CORRECTED 2026-07-28 — THE MIRROR MUST USE A NON-EXEMPT FINDING. A first
+          draft of this test asserted that an untouched file's finding is dropped,
+          using a finding that happened to be ProjectWide. That asserts against an
+          INTENDED GUARANTEE: `filterViolations` (`pkg/gate/scope.go:307-311`) never
+          scope-filters a ProjectWide violation — Ratified Design Constraint 3, so
+          an unchanged-file build break still reds a diff-scoped gate, which is the
+          whole point of the exemption. A passing version of that draft would have
+          meant the exemption was broken.
+
+          The pair must therefore differ in EXACTLY ONE variable: which file carries
+          the finding. Same finding, same non-exempt rule, same baseline — only the
+          diff membership changes. Any second difference makes the pair prove
+          something other than the ratchet.
+
+          NOTE ON PROVENANCE: this correction was reported against "CLM-005", which
+          is not the right reference — CLM-005 in this plan is about `--base` scope
+          resolution. The design fact lives in `pkg/gate/scope.go:307-311` and, for
+          the build-violation case specifically, in the go-toolchain pack's
+          `exempt_from_scope_filter` declaration. Cite those; there is no claim in
+          this plan that owns the ProjectWide exemption.
+
           `TestGate_ExplicitBase_CleanDiffIsGreenDespiteRepoDebt` — a diff touching
           only clean files exits ZERO while the repo still carries baselined
           findings elsewhere. "Green if the diff is green" (CLM-025).
+
+          TWO FIXTURE FACTS THIS TASK ORIGINALLY OMITTED, both discovered the hard
+          way and both cheap once known. A fixture project that DECLARES a pack
+          needs a `backstop.lock`: `pack_lock_verification` is the gate's FIRST
+          step, and a missing lock is exit 2 before any dimension runs — note that
+          `source_type: local` entries are VerifyLock-SKIPPED, so a local lock entry
+          satisfies this without the pack having to exist on disk. And
+          `test_verification` HARD-ERRORS on an absent `specs/` directory, so the
+          fixture needs one even when the test has nothing to do with specs. Build
+          both into the fixture rather than discovering them as exit-2 noise.
 
           Note in the file header that these are REGRESSION LOCKS over behavior the
           strict file-level ratchet (ISSUE-050,
@@ -2510,7 +2671,15 @@ phases:
           each. Empty must show six (the post-migration state the job would have
           been left in) and populated must show zero. If the populated run still
           reports failures, CLM-029 is not satisfied and the `pack install` step is
-          not doing what it was added for. Restore the installed packs afterwards.
+          not doing what it was added for.
+
+          RUN THE EMPTY-PACKS LEG IN A DETACHED WORKTREE, NOT THE SHARED TREE. This
+          instruction is retrofitted from execution: `rm -rf .backstop/packs` in a
+          tree with live sibling lanes breaks every one of them, and "restore
+          afterwards" is not a safe contract when other work is reading the
+          directory concurrently. A destructive verification gets its own worktree.
+          Splitting this task's two legs across trees is expected and is not a
+          deviation to flag.
         files:
           - .github/workflows/ci.yml
           - workflows_test.go
