@@ -29,10 +29,10 @@ tag-driven workflow, no cross-platform build, no GitHub Release, and the binary 
 
 This issue scopes the **launch-minimal** slice of DIR-001, per the same 2026-07-27 scoping report
 that produced the tiering: goreleaser + a tag-driven workflow, version stamping that survives
-`go install @vX.Y.Z`, the module path rename that must precede any push to the new remote, and a
-core tag-integrity check. It is deliberately narrower than DIR-001's full description (which also
-lists a Homebrew tap and self-gating via `backstop gate`) — those are explicitly named below as
-NOT in scope for this issue.
+`go install @vX.Y.Z`, the module path rename that must precede any push to the new remote, a core
+tag-integrity check, and (per the 2026-07-27 scope amendment below) a Homebrew tap. It remains
+narrower than DIR-001's full description in one respect — self-gating via `backstop gate` is
+explicitly named below as NOT in scope for this issue.
 
 ### Stale-memory correction, recorded so it isn't re-derived incorrectly later
 
@@ -73,6 +73,24 @@ issue up should treat that branch as historical only, not as a starting point.
    intent is that this hand-written version gets replaced by a recipe-sourced one once REQ-018
    ships a CI recipe pack, not that it becomes a second permanent hand-baked pipeline alongside the
    Fact-1 gap ISSUE-086 already tracks.
+6. **Homebrew tap** (`backstop-ai/homebrew-tap`, DIR-001's `brew install backstop`), via
+   goreleaser's `brews:` block — see "Scope amendment" below.
+
+### Scope amendment, recorded so it isn't re-derived incorrectly later
+
+The original scoping (2026-07-27) deferred the Homebrew tap post-launch (see the superseded bullet
+this replaces, preserved below). The founder reversed that 2026-07-27, ruling Homebrew + `go
+install` both ship day 1, and ratified formula-over-cask 2026-07-28 (casks are macOS-only;
+goreleaser's deprecated `brews:` block survives all of goreleaser v2.x by policy, and the pipeline
+pins `~> v2` — the v2.x line, not a specific patch, so the `brews:` key cannot disappear without a
+deliberate move of the pin past v2). Item 6 above reflects that reversal; the delivered implementation
+(PLAN-ISSUE-087) publishes the formula to `backstop-ai/homebrew-tap`.
+
+Superseded bullet (originally under "Explicitly out of scope", struck by the above): *"Homebrew
+tap (`backstop-core/homebrew-backstop`, DIR-001's `brew install backstop`). Deferred post-launch.
+goreleaser's `brews:` block makes adding a tap cheap once the core pipeline is proven, so deferring
+it costs little — it is not on the critical path to a consumer being able to fetch a real
+binary."*
 
 ### Explicitly out of scope (founder-approved)
 
@@ -84,10 +102,6 @@ issue up should treat that branch as historical only, not as a starting point.
   migration, and — once ISSUE-020's Linux sandbox lands — full parity across the matrix this issue
   builds for. Framing it as fast-follow rather than blocking is a deliberate scope cut, recorded so
   it isn't mistaken for an oversight later.
-- **Homebrew tap** (`backstop-core/homebrew-backstop`, DIR-001's `brew install backstop`).
-  Deferred post-launch. goreleaser's `brews:` block makes adding a tap cheap once the core pipeline
-  is proven, so deferring it costs little — it is not on the critical path to a consumer being able
-  to fetch a real binary.
 
 ## Sizing
 
@@ -98,8 +112,8 @@ need real verification against an actual tagged build, not just config review.
 ## Dependencies and cross-references
 
 - **DIR-001** (Release Workflow) — this issue is the launch-minimal slice of DIR-001's scope; DIR-001
-  remains open for the deferred pieces (self-gating fast-follow, Homebrew tap) once this issue
-  closes.
+  remains open for the deferred piece (self-gating fast-follow) once this issue closes. Homebrew
+  tap is no longer a deferred piece — see the "Scope amendment" note above.
 - **ISSUE-084** (Published Pack Repos Have No CI) — a fetchable, versioned core binary is what
   unblocks the eleven pack repos' own CI from having something durable to pin against; this issue
   is a prerequisite for that class of work, not a duplicate of it.

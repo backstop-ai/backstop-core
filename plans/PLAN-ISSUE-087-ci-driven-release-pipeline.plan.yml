@@ -552,9 +552,63 @@ notes: |
                same symbol cmd/backstop declares — and declares archives, a
                checksums file, and a GitHub Release from one `goreleaser
                release` invocation.
-      CLM-012  the config passes `goreleaser check`, and `goreleaser release
-               --snapshot --clean` produces all four platform binaries locally
-               with no remote and no tag.
+      CLM-012  `goreleaser check` reports the config VALID modulo exactly one
+               deprecation, `brews`, and nothing else — a "configuration is
+               valid, but uses deprecated properties" result satisfies this
+               claim ONLY when `brews` is the sole deprecation named; any
+               second deprecation, and any "configuration is invalid" result,
+               FAILS it — and `goreleaser release --snapshot --clean` produces
+               all four platform binaries locally with no remote and no tag.
+
+      ⚠ AMENDED 2026-07-28 — CLM-012 originally read "the config passes
+      `goreleaser check`, and `goreleaser release --snapshot --clean` produces
+      all four platform binaries locally with no remote and no tag." That
+      wording was UNSATISFIABLE while REQ-006 stands, because goreleaser has
+      deprecated the `brews:` key (soft at v2.10, loud at v2.16 —
+      https://goreleaser.com/deprecations#brews) and now exits non-zero on a
+      config it simultaneously declares VALID. Measured 2026-07-28 on
+      goreleaser v2.17.1:
+
+        • DEPRECATED:  brews  should not be used anymore, check
+          https://goreleaser.com/deprecations#brews for more info
+        • .goreleaser.yml   error=configuration is valid, but uses deprecated
+          properties
+        exit status 2
+
+      One deprecation, naming `brews` and nothing else, on a config goreleaser
+      itself calls valid. The snapshot half of the claim is untouched by this
+      and was already proven — four platform binaries built locally.
+
+      FOUNDER RULING 2026-07-28 (Brandon): KEEP THE FORMULA. Do NOT migrate
+      `brews:` to `homebrew_casks` to make `check` exit 0. Casks are macOS-only,
+      so that migration would silently drop Linux `brew install` — and REQ-006
+      ships Homebrew as one of three launch paths, not as a mac-only one.
+      Trading a working platform for a clean exit code is the wrong trade.
+      goreleaser's own published policy is that "deprecated options are only
+      removed on major versions", so `brews:` survives the entire v2.x line; no
+      v3 is announced; and release.yml pins the action to `~> v2`
+      (release.yml:119), so no upstream release can remove the key from under us
+      without a major bump we would have to opt into deliberately. The migration
+      therefore happens on OUR clock, via goreleaser's documented
+      `tap_migrations.json` path, when we choose it — not as a surprise
+      forced by a red `check`.
+
+      SCOPE OF THE CARVE-OUT — EXACTLY ONE DEPRECATION, EXACTLY `brews`. This
+      is not a licence to accept a red `check`. Report the check output
+      VERBATIM, never the exit code alone: the exit status cannot distinguish
+      "valid but deprecated" from "invalid", and reading it alone is precisely
+      how a real config break would be waved through under this amendment. If a
+      second deprecation appears, or the result line says "configuration is
+      invalid", CLM-012 fails and the config gets fixed — the carve-out does
+      not stretch.
+
+      PRECONDITION, measured the same day: `goreleaser check` also requires a
+      git remote. Run in THIS repo, which has none yet, it fails with
+      `scm releases: no remote configured to list refs from` — an INVALID
+      result, which does not satisfy this claim. That is an environment
+      precondition, not a config defect; the evidence above was taken in a
+      scratch copy carrying an `origin`. Once the private remote exists the
+      precondition is met in the repo itself and the check can be run in place.
 
     REQ-004: The tag-driven workflow refuses to release from an untrustworthy tag.
       CLM-013  release.yml triggers ONLY on `v*` tag push — not on branch push,

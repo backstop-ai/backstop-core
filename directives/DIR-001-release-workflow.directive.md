@@ -115,3 +115,43 @@ not an emergency, and does not on its own block the remote from being
 added — but it is cheapest to land before the remote rather than after,
 since landing it after would require re-verifying no collision occurred in
 the interim.
+
+**Release-pipeline follow-on routings (ISSUE-087 lane close, 2026-07-28).**
+Four founder-approved decisions surfaced while closing ISSUE-087 and route
+here as follow-on scope/notes rather than reopening that issue:
+
+- **go-distribution pack framing.** The release trinity ISSUE-087
+  delivered — goreleaser config, the release workflows, and the Homebrew
+  formula, all now in scope and shipped by PLAN-ISSUE-087 (the original
+  2026-07-27 deferral of the tap was reversed same-day and survives only as
+  superseded history in ISSUE-087's scope amendment) — is hand-written
+  today by design. It is authored as a future payload of a
+  `go-distribution` pack: founder framing captured 2026-07-27, "that
+  trinity fits perfectly as a go launch/go distribution pack." This records
+  intended eventual pack-ification, consistent with this repo's zero-baked-
+  checks law, of infrastructure that should not stay hand-baked forever —
+  it is not new scope executed under this directive today.
+- **linux/arm64 fourth build target (shipped).** ISSUE-087 delivered a
+  fourth cross-platform build target, `linux/arm64`, alongside
+  darwin/amd64, darwin/arm64, and linux/amd64 — already present in
+  `.goreleaser.yml`. This supersedes the three-platform list in this
+  directive's Description bullet above; the fourth platform is live, not
+  aspirational.
+- **Ratified tap coordinates.** The Homebrew tap — delivered day 1 by
+  PLAN-ISSUE-087, not deferred (see the go-distribution bullet above) — is
+  ratified at `backstop-ai/homebrew-tap` — convention-over-configuration,
+  founder-ruled — superseding the `backstop-core/homebrew-backstop`
+  coordinate named in this directive's original Description bullet.
+- **Formula-over-cask ruling (founder, 2026-07-28).** Keep goreleaser's
+  `brews:` block (a formula) rather than migrating to `homebrew_casks`, to
+  retain Linux brew support — casks are macOS-only. Deprecation facts as of
+  this ruling: `brews:` went soft-deprecated in goreleaser v2.10 and
+  loud-deprecated in v2.16; goreleaser's stated policy removes deprecated
+  options only on MAJOR version bumps; no v3 timeline has been announced;
+  this repo's release workflow pins the goreleaser-action version to
+  `~> v2` (`.github/workflows/release.yml:119`) — the whole v2.x line, not
+  a specific patch — so the pin cannot auto-cross into v3. Retirement
+  trigger (no silent debt): migrate to `homebrew_casks` — using
+  goreleaser's `tap_migrations.json` path — when we deliberately move that
+  pin past the v2 line; goreleaser v3 shipping upstream cannot force it on
+  its own.
