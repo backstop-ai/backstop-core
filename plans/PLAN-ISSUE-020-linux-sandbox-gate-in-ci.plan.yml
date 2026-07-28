@@ -177,6 +177,65 @@ notes: |
   being preserved is build-from-source, which is worth preserving and is not the
   same as a supported release target.
 
+  ── TASK-019 RAN AND WAS RED (run 30381252600, commit 3e084e2) ─────────────
+  The first real ubuntu-latest gate. CLM-028 is UNMET. Recording what it proved
+  and what it never reached, because the difference is the whole value of the run.
+
+  PROVEN ON A REAL RUNNER:
+    - base derivation produced a NON-EMPTY scope on a pristine checkout — 35 files,
+      and the `HEAD^` fallback never fired. CLM-006 holds; CLM-019's PUSH half
+      holds. This was the plan's single most dangerous failure mode and it is now
+      measured rather than argued.
+      THE MECHANISM, stated precisely because it is what makes CLM-005's "one code
+      path, both events" true rather than merely convenient: on a FAST-FORWARD PUSH
+      the before-SHA is already an ancestor of HEAD, so merge-base(HEAD, before) IS
+      the before-SHA. The gate's single merge-base resolver therefore yields the
+      right answer for a push without a push-specific branch, exactly as it does for
+      a PR's fork point. (That ancestry is the PROPERTY — checkable with
+      `git merge-base --is-ancestor` — not a step in the workflow: ci.yml's guard is
+      `git rev-parse --verify "${CANDIDATE}^{commit}"`, `ci.yml:112`, and the
+      merge-base itself is taken inside the gate.)
+    - the fleet installed from nothing (CLM-001, CLM-029).
+    - `pack_engines` EXECUTED — 22.8s of real engine time, not capability_absent.
+    - FAIL-CLOSED HELD. The helper refused to run pack code unsandboxed and exited
+      126. The sandbox failed and NOTHING ran outside it, which is the property
+      ISSUE-020 exists to establish.
+
+  NOT REACHED — the kill chain stopped at `pack_engines`:
+    - no `test_verification`, and therefore
+    - `sandbox_linux.go` was NOT measured (its transient coverage_unmeasured
+      stands), and
+    - the `TestLinuxSandbox_*` exec tests have STILL never executed anywhere.
+    - THE `baseline` JOB WAS SKIPPED. It is gated on the gate job, which failed, so
+      TASK-016's `pack install` addition to that job has never executed in CI. The
+      detached-worktree measurement remains the ONLY evidence for CLM-029's
+      behavior. That evidence is real and it is not a CI proof: the job could still
+      fail for reasons only the runner exposes — a checkout difference, an install
+      failure under the runner's network, an ordering problem between the build and
+      the install step. CLM-029's CI half stays UNPROVEN until a run gets past the
+      gate job.
+  Do not describe any of these as passing or as covered by this run.
+
+  THE DEFECT, AND WHY THE RUN COULD NOT SAY SO ITSELF: the helper could not install
+  the Landlock+seccomp restrictions, and its reason is UNRECOVERABLE from the run.
+  `platformSandboxedRunStdout` (`pkg/packval/sandbox_linux.go:412-425`) sets
+  `Stdin` and `Stdout` and NEVER sets `Stderr`, so `exec` discards it: the helper's
+  CLM-015 diagnostic — Landlock, kernel release, ISSUE-020 — went to /dev/null.
+
+  This is the sharpest possible statement of why CLM-015 was written and why it was
+  not enough. The diagnostic WAS produced, correctly, inside the helper. It was
+  defeated by the PARENT, one layer up, in the arm that discards stderr. The
+  sibling `platformSandboxedRun` uses `CombinedOutput` and would have surfaced it
+  intact; the failure landed on the arm that throws it away. A loud error that
+  nothing captures is a silent one, and only an end-to-end run could have shown
+  that — no unit test over the helper would ever have caught it, because the helper
+  is not the thing at fault.
+
+  ORCHESTRATOR RULING: the stderr-capture fix is IN LANE. It COMPLETES CLM-015
+  rather than extending scope — the claim always promised a diagnostic the caller
+  receives, and Phase 4b is what makes the promise true at the boundary where it
+  was broken. TASK-019 then RE-RUNS; it is not a one-shot task.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -1082,7 +1141,12 @@ notes: |
                explicit error naming Landlock, the kernel version and ISSUE-020,
                and runs NOTHING. Never a silent pass-through to an unsandboxed
                exec, and the Linux execution tests FAIL rather than skip when the
-               mechanism is missing.
+               mechanism is missing. AMENDED 2026-07-28: "returns" means THE
+               CALLER RECEIVES IT. Run 30381252600 satisfied this claim INSIDE the
+               helper and had it defeated by the parent, which discarded the
+               helper's stderr — see CLM-038. A diagnostic nothing captures is a
+               silent failure wearing a loud error's clothes, so CLM-015 is not
+               end-to-end true until CLM-038 lands.
       CLM-016  darwin is untouched: `darwinSandboxProfile` is unchanged and every
                existing darwin sandbox test passes unmodified.
       CLM-017  the exported sandbox interface is unchanged — no caller in
@@ -1160,7 +1224,13 @@ notes: |
                history. Empty, all-zeros (branch creation) AND non-zero-but-
                unreachable (the force-push shape) all take the same loud `HEAD^`
                fallback, and the job fails hard when `HEAD^` does not resolve
-               either.
+               either. STATUS 2026-07-28: the PUSH half is PROVEN (run
+               30381252600 — 35 files in scope on a pristine checkout, fallback
+               never fired). The PULL_REQUEST half is UNPROVEN: that run was
+               push-only, so no PR-event base derivation has ever executed. Closing
+               it is cheap and must not be skipped — open a PR from the next work
+               branch and capture the PR-event base and file count. Half a claim
+               proven is not the claim.
       CLM-020  checkout fetches full history (`fetch-depth: 0`) so both refs
                resolve; a shallow checkout is what makes the PR base unresolvable.
       CLM-021  the job puts every declared Layer-0 and pinned tool on PATH, each
@@ -1190,6 +1260,11 @@ notes: |
                step the baseline silently stops being refreshed while every run
                reports the failure. This keeps the "do not make ISSUE-086 worse"
                constraint true; it does not claim to close ISSUE-086.
+               STATUS 2026-07-28: proven LOCALLY (detached-worktree measurement,
+               TASK-018) and UNPROVEN IN CI — the `baseline` job is gated on the
+               gate job, which failed in run 30381252600, so the job was SKIPPED and
+               the `pack install` step has never executed on a runner. Closing this
+               needs no extra work, only a run that gets past the gate job.
 
     REQ-005: File-granularity activation — "green if the diff is green", and no
              grandfather on a touched file.
@@ -1237,6 +1312,20 @@ notes: |
                each platform compiles and measures only code it can execute. The
                runtime `switch runtime.GOOS` is gone, and with it the reason
                `sandbox_nonlinux.go` existed as a stub-symbol shim.
+    REQ-008: A sandbox failure reaches the caller, on every arm.
+      CLM-038  `platformSandboxedRunStdout` captures the helper's stderr into a
+               SEPARATE buffer and folds it into the RETURNED ERROR on a non-zero
+               exit. The returned stdout stays byte-clean — stderr goes into the
+               error and never into the parsed bytes — so the clean-SARIF
+               guarantee that made this arm stdout-only in the first place is
+               untouched.
+      CLM-039  the diagnostic token contract holds on BOTH arms: an error surfaced
+               from a failed helper carries "andlock", the kernel release, and
+               "ISSUE-020". The stdout arm is proven by a PORTABLE test over the
+               pure fold function (it must run on darwin — the whole point is that
+               no Linux host was needed to catch this, and none should be needed to
+               keep it caught); the `CombinedOutput` arm satisfies it by
+               construction today and gets an assertion so it stays that way.
       CLM-037  neither change alters behavior: the darwin sandbox tests still pass
                UNMODIFIED, the exported sandbox signatures are untouched, and
                `backstop`'s exit codes for every existing path are unchanged —
@@ -2407,6 +2496,14 @@ phases:
               returned on a non-zero exit AND no stderr leaks into it. That is the
               property keeping a converter's banner out of the SARIF the gate parses,
               and until now nothing asserted it on the error path.
+            - ONE DOC DEFECT SHIPPED and is corrected separately: comments in
+              `sandbox_nonlinux.go:26` and `sandbox_dispatch_test.go:100` still
+              describe the three-tag layout by naming `sandbox_darwin.go` and the
+              unsupported-platform file, both DELETED by ruling B. Cosmetic, no
+              behavior — but worth fixing rather than leaving, because a comment
+              naming files that do not exist sends the next reader hunting for a
+              layout that was rejected. Recorded so it is not re-derived as a
+              finding later.
 
           THE POINT IS DEAD CODE, NOT PERCENTAGES. Each platform now compiles only
           what it can execute, so nothing unreachable is measured on either. Say so
@@ -2891,6 +2988,135 @@ phases:
           - TASK-016
           - TASK-017
 
+  - id: phase-4b
+    name: "Phase 4b: Recover the sandbox failure diagnostic"
+    tasks:
+      - id: TASK-025
+        type: test
+        title: "Portable falsifier for the stderr-into-error fold"
+        description: |
+          Read the "TASK-019 RAN AND WAS RED" notes block first. This phase exists
+          because a correct CLM-015 diagnostic was thrown away by the parent
+          process, and the run that found it could not say why.
+
+          THE TEST MUST RUN ON DARWIN. That is a design constraint, not a
+          convenience: the defect was invisible to every existing test precisely
+          because the only thing exercising this path was a Linux runner. A
+          regression lock that also needs a Linux runner would restore the blind
+          spot. So the fold is a PURE FUNCTION over (stdout bytes, stderr bytes,
+          run error) and the test drives it directly — same discipline as TASK-011's
+          derivation tests.
+
+          In a new `pkg/packval/sandbox_diagnostic_test.go` (NO build tag):
+
+          `TestFoldHelperStderrIntoError_CarriesDiagnosticTokens` — given a non-zero
+          run error and a stderr buffer holding a realistic helper diagnostic, the
+          returned error contains the token contract: "andlock" (substring, so it
+          matches Landlock and landlock alike — the same token TASK-011's loud-error
+          test uses), the kernel release, and "ISSUE-020". Assert on TOKENS, not on
+          the exact sentence, so the message can be reworded without a test edit.
+
+          `TestFoldHelperStderrIntoError_ReturnedStdoutStaysByteClean` — the
+          guarantee that makes this safe. Feed stdout that is valid SARIF and stderr
+          that is a banner; assert the returned bytes are the SARIF EXACTLY, with no
+          stderr bytes appended, prepended, or interleaved. This arm exists to keep
+          a converter's stderr out of the parsed bytes; folding stderr into the
+          ERROR must not undo it.
+
+          `TestFoldHelperStderrIntoError_SuccessPathIgnoresStderr` — on a nil run
+          error the fold returns stdout and NO error, even when stderr is non-empty.
+          A converter that writes a harmless banner and exits 0 must not be turned
+          into a failure.
+
+          `TestFoldHelperStderrIntoError_EmptyStderrStillErrors` — a non-zero exit
+          with silent stderr still returns a non-nil error naming the exit. Absence
+          of a diagnostic must not become absence of a failure.
+
+          `TestSandboxedRun_CombinedOutputArmSurfacesDiagnostic` — lock the sibling.
+          `platformSandboxedRun` satisfies the token contract BY CONSTRUCTION today
+          (`CombinedOutput` merges stderr), and by-construction guarantees are
+          exactly the ones that get refactored away. Assert it explicitly so the
+          two arms cannot drift apart again — the drift between them is the whole
+          defect.
+        files:
+          - pkg/packval/sandbox_diagnostic_test.go
+        claims:
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-024
+
+      - id: TASK-026
+        type: implementation
+        title: "Capture helper stderr and fold it into the returned error"
+        description: |
+          Turn TASK-025 green.
+
+          Add `pkg/packval/sandbox_diagnostic.go` (NO build tag) holding the pure
+          fold: it takes the captured stdout, the captured stderr and the run error,
+          and returns the stdout unchanged plus an error that carries the stderr
+          text when the run failed. Untagged because the test must reach it on
+          darwin, and because nothing in it is platform-specific.
+
+          Wire it in `platformSandboxedRunStdout`
+          (`pkg/packval/sandbox_linux.go:412-425`): set `helper.Stderr` to a
+          SEPARATE `bytes.Buffer` — never to the stdout buffer, and never to
+          `os.Stderr` — then return through the fold. The existing contract is
+          otherwise untouched: stdin still pipes, stdout is still returned
+          captured-so-far on a non-zero exit, and the returned bytes still contain
+          only what the command wrote to stdout.
+
+          Leave `platformSandboxedRun` alone. Its `CombinedOutput` already surfaces
+          the diagnostic; TASK-025 just locks that.
+
+          Bound the folded stderr if you bound anything — a runaway converter should
+          not produce an unbounded error string — but do NOT truncate below the
+          token contract, and if you truncate, keep the TAIL: the helper writes its
+          diagnostic last.
+        files:
+          - pkg/packval/sandbox_diagnostic.go
+          - pkg/packval/sandbox_linux.go
+        claims:
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-025
+
+      - id: TASK-027
+        type: verification
+        title: "Verify the diagnostic survives locally before spending another CI run"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...
+            GOOS=linux go vet ./pkg/packval/
+            go test ./... -race -count=1
+            go test ./pkg/packval/ -race -count=1 -run 'Diagnostic|Sandbox' -v
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          Then confirm, by reading `platformSandboxedRunStdout`, that `helper.Stderr`
+          is a buffer DISTINCT from the stdout buffer. Aliasing them would make every
+          test above pass while quietly reintroducing the stderr-in-SARIF bug this
+          arm was built to prevent — the failure would surface as unparseable SARIF
+          on a converter that writes a banner, far from here.
+
+          All six darwin sandbox tests must still pass unmodified.
+
+          This task exists so the next runner failure — if there is one — arrives
+          with its reason attached. A CI run is the most expensive test in this
+          plan; do not spend one to discover something a local read would have shown.
+        files:
+          - pkg/packval/sandbox_diagnostic.go
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_diagnostic_test.go
+        claims:
+          - CLM-038
+          - CLM-039
+        depends_on:
+          - TASK-026
+
   - id: phase-5
     name: "Phase 5: Close the acceptance criterion on a real Linux runner"
     tasks:
@@ -2939,6 +3165,48 @@ phases:
 
           Report TASK-019 as the sole basis for any claim that the issue's
           acceptance criterion is met (CLM-028).
+
+          ── EXECUTED 2026-07-28, RED. CLM-028 UNMET. THIS TASK RE-RUNS. ────────
+          Run https://github.com/backstop-ai/backstop-core/actions/runs/30381252600
+          at commit 3e084e2. Full account in the "TASK-019 RAN AND WAS RED" notes
+          block; the short form:
+
+            PROVED   non-empty base-derived scope on a pristine checkout (35 files,
+                     fallback never fired — CLM-006, and CLM-019's PUSH half);
+                     fleet install from nothing (CLM-001, CLM-029); pack_engines
+                     really executing (22.8s); and FAIL-CLOSED HOLDING — the helper
+                     refused to run pack code unsandboxed and exited 126.
+            DID NOT  reach test_verification at all. `sandbox_linux.go` is still
+            REACH    unmeasured, and the `TestLinuxSandbox_*` exec tests have still
+                     never executed anywhere. The `baseline` job was SKIPPED (gated
+                     on the failed gate job), so TASK-016's `pack install` addition
+                     has never run in CI and CLM-029's CI half is unproven — the
+                     detached-worktree measurement is its only evidence. Claim none
+                     of it.
+            CAUSE    the helper's CLM-015 diagnostic was discarded by the parent
+                     (stderr never captured). Phase 4b fixes it.
+
+          THE RE-RUN IS PART OF THIS TASK, not a new one. After Phase 4b lands,
+          push and read the run again, and report the same inventory. What changes
+          on a green re-run is that the kill chain proceeds past `pack_engines`:
+          `test_verification` runs, `sandbox_linux.go` gets MEASURED (retiring the
+          one transient coverage_unmeasured Phase 3b left), the `TestLinuxSandbox_*`
+          triple EXECUTES for the first time — which is where CLM-014 is finally
+          earned — and the `baseline` job stops being SKIPPED, which is the only way
+          CLM-029's CI half gets proven. Report that job's outcome explicitly rather
+          than letting a green gate imply it.
+
+          IF THE RE-RUN IS RED AGAIN, that is an acceptable outcome and a silenced
+          one is not. The bar Phase 4b sets is that the failure now ARRIVES WITH ITS
+          REASON: an error carrying "andlock", the kernel release and "ISSUE-020".
+          A second red run whose cause is legible is progress; a green one bought by
+          narrowing scope or weakening the sandbox is not.
+
+          AND CLOSE CLM-019's OTHER HALF WHILE YOU ARE HERE. Run 30381252600 was
+          push-only, so PR-event base derivation remains UNPROVEN. Open a pull
+          request from the work branch and capture the PR-event base and in-scope
+          file count. It is one PR and it converts half a proven claim into a whole
+          one.
         files:
           - .github/workflows/ci.yml
           - pkg/packval/sandbox.go
@@ -2952,6 +3220,7 @@ phases:
           - TASK-016
           - TASK-018
           - TASK-024
+          - TASK-027
 
       - id: TASK-020
         type: verification
