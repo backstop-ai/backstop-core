@@ -197,8 +197,29 @@ func applyLandlock(restrictions SandboxRestrictionSpec) error {
 			// normal (/usr/lib64 vs /lib64) and is not a sandbox failure.
 			continue
 		}
+		// The inode type comes from the descriptor the rule REGISTERS, not from a
+		// separate stat by path. Fstat on this fd is race-free by construction: a
+		// path-based stat could describe a different inode than the one path_beneath
+		// binds, and a filename heuristic could not describe it at all.
+		//
+		// The narrowing itself is required, not defensive. landlock_add_rule rejects
+		// directory-only rights against a non-directory with EINVAL, and one rejected
+		// rule aborts the whole install — run 30383453888 died on exactly this, mask
+		// 0xc against the regular file /etc/ld.so.cache.
+		var stat unix.Stat_t
+		if statErr := unix.Fstat(pathFD, &stat); statErr != nil {
+			_ = unix.Close(pathFD)
+			// Guessing the type would reintroduce the defect, so a required path whose
+			// type cannot be read is fatal rather than assumed.
+			if rule.Required {
+				return fmt.Errorf("stat required sandbox path %s: %w", rule.Path, statErr)
+			}
+			continue
+		}
+		isDir := stat.Mode&unix.S_IFMT == unix.S_IFDIR
+
 		beneath := unix.LandlockPathBeneathAttr{
-			Allowed_access: rule.AllowedAccess,
+			Allowed_access: narrowRuleToInodeType(rule.AllowedAccess, isDir),
 			Parent_fd:      int32(pathFD),
 		}
 		_, _, errno := unix.Syscall6(
