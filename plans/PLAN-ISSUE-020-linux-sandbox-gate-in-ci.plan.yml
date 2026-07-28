@@ -237,15 +237,41 @@ notes: |
       packDir := filepath.Join(packsDir, name)
       if _, err := os.Stat(packDir); err != nil { ... "missing_pack" ... }
 
-  `VerifyLock` SKIPS local entries and HARD-FAILS git entries whose directory is
-  absent. BEFORE Phase 1 five of six entries were local, so the packless `baseline`
-  job (`cmd/backstop/baseline.go:50-75` — `runBaselineGenerate` builds the full
-  gate step set with NO `pack install` anywhere before it) produced exactly ONE
-  `missing_pack` failure, for the single git entry. TASK-003 has now converted all
-  six to git, so this is no longer a prediction: change nothing else and that job
-  goes from one baked-in failure to SIX, published into the baseline artifact that
-  main's ratchet is compared against. TASK-016's `pack install` step is what stops
-  it, and Phase 1 landing first means the window is OPEN until that task lands.
+  CORRECTED 2026-07-28 BY MEASUREMENT (at ba9cc49, detached worktree). The
+  reasoning below originally ran through `VerifyLock` — which SKIPS local entries
+  and HARD-FAILS git entries whose directory is absent — and concluded that
+  converting the fleet to git would take the packless `baseline` job from ONE
+  baked-in `missing_pack` failure to SIX, published into the artifact main's
+  ratchet is compared against. THAT IS WRONG, AND IT IS WRONG IN THE SAFE
+  DIRECTION. Neither number was ever reachable.
+
+  What actually happens with `.backstop/packs/` empty:
+
+    loadInstalledPacks (`cmd/backstop/pack_gate.go:158-166`) stats each DECLARED
+      pack and returns on the FIRST one missing — it does not accumulate, and it
+      does not care about `source_type` at all.
+    buildGateSteps (`cmd/backstop/gate.go:653-662`) sees that error and collapses
+      the ENTIRE step set to a single `pack_loading` step with `ConfigErr: true`.
+    runBaselineGenerate (`cmd/backstop/baseline.go:69-72`) sees exit 2 and REFUSES
+      to write: "refusing to write a baseline from a gate that produced no steps".
+
+  So `pack_lock_verification` NEVER RUNS. There is no count of `missing_pack`
+  findings, before or after the migration, because the gate never reaches the step
+  that produces them. The measured result is exit 2, ONE violation, and NO BASELINE
+  WRITTEN.
+
+  THE SAFETY STORY IS STRONGER THAN THE ONE THIS BLOCK USED TO TELL. A poisoned
+  baseline artifact — six inherited failures silently baked into the file main
+  ratchets against — is UNREPRESENTABLE. The refuse-to-write guard already prevents
+  it, and it prevents it for the pre-migration fleet too. What TASK-016's
+  `pack install` step actually buys is a WORKING baseline job instead of a LOUDLY
+  BROKEN one: without it the job exits 2 and publishes nothing, so the baseline
+  silently stops being refreshed while every run reports the failure. That is a
+  real problem worth fixing and it is not the corruption hazard originally feared.
+
+  Record it that way. An amendment that discovers the system is safer than the plan
+  assumed is worth as much as one that finds a hole, and it must not be quietly
+  restated as if the original prediction had held.
 
   That would be making ISSUE-086 materially worse while quoting a note that says
   not to. So TASK-016 adds a `pack install` step to the `baseline` job — the
@@ -806,7 +832,9 @@ notes: |
   - The `baseline` job in ci.yml, CHANGED IN EXACTLY ONE WAY and otherwise left
     alone. The one change is the `pack install` step CLM-029 requires, and it is
     forced: without it TASK-003's local→git conversion turns that job's single
-    baked-in `missing_pack` failure into six. Everything else stands — do not feed
+    working baseline job into one that exits 2 at `pack_loading` and publishes
+    nothing (measured — see the corrected block above; the feared six-inherited-
+    failures artifact is unrepresentable). Everything else stands — do not feed
     this plan's gate output into it, do not touch its scope or triggers, and do not
     report ISSUE-086 as closed. The packless-baseline question is still that
     issue's; see the "MIGRATION BREAKS THE BASELINE JOB" block above for why the
@@ -1090,10 +1118,17 @@ notes: |
       CLM-023  the temporary probe workflow is removed by the same change that
                lands the real blocking job.
       CLM-029  the `baseline` job installs the locked packs before generating, so
-               converting all six lock entries from local to git does NOT turn one
-               `missing_pack` failure into six inside the published baseline
-               artifact. This keeps the "do not make ISSUE-086 worse" constraint
-               true; it does not claim to close ISSUE-086.
+               it PRODUCES A BASELINE instead of exiting 2 at `pack_loading` and
+               publishing nothing. REWORDED 2026-07-28 from a measured result: the
+               original wording ("does not turn one `missing_pack` failure into
+               six inside the published artifact") described a corruption hazard
+               that cannot occur — with an empty packs directory the gate never
+               reaches `pack_lock_verification`, and `runBaselineGenerate` refuses
+               to write a baseline from a gate that produced no steps. The claim is
+               therefore about AVAILABILITY, not integrity: without the install
+               step the baseline silently stops being refreshed while every run
+               reports the failure. This keeps the "do not make ISSUE-086 worse"
+               constraint true; it does not claim to close ISSUE-086.
 
     REQ-005: File-granularity activation — "green if the diff is green", and no
              grandfather on a touched file.
@@ -2433,14 +2468,16 @@ phases:
           install.
 
           `TestCIWorkflow_BaselineJobInstallsPacksBeforeGenerating` — the baseline
-          job runs `pack install` before `baseline generate`. Without it, TASK-003's
-          local→git conversion turns ONE `missing_pack` failure into SIX inside the
-          published artifact (`VerifyLock` skips local entries and hard-fails git
-          entries with absent directories, `pkg/pack/distribution/verify.go:46-60`;
-          `runBaselineGenerate` has no install step of its own,
-          `cmd/backstop/baseline.go:50-75`). Cite both call sites in the test
-          comment so the coupling between the fleet migration and this job is
-          legible to someone reading only this test.
+          job runs `pack install` before `baseline generate`. Without it the job
+          exits 2 at `pack_loading` and publishes NOTHING: `loadInstalledPacks`
+          (`cmd/backstop/pack_gate.go:158-166`) returns on the first declared pack
+          missing from an empty `.backstop/packs/`, `buildGateSteps`
+          (`cmd/backstop/gate.go:653-662`) collapses the step set to one ConfigErr
+          step, and `runBaselineGenerate` (`cmd/backstop/baseline.go:69-72`) refuses
+          to write from a gate that produced no steps. Cite those call sites in the
+          test comment, and state the consequence accurately: the risk is a baseline
+          that silently stops being REFRESHED, not a baseline published with
+          inherited failures in it.
 
           `TestCIWorkflow_NoProbeWorkflowRemains` — the temporary probe workflow
           from TASK-001 is gone.
@@ -2525,11 +2562,13 @@ phases:
 
           THE `baseline` JOB NEEDS EXACTLY ONE CHANGE, AND NO MORE. Add a
           `./bin/backstop pack install` step (with the binary build it needs) before
-          `baseline generate`. This is not opportunistic improvement: without it,
-          TASK-003's local→git conversion turns that job's one baked-in
-          `missing_pack` failure into six, published straight into the artifact
-          main's ratchet compares against, and this plan would be the thing that
-          made ISSUE-086 worse.
+          `baseline generate`. This is not opportunistic improvement: without it the
+          job exits 2 at `pack_loading` against an empty `.backstop/packs/` and
+          PUBLISHES NOTHING, so main's baseline silently stops being refreshed while
+          every run reports the failure — and this plan would be the thing that made
+          ISSUE-086 worse. Measured 2026-07-28; note that the artifact is never
+          CORRUPTED (`runBaselineGenerate` refuses to write from a gate that produced
+          no steps), so what the install step buys is availability, not integrity.
 
           Do NOT go further. Do not feed the blocking job's output into it, do not
           change its scope or triggers, and do NOT report ISSUE-086 as closed — the
@@ -2665,13 +2704,27 @@ phases:
           actionlint may also flag the pre-existing `release` and `tag-integrity`
           workflows. Report those separately; do not fix them here.
 
-          Then verify the baseline job locally, because its failure mode is silent:
-          run `./bin/backstop baseline generate` with `.backstop/packs/` POPULATED
-          and again with it EMPTY, and report the `missing_pack` failure count from
-          each. Empty must show six (the post-migration state the job would have
-          been left in) and populated must show zero. If the populated run still
-          reports failures, CLM-029 is not satisfied and the `pack install` step is
-          not doing what it was added for.
+          Then verify the baseline job locally. Run `./bin/backstop baseline
+          generate` with `.backstop/packs/` POPULATED and again with it EMPTY.
+
+          EXPECTATIONS, CORRECTED 2026-07-28 FROM MEASUREMENT (at ba9cc49) — the
+          original "empty must show six `missing_pack` failures" was UNSATISFIABLE
+          and no implementer should try to reach it:
+
+            EMPTY   exit 2, ONE violation from step `pack_loading`, and NO baseline
+                    written ("gate reported a configuration error ... refusing to
+                    write a baseline from a gate that produced no steps").
+                    `pack_lock_verification` never runs, so there is no
+                    `missing_pack` count to report — `loadInstalledPacks` returns on
+                    the FIRST missing declared pack and `buildGateSteps` collapses
+                    the whole step set to one ConfigErr step.
+            POPULATED  zero `missing_pack` findings and a baseline WRITTEN. This leg
+                    passed exactly as predicted.
+
+          Report both legs as measured. If the empty leg produces a baseline FILE,
+          that is the real regression to escalate — the refuse-to-write guard is
+          what makes a poisoned artifact unrepresentable, and it is more important
+          than the finding count either leg reports.
 
           RUN THE EMPTY-PACKS LEG IN A DETACHED WORKTREE, NOT THE SHARED TREE. This
           instruction is retrofitted from execution: `rm -rf .backstop/packs` in a
@@ -2781,7 +2834,8 @@ phases:
               `gate --file <f> --json`. Do not fix them here.
             - ISSUE-086: the baseline job is NO LONGER packless — TASK-016 added a
               `pack install` step, because this plan's fleet migration would
-              otherwise have taken it from one `missing_pack` failure to six. Report
+              otherwise have left it exiting 2 at `pack_loading` and publishing
+              nothing. Report
               that to ISSUE-086 as an INPUT, not a resolution: the issue stays open
               on the broader question it owns — whether a pack-ful baseline is
               correct, what to do with the already-published packless artifacts, and
