@@ -153,6 +153,10 @@ tools (semgrep/ast-grep) auto-provision at pinned versions
 (`allowlist.go:22`); Layer-0 tools (go, golangci-lint) must be on PATH else
 exit-2. Coverage is a separate channel: `dispatchPackCoverage`
 (`pack_gate.go:339`) → `ParsePackCoverage`, routed on `GateType==coverage`.
+PACK SEVERITY CONTRACT — a pack's SARIF `level: warning` is NON-BLOCKING by
+contract, `level: error` and an ABSENT level both block (fail-closed). Stated
+in full on `blocksVerdict` (`pkg/gate/policy.go`); the level→verdict mapping is
+locked end to end by `cmd/backstop/pack_severity_contract_test.go`.
 
 ## Config & schemas
 

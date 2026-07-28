@@ -96,8 +96,9 @@ func TestSandboxDispatch_NoRuntimeGOOSSwitchRemains(t *testing.T) {
 	}
 
 	if len(runtimeGOOSRefs) != 0 {
-		t.Errorf("sandbox.go still references runtime.GOOS at %v — platform selection belongs in build-tagged "+
-			"files (sandbox_darwin.go, sandbox_linux.go, and the unsupported-platform file), so that neither "+
-			"platform compiles the other's unreachable arms", runtimeGOOSRefs)
+		t.Errorf("sandbox.go still references runtime.GOOS at %v — platform selection belongs to the build "+
+			"tags, which split this dispatch between sandbox_linux.go (//go:build linux) and "+
+			"sandbox_nonlinux.go (//go:build !linux), so that neither platform compiles the other's "+
+			"unreachable arms", runtimeGOOSRefs)
 	}
 }

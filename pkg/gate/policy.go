@@ -44,8 +44,6 @@ type DimensionPolicy struct {
 	Sources   map[string]DimensionPolicy
 }
 
-// policyMetaStep reports whether a step is a meta/deferred step that the policy table
-// never targets (its status is bookkeeping, not a dimension a consumer enforces).
 // blocksVerdict reports whether a violation should count toward FAILING a step.
 //
 // SEVERITY, NOT COUNT. Recorded founder law is "loud != blocking": block defects and
@@ -54,8 +52,23 @@ type DimensionPolicy struct {
 // coverage_threshold whose ONLY violation was the severity=warning coverage-exclusion
 // NOTICE, because both verdict paths here counted entries without reading this field.
 //
+// ─── THE PACK SEVERITY CONTRACT (ratified) ──────────────────────────────────────
+// THIS IS THE PACK-FACING WIRE CONTRACT, NOT AN INTERNAL DETAIL. A SARIF
+// `level: warning` from ANY pack is NON-BLOCKING BY CONTRACT. Severity is HOW A PACK
+// AUTHOR DECLARES BLOCKINGNESS — "loud != blocking" expressed on the wire — so a pack
+// that wants to inform without gating emits `level: warning`, and that is a supported,
+// intended thing for a pack to say. It is not a side effect inherited from the
+// coverage-notice fix above, and it must not be narrowed to that case.
+//
 // AN UNSET SEVERITY BLOCKS. Only an explicit "warning" is exempt, so a producer that
-// omits the field fails closed rather than silently escaping enforcement.
+// omits the field fails closed rather than silently escaping enforcement. SARIF makes
+// `level` OPTIONAL, and pkg/check/parsers.go sarifSeverity maps every level that is not
+// "warning" — including an ABSENT one — to error. Silence is therefore read as the
+// STRICT answer: a pack cannot disable enforcement by declaring nothing.
+//
+// The mapping is locked end to end (SARIF level -> check.Violation.Severity ->
+// gate.Violation.Severity -> this verdict) by cmd/backstop/pack_severity_contract_test.go;
+// the policy layer alone is covered by policy_severity_test.go.
 func blocksVerdict(v Violation) bool {
 	return !strings.EqualFold(strings.TrimSpace(v.Severity), "warning")
 }
@@ -73,6 +86,8 @@ func blockingViolations(violations []Violation) []Violation {
 	return blocking
 }
 
+// policyMetaStep reports whether a step is a meta/deferred step that the policy table
+// never targets (its status is bookkeeping, not a dimension a consumer enforces).
 func policyMetaStep(name string) bool {
 	switch name {
 	case StepWaiverResolution, StepLedgerIntegrity, "pack_lock_verification":
