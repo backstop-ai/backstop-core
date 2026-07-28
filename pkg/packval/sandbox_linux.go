@@ -389,9 +389,9 @@ func newSandboxHelperCommand(command string, args []string, packDir string) (*ex
 // platformSandboxedRun is the linux arm of SandboxedRun. It preserves that function's
 // CombinedOutput contract exactly.
 //
-// The name is the build-tagged dispatch seam shared with sandbox_darwin.go and
-// sandbox_unsupported.go: sandbox.go calls it unqualified and the linker resolves
-// whichever file the build tags admitted.
+// The name is the build-tagged dispatch seam it shares with sandbox_nonlinux.go:
+// sandbox.go calls it unqualified and the linker resolves whichever file the build
+// tags admitted.
 func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
 	helper, err := newSandboxHelperCommand(command, args, packDir)
 	if err != nil {
