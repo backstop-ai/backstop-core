@@ -150,6 +150,14 @@ func TestSandboxLinux_ProductionPathUsesTheRealABIProbe(t *testing.T) {
 		t.Fatalf("parsing sandbox_linux.go: %v", err)
 	}
 
+	// BOTH hops are asserted: the two dispatch delegations that pass the prober down,
+	// and the two inner functions that hand it to newSandboxHelperCommand. Checking
+	// only the inner hop would let a delegation quietly pass something else.
+	wanted := map[string]int{
+		"linuxSandboxedRunWith":       0,
+		"linuxSandboxedRunStdoutWith": 0,
+		"newSandboxHelperCommand":     0,
+	}
 	callSites := 0
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -157,9 +165,13 @@ func TestSandboxLinux_ProductionPathUsesTheRealABIProbe(t *testing.T) {
 			return true
 		}
 		ident, ok := call.Fun.(*ast.Ident)
-		if !ok || ident.Name != "newSandboxHelperCommand" {
+		if !ok {
 			return true
 		}
+		if _, tracked := wanted[ident.Name]; !tracked {
+			return true
+		}
+		wanted[ident.Name]++
 		callSites++
 		last, ok := call.Args[len(call.Args)-1].(*ast.Ident)
 		if !ok || last.Name != "probeLandlockABI" {
@@ -171,8 +183,66 @@ func TestSandboxLinux_ProductionPathUsesTheRealABIProbe(t *testing.T) {
 		return true
 	})
 
-	if callSites != 2 {
-		t.Fatalf("expected 2 production call sites (SandboxedRun and SandboxedRunStdout), found %d — this "+
-			"guard asserts a property OF those call sites and is meaningless if they moved", callSites)
+	// Two delegations + two inner calls = four sites that must all carry the real
+	// prober. The exact count is asserted so the guard cannot pass vacuously after a
+	// rename or a deletion.
+	if callSites != 4 {
+		t.Fatalf("expected 4 prober-carrying call sites (2 dispatch delegations + 2 inner calls to "+
+			"newSandboxHelperCommand), found %d — this guard asserts a property OF those sites and is "+
+			"meaningless if they moved. counts: %v", callSites, wanted)
+	}
+	for fn, n := range wanted {
+		if n == 0 {
+			t.Errorf("no call to %s carries the prober; the chain from the platform-neutral dispatch down "+
+				"to the helper command is broken", fn)
+		}
+	}
+}
+
+// TestLinuxSandboxedRunWith_WrapsThePrepareFailure drives platformSandboxedRun's
+// refusal wrap, which is unreachable through the production entry point.
+//
+// The wrap only fires when newSandboxHelperCommand fails from INSIDE this function,
+// and the production call site passes the real prober — as the wiring guard above
+// enforces — so on a healthy runner it never executes. Injecting the failure here is
+// the only honest way to reach it, and what it locks is that the refusal is WRAPPED
+// with context rather than returned bare: a caller seeing "prepare the linux sandbox"
+// knows the sandbox never came up, not that the command itself failed.
+func TestLinuxSandboxedRunWith_WrapsThePrepareFailure(t *testing.T) {
+	unavailable := func() (int, string, error) { return 0, "6.17.0-test", unix.ENOSYS }
+
+	out, err := linuxSandboxedRunWith("/bin/echo", []string{"hi"}, t.TempDir(), unavailable)
+
+	if err == nil {
+		t.Fatalf("an unavailable mechanism must refuse; got output %q and no error", string(out))
+	}
+	if out != nil {
+		t.Errorf("a refusal must return no output, got %q — nothing ran", string(out))
+	}
+	if !strings.Contains(err.Error(), "prepare the linux sandbox") {
+		t.Errorf("the failure must be wrapped so the caller can tell setup from execution; got: %v", err)
+	}
+}
+
+// TestLinuxSandboxedRunStdoutWith_WrapsThePrepareFailure is the stdout arm's twin.
+//
+// It matters independently: this arm returns "stdout captured so far" on a normal
+// command failure, so a setup failure must be distinguishable from a converter that
+// ran and produced partial output. Returning nil bytes here is what keeps the gate
+// from parsing a sandbox-setup failure as empty SARIF.
+func TestLinuxSandboxedRunStdoutWith_WrapsThePrepareFailure(t *testing.T) {
+	unavailable := func() (int, string, error) { return 0, "6.17.0-test", unix.ENOSYS }
+
+	out, err := linuxSandboxedRunStdoutWith("/bin/echo", nil, t.TempDir(), nil, unavailable)
+
+	if err == nil {
+		t.Fatalf("an unavailable mechanism must refuse; got output %q and no error", string(out))
+	}
+	if out != nil {
+		t.Errorf("a setup refusal must return NO bytes, got %q; the gate would parse them as the "+
+			"converter's SARIF output", string(out))
+	}
+	if !strings.Contains(err.Error(), "prepare the linux sandbox") {
+		t.Errorf("expected the prepare-failure wrap, got: %v", err)
 	}
 }

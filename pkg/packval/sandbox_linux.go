@@ -205,8 +205,20 @@ func newSandboxHelperCommand(command string, args []string, packDir string, prob
 // The name is the build-tagged dispatch seam it shares with sandbox_nonlinux.go:
 // sandbox.go calls it unqualified and the linker resolves whichever file the build
 // tags admitted.
+// The dispatch seam keeps its PLATFORM-NEUTRAL signature and delegates. The prober
+// is not a parameter here on purpose: platformSandboxedRun is defined identically in
+// sandbox_nonlinux.go, and threading a Landlock-only dependency through it would leak
+// a linux concept into a contract darwin also implements — forcing the darwin arm to
+// accept an argument it can never use.
 func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir, probeLandlockABI)
+	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+}
+
+// linuxSandboxedRunWith is platformSandboxedRun's body with the ABI prober injected,
+// which is what makes the refusal wrap below reachable: on a healthy host the real
+// probe always succeeds, so without this seam the wrap could never execute.
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
@@ -222,8 +234,16 @@ func platformSandboxedRun(command string, args []string, packDir string) ([]byte
 // stdout-captured-so-far returned alongside the error on a non-zero exit. Those are
 // what keep a converter's stderr banner out of the SARIF the gate parses, so the
 // trampoline has to be transparent to them.
+// Same neutral-signature-plus-delegation shape as platformSandboxedRun above, and for
+// the same reason.
 func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir, probeLandlockABI)
+	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+}
+
+// linuxSandboxedRunStdoutWith is platformSandboxedRunStdout's body with the ABI prober
+// injected. See linuxSandboxedRunWith for why the seam exists.
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}

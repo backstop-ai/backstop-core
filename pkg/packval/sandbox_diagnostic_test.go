@@ -202,7 +202,12 @@ func TestSandboxLinuxStdoutArm_CapturesStderrIntoDistinctBuffer(t *testing.T) {
 		t.Fatalf("parsing sandbox_linux.go: %v", err)
 	}
 
-	const fn = "platformSandboxedRunStdout"
+	// linuxSandboxedRunStdoutWith, not platformSandboxedRunStdout: the buffer setup
+	// moved into the inner function when the ABI-prober seam was threaded through.
+	// This assertion follows the BODY rather than the entry point, and it failed
+	// loudly at the move rather than passing against a function that no longer owns
+	// the streams — which is what the presence check below is for.
+	const fn = "linuxSandboxedRunStdoutWith"
 	var target *ast.FuncDecl
 	for _, decl := range file.Decls {
 		if fd, ok := decl.(*ast.FuncDecl); ok && fd.Name.Name == fn {
