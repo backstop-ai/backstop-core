@@ -1,0 +1,122 @@
+# Release pipeline for backstop-core: a pushed `vX.Y.Z` tag builds the
+# cross-platform binaries and publishes the GitHub Release via goreleaser.
+#
+# WHY THIS PIPELINE DOES NOT SELF-GATE
+# ------------------------------------
+# This workflow deliberately does not run `backstop gate` on itself. The
+# absence is a DECISION, not an oversight, and it is the named fast-follow from
+# ISSUE-087: self-gating needs a macOS runner — the darwin sandbox is real,
+# while Linux's is a hard no-op (ISSUE-020) — plus a fleet lock migration.
+# Until both exist, the hand-baked ci.yml gates the tagged commit, and the
+# `require-green-ci` job below is what makes that gating BINDING rather than
+# advisory: no release happens unless CI already concluded success on this
+# exact commit.
+#
+# Like tag-integrity.yml, this file is temporary hand-written payload for the
+# BUNDLE-015 REQ-018 CI recipe pack and the future `go-distribution` pack.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the GitHub Release
+  actions: read # query ci.yml's conclusion for the tagged commit
+
+jobs:
+  tag-integrity:
+    name: Tag is semver and reachable from main
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 is load-bearing: the default shallow checkout carries no
+      # main-branch history, so the ancestry query below could not answer.
+      - name: Check out the tagged commit with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert the pushed tag is a well-formed semantic version
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$PUSHED_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::TAG MALFORMED - '${PUSHED_TAG}' is not a vX.Y.Z[-prerelease] semantic version tag. Delete the tag and retag."
+            exit 1
+          fi
+          echo "tag ${PUSHED_TAG} is a well-formed semantic version"
+
+      - name: Assert the tagged commit is an ancestor of main
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::TAG OFF MAIN - '${PUSHED_TAG}' points at ${GITHUB_SHA}, which is not an ancestor of origin/main. A tag on a side branch will not be released: merge to main first, then retag."
+            exit 1
+          fi
+          echo "tagged commit ${GITHUB_SHA} is an ancestor of origin/main"
+
+  require-green-ci:
+    name: CI concluded success on the tagged commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert ci.yml already concluded success for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # ci.yml triggers on main pushes and pull requests, never on tags, so
+          # there is no CI run for this tag ref. Query by commit SHA instead.
+          # No checkout is needed: the repository is named explicitly.
+          CONCLUSIONS="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100" \
+            --jq '.workflow_runs[].conclusion')"
+
+          # Absence must fail closed. "No run at all" and "runs found, all red"
+          # are both refusals: passing by absence would release an ungated
+          # commit, which is the exact hole this job exists to close.
+          if [ -z "$CONCLUSIONS" ]; then
+            echo "::error::NO CI RUN - no completed ci.yml run exists for ${GITHUB_SHA}. That commit has never been gated. Push it to main, let CI finish green, then retag."
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$CONCLUSIONS" | grep -qx 'success'; then
+            SUMMARY="$(printf '%s' "$CONCLUSIONS" | tr '\n' ' ')"
+            echo "::error::CI NOT GREEN - ci.yml concluded [${SUMMARY}] for ${GITHUB_SHA} and never succeeded. Refusing to release from a red commit."
+            exit 1
+          fi
+
+          echo "ci.yml concluded success for ${GITHUB_SHA}"
+
+  goreleaser:
+    name: Build and publish the release
+    needs: [tag-integrity, require-green-ci]
+    runs-on: ubuntu-latest
+    steps:
+      # goreleaser derives the changelog from history, so it needs all of it.
+      - name: Check out the tagged commit with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The Homebrew tap push needs a PAT with write access to the TAP repo:
+      # GITHUB_TOKEN is scoped to this repository and cannot push to another
+      # one. Provisioning that secret is a step in ISSUE-087's deferred
+      # post-remote verification, which is also the first time it can be tested.
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

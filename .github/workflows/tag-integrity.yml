@@ -1,0 +1,63 @@
+# TEMPORARY hand-written tag-integrity gate for backstop-core.
+#
+# This is a hand-written placeholder, not a permanent pipeline, and it is not
+# meant to become a second hand-baked CI surface that accretes checks. It ships
+# the launch-minimal half only: is the pushed tag well-formed, and does it point
+# at a commit that is actually on main.
+#
+# Successors, both post-launch — this file is destined to become pack payload:
+#   * the BUNDLE-015 REQ-018 CI recipe pack (DIR-019), which will GENERATE this
+#     workflow rather than have it hand-maintained;
+#   * the future `go-distribution` pack, of which the release trinity — GitHub
+#     Releases, Homebrew, and `go install` — is the seed.
+#
+# Tracking reference for the hand-baked-CI concern itself: ISSUE-020.
+#
+# Core's checks differ from the pack repos' version of this workflow: the packs
+# assert tag-vs-`pack.yml` version agreement, which core has no analogue for.
+
+name: tag-integrity
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  tag-integrity:
+    name: Tag is semver and reachable from main
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 is load-bearing. The default shallow checkout carries no
+      # main-branch history, so the ancestry query below could not answer and
+      # would fail confusingly rather than truthfully.
+      - name: Check out the tagged commit with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert the pushed tag is a well-formed semantic version
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$PUSHED_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::TAG MALFORMED - '${PUSHED_TAG}' is not a vX.Y.Z[-prerelease] semantic version tag. Delete the tag and retag."
+            exit 1
+          fi
+          echo "tag ${PUSHED_TAG} is a well-formed semantic version"
+
+      - name: Assert the tagged commit is an ancestor of main
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::TAG OFF MAIN - '${PUSHED_TAG}' points at ${GITHUB_SHA}, which is not an ancestor of origin/main. A tag on a side branch will not be released: merge to main first, then retag."
+            exit 1
+          fi
+          echo "tagged commit ${GITHUB_SHA} is an ancestor of origin/main"
