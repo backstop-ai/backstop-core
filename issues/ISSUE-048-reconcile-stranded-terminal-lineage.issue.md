@@ -28,6 +28,21 @@ mandated tests are still genuinely ABSENT, still flagged today by
 `artifact_status_drift`, and never reconciled artifact-by-artifact the way
 the other 6 of the original 8 were.
 
+**Scope update (2026-07-28):** a cross-issue investigation disproved both of
+the assumptions this section originally made about *why* the tests read
+ABSENT (see the corrections inline below). ISSUE-018's 2 violations were a
+genuine mis-transcription and are now RESOLVED (CLM-007 repointed to the
+real, present, passing tests). ISSUE-036's 5 violations are NOT a naming or
+retirement question at all — the mandated pack claim ids are present and
+passing; the resolver simply cannot see pack-side evidence, a structural gap
+now tracked as ISSUE-098. This issue's remaining live scope is therefore
+narrower than originally framed: decide what, if anything, ISSUE-036's
+CLM-008 should do pending ISSUE-098 (current interim position: leave it
+mandating the pack claim ids as-is and let ISSUE-098 fix the resolver,
+rather than force a Go-test repoint that would misrepresent what's being
+verified — see ISSUE-036's own artifact, left untouched by this
+correction).
+
 Running `./bin/backstop gate` today reports exactly 7 live
 `artifact_status_drift` violations (pass severity, non-blocking — baseline
 grandfathered), all against two artifacts:
@@ -35,9 +50,19 @@ grandfathered), all against two artifacts:
 - **ISSUE-018** (`issues/ISSUE-018-remove-vestigial-baked-in-code.issue.md`,
   status `closed`) — CLM-007 mandates `TestCutover_GateNeverWiresStepCodeCheck`
   and `TestCutover_GateNeverCallsCheckRun`. Both are ABSENT (2 violations).
-  These were ISSUE-018's own cutover-assertion tests, later removed once the
+  ~~These were ISSUE-018's own cutover-assertion tests, later removed once the
   thing they asserted the absence of (`backstop code check` / `pkg/check`)
-  was fully gone.
+  was fully gone.~~ **Correction (2026-07-28):** disproven. `git log --all -S`
+  for either literal string returns zero commits — these two names never
+  existed as code, so they cannot have been "removed." They were fabricated
+  in the closing commit `ca5b7ec` by mis-transcribing the doc-comment prose
+  above the real, still-present, still-passing guard tests
+  (`TestCutover_NoCodeCheckStepInGateStepList`,
+  `TestCutover_LintBuildTestRunThroughDispatchPackEngines`, at
+  `cmd/backstop/gate_cutover_step2_test.go:49` and `:61`). ISSUE-018's own
+  CLM-007 has been repointed to those real names (2026-07-28); this drift is
+  RESOLVED, not open reconciliation work — see ISSUE-018's Resolution
+  section.
 - **ISSUE-036**
   (`issues/ISSUE-036-contracts-pack-compiler-func-only-signatures.issue.md`,
   status `closed`) — CLM-008 mandates the contracts-pack compiler rule-id
@@ -54,11 +79,27 @@ test to a surviving equivalent, or retire the artifact honestly (now that the
 permanent baseline grandfather. This issue does not prescribe which
 resolution fits which artifact — that is planning work, read case by case.
 
-Note: `packs/contracts/pack.yml`'s rule ids may have been renamed rather than
-deleted when the compiler went kind-aware (see
+~~Note: `packs/contracts/pack.yml`'s rule ids may have been renamed rather
+than deleted when the compiler went kind-aware (see
 `project_contracts_pack_kind_gaps` in agent memory, ISSUE-036/037/052) — the
 planner should check for a rename/repoint candidate before assuming full
-removal for ISSUE-036.
+removal for ISSUE-036.~~ **Correction (2026-07-28):** neither renamed nor
+deleted. All five mandated claim ids (`type-signature-go`,
+`const-signature-go`, `var-signature-go`, `method-signature-go`,
+`interface-signature-go`) are present, unchanged, and passing under their
+original names at `packs/contracts/pack.yml:70-129` in all three copies
+(durable source, tracked test-harness copy, installed copy); `backstop pack
+test` confirms phase-3 fixtures pass. The false ABSENT report is structural,
+not a naming drift: `artifact_status_drift`'s resolver
+(`ResolveMandatedTestPaths`, `pkg/gate/step_testverify.go:609`) only scans
+pack-declared test-FILE globs for Go test-FUNCTION names
+(`collectTestFuncNames`, `:453`) — it has no vocabulary for a pack-declared
+claim id at all, so a pack-side mandated test can never resolve as present
+regardless of whether the pack itself is correct. This is now tracked as its
+own defect, ISSUE-098, rather than a per-artifact reconciliation judgment
+call — see that issue for the resolver fix and the interim CLM-008 decision
+(no honest Go-test repoint exists; the file was left untouched, see
+ISSUE-098's references).
 
 ## Delivered elsewhere (historical context — not remaining scope)
 

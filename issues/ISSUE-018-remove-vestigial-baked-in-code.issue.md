@@ -132,8 +132,8 @@ claims:
       the existing cutover tests continue to prove the gate never wired the
       deleted command / never called pkg/check.Run.
     tests:
-      - TestCutover_GateNeverWiresStepCodeCheck
-      - TestCutover_GateNeverCallsCheckRun
+      - TestCutover_NoCodeCheckStepInGateStepList
+      - TestCutover_LintBuildTestRunThroughDispatchPackEngines
 
 contracts:
   - file: pkg/check/parsers.go
@@ -411,6 +411,29 @@ gate must no longer RED on any of the 6 findings enumerated in the Problem secti
 ×3, parsers.go ×2, plan.go ×1). The gate (`pack_engines` dispatch) must be unaffected, since it
 never used the `code check` path — no new test functions are needed to prove this beyond the
 existing cutover tests (`gate_cutover_step2_test.go`) which already assert it.
+
+## Resolution
+
+**CLM-007 test-name correction (2026-07-28).** The two test names originally mandated by
+CLM-007 — ~~`TestCutover_GateNeverWiresStepCodeCheck` and
+`TestCutover_GateNeverCallsCheckRun`~~ — never existed as code. `git log --all -S` for either
+literal string across the full repo history returns zero commits; the guard tests this issue
+actually relied on have always been named `TestCutover_NoCodeCheckStepInGateStepList` and
+`TestCutover_LintBuildTestRunThroughDispatchPackEngines` (present today, both passing, at
+`cmd/backstop/gate_cutover_step2_test.go:49` and `:61`; this issue's own References section
+already cited that file "`:60,119`" by line location, not by function name). The mandated
+names were introduced only in the closing commit `ca5b7ec` ("chore(issues): close delivered
+issues (018/034/035/036)") — apparently by transcribing the *doc-comment prose* directly above
+each real test ("proves the step list built by buildGateSteps contains no ... Step-2 entry",
+"proves a gate ... dispatches its lint/build/test through the engine path ... not
+pkg/check.Run") into paraphrased test-name-shaped strings, rather than copying the tests' real
+`func` identifiers. This produced a false `artifact_status_drift` violation (2 of the 7
+pre-existing drift violations catalogued by ISSUE-048 as of 2026-07-28), reporting these tests
+ABSENT when the real, behaviorally-equivalent guards they were meant to name have been present
+and green since before this issue closed. CLM-007's `tests:` list above is corrected to the
+real names; no code change was required — the gate's cutover guarantee was never actually
+unverified, only mis-cited. See ISSUE-048 and ISSUE-098 for the broader reconciliation and the
+drift-resolver gap this class of false positive also exposed.
 
 ## References
 
