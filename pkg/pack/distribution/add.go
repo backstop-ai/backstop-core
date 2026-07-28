@@ -230,6 +230,20 @@ func copyDirRecursive(src, dst string) error {
 			return relErr
 		}
 
+		// The same predicate the hash boundary consumes, so a pack's installed
+		// content and its recorded identity cannot drift apart. Root-relative to
+		// THIS walk: the packs-directory rollback snapshot copies a pack's
+		// metadata at <org>/<name>/.git and therefore correctly keeps it, so a
+		// rollback restores exactly what it snapshotted.
+		if isRootRepositoryMetadata(filepath.ToSlash(rel)) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			// Never SkipDir for a file or symlink — that abandons the rest of the
+			// parent directory and silently truncates the copy.
+			return nil
+		}
+
 		target := filepath.Join(dst, rel)
 
 		if info.IsDir() {
