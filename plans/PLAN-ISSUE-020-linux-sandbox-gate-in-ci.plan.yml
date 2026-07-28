@@ -1,0 +1,1668 @@
+---
+plan_id: PLAN-ISSUE-020
+spec_id: ISSUE-020
+created: "2026-07-28"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-020 — the Linux sandbox facet AND the gate-in-CI wiring the
+  issue welded into its acceptance criterion on 2026-07-26. Five phases in a
+  forced order, because each one is a precondition for the next being provable:
+
+    1. the pack fleet becomes materializable on a fresh checkout (without this,
+       CI has no engines and the gate is vacuous no matter what else lands)
+    2. the gate learns an EXPLICIT diff base (without this, CI's clean checkout
+       produces an EMPTY diff scope — a green that proves nothing)
+    3. the Linux sandbox mechanism
+    4. ci.yml's blocking job flips to the real gate
+    5. the acceptance criterion is closed against a REAL ubuntu-latest run
+
+  ── WHAT `coverage_threshold: 90` MEANS AFTER THIS PLAN, AND WHAT IT DOES NOT ─
+  The frontmatter value above stays 90 and is still correct — but it now means
+  something narrower than the number it replaces in ci.yml, and saying so is the
+  point of this block.
+
+  TASK-016 DELETES the "Enforce coverage threshold" step, which today computes
+  `go tool cover -func` over the whole repo and fails under an AGGREGATE 90%. The
+  gate's coverage dimension is not that: it is PER-FILE and DIFF-SCOPED, so after
+  the flip CI answers "is each file this PR touched adequately covered?" and stops
+  answering "is the repository as a whole at 90%?" entirely. Nothing else in CI
+  answers the second question afterwards.
+
+  That is a deliberate consequence of "green if the diff is green", not an
+  oversight, and it is the SAME trade ISSUE-094 was filed to hold the other half
+  of: a diff-scoped gate makes untouched-file debt invisible unless something
+  non-blocking keeps surfacing it. Aggregate repo coverage is exactly that class
+  of signal. It is therefore ROUTED to ISSUE-094's loud-but-non-blocking repo-wide
+  sweep — the issue that already carries the measured seed from the first real CI
+  run (23 errcheck + unparam findings in pkg/config and pkg/check). Do not
+  re-implement an aggregate coverage gate in ci.yml to "keep parity": a blocking
+  whole-repo threshold is precisely what the founder ruled against, and ISSUE-094
+  owns the visibility half.
+
+  ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
+  Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
+  `unknown command "code" for "backstop"`. The shipped top-level commands are
+  artifact, baseline, commands, completion, gate, help, pack, recipe, version,
+  waiver. Any task prescribing `backstop code check` prescribes a command that
+  does not exist.
+
+    middle: go build ./... && go test ./... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary
+            gates the OLD code and reports a vacuous green)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-020
+
+  Report TRUE exit codes (`echo $?`); never mask a non-zero exit behind a pipe
+  or a summary.
+
+  ── THE LOAD-BEARING DISCOVERY: CI'S DIFF SCOPE IS EMPTY, NOT WRONG ────────
+  Read `pkg/gate/scope.go:112-144` before writing any of Phase 2. Bare diff mode
+  resolves its base like this:
+
+    for remote in origin/main, origin/master:
+        base = git merge-base HEAD <remote>
+        if base resolves: files = git diff --name-only <base> + untracked
+
+  On a GitHub Actions PUSH to main, `origin/main` IS `HEAD`, so the merge-base
+  is HEAD and `git diff --name-only HEAD` on a freshly-checked-out tree returns
+  NOTHING. There are no untracked files either — the checkout is pristine. The
+  result is not a wrong scope; it is an EMPTY scope, and an empty scope passes.
+  That is the single most dangerous failure mode in this whole plan: CI would go
+  green while checking zero files, which is the vacuous green CLAUDE.md names as
+  the enemy. Phase 2 exists entirely to close it.
+
+  On a PULL REQUEST it is worse in a subtler way: actions/checkout at the default
+  `fetch-depth: 1` does not create an `origin/main` remote-tracking ref at all,
+  so BOTH merge-base attempts fail, the code falls through to
+  `git diff --name-only HEAD` — still empty — and attaches the warning "no remote
+  branch (origin/main or origin/master) found; using local changes only". A
+  warning is not a failure. It would still be green.
+
+  ── WHAT `--base` MUST AND MUST NOT DO ─────────────────────────────────────
+  `--base <rev>` resolves the scope as `git diff --name-only $(git merge-base
+  HEAD <rev>)` plus untracked files. merge-base (not a raw two-dot diff against
+  the ref) is deliberate and is correct for BOTH CI events: for a pull_request
+  the base sha is the fork point, and for a push the before-sha is already an
+  ancestor of HEAD so the merge-base is the before-sha itself. One code path,
+  both events.
+
+  The prohibition is as load-bearing as the behavior: an unresolvable `--base`
+  must be an exit-2 config error naming the ref. It must NEVER fall back to
+  `--all`, never fall back to bare-diff-against-HEAD, and never yield an empty
+  scope. Bare diff mode's existing fallbacks (to `--all` when not a git repo, to
+  local changes when no remote exists) are what make an explicit base necessary;
+  inheriting them would reintroduce the exact silence this flag is built to
+  remove.
+
+  ── THE PACK FLEET IS NOT INSTALLABLE ANYWHERE BUT THIS MACHINE ────────────
+  Measured 2026-07-28 against the committed `backstop.lock`. This corrects the
+  premise that the lock references in-repo `packs/` paths — it does not:
+
+    backstop-ai/backstop-self       local, local_path ../backstop-self-pack
+    backstop-ai/go-standards        local, local_path ../backstop-go-pack
+    backstop-ai/cobra-cli-standards git   v0.2.1                      (OK)
+    backstop/contracts              local, NO local_path recorded
+    backstop/go-toolchain           local, NO local_path recorded
+    backstop/substantiveness        local, NO local_path recorded
+
+  `materializeLocalPack` (`pkg/pack/distribution/install.go:63`) fails loud on an
+  empty `local_path` and fails loud on a `local_path` that does not resolve on
+  disk. On a CI runner, four of the six entries fail and one — `backstop/
+  go-toolchain@1.1.0` — is UNREPRODUCIBLE ANYWHERE: its source repo
+  (github.com/backstop-ai/go-toolchain) carries only a v1.2.0 tag, and the 1.1.0
+  tree survives solely as gitignored installed content on this one machine. There
+  is no CI workaround, no cache trick, and no vendoring option (CLAUDE.md: packs
+  are always external). The fleet migration is therefore mandatory and is Phase 1.
+
+  ── AND THE MIGRATION IS CHEAP, WHICH IS WHY IT BELONGS HERE ───────────────
+  Measured, not assumed. `diff -rq` of each currently-installed 1.1.0 tree against
+  its published v1.2.0 counterpart, 2026-07-28:
+
+    .backstop/packs/backstop/go-toolchain  vs ../backstop-go-toolchain-pack
+    packs/contracts                        vs ../backstop-go-contracts-pack
+    packs/substantiveness                  vs ../backstop-go-substantiveness-pack
+
+  Every one reports exactly ONE differing file, `pack.yml`, and within it exactly
+  two differing lines — `name:` and `version:`. Identical rules, identical
+  scripts, identical fixtures. So this is a pure COORDINATE rename with zero rule
+  content change and therefore zero new-findings risk from the rule set itself.
+  It is the tail of the fleet rename already executed for `backstop/go-standards`
+  → `backstop-ai/go-standards` and `backstop/self` → `backstop-ai/backstop-self`
+  on 2026-07-27.
+
+  Target coordinates, verified present on public remotes by `git ls-remote`:
+
+    backstop/contracts        -> backstop-ai/go-contracts@1.2.0
+    backstop/substantiveness  -> backstop-ai/go-substantiveness@1.2.0
+    backstop/go-toolchain     -> backstop-ai/go-toolchain@1.2.0
+    backstop-ai/backstop-self -> backstop-ai/backstop-self@1.1.2  (same version,
+                                 local -> git; name already correct)
+    backstop-ai/go-standards  -> backstop-ai/go-standards@1.2.1   (same version,
+                                 local -> git; name already correct)
+
+  ── THE MIGRATION BREAKS THE BASELINE JOB UNLESS CI CHANGES WITH IT ────────
+  This is the consequence that makes the "do not make ISSUE-086 worse" constraint
+  bite, and it is not obvious from either half in isolation. Read
+  `pkg/pack/distribution/verify.go:46-60`:
+
+      if entry.SourceType == "local" { continue }        // skipped outright
+      packDir := filepath.Join(packsDir, name)
+      if _, err := os.Stat(packDir); err != nil { ... "missing_pack" ... }
+
+  `VerifyLock` SKIPS local entries and HARD-FAILS git entries whose directory is
+  absent. Today five of six entries are local, so the packless `baseline` job
+  (`cmd/backstop/baseline.go:50-75` — `runBaselineGenerate` builds the full gate
+  step set with NO `pack install` anywhere before it) produces exactly ONE
+  `missing_pack` failure, for the single git entry. TASK-003 converts all six to
+  git. Change nothing else and that job goes from one baked-in failure to SIX,
+  published into the baseline artifact that main's ratchet is compared against.
+
+  That would be making ISSUE-086 materially worse while quoting a note that says
+  not to. So TASK-016 adds a `pack install` step to the `baseline` job — the
+  minimum change that keeps this plan from regressing it.
+
+  Be precise about what that does and does not mean. Installing packs before
+  generating the baseline also happens to remove the packless-ness ISSUE-086 was
+  filed about. This plan does NOT claim to close ISSUE-086: that issue owns the
+  question of whether a pack-ful baseline is correct, what to do with the
+  already-published packless artifacts, and whether the refresh that PLAN-ISSUE-087
+  put on hold can now proceed. Adding the install step here is damage control on a
+  break this plan would otherwise cause, and it should be reported to ISSUE-086's
+  owner as an input, not as a resolution.
+
+  ── THE RENAME IS A SEVEN-STEP SILENT-FAILURE SEQUENCE ─────────────────────
+  Recorded from the two renames already executed. Steps 2 through 7 all fail
+  SILENTLY; only the tests fail loudly, so do not treat a green `pack add` as
+  done:
+
+    1. `pack add <coordinate>@<version>` installs the new coordinate and ADDS a
+       backstop.yml key. It does NOT remove the old one — you end up with both.
+    2. Remove the stale backstop.yml `packs:` key by hand.
+    3. Re-point `enforcement.policy.<dim>.sources.<pack>` keys. A per-pack policy
+       override is keyed on the pack NAME and goes INERT, not error, when it
+       drifts. (Checked 2026-07-28: the only `sources:` key today is
+       `pack_engines.sources.backstop-ai/backstop-self`, which this migration does
+       not rename — confirm before assuming, do not skip the check.)
+    4. `rm -rf .backstop/packs/<old-org>/<old-name>` — `detectExtraUnlocked`
+       (`pkg/pack/distribution/verify.go:91`) walks packsDir org/pack and FAILS
+       any directory not in the lock.
+    5. Prune the stale backstop.lock entries. `pack remove <old-name>` CANNOT do
+       it ("pack is not installed"); edit the lock. Note `VerifyLock` SKIPS
+       `source_type: local`, so a stale local entry passes verification while
+       lying about a pack that is gone.
+    6. Re-key `@waiver:` comments — the waiver rule-ID embeds the pack path
+       (`backstop.packs.<org>.<pack>.rules...`). An unbound waiver does not warn;
+       the finding simply reappears. MEASURED 2026-07-28: ZERO waivers reference
+       backstop/contracts, backstop/substantiveness or backstop/go-toolchain, so
+       this step is expected to be a no-op HERE. Re-derive it anyway; if any
+       appear, get the new ID by reading `rule` from `gate --file <f> --json`,
+       never by hand-deriving it.
+    7. Update dogfood/ratchet TESTS that assert the REAL backstop.yml / lock /
+       install path. Eight failed on the previous rename. Synthetic-fixture tests
+       that build their own temp pack of the same name must NOT be touched — only
+       the ones reading the real repo. This distinction is the whole judgment in
+       TASK-004; see that task.
+
+  ── PHASE 1 PARTIALLY DISCHARGES DIR-027, AND STOPS SHORT DELIBERATELY ─────
+  `directives/DIR-027-pack-fleet-publication-migration.directive.md` (queued) owns
+  the fleet's publication and migration across five threads. Phase 1 here is not
+  freelancing next to it; it is the backstop-core slice of two of those threads,
+  taken now because CI cannot run without it. Naming which threads, so the stopping
+  point does not read later as an oversight:
+
+    THREAD 3 (migrate the fleet off local names onto published coordinates) —
+    FULLY discharged for the `backstop-core` consumer. DIR-027 names this repo's
+    six lock entries explicitly; Phase 1 moves every one of them to a published
+    coordinate. The other consumers it names — `bclabs-portal`, `stash`,
+    `backstop-harness` — are untouched, and DIR-027's own framing applies: each
+    migration is per-consumer, not a bulk operation.
+
+    THREAD 1 TIER 2 (de-vendor core) — PARTIALLY discharged, one leg of several.
+    Phase 1 does the lock-entry leg: the two no-`local_path` entries
+    (`backstop/contracts`, `backstop/substantiveness`) move to the published
+    `backstop-ai/go-contracts` and `backstop-ai/go-substantiveness` coordinates
+    that thread 1 tier 1 already created. It does NOT do the rest of tier 2, and
+    this is a decision rather than a leftover:
+      - `packs/contracts` and `packs/substantiveness` STAY on disk as fixture
+        sources.
+      - the two production consumers DIR-027 names —
+        `pkg/pack/distribution/contracts_local_install.go` and
+        `cmd/backstop/gate_substantiveness_e2e.go` — are NOT repointed.
+      - the vendored directories are NOT deleted, and no lineage sweep runs.
+
+    Why stop there: deleting the vendored packs strands SPEC-037/SPEC-038, which
+    were authored ABOUT these packs, so `deletion-strands-lineage` applies and
+    their retirement needs the lineage pass DIR-027 explicitly scopes into tier 2.
+    That is a specs-and-contracts exercise with nothing to do with the Linux
+    sandbox or CI, and folding it in here would put a lineage sweep on the critical
+    path of a launch blocker. The residue is DIR-027's, unchanged.
+
+  Threads 2 (harness pack reconciliation), 4 (Clone-strip asymmetry) and 5
+  (publisher-side gating, ISSUE-084) are untouched. Note that thread 4 resolves
+  itself incrementally as packs move local→remote, so Phase 1 advances it as a
+  side effect without owning it.
+
+  ── PRE-EXISTING, NOT YOURS TO FIX: THE STALE backstop/self WAIVERS ────────
+  Two live waivers in `cmd/backstop/pack_gate.go:888` and
+  `cmd/backstop/pack_gate_provision.go:119` carry the rule-ID
+  `backstop.packs.backstop.self.rules.no-structural-name-split-on-spine`, while
+  the pack has been `backstop-ai/backstop-self` since 2026-07-27. They appear
+  UNBOUND — a step-6 casualty of the earlier rename. Recorded here so a reviewer
+  does not mistake them for damage this plan caused. Do NOT fix them in this
+  plan: re-keying a waiver changes which findings are suppressed, which is a
+  scope change dressed as a typo fix. Report them; they want their own issue.
+
+  ── THERE IS NO AUTO-PROVISIONER. THE RUNNER MUST SUPPLY EVERY TOOL ────────
+  This is the second premise correction, and getting it wrong produces an exit-2
+  CI job that looks like a sandbox bug. Read
+  `cmd/backstop/pack_gate_provision.go:46-113`: `provisionEngines` verifies that
+  NIL-Provision (Layer-0) tools resolve on PATH and fails loud when they do not —
+  and for engines WITH a Provision (semgrep, ast-grep) it `continue`s, i.e. it
+  SKIPS them. Nothing anywhere installs anything. Verified 2026-07-28: no pip,
+  pipx, uv, npm or brew invocation exists in `pkg/` or `cmd/`. "Auto-provisioned"
+  in the comments means "exempt from the on-PATH check", not "installed for you";
+  the pinned version is a TRUST FLOOR (`pkg/pack/engine/allowlist.go`), not an
+  installer.
+
+  Consequence for ci.yml: the runner must itself provide, on PATH,
+
+    go            (setup-go, from go.mod)
+    golangci-lint (a REAL binary on PATH — see the version-authority block below;
+                   today's ci.yml uses `go tool golangci-lint`, which does NOT put
+                   a `golangci-lint` executable on PATH and therefore does NOT
+                   satisfy provisionEngines)
+    semgrep       1.96.0   (allowlist pin, pkg/pack/engine/allowlist.go)
+    ast-grep      0.43.0   (allowlist pin, pkg/pack/engine/allowlist.go)
+    bubblewrap             (the Linux sandbox mechanism)
+
+  A missing tool must remain a loud exit-2. Never add a conditional that skips a
+  dimension because its tool is absent.
+
+  ── WHO OWNS THE golangci-lint VERSION, AND THE TRAP IF YOU GUESS ──────────
+  There are THREE candidate version sources in this repo and only one of them is
+  right. Getting this wrong produces a CI failure that reads like a sandbox bug.
+
+    1. `pkg/pack/engine/allowlist.go` — NOT AN AUTHORITY HERE. It lists semgrep,
+       ast-grep, grep, rg, oxlint, bun, tsc, prettier. It contains NEITHER
+       `golangci-lint` NOR `go`, and it never will: `checkEngineToolAllowed`
+       (`cmd/backstop/pack_gate.go:812-815`) returns nil immediately for a
+       nil-Provision binding, so Layer-0 tools bypass the allowlist entirely by
+       design. Their trust requirement is on-PATH presence, not a pin.
+    2. `go.mod:197`'s tool directive — A TRAP. It pins
+       `github.com/golangci/golangci-lint` at v1.64.8 (go.mod:75). Installing that
+       version BREAKS the lint dimension: the go-toolchain pack declares
+       `golangci-lint run --output.sarif.path stdout --show-stats=false`, which is
+       v2-only syntax, and v1.64.8 exits on an unknown flag. The tool directive
+       serves `go tool golangci-lint` for other purposes and must NOT be treated as
+       the gate's tool source.
+    3. **A PINNED INSTALL LINE IN ci.yml — THE AUTHORITY.** The binding constraint
+       is the pack's declared command syntax, so the consumer (this repo) pins the
+       binary its declared packs can actually run. Pin v2.6.0: it is the version
+       measured on the development machine on 2026-07-28, which is the version the
+       locally-green gate has actually been proven against.
+
+  Write the reason INTO ci.yml next to the pin — that the pack's `--output.sarif
+  .path` flag is v2-only and that go.mod's v1.64.8 tool directive is a different,
+  unrelated pin. Without that comment the next person "consolidates" the two and
+  reintroduces the break.
+
+  This is not baked language knowledge in backstop: the BINARY still knows nothing
+  about Go or golangci-lint. It is a consumer project provisioning the toolchain
+  its own declared packs require, which is exactly the Layer-0 contract.
+
+  ── MECHANISM: BUBBLEWRAP, UNLESS THE RUNNER PROBE FALSIFIES IT ────────────
+  ISSUE-020's spike (2026-07-27) narrowed OQ-3 to bubblewrap vs Landlock+seccomp
+  and left bubblewrap modestly ahead: it is packaged, and its enforcement was
+  demonstrably real (the assertion triple passed). Landlock got ZERO signal —
+  `ENOSYS` in the Docker test bed is a kernel-compile fact (LinuxKit builds
+  neither AppArmor nor Landlock), not ABI evidence. Any ranking of Landlock from
+  that probe would be fabricated.
+
+  The one open risk to the bwrap path is AppArmor's
+  `apparmor_restrict_unprivileged_userns`, which was UNMEASURABLE in containers
+  and could still break unprivileged `--unshare-user` on a real Ubuntu runner.
+  TASK-001 reads it on the real runner. READ THE VALUE; DO NOT ASSUME IT. If it
+  falsifies bwrap, STOP AND ESCALATE — do not silently switch to Landlock, and do
+  not weaken the sandbox to make the job green.
+
+  Two negative results, recorded so they are not re-tried: `apparmor=unconfined`
+  changed nothing (there was nothing to unconfine in that kernel), and
+  `--cap-add SYS_ADMIN` is the wrong lever (bwrap then skips the user-namespace
+  path and lacks CAP_NET_ADMIN).
+
+  Corrected invocation from the spike, proven exit-0 both as root and as uid 1001:
+
+    bwrap --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
+      --symlink usr/lib64 /lib64 --unshare-user --unshare-net --dev /dev \
+      --proc /proc /bin/true
+
+  It is a STARTING POINT, not the finished argv. Two additions are required for
+  the real call and are not optional: `--ro-bind <packDir> <packDir>` (bwrap
+  builds a fresh root; without this the pack's own convert script does not exist
+  inside the sandbox) and `--chdir <packDir>` (the darwin path sets `c.Dir =
+  packDir`; parity requires the same working directory).
+
+  ── DARWIN PARITY IS THE SPEC, AND IT MEANS NO WRITABLE PATHS ──────────────
+  The darwin profile is `(deny default) (allow process*) (allow file-read* <scoped
+  subpaths>) (deny network*) (deny file-write*)`. Parity therefore means the
+  convert/validator capability set has an EMPTY writable-paths list. Do not add a
+  `--tmpfs /tmp` for convenience: a writable /tmp is a real divergence from the
+  macOS trust model, and if a convert script turns out to need scratch space that
+  is a capability question for BUNDLE-021 OQ-2, not a quiet unilateral grant here.
+
+  ── OQ-2 IS DEFERRED, AND THE HEDGE IS STRUCTURAL ──────────────────────────
+  BUNDLE-021 OQ-2 (should packs DECLARE behavior rather than backstop matching on
+  a name or platform?) is NOT resolved by this plan and must not be pre-empted.
+  The hedge the issue's 2026-07-27 decision mandates: express the Linux semantics
+  against an INTERNAL capability struct — readable paths, writable paths, network
+  bool — rather than a second bespoke profile literal sitting alongside
+  `darwinSandboxProfile`. That is an internal-representation choice a future OQ-2
+  resolution can slot a pack-declared value into, instead of one that has to be
+  unwound. The decision is triple-tracked; leg 2 is a code comment AT the
+  capability struct's definition site pointing back at BUNDLE-021 OQ-2, and
+  TASK-012 owes that comment.
+
+  Corollary, and the reason CLM-012 exists: the mechanism must be
+  GRADUATED-PROFILE-CAPABLE. The convert/validator carve-out (below) is a POLICY
+  choice about which call sites get sandboxed today — it is not a ceiling on what
+  the mechanism can express. Widening the boundary later must be a policy change,
+  not a rebuild.
+
+  ── DELIBERATELY NOT CHANGED (each of these is a documented non-goal) ──────
+  - `pkg/gate/substantiveness_q1_dispatch.go:89` (`runConvert`) and
+    `pkg/gate/contract_equivalence.go:257` (`runScriptStdin`) shell pack scripts
+    through `/bin/sh` with NO sandbox on ANY platform. ISSUE-020 names them
+    explicitly as out of scope ("a related gap to note for the planner"). They
+    already work on Linux — they are not part of the hard-error defect — so
+    touching them here would widen the trust boundary while pretending to fix a
+    portability bug. Leave them. They belong to the OQ-3 widening conversation.
+  - PRODUCERS stay unsandboxed. `pack_gate.go:428` dispatches the go-toolchain
+    coverage producer with full toolchain access by design; ISSUE-045 established
+    and verified that carve-out after a deny-all sandbox made producers
+    structurally non-functional. Preserved verbatim.
+  - `darwinSandboxProfile` and every darwin test. Acceptance item 2 of the issue.
+  - The `baseline` job in ci.yml, CHANGED IN EXACTLY ONE WAY and otherwise left
+    alone. The one change is the `pack install` step CLM-029 requires, and it is
+    forced: without it TASK-003's local→git conversion turns that job's single
+    baked-in `missing_pack` failure into six. Everything else stands — do not feed
+    this plan's gate output into it, do not touch its scope or triggers, and do not
+    report ISSUE-086 as closed. The packless-baseline question is still that
+    issue's; see the "MIGRATION BREAKS THE BASELINE JOB" block above for why the
+    step is damage control rather than a fix.
+  - `packs/contracts` and `packs/substantiveness` at the repo root. They are
+    fixture SOURCES that `pkg/pack/distribution/contracts_local_install.go`
+    installs into temp projects under their own names. They are not the fleet.
+  - The legacy `backstop/self` waiver rule-IDs (see above).
+  - FOUR SYNTHETIC CARRIERS of old-coordinate literals, named individually here
+    because each one looks like an incomplete sweep and is not:
+      * `pkg/gate/testdata/self-rule/pack-name-keyed-capability.go` and
+        `pkg/gate/testdata/self-rule/rule-id-keyed-routing.go` — NEGATIVE-EXAMPLE
+        fixtures for the backstop/self rules. Their old-coordinate literals ARE
+        the demonstrated anti-pattern (capability keyed on a pack NAME, routing
+        keyed on a rule ID). Renaming them destroys the meaning of the fixture
+        while leaving the rule it exercises intact — churn that makes the corpus
+        worse.
+      * `pkg/pack/distribution/contracts_provisioning_test.go` and
+        `tests/smoke/smoke_test.go` — both build their OWN temp pack under the old
+        coordinate (`smoke_test.go:265-275` writes a `backstop/go-toolchain`
+        manifest and lock into a scratch dir). The literal is local to the fixture
+        and means nothing outside it.
+    True carrier count across the tree is 37, not 36 — `tests/smoke/smoke_test.go`
+    sits outside the `pkg`/`cmd` sweep and is easy to miss in either direction.
+
+  ── SHARP EDGE: THE RENAME PULLS GO FILES INTO DIFF SCOPE ──────────────────
+  The gate scopes findings to CHANGED FILES, and file-level diff scope activates
+  ALL of a touched file's dormant findings — not only the lines the diff touched.
+  TASK-004 edits real-repo pack-name literals across a measured 36 files under
+  `pkg/` and `cmd/` (37 tree-wide — `tests/smoke/smoke_test.go` is the extra, and
+  it is a synthetic carrier that stays; see the exclusions above), which
+  converts some currently-dormant violations into BLOCKING ones as a side effect
+  of a mechanical rename that changes no behavior. This is the same trap
+  PLAN-ISSUE-087 hit on its module-path sweep.
+
+  The rule stands as normally written — touch it, fix its violations. Minimize the
+  blast radius first: change ONLY files that read the real repo (step 7 above),
+  which should be well under either count. If after that minimization the
+  activated set is
+  large enough that remediation dwarfs the rename, STOP and escalate with the
+  measured inventory rather than waiving file-by-file or refreshing the baseline.
+  Do NOT "just refresh the baseline" to go green: CI's baseline job generates
+  PACKLESS (ISSUE-086), so a refresh today would ratchet the project against a
+  vacuum.
+
+  ── SHARP EDGES INHERITED FROM THE GATE ITSELF ─────────────────────────────
+  - ISSUE-091: `gate --all` UNDER-REPORTS relative to diff scope on test-file
+    findings. The blocking CI job must never use `--all`. It is diff/base scoped,
+    full stop.
+  - ISSUE-093: `gate --file` crashes on non-Go directories, and a repeated
+    `--file` is silently dropped. The blocking CI job must never use `--file`.
+  - A STALE `bin/backstop` gates the OLD code and reports a vacuous green. Rebuild
+    before every gate run, in tasks and in CI alike.
+  - `base-engines` is embedded in the binary (`embed.go`, `BaseEnginesFS`) and
+    ships one ast-grep convert script. So even a bare install with zero user packs
+    hits the sandboxed convert path on Linux — this defect is not reachable only
+    through exotic third-party packs.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from ISSUE-020) ─────────────
+  ISSUE-020 is at `open` status and records no claims. The ledger below is derived
+  from its Acceptance criteria (2026-07-26), its Decision packet (2026-07-27), its
+  Spike results (2026-07-27), and the founder rulings of 2026-07-28.
+
+    REQ-001: The pack fleet is materializable on a fresh checkout.
+      CLM-001  every backstop.lock entry resolves either from a public remote at a
+               pinned tag or from a path INSIDE the repository; no entry depends
+               on a path outside it.
+      CLM-002  the three `backstop/*` packs move to their published `backstop-ai/*`
+               v1.2.0 coordinates, whose trees are byte-identical to the installed
+               1.1.0 trees except `name:` and `version:` — so the migration changes
+               no rule content and introduces no new findings from the rule set.
+      CLM-003  no stale artifact of an old coordinate survives where it could
+               change behavior: no old backstop.yml key, no old lock entry, no
+               `.backstop/packs/backstop/<pack>` directory, and no LIVE KEYING on
+               an old coordinate anywhere in real-repo Go — no string literal, map
+               key, path join or comparison. Doc-comment MENTIONS of a retired
+               coordinate are explicitly permitted and are not a violation; so are
+               the four named synthetic carriers. The claim is about what the code
+               keys on, not about what the prose says.
+      CLM-004  after the migration `go test ./... -race -count=1` is green and a
+               REBUILT `./bin/backstop gate` passes — the migration's falsifier.
+
+    REQ-002: The gate accepts an explicit diff base.
+      CLM-005  `gate --base <rev>` scopes the run to files changed since
+               merge-base(HEAD, rev), plus untracked files — identical to bare diff
+               mode in every other respect.
+      CLM-006  `--base` produces a NON-empty scope on a pristine, fully-committed
+               working tree (the CI condition), where bare diff mode sees nothing.
+      CLM-007  BOTH failure modes of base resolution are exit-2 config errors that
+               name what failed — a rev that does not resolve at all, AND a rev
+               that resolves but shares no merge-base with HEAD (unrelated
+               histories, the shape a force-push or a grafted shallow clone
+               produces). Neither ever falls back to `--all`, to HEAD, or to an
+               empty scope.
+      CLM-008  `--base` combined with `--all` or `--file` is an exit-2 config error.
+      CLM-009  ONE diff resolver: `ComputeGateScope` keeps its exact signature and
+               delegates to the base-aware function with an empty base, so the 40+
+               existing call sites are untouched and no second implementation of
+               "what changed" exists.
+      CLM-010  the run reports scope mode, the requested base, the resolved
+               merge-base SHA and the in-scope file count in both human and JSON
+               output, so an empty CI scope is VISIBLE rather than silent.
+
+    REQ-003: A Linux sandbox with darwin-parity denials.
+      CLM-011  an internal capability struct — readable paths, writable paths,
+               network bool — is what the Linux invocation is BUILT from, not a
+               second hardcoded profile literal, and it carries a code comment at
+               its definition site pointing at BUNDLE-021 OQ-2.
+      CLM-012  graduated-profile-capable: changing the capability set changes the
+               argv (network allowed drops `--unshare-net`; an added readable path
+               adds a `--ro-bind`), proven by a pure-function argv test that runs
+               on any platform including darwin.
+      CLM-013  on linux both `SandboxedRun` and `SandboxedRunStdout` EXECUTE the
+               command under bubblewrap with the spike's corrected invocation plus
+               the packDir bind and chdir, with deny-network, no writable paths,
+               and no readable project path outside packDir.
+      CLM-014  the falsifiable assertion triple holds on a real Linux host: read of
+               an unbound path is denied; `getent hosts` under `--unshare-net`
+               exits non-zero; the SAME command WITHOUT `--unshare-net` exits zero
+               — the control leg that proves the denial is the sandbox and not an
+               unrelated failure. These assertions EXECUTE in the CI run: the
+               go-toolchain pack's go-test engine runs `go test` project-wide
+               (`project_target: "./..."`, package-scoped), so a new
+               `//go:build linux` test file is compiled and run by the gate itself
+               and lands in diff scope as a new file. This is a determined fact,
+               not a hope — no separate CI step is needed to exercise it.
+      CLM-015  when the mechanism is unavailable the call returns an explicit error
+               naming the mechanism and ISSUE-020 — never a silent pass-through to
+               an unsandboxed exec, and the Linux execution tests FAIL rather than
+               skip when bwrap is absent.
+      CLM-016  darwin is untouched: `darwinSandboxProfile` is unchanged and every
+               existing darwin sandbox test passes unmodified.
+      CLM-017  the exported interface is unchanged — no caller in
+               `pkg/packval/executor.go` or `cmd/backstop/pack_gate.go` changes.
+
+    REQ-004: CI blocks on the real gate, diff-scoped, on push AND pull_request.
+      CLM-018  ci.yml's blocking job builds the binary, installs the locked packs,
+               and runs `backstop gate --base <derived>`; no raw golangci-lint, raw
+               `go test`, or hand-rolled coverage-threshold step survives in it.
+      CLM-019  the base is derived PER EVENT — pull_request uses the PR base sha,
+               push uses the before sha — and the guard is a RESOLVABILITY check,
+               not a zero-SHA string comparison: the derived value is only used
+               once `git rev-parse --verify` confirms it exists in the fetched
+               history. Empty, all-zeros (branch creation) AND non-zero-but-
+               unreachable (the force-push shape) all take the same loud `HEAD^`
+               fallback, and the job fails hard when `HEAD^` does not resolve
+               either.
+      CLM-020  checkout fetches full history (`fetch-depth: 0`) so both refs
+               resolve; a shallow checkout is what makes the PR base unresolvable.
+      CLM-021  the job puts every declared Layer-0 and pinned tool on PATH, each
+               from a NAMED authority: go from setup-go via `go-version-file:
+               go.mod`; semgrep 1.96.0 and ast-grep 0.43.0 from the allowlist
+               (`pkg/pack/engine/allowlist.go`); golangci-lint from an explicit
+               v2.6.0 pin IN ci.yml, because the allowlist has no entry for it and
+               go.mod's v1.64.8 tool directive would break the pack's v2-only
+               `--output.sarif.path` command; bubblewrap pinned by the runner's
+               package install. A missing tool stays a loud exit-2, never a skipped
+               dimension.
+      CLM-022  a `pack install` failure fails the job BEFORE the gate runs, so the
+               gate never executes against a partially materialized fleet.
+      CLM-023  the temporary probe workflow is removed by the same change that
+               lands the real blocking job.
+      CLM-029  the `baseline` job installs the locked packs before generating, so
+               converting all six lock entries from local to git does NOT turn one
+               `missing_pack` failure into six inside the published baseline
+               artifact. This keeps the "do not make ISSUE-086 worse" constraint
+               true; it does not claim to close ISSUE-086.
+
+    REQ-005: File-granularity activation — "green if the diff is green", and no
+             grandfather on a touched file.
+      CLM-024  a run whose diff touches a file carrying a PRE-EXISTING baselined
+               finding exits NON-ZERO and names that finding — "it was there
+               before, my changes are clean" does not pass.
+      CLM-025  a run whose diff touches only clean files exits ZERO even while the
+               repository still carries its known whole-repo debt.
+
+    REQ-006: Proven on the real runner, not simulated.
+      CLM-026  the ubuntu-latest probe values — apparmor_restrict_unprivileged_
+               userns, bwrap presence and version, kernel release, Landlock ABI —
+               are CAPTURED from real output, and the mechanism choice is confirmed
+               against them or escalated.
+      CLM-027  a real `backstop gate` run on ubuntu-latest shows the pack_engines
+               and coverage dimensions ACTUALLY EXECUTING — not capability_absent,
+               not errored — proven by that run's own JSON.
+      CLM-028  the acceptance criterion is closed ONLY by TASK-019's real CI run.
+               No local result, and no green unit test over the sandbox, may be
+               reported as satisfying it.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Make the pack fleet materializable on a fresh checkout"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Probe the real ubuntu-latest runner for the sandbox mechanism facts"
+        description: |
+          Add a TEMPORARY workflow that answers ISSUE-020's re-probe list on a real
+          GitHub Actions Linux runner. The spike's Docker test bed could not answer
+          these — LinuxKit compiles in neither AppArmor nor Landlock, so any
+          container-derived answer would be a false negative.
+
+          Trigger it on `push` to branches matching `probe/**` so it can run from a
+          side branch without touching main. Run every item and print raw output;
+          do not summarize inside the workflow.
+
+          Ordered by load-bearingness (this order is from the issue):
+            1. `cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns`
+               — decisive for the bwrap path. READ IT. DO NOT ASSUME THE VALUE.
+            2. the corrected bwrap invocation, run as the unprivileged runner user:
+                 bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+                   --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+                   --unshare-user --unshare-net --dev /dev --proc /proc /bin/true
+            3. the falsifiable assertion triple (unbound-path read denied;
+               `getent hosts` under --unshare-net non-zero; the same command
+               WITHOUT --unshare-net exit 0).
+            4. Landlock ABI probe (expect ABI 5+ on a real GHA kernel; the spike
+               has ZERO signal here, so this is new information either way).
+            5. `--unshare-pid` with `--proc` (the masked-/proc failure in the
+               container was a Docker artifact and may not reproduce).
+            6. `unshare -Urn` plus `aa-status`.
+            7. `uname -r`, `/sys/kernel/security/lsm`, and whether `bwrap` is
+               preinstalled or needs `apt-get install -y bubblewrap` — including
+               `bwrap --version`.
+
+          Push the probe branch, let the run finish, and CAPTURE the real output.
+
+          THEN COMMIT IT. Write the captured output VERBATIM to
+          `pkg/packval/testdata/ubuntu-runner-probe.txt`, with a header recording
+          the runner image label, the date, and the workflow run URL. A task report
+          is not a durable landing place: TASK-011 and TASK-012 may be executed by a
+          different session with none of this conversation, and the whole point of
+          the probe is that the mechanism choice rests on measured values rather
+          than on assumptions about Ubuntu. Captured-from-real-output is also the
+          repo's standing rule for fixtures — a probe record fabricated or
+          paraphrased from memory is worse than none.
+
+          These values are the evidence for CLM-026 and the input TASK-012's
+          mechanism commitment is checked against.
+
+          IF item 1 or item 2 falsifies the bubblewrap path, STOP AND ESCALATE with
+          the captured output. Do not silently switch to Landlock+seccomp, and do
+          not weaken the sandbox to make a job go green — the mechanism contest is
+          a founder-level call, not an implementation detail.
+        files:
+          - .github/workflows/linux-sandbox-probe.yml
+          - pkg/packval/testdata/ubuntu-runner-probe.txt
+        claims:
+          - CLM-026
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Falsifier: every locked pack must be materializable from a fresh clone"
+        description: |
+          Write the test that is RED today and that the migration turns green. Put
+          it at the repo ROOT in `package backstopcore_test`, alongside the existing
+          `workflows_test.go` and `release_config_test.go` — the root package is
+          where this repo's tests about its own configuration already live, and it
+          is the only package that can reach `backstop.lock` without `../..` games.
+
+          `TestBackstopLock_EveryEntryIsCIMaterializable` parses the real
+          `backstop.lock` and asserts, for EVERY entry:
+            - `source_type: git` entries carry a non-empty `version` and a
+              `source_coordinate`, OR
+            - `source_type: local` entries carry a non-empty `local_path` that
+              resolves to a directory INSIDE the repository root.
+          An entry with no `local_path`, or whose `local_path` escapes the
+          repository root (any resolved path outside it — `../` is the shape that
+          matters), FAILS. Name the offending pack in the failure message.
+
+          `TestBackstopYmlAndLock_DeclareTheSameCoordinates` asserts the
+          `backstop.yml` `packs:` keys and the `backstop.lock` keys are the same
+          set. This is the falsifier for migration step 2 — `pack add` leaves the
+          old backstop.yml key behind and nothing else complains.
+
+          `TestNoLiveKeyingOnRetiredPackCoordinates` — the falsifier for CLM-003's
+          Go leg, and the reason that claim is worded around KEYING rather than
+          around textual absence. Walk `pkg/`, `cmd/` and `tests/` with `go/parser`
+          in `ParseComments` mode and inspect only `*ast.BasicLit` string values —
+          NOT raw file bytes. A retired coordinate appearing in a doc comment is
+          permitted (the reviewer verified the survivors at
+          `cmd/backstop/gate.go:442,475,484`, `pack_separation.go:13` and
+          `gate_substantiveness_e2e.go:102` are comments with no live keying); a
+          retired coordinate appearing in a string literal is a failure, because a
+          literal is what a map key, a path join or a comparison is built from.
+
+          Exempt the four named synthetic carriers by path — the two
+          `pkg/gate/testdata/self-rule/` fixtures,
+          `pkg/pack/distribution/contracts_provisioning_test.go`, and
+          `tests/smoke/smoke_test.go` — with the reason for each exemption written
+          in the test, not just the path. An unexplained exemption list decays into
+          a place to hide failures. The repo already uses go/ast for absence tests;
+          follow that precedent rather than grepping.
+
+          These are dogfood tests over the REAL repo state, not synthetic fixtures.
+          Assert on parsed YAML and parsed Go, never on golden text.
+
+          Expected state after this task: BOTH RED, naming
+          backstop/contracts, backstop/go-toolchain, backstop/substantiveness
+          (no local_path) and backstop-ai/backstop-self, backstop-ai/go-standards
+          (local_path escapes the repo). Report the red output.
+        files:
+          - pack_fleet_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on: []
+
+      - id: TASK-003
+        type: implementation
+        title: "Migrate the pack fleet to remote coordinates at pinned tags"
+        description: |
+          Turn TASK-002 green by moving all five non-git lock entries to public
+          remote coordinates at pinned tags. Follow the seven-step sequence in the
+          plan notes EXACTLY — steps 2 through 7 all fail silently.
+
+          The five `pack add` invocations:
+            ./bin/backstop pack add backstop-ai/go-contracts@1.2.0
+            ./bin/backstop pack add backstop-ai/go-substantiveness@1.2.0
+            ./bin/backstop pack add backstop-ai/go-toolchain@1.2.0
+            ./bin/backstop pack add backstop-ai/backstop-self@1.1.2
+            ./bin/backstop pack add backstop-ai/go-standards@1.2.1
+
+          The last two are same-version local->git conversions; their names are
+          already correct, so they are pure source-type changes with no rename
+          fallout. The first three are renames.
+
+          Expect and REPORT the SPEC-056 identity divergence message on the first
+          three: the requested coordinate is `backstop-ai/go-contracts` while the
+          manifest may declare a different name. THE MANIFEST NAME IS THE INSTALL
+          IDENTITY — the install path, the backstop.yml key and the lock key all
+          read what the cloned `pack.yml` declares, and a divergence is reported
+          loudly but is NOT a refusal. Read what actually landed; do not assume the
+          key equals the coordinate you typed.
+
+          Then, per the seven-step sequence: remove the stale backstop.yml keys;
+          check `enforcement.policy.*.sources.*` for any key naming an old
+          coordinate and re-point it (expected: none, since the only `sources:` key
+          today is `pack_engines.sources.backstop-ai/backstop-self` — verify rather
+          than assume); `rm -rf .backstop/packs/backstop/{contracts,
+          substantiveness,go-toolchain}` so `detectExtraUnlocked` does not fail;
+          prune the stale lock entries by editing `backstop.lock` (`pack remove`
+          cannot — it reports "pack is not installed").
+
+          Then prove the content claim rather than trusting it: `diff -rq` each
+          newly installed tree against the pre-migration installed tree you removed
+          (capture copies first) and report the result. The expectation, measured
+          2026-07-28, is exactly one differing file — `pack.yml` — differing in
+          exactly two lines. If ANY other file differs, the "no new findings" basis
+          of CLM-002 is void: STOP and report the delta before continuing.
+
+          Finally re-run `./bin/backstop pack install` from a clean
+          `.backstop/packs/` and confirm every pack materializes with a matching
+          content hash.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: refactor
+        title: "Re-key real-repo pack-coordinate literals to the new names"
+        description: |
+          Step 7 of the rename sequence, and the one that carries actual judgment.
+          A measured 36 Go files under `pkg/` and `cmd/` — 37 tree-wide, see the
+          count note below — reference `backstop/contracts`,
+          `backstop/substantiveness`, `backstop/go-toolchain`, or the rule-ID forms
+          `backstop.packs.backstop.<pack>` (re-derive the list; it drifts).
+
+          THE RULE: change ONLY the files that read the REAL repository — the
+          dogfood and ratchet tests that assert against the actual backstop.yml,
+          backstop.lock, or `.backstop/packs/` install path. Files that build their
+          OWN temp pack of the same name are SYNTHETIC FIXTURES and must NOT be
+          touched: their pack name is a local literal that means nothing outside the
+          fixture, and renaming it churns the test while proving nothing.
+
+          `pkg/pack/distribution/contracts_local_install.go` and its tests are the
+          clearest synthetic case — they install the repo-root `packs/contracts`
+          SOURCE into a temp project under its own declared name. That source is a
+          fixture, not a fleet member, and it stays at `backstop/contracts`.
+
+          FOUR CARRIERS ARE OUT OF SCOPE BY NAME. They are absent from this task's
+          file list on purpose, and "completing the sweep" into any of them is a
+          regression, not thoroughness:
+            - `pkg/gate/testdata/self-rule/pack-name-keyed-capability.go`
+            - `pkg/gate/testdata/self-rule/rule-id-keyed-routing.go`
+              Negative-example fixtures for the backstop/self rules. Their
+              old-coordinate literals ARE the anti-pattern being demonstrated —
+              capability keyed on a pack NAME, routing keyed on a rule ID. Renaming
+              them leaves the rule intact and destroys the example.
+            - `pkg/pack/distribution/contracts_provisioning_test.go`
+            - `tests/smoke/smoke_test.go`
+              Both write their own temp pack under the old coordinate
+              (`smoke_test.go:265-275` writes a `backstop/go-toolchain` manifest and
+              lock into a scratch dir). The literal never leaves the fixture.
+
+          The true carrier count across the tree is 37, not 36 — `tests/smoke/` sits
+          outside a `pkg`+`cmd` grep and is missed in both directions.
+
+          Expect the touched set to be well under 37. Report the number you changed
+          AND the number you deliberately left, with the reason for the split — a
+          reviewer cannot check this judgment without both numbers.
+
+          Then read the sharp edge in the notes: every real Go file you touch enters
+          diff scope and activates ALL of its dormant findings. Fix what activates;
+          do not waive it, do not refresh the baseline. If the activated set dwarfs
+          the rename, STOP and escalate with the measured inventory.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_separation.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/gate_wiring_test.go
+          - cmd/backstop/gate_scope_test.go
+          - cmd/backstop/gate_declared_dispatch_test.go
+          - cmd/backstop/gate_capability_rekey_test.go
+          - cmd/backstop/gate_capability_contracts_rekey_test.go
+          - cmd/backstop/gate_stack_label_test.go
+          - cmd/backstop/gate_contract_e2e_harness_test.go
+          - cmd/backstop/gate_substantiveness_wiring_test.go
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+          - cmd/backstop/pack_gate_golint_test.go
+          - cmd/backstop/pack_gate_gotoolchain_test.go
+          - cmd/backstop/pack_separation_test.go
+          - cmd/backstop/capability_test.go
+          - cmd/backstop/capability_regression_test.go
+          - cmd/backstop/by_declaration_regression_test.go
+          - cmd/backstop/bridge_test.go
+          - cmd/backstop/spec046_fixtures_test.go
+          - cmd/backstop/toolchain_label_test.go
+          - pkg/gate/policy_perpack_test.go
+          - pkg/gate/result_test.go
+          - pkg/gate/contract_pack_paths_test.go
+          - pkg/gate/contract_equivalence_harness_test.go
+          - pkg/gate/substantiveness_join_test.go
+          - pkg/gate/substantiveness_q1_findings_test.go
+          - pkg/gate/substantiveness_roundtrip_test.go
+          - pkg/gate/substantiveness_strangler_harness_test.go
+          - module_path_test.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the migrated fleet: full suite, fresh install, real gate"
+        description: |
+          Prove the migration end to end. Run, and report the TRUE exit code of,
+          each of:
+
+            go build ./...
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/     (REBUILD — a stale binary
+                                                          gates the old code)
+            rm -rf .backstop/packs && ./bin/backstop pack install
+            ./bin/backstop gate
+
+          The fresh-install leg is the point: it is the closest local analogue of a
+          CI runner, and it is what proves CLM-001 with behavior rather than with a
+          lock-file assertion. Report the installed set and every content hash
+          comparison.
+
+          `pack_fleet_test.go` must now be GREEN. If `backstop gate` reports
+          findings activated by TASK-004's touched files, remediate them here per
+          the no-grandfather rule, or escalate with the inventory. Do not proceed to
+          Phase 2 with a red gate.
+        files:
+          - backstop.lock
+          - pack_fleet_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+  - id: phase-2
+    name: "Phase 2: Teach the gate an explicit diff base"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Scope tests for an explicit diff base"
+        description: |
+          Write the RED tests for base-aware scope resolution. Model the git fixture
+          on the existing `TestComputeGateScope_DiffAgainstRemoteBranch`
+          (`pkg/gate/scope_test.go:177`), which already builds a real temp git repo
+          — do not invent a second harness.
+
+          `TestComputeGateScope_DiffAgainstExplicitBase` — a repo with commits A
+          then B; resolving with base=A returns exactly the files B changed.
+
+          `TestComputeGateScope_ExplicitBaseOnCleanTreeIsNonEmpty` — THE CI
+          CONDITION, and the reason this flag exists. Same repo, nothing
+          uncommitted, no `origin/main` ref at all: bare diff mode returns an EMPTY
+          scope, and base mode returns B's files. Assert BOTH halves in the one
+          test so the contrast is what fails if someone reintroduces the fallback.
+
+          `TestComputeGateScope_ExplicitBaseUsesMergeBaseNotTwoDot` — a repo where
+          HEAD and the base ref have diverged; assert the scope is the files changed
+          since their merge-base, NOT the symmetric difference. This is what makes
+          one code path correct for both a PR base ref and a push before-sha.
+
+          `TestComputeGateScope_UnresolvableBaseIsHardError` — base is a ref that
+          does not exist. Assert an error is returned AND that the returned scope is
+          not a silent `--all`, not a HEAD diff, and not an empty file list. This is
+          the anti-fallback test; it is the most important one in the file.
+
+          `TestComputeGateScope_BaseWithNoMergeBaseIsHardError` — the OTHER failure
+          mode, and the one that is easy to implement and forget to prove. Build two
+          UNRELATED histories in one repo (`git checkout --orphan` gives you a root
+          commit sharing no ancestry), pass the orphan's sha as the base, and assert
+          the same hard error: the rev RESOLVES, so step 1 passes, and it is
+          `merge-base` that fails. A force-push or a grafted shallow clone produces
+          exactly this shape in CI. Assert the error names both revs, and assert the
+          same three non-fallbacks.
+
+          `TestComputeGateScope_ExplicitBaseIncludesUntrackedFiles` — parity with
+          bare diff mode (ISSUE-004 established untracked files are in scope).
+
+          `TestComputeGateScope_EmptyBaseKeepsExistingDiffBehavior` — the
+          delegation guard for CLM-009: passing an empty base reproduces bare diff
+          mode exactly, so there is one resolver and not two.
+        files:
+          - pkg/gate/scope_base_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "Implement base-aware diff scope resolution"
+        description: |
+          Turn TASK-006 green in `pkg/gate/scope.go`.
+
+          Add `ComputeGateScopeWithBase(projectRoot string, mode GateScopeMode,
+          files []string, base string)` as the full-arity entry point, and reduce
+          the existing `ComputeGateScope` to a thin wrapper that calls it with an
+          empty base. DO NOT change `ComputeGateScope`'s signature: 43 test call
+          sites and four production call sites (`cmd/backstop/gate.go`,
+          `cmd/backstop/waiver.go`, `cmd/backstop/baseline.go`) depend on it, and
+          the point of the wrapper is that there is exactly ONE implementation of
+          "what changed" — CLM-009.
+
+          Base resolution, in order, all failures LOUD:
+            1. `git rev-parse --verify <base>^{commit}` — on failure return an error
+               naming the ref and what could not resolve. Return NO scope the caller
+               could mistake for a valid one.
+            2. `git merge-base HEAD <resolved>` — on failure (unrelated histories)
+               return an error naming both revs.
+            3. `git diff --name-only <merge-base>` plus
+               `git ls-files --others --exclude-standard`, exactly as bare diff mode
+               does today (`scope.go:121-127`).
+
+          There is no fallback path. Not to `--all`, not to `HEAD`, not to an empty
+          list. The existing fallbacks in `resolveGateScopeDiff` are precisely why
+          CI is currently silent, and inheriting them would defeat the flag.
+
+          A non-empty base with a mode other than diff is a programming error the
+          CLI layer should already have rejected; return an error rather than
+          ignoring the base.
+
+          Record the resolved merge-base SHA on the returned scope so TASK-009 can
+          report it. Reuse `newGateScope` for normalization; do not hand-roll a
+          second path normalization (`NormalizePath` is the single authority).
+        files:
+          - pkg/gate/scope.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: test
+        title: "CLI tests for --base: flag conflicts, exit codes, scope reporting"
+        description: |
+          Write the RED CLI-level tests. Follow the existing `cmd/backstop` gate
+          test conventions.
+
+          `TestGateCommand_BaseFlagScopesToChangedFiles` — a real temp git repo,
+          `--base <sha>`, assert the run's scope contains exactly the changed files.
+
+          `TestGateCommand_BaseWithAllIsConfigError` and
+          `TestGateCommand_BaseWithFileIsConfigError` — assert exit code 2 and a
+          message naming the conflicting flags. Mirror the existing `--all` /
+          `--file` mutual-exclusion check at `cmd/backstop/gate.go:88`.
+
+          `TestGateCommand_UnresolvableBaseExitsTwo` — assert exit code 2 (config
+          error, NOT 1) and that the message names the unresolvable ref. Exit 1
+          would read as "found violations", which is a lie about what happened.
+
+          `TestGateCommand_ReportsScopeModeBaseAndFileCount` — assert the human
+          output names the scope mode, the requested base, the resolved merge-base
+          SHA, and the in-scope file count.
+
+          `TestGateCommand_JSONReportsResolvedBaseAndFileCount` — the same four
+          facts in `--json` output. This is what CI logs will be read through, and
+          it is the difference between "green over 12 files" and an unexplained
+          green over zero.
+        files:
+          - cmd/backstop/gate_base_test.go
+        claims:
+          - CLM-008
+          - CLM-010
+        depends_on:
+          - TASK-006
+
+      - id: TASK-009
+        type: implementation
+        title: "Wire --base into the gate command and report the resolved scope"
+        description: |
+          Turn TASK-008 green in `cmd/backstop/gate.go`.
+
+          Add `--base <rev>` to `newGateCommand`. In `runGate`, read it alongside
+          `--all` and `--file`; reject `--base` with either of them as an
+          `ExitCodeError{Code: ExitConfigError}`, extending the existing
+          mutual-exclusion check rather than adding a parallel one. Route the base
+          into `gate.ComputeGateScopeWithBase`, and map a base-resolution error to
+          exit 2 with the message the scope layer produced — do not rewrite or
+          soften it.
+
+          Then make the scope visible. Report scope mode, requested base, resolved
+          merge-base SHA and in-scope file count in the human output, and carry the
+          same fields in the JSON output alongside the existing `GateScope` fields
+          (`mode`, `files`, `warnings`). An empty scope must be legible as an empty
+          scope in both.
+
+          Help text for `--base`: state that it scopes the run to files changed
+          since the merge-base with the given revision, and that it is for CI, where
+          the working tree is clean and the bare diff scope is empty. Someone
+          reading `--help` should understand why the flag exists.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-008
+          - CLM-010
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the base-scoped gate against this repository"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate --base $(git rev-parse HEAD~1)
+            ./bin/backstop gate --base does-not-exist        (expect exit 2)
+            ./bin/backstop gate --base HEAD~1 --all          (expect exit 2)
+
+          The first `--base` run is the real proof: report the resolved merge-base
+          SHA and the file count, and confirm the file list matches
+          `git diff --name-only HEAD~1`. A run reporting zero files here means the
+          resolution is wrong — investigate, do not accept the green.
+        files:
+          - pkg/gate/scope.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-007
+          - TASK-009
+
+  - id: phase-3
+    name: "Phase 3: Linux sandbox — capability struct plus bubblewrap"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Capability-to-argv tests, runnable on any platform"
+        description: |
+          Write the RED tests for the capability struct and the pure argv builder.
+          These must NOT be build-constrained to linux: the builder is a pure
+          function, and keeping it testable on darwin is what lets the mechanism be
+          reviewed and regression-locked on the machine where development happens.
+
+          `TestSandboxCapabilityArgv_DeniesNetworkAndScopesReads` — the
+          convert/validator capability set produces an argv carrying
+          `--unshare-user`, `--unshare-net`, the `/usr` read-only bind with the
+          merged-`/usr` symlinks, `--dev /dev`, `--proc /proc`, a `--ro-bind` of
+          packDir onto itself, and `--chdir <packDir>`. Assert the packDir bind and
+          the chdir explicitly: the spike's recorded invocation omits both, and
+          without them the pack's own convert script does not exist inside the
+          sandbox.
+
+          `TestSandboxCapabilityArgv_NoWritablePathsByDefault` — the default
+          capability set grants NO writable bind and no tmpfs. Darwin denies
+          `file-write*` outright; parity is the spec, and a convenience `/tmp` is a
+          real divergence.
+
+          `TestSandboxCapabilityArgv_NoProjectPathReadable` — a readable set of
+          exactly {packDir, system paths} produces no bind of the project root or
+          any parent of packDir.
+
+          `TestSandboxCapabilityArgv_NetworkAllowedDropsUnshareNet` and
+          `TestSandboxCapabilityArgv_AddedReadablePathAddsRoBind` — the
+          graduated-profile proof (CLM-012). The argv is DERIVED from the capability
+          struct, so changing the struct changes the argv. If these two pass while
+          the others do, the flags are hardcoded and the struct is decorative.
+
+          `TestSandboxUnavailableMechanismIsLoudError` — when the mechanism cannot
+          be resolved, the returned error names the mechanism and ISSUE-020, and no
+          command is executed. Inject the resolver; do not depend on the host
+          lacking bwrap.
+
+          `TestSandboxUnsupportedPlatformStillErrors` — the `default` branch keeps
+          refusing, so a third platform does not silently inherit the Linux path.
+
+          READ `pkg/packval/testdata/ubuntu-runner-probe.txt` BEFORE WRITING THESE
+          ASSERTIONS. Every bwrap-specific expectation above presumes the probe
+          confirmed the mechanism on the real runner. That file is the reason this
+          task depends on TASK-001 rather than only on TASK-010: if the probe
+          recorded a restricted `apparmor_restrict_unprivileged_userns` or a failing
+          `--unshare-user`, these tests would be encoding a mechanism that cannot
+          run, and the correct move is to STOP AND ESCALATE before writing them.
+        files:
+          - pkg/packval/sandbox_capability_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-001
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement the capability struct and the bubblewrap Linux branch"
+        description: |
+          Turn TASK-011 green.
+
+          In a new `pkg/packval/sandbox_capability.go` (NO build tag — the builder
+          must compile and be testable everywhere), define the capability struct:
+          readable paths, writable paths, network bool. Give it the doc comment
+          BUNDLE-021 OQ-2 requires — leg 2 of the issue's triple-tracked hedge —
+          stating plainly that this is an INTERNAL representation chosen so a future
+          pack-DECLARED capability can be slotted in without a rewrite, that it does
+          NOT resolve OQ-2, and that BUNDLE-021 owns that question. Then the pure
+          argv builder: capability set plus packDir plus command and args in, full
+          bwrap argv out.
+
+          Define the convert/validator capability set as the darwin-parity default:
+          readable = {packDir, the system paths the merged-`/usr` layout needs},
+          writable = {} (empty — see the notes), network = false.
+
+          In `pkg/packval/sandbox.go`, replace BOTH `case "linux":` hard errors with
+          the real execution path. Resolve the mechanism binary; on failure return an
+          error naming bubblewrap and ISSUE-020 and execute nothing. Otherwise build
+          the argv and run it, preserving each function's existing output contract
+          exactly: `SandboxedRun` keeps `CombinedOutput`; `SandboxedRunStdout` keeps
+          the explicit stdout buffer, the stdin pipe, and the "return stdout captured
+          so far alongside the error" behavior on non-zero exit. Those contracts are
+          what keep a converter's stderr banner out of the SARIF the gate parses.
+
+          Do not touch `darwinSandboxProfile`, the darwin branches, or the exported
+          signatures. Callers in `pkg/packval/executor.go:46` and
+          `cmd/backstop/pack_gate.go:472,693` must not change — verify by building,
+          not by inspection.
+
+          THE PROBE RECORD IS A PRECONDITION, NOT BACKGROUND READING. Open
+          `pkg/packval/testdata/ubuntu-runner-probe.txt` and check the mechanism
+          against it before committing to bubblewrap: the
+          `apparmor_restrict_unprivileged_userns` value, whether the corrected
+          invocation exited 0 as the unprivileged runner user, and whether bwrap was
+          preinstalled or needed apt. Cite the probe file in the implementation's
+          doc comment so the next reader can see what the choice rests on.
+
+          If the probe falsified the bwrap path, STOP HERE and escalate. Do not
+          implement a fallback mechanism on your own authority, and do not proceed
+          on the assumption that a real runner behaves like the container test bed —
+          the spike established it does not.
+        files:
+          - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-001
+          - TASK-011
+
+      - id: TASK-013
+        type: test
+        title: "The falsifiable assertion triple as real Linux execution"
+        description: |
+          Write the `//go:build linux` execution tests. These do not run on the
+          development machine; they are what Phase 5 proves in CI, and they are the
+          difference between "a Linux branch exists" and "the Linux branch denies
+          anything".
+
+          The triple, from the spike, and it is a triple for a reason — a bare
+          "exit 0" cannot distinguish "the sandbox denied correctly" from "the
+          sandbox did nothing":
+
+          `TestLinuxSandbox_DeniesReadOfUnboundPath` — reading a path outside the
+          capability's readable set fails with a not-found/denied error.
+
+          `TestLinuxSandbox_DeniesNetwork` — `getent hosts` under the default
+          capability exits non-zero.
+
+          `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` — the SAME command
+          with network allowed exits zero. THE CONTROL LEG. Without it, the previous
+          test could be passing because of an unrelated failure.
+
+          `TestLinuxSandbox_ReadsPackDirContents` — a file inside packDir IS
+          readable, so the denials above are not simply "nothing works".
+
+          `TestLinuxSandbox_ConvertScriptProducesCleanStdout` — a real convert-shaped
+          script that writes a banner to stderr and payload to stdout, run through
+          `SandboxedRunStdout`, yields payload only. This is the actual gate path.
+
+          When bwrap is absent these tests must FAIL, not `t.Skip`. A skip is how a
+          Linux sandbox stays unproven for another six months; the founder's posture
+          is that failures are loud and attributed. Say so in a comment at the top of
+          the file so a future reader does not "helpfully" add a skip.
+        files:
+          - pkg/packval/sandbox_linux_exec_test.go
+        claims:
+          - CLM-014
+        depends_on:
+          - TASK-011
+
+      - id: TASK-014
+        type: verification
+        title: "Verify darwin is untouched and the Linux path compiles"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...          (the linux branch must COMPILE here,
+                                                where nobody can run it yet)
+            go vet ./pkg/packval/
+            go test ./... -race -count=1
+            go test ./pkg/packval/ -race -count=1 -run 'Sandbox' -v
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          The darwin sandbox tests — `TestSandboxSecurityDenialsHold`,
+          `TestSandboxDeniesProjectFileRead`, `TestSandboxDeniesFileWrite`,
+          `TestSandboxDeniesNetwork`, `TestSandboxConvertWithRealInterpreter`,
+          `TestSandboxProfileAllowsDyldLibraries` — must all pass UNMODIFIED. If any
+          needed a change, the darwin path was touched and CLM-016 is violated;
+          report it rather than adjusting the test.
+
+          State explicitly in the report that `sandbox_linux_exec_test.go` did NOT
+          execute here and is unproven until TASK-019. Do not describe Phase 3 as
+          "the Linux sandbox works".
+        files:
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_capability.go
+        claims:
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-012
+
+  - id: phase-4
+    name: "Phase 4: Flip CI's blocking job to the real gate"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Workflow shape tests for the blocking gate job"
+        description: |
+          Extend the existing root-package `workflows_test.go` (from ISSUE-087) with
+          RED shape tests over `.github/workflows/ci.yml`. Assert on PARSED YAML
+          structure, never on golden text — a test that breaks on reindentation
+          teaches the next person to delete it.
+
+          `TestCIWorkflow_BlockingJobRunsBackstopGate` — the blocking job builds the
+          binary, runs `pack install`, and invokes `backstop gate` with a `--base`
+          argument. Assert the ORDER: install precedes gate.
+
+          `TestCIWorkflow_BlockingJobHasNoRawToolInvocations` — no step in the
+          blocking job runs `golangci-lint`, a bare `go test`, or a hand-rolled
+          `go tool cover` threshold. This is what makes the flip real rather than
+          additive, and it is the test that fails if someone re-adds a "quick lint
+          step" later.
+
+          `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` — no `--all` and no
+          `--file` on the gate invocation. ISSUE-091 (`--all` under-reports vs diff)
+          and ISSUE-093 (`--file` crashes on non-Go directories, repeated `--file`
+          silently dropped) are the reasons; cite both in the test comment so the
+          constraint survives its authors.
+
+          `TestCIWorkflow_DerivesDiffBasePerEvent` — a step derives the base from
+          `github.event.pull_request.base.sha` for pull_request and
+          `github.event.before` for push, and fails the job when no base resolves.
+
+          `TestCIWorkflow_BaseGuardChecksResolvabilityNotZeroSha` — assert the guard
+          runs `git rev-parse --verify` (or equivalent) on the DERIVED value before
+          using it, rather than only string-comparing against the all-zeros SHA.
+          A force-push leaves `github.event.before` non-zero AND unreachable in the
+          fetched history: a zero-SHA-only guard does not fire, the value flows
+          through, and the gate exits 2 with no fallback. Write that failure mode
+          into the test comment — it is the reason the assertion is shaped around
+          resolvability rather than around a magic string.
+
+          `TestCIWorkflow_TriggersOnPushAndPullRequest` — both events, per the
+          founder ruling.
+
+          `TestCIWorkflow_CheckoutFetchesFullHistory` — `fetch-depth: 0` on the
+          checkout in the blocking job. Without it the PR base sha is not in the
+          local history and every run exits 2.
+
+          `TestCIWorkflow_InstallsProvisionedToolsAtAllowlistPins` — semgrep and
+          ast-grep are installed at the versions
+          `pkg/pack/engine/allowlist.go` pins. READ the pins from that file at test
+          time rather than restating 1.96.0 / 0.43.0, so a pin bump cannot leave CI
+          silently behind.
+
+          `TestCIWorkflow_PinsGolangciLintToPackCompatibleMajor` — the falsifier the
+          allowlist CANNOT provide, because `golangci-lint` is not in it and never
+          will be (nil-Provision bindings return early from
+          `checkEngineToolAllowed`). Assert three things about ci.yml: a step
+          installs a `golangci-lint` BINARY; the version it pins is v2.x (the
+          go-toolchain pack's `--output.sarif.path` is v2-only syntax, so a v1 pin
+          silently breaks the lint dimension with an unknown-flag error); and the
+          install does NOT go through `go tool` / the go.mod tool directive, which
+          pins v1.64.8 for unrelated reasons. Derive the required major from the
+          pack's declared command if you can reach it; otherwise assert v2.x and
+          cite the flag in the comment.
+
+          `TestCIWorkflow_InstallsBubblewrap` — a step installs bubblewrap. It is
+          the most load-bearing tool in the plan and the only one with no fallback:
+          without it every sandboxed convert script fails on Linux, which is the
+          exact defect ISSUE-020 was filed for. Assert the install is unconditional
+          — no `if`, no "only when missing" guard — because the runner image's
+          preinstall status is not a contract and can change under us. Whether
+          TASK-001's probe found it preinstalled does not matter: installing it
+          explicitly is what makes the job reproducible.
+
+          `TestCIWorkflow_GoVersionComesFromGoMod` — setup-go uses
+          `go-version-file: go.mod`, so the Go toolchain has ONE authority rather
+          than a second hardcoded version drifting beside it.
+
+          `TestCIWorkflow_PackInstallFailureFailsTheJob` — no `continue-on-error`,
+          no `|| true`, and no conditional that lets the gate run after a failed
+          install.
+
+          `TestCIWorkflow_BaselineJobInstallsPacksBeforeGenerating` — the baseline
+          job runs `pack install` before `baseline generate`. Without it, TASK-003's
+          local→git conversion turns ONE `missing_pack` failure into SIX inside the
+          published artifact (`VerifyLock` skips local entries and hard-fails git
+          entries with absent directories, `pkg/pack/distribution/verify.go:46-60`;
+          `runBaselineGenerate` has no install step of its own,
+          `cmd/backstop/baseline.go:50-75`). Cite both call sites in the test
+          comment so the coupling between the fleet migration and this job is
+          legible to someone reading only this test.
+
+          `TestCIWorkflow_NoProbeWorkflowRemains` — the temporary probe workflow
+          from TASK-001 is gone.
+        files:
+          - workflows_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-029
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: implementation
+        title: "Rewrite ci.yml's blocking job around backstop gate"
+        description: |
+          Turn TASK-015 green. Replace the `gate` job's hand-baked steps — Lint,
+          Test with coverage, Enforce coverage threshold — with the real thing, and
+          delete the probe workflow TASK-001 added.
+
+          Job shape:
+            - actions/checkout@v4 with `fetch-depth: 0`
+            - actions/setup-go@v5 with `go-version-file: go.mod`
+            - install a REAL `golangci-lint` BINARY on PATH at a pinned **v2.6.0**
+              (today's `go tool golangci-lint` does NOT satisfy `provisionEngines`,
+              which resolves the executable by name). v2 is not a preference: the
+              go-toolchain pack declares `golangci-lint run --output.sarif.path
+              stdout --show-stats=false`, which is v2-only syntax, and go.mod:197's
+              tool directive pins v1.64.8 — installing THAT breaks the lint
+              dimension with an unknown-flag error. Write both facts in a comment
+              beside the pin, or the two pins get "consolidated" later and the break
+              comes back.
+            - install semgrep 1.96.0 and ast-grep 0.43.0 — the pins in
+              `pkg/pack/engine/allowlist.go` — and bubblewrap. Nothing here floats.
+            - `go build -o ./bin/backstop ./cmd/backstop`
+            - `./bin/backstop pack install`
+            - derive the base (below)
+            - `./bin/backstop gate --base "$BASE"`
+
+          Base derivation, in one explicit, commented step:
+            pull_request  -> ${{ github.event.pull_request.base.sha }}
+            push          -> ${{ github.event.before }}
+          then guard ON RESOLVABILITY, not on a magic string. Run
+          `git rev-parse --verify "$BASE^{commit}"` and use the value only if it
+          succeeds; otherwise fall back to `HEAD^` and say so loudly in the log. One
+          check covers all three ways the derived value goes bad:
+            - empty (missing event payload field),
+            - the all-zeros SHA (branch creation — which INCLUDES the very first
+              push of this history to the new remote),
+            - non-zero but UNREACHABLE (the force-push shape: `github.event.before`
+              names a commit that no longer exists in the fetched history).
+          The third is the one a zero-SHA string comparison misses entirely. It does
+          not fire, the dead sha flows through to the gate, and the job exits 2 with
+          no fallback — a red build with a confusing cause, on a perfectly ordinary
+          force-push.
+
+          If `HEAD^` does not resolve either, FAIL THE JOB with a message naming what
+          could not resolve. Never substitute `--all`, and never let the job continue
+          with no base — exit 2 from the gate is the correct outcome, not something
+          to route around.
+
+          Write a header comment on the job explaining WHY the base is explicit:
+          a CI checkout is pristine, so bare diff mode resolves `merge-base HEAD
+          origin/main` to HEAD on a push and finds nothing to check. The comment is
+          load-bearing — it is what stops the next person from "simplifying" the
+          step back into a vacuous green.
+
+          The founder's semantics, stated in the job so they are not folklore:
+          the job blocks on gate findings in DIFF-SCOPED files only ("green if the
+          diff is green"), and a file that enters the diff carries ALL of its
+          findings, including ones that predate the change.
+
+          THE `baseline` JOB NEEDS EXACTLY ONE CHANGE, AND NO MORE. Add a
+          `./bin/backstop pack install` step (with the binary build it needs) before
+          `baseline generate`. This is not opportunistic improvement: without it,
+          TASK-003's local→git conversion turns that job's one baked-in
+          `missing_pack` failure into six, published straight into the artifact
+          main's ratchet compares against, and this plan would be the thing that
+          made ISSUE-086 worse.
+
+          Do NOT go further. Do not feed the blocking job's output into it, do not
+          change its scope or triggers, and do NOT report ISSUE-086 as closed — the
+          question of what a pack-ful baseline means, and what to do with the
+          already-published packless artifacts, belongs to that issue. Report the
+          change to its owner as an input.
+
+          Delete `.github/workflows/linux-sandbox-probe.yml`. The probe's VALUES are
+          durable in `pkg/packval/testdata/ubuntu-runner-probe.txt` (TASK-001); the
+          workflow that produced them is scaffolding and goes.
+        files:
+          - .github/workflows/ci.yml
+          - .github/workflows/linux-sandbox-probe.yml
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-029
+        depends_on:
+          - TASK-001
+          - TASK-015
+
+      - id: TASK-017
+        type: test
+        title: "Falsifier: a pre-existing finding in a touched file must red the gate"
+        description: |
+          The founder's file-granularity ruling, locked at the exit-code level. The
+          unit-level ratchet is already covered by
+          `pkg/gate/baseline_ratchet_test.go`; what is NOT covered is the whole path
+          a CI run actually takes — real base resolution, real scope, real baseline,
+          real exit code. Model the harness on
+          `TestGate_PackEngines_DiffScope_RedsOnChangedFileViolation`
+          (`cmd/backstop/gate_scope_test.go:310`), extended with a real git repo and
+          a `--base` resolution.
+
+          `TestGate_ExplicitBase_PreExistingFindingInTouchedFileReds` — a file
+          carrying a finding that IS in the baseline; the diff touches that file;
+          assert the run exits NON-ZERO and that the reported violation is the
+          pre-existing one. This is the exact defense against "that was there
+          before, my changes are clean" — the failure mode this ruling exists to
+          kill.
+
+          `TestGate_ExplicitBase_UntouchedFileFindingStaysGrandfathered` — the
+          mirror. A baselined finding in a file the diff does NOT touch keeps its
+          grandfather. Without this, the previous test is satisfied by any gate that
+          ignores the baseline entirely.
+
+          `TestGate_ExplicitBase_CleanDiffIsGreenDespiteRepoDebt` — a diff touching
+          only clean files exits ZERO while the repo still carries baselined
+          findings elsewhere. "Green if the diff is green" (CLM-025).
+
+          Note in the file header that these are REGRESSION LOCKS over behavior the
+          strict file-level ratchet (ISSUE-050,
+          `pkg/gate/baseline.go:135-148 scopeTouches`) already implements — so they
+          are expected to pass on first run. That is the intent: the founder asked
+          for a falsifier that would catch the day someone loosens it, and a test
+          that is green on arrival is still doing that job. Report honestly that
+          they passed immediately rather than manufacturing a red phase.
+        files:
+          - cmd/backstop/gate_base_ratchet_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+        depends_on:
+          - TASK-014
+
+      - id: TASK-018
+        type: verification
+        title: "Verify the workflow locally: actionlint, shape tests, full suite"
+        description: |
+          Run and report true exit codes for:
+
+            go run github.com/rhysd/actionlint/cmd/actionlint@latest \
+              .github/workflows/ci.yml
+            go test . -race -count=1 -run 'TestCIWorkflow' -v
+            go test ./cmd/backstop/ -race -count=1 -run 'ExplicitBase' -v
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          actionlint fetches from the network. If the fetch fails, report the failure
+          and the skip EXPLICITLY — "actionlint could not run: <error>" — and do NOT
+          report the step as passed. The parsed-YAML shape tests are the
+          always-available falsifier and are never optional.
+
+          actionlint may also flag the pre-existing `release` and `tag-integrity`
+          workflows. Report those separately; do not fix them here.
+
+          Then verify the baseline job locally, because its failure mode is silent:
+          run `./bin/backstop baseline generate` with `.backstop/packs/` POPULATED
+          and again with it EMPTY, and report the `missing_pack` failure count from
+          each. Empty must show six (the post-migration state the job would have
+          been left in) and populated must show zero. If the populated run still
+          reports failures, CLM-029 is not satisfied and the `pack install` step is
+          not doing what it was added for. Restore the installed packs afterwards.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - cmd/backstop/gate_base_ratchet_test.go
+        claims:
+          - CLM-018
+          - CLM-019
+          - CLM-024
+          - CLM-025
+          - CLM-029
+        depends_on:
+          - TASK-016
+          - TASK-017
+
+  - id: phase-5
+    name: "Phase 5: Close the acceptance criterion on a real Linux runner"
+    tasks:
+      - id: TASK-019
+        type: verification
+        title: "Prove backstop gate on the real ubuntu-latest runner"
+        description: |
+          THE ONLY PLACE ISSUE-020's ACCEPTANCE CRITERION IS CLOSED. Everything
+          before this is local evidence; the criterion is a real `backstop gate`
+          run, against really-installed packs, on a real Linux CI host.
+
+          Push the branch to `origin` (github.com/backstop-ai/backstop-core, the
+          private remote) so `ci.yml` executes on `ubuntu-latest`, and open a pull
+          request so BOTH triggers are exercised — the push path and the
+          pull_request path derive their bases differently, and a plan that proves
+          only one has proved half of CLM-019.
+
+          Read the real run and report, from its own output:
+            - the resolved base and the in-scope file count for each event. A count
+              of zero is a FAILURE of this task, not a pass — it is the vacuous
+              green this whole plan exists to prevent.
+            - that `pack install` materialized every locked pack on the runner.
+            - that `pack_engines` and `coverage` ACTUALLY EXECUTED — not
+              `capability_absent`, not errored. Take this from the gate's own JSON,
+              not from the job's exit code. A green exit with an absent dimension is
+              exactly the failure this issue was filed about.
+            - that the Linux sandbox executed convert scripts: the findings the
+              engines produced are proof the sandboxed convert path ran, since every
+              functional pack (including the embedded `base-engines`) converts
+              through it.
+            - the results of `sandbox_linux_exec_test.go`. These DO run — assert it,
+              do not hedge it. The go-toolchain pack's go-test engine is declared
+              with `command: go test`, `scope_kind: project-wide` and
+              `project_target: "./..."`, so the gate itself compiles and runs the
+              whole suite on the runner; a `//go:build linux` file that is inert on
+              darwin is a first-class test there. It is also a NEW file, so it is in
+              diff scope. If the triple's assertions do not appear in the run's
+              output, something is wrong with the dispatch — investigate that rather
+              than reporting the tests as unexercised.
+
+          If the run is RED, report the failure verbatim and attribute it. Per the
+          founder's 2026-07-27 posture, a loud attributed failure is an acceptable
+          interim state; a silenced, skipped or worked-around one is not. Do NOT
+          add `continue-on-error`, do NOT narrow the scope, and do NOT weaken the
+          sandbox to produce a green.
+
+          Report TASK-019 as the sole basis for any claim that the issue's
+          acceptance criterion is met (CLM-028).
+        files:
+          - .github/workflows/ci.yml
+          - pkg/packval/sandbox.go
+        claims:
+          - CLM-014
+          - CLM-026
+          - CLM-027
+          - CLM-028
+        depends_on:
+          - TASK-012
+          - TASK-016
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Final gate: full kill chain plus artifact validation"
+        description: |
+          The comprehensive close, covering both work categories this plan touched —
+          Go code and artifacts.
+
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/     (REBUILD — mandatory)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-020
+            ./bin/backstop artifact validate --issue ISSUE-020
+
+          Then the honesty pass, reported as findings rather than filed as work:
+            - the stale `@waiver:backstop/self/...` rule-IDs at
+              `cmd/backstop/pack_gate.go:888` and
+              `cmd/backstop/pack_gate_provision.go:119`, which appear unbound after
+              the 2026-07-27 rename. Confirm or refute by reading `rule` from
+              `gate --file <f> --json`. Do not fix them here.
+            - ISSUE-086: the baseline job is NO LONGER packless — TASK-016 added a
+              `pack install` step, because this plan's fleet migration would
+              otherwise have taken it from one `missing_pack` failure to six. Report
+              that to ISSUE-086 as an INPUT, not a resolution: the issue stays open
+              on the broader question it owns — whether a pack-ful baseline is
+              correct, what to do with the already-published packless artifacts, and
+              whether the coverage-baseline refresh PLAN-ISSUE-087 put on hold can
+              now proceed.
+            - the two unsandboxed `/bin/sh` sites in `pkg/gate`, unchanged by
+              design, and still the open half of OQ-3.
+            - which of this plan's claims rest on TASK-019's real run rather than on
+              anything reproducible locally.
+
+          Do not report the plan complete while the gate is red or while TASK-019
+          is unproven.
+        files:
+          - plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml
+          - pkg/packval/sandbox.go
+          - cmd/backstop/gate.go
+          - .github/workflows/ci.yml
+        claims:
+          - CLM-004
+          - CLM-016
+          - CLM-017
+          - CLM-028
+        depends_on:
+          - TASK-012
+          - TASK-016
+          - TASK-019
