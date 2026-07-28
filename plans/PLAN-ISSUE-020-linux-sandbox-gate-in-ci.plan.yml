@@ -334,6 +334,89 @@ notes: |
   gates a file the author never wrote. Do not close this by deciding it is probably
   fine.
 
+  ── THE SANDBOX WORKS (PR re-run after 2f1364d) ────────────────────────────
+  The mechanism is PROVEN IN PRODUCTION. On a real ubuntu-latest runner:
+
+    pack_engines        PASS — 61s of real engine execution THROUGH the
+                        Landlock+seccomp trampoline
+    test_verification   PASS — and the `TestLinuxSandbox_*` triple plus the
+                        constants-parity test EXECUTED FOR THE FIRST TIME ANYWHERE,
+                        and passed
+    contract_signature  PASS
+    base derivation     exact, 8 files
+
+  CLM-013, CLM-014 and CLM-040 are held IN PRODUCTION rather than in unit tests.
+  CLM-038/039 held again. CLM-019 is fully closed. The falsifiable assertion triple
+  — denial, denial, and the positive control — ran against a real kernel and held,
+  which is the thing ISSUE-020 was filed to establish and the thing no local suite
+  could ever have shown.
+
+  Worth stating plainly because it was earned the hard way: three runner failures
+  taught this lane three separate lessons (bwrap unavailable, diagnostic discarded,
+  mask-vs-inode), and each fix was made at the source rather than around it. The
+  sandbox that now works is the one the evidence forced, not the one the plan
+  originally described.
+
+  GATE EXIT 1, TWO FAILING STEPS, NEITHER SANDBOX-RELATED. Both are legible, and
+  both are recorded below rather than absorbed.
+
+  ── RESIDUAL 1: sandbox_linux.go COVERAGE, 41/134 (30.6%) ──────────────────
+  The transient `coverage_unmeasured` Phase 3b left behind RESOLVED — the file is
+  now measured on linux, exactly as predicted — and it resolved INTO A RED. That is
+  the honest outcome of a transient becoming real, not a new defect: the exec tests
+  cover the happy trampoline paths, and 93 statements of error paths, apply loops
+  and helper branches are unexercised.
+
+  SIZE IT HONESTLY: 93 statements of error-path coverage in code that makes raw
+  syscalls is REAL WORK, not a margin adjustment. Most of those paths are reachable
+  only by making a syscall fail, which needs injection seams that do not exist yet.
+  Phase 4d owns it.
+
+  AND DO NOT CHASE 100%. Some statements are UNREACHABLE BY CONTRACT and the source
+  already says so — `sandbox_linux.go:108-112` documents that
+  `applyRestrictionsAndExec` ends in `unix.Exec`, so the line after it can only run
+  if the impossible happened (it returns an error precisely so the impossible case
+  is not a silent success). A test cannot reach that line without breaking the
+  contract it protects. Phase 4d must NAME the treatment for such statements —
+  count them, justify each, and reach the floor around them — rather than
+  contorting the code to execute them.
+
+  ── RESIDUAL 2: artifact_status_drift, 7 VIOLATIONS — EXTERNAL BLOCKER ─────
+  Blocks in CI, passes locally, and the difference is the point: the LOCAL baseline
+  grandfathers these findings while CI pulls NO baseline (the ISSUE-086 / DIR-003
+  gap). CI is showing the truth and the local run is showing a cached opinion. That
+  is an argument FOR the CI-pulled baseline, not against the finding.
+
+  These are corpus-level broken promises that would block ANY CI run of this repo —
+  they have nothing to do with ISSUE-020, and this plan did not create them:
+    - ISSUE-018's two MANDATED TEST NAMES,
+      `TestCutover_GateNeverWiresStepCodeCheck` and
+      `TestCutover_GateNeverCallsCheckRun`, exist in NO file (verified: zero hits
+      each).
+      ⚠ NARROWER THAN "TestCutover_* EXIST NOWHERE", and the distinction changes the
+      likely disposition: `TestCutover_*` tests DO exist —
+      `cmd/backstop/gate_cutover_step2_test.go` carries
+      `TestCutover_NoCodeCheckStepInGateStepList` and
+      `TestCutover_LintBuildTestRunThroughDispatchPackEngines`, across three files.
+      So this reads as MANDATED-NAME DRIFT (shipped, then renamed) rather than
+      never-shipped, and the investigation should weigh that before treating it as
+      missing functionality.
+    - ISSUE-036's five signature fixture ids.
+
+  THE LOCAL/CI DIVERGENCE IS SYSTEMATIC, AND IT HAS BEEN ALL LANE. A gitignored
+  `.backstop/baseline.json` — verified present, 196KB, dated 2026-07-14 — is what
+  grandfathers these seven findings locally. A clean checkout has no baseline, so
+  they block. LOCAL GREEN AND CI GREEN ARE DIFFERENT PREDICATES until ISSUE-086 /
+  DIR-003 lands the CI-pulled baseline, and every "green locally" report in this
+  lane should be read with that discount applied. Recorded as context on this
+  blocker; the fix belongs to ISSUE-086, and this plan must NOT absorb it.
+
+  NOT THIS PLAN'S WORK, AND NOT TO BE FIXED HERE. A read-only investigation
+  (shipped-then-deleted vs never-shipped / cheap-close) is dispatched and is the
+  TRACKER; alignment routes to the artifact agents afterwards. Recorded here as an
+  EXTERNAL BLOCKER of CLM-028: the gate cannot go green on a runner until it is
+  resolved, and resolving it is somebody else's lane.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -1269,6 +1352,19 @@ notes: |
                so a new `//go:build linux` test file is compiled and run by the gate
                itself and lands in diff scope as a new file. This is a determined
                fact, not a hope — no separate CI step is needed to exercise it.
+               EVIDENCE WORDING CORRECTED 2026-07-28 against the mechanism: a
+               PASSING test produces NO SARIF finding, so no passing test name can
+               EVER appear in gate output — grep of the whole run log shows zero Go
+               test names, for every package. Do NOT expect to see
+               `TestLinuxSandbox_*` named in a green run; their absence is the
+               engine working, not evidence of a skip. What IS provable, and what
+               this claim is now written against, is the pair: `pack_engines` PASS
+               means zero test failures repo-wide on linux, and a non-zero
+               `sandbox_linux.go` coverage measurement means `//go:build linux` code
+               compiled AND ran. (The alternative — surfacing the engine's raw
+               output on demand so individual test names are visible — is a real
+               capability and a bigger change; it is named here as the option not
+               taken, not smuggled in.)
       CLM-015  when the mechanism is unavailable — Landlock ABI 0, ENOSYS, or
                Landlock absent from the kernel's LSM list — the call returns an
                explicit error naming Landlock, the kernel version and ISSUE-020,
@@ -1419,10 +1515,23 @@ notes: |
                it always named.
       CLM-027  a real `backstop gate` run on ubuntu-latest shows the pack_engines
                and coverage dimensions ACTUALLY EXECUTING — not capability_absent,
-               not errored — proven by that run's own JSON.
+               not errored — proven by that run's own JSON. AMENDED 2026-07-28:
+               ci.yml ran the gate WITHOUT `--json`, so the JSON this claim names
+               did not exist. TASK-031 adds it (keeping the human output, which is
+               the workflow log's surface). Until that lands, the evidence is the
+               human step summary, and the claim is written against JSON it now
+               actually produces.
       CLM-028  the acceptance criterion is closed ONLY by TASK-019's real CI run.
                No local result, and no green unit test over the sandbox, may be
-               reported as satisfying it. STRENGTHENED 2026-07-28: green means
+               reported as satisfying it. BLOCKED EXTERNALLY 2026-07-28 by
+               `artifact_status_drift`: seven corpus-level broken promises
+               (ISSUE-018's two mandated test names, ISSUE-036's five signature
+               fixture ids) block ANY CI run of this repo and are NOT this plan's
+               to fix. A read-only investigation is their tracker. CLM-028 cannot
+               close until that lane resolves, and this plan must not route around
+               it by narrowing scope, waiving, or pulling a baseline into CI to
+               grandfather them — the local baseline hiding them is precisely why
+               they went unseen. STRENGTHENED 2026-07-28: green means
                UNCONDITIONALLY green. No dimension is expected-red, no residual is
                pre-excused, and no finding may be reported as "known" or
                "explained" in satisfaction of this claim. The three structural
@@ -1445,6 +1554,17 @@ notes: |
                each platform compiles and measures only code it can execute. The
                runtime `switch runtime.GOOS` is gone, and with it the reason
                `sandbox_nonlinux.go` existed as a stub-symbol shim.
+    REQ-010: The linux sandbox implementation meets the coverage floor on linux.
+      CLM-042  `pkg/packval/sandbox_linux.go` clears the per-file floor WHEN
+               MEASURED ON LINUX — the only platform where it compiles, and
+               therefore the only place the measurement exists. Statements that are
+               UNREACHABLE BY CONTRACT (the post-`unix.Exec` line the source already
+               documents at :108-112) are COUNTED AND JUSTIFIED individually rather
+               than chased: the floor is reached around them, and any code contorted
+               to execute them would break the contract the code exists to hold.
+               The falsifier is a RUNNER measurement; a green local suite proves
+               nothing here, because the file does not compile on darwin at all.
+
     REQ-009: Landlock rules match the file type of the path they name.
       CLM-040  every `path_beneath` rule carries only rights VALID FOR ITS PATH'S
                TYPE: for a non-directory, the whole DIRECTORY-ONLY class is dropped
@@ -3461,6 +3581,217 @@ phases:
         depends_on:
           - TASK-029
 
+  - id: phase-4d
+    name: "Phase 4d: Cover the linux sandbox implementation to the floor"
+    tasks:
+      - id: TASK-031
+        type: setup
+        title: "Diagnose the 41/134 before writing a single test, and add --json to CI"
+        description: |
+          DO NOT START BY WRITING TESTS. There is a labeled hypothesis that, if true,
+          means NO conventional test can move this number at all — and writing 93
+          statements' worth of tests against a counter that cannot record them is
+          the most expensive way to discover it.
+
+          THE HYPOTHESIS (plausible, and already strongly circumstantially
+          supported): the helper-side functions run in a process that `unix.Exec`s
+          (`sandbox_linux.go:154`), which REPLACES THE PROCESS IMAGE — so Go's
+          coverage counters for everything that executed in the helper are never
+          flushed. The structural split supports it exactly:
+            HELPER-SIDE, exec'd away — `applyRestrictionsAndExec`, `applyLandlock`,
+              `applySeccomp`, `seccompAuditArch`, `seccompSyscallNumbers`,
+              `probeLandlockABI`, `kernelRelease`, `filterHelperEnv`
+            PARENT-SIDE, counted normally — `platformSandboxedRun`,
+              `platformSandboxedRunStdout`, `newSandboxHelperCommand`
+          AND THE RUN ALREADY ARGUES FOR IT: the sandbox INSTALLED AND HELD on the
+          runner, which means `applyLandlock` and `applySeccomp` demonstrably
+          executed to completion. If they had been counted, 30.6% is impossible.
+          The counters are lying, not the code. Confirm it; do not assume it.
+
+          STEP 1 — GET THE DATA. Add `--json` to the gate invocation in
+          `.github/workflows/ci.yml`, KEEPING the human output (tee both, or run
+          both): the workflow log is the human surface and stays. This one line pays
+          for itself three times over — it supplies this diagnosis its per-file
+          measurement detail, settles the banked 6-vs-5-vs-8 scope-count
+          observation by naming the in-scope paths, and fixes CLM-027's evidence
+          wording, which currently promises JSON the workflow never produced.
+
+          STEP 2 — CONFIRM WHICH FUNCTIONS CARRY ZERO COUNTERS, from the runner's
+          raw profile. Commit the capture to
+          `pkg/packval/testdata/sandbox-linux-coverage-profile.txt` with its run URL
+          and date, the same way TASK-001's probe was made durable — a diagnosis
+          that lives only in a task report cannot be checked by whoever implements
+          the fork.
+
+          STEP 3 — CHOOSE THE FORK, ON EVIDENCE:
+            (a) EXERCISE THE HELPER LOGIC THROUGH A NON-EXEC'ING SEAM — a test-only
+                path that applies the restrictions and RETURNS instead of exec'ing.
+                ⚠ HAZARD, and it disqualifies the naive version: Landlock
+                `restrict_self` and a seccomp filter are IRREVOCABLE for the life of
+                the process. Applying them inside the TEST process would confine the
+                test binary permanently and break every test that runs afterwards —
+                a self-inflicted version of the very mechanism under test. Any
+                viable form of (a) applies the restrictions in a CHILD that then
+                EXITS NORMALLY rather than exec'ing (so counters flush), which means
+                subprocess coverage plumbing (`GOCOVERDIR`), not a simple seam. And
+                it must not weaken the locked-thread-then-exec property CLM-032
+                exists to protect: a test path that skips the exec must not become
+                the production path.
+            (b) A PACK-DECLARED COVERAGE EXCLUSION with a written justification.
+                Previously REJECTED for `main.go` as waive-shaped, and that
+                rejection stands on its own terms — but a PROCESS-IMAGE-REPLACEMENT
+                boundary is a categorically different justification from "hard to
+                test": the code provably runs and the measurement instrument
+                provably cannot observe it. Note the cost honestly: the mechanism
+                exists in core (`CoverageRecord.Excluded`) while the go-toolchain
+                pack hardcodes `"excluded":false`, so this is a CROSS-REPO change on
+                DIR-027's clock.
+
+          THE EVIDENCE STANDARD FOR CHOOSING: (a) is preferred if and only if the
+          child-exits-normally form can be shown to measure the helper functions
+          WITHOUT altering the production exec path. Otherwise (b), with the
+          justification written against the confirmed profile rather than against
+          this hypothesis. If the diagnosis REFUTES the hypothesis — if the helper
+          functions do carry counters — then the original error-path test plan
+          stands and the fork is moot. Report which world you are in before
+          proceeding.
+
+          `pkg/packval/sandbox_linux.go` measured 41/134 (30.6%) on the first runner
+          measurement. The exec tests cover the happy trampoline; 93 statements of
+          error paths, apply loops and helper branches do not run.
+
+          COUNT AND CLASSIFY AS THE DELIVERABLE. Produce the statement inventory —
+          which of the 93 are counted-but-unflushed, which are reachable by
+          injection, which need a seam that does not exist yet, and which are
+          unreachable by contract. That inventory is what makes the eventual floor
+          argument checkable; without it "we got to 90%" is unauditable.
+        files:
+          - .github/workflows/ci.yml
+          - pkg/packval/testdata/sandbox-linux-coverage-profile.txt
+        claims:
+          - CLM-042
+        depends_on:
+          - TASK-018
+          - TASK-030
+
+      - id: TASK-032
+        type: test
+        title: "Linux-side tests per the fork TASK-031 chose"
+        description: |
+          Write the tests the diagnosis calls for — and ONLY if it called for them.
+          If TASK-031 confirmed the exec-erases-counters hypothesis and chose the
+          exclusion fork, this task shrinks to the tests that still earn their keep
+          on behavioral grounds rather than coverage grounds; say so and move on
+          rather than writing tests whose only purpose is a number that cannot move.
+
+          THE CONSTRAINT THAT SHAPES EVERY CHOICE HERE: these tests only EXECUTE ON
+          THE RUNNER. The file is `//go:build linux`, so the local suite cannot see
+          them run and `go test` on darwin will report success having run none of
+          them. Write them knowing the feedback loop is a CI run, and make each one
+          earn that round trip — a test needing three runner iterations to get right
+          costs more than one reasoned through first.
+
+          Extend `pkg/packval/sandbox_linux_exec_test.go` and add
+          `pkg/packval/sandbox_linux_errors_test.go` (both `//go:build linux`).
+          Target the paths carrying real behavior:
+            - `applyLandlock`: a required path that cannot be opened; a required
+              path whose `Fstat` fails; `landlock_add_rule` rejecting a rule;
+              `landlock_restrict_self` failing; and the OPTIONAL-path skip, which is
+              a behavior (a distro without /usr/lib64 must still sandbox), not an
+              error branch.
+            - `applySeccomp`: filter installation failing.
+            - `probeLandlockABI`: the ABI-0 / ENOSYS refusal — CLM-015's own path,
+              and one of the few that is cheap to drive.
+            - `newSandboxHelperCommand` / `filterHelperEnv`: request encoding and
+              environment filtering. NOTE these two are PARENT-SIDE per TASK-031's
+              split, so their counters flush normally — they are the paths where
+              conventional tests work regardless of which fork was chosen.
+            - the helper-returned-without-exec'ing guard (:108-112), which is
+              reachable only by calling the inner function directly — see the
+              unreachable-by-contract treatment in TASK-033.
+        files:
+          - pkg/packval/sandbox_linux_exec_test.go
+          - pkg/packval/sandbox_linux_errors_test.go
+        claims:
+          - CLM-042
+        depends_on:
+          - TASK-013
+          - TASK-031
+
+      - id: TASK-033
+        type: refactor
+        title: "Introduce syscall seams, and name the unreachable-by-contract set"
+        description: |
+          Most of the uncovered statements are reachable only by making a syscall
+          fail, and `sandbox_linux.go` calls `unix.*` directly. Introduce the
+          minimum injection seams the inventory shows are needed — package-
+          level function variables are NOT the answer here (`go.core.
+          no-global-mutable-state`, and the `root.go:20` exception is
+          constraint-based in a way this is not); prefer passing the dependency, or
+          a small unexported struct holding the syscall functions, so the seam is
+          explicit and testable without mutable global state.
+
+          KEEP THE SEAMS THIN. Every indirection between this code and the kernel is
+          a place where the test and the production path can diverge — which is the
+          failure mode that produced two of this lane's three runner failures. A
+          seam that lets a test simulate `landlock_add_rule` returning EINVAL is
+          worth it; a seam that abstracts what a Landlock rule IS is not.
+
+          THEN NAME THE UNREACHABLE SET EXPLICITLY. For every statement that cannot
+          be executed by any honest test, add a comment saying WHY and count it in
+          the report. The known member is the post-`unix.Exec` guard (:108-112),
+          which the source already documents: reaching it requires
+          `applyRestrictionsAndExec` to return after a successful exec, which cannot
+          happen. Do NOT delete such guards to raise the percentage, and do not
+          restructure the code so the impossible case disappears — that guard exists
+          because a silent pass-through is the defect this whole mechanism prevents.
+
+          If the floor cannot be reached once the unreachable set is excluded,
+          STOP AND REPORT with the inventory rather than inventing a waiver or
+          reshaping the code around the number.
+        files:
+          - pkg/packval/sandbox_linux.go
+        claims:
+          - CLM-042
+        depends_on:
+          - TASK-032
+
+      - id: TASK-034
+        type: verification
+        title: "Verify locally what can be verified, and defer the measurement honestly"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...
+            GOOS=linux go vet ./pkg/packval/
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          Every darwin sandbox test must still pass unmodified, and the exported
+          sandbox surface must be unchanged — the seams are internal.
+
+          THEN STATE THE LIMIT PLAINLY. None of the above measures
+          `sandbox_linux.go`: it does not compile on darwin, so the local suite
+          cannot execute one line of it and `go test` will report success while
+          having run none of TASK-031's tests. The coverage claim is settled by
+          TASK-019's next runner measurement and by nothing else (CLM-042).
+
+          Report the statement inventory from TASK-031 and TASK-033 — counted-but-
+          unflushed, reachable, seam-required, and unreachable-by-contract with
+          justifications — so the next runner number can be checked against a
+          PREDICTION rather than merely observed. If TASK-031 chose the exclusion
+          fork, state the predicted post-exclusion measurement explicitly; a number
+          nobody predicted is a number nobody can be wrong about.
+        files:
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_linux_errors_test.go
+        claims:
+          - CLM-042
+        depends_on:
+          - TASK-033
+
   - id: phase-5
     name: "Phase 5: Close the acceptance criterion on a real Linux runner"
     tasks:
@@ -3585,6 +3916,7 @@ phases:
           - TASK-024
           - TASK-027
           - TASK-030
+          - TASK-034
 
       - id: TASK-020
         type: verification
