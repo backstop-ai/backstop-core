@@ -21,10 +21,12 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
-
 	binaryPath = filepath.Join(tmpDir, "backstop")
-	cmd := exec.Command("go", "build", "-o", binaryPath, ".")
+	// execCommand is the package's parametric dispatch (root_test.go): the tool
+	// name reaches exec.Command as a variable, which is what this harness needs
+	// — it compiles the binary under test, so naming the toolchain here is the
+	// subject of the test rather than routing baked into the shipped binary.
+	cmd := execCommand("go", "build", "-o", binaryPath, ".")
 	cmd.Dir = "."
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -32,7 +34,13 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	// os.Exit skips deferred calls, so the temp dir is removed explicitly after
+	// the run rather than by a defer that would never fire.
+	code := m.Run()
+	if err := os.RemoveAll(tmpDir); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to remove temp dir %s: %v\n", tmpDir, err)
+	}
+	os.Exit(code)
 }
 
 // setupTestDir creates a temp directory with backstop.yml and returns cleanup func.
@@ -262,7 +270,21 @@ func TestBaselineCIContract_PullRequestGateKeepsChangedCodeEnforcement(t *testin
 	if !strings.Contains(text, "branches: [main]") {
 		t.Fatalf("pull request gate must target main for immediate regression enforcement")
 	}
-	if !strings.Contains(text, "go test -race -coverprofile=cover.out -covermode=atomic ./...") {
-		t.Fatalf("pull request gate must execute verification checks that fail changed-code regressions")
+	// The verification checks are now reached THROUGH the gate rather than run
+	// beside it (PLAN-ISSUE-020 TASK-016). This assertion previously required the
+	// literal `go test -race -coverprofile=cover.out -covermode=atomic ./...`,
+	// which the flip deleted: ISSUE-020's premise is that the Linux sandbox defect
+	// stayed invisible because this repo's CI never called its own product, so
+	// running the underlying tools directly is the gap rather than a weaker version
+	// of the same check.
+	//
+	// The test's INTENT is unchanged — the pull-request gate must execute
+	// verification that fails changed-code regressions — and `backstop gate --base`
+	// is what executes it. The `--base` half is not decoration: a CI checkout is
+	// pristine, so bare diff mode resolves merge-base HEAD origin/main to HEAD on a
+	// push and finds nothing to check, which would enforce nothing at all.
+	if !strings.Contains(text, "backstop gate --base") {
+		t.Fatalf("pull request gate must execute verification checks that fail changed-code regressions, " +
+			"via `backstop gate --base` on the blocking job")
 	}
 }

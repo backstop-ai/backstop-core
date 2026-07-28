@@ -10,31 +10,124 @@ permissions:
   contents: read
 
 jobs:
+  # The blocking job runs BACKSTOP GATE — not lint, test and coverage beside it.
+  #
+  # ISSUE-020's premise is that the Linux sandbox defect stayed invisible because
+  # this repo's CI never called its own product. Running the underlying tools
+  # directly is not a weaker version of the same check; it is the gap. Every
+  # dimension here comes from an installed pack, reached through the gate.
+  #
+  # FOUNDER SEMANTICS, stated here so they are not folklore: this job blocks on
+  # findings in DIFF-SCOPED files only — "green if the diff is green" — and a file
+  # that enters the diff carries ALL of its findings, including ones that predate
+  # the change.
   gate:
-    name: Lint + Test + Coverage
+    name: Backstop Gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history. The base commit is not in a shallow clone, so without
+          # this the base guard below cannot resolve it and every run either falls
+          # back or exits 2.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
+          # ONE authority for the toolchain version. A second hardcoded go-version
+          # here would drift against go.mod silently.
           go-version-file: go.mod
 
-      - name: Lint
-        run: go tool golangci-lint run ./...
-
-      - name: Test with coverage
-        run: go test -race -coverprofile=cover.out -covermode=atomic ./...
-
-      - name: Enforce coverage threshold
+      - name: Install golangci-lint binary
+        # TWO FACTS, and consolidating these pins later brings the break back:
+        #
+        #  1. It must be a real BINARY on PATH. provisionEngines resolves the
+        #     executable BY NAME, so `go tool golangci-lint` does not satisfy it.
+        #  2. It must be v2. The go-toolchain pack declares
+        #     `golangci-lint run --output.sarif.path stdout --show-stats=false`,
+        #     which is v2-only syntax — and go.mod's tool directive pins v1.64.8
+        #     for unrelated reasons, so installing THAT breaks the lint dimension
+        #     with an unknown-flag error.
         run: |
-          THRESHOLD=90
-          COVERAGE=$(go tool cover -func=cover.out | grep '^total:' | awk '{print int($3)}')
-          echo "Coverage: ${COVERAGE}%  (threshold: ${THRESHOLD}%)"
-          if [ "$COVERAGE" -lt "$THRESHOLD" ]; then
-            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
-            exit 1
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.6.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install provisioned engine tools at their allowlist pins
+        # These versions are the pins in pkg/pack/engine/allowlist.go. The dispatch
+        # gate compares what it finds against those pins and refuses a mismatch
+        # with an exit-2 config error, so nothing here floats.
+        #
+        # Nothing is installed for the SANDBOX, deliberately. The mechanism is
+        # Landlock + seccomp: kernel APIs with no package to install. The
+        # ruled-out alternative measured present-and-broken on this exact runner
+        # image — see pkg/packval/testdata/ubuntu-runner-probe.txt. The sandbox's
+        # real requirement is a kernel property, and it is asserted by
+        # pkg/packval/sandbox_linux_exec_test.go, which fails loudly on a host
+        # without Landlock and runs inside the gate below.
+        run: |
+          pipx install semgrep==1.96.0
+          curl -sSfL "https://github.com/ast-grep/ast-grep/releases/download/0.43.0/app-x86_64-unknown-linux-gnu.zip" -o ast-grep.zip
+          mkdir -p "$HOME/.local/bin"
+          unzip -o -q ast-grep.zip -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/ast-grep"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build the backstop CLI
+        run: go build -o ./bin/backstop ./cmd/backstop
+
+      - name: Install the pack fleet
+        # MUST precede the gate. Against an empty .backstop/packs/ every dimension
+        # reports capability_absent and the job passes having checked nothing —
+        # which is the failure ISSUE-020 was filed about.
+        run: ./bin/backstop pack install
+
+      - name: Resolve the diff base
+        # WHY THE BASE IS EXPLICIT: a CI checkout is pristine, so bare diff mode
+        # resolves `merge-base HEAD origin/main` to HEAD on a push and finds
+        # nothing to check. Simplifying this step away restores a vacuous green.
+        #
+        # The two events carry the base in different places, and the guard is on
+        # RESOLVABILITY rather than on a magic string. One `git rev-parse --verify`
+        # covers all three ways the derived value goes bad:
+        #   - empty (the event payload field is absent)
+        #   - the all-zeros SHA (branch creation, which INCLUDES the very first
+        #     push of this history to a new remote)
+        #   - non-zero but UNREACHABLE (the force-push shape: github.event.before
+        #     names a commit no longer in the fetched history)
+        # The third is the one a zero-SHA comparison misses entirely: it does not
+        # fire, the dead sha flows through, and the gate exits 2 on an ordinary
+        # force-push.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            CANDIDATE="$PULL_REQUEST_BASE"
+          else
+            CANDIDATE="$PUSH_BEFORE"
           fi
+
+          if [ -n "$CANDIDATE" ] && git rev-parse --verify --quiet "${CANDIDATE}^{commit}" >/dev/null; then
+            BASE="$CANDIDATE"
+          else
+            echo "::warning::derived base '${CANDIDATE}' does not resolve to a commit; falling back to HEAD^"
+            if ! git rev-parse --verify --quiet 'HEAD^{commit}' >/dev/null; then
+              echo "::error::neither the derived base '${CANDIDATE}' nor HEAD^ resolves; refusing to gate with no base"
+              exit 1
+            fi
+            BASE="$(git rev-parse 'HEAD^')"
+          fi
+
+          echo "Diff base: ${BASE}"
+          echo "BASE=${BASE}" >> "$GITHUB_ENV"
+
+      - name: Run the gate
+        # Diff-scoped with an explicit base. NEVER the all-scope flag (ISSUE-091:
+        # it under-reports against diff scope) and never the per-file flag
+        # (ISSUE-093: it crashes on non-Go directories and silently drops repeats).
+        run: ./bin/backstop gate --base "$BASE"
 
   baseline:
     name: Generate + Publish Baseline Artifact
@@ -51,10 +144,23 @@ jobs:
       - name: Build backstop CLI
         run: go build -o ./backstop ./cmd/backstop
 
+      - name: Install the pack fleet
+        # The locked fleet is git-sourced (PLAN-ISSUE-020 TASK-003). VerifyLock
+        # SKIPS local entries but HARD-FAILS git entries whose directories are
+        # absent, and baseline generate has no install step of its own — so
+        # without this the published artifact carries SIX missing_pack failures
+        # instead of one, straight into the reference main's ratchet compares
+        # against. This is the minimum change; ISSUE-086 owns the broader question
+        # of what a pack-ful baseline should mean.
+        run: ./backstop pack install
+
       - name: Generate baseline
         run: |
-          # Full-scope baseline generation contract: equivalent to `./backstop gate --all --json`.
-          # This remains separable from publication and preserves latest successful main semantics for pull.
+          # Full-scope baseline generation contract: equivalent to
+          # `./backstop gate --all --json`. This remains separable from
+          # publication and preserves latest successful main semantics for pull.
+          # The --all here is the BASELINE's scope and is unrelated to the
+          # blocking job above, which is diff-scoped with an explicit base.
           ./backstop baseline generate
 
       - name: Publish baseline
