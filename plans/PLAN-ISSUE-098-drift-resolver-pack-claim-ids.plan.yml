@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-098
 spec_id: ISSUE-098
 created: "2026-07-28"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"

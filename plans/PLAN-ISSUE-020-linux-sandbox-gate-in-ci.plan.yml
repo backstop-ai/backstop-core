@@ -2,13 +2,51 @@
 plan_id: PLAN-ISSUE-020
 spec_id: ISSUE-020
 created: "2026-07-28"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-07-28. CLM-028 MET: `backstop gate` IS GREEN ON LINUX. ═══════
+  ISSUE-020's acceptance criterion — a real `backstop gate` run, against really
+  installed packs, on a real Linux CI host — is satisfied.
+    PR run   30397821258
+    main run 30398912938
+  CLM-029 is met too, including the FIRST-EVER PUBLISHED BASELINE ARTIFACT.
+
+  ⚠ READ THE CAVEAT BEFORE CITING THIS CLOSURE. The MERGE run's diff scope was
+  FOUR FILES. A green gate over four files is a green gate, and it is NOT where
+  the substantive evidence lives: the sandbox and coverage proof comes from the PR
+  runs, 30395875188 especially. ANY citation of this closure should cite BOTH —
+  the main run for "green on Linux", the PR runs for "and it was actually checking
+  something". Citing only the merge run would be technically true and materially
+  misleading, which is the exact shape of vacuous green this plan spent eleven
+  phases refusing.
+
+  HOW IT WAS ACTUALLY EARNED, because the phase list below reads far tidier than
+  the work was. Four runner failures, each fixed at source with zero waivers
+  lane-wide:
+    1. bubblewrap unavailable on stock Ubuntu (apparmor_restrict_unprivileged_
+       userns=1) -> mechanism re-ruled to Landlock+seccomp
+    2. the helper's diagnostic discarded by the parent -> stderr folded into the
+       error, and the NEXT failure arrived legible
+    3. a directory-only Landlock right on a regular file -> narrowing by inode type
+    4. the coverage instrument unable to observe exec-erased code -> split, then a
+       justified, declared exclusion
+  Every one was invisible to a green local suite. That is the durable lesson, and
+  it is written up in "THE PATTERN BOTH LANE BUGS SHARE" below.
+
+  RESIDUALS AT CLOSE — named, not swept:
+    - four documented loud handlers
+    - the justified helper-file coverage exclusion (CLM-043/044/046)
+    - OQ-3's ONE remaining unsandboxed site (not two — see the corrected inventory)
+    - ISSUE-096, ISSUE-097, ISSUE-099, ISSUE-100 open
+    - ISSUE-091 and ISSUE-093 UNCHANGED, which is precisely why CI runs diff+base
+      scope and never `--all` or `--file`
+    - ZERO WAIVERS, lane-wide.
+
   Implements ISSUE-020 — the Linux sandbox facet AND the gate-in-CI wiring the
   issue welded into its acceptance criterion on 2026-07-26. Five phases in a
   forced order, because each one is a precondition for the next being provable:
@@ -1352,6 +1390,13 @@ notes: |
                so a new `//go:build linux` test file is compiled and run by the gate
                itself and lands in diff scope as a new file. This is a determined
                fact, not a hope — no separate CI step is needed to exercise it.
+               FINAL WORDING, and it applies to CLM-013 equally: the assertable
+               facts are (i) the suite RAN WITH ZERO FAILURES on linux, and (ii)
+               `sandbox_linux.go` BECAME MEASURED — a file that does not compile on
+               darwin cannot acquire a coverage number without having been built and
+               executed. Those two together prove the linux-tagged tests ran. Do not
+               write, or accept, an evidence sentence that requires seeing a test
+               NAME.
                EVIDENCE WORDING CORRECTED 2026-07-28 against the mechanism: a
                PASSING test produces NO SARIF finding, so no passing test name can
                EVER appear in gate output — grep of the whole run log shows zero Go
@@ -1515,12 +1560,16 @@ notes: |
                it always named.
       CLM-027  a real `backstop gate` run on ubuntu-latest shows the pack_engines
                and coverage dimensions ACTUALLY EXECUTING — not capability_absent,
-               not errored — proven by that run's own JSON. AMENDED 2026-07-28:
-               ci.yml ran the gate WITHOUT `--json`, so the JSON this claim names
-               did not exist. TASK-031 adds it (keeping the human output, which is
-               the workflow log's surface). Until that lands, the evidence is the
-               human step summary, and the claim is written against JSON it now
-               actually produces.
+               not errored — proven by the run's JSON report, which ci.yml now
+               emits alongside the human log.
+               WORDING DEFECT, RECORDED RATHER THAN QUIETLY FIXED: as originally
+               written this claim cited "that run's own JSON" through THREE RUNS in
+               which ci.yml emitted no JSON at all. The claim was unprovable by its
+               own stated evidence, and nobody caught it because the human step
+               summary happened to show the same facts. A claim naming evidence
+               that does not exist is indistinguishable from a satisfied one until
+               somebody tries to check it — the argument for citing mechanisms
+               rather than intentions, made against this plan's own text.
       CLM-028  the acceptance criterion is closed ONLY by TASK-019's real CI run.
                No local result, and no green unit test over the sandbox, may be
                reported as satisfying it. BLOCKED EXTERNALLY 2026-07-28 by
@@ -3031,6 +3080,15 @@ phases:
           no `|| true`, and no conditional that lets the gate run after a failed
           install.
 
+          AS BUILT — THE BASELINE JOB NEEDED THE LAYER-0 TOOLS MIRRORED TOO, and the
+          lock for it is `TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate`,
+          written deliberately as a PARITY assertion rather than a checklist of tool
+          names. The defect's shape was divergence: the gate job grew its toolchain
+          and the baseline job did not, so a job that runs the same gate had a
+          different environment. A parity test fails whenever the two drift, which
+          is the actual invariant; a name checklist would have to be updated by
+          exactly the person who forgot.
+
           `TestCIWorkflow_BaselineJobInstallsPacksBeforeGenerating` — the baseline
           job runs `pack install` before `baseline generate`. Without it the job
           exits 2 at `pack_loading` and publishes NOTHING: `loadInstalledPacks`
@@ -4027,9 +4085,27 @@ phases:
 
           Follow the pack-fleet migration recipe's silent steps — a relock that
           leaves the lock and the installed tree disagreeing fails quietly.
+
+          ── AS BUILT: TWO FURTHER SCOPE EXTENSIONS, GRANTED ───────────────────
+          `cmd/backstop/baseline.go` — `configErrorDiagnostic` surfacing, with a
+          falsifier PAIR. It also CORRECTED A FALSE COMMENT: the code asserted that
+          a config-error gate is ALWAYS stepless, which run 30398137055 disproves.
+          Worth noting as a class — a confidently-worded comment that is wrong is
+          more expensive than no comment, because it stops the next reader from
+          checking. Two of this plan's own defects were exactly that shape.
+
+          `pkg/gate/policy.go` — reached by the same surfacing work.
+
+          Both were outside every task's declared file scope, which is how the
+          justification-field gap surfaced too: the file list is the plan's model of
+          the change, and when the model is missing a file, the gap shows up as a
+          task that cannot be completed as written. That is the file scope working,
+          not failing.
         files:
           - pkg/check/coverage.go
           - pkg/gate/step_coverage.go
+          - pkg/gate/policy.go
+          - cmd/backstop/baseline.go
           - backstop.yml
           - backstop.lock
         claims:
