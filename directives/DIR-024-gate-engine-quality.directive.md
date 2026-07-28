@@ -12,6 +12,7 @@ directive:
     - "ISSUE-082"
     - "ISSUE-075"
     - "ISSUE-077"
+    - "ISSUE-092"
 ---
 
 ## Description
@@ -101,6 +102,45 @@ directives' themes:
    running binary is older than the newest tracked `.go` file. Primarily a
    contributor on-ramp problem for this repo, not consumer-facing — a
    released install has only one binary copy and cannot diverge from itself.
+6. **`pack test` phase3 cannot fail — fixture execution is dead code for
+   every real pack (ISSUE-092).** `pkg/packval`'s `Rule` struct
+   (`manifest.go:75-88`) reads a rule's source file from YAML key `file:`,
+   but every real pack.yml declares it as `rule_path:` — which is what the
+   runtime gate parser (`pkg/pack/manifest.go:144`,
+   `RulePath string \`yaml:"rule_path"\``) consumes. The authoring-time
+   validator and the runtime parser are two independent manifest models
+   that have drifted; independently confirmed `rule_path`/`RulePath`
+   appears nowhere under `pkg/packval/` (grep clean). Consequence in
+   `phase3.go`'s `RunFixtures` (lines 28-113): `rule.File` unmarshals to
+   `""` for every real pack, so the `if rule.File != ""` guards at `:31`,
+   `:52-58`, `:62` and `:76` are all false — `executor.RunEngine` is never
+   invoked for any layer 1-2 semgrep rule declared via `rule_path:`.
+   `res.Errors` stays empty and `res.Status` stays `"pass"` (`:217-219`)
+   having executed zero fixture checks. Measured, not inferred:
+   implementer-087 rewrote a negative (violating) fixture to be fully
+   compliant — deleting the very violation it exists to catch — and
+   `pack test` still returned `phase3-fixtures: pass`, exit 0; removing a
+   rule's `paths: exclude` likewise fails nothing. Independently
+   reconfirmed by the issue author against
+   `.backstop/packs/backstop/go-standards`. Matters because `pack test` is
+   the pack-quality gate for the whole ecosystem, and phase3 is the
+   mechanism that enforces the fixtures-from-real-output/must-falsify
+   convention (founder law) — a pack whose rule never fires on anything can
+   ship green. Two measurement traps the fix must not reintroduce, both
+   recorded in the issue: (a) directory-scan vs explicit-file-list
+   divergence — semgrep's default ignores skip `*_test.go` on
+   directory-target scans, so restored fixture execution must dispatch
+   with explicit file targets the way the gate does, or it inherits
+   ISSUE-091's undercount; (b) an engine/schema error (e.g.
+   `InvalidRuleSchemaError`) currently surfaces as zero results and is
+   indistinguishable from a genuine clean run — the fix must make that
+   loud and distinct rather than foldable into either pass path. Scope not
+   yet verified, explicitly left to whoever plans it: the `tool_config`
+   fixture path (`phase3.go:116-143`, keyed on `tc.File`) and the layer-3
+   `rule.Validator` path. Any fix must land a regression fixture proving
+   phase3 CAN fail (a `rule_path:`-declared rule with a compliant negative
+   fixture must turn `pack test` red) — otherwise the fix is itself a
+   vacuous-green claim.
 
 ## Notes
 
@@ -130,3 +170,26 @@ for thematic fit only (gate/engine quality), not because it shares
 ISSUE-020's urgency. Anyone working this directive top-down should land
 ISSUE-020 first — ISSUE-082 (and ISSUE-007) must not be picked up ahead of
 it.
+
+ISSUE-092 (backlog-pm slotted, 2026-07-27) does NOT ride along at the
+low-urgency tier the paragraphs above describe for ISSUE-007/082/075/077.
+It is `risk: critical`, it is an active false-green in the tool that gates
+the entire pack ecosystem, and it is live today for every pack in the
+fleet. There is also a cross-directive sequencing dependency worth
+recording: DIR-027 (position 3 in BACKLOG.yml, ahead of DIR-024 at position
+4) has a thread 5 and an acceptance criterion requiring every published
+pack repo to run `backstop pack check` + `backstop pack test` in CI on
+every push. While ISSUE-092 stands, that criterion is satisfiable with a
+vacuous signal — the fleet-wide CI gate DIR-027 is buying would be green by
+construction. ISSUE-092 should therefore be sequenced ahead of DIR-027
+thread 5's completion, notwithstanding DIR-024's own position 4 — recorded
+here as a sequencing note, not as a backlog reorder; the PM has proposed
+the coupling to the founder and no reorder is authorized. Within this
+directive, ISSUE-092 is the one source that legitimately competes with
+ISSUE-020 for first pick, on the strength of the DIR-027 coupling above —
+that is a founder call, not decided here. Finally, ISSUE-092 is a sibling
+of the gate-verdict-honesty cluster (ISSUE-066, ISSUE-067, ISSUE-091) —
+same failure family, a verdict surface that reads authoritative and
+silently isn't — and ISSUE-091 and the rest of that cluster are currently
+cited by no directive; that home decision is pending the founder and is
+not being slotted here.

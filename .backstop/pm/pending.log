@@ -40,3 +40,4 @@
 2026-07-27T22:59Z   ISSUE-075 CLOSED — verified uncached (-count=1) AND falsified in a scratch copy: reintroducing the defect makes the smoke test fail. Non-vacuous guard confirmed.
 2026-07-27T22:59Z   ESCALATION UPDATED — gate-honesty cluster narrowed 4 -> 2 (066+067). Recommendation CHANGED: append to DIR-024, no new directive. Also noted DIR-027 is taken; a standalone would need DIR-028.
 2026-07-27T22:59Z   artifact validate --all GREEN after all four.
+2026-07-28T01:57:36Z issues/ISSUE-092-pack-test-phase3-fixtures-cannot-fail.issue.md [triaged — clear-fit DIR-024, SLOTTED (source + Description item 6 + Notes); root cause independently verified (no rule_path anywhere in pkg/packval). PROPOSAL filed: sequence ahead of DIR-027 thread 5, whose fleet-CI acceptance criterion is vacuous while this stands. No reorder applied. Gate-honesty cluster back to 4 (066/067/091/092), all uncited.]

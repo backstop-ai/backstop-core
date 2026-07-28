@@ -1,0 +1,16 @@
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/Users/bmanson/src/projects/backstop-core"].hasTrustDialogAccepted: true in /Users/bmanson/.claude.json.
+Triage complete.
+
+**ISSUE-092 — clear fit, slotted into DIR-024 "Gate/Engine Quality."**
+
+`backstop pack test`'s phase3-fixtures step never executes a single fixture. `pkg/packval` reads a rule's source from YAML key `file:`; every real pack declares `rule_path:` — the key the *runtime* gate parser consumes. Authoring-time validator and runtime parser are two manifest models that drifted, so `rule.File == ""` for every pack, four guards in `phase3.go` go false, `executor.RunEngine` is never called, and the phase reports `pass` having checked nothing. I verified the root cause independently rather than trusting the filing: `rule_path`/`RulePath` appears nowhere under `pkg/packval/`.
+
+Why clear-fit rather than an escalation: two of DIR-024's five existing sources already point into `pkg/packval`, and ISSUE-075 — already cited there — is the identical failure shape. No second directive has a charter claim. Slotted via directive-author (source + Description item 6 + Notes); `artifact validate --directive DIR-024` passes. BACKLOG.yml untouched.
+
+**One decision needs you** (PROPOSAL in INBOX, nothing applied):
+
+DIR-027 sits at backlog position 3 as a launch blocker, and its acceptance criteria require every published pack repo to run `backstop pack check` + `backstop pack test` in CI. While ISSUE-092 stands, that buys a fleet-wide gate that is green by construction across all ten packs. I recommend sequencing ISSUE-092 ahead of DIR-027 thread 5 **without** reordering the backlog — moving DIR-024 up would drag its four genuinely low-urgency ride-alongs ahead of launch work. Secondary: ISSUE-092 is the first source in DIR-024 with a real claim to compete with ISSUE-020 for first pick; I flagged that as your call, not mine.
+
+Also worth your eye: the gate-verdict-honesty cluster re-grew from 2 to 4 today (066, 067, 091, 092 — all open, all `risk: critical`, none cited by any directive), which is the second time in one day the case you were weighing has changed shape. I did not re-litigate it.
+
+No interviews were needed — no `PLAN-ISSUE-092` exists, and the discovering session worked around the defect rather than fixing it, which is why it was filed.
