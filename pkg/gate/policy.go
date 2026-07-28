@@ -1,5 +1,7 @@
 package gate
 
+import "strings"
+
 // Per-dimension enforcement policy. A consumer's backstop.yml declares, per gate
 // dimension (the step/gate_type name), an enforcement level and whether pre-existing
 // findings are grandfathered against the baseline. This is the incremental-adoption
@@ -44,6 +46,33 @@ type DimensionPolicy struct {
 
 // policyMetaStep reports whether a step is a meta/deferred step that the policy table
 // never targets (its status is bookkeeping, not a dimension a consumer enforces).
+// blocksVerdict reports whether a violation should count toward FAILING a step.
+//
+// SEVERITY, NOT COUNT. Recorded founder law is "loud != blocking": block defects and
+// broken promises, warn-with-guidance for capability signals. A warning that fails the
+// gate is a contradiction in terms — and it shipped: CI run 30395875188 failed
+// coverage_threshold whose ONLY violation was the severity=warning coverage-exclusion
+// NOTICE, because both verdict paths here counted entries without reading this field.
+//
+// AN UNSET SEVERITY BLOCKS. Only an explicit "warning" is exempt, so a producer that
+// omits the field fails closed rather than silently escaping enforcement.
+func blocksVerdict(v Violation) bool {
+	return !strings.EqualFold(strings.TrimSpace(v.Severity), "warning")
+}
+
+// blockingViolations returns only the entries that count toward a failing verdict.
+// It NEVER filters what is REPORTED — StepResult.Violations keeps every entry, because
+// non-blocking must not mean invisible.
+func blockingViolations(violations []Violation) []Violation {
+	blocking := make([]Violation, 0, len(violations))
+	for _, v := range violations {
+		if blocksVerdict(v) {
+			blocking = append(blocking, v)
+		}
+	}
+	return blocking
+}
+
 func policyMetaStep(name string) bool {
 	switch name {
 	case StepWaiverResolution, StepLedgerIntegrity, "pack_lock_verification":
@@ -116,18 +145,24 @@ func ApplyPolicy(steps []StepResult, baseline *BaselineArtifact, policy map[stri
 			s.FixedViolations = cmp.FixedViolations
 		}
 
-		switch {
-		case level == PolicyWarn:
+		// Only severity-blocking entries decide the verdict; the full list is still
+		// reported (see blocksVerdict).
+		countedBlocking := blockingViolations(counted)
+		if level == PolicyWarn {
+			// warn: surface everything, fail nothing.
+			s.Status = "pass"
 			if len(counted) > 0 {
 				s.Status = "warning"
-			} else {
-				s.Status = "pass"
 			}
-		default: // block
+		} else {
+			// block: only severity-blocking entries fail; a surfaced-but-non-blocking
+			// entry still reports "warning" so the notice is not silently swallowed.
+			s.Status = "pass"
 			if len(counted) > 0 {
+				s.Status = "warning"
+			}
+			if len(countedBlocking) > 0 {
 				s.Status = "fail"
-			} else {
-				s.Status = "pass"
 			}
 		}
 		out = append(out, s)
@@ -188,7 +223,7 @@ func applyScopedPolicy(s StepResult, p DimensionPolicy, baseline *BaselineArtifa
 		if !counts {
 			continue
 		}
-		if lvl == PolicyWarn {
+		if lvl == PolicyWarn || !blocksVerdict(v) {
 			warned++
 			continue
 		}
