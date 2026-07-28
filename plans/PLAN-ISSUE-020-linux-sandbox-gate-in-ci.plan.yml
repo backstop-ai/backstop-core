@@ -127,6 +127,56 @@ notes: |
     as red, not a green definition widened to fit it. CLM-028 is strengthened
     rather than softened, below.
 
+  ── PHASE 3b AS-BUILT (COMMITTED 3e084e2) — RULING B SUPERSEDES THE LAYOUT ─
+  TASK-023 mandated a THREE-TAG layout: `sandbox_darwin.go` (darwin),
+  `sandbox_linux.go` (linux), and a `!linux && !darwin` file for the refusal. That
+  layout was built, measured, and REJECTED by orchestrator ruling before commit.
+
+  WHY IT FAILED, and it failed on this plan's own terms: a `!linux && !darwin`
+  file is PERMANENTLY `coverage_unmeasurable`. No CI platform compiles it — unlike
+  `sandbox_linux.go`, whose unmeasurability is TRANSIENT and retires on the runner.
+  It is a `.go` file, so the go-toolchain pack's `**/*.go` source glob makes it
+  measurable-source BY DECLARATION, and `pkg/gate/step_coverage.go:127-138` makes a
+  measurable-source file with no record and no pack-declared exclusion a LOUD
+  BLOCKING `coverage_unmeasured` error. Phase 3b exists to remove exactly this
+  residual from CLM-028; a layout that creates a permanent one defeats the phase.
+
+  RULED: OPTION B — merge the refusal into the `!linux` file behind a
+  `sandboxPlatformSupported(runtime.GOOS)` guard. AS COMMITTED:
+
+    sandbox.go              untagged; two-line delegation to platformSandboxedRun*
+    sandbox_linux.go        //go:build linux; Landlock + seccomp
+    sandbox_nonlinux.go     //go:build !linux; MaybeRunSandboxHelper,
+                            darwinSandboxProfile, sandboxExecCommand, and
+                            platformSandboxedRun* guarded by
+                            sandboxPlatformSupported
+    sandbox_darwin.go       DOES NOT EXIST. sandbox_darwin_test.go DOES — the
+                            `_darwin_test.go` suffix carries an implicit darwin
+                            constraint, which is what lets it test a profile that
+                            now lives in the `!linux` file.
+
+  Zero permanent unmeasurables. The costs, stated rather than discovered later:
+  one dead guard statement on darwin (the file still clears the floor at 93.3%),
+  and darwin's body compiled-but-unreachable on windows/freebsd.
+
+  THE TENSION WORTH NAMING: the guard is a `runtime.GOOS` check, and this plan
+  spent a phase deleting one. CLM-036 and
+  `TestSandboxDispatch_NoRuntimeGOOSSwitchRemains` both hold as worded — they
+  govern `sandbox.go`, which is now pure delegation — but a reader who finds
+  `runtime.GOOS` in `sandbox_nonlinux.go` should find this paragraph rather than
+  conclude the refactor was half-done. Platform SELECTION is compile-time; what
+  remains is a fail-closed guard inside the one file that legitimately spans
+  several platforms.
+
+  OPTIONS REJECTED: (A) the as-mandated three-tag layout, for contradicting
+  CLM-028 as measured above. (C) dropping non-darwin/non-linux compile support,
+  because `backstop artifact validate` builds and runs on windows from source and
+  removing that is a real regression. NOTE THE LIMIT OF (C)'s REJECTION, so the
+  plan does not overclaim: windows is NOT a shipped platform —`.goreleaser.yml`
+  builds darwin and linux only, and no workflow runs a windows job. The capability
+  being preserved is build-from-source, which is worth preserving and is not the
+  same as a supported release target.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -1038,10 +1088,21 @@ notes: |
       CLM-017  the exported sandbox interface is unchanged — no caller in
                `pkg/packval/executor.go` or `cmd/backstop/pack_gate.go` changes.
                The ONE addition is the trampoline gate. POST-PHASE-3b the gate is
-               the FIRST statement of `run()`, and `cmd/backstop/main.go` owns the
-               126 exit through `run()`'s RETURN VALUE rather than by calling
-               `os.Exit` itself — TASK-022 moves both, so a claim describing
-               `main()` as the caller would be stale the moment Phase 3b lands.
+               the first statement of the SEAM BODY — `runWith(stdout, stderr,
+               sandboxGate, newRoot)` — with `run()` a single statement delegating
+               to it and `main()` a single statement delegating to `run()`;
+               `cmd/backstop/main.go` owns the 126 exit through those return
+               values rather than by calling `os.Exit` itself. Literal
+               gate-in-`run()` is UNACHIEVABLE with `run(stdout, stderr)`'s
+               signature fixed: the gate would not be injectable, so its error
+               branch would be permanently uncovered (main.go red at 17/20), and
+               package-level var injection trips
+               `go.core.no-global-mutable-state` — the only existing exception,
+               `root.go:20`'s `var version`, carries a `nosemgrep` justified by a
+               constraint (`-ldflags -X` can only write a package-level var) that
+               an injection seam does not have. Ordering is locked behaviorally by
+               `TestRun_SandboxGateRunsBeforeAnyCommandWork` (command-construction
+               spy plus empty-stdout assertion), not by the word "first".
                (TASK-014's identical wording is deliberately NOT updated: it
                executes BEFORE Phase 3b and describes the tree it verifies.) A
                `TestMain` in `pkg/packval` calls the same gate so the helper is
@@ -2186,6 +2247,14 @@ phases:
 
           Both files are new, and both must be genuinely RED before the refactors:
           `run` does not exist yet and the switch does.
+
+          AS BUILT (3e084e2): all seven mandated names landed and each was proven
+          RED before its refactor — reported individually rather than as an
+          aggregate, which is what makes "red-first" checkable. The seam tests sit
+          in `cmd/backstop/run_test.go` and the two dispatch tests in
+          `pkg/packval/sandbox_dispatch_test.go`
+          (`TestSandboxDispatch_ExportedSignaturesUnchanged`,
+          `TestSandboxDispatch_NoRuntimeGOOSSwitchRemains`).
         files:
           - cmd/backstop/run_test.go
           - pkg/packval/sandbox_dispatch_test.go
@@ -2228,8 +2297,26 @@ phases:
           `main.go` should land at 16/17 or better. Report the measured before and
           after, and confirm the three helper-gate statements Phase 3 added are now
           covered rather than merely relocated.
+
+          AS BUILT (3e084e2): 9/17 -> 19/20. The only uncovered statement is
+          `main()` itself, which is the irreducible floor — `func main() {
+          os.Exit(run(os.Stdout, os.Stderr)) }`. The seam is TWO functions, not
+          one: `run(stdout, stderr)` delegates to `runWith(stdout, stderr,
+          sandboxGate, newRoot)`, because the gate and the command constructor must
+          be INJECTABLE for their branches to be reachable — see CLM-017 for why a
+          package-level var was not an option. The helper-gate error path is now
+          exercised for the first time ANYWHERE, by
+          `TestRun_SandboxHelperErrorExitsOneTwentySix`.
+
+          ONE SURFACED DEVIATION, recorded because it touches a file outside this
+          task: `cmd/backstop/status_drift_gate_test.go` had a test helper named
+          `run`, colliding with the mandated seam name in the same package. It was
+          renamed `runStep` across 10 call sites — a mechanical rename of test-local
+          scaffolding, no behavior change. Also fixed at source rather than waived:
+          two error-wrapping findings surfaced by the merge.
         files:
           - cmd/backstop/main.go
+          - cmd/backstop/status_drift_gate_test.go
         claims:
           - CLM-035
           - CLM-037
@@ -2246,12 +2333,23 @@ phases:
           stdin pipe and "stdout captured so far alongside the error" for the second
           — and delegate to an unexported platform function.
 
+          ⚠ THE THREE-TAG LAYOUT BELOW WAS SUPERSEDED BEFORE COMMIT. Read the
+          "PHASE 3b AS-BUILT — RULING B" notes block first: a `!linux && !darwin`
+          file is permanently `coverage_unmeasurable` and would have failed CLM-028
+          on exactly the residual this phase removes. AS COMMITTED there is no
+          `sandbox_darwin.go` and no unsupported-platform file; everything non-linux
+          lives in `sandbox_nonlinux.go` (`//go:build !linux`) behind a
+          `sandboxPlatformSupported(runtime.GOOS)` guard. The paragraph below is
+          retained as the record of what was mandated and measured, not as
+          instruction.
+
           The implementations move into build-tagged files: the darwin
           `sandbox-exec` path into `sandbox_darwin.go` (`//go:build darwin`), the
           Landlock+seccomp path into the existing `sandbox_linux.go`, and the
           refusal into a file tagged for everything else. `darwinSandboxProfile`
           MOVES UNCHANGED — not one character of the profile string, and no change
-          to what it returns for a given packDir.
+          to what it returns for a given packDir. (As built, it moved unchanged
+          into `sandbox_nonlinux.go` instead.)
 
           ⚠ DO NOT NARROW `sandbox_nonlinux.go` TO `!linux && !darwin`. This is the
           trap, and the file's own doc comment names it. That file is
@@ -2280,11 +2378,35 @@ phases:
           removes the reason the file carries the `linuxSandboxedRun*` STUBS; it does
           not remove the reason the file exists.
 
-          `sandbox_nonlinux_test.go` is in this task's file scope for that reason: its
-          two tests (`TestNonLinuxSandboxStubsFailClosed`,
-          `TestNonLinuxMaybeRunSandboxHelperReturns`) call the stub symbols DIRECTLY,
-          so they are the wiring lock that catches a mis-tagged split at compile
-          time rather than at runtime on a user's Mac.
+          `sandbox_nonlinux_test.go` is in this task's file scope for that reason: it
+          is the wiring lock that catches a mis-tagged split at compile time rather
+          than at runtime on a user's Mac.
+
+          AS BUILT (3e084e2), four test-side consequences of the merge:
+            - `TestNonLinuxSandboxStubsFailClosed` was REPLACED by
+              `TestNonLinuxSandboxHelperTagIsNotNarrowed`. The refactor deleted its
+              subject (the `linuxSandboxedRun*` stubs), so the honest move was a new
+              test for the constraint that still matters: it PARSES the build
+              constraint on `sandbox_nonlinux.go` and asserts it is exactly `!linux`.
+              That is a direct lock on the orphaning trap this task warns about —
+              stronger than the stub-calling test it replaces, because it fails on
+              the mis-tag itself rather than on a downstream symptom.
+            - `TestSandboxProfileAllowsDyldLibraries` MOVED VERBATIM into a new
+              `sandbox_darwin_test.go`. Forced, not chosen: the profile is now
+              behind a build tag, and `sandbox_realconvert_test.go` (where it lived)
+              must stay UNTAGGED because the linux exec tests use its helpers. The
+              `_darwin_test.go` suffix supplies the implicit constraint. The test
+              body is unchanged, so CLM-016 still holds on its original terms.
+            - `sandbox_linux.go` is in this task's file list: the seam rename
+              `linuxSandboxedRun*` -> `platformSandboxedRun*` is one name across all
+              tag scopes, so the linux file changes even though its logic does not.
+            - `sandbox_stdout_test.go` gained
+              `TestSandboxedRunStdout_NonZeroExitReturnsStdoutSoFar` (scope extension
+              authorized). It lifts `sandbox_nonlinux.go` to 93.3% — but its value is
+              the CONTRACT it locks, not the margin: stdout-captured-so-far is
+              returned on a non-zero exit AND no stderr leaks into it. That is the
+              property keeping a converter's banner out of the SARIF the gate parses,
+              and until now nothing asserted it on the error path.
 
           THE POINT IS DEAD CODE, NOT PERCENTAGES. Each platform now compiles only
           what it can execute, so nothing unreachable is measured on either. Say so
@@ -2302,9 +2424,12 @@ phases:
           scope for a dispatch refactor.
         files:
           - pkg/packval/sandbox.go
-          - pkg/packval/sandbox_darwin.go
           - pkg/packval/sandbox_nonlinux.go
           - pkg/packval/sandbox_nonlinux_test.go
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_darwin_test.go
+          - pkg/packval/sandbox_realconvert_test.go
+          - pkg/packval/sandbox_stdout_test.go
         claims:
           - CLM-036
           - CLM-037
@@ -2354,10 +2479,29 @@ phases:
           If `./bin/backstop gate` is red here, the refactors are not done. Do not
           proceed to Phase 4 expecting CI to sort it out — the entire purpose of
           this phase is that TASK-019 has no coverage residual to explain away.
+
+          AS BUILT (3e084e2) — MEASURED RESULTS:
+            cmd/backstop/main.go        9/17  -> 19/20  (only `main()` uncovered,
+                                        one statement, the irreducible floor)
+            pkg/packval/sandbox.go      31/36 -> 2/2    (pure delegation; nothing
+                                        platform-dead left to measure)
+            pkg/packval/sandbox_nonlinux.go     93.3%   (with the stdout-contract
+                                        margin test)
+            the helper-gate error path exercised for the first time anywhere
+            all six darwin sandbox tests pass UNMODIFIED (CLM-016 intact)
+            two merge-surfaced error-wrapping findings FIXED AT SOURCE, not waived
+
+          EXPECTED RESIDUAL AFTER THIS PHASE: exactly ONE `coverage_unmeasured`, on
+          `pkg/packval/sandbox_linux.go`, and it is TRANSIENT BY CONSTRUCTION — it
+          retires the moment TASK-019 measures it on a Linux runner. That is the
+          whole difference between it and the `!linux && !darwin` file ruling B
+          rejected, which no CI platform would ever have compiled. One transient
+          unmeasurable that a scheduled task retires is not a residual CLM-028 has
+          to excuse; a permanent one would have been.
         files:
           - cmd/backstop/main.go
           - pkg/packval/sandbox.go
-          - pkg/packval/sandbox_darwin.go
+          - pkg/packval/sandbox_nonlinux.go
         claims:
           - CLM-035
           - CLM-036
