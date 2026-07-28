@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // TestCapability_CurrentInstallUnchanged (CLM-009): behavior-preserving regression. With

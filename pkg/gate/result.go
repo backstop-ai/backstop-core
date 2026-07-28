@@ -6,7 +6,7 @@ package gate
 import (
 	"context"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // Canonical step names (REQ-011). These are part of the JSON output contract

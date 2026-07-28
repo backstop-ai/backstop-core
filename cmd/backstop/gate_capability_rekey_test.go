@@ -3,10 +3,10 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // gate_capability_rekey_test.go pins the SUBSTANTIVENESS capability signal at the live

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // TestGateDispatch_AstGrepProofRuleEndToEnd drives the ast-grep proof rule all the

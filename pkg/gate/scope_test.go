@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 func TestGateScope_IncludesUntrackedFiles(t *testing.T) {

@@ -3,8 +3,8 @@ package pack_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 func makeMinimalManifest() *pack.Manifest {

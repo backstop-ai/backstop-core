@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 func writeFile(t *testing.T, root, rel, data string) {

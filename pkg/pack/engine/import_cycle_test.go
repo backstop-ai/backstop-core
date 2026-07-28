@@ -13,11 +13,11 @@ import (
 // set via `go list -deps` and asserts the forbidden packages are absent —
 // proving the leaf invariant structurally, not by a doc comment.
 func TestEngineBinding_NoImportCycle(t *testing.T) {
-	enginePkg := "github.com/bmanson/backstop-core/pkg/pack/engine"
+	enginePkg := "github.com/backstop-ai/backstop-core/pkg/pack/engine"
 	forbidden := []string{
-		"github.com/bmanson/backstop-core/pkg/check",
-		"github.com/bmanson/backstop-core/pkg/packval",
-		"github.com/bmanson/backstop-core/cmd/backstop",
+		"github.com/backstop-ai/backstop-core/pkg/check",
+		"github.com/backstop-ai/backstop-core/pkg/packval",
+		"github.com/backstop-ai/backstop-core/cmd/backstop",
 	}
 
 	out, err := exec.Command("go", "list", "-deps", enginePkg).Output()

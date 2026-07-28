@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // recordingConvertSeam installs a sandboxedRunStdout seam that records every

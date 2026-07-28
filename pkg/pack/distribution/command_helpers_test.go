@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // command_helpers_test.go assembles the four lifecycle commands the distribution

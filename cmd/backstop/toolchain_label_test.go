@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // toolchain_label_test.go pins the ISSUE-064 REQ-003 rehome of the cosmetic toolchain

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // migratedGoPackYAML is a go-pack-shaped manifest as it looks AFTER the flag-day

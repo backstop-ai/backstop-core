@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // scratchValidationDirPattern is the os.MkdirTemp pattern for the directory validation

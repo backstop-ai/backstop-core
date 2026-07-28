@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // astGrepDispatchManifest builds an in-memory manifest with a single ast-grep

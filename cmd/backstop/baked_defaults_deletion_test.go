@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/baseengines"
+	"github.com/backstop-ai/backstop-core/pkg/baseengines"
 )
 
 // ISSUE-027 deletion-assertion tests. The absence assertions pin that the baked

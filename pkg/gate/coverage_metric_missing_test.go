@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // TestMetricMissing_DeclaredBranchUnmeasuredOnChangedPathFailsLoud (CLM-018): with

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // SPEC-034 REQ-010 / N1 — INVOCATION equivalence for the `code check --file`

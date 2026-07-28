@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 	"github.com/spf13/cobra"
 )
 

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // withBinaryResolver installs a fake binary resolver for the duration of a test,

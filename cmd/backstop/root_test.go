@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 )
 

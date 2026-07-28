@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 )
 
 // ISSUE-080, driven through the SHIPPED binary.

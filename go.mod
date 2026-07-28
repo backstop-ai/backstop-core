@@ -1,4 +1,4 @@
-module github.com/bmanson/backstop-core
+module github.com/backstop-ai/backstop-core
 
 go 1.25.3
 

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // ArtifactNewFormatter formats artifact new results for output.

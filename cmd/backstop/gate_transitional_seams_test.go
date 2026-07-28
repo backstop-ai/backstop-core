@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication proves the SPEC-041

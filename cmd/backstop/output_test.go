@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // TestCLI_Output_JSONFlag_ProducesJSON formats a result with JSONFormatter,

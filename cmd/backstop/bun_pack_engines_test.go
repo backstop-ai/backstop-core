@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // bunPackRoot returns the absolute path to the in-repo tracked bun-toolchain pack

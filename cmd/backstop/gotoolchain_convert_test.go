@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // SPEC-034 STANDALONE convert-script coverage. The transitional equivalence gate

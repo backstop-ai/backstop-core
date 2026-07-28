@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // tagListingCloner is a GitCloner that answers a tag listing from a fixed slice

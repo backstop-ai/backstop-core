@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // The REQ-003 / REQ-006 / REQ-007 add suite: the MANIFEST name is the pack's install and

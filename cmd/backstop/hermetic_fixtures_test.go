@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // Characterization tests for the SPEC-056 REQ-010 fixture corpus and the harness

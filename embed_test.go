@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	backstopcore "github.com/bmanson/backstop-core"
+	backstopcore "github.com/backstop-ai/backstop-core"
 )
 
 // TestCLI_EmbedCohort_AllSchemasPresent verifies all artifact schemas from

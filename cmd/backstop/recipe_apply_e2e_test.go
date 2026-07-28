@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // File-mode go-test PACKAGE scoping across the bridge (SPEC-034 REQ-010 / N1,

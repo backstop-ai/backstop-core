@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 )
 
 // cfgDeclaring builds a config that declares dim with the given waived flag, for

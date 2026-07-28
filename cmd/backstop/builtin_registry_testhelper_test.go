@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/baseengines"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/baseengines"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // builtinTestRegistry returns the full built-in engine set the tests use as the

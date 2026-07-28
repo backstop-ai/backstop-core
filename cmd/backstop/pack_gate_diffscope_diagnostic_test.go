@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // diagInitCommitRepo initializes a git repo in dir and commits every file already

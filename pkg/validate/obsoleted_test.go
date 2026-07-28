@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // terminalVocabRoot is the absolute path to the obsoleted terminal-vocab fixture

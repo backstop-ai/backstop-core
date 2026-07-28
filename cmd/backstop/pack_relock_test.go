@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // TestPackRelock_Command (ISSUE-032 Defect F / CLM-010): `pack relock <path>` refreshes

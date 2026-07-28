@@ -3,7 +3,7 @@ package pack_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 func TestValidateCoOccurrence_CodePackValid(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // TestArtifactValidate_ZeroArtifacts_Exit0_EmptyViolations verifies that

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // assertMissingDependency is the shared shape of every nil cell: a failed

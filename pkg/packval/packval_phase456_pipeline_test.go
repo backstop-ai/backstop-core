@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 func TestPackVal_P4_CodePackNoRules(t *testing.T) {

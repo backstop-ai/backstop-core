@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	backstopcore "github.com/bmanson/backstop-core"
+	backstopcore "github.com/backstop-ai/backstop-core"
 	"gopkg.in/yaml.v3"
 )
 

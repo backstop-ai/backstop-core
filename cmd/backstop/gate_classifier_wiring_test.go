@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // classifierE2EProjectRoot resolves the classifier-e2e testdata project the

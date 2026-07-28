@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // multiRulePacksDir returns the .backstop/packs dir holding the two-rule ast-grep

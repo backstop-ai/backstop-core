@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/scaffold"
+	"github.com/backstop-ai/backstop-core/pkg/scaffold"
 )
 
 // SPEC-055 REQ-011, the six commands whose disposition is LOUD and whose diagnostic is

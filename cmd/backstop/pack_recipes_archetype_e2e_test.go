@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // The two committed acceptance fixtures for ISSUE-085's `recipes` archetype.

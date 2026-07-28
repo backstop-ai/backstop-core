@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/scaffold"
+	"github.com/backstop-ai/backstop-core/pkg/scaffold"
 	"github.com/spf13/cobra"
 )
 

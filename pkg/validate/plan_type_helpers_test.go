@@ -1,7 +1,7 @@
 package validate_test
 
 import (
-"github.com/bmanson/backstop-core/pkg/artifact"
+"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // makeTask builds a task map with all required D-080 fields plus the type field.

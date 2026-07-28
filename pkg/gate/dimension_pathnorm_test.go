@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // dimension_pathnorm_test.go (ISSUE-046 Phase 2) — every non-pack_engines

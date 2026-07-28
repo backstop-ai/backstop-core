@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // The REQ-002 / REQ-006 / REQ-007 suite for the OTHER two cloning commands.

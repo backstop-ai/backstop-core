@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 const validADR = `---

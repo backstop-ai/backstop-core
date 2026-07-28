@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // bunClassifier classifies TypeScript-style sources (the non-Go stack the

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 )
 
 // RunArchetype enforces the per-archetype content contract for the three declared

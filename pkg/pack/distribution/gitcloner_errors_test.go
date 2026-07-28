@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // diagnosticTimeout bounds the real-git invocations in this suite.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 func waiverCLINow() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) }

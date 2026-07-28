@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // Exit code constants for consistent CLI behavior.

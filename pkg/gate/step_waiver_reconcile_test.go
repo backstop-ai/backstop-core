@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // waiverTestNow is a stable now well before the far-future token expiries used in

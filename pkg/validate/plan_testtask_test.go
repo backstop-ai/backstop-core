@@ -3,7 +3,7 @@ package validate_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // REQ-010: Test task dependency constraints

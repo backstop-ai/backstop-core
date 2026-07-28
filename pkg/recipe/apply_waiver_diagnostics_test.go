@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // ISSUE-080. The regenerate suite next door proves a divergence is preserved on a

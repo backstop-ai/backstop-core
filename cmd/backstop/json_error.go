@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // jsonErrorDocument is the structured error a failing pack lifecycle command renders

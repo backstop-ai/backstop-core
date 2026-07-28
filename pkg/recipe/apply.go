@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )

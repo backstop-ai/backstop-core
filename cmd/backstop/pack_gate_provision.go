@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // Engine provisioning SPLITS by who owns the tool (SPEC-034 REQ-008 / REQ-006).

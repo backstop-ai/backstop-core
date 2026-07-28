@@ -3,7 +3,7 @@ package gate
 import (
 	"fmt"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 )
 
 // TraceabilityDimension names one of the three traceability dimensions the

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 )
 
 // writePolicyFixture writes an inline backstop.yml fixture to a temp dir and returns its

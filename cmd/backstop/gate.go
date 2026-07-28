@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
-	"github.com/bmanson/backstop-core/pkg/validate"
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
 )
 

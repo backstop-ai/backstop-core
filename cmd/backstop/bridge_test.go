@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // TestGoToolchain_NoEmbeddedBuildTestParser proves backstop-core embeds no Go
@@ -125,7 +125,7 @@ func TestBridge_NoCheckToEngineImport(t *testing.T) {
 		t.Fatalf("reading pkg/check: %v", err)
 	}
 	fset := token.NewFileSet()
-	bannedImport := "github.com/bmanson/backstop-core/pkg/pack/engine"
+	bannedImport := "github.com/backstop-ai/backstop-core/pkg/pack/engine"
 	scanned := 0
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {

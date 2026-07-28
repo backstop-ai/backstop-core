@@ -3,7 +3,7 @@ package pack_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 func TestValidateLayer2_BothFields(t *testing.T) {

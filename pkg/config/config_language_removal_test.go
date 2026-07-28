@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 )
 
 // TestConfig_LanguageFieldRemoved (CLM-011): config.Config has NO Language field —

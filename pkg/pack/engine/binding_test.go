@@ -212,9 +212,9 @@ func TestEngine_NoForbiddenImports(t *testing.T) {
 		for _, imp := range file.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
 			for _, forbidden := range []string{
-				"github.com/bmanson/backstop-core/pkg/check",
-				"github.com/bmanson/backstop-core/pkg/packval",
-				"github.com/bmanson/backstop-core/cmd/backstop",
+				"github.com/backstop-ai/backstop-core/pkg/check",
+				"github.com/backstop-ai/backstop-core/pkg/packval",
+				"github.com/backstop-ai/backstop-core/cmd/backstop",
 			} {
 				if path == forbidden {
 					t.Errorf("%s imports forbidden package %q (reintroduces import cycle)", name, path)

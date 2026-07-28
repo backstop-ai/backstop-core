@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 )
 
 // ISSUE-079's LIVE REPRO, driven through the shipped command.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // TestPackAddDeclaredE2E_EmptyPacksMaterializes is the launch-bar acceptance (CLM-006)

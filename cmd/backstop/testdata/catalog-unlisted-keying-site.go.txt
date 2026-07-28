@@ -6,7 +6,7 @@
 // the guard scans it as a discovery-scope source fixture.
 package fixture
 
-import "github.com/bmanson/backstop-core/pkg/check"
+import "github.com/backstop-ai/backstop-core/pkg/check"
 
 // dropMe is a gate-semantic keying site: it keys a scope/exemption decision on
 // CheckType identity. An unlisted site of this shape is a dropped gate step.

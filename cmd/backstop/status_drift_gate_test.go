@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // --- fixture builders ------------------------------------------------------------------

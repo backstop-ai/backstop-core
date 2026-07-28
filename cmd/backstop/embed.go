@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	backstopcore "github.com/bmanson/backstop-core"
+	backstopcore "github.com/backstop-ai/backstop-core"
 )
 
 // SchemaFS re-exports the root-level embedded schema filesystem.

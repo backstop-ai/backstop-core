@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // cmdTerminalFixtureDir returns the dir holding the deprecated broken spec

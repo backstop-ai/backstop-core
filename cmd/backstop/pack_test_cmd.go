@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 	"github.com/spf13/cobra"
 )
 

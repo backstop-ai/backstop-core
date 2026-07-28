@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // gateStepNames runs buildGateSteps over projectRoot with an EMPTY diff scope

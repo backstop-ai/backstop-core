@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"sync"
 
-	backstopcore "github.com/bmanson/backstop-core"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	backstopcore "github.com/backstop-ai/backstop-core"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // baseEnginesPath is the embedded location of the base ENGINE pack manifest inside

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // TestByDeclaration_CurrentInstallUnchanged (CLM-008): behavior-preserving regression for

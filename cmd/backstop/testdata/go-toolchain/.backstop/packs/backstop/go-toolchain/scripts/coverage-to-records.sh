@@ -18,7 +18,7 @@
 # stamped "statement" (Go's -coverprofile granularity).
 #
 # REPO-RELATIVE PATHS (ISSUE-045 CLM-005): Go's -coverprofile ALWAYS names files by
-# their full module import path (e.g. github.com/bmanson/backstop-core/embed.go),
+# their full module import path (e.g. github.com/backstop-ai/backstop-core/embed.go),
 # never repo-relative. This convert PARSES the producer's `#backstop-module` line and
 # strips the "<module>/" import-path prefix so the emitted record `path` is repo-
 # relative (embed.go, pkg/pack/engine/registry.go, ...) — the contract the language-

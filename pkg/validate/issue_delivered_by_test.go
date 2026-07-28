@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // deliveredByRoot returns the absolute path to the shared delivered_by fixture

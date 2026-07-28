@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // SPEC-048 REQ-003 — THE LOAD-BEARING PROOF. A REAL end-to-end gate over the

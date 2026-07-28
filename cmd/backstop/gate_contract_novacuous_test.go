@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // gate_contract_novacuous_test.go (SPEC-038 TASK-027, REQ-009): the deletion did NOT

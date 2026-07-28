@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 )
 
 // TestPolarity_StackLabelNoLongerReadsConfigLanguage (CLM-021): the stackLabel

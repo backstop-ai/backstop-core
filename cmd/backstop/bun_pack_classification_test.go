@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // bunClassifier builds the SourceClassifier from the bun pack's globs ALONE (the

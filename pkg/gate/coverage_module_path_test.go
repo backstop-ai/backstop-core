@@ -3,7 +3,7 @@ package gate
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // TestCoverage_MatchesModuleQualifiedRecordToRepoRelativeScope proves the
@@ -18,7 +18,7 @@ import (
 func TestCoverage_MatchesModuleQualifiedRecordToRepoRelativeScope(t *testing.T) {
 	records := []check.CoverageRecord{
 		{
-			Path:     "github.com/bmanson/backstop-core/pkg/validate/terminal.go",
+			Path:     "github.com/backstop-ai/backstop-core/pkg/validate/terminal.go",
 			Covered:  40,
 			Total:    42,
 			Measured: true,
@@ -43,7 +43,7 @@ func TestCoverage_MatchesModuleQualifiedRecordToRepoRelativeScope(t *testing.T) 
 func TestCoverage_ModuleQualifiedBelowThresholdStillFails(t *testing.T) {
 	records := []check.CoverageRecord{
 		{
-			Path:     "github.com/bmanson/backstop-core/pkg/validate/terminal.go",
+			Path:     "github.com/backstop-ai/backstop-core/pkg/validate/terminal.go",
 			Covered:  10,
 			Total:    100,
 			Measured: true,

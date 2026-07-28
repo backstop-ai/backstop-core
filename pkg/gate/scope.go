@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // GateScopeMode is the gate-level scope mode serialized in gate output.

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // The two fail-loud markers resolution uses to keep "no such pack" and "that pack

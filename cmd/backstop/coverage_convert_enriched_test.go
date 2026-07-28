@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // enrichedCoverProfile is the PLAIN-TEXT enriched cover.out the un-sandboxed producer
@@ -22,15 +22,15 @@ import (
 func enrichedCoverProfile() string {
 	return strings.Join([]string{
 		"mode: atomic",
-		"github.com/bmanson/backstop-core/pkg/pack/engine/registry.go:10.20,12.4 3 5",
-		"github.com/bmanson/backstop-core/pkg/pack/engine/registry.go:12.4,15.10 4 0",
-		"github.com/bmanson/backstop-core/embed.go:5.1,7.2 2 1",
-		"github.com/bmanson/backstop-core/pkg/foo/untested.go:3.1,6.4 4 0",
-		"#backstop-module github.com/bmanson/backstop-core",
-		"#backstop-gofile github.com/bmanson/backstop-core/pkg/pack/engine/fieldcontract.go",
-		"#backstop-gofile github.com/bmanson/backstop-core/pkg/pack/engine/registry.go",
-		"#backstop-gofile github.com/bmanson/backstop-core/pkg/foo/untested.go",
-		"#backstop-gofile github.com/bmanson/backstop-core/pkg/lonely/only.go",
+		"github.com/backstop-ai/backstop-core/pkg/pack/engine/registry.go:10.20,12.4 3 5",
+		"github.com/backstop-ai/backstop-core/pkg/pack/engine/registry.go:12.4,15.10 4 0",
+		"github.com/backstop-ai/backstop-core/embed.go:5.1,7.2 2 1",
+		"github.com/backstop-ai/backstop-core/pkg/foo/untested.go:3.1,6.4 4 0",
+		"#backstop-module github.com/backstop-ai/backstop-core",
+		"#backstop-gofile github.com/backstop-ai/backstop-core/pkg/pack/engine/fieldcontract.go",
+		"#backstop-gofile github.com/backstop-ai/backstop-core/pkg/pack/engine/registry.go",
+		"#backstop-gofile github.com/backstop-ai/backstop-core/pkg/foo/untested.go",
+		"#backstop-gofile github.com/backstop-ai/backstop-core/pkg/lonely/only.go",
 		"",
 	}, "\n")
 }
@@ -70,7 +70,7 @@ func TestCoverageConvert_EnrichedProfileToRepoRelativeRecords(t *testing.T) {
 
 	// CLM-005: every record path is REPO-RELATIVE — the "<module>/" prefix stripped.
 	for _, r := range recs {
-		if strings.HasPrefix(r.Path, "github.com/bmanson/backstop-core/") {
+		if strings.HasPrefix(r.Path, "github.com/backstop-ai/backstop-core/") {
 			t.Errorf("record path must be repo-relative (module prefix stripped), got %q", r.Path)
 		}
 	}

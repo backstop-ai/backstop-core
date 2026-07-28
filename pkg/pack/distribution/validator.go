@@ -3,7 +3,7 @@ package distribution
 import (
 	"fmt"
 
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // packvalCheckMode and packvalTestMode are the pipeline modes `backstop pack

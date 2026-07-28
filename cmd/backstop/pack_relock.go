@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 	"github.com/spf13/cobra"
 )
 

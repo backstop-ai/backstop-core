@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/pack"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 	"github.com/spf13/cobra"
 )
 

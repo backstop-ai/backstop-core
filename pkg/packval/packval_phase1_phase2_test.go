@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 func TestPackVal_ResultPassWhenNoErrors(t *testing.T) {

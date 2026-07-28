@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // pack_wiring.go is THE production assembly seam for the pack lifecycle (SPEC-055

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 func TestPackVal_DefaultExecutorImplementsInterface(t *testing.T) {

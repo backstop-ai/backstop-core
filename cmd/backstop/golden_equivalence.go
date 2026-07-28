@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // goldenViolation is the normalized, serialized shape of one gate.Violation the

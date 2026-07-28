@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
-	"github.com/bmanson/backstop-core/pkg/recipe"
+	"github.com/backstop-ai/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/recipe"
 )
 
 // ISSUE-081 Gap 2 — OPERATOR-SUPPLIED PARAMS, driven through the SHIPPED command.

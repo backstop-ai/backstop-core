@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // TestPhase3_DispatchErrorBranches covers the remaining fixture-dispatch error

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // StepPackEngines is the canonical step name of the LIVE pack code-rule

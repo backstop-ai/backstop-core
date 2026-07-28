@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // stepNameOrder runs each assembled step and records its StepName, giving the

@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/check"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // The PRODUCTION false positive is that Go's -coverprofile emits module-qualified
-// record paths (github.com/bmanson/backstop-core/embed.go), which the go-toolchain
+// record paths (github.com/backstop-ai/backstop-core/embed.go), which the go-toolchain
 // producer now strips to repo-relative (TASK-004), verified by the final gate run.
 // These unit tests pin the CONSUMER's half of the repo-relative contract: given
 // repo-relative records, a measured root-package file resolves to its OWN record

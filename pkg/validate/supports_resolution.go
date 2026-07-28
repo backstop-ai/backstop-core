@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // SupportRef is one parsed supports pin harvested from a citing spec or issue

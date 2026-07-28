@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // SPEC-035 REQ-006b/CLM-024 — file-mode PACKAGE scoping keys off the binding's

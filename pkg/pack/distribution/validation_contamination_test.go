@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // The REQ-008 contamination suite: what a validator writes must reach neither the

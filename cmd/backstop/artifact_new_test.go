@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/scaffold"
+	"github.com/backstop-ai/backstop-core/pkg/scaffold"
 )
 
 // testArtifactNewCmd is a helper that executes the artifact new command with

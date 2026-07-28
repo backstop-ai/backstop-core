@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // TestBaseRegistry_ContainsFourGenericEngines proves Registry() yields exactly the

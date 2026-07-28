@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/schema"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/schema"
 )
 
 // PLAN-SPEC-051 TASK-001 — corpus-assertion harness. These tests consume

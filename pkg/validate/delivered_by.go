@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // deliveredByRe is the shape a top-level `delivered_by` pointer must take: the

@@ -14,6 +14,14 @@ import (
 const (
 	// legacyModulePath is the pre-rename module path. No live Go source, Go
 	// fixture, or script may reference it once the rename lands.
+	//
+	// ⚠ This is the ONE place in the live tree that must keep the legacy string.
+	// The ISSUE-087 sweep (a repo-wide sed over .go/.go.txt/.sh/go.mod) rewrote
+	// this very literal, which silently collapsed the two constants into the
+	// same value and made the walk below search for the canonical path — a guard
+	// that can never fail. Any future mechanical path rewrite must exclude this
+	// file, or restore this literal afterward and re-confirm the guard still
+	// distinguishes the two paths.
 	legacyModulePath = "github.com/bmanson/backstop-core"
 	// canonicalModulePath is the post-rename module path this repo declares.
 	canonicalModulePath = "github.com/backstop-ai/backstop-core"
@@ -24,6 +32,10 @@ const (
 // this package IS the repo root, so "." is the repo root. Every skip below is
 // matched against a path RELATIVE to this root.
 const repoRoot = "."
+
+// guardSourceFile is this test's own path relative to repoRoot. See the
+// self-skip in TestModulePath_NoLegacyReferencesInLiveTree for why it exists.
+const guardSourceFile = "module_path_test.go"
 
 // legacyReferenceSkips names the directories the live-tree walk does not enter.
 //
@@ -157,6 +169,15 @@ func TestModulePath_NoLegacyReferencesInLiveTree(t *testing.T) {
 			if _, skip := skips[rel]; skip {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+
+		// This guard's own source is the ONE live .go file that must contain the
+		// legacy path — it declares it as the constant being searched for. Without
+		// this anchored self-skip the guard reports itself forever and can never
+		// go green, no matter how complete the sweep is. Anchored to the exact
+		// repo-root-relative path, so a same-named file elsewhere is still walked.
+		if rel == guardSourceFile {
 			return nil
 		}
 

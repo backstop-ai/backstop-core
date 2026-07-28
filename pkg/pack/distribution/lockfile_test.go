@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 func TestLockfile_YamlSortedKeys(t *testing.T) {

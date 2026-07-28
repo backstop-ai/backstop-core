@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/waiver"
+	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // TestGateWaiver_Prefill_WaivableFindingEmitsToken proves blocking on a WAIVABLE

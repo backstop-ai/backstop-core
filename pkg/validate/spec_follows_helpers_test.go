@@ -1,6 +1,6 @@
 package validate_test
 
-import "github.com/bmanson/backstop-core/pkg/artifact"
+import "github.com/backstop-ai/backstop-core/pkg/artifact"
 
 func validSpecWithFollows(follows interface{}) *artifact.ParsedArtifact {
 	art := validSpecArtifact()

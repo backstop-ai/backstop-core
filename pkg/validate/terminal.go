@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // replacedByRefPattern is the typed-artifact-reference pattern a replaced-by

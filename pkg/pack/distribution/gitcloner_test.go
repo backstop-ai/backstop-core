@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // promptGuardMarker is written to stderr by the prompt-requiring git stand-in when

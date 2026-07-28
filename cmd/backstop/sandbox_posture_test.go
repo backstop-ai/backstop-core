@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/baseengines"
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/baseengines"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // TestEndState_NoToolNameUsedAsDispatchDiscriminator is the SPEC-035 REQ-006 /

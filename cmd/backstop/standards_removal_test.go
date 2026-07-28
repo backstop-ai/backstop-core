@@ -9,15 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // TestNoProductionImportOfCompile asserts that no non-test file under
-// cmd/backstop or pkg/check imports github.com/bmanson/backstop-core/pkg/compile.
+// cmd/backstop or pkg/check imports github.com/backstop-ai/backstop-core/pkg/compile.
 // (CLM-012)
 func TestNoProductionImportOfCompile(t *testing.T) {
 	root := repoRoot(t)
-	const compileImport = "github.com/bmanson/backstop-core/pkg/compile"
+	const compileImport = "github.com/backstop-ai/backstop-core/pkg/compile"
 
 	for _, sub := range []string{"cmd/backstop", "pkg/check"} {
 		dir := filepath.Join(root, sub)

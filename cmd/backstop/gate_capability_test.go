@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/config"
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // TestCapabilityState_NonGoProject_DerivesAbsentClass2 (CLM-029): on the

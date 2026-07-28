@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/schema"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/schema"
 )
 
 // TestArtifactValidate_Route_Spec verifies that an artifact with

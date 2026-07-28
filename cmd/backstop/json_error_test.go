@@ -8,7 +8,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack/distribution"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
 // SPEC-055 REQ-012, the kind-classification half (CLM-084..087). These drive

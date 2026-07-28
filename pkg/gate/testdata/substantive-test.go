@@ -3,7 +3,7 @@ package testdata
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
 // TestSubstantiveExample is a test function with assertions and a target package call.

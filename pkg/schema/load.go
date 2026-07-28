@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 var schemaVersionRe = regexp.MustCompile(`^[a-z]+/v\d+$`)

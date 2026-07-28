@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/gate"
-	engine "github.com/bmanson/backstop-core/pkg/pack/engine"
-	"github.com/bmanson/backstop-core/pkg/packval"
+	"github.com/backstop-ai/backstop-core/pkg/gate"
+	engine "github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // gate_contract_e2e_test.go (SPEC-038 TASK-038, REQ-014): the REAL over-installed-pack

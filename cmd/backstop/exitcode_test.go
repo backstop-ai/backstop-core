@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // TestCLI_ExitCode_0_OnPass verifies ExitWithResult with passing result

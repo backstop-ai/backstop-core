@@ -1,6 +1,6 @@
 package pack_test
 
-import "github.com/bmanson/backstop-core/pkg/pack/engine"
+import "github.com/backstop-ai/backstop-core/pkg/pack/engine"
 
 // baseTestRegistry constructs the four generic base engine bindings (semgrep,
 // ast-grep, sandbox, config-file) as a test-only engine.Registry, mirroring the

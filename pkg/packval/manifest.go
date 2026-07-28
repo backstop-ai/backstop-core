@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bmanson/backstop-core/pkg/baseengines"
-	"github.com/bmanson/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/baseengines"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 	"gopkg.in/yaml.v3"
 )
 

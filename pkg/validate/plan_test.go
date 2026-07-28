@@ -3,8 +3,8 @@ package validate_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 func validPlanArtifact() *artifact.ParsedArtifact {

@@ -3,7 +3,7 @@ package pack_test
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 func TestValidateFixtureProof_EnforcementWithFixtures(t *testing.T) {

@@ -3,7 +3,7 @@ package validate
 import (
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // TestValidateResolvedBy_PRURLAccepted (CLM-005): a GitHub-style PR URL is a valid

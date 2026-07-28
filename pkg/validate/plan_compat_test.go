@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bmanson/backstop-core/pkg/validate"
+	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
 // REQ-009: Schema includes task type
