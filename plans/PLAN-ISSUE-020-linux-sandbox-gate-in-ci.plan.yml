@@ -1582,6 +1582,22 @@ notes: |
                make a casual exclusion HARDER than fixing the coverage, or it
                becomes the waiver route this plan rejected twice.
 
+    REQ-013: The justification field exists in core; the requirement lives in the pack.
+      CLM-046  `check.CoverageRecord` carries an ADDITIVE
+               `Justification string json:"justification,omitempty"`, and
+               `coverageExclusionReason` PREFERS it when rendering the
+               `coverage_exclusion` warning, falling back to the existing bare
+               "(pack-declared exclusion)" text when it is empty. `omitempty` keeps
+               every existing producer wire-compatible — including packs that still
+               hardcode `excluded:false` — so this is purely additive to the
+               contract.
+               CORE DOES NOT REJECT AN UNJUSTIFIED EXCLUSION. The
+               mandatory-justification REQUIREMENT lives in the go-toolchain pack
+               and in the dogfood test, never in the binary: policy belongs to
+               packs, and a core-side rejection would be exactly the baked opinion
+               the thin-executor rule forbids. Core carries the DATA; the pack
+               carries the DEMAND.
+
     REQ-012: CI gates only files an author wrote.
       CLM-045  no workflow step leaves an ungitignored file behind, so the diff
                scope contains only author-written files. The two known droppings —
@@ -3912,21 +3928,76 @@ phases:
           reason is indistinguishable from a mistake, and it is what makes the next
           one easy.
 
+          ⚠ PLAN GAP, FOUND BY THE IMPLEMENTER BEFORE WRITING THIS TEST, AND A
+          CORRECT STOP: the field this test asserts EXISTS NOWHERE.
+          `check.CoverageRecord` (`pkg/check/coverage.go:25-45`) has Path, Covered,
+          Total, Measured, Excluded and Metric — no justification. And
+          `coverageExclusionReason` (`pkg/gate/step_coverage.go:248`), despite the
+          name, only reports the METRIC; its own doc comment says outright that "the
+          canonical record carries no free-form reason field." So NO PACK CHANGE
+          ALONE could satisfy this test — the mandated assertion was unsatisfiable
+          as written, and stopping to say so was worth more than an approximation
+          that passed.
+
+          The ruling is CLM-046: the field is added to core additively, and the
+          REQUIREMENT that it be non-empty stays in the pack and in this test.
+          TASK-036 carries the core edits.
+
+          NOTE THE RED-STATE SHAPE: until TASK-036 lands the field, this test does
+          not merely fail — it does not COMPILE, which takes the whole root package
+          with it. That is a legitimate red, but it is a noisy one, so sequence
+          accordingly and do not mistake the package-wide breakage for a second
+          defect.
+
           `TestCoverageExclusion_UndeclaredPathStillFails` — the guard against the
           mechanism becoming a blanket: a path NOT declared excluded still fails
           below threshold. Without this, a broken exclusion matcher that excluded
           everything would look like success.
+
+          THESE CONFUSION-GUARD TESTS ARE WRITABLE AGAINST REAL BEHAVIOR, which is a
+          useful negative finding worth recording: skip, unmeasured and
+          below-threshold are THREE DISTINCT CODE PATHS in the existing gate, not
+          three descriptions of one. `step_coverage.go:170`'s exclusion skip already
+          emits a NON-BLOCKING `coverage_exclusion` warning for an in-scope excluded
+          file, and `coverage_unmeasured` (:127-138) is a separate blocking rule.
+          So the distinction the tests assert is real machinery, and a test that
+          confuses them will genuinely fail rather than pass by coincidence.
         files:
           - pack_fleet_test.go
         claims:
           - CLM-044
+          - CLM-046
         depends_on:
           - TASK-034
 
       - id: TASK-036
         type: implementation
-        title: "Add the declared-exclusion mechanism to the go-toolchain pack, then relock"
+        title: "Add the justification field to core, the exclusion mechanism to the pack, then relock"
         description: |
+          TWO HALVES, AND THE CORE HALF COMES FIRST because the pack half cannot be
+          tested without it.
+
+          ── CORE HALF (CLM-046), strictly additive ────────────────────────────
+          `pkg/check/coverage.go`: add
+          `Justification string json:"justification,omitempty"` to
+          `CoverageRecord`. `omitempty` is load-bearing, not style — it keeps every
+          existing producer wire-compatible, including packs that still hardcode
+          `excluded:false` and know nothing about this field.
+
+          `pkg/gate/step_coverage.go`: make `coverageExclusionReason` (:248) PREFER
+          the justification when non-empty, and keep the existing bare
+          "(pack-declared exclusion)" fallback for records without one. Update that
+          function's doc comment — it currently states the record carries no
+          free-form reason field, which was true when written and is the reason this
+          gap went unnoticed.
+
+          DO NOT MAKE CORE REJECT AN UNJUSTIFIED EXCLUSION. Core carries the DATA;
+          the pack carries the DEMAND. A binary that refuses an exclusion without a
+          justification is a baked policy opinion, and the thin-executor rule puts
+          that in packs. The requirement is enforced by the go-toolchain pack and by
+          TASK-035's dogfood test — both of which can evolve on their own clock.
+
+          ── PACK HALF ────────────────────────────────────────────────────────
           CROSS-REPO, and sanctioned: the packs-learn-from-scenarios law says a
           scenario the packs cannot express is fixed IN THE PACK, versioned, never
           scarred into consumer code. The same evidence bar applies, and
@@ -3957,10 +4028,13 @@ phases:
           Follow the pack-fleet migration recipe's silent steps — a relock that
           leaves the lock and the installed tree disagreeing fails quietly.
         files:
+          - pkg/check/coverage.go
+          - pkg/gate/step_coverage.go
           - backstop.yml
           - backstop.lock
         claims:
           - CLM-044
+          - CLM-046
         depends_on:
           - TASK-035
 
