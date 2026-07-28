@@ -346,18 +346,34 @@ notes: |
     shortfalls as the grandfathered set. Re-derive the intersection with the
     swept files and report the actual number against the exception.
 
-  Capture path: `scratchpad/gate-all.txt` (SESSION scratchpad — convenience
-  only, not durable; regenerate rather than trusting it). AUTHORITATIVE method:
-  run `./bin/backstop gate --all`, take its violation file list, intersect with
-  the files TASK-002 modified. That intersection is the newly-activated set.
+  ⚠ EVERY NUMBER ABOVE IS AN UNDERCOUNT — AMENDED 2026-07-28. They were parsed
+  from a `gate --all` capture, and ISSUE-091 (risk: critical, open) establishes
+  that `gate --all` is NOT a superset of the diff-scoped gate: it under-reports
+  go-standards/semgrep findings on `*_test.go` files, scoring ZERO for files the
+  diff-scoped run reports findings on. Measured at the same HEAD, the diff-scoped
+  gate found 124 findings `--all` missed, 111 of them on files `--all` called
+  clean.
+
+  The realized consequence is this plan's own: the "~31 violations" headline that
+  sized TASK-016's founder ruling was an artifact of that undercount. The
+  enforcing (diff-scoped) truth was 153 rows. Treat the inventory above as a
+  LOWER BOUND and a historical record of how the ruling was sized — never as a
+  target to reconcile against.
+
+  AUTHORITATIVE METHOD (replaces the `--all` intersection): run the DIFF-SCOPED
+  gate, `./bin/backstop gate --json`, and take the blocking set from its output.
+  The diff-scoped gate is what ENFORCES; `--all` is advisory at best and
+  actively misleading on test files. `scratchpad/gate-all.txt` is wrong twice
+  over — a stale snapshot AND an `--all` capture. Do not reconcile against it.
 
   NOT COVERED BY ANY DISPOSITION, and this plan's own responsibility:
     - the three NEW root-package test files (module_path_test.go,
       release_config_test.go, workflows_test.go) and cmd/backstop/version.go
       must be findings-clean. New files are in diff scope unconditionally, so a
       violation in a file this plan AUTHORS is this plan's defect.
-    - any finding absent from `gate --all` BEFORE the sweep. An activated
-      dormant finding is a scope question; a newly-created one is a defect.
+    - any finding that did not exist BEFORE the sweep. An activated dormant
+      finding is a scope question; a newly-created one is a defect. Establish
+      "before" from the diff-scoped gate, never from `--all`.
 
   ── HOMEBREW IS BACK IN SCOPE (founder reversal, 2026-07-27) ──────────────
   ISSUE-087 lists the Homebrew tap as explicitly out of scope, deferred
@@ -760,7 +776,15 @@ phases:
               — the issue records 295, and a re-measure the same day returned 301
               because concurrent lanes were adding files. Re-derive it on the quiet
               tree immediately before the sweep; report the before count and the
-              after count (which must be 0). Never assert a fixed number.
+              after count. Never assert a fixed number.
+
+              The after count is 1, NOT 0: `module_path_test.go` (added by
+              TASK-001) must contain the legacy string as its own
+              `legacyModulePath` constant, since a guard has to name what it
+              forbids. Do NOT "fix" that hit — rewriting the guard's constant
+              silently disarms the guard, turning it into a test that forbids a
+              string nothing uses. Exclude it deliberately, and confirm the only
+              remaining match is that one file.
             - cmd/backstop/testdata/catalog-display-site.go.txt
             - cmd/backstop/testdata/catalog-unlisted-keying-site.go.txt
             - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
@@ -897,16 +921,27 @@ phases:
           coverage_threshold shortfalls got an exception, and they are NOT this
           task's business (see TASK-004 and the plan notes).
 
-          SCOPE. Start from the reviewer's `gate --all` capture, then RE-DERIVE
-          against the post-sweep tree — the capture is a snapshot and the tree
-          has been moving. Parsed inventory of the go-standards rules from that
-          capture, 37 rows across 20 files:
+          SCOPE — DERIVE IT FROM THE DIFF-SCOPED GATE, NOT FROM `--all`.
+          Run `./bin/backstop gate --json` against the post-sweep tree and take
+          the go-standards rows from its output. That is the enforcing set.
 
-              20  error-wrapping-required
-               8  no-global-mutable-state
-               6  no-ignored-errors
-               2  no-panic-in-library-code
-               1  no-hardcoded-credentials
+          ⚠ AMENDED 2026-07-28: this task originally said "start from the
+          reviewer's `gate --all` capture" and quoted 37 rows across 20 files
+          (20 error-wrapping-required, 8 no-global-mutable-state, 6
+          no-ignored-errors, 2 no-panic-in-library-code, 1
+          no-hardcoded-credentials). Those numbers are a SUBSTANTIAL UNDERCOUNT —
+          the enforcing truth measured during execution was 153 rows. Per
+          ISSUE-091 (risk: critical, open), `gate --all` under-reports
+          go-standards/semgrep findings on `*_test.go` files, reporting zero for
+          files the diff-scoped gate finds violations in. The old figures are
+          retained here ONLY as the record of how the founder ruling came to be
+          sized at ~31; do not treat them as scope, a target, or a completion
+          check.
+
+          Expect the real set to be several times larger than those numbers, and
+          expect the excess to be concentrated in `*_test.go` files — exactly the
+          class `--all` cannot see. If your measured set comes out near 37, you
+          are probably reading an `--all` run; check which mode produced it.
 
           Fix each in the ordinary way: wrap returned errors with
           `fmt.Errorf("...: %w", err)` and context; handle ignored errors
@@ -992,10 +1027,31 @@ phases:
 
           Also re-run and report:
             `grep -rl "github.com/bmanson/backstop-core" --include="*.go" . | wc -l`
-          It must be 0, against whatever non-zero count TASK-002 recorded on the
-          quiet tree beforehand. Note this counts `.go` files
-          only and does not descend into the exclusions above — `.backstop/` still
-          carries one reference by design, and that is not a miss.
+
+          EXPECT 1, NOT 0 — and the one hit must be `module_path_test.go`.
+          AMENDED 2026-07-28 from execution: "must be 0" was UNSATISFIABLE BY
+          CONSTRUCTION. The guard test has to NAME the string it forbids, so it
+          defines `legacyModulePath = "github.com/bmanson/backstop-core"`
+          (module_path_test.go:25) and skips its own definition site with an
+          anchored self-skip. A repo-wide grep cannot distinguish the guard's
+          declaration from a real stale reference; only the guard can.
+
+          So the criterion is: ZERO legacy references OUTSIDE the guard's own
+          definition site. If the grep returns anything other than exactly
+          `module_path_test.go`, the extra files are real misses. If it returns
+          0, the guard's constant has gone missing and the guard is now vacuous —
+          investigate rather than celebrate.
+
+          THE GUARD TEST IS THE STRONGER CHECK, and this grep is a coarse
+          cross-check of it. `TestModulePath_NoLegacyReferencesInLiveTree` walks
+          the WHOLE tree — `.go`, `.go.txt`, `.sh`, `go.mod` — not just `.go`,
+          reports every offender rather than a count, and encodes the exclusions
+          as reviewed code instead of shell flags. It is currently GREEN. Trust
+          it over the grep where they disagree, and report its result first.
+
+          Note the grep counts `.go` files only and does not descend into the
+          exclusions above — `.backstop/` still carries one reference by design,
+          and that is not a miss.
 
           ── GATE EXPECTATION UNDER THE SPLIT RULING (2026-07-27) ───────────
           Do NOT expect the gate violation set to be unchanged. The gate scopes
@@ -1005,14 +1061,38 @@ phases:
           violations becomes blocking purely as a side effect of a rename that
           changes no behavior.
 
+          ⚠ METHOD AMENDED 2026-07-28 — `gate --all` IS NOT THE SOURCE OF TRUTH.
+          The original instruction here was "run `gate --all` and intersect its
+          violation file list with the swept files." That method is INVALID and
+          must not be used. Per ISSUE-091 (risk: critical, open), `gate --all` is
+          NOT a superset of the diff-scoped gate: measured at the same HEAD, the
+          diff-scoped run reported 124 findings `--all` did not, and 111 of those
+          sat on files `--all` scored ZERO findings for. The gap concentrates in
+          go-standards/semgrep rules over `*_test.go`. Root cause is in the engine
+          dispatch (`cmd/backstop/pack_gate.go`): all-scope hands the engine a
+          bare `projectRoot` and lets it do its own file discovery, while diff
+          scope hands it an explicit file list.
+
+          This is not hypothetical, and this plan is the reason ISSUE-091 exists:
+          the old method sized TASK-016's founder scope ruling at ~31 violations
+          when the enforcing truth was 153 rows. A founder made a scope decision
+          on an undercount produced by the gate's own full-scope mode. Do not
+          re-run that mistake by reaching for `--all` because it reads as
+          "everything."
+
           What to do here:
-            - Run `./bin/backstop gate` and `./bin/backstop gate --all`. Report
-              both, in full, with true exit codes.
-            - Intersect `gate --all`'s violation file list with the files TASK-002
-              modified. That intersection is the newly-ACTIVATED set. Report it as
-              an inventory — rule, file, dimension.
-            - Regenerate rather than trusting `scratchpad/gate-all.txt`; it is a
-              session scratchpad snapshot and the tree has moved.
+            - Run the DIFF-SCOPED gate — `./bin/backstop gate --json` — and take
+              the blocking set from ITS output. That is what enforces, and it is
+              the only figure this plan's rulings should be reconciled against.
+              Use `--json` rather than the text rendering so you get rule, file
+              and dimension per row instead of a summary.
+            - You may ALSO run `./bin/backstop gate --all` for context, but treat
+              any file it reports zero findings for as UNPROVEN, never as clean.
+              Where the two disagree, the diff-scoped run wins.
+            - Do NOT trust `scratchpad/gate-all.txt`. It is both a stale snapshot
+              AND an `--all` capture, so it is wrong twice over. The inventory
+              numbers quoted in this plan's notes derive from it and are
+              undercounts — re-derive, do not reconcile against them.
             - Report the activated set as ACTIVATED-BY-SWEEP. Not "caused by the
               rename" (nothing changed behavior) and not "pre-existing, therefore
               fine" (it is blocking now, which it was not before).
@@ -1040,8 +1120,10 @@ phases:
           Not covered by any disposition and clean regardless:
             - `module_path_test.go`, added by TASK-001, carries zero findings.
             - the rename introduces no NEW finding anywhere. An activated dormant
-              finding is a scope question; a finding absent from `gate --all`
-              before the sweep is a defect in the sweep.
+              finding is a scope question; a finding that did not exist before the
+              sweep is a defect in the sweep. Establish "before" from the
+              diff-scoped gate — an `--all` baseline would call test files clean
+              that never were (ISSUE-091), making real new findings look dormant.
 
           Because coverage_threshold is expected red, `./bin/backstop gate` will
           exit non-zero here. Report that exit code truthfully and explain WHICH
@@ -1801,18 +1883,38 @@ phases:
                REBUILD. A stale binary gates the pre-change code and reports a
                vacuous green — this matters more than usual here, since the module
                path itself changed.
-            5. ./bin/backstop gate
-               AND ./bin/backstop gate --all
+            5. ./bin/backstop gate --json     ← THE AUTHORITATIVE RUN
+               `./bin/backstop gate --all` may be run for context, but its output
+               is NOT the blocking set and a file it reports clean is unproven,
+               not clean (ISSUE-091). See the method amendment below.
             6. ./bin/backstop artifact validate --plan PLAN-ISSUE-087
             7. grep -rl "github.com/bmanson/backstop-core" --include="*.go" . | wc -l
-               Must be 0. (`.backstop/` still carries one reference by design — it
-               is locked installed pack content and a filed pack-repo follow-on.)
+               EXPECT 1, and it must be `module_path_test.go` — the guard names
+               the string it forbids (`legacyModulePath`, module_path_test.go:25)
+               and self-skips. Zero is not achievable while the guard exists;
+               anything OTHER than exactly that one file is a real miss. See
+               TASK-004 for the full reasoning. (`.backstop/` also still carries
+               one reference by design — gitignored installed pack content, a
+               filed pack-repo follow-on.)
+               The authoritative check is TestModulePath_NoLegacyReferencesInLiveTree,
+               which walks the whole tree rather than `.go` only; report it first.
 
           ── GATE EXPECTATION UNDER THE SPLIT RULING ───────────────────────
           Do not assert the violation set is unchanged, and do not treat step 5 as
           a simple pass/fail. The repo-wide sweep pulls a materially larger set
           into diff scope. Report the activated inventory (rule, file, dimension)
           and reconcile it against TASK-004's, explaining any delta.
+
+          ⚠ METHOD AMENDED 2026-07-28 — take the blocking set from the
+          DIFF-SCOPED gate's `--json` output, NOT from `gate --all`. Per ISSUE-091
+          (risk: critical, open), `--all` is not a superset of the diff-scoped
+          gate: it under-reports go-standards/semgrep findings on `*_test.go`
+          files, scoring zero for files the diff-scoped run flags. Running `--all`
+          for context is fine; treating a file it calls clean as actually clean is
+          not. Where the two disagree, the diff-scoped run wins — it is what
+          enforces. This plan is the reason ISSUE-091 was filed: the superseded
+          `--all` method under-sized TASK-016's founder ruling at ~31 rows when
+          the enforcing truth was 153.
 
           Per the founder ruling of 2026-07-27:
             - pack_engines: CLEAN over the swept set (TASK-016 remediated it),
@@ -1834,7 +1936,8 @@ phases:
             - the three NEW root-package test files — module_path_test.go,
               release_config_test.go, workflows_test.go — carry zero findings
             - cmd/backstop/version.go carries zero findings
-            - no finding exists that was absent from `gate --all` before the sweep
+            - no finding exists that did not exist before the sweep, measured
+              against the DIFF-SCOPED gate rather than `--all` (ISSUE-091)
 
           Then state, explicitly and in these terms, what this plan did and did not
           prove:
