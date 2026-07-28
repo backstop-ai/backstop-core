@@ -1,0 +1,11 @@
+# Coverage exclusions for backstop-core.
+#
+# FORMAT: <repo-relative-path><TAB><justification>
+# Read by the go-toolchain pack's coverage producer, which folds each line into the
+# coverage profile so the sandboxed converter can mark the record excluded. A line
+# with no justification column is DROPPED, not honoured — the path stays measured.
+#
+# TRACKED ON PURPOSE. A gitignored declaration would shape the gate's verdict without
+# appearing in review.
+
+pkg/packval/sandbox_linux_helper.go	every function here runs inside the re-exec helper, which ends in unix.Exec; exec replaces the process image so Go never flushes its coverage counters. Measured evidence: pkg/packval/testdata/sandbox-linux-coverage-profile.txt (run 30386673582) shows five functions at exactly 0/79 on a run where the sandbox demonstrably installed and held. The code is not untested; the instrument cannot observe it.
