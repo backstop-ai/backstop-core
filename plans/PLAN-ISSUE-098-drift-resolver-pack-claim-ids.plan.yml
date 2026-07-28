@@ -1,0 +1,681 @@
+---
+plan_id: PLAN-ISSUE-098
+spec_id: ISSUE-098
+created: "2026-07-28"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-098 — the artifact_status_drift resolver is blind to pack-side
+  evidence. A SCOPED RESOLVER EXTENSION, not a redesign: one new index, one new
+  presence union, one wiring thread. Nothing about the existing Go-test resolution
+  path changes.
+
+  ── THE DEFECT, RE-VERIFIED ON THE TREE 2026-07-28 ───────────────────────────
+  cmd/backstop/gate.go:937 computeDriftSurfaces builds its `present` set from ONE
+  signal: `mt.FilePath != ""` after gate.ResolveMandatedTestPaths
+  (pkg/gate/step_testverify.go:609), which fills FilePath only from
+  collectTestFuncNames (:453) — a walk of pack-declared TEST-FILE globs applying the
+  pack-declared TestNameMatcher per line. A pack.yml is never a "test file" to the
+  classifier, and `- id: type-signature-go` is not a line shape any test-name regex
+  matches. Pack claim ids are therefore categorically outside the vocabulary, not
+  merely unmatched by it. ISSUE-036's CLM-008 mandates five of them — live and passing
+  in the INSTALLED, LOCKED backstop-ai/go-contracts v1.2.0 at
+  .backstop/packs/backstop-ai/go-contracts/pack.yml:75-123, which is the pack the gate
+  actually indexes (ISSUE-098 cites packs/contracts/pack.yml:70-129 instead; that is the
+  divergent repo-root fixture — see the "DO NOT PROVE THIS AGAINST packs/contracts" note
+  below, and do not repeat the conflation) — and gets five false broken-promise BLOCK
+  violations, grandfathered by the local baseline, RED in CI (run 30384984403).
+
+  ── PRESENCE SEMANTICS: THE DECISION AND ITS ARGUMENT (CLM-005) ──────────────
+  DECIDED: a mandated name resolves PRESENT when an INSTALLED pack manifest declares
+  a claims[].id equal to it. The drift step does NOT re-run `backstop pack test`, does
+  not re-execute fixtures, and does not consult a pack-test result cache.
+
+  The integrity chain, stated honestly and end to end:
+
+    1. pack_lock_verification runs FIRST in the kill chain and is ConfigErr on failure
+       (cmd/backstop/gate.go:805-813); pkg/gate/gate.go:162-164 HALTS the gate on
+       ConfigErr. So by the time the drift step runs, every declared pack's installed
+       tree content-hashes equal to backstop.lock, or the gate already exited 2.
+       (Honest caveat, recorded because a later reader will look for it: VerifyLock
+       skips `source_type: local` entries — verify.go:47-49 — so for a locally-sourced
+       pack the chain is "declared, present and parseable", not "hash-verified".
+       That is a PRE-EXISTING property of every pack-fed dimension, not something this
+       plan introduces, and it is the same trust the classifier/matcher already ride.)
+    2. The installed tree only got there through `pack add`/`pack install`, which run
+       the FULL pkg/packval pipeline — including phase 3, RunFixtures
+       (pkg/packval/phase3.go:13), which EXECUTES each claim's positive and negative
+       fixtures through the resolved engine binding.
+    3. pack.ParseManifestFile REQUIRES every claim to declare at least one positive
+       AND one negative fixture (manifest.go:655-662). A claim id cannot exist in a
+       parseable manifest without a falsifying fixture pair behind it.
+
+    So "the id is present in an installed manifest" transitively means: a claim by
+    that name exists, carries positive+negative fixtures, and passed them when the
+    pack was installed at the content now on disk.
+
+    WHAT IT DOES NOT PROVE: that those fixtures pass RIGHT NOW, against the engine
+    binary and rule files as they currently resolve. It is a proof of DECLARED,
+    INSTALL-VERIFIED EXISTENCE, not of a live green run.
+
+    WHY THAT GAP NEEDS NO WARNING SURFACE — the symmetry argument, which is the
+    load-bearing half of this decision: the Go side of this very resolver proves
+    exactly as little. collectTestFuncNames proves a test FUNCTION EXISTS in a file;
+    it never runs it, and ClassifyStatusDrift deliberately takes NO pass/fail
+    parameter (pkg/gate/status_drift.go:20-30, CLM-005/008 of ISSUE-042: "EXISTENCE is
+    the sole lever"; a present-but-failing test is pack_engines' job). Requiring a live
+    fixture run for the pack side would hold packs-only evidence to a STRICTLY HIGHER
+    bar than source evidence inside a dimension whose whole design is existence-only —
+    penalizing exactly the evidence form CLAUDE.md's first principle says is native.
+    Execution proof lives where it already lives: the pack_engines dimension and
+    `backstop pack test`. Adding a fixture re-run here would also drag engine
+    provisioning and subprocess execution into a step that is currently a pure
+    filesystem sweep.
+
+    AND IT IS FALSIFIABLE, NOT MERELY ARGUED: TASK-007's
+    TestDriftGate_PresenceIsDeclarationNotFixtureExecution resolves a claim whose
+    fixture files do not exist and whose engine binds to a non-binary. A pass there is
+    only possible if presence is declaration presence and no subprocess is spawned; any
+    future "hardening" that quietly adds a fixture run turns that test red, which is
+    exactly the alarm this decision deserves.
+
+  ── WHICH MANIFEST SURFACES COUNT (CLM-003) ──────────────────────────────────
+  IN: Content.Ruleset.Rules[].Claims[].ID and ToolConfig[].Claims[].ID.
+  OUT: rule ids, scaffold ids, recipe ids, engine names, pack names.
+
+  This is not a taste call — the manifest itself draws exactly this line. ParseManifestFile
+  enforces ONE claim-id namespace spanning precisely those two surfaces and no others
+  (manifest.go:382-398: `seenClaimIDs` is populated from rule claims then tool_config
+  claims, and a collision across them is a parse error). Both surfaces are the same
+  `Claim` type, and both are fixture-bearing by the rule above. A rule id, by contrast,
+  is a rule — it carries no fixtures of its own, so admitting rule ids would let a
+  mandated name resolve against something with no falsifier behind it. That is the
+  vacuous-presence failure mode this plan's own falsifier exists to prevent.
+
+  ── ZERO-BAKED-CHECKS (CLM-001) ──────────────────────────────────────────────
+  The index is a structural walk of parsed Manifest values. NO pack-name literal
+  ("contracts", "backstop/self", …), NO id-shape regex, NO `-go` suffix knowledge, no
+  language branch. A TypeScript pack's claim ids index identically. TASK-004 carries a
+  test that asserts this by using a pack whose name and ids share nothing with the
+  contracts pack.
+
+  ── THE SHARP EDGE THAT DICTATES THE DESIGN ──────────────────────────────────
+  DO NOT make a pack-claim hit fill MandatedTest.FilePath, and do not extend
+  ResolveMandatedTestPaths to do it. FilePath is a SHARED signal with two other
+  consumers, and one of them would corrupt:
+
+    - cmd/backstop/gate.go:1166-1181 (substantiveness Q2 noTarget join) skips a
+      mandated test only when `mt.FilePath == ""`. Give a pack-claim-resolved test a
+      FilePath of `.backstop/packs/<name>/pack.yml` and the join would ask whether
+      pack.yml references the target package, emit a false "does not call package X"
+      violation, and attribute it to a pack manifest.
+    - pkg/gate/step_testverify.go:370-385 (test_verification) keys presence on the
+      `found` map, NOT on FilePath, so it would be untouched either way.
+
+  Therefore the union lives at the DRIFT CONSUMER, over a SEPARATE index. Every other
+  ResolveMandatedTestPaths caller keeps byte-identical behavior (CLM-004).
+
+  ── DELIBERATE NON-SCOPE, NAMED SO IT IS NOT MISTAKEN FOR AN OVERSIGHT ───────
+  test_verification is NOT extended. Verified 2026-07-28: no spec under specs/ mandates
+  a pack claim id (every `tests:` entry is Test-function-shaped), so that dimension has
+  no live false positive today, and threading the index through
+  StepTestVerificationScopedFunc would change a signature with a large call-site fan-out
+  for zero present-day evidence. The index and union are exported from pkg/gate
+  precisely so that extension is a two-line change the day an implemented spec mandates
+  pack-side evidence. If this plan's implementer finds such a spec, STOP and escalate
+  rather than silently widening scope.
+
+  ── FAILURE MODES THE STEP MUST HANDLE (CLM-006) ─────────────────────────────
+    - Declared pack missing / manifest unparseable: loadInstalledPacks already errors
+      and buildGateSteps returns a single `pack_loading` ConfigErr step
+      (cmd/backstop/gate.go:653-665) — the gate exits 2 BEFORE the drift step is ever
+      constructed. This plan adds no second-guessing of that; it derives the index from
+      the SAME already-loaded `packs` slice, so an index can never be built from packs
+      the gate has not vouched for.
+    - Zero packs declared (a legitimate packless project, and the ISSUE-086 CI shape):
+      empty index, presence union degenerates to today's source-only behavior. No new
+      false positive is introduced relative to the status quo; the false positive that
+      already exists there is ISSUE-086's to close, not this plan's.
+    - Cross-pack claim-id collision: ids are unique WITHIN a pack but not across packs.
+      Presence is unaffected (a hit is a hit); the label records the first pack in the
+      deterministic declared-pack order. Never an error.
+
+  ── VERIFICATION COMMANDS (`backstop code check` DOES NOT EXIST) ─────────────
+  Re-confirmed 2026-07-28: `./bin/backstop code check` → `unknown command "code" for
+  "backstop"`. The shipped top-level commands are artifact, baseline, commands,
+  completion, gate, help, pack, recipe, version, waiver. Any task prescribing
+  `backstop code check` prescribes a command that does not exist.
+
+    middle: go build ./... && go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD — a stale binary gates
+            the OLD code and reports a vacuous green)
+            ./bin/backstop gate --json
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-098
+
+  Report TRUE exit codes (`echo $?`). Never mask a non-zero exit behind a pipe.
+
+  ── THE LOCAL BASELINE MAKES A GREEN GATE UNTRUSTWORTHY AS PROOF ─────────────
+  The five ISSUE-036 findings are currently GRANDFATHERED locally (ISSUE-086
+  divergence), so "the gate is green" would have been true BEFORE this fix too. The
+  restoration proof must be baseline-independent, which is why TASK-007 mandates a
+  test that drives the resolution directly and asserts on the RAW drift violations —
+  and why TASK-010 reads `gate --json` violation contents rather than trusting the
+  verdict.
+
+  ── WHOLE-FILE FINDING ACTIVATION ───────────────────────────────────────────
+  cmd/backstop/gate.go is a large, long-lived file. Touching it activates ALL of its
+  findings, not just the edited lines (no-grandfather-on-changed-files). The
+  implementer MUST clear every finding the gate raises on it — fixing them, not
+  waiving them — and must report what was cleared. Keep the edit to gate.go MINIMAL
+  (two functions: buildStatusDriftSteps and computeDriftSurfaces) precisely to keep
+  that blast radius small; the new index-building code lives in its OWN new file.
+
+  ── DO NOT PROVE THIS AGAINST packs/contracts — IT IS NOT THE INDEXED PACK ───
+  An earlier draft of this plan mandated the restoration proof against the TRACKED
+  <repoRoot>/packs/contracts/pack.yml. That was WRONG and is corrected here, because
+  the mistake is the exact vacuous-green class this plan's falsifiers exist to prevent.
+  Verified 2026-07-28:
+
+    packs/contracts/pack.yml      name: backstop/contracts     version: 1.1.0
+                                  IN NO backstop.lock ENTRY
+    .backstop/packs/backstop-ai/go-contracts/pack.yml
+                                  name: backstop-ai/go-contracts  version: "1.2.0"
+                                  locked at backstop.lock:18-25, git_ref v1.2.0,
+                                  declared in backstop.yml, and THE pack the gate
+                                  indexes (loadInstalledPacks resolves the
+                                  backstop.yml key under .backstop/packs/)
+
+  The two copies ALREADY diverge on name and version. pack_fleet_test.go (repo ROOT,
+  not cmd/backstop) records packs/contracts in syntheticCarrierExemptions as "not a
+  fleet member and a documented non-goal of the migration" — it is a fixture the
+  distribution tests install into temp projects. So a proof reading it would stay green
+  while the FLEET pack renamed or dropped an id and the real gate went red.
+
+  It also fails this plan's own integrity argument on its face: packs/contracts is under
+  no lock entry, so it sits outside the locked-hash chain the presence semantics rest on.
+  And the justification the earlier draft gave — "deterministic on a clean CI checkout
+  with zero packs installed" — is factually false: ci.yml:79-83 runs
+  `./bin/backstop pack install` BEFORE the gate at :146.
+
+  EVERY assertion about the ISSUE-036 five resolves through loadInstalledPacks, with a
+  skip guard for a local tree whose fleet is not installed.
+
+  ── LANE BOUNDARY ───────────────────────────────────────────────────────────
+  The in-flight PLAN-ISSUE-020 lane owns .github/workflows/ci.yml, pkg/packval/*,
+  pkg/check/coverage.go and pkg/gate/step_coverage.go. This plan touches NONE of them.
+  If a task appears to need one, STOP and escalate.
+
+  ONE COUPLING, DECLARED: TASK-007's new file CONSUMES the fixture builders
+  writeFixture / issueFixture / installDriftPack from
+  cmd/backstop/status_drift_gate_test.go (same package, no import) WITHOUT editing that
+  file — it is in PLAN-ISSUE-020's scope, and the team lead has warned that lane. If 020
+  renames or changes the signature of any of those three helpers, TASK-007's file breaks
+  at compile time — loudly, which is the acceptable failure mode. Do NOT defensively fork
+  copies of the helpers to dodge the coupling: two divergent fixture harnesses for one
+  dimension is worse than a compile error. If the helpers have already moved when TASK-007
+  runs, adapt to their new shape and report it.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Solution) ────
+    CLM-001  pkg/gate exposes PackClaimIndex — a claim-id → evidence-label map with a
+             presence lookup — built by a structural walk carrying NO pack-name
+             literal, NO id-shape regex and NO language branch.
+    CLM-002  pkg/gate exposes a presence resolver that returns the present-name set
+             ClassifyStatusDrift consumes, as the UNION of source-resolved mandated
+             tests (FilePath != "") and PackClaimIndex hits. A name in NEITHER index
+             stays absent.
+    CLM-003  The index is derived from the already-loaded installed pack manifests and
+             indexes exactly Rules[].Claims[].ID and ToolConfig[].Claims[].ID — the two
+             surfaces ParseManifestFile enforces one claim-id namespace over. Rule ids,
+             scaffold ids and recipe ids never resolve.
+    CLM-004  Behavior of every other ResolveMandatedTestPaths consumer
+             (test_verification, substantiveness) is unchanged: MandatedTest.FilePath is
+             never populated from a pack claim, and the union happens only at the drift
+             consumer.
+    CLM-005  Presence semantics are DECLARATION presence in an installed, lock-verified
+             manifest — no fixture re-execution, no pack-test dependency inside the
+             drift step — matching the existence-only contract the Go side already has.
+    CLM-006  Failure modes: zero declared packs yields an empty index and today's
+             source-only behavior; unloadable/missing declared packs already halt the
+             gate as a pack_loading ConfigErr before the drift step is constructed.
+    CLM-007  ISSUE-036's five mandated pack claim ids resolve PRESENT — through the
+             installed, lock-verified backstop-ai/go-contracts, the pack the gate indexes
+             — with NO edit to ISSUE-036 and NO edit to any contracts pack manifest, so
+             their five artifact_status_drift broken-promise violations disappear from a
+             clean-checkout gate.
+    CLM-008  Falsifier: a fabricated claim id declared by no installed pack stays ABSENT
+             and still blocks — presence is never vacuous.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Pack-claim index and presence union in pkg/gate"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: PackClaimIndex presence lookup and the source/pack presence union"
+        description: |
+          New file pkg/gate/pack_claims_test.go, package gate. All four tests must be
+          RUN AND SEEN RED before TASK-002 writes a line — paste the failure output.
+
+          Build index values as literal maps (the pkg/gate side takes an already-built
+          index; manifest reading is Phase 2's job, so this file imports no pkg/pack).
+          Build MandatedTest values literally too.
+
+          TestPackClaimIndex_DeclaredClaimIDResolvesPresent
+            An index containing "type-signature-go" reports it present, and the label
+            it returns is non-empty (the label is what a future diagnostic surfaces).
+
+          TestPackClaimIndex_FabricatedClaimIDStaysAbsent
+            The CLM-008 falsifier at the unit grain. An index containing the five
+            ISSUE-036 ids does NOT report "no-such-claim-go" present. A nil index
+            reports nothing present and does not panic.
+
+          TestResolvePresentTestNames_UnionsSourcePathAndPackClaim
+            Three mandated tests: one with FilePath set and no index entry, one with
+            empty FilePath whose FuncName IS in the index, one with empty FilePath and
+            no index entry. The returned set contains the first two names and NOT the
+            third. This is the whole fix in one assertion.
+
+          TestResolvePresentTestNames_SourceOnlyBehaviorUnchanged
+            With a nil/empty index, the returned set is exactly the FilePath != ""
+            names — proving the union is additive and cannot make a source-resolved
+            name absent (CLM-002 regression guard).
+        files:
+          - pkg/gate/pack_claims_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-008
+        test_names:
+          - TestPackClaimIndex_DeclaredClaimIDResolvesPresent
+          - TestPackClaimIndex_FabricatedClaimIDStaysAbsent
+          - TestResolvePresentTestNames_UnionsSourcePathAndPackClaim
+          - TestResolvePresentTestNames_SourceOnlyBehaviorUnchanged
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: PackClaimIndex type and ResolvePresentTestNames union"
+        description: |
+          New file pkg/gate/pack_claims.go, package gate. Nothing else in pkg/gate is
+          edited by this task.
+
+            // PackClaimIndex maps a pack-DECLARED claim id to a human-readable evidence
+            // label ("<pack>:<rule>"). It is the second half of the mandated-test
+            // vocabulary: a pack's claims ARE that pack's tests.
+            type PackClaimIndex map[string]string
+
+            func (i PackClaimIndex) Has(name string) bool
+
+            // ResolvePresentTestNames returns the present-name set ClassifyStatusDrift
+            // consumes: the union of source-resolved mandated tests (FilePath != "")
+            // and pack-declared claim ids.
+            func ResolvePresentTestNames(mandated []MandatedTest, packClaims PackClaimIndex) map[string]bool
+
+          Has on a nil map returns false (Go map semantics — do not add a nil check that
+          hides a bug). ResolvePresentTestNames MUST NOT mutate `mandated`, must not
+          write FilePath, and must not read the filesystem.
+
+          Doc comment requirements — state the WHY, because the next reader will want to
+          re-derive it: (a) presence here is DECLARATION presence in an installed,
+          lock-verified manifest, deliberately not a fixture re-run, and it mirrors the
+          existence-only contract the Go-test side already has; (b) this union lives at
+          the drift consumer and NOT inside ResolveMandatedTestPaths because FilePath
+          feeds the substantiveness noTarget join, which would emit false findings
+          against pack.yml.
+        files:
+          - pkg/gate/pack_claims.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the pkg/gate index and union unit tests"
+        description: |
+          Fast inner loop, pkg/gate only:
+
+            go build ./... && echo $?
+            go test ./pkg/gate/... -race -count=1 && echo $?
+
+          The four TASK-001 tests must now be GREEN, and every pre-existing pkg/gate
+          test must still pass — status_drift_test.go and status_drift_plantests_test.go
+          in particular, since they exercise the classifier this union feeds. Report the
+          true exit codes.
+        files:
+          - pkg/gate/pack_claims.go
+          - pkg/gate/pack_claims_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Deriving the index from installed pack manifests"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "RED: manifest-surface selection, generality, and the ISSUE-036 five"
+        description: |
+          New file cmd/backstop/pack_claim_index_test.go, package main. Build
+          *pack.Manifest values by writing pack.yml fixtures to t.TempDir() and parsing
+          them with pack.ParseManifestFile — parse real manifests rather than
+          hand-constructing structs, so the test rides the same load-time validation
+          (fixtures required, claim-id uniqueness) the argument in the notes depends on.
+          Run all five RED first.
+
+          TestMergePackClaimIndex_IndexesRuleClaims
+            A manifest with two rules, each declaring one claim → both claim ids present,
+            each label naming the pack and the declaring rule.
+
+          TestMergePackClaimIndex_IndexesToolConfigClaims
+            A manifest declaring a tool_config entry with a claim → that claim id is
+            present. This is the second half of the ParseManifestFile claim-id namespace.
+
+          TestMergePackClaimIndex_IgnoresNonClaimIdentifiers
+            The CLM-003 exclusion falsifier. Given a manifest whose RULE ids and SCAFFOLD
+            ids are distinct strings, none of them resolve — only the claim ids do. A
+            rule id must not become a mandated-test answer.
+
+          TestMergePackClaimIndex_IsPackAgnostic
+            The CLM-001 zero-baked falsifier. A pack named nothing like the dogfood packs
+            (e.g. `acme/widget-lint`) declaring claim ids with no `-go` suffix (e.g.
+            `widget-shape-check`) indexes identically. Also assert the empty case: no
+            manifests → empty index, no panic (CLM-006).
+
+          TestMergePackClaimIndex_InstalledContractsPackDeclaresISSUE036ClaimIDs
+            The restoration-trigger proof at the manifest grain. It MUST resolve through
+            the PRODUCTION path — loadInstalledPacks(repoRoot(t)) — and NOT by reading
+            the tracked <repoRoot>/packs/contracts/pack.yml. See the "DO NOT PROVE THIS
+            AGAINST packs/contracts" note above; that directory is a divergent fixture
+            the gate never indexes. Use the existing repoRoot(t) helper
+            (cmd/backstop/pack_gate_test.go:565). Assert all five of
+            type-signature-go, const-signature-go, var-signature-go,
+            method-signature-go, interface-signature-go are present, and that the
+            fabricated id `no-such-claim-go` is not.
+
+            SKIP GUARD, and write it so it cannot hide a regression: if
+            loadInstalledPacks returns no manifest named backstop-ai/go-contracts, t.Skip
+            with a message naming the exact remediation ("run `./bin/backstop pack
+            install` — the pack fleet is not installed"). Key the guard on THAT pack
+            being absent, never on a load ERROR: an error means the fleet is broken and
+            must fail the test, not skip it. In CI this guard never fires (ci.yml:79-83
+            installs the fleet before the gate at :146, and the gate is where the suite
+            executes — there is no separate `go test` job), so this runs for real there.
+        files:
+          - cmd/backstop/pack_claim_index_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestMergePackClaimIndex_IndexesRuleClaims
+          - TestMergePackClaimIndex_IndexesToolConfigClaims
+          - TestMergePackClaimIndex_IgnoresNonClaimIdentifiers
+          - TestMergePackClaimIndex_IsPackAgnostic
+          - TestMergePackClaimIndex_InstalledContractsPackDeclaresISSUE036ClaimIDs
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: mergePackClaimIndex over the declared-pack manifests"
+        description: |
+          New file cmd/backstop/pack_claim_index.go, package main:
+
+            func mergePackClaimIndex(packs []*pack.Manifest) gate.PackClaimIndex
+
+          Walk each manifest: Content.Ruleset.Rules[].Claims[].ID, then
+          ToolConfig[].Claims[].ID. Skip empty ids. Label format
+          "<manifest.NormalizedName>:<rule.ID>" for rule claims and
+          "<manifest.NormalizedName>:tool_config/<entry.ID>" for tool_config claims.
+          First writer wins on a cross-pack collision (packs arrive in the deterministic
+          declared order) — never an error, and never a silent drop of presence.
+
+          It lives in cmd/backstop, beside mergeSourceClassifier and mergeTestNameMatcher
+          (cmd/backstop/gate.go), following the established convention: manifest reading
+          happens where the manifests are visible, and pkg/gate receives a derived value.
+          It goes in its OWN file rather than gate.go to keep gate.go's whole-file finding
+          blast radius to the two functions TASK-008 must edit.
+
+          NO pack-name literal, NO id-shape regex, no reading of rule ids, scaffold ids,
+          recipe ids or engine names. Nil manifests in the slice are skipped defensively,
+          not dereferenced.
+        files:
+          - cmd/backstop/pack_claim_index.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-004
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "Verify manifest-surface selection and the ISSUE-036 five"
+        description: |
+          Fast inner loop:
+
+            go build ./... && echo $?
+            go test ./cmd/backstop/... -race -count=1 -run 'TestMergePackClaimIndex' && echo $?
+
+          All five TASK-004 tests green. Then run the whole cmd/backstop package once
+          (`go test ./cmd/backstop/... -race -count=1`) to confirm the new file broke
+          nothing. Report true exit codes.
+
+          If TestMergePackClaimIndex_InstalledContractsPackDeclaresISSUE036ClaimIDs
+          FAILS, do NOT adjust the expected ids: that failure means the INSTALLED,
+          LOCKED backstop-ai/go-contracts pack no longer declares an id ISSUE-036
+          promises — a real broken promise in the fleet, to be reported as a finding,
+          not accommodated. If it SKIPS, say so explicitly and run
+          `./bin/backstop pack install` so it executes for real before calling this
+          phase done: an unexecuted restoration proof is not a proof.
+        files:
+          - cmd/backstop/pack_claim_index.go
+          - cmd/backstop/pack_claim_index_test.go
+        claims:
+          - CLM-003
+          - CLM-007
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Drift-dimension wiring and the restoration proof"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "RED: drift resolves pack claim ids present, fabricated ids still block"
+        description: |
+          New file cmd/backstop/status_drift_packclaims_test.go, package main. It reuses
+          the existing fixture builders in cmd/backstop/status_drift_gate_test.go
+          (writeFixture, issueFixture, installDriftPack) — read that file first and match
+          its style; do not fork a second fixture harness. Where a fixture pack must
+          declare claims, extend it in the NEW file (a local builder writing its own
+          pack.yml), leaving status_drift_gate_test.go untouched.
+
+          A fixture pack manifest declaring claims must satisfy ParseManifestFile: each
+          claim needs at least one positive and one negative fixture entry.
+
+          TestDriftGate_PackClaimIDResolvesPresent
+            Temp project: a fixture pack declaring claim id `fixture-claim-alpha`, plus a
+            CLOSED (success-terminal) issue whose CLM-001 mandates `fixture-claim-alpha`
+            and no source test exists by that name. Drive the REAL wiring
+            (buildStatusDriftSteps / the block StepFunc, as status_drift_gate_test.go
+            does). Expect status "pass" and ZERO block violations. This is RED today
+            with a broken-promise violation naming fixture-claim-alpha.
+
+          TestDriftGate_FabricatedPackClaimIDStillBlocks
+            Same shape, but the closed issue mandates `fixture-claim-omega`, which no
+            installed pack declares and no test function provides. Expect status "fail"
+            with exactly one error-severity violation naming it. THE no-vacuous-presence
+            falsifier: it must stay RED-after-fix in the sense of still blocking.
+
+          TestDriftGate_SourceTestFunctionResolutionUnchanged
+            A closed issue mandating a real Go test function that DOES exist in the temp
+            project resolves present, and one mandating a missing Test function still
+            blocks — proving the union did not disturb the source path (CLM-004).
+
+          TestDriftGate_PresenceIsDeclarationNotFixtureExecution
+            The CLM-005 falsifier — the one that turns this plan's most contested
+            decision from an argument into a test. Temp project, fixture pack declaring
+            claim id `fixture-claim-unrunnable` under TWO conditions that make execution
+            impossible:
+              (a) the claim's positive and negative fixture entries name paths that DO
+                  NOT EXIST anywhere on disk; and
+              (b) the pack's `engines:` block binds that rule's engine to a command that
+                  is not a real binary (e.g. `definitely-not-a-real-engine-binary`).
+            A CLOSED issue mandates `fixture-claim-unrunnable`. Expect: drift status
+            "pass", zero violations. If presence required a live fixture run, neither (a)
+            nor (b) could produce a pass — so a green here IS the evidence that presence
+            is declaration presence and that no engine subprocess is spawned.
+            Assert (b) actually reaches the manifest: parse the fixture pack with
+            pack.ParseManifestFile inside the test and confirm it loads. If load-time
+            validation REFUSES the bogus engine command, do NOT quietly drop condition
+            (b) — report it, keep condition (a), and record in the test comment that the
+            no-subprocess half rests on (a) alone.
+
+          TestDriftGate_ISSUE036PackClaimsResolveAgainstInstalledFleet
+            The baseline-independent restoration proof (CLM-007). Against repoRoot(t):
+            resolve artifact status (gate.ResolveArtifactStatus), build the index through
+            the PRODUCTION path — mergePackClaimIndex(loadInstalledPacks(repoRoot(t))),
+            i.e. the installed, lock-verified backstop-ai/go-contracts, NOT the tracked
+            packs/contracts fixture (see the notes) — compute the presence union,
+            classify, and assert NO error-severity drift violation mentions ISSUE-036 or
+            any of the five claim ids. It must NOT shell out to the gate: a green gate
+            proves nothing here while the local baseline grandfathers these five. Assert
+            the same run still reports the fabricated id `no-such-claim-go` absent.
+            Same skip guard as TASK-004's installed-fleet test, with the same rule: skip
+            only on backstop-ai/go-contracts being absent, fail on a load error.
+            If ISSUE-036 is ever retired or rewritten, this test's premise dissolves —
+            the correct response is to update it openly, never to weaken the assertion.
+        files:
+          - cmd/backstop/status_drift_packclaims_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestDriftGate_PackClaimIDResolvesPresent
+          - TestDriftGate_FabricatedPackClaimIDStillBlocks
+          - TestDriftGate_SourceTestFunctionResolutionUnchanged
+          - TestDriftGate_PresenceIsDeclarationNotFixtureExecution
+          - TestDriftGate_ISSUE036PackClaimsResolveAgainstInstalledFleet
+        depends_on: []
+
+      - id: TASK-008
+        type: implementation
+        title: "GREEN: thread the pack-claim index into the drift dimension"
+        description: |
+          Edit cmd/backstop/gate.go ONLY, and only these three sites:
+
+            1. buildGateSteps (~:731): build the index once from the ALREADY-LOADED
+               `packs` slice — `packClaims := mergePackClaimIndex(packs)` — and pass it to
+               buildStatusDriftSteps. Do not call loadInstalledPacks a second time; the
+               single load at :653 is what makes the "gate has vouched for these packs"
+               claim true.
+            2. buildStatusDriftSteps (~:899): accept the index and forward it.
+            3. computeDriftSurfaces (~:937): replace the hand-rolled present-set loop
+               with gate.ResolvePresentTestNames(all, packClaims). Everything else in the
+               function — the ResolveMandatedTestPaths call, ClassifyStatusDrift, the
+               NormalizePath pass, SplitDriftResult — is UNCHANGED.
+
+          Extend the existing comment block above computeDriftSurfaces to record that
+          EXISTENCE now resolves against BOTH vocabularies, and why FilePath is still
+          never written from a pack claim (the substantiveness join at :1166).
+
+          DO NOT touch ResolveMandatedTestPaths, collectTestFuncNames,
+          StepTestVerificationScopedFunc or buildTestSubstantivenessStep.
+
+          WHOLE-FILE FINDING ACTIVATION: editing gate.go activates every finding on it.
+          Clear them all — fix, do not waive — and report exactly what was cleared. If a
+          finding requires a change outside the three sites above, report it before
+          making it.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-007
+          - TASK-005
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the drift wiring end to end in the package suites"
+        description: |
+          Middle-phase verification:
+
+            go build ./... && echo $?
+            go test ./pkg/gate/... ./cmd/backstop/... -race -count=1 && echo $?
+
+          All four TASK-007 tests green, and the pre-existing drift suite
+          (cmd/backstop/status_drift_gate_test.go, pkg/gate/status_drift_test.go,
+          pkg/gate/status_drift_plantests_test.go) plus the test-verification and
+          substantiveness suites still green — those are the CLM-004 no-regression
+          evidence. Report true exit codes and name any test that changed status.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/status_drift_packclaims_test.go
+        claims:
+          - CLM-004
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Full gate and artifact verification"
+    tasks:
+      - id: TASK-010
+        type: verification
+        title: "Full gate on a rebuilt binary, plus plan artifact validation"
+        description: |
+          Comprehensive verification. REBUILD FIRST — a stale binary gates the old code:
+
+            go build -o bin/backstop ./cmd/backstop/ && echo $?
+            ./bin/backstop gate --json ; echo $?
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-098 ; echo $?
+
+          Do not report "green" from the verdict alone. Read the JSON and state
+          explicitly, with the evidence quoted:
+
+            - whether ANY artifact_status_drift violation still names ISSUE-036 or any of
+              type-signature-go / const-signature-go / var-signature-go /
+              method-signature-go / interface-signature-go. Expected: none. Report the
+              drift dimension's raw violation list either way, since the local baseline
+              would grandfather these five and mask a non-fix behind a pass.
+            - the drift dimension's total violation count before and after, so the
+              ISSUE-048 remainder (the other stragglers, NOT this plan's scope) is
+              visibly distinguished from the five this plan clears.
+            - every finding activated on cmd/backstop/gate.go by the edit, and how each
+              was cleared.
+
+          If the gate is RED for a reason this plan did not introduce, report it as such
+          with the evidence — do not fix it here, and do not waive anything.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/pack_claims.go
+          - cmd/backstop/pack_claim_index.go
+          - plans/PLAN-ISSUE-098-drift-resolver-pack-claim-ids.plan.yml
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-008
+          - TASK-003
+          - TASK-006
+          - TASK-009
