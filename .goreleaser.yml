@@ -1,0 +1,73 @@
+# backstop-core release configuration.
+#
+# One `goreleaser release` invocation on a `v*` tag produces the four platform
+# binaries, their archives, a checksums file, a GitHub Release, and the Homebrew
+# formula in the tap. The three distribution paths are:
+#
+#   GitHub Release  — the archives and checksums below
+#   Homebrew        — the `brews:` block; goreleaser GENERATES the formula
+#   go install      — needs NOTHING here. It works because the module path is
+#                     github.com/backstop-ai/backstop-core and `backstop
+#                     version` falls back to debug.ReadBuildInfo(). There is no
+#                     config surface for it; inventing one would be machinery
+#                     with no mechanism behind it.
+#
+# This file is a future `go-distribution` pack payload, so everything specific
+# to THIS repo is collected in one place — see PROJECT IDENTITY below.
+# Extraction should be a substitution, not an archaeology exercise.
+
+version: 2
+
+# ── PROJECT IDENTITY — the only backstop-core-specific values in this file ──
+#   project_name        the binary and archive name
+#   builds[].main       the package the binary is built from
+#   brews[].repository  the Homebrew tap, ratified 2026-07-27. This is the
+#                       REPOSITORY name; consumers type
+#                       `brew install backstop-ai/tap/backstop` because Homebrew
+#                       strips the `homebrew-` prefix at resolution time.
+#   brews[].homepage    the module's canonical URL
+project_name: backstop
+
+builds:
+  - id: backstop
+    main: ./cmd/backstop
+    binary: backstop
+    env:
+      - CGO_ENABLED=0
+    # All four pairs are wanted, so there are deliberately no `ignore:` entries.
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # The symbol is main.version because cmd/backstop is package main and
+    # declares `var version` there. Keep this and that declaration in sync: an
+    # -X against the wrong symbol injects nothing and every release binary
+    # reports "dev".
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: backstop
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+release:
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: backstop
+    repository:
+      owner: backstop-ai
+      name: homebrew-tap
+      # The default GITHUB_TOKEN is scoped to THIS repository and cannot push to
+      # another one — that is the single most common way this block fails. A PAT
+      # with write access to the tap repo is supplied from secrets instead.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/backstop-ai/backstop-core"
+    description: "An AI agent discipline framework — gates the pipeline before code is written."
+    license: "MIT"
