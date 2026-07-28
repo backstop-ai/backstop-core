@@ -2,9 +2,10 @@
 title: "Pack Distribution Content Identity"
 number: SPEC-057
 created: "2026-07-27"
-status: draft
+updated: "2026-07-27"
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.0.1
 
 implementation:
   summary: >
@@ -480,3 +481,21 @@ remote harness in `cmd/backstop`.
   the predicate must consume, and the one-path strip whose scope it mirrors.
 - `cmd/backstop/pack_gate.go:193`, `pkg/pack/distribution/verify.go:47` — why
   the gate stays silent about local-pack hashes.
+
+## Version History
+
+- **1.0.1** (2026-07-27): Status flip to `implemented`. Documentary only — no
+  requirement, claim, contract, or behavior changed; the delivered contract is
+  the one 1.0.0 states. PLAN-SPEC-057 executed in full, commit series
+  `5f14db5, 743e160, 4ccced3`: the shared `isRootRepositoryMetadata` predicate
+  consuming the existing `gitDirectoryName` constant, the exclusion applied at
+  both the `ComputeContentHash` walk and the `copyDirRecursive` walk, and the
+  three contaminated in-repo lock entries (`backstop/self`,
+  `backstop/go-standards`, `backstop/go-toolchain`) relocked as the Sharp Edges
+  section obliged. Every mandated test passes by name under `-race`.
+- **1.0.0** (2026-07-27): Initial spec. Authored against BUNDLE-006's authored
+  content identity seed, pinning `REQ-021@1.1.0` only. An earlier draft also
+  re-pinned `REQ-020@1.1.0` and re-cited SPEC-056's mandated test names; review
+  removed that half, because SPEC-056 already owns the pin and `replaced-by`
+  accepts a list, so SPEC-015 retires pointing at both successors rather than
+  at one spec restating the other's work.

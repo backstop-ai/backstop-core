@@ -6,8 +6,11 @@ issue:
   id: ISSUE-088
   title: "Local-Path Pack Installs Hash Root `.git` Into `content_hash` (REQ-021@1.1.0 Residual)"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-27"
+  closed: "2026-07-28"
+
+resolved-by: SPEC-057
 
 complexity:
   scope: contained
@@ -118,6 +121,32 @@ bundle-track work that belongs in a future delta spec against BUNDLE-006's conte
 identity/migration seed (REQ-021@1.1.0, DD-24, DD-28, OQ-6's still-open migration mechanics).
 This issue exists so that capability gap has a first-class tracked home in the issue backlog
 and doesn't remain buried only in bundle prose.
+
+## Resolution
+
+Fixed by SPEC-057 ("Pack Distribution Content Identity", `implemented`), pinning bundle
+REQ-021@1.1.0, via PLAN-SPEC-057 (`completed`). The fix landed as three commits:
+
+- `5f14db5` — the hash boundary: `ComputeContentHash` (`pkg/pack/distribution/hash.go`) now
+  consults an `isRootRepositoryMetadata` predicate (keyed on `gitDirectoryName`) and skips the
+  root `.git` directory during the walk, with the walk reordered so the exclusion applies before
+  descent rather than as a post-hoc filter.
+- `743e160` — the copy boundary: `copyDirRecursive` (`pkg/pack/distribution`) consumes the same
+  `isRootRepositoryMetadata` predicate, so a local-path install's on-disk copy is `.git`-free by
+  construction, matching the remote-clone path's existing strip (SPEC-055 CLM-101/CLM-102) instead
+  of relying solely on the hash-time exclusion.
+- `4ccced3` — the legacy-lock migration: a three-entry `pack relock` run (unblocked by ISSUE-074's
+  fix) rewrote `backstop.lock`'s contaminated `backstop/self` entry plus the two other local/remote
+  entries onto the corrected algorithm — `backstop/self` → `cdb5c64f`, `go-standards` →
+  `bf58849d`, `go-toolchain` → `7c0486ad` — exactly six lock lines changed (name+hash pairs), and
+  `pack list` confirms all six are current/locked against the fresh hashes.
+
+Non-vacuous proof: `TestE2E_PackAdd_LocalAndRemoteHashesConverge` (orchestrator-verified in a
+detached worktree) installs the same pack content via both the local-path and remote-clone paths
+and asserts hash equality — closing the measured `639f74fb…`/`bb86715c…` divergence class this
+issue reported. Local-path and remote-path pack identity now converge on one authored-content
+hash algorithm; the contaminated `backstop/self` lock entry named in this issue's Severity section
+is relocked and clean.
 
 ## References
 

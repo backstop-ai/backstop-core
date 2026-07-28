@@ -2,9 +2,13 @@
 title: "SPEC-015: Pack Distribution Lifecycle"
 number: SPEC-015
 created: "2026-04-14"
-status: draft
+updated: "2026-07-27"
+status: replaced
+replaced-by:
+  - SPEC-056
+  - SPEC-057
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 2.0.0
 
 implementation:
   summary: >
@@ -1298,3 +1302,38 @@ Claims are defined in frontmatter. They cover every requirement with both positi
 - BUNDLE-004: Pack Authoring (enforcement semver model)
 - BUNDLE-005: Pack Validation (pack check, pack test)
 - ADR-0001: Agent-first design (structured JSON output for agent consumption)
+
+## Version History
+
+- **2.0.0** (2026-07-27) — Status → `replaced` (terminal), with
+  `replaced-by: [SPEC-056, SPEC-057]`. The field accepts a LIST
+  (`pkg/validate/terminal.go:37-38`), and two successors is the honest shape
+  here: BUNDLE-006's "Revision Impact on Existing Artifacts" (~line 1435)
+  revised the two requirements this spec pins to 1.1.0 and prescribed new delta
+  specs rather than a rewrite of these pins, and the revision landed split.
+  **SPEC-056** succeeds the `pack-distribution-lifecycle:REQ-020@1.0.0` pin,
+  delivering `REQ-020@1.1.0` — the lock keyed by manifest name with the
+  requested source coordinate recorded verbatim as a distinct field.
+  **SPEC-057** succeeds the `REQ-021@1.0.0` pin, delivering `REQ-021@1.1.0` —
+  the content hash and the installed tree covering authored content only, with
+  root repository metadata neither copied nor hashed.
+
+  This spec's own `REQ-020@1.0.0` and `REQ-021@1.0.0` pins are the HISTORICAL
+  RECORD and are deliberately left as written: they describe the algorithm this
+  spec actually evaluated, which included root `.git` in the content hash. The
+  bundle is explicit that the pin must not be rewritten in place, so it was not.
+  Retirement is the mechanism that keeps the record intact while removing it
+  from enforcement — terminal specs are excluded from gate enforcement, which
+  clears the `requirement_traceability` violations these two superseded pins
+  produce.
+
+  Its two ancestor-removed mandated test names,
+  `TestPackAdd_AlreadyInstalledExitsNonZero` and
+  `TestPackAdd_LocalPathNotClonedToPacksDir`, retire with it: both name behavior
+  whose call sites no longer exist after the SPEC-055/056 constructor and
+  identity work, and neither has a migrated form to point at. Recorded openly
+  per align-predating-artifacts.
+- **1.0.0** (2026-04-14) — Initial spec: the six pack lifecycle commands, the
+  `backstop.lock` format, SHA-256 content hashing over every file, gate-time
+  lock verification, tool_config provenance, and `.backstop/packs/` lifecycle
+  management.
