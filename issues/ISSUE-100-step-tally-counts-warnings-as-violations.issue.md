@@ -44,6 +44,12 @@ only flips `status` to `"fail"` when it finds a `severity == "error"` entry, so 
 mis-blocks or mis-passes because of this. This is a display/reporting defect, not a verdict
 defect — `total_violations` and the human tally are the surfaces that lie, not `Pass`/`status`.
 
+> **Superseded (2026-07-28) — the claim above is INCOMPLETE, not wrong.** `step_coverage.go`'s
+> own status computation is correct as described. But it is not the last word: the gate's policy
+> layer runs after the step and can overwrite `status`. See the Amendment section below — a
+> sibling verdict-level defect was found downstream of this one and has been split into its own
+> fix lane. This issue's own scope (the tally/render half) is unchanged by that split.
+
 **Systemic, not coverage-specific.** Any step that emits a `warning`-severity `Violation` rides
 the same blind count. `pkg/gate/requirement_traceability.go` and `pkg/gate/status_drift.go` both
 already distinguish `Severity == "error"` from `Severity == "warning"` for their own verdict
@@ -55,6 +61,50 @@ The exclusion-notice case is the motivating instance and illustrates why this ma
 cosmetics: a coverage-exclusion suppression notice exists specifically to tell the reader "this
 gap is intentional, here's why" — but by riding the same violation count as a real failure, it
 makes the step look like it has MORE problems, which partially defeats the notice's own purpose.
+
+## Amendment (2026-07-28) — a verdict-defect half was found and split out
+
+Continued investigation past the original display-only framing above surfaced a second,
+verdict-level defect in the same neighborhood, proven in CI run 30395875188: a `coverage_threshold`
+step reported status `"fail"` with exactly ONE violation, and that violation's own `Severity` is
+`"warning"` (the coverage_exclusion notice) — the structured JSON for that run confirms no hidden
+`severity: "error"` entry is present. So this is not the tally miscounting two problems as one
+line; this is the gate BLOCKING on a violation that is, by its own severity field, non-blocking.
+
+**Mechanism.** `step_coverage.go:214-219`'s own status computation is correct, exactly as the
+original Problem section above states — but it is not the layer that has the last word. The gate's
+policy layer runs after the step and overwrites `status` without consulting `Violation.Severity`
+at all:
+
+- `pkg/gate/policy.go:126-131` — `applyPolicy`'s default (block) branch: `if len(counted) > 0 {
+  s.Status = "fail" }`. `counted` is `s.Violations` (or the baseline-grandfathered subset of it);
+  its length is severity-blind.
+- `pkg/gate/policy.go:190-205` — `applyScopedPolicy` builds a `blocking` slice by appending every
+  violation whose EFFECTIVE POLICY LEVEL (`eff.Level`, resolved from the dimension/source policy
+  configuration) is not `PolicyWarn` (line 191: `if lvl == PolicyWarn { warned++; continue }`).
+  That `lvl` is the POLICY's configured level for the dimension/source — never `v.Severity`. A
+  violation the step itself marked `Severity: "warning"` still lands in `blocking` and flips
+  `status` to `"fail"` whenever its governing policy level defaults to `block` (the default for
+  any dimension without an explicit `warn` override).
+- Confirmed severity-blind by inspection: `grep -c Severity pkg/gate/policy.go` returns 0 — the
+  policy layer never reads the field the step layer populates.
+
+Net effect: the coverage-exclusion mechanism exists specifically to make an intentional coverage
+gap VISIBLE-BUT-NON-BLOCKING (a `severity: "warning"` notice), and the policy layer blocks on its
+own notice — the opposite of what the mechanism was built to do, and a direct violation of the
+founder's loud-not-blocking law (CLAUDE.md, "Enforcement philosophy": *"Block defects + broken
+promises; warn-with-guidance for un-adopted capability. The enemy is silent/vacuous green, not
+passing."*). A notice is not a defect; blocking on it is exactly the failure mode that law rules
+out.
+
+**Disposition.** This verdict-defect half is being fixed in-lane under PLAN-ISSUE-020's scope
+extension (orchestrator-ruled 2026-07-28, with falsifiers required in both directions plus a
+measured blast-radius check before landing) rather than folded into this issue — the fix touches
+`pkg/gate/policy.go`'s severity handling, a different surface than this issue's renderer/tally
+scope. **ISSUE-100 retains only the original tally/render half** (`result.go:225`,
+`output.go:61,80`) described in the Problem section above; the Solution section's two options
+still apply to that half unchanged. *Placeholder: cite the PLAN-ISSUE-020 commit that fixes the
+policy-layer severity blindness here once it lands.*
 
 ## Impact
 
@@ -71,9 +121,12 @@ trust in the tally as a first-read signal, which is the tally's entire purpose.
 - Verified: the verdict logic at `pkg/gate/step_coverage.go:214-219` is correct (flips `fail` only
   on `severity == "error"`); this issue is scoped to the count/display layer only.
 - Cross-reference: PLAN-ISSUE-020 — discovery context; the coverage-exclusion suppression-notice
-  mechanism that produced the motivating instance.
+  mechanism that produced the motivating instance; also the lane now carrying the split-off
+  verdict-defect fix (see Amendment section above).
 - Cross-reference: ISSUE-099 — sibling gate-output ergonomics issue (single-invocation
   human+JSON emission), same reporting-layer neighborhood, independent defect.
+- CI run 30395875188 — the verdict-defect evidence (coverage_threshold `"fail"` with a single
+  `severity: "warning"` violation and no hidden error entry); see Amendment section above.
 
 ## Solution
 
