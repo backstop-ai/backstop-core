@@ -455,6 +455,35 @@ notes: |
   EXTERNAL BLOCKER of CLM-028: the gate cannot go green on a runner until it is
   resolved, and resolving it is somebody else's lane.
 
+  ── SEVERITY IS A PACK-AUTHOR CONTRACT — FOUNDER RATIFIED 2026-07-28 ───────
+  Recorded because the behavior arrived through a fix and could easily have been
+  read as its side effect. IT IS NOT: a pack's SARIF `level: warning` meaning
+  NON-BLOCKING is the INTENDED pack-author contract, not an artifact of the
+  coverage-notice change that surfaced it.
+
+  What that makes true, and why it is worth a ratification rather than a comment:
+  SEVERITY IS HOW A PACK DECLARES BLOCKINGNESS. It turns "loud ≠ blocking" — until
+  now a posture this project held in prose — into a WIRE CONTRACT a pack author can
+  actually reach. A pack that wants to inform without failing a build says so in
+  its SARIF, and neither the binary nor a policy file has to know anything about
+  that rule.
+
+  FAIL-CLOSED BY DEFAULT: `sarifSeverity` (`pkg/check/parsers.go`) maps only the
+  literal "warning" to warning; EVERYTHING else — including an ABSENT level —
+  defaults to error. So the declaration is opt-in to non-blocking, never opt-out of
+  blocking, and a malformed or silent pack gets the strict reading. That asymmetry
+  is the whole safety of the contract: forgetting to declare cannot soften a gate.
+
+  (Cited by SYMBOL rather than line number on purpose — this plan lost a citation
+  to line drift once already, and a stale `parsers.go:165` would send the next
+  reader to whatever happens to sit there later.)
+
+  A LOCKING TEST on the parse→policy chain and a PACK-AUTHOR-FACING DOC are landing
+  under the review-close pass. Both are load-bearing for a contract of this shape:
+  an undocumented wire contract is indistinguishable from an implementation detail,
+  and the next person to "clean up" severity mapping would have no way to know they
+  were changing a promise made to every pack author.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -3797,13 +3826,17 @@ phases:
           TASK-031 confirmed the hypothesis and ruled (b'). So this task has TWO
           jobs, and the first one is the one that keeps the exclusion honest.
 
-          ⚠ JOB 1 WAS NOT BUILT AT CLOSE, AND SHIPPED WITH NO AS-BUILT NOTE.
-          Found by review after the completion flip: `sandbox_split_test.go` does not
-          exist, and neither guard function appears anywhere in the tree. It is
-          being built now as a review follow-up. Recorded here so the `completed`
-          status stays HONEST in the interval — a plan marked complete with a silent
-          hole in it is worse than one marked incomplete, because the marker is what
-          everyone downstream trusts.
+          JOB 1: NOT BUILT AT CLOSE — NOW SHIPPED (commit 3ac6e7f). Review after
+          the completion flip found `sandbox_split_test.go` absent with neither
+          guard present; both now exist and were falsified control-vs-treatment
+          across FIVE mutations, including the two that matter most — a SECOND
+          crossing of the split boundary, and DELETION of the seam itself. A guard
+          proven against the mutations it exists to catch is worth more than one
+          proven against a tree that already passes.
+
+          The interval is left recorded rather than erased: a plan marked complete
+          with a silent hole is worse than one marked incomplete, because the marker
+          is what everyone downstream trusts.
 
           The omission matters more than a missing test usually would, and the task
           text below already says why: this guard pair is what makes the coverage
@@ -3823,9 +3856,25 @@ phases:
           file's contents are the exclusion's real boundary.
 
           `TestSandboxLinuxFile_HasNoExecErasedStatements` — the inverse, and the
-          one that catches the drift that matters: assert `sandbox_linux.go`
-          contains no call to `unix.Exec` and no function that reaches it. A future
-          edit that moves exec-side logic back into the measured file would
+          one that catches the drift that matters.
+
+          AS-BUILT WORDING, because the literal mandate was UNSATISFIABLE: this task
+          originally said `sandbox_linux.go` must contain "no call to `unix.Exec`
+          AND NO FUNCTION THAT REACHES IT". The second half contradicts the split
+          this very task mandates. `MaybeRunSandboxHelper` stays in the MEASURED
+          file by design — its parent-side half is an env lookup and an early return,
+          honestly measurable and driven in-process by the malformed-spec test — and
+          it necessarily CALLS `runSandboxHelper` (`sandbox_linux_helper.go:43`) to
+          hand off. That call is the sanctioned dispatch seam
+          (`sandbox_linux.go:124`), not a leak.
+
+          The assertion as shipped: NO `unix.Exec`, and NO exec-side call OTHER THAN
+          the sanctioned `MaybeRunSandboxHelper` → `runSandboxHelper` dispatch,
+          pinned EXACTLY ONCE by the guard. "Exactly once" is the load-bearing
+          clause — one crossing is the design, two is a hole, and the mutation suite
+          falsifies both the second-crossing and seam-deletion cases.
+
+          A future edit that moves exec-side logic back into the measured file would
           otherwise silently re-create an unmeasurable-but-not-excluded region, and
           the number would drop with no explanation.
 
