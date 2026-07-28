@@ -3,6 +3,7 @@ package backstopcore_test
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -51,10 +52,11 @@ func (l *workflowStringList) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type workflowStep struct {
-	Name string         `yaml:"name"`
-	Uses string         `yaml:"uses"`
-	Run  string         `yaml:"run"`
-	With map[string]any `yaml:"with"`
+	Name string            `yaml:"name"`
+	Uses string            `yaml:"uses"`
+	Run  string            `yaml:"run"`
+	With map[string]any    `yaml:"with"`
+	Env  map[string]string `yaml:"env"`
 }
 
 type workflowJob struct {
@@ -496,4 +498,67 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// goreleaserEnvRefPattern matches a `{{ .Env.NAME }}` template reference in the
+// goreleaser config, tolerating the optional inner spacing goreleaser allows.
+var goreleaserEnvRefPattern = regexp.MustCompile(`{{\s*\.Env\.([A-Za-z_][A-Za-z0-9_]*)\s*}}`)
+
+// TestReleaseWorkflow_ExportsEveryEnvVarGoreleaserTemplatesReference is the
+// falsifier for a CROSS-FILE drift that neither file can catch alone:
+// .goreleaser.yml renders `{{ .Env.X }}` from the PROCESS environment, so a
+// variable it templates but the workflow never exports is simply empty at render
+// time. Nothing fails locally — `goreleaser check` validates config shape, not
+// the runner's environment — and the first real tagged run is where it surfaces.
+//
+// That is exactly how HOMEBREW_TAP_TOKEN was missed: the brews block templated
+// it while the goreleaser step exported only GITHUB_TOKEN.
+//
+// The required set is DERIVED from .goreleaser.yml rather than hardcoded here,
+// so adding a new `{{ .Env.* }}` reference without exporting it fails this test
+// automatically instead of needing someone to remember to extend it.
+func TestReleaseWorkflow_ExportsEveryEnvVarGoreleaserTemplatesReference(t *testing.T) {
+	configSource, err := os.ReadFile(goreleaserConfigFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", goreleaserConfigFile, err)
+	}
+
+	required := map[string]bool{}
+	for _, match := range goreleaserEnvRefPattern.FindAllStringSubmatch(string(configSource), -1) {
+		required[match[1]] = true
+	}
+	if len(required) == 0 {
+		t.Fatalf("%s templates no {{ .Env.* }} references — this test has nothing to prove and the pattern has probably drifted", goreleaserConfigFile)
+	}
+
+	workflow := loadWorkflow(t, releaseWorkflowFile)
+	_, publisher := findJob(t, workflow, "runs goreleaser", func(job workflowJob) bool {
+		for _, step := range job.Steps {
+			if strings.Contains(step.Uses, "goreleaser") {
+				return true
+			}
+		}
+		return false
+	})
+
+	exported := map[string]string{}
+	for _, step := range publisher.Steps {
+		if !strings.Contains(step.Uses, "goreleaser") {
+			continue
+		}
+		for name, value := range step.Env {
+			exported[name] = value
+		}
+	}
+
+	for name := range required {
+		value, present := exported[name]
+		if !present {
+			t.Errorf("%s templates {{ .Env.%s }} but the goreleaser step in %s does not export it — it renders empty on the first real tagged run", goreleaserConfigFile, name, releaseWorkflowFile)
+			continue
+		}
+		if strings.TrimSpace(value) == "" {
+			t.Errorf("goreleaser step exports %s with an empty value", name)
+		}
+	}
 }

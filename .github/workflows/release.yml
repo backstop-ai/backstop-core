@@ -120,3 +120,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Consumed by .goreleaser.yml's brews block as
+          # {{ .Env.HOMEBREW_TAP_TOKEN }}. goreleaser resolves .Env from the
+          # process environment, so a secret that is not exported HERE is simply
+          # absent at template-render time and the tap push fails on the first
+          # real tagged run — see the rationale above this step.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
