@@ -194,7 +194,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 	// invocation is reported without depending on the project being resolvable.
 	params, err := parseParamFlags(suppliedParams)
 	if err != nil {
-		return recipe.ApplyResult{}, err
+		return recipe.ApplyResult{}, fmt.Errorf("parsing --param flags: %w", err)
 	}
 
 	parsed, err := recipe.ParseRecipeRef(ref)
@@ -222,7 +222,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 	// SDLC-mediated library caller are unchanged, because this is invocation
 	// hygiene rather than applier policy.
 	if err := checkUndeclaredParams(resolved.Manifest, params); err != nil {
-		return recipe.ApplyResult{}, err
+		return recipe.ApplyResult{}, fmt.Errorf("checking supplied params against %q: %w", ref, err)
 	}
 
 	// Resolution succeeded, so the pack IS in the corpus under this key.

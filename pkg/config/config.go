@@ -41,10 +41,10 @@ type Config struct {
 
 // Enforcement holds the enforcement configuration block.
 type Enforcement struct {
-	Security          Security                  `yaml:"security,omitempty" json:"security,omitempty"`
-	WaiverWarningDays int                       `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
-	BaselineTTL       string                    `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
-	TestCommand       string                    `yaml:"test_command,omitempty" json:"test_command,omitempty"`
+	Security          Security                 `yaml:"security,omitempty" json:"security,omitempty"`
+	WaiverWarningDays int                      `yaml:"waiver_warning_days,omitempty" json:"waiver_warning_days,omitempty"`
+	BaselineTTL       string                   `yaml:"baseline_ttl,omitempty" json:"baseline_ttl,omitempty"`
+	TestCommand       string                   `yaml:"test_command,omitempty" json:"test_command,omitempty"`
 	Toolchain         map[string]ToolchainPass `yaml:"toolchain,omitempty" json:"toolchain,omitempty"`
 	// Policy is the per-dimension enforcement policy, keyed by gate dimension
 	// (the step/gate_type name, e.g. "pack_engines", "coverage_threshold"). Each
@@ -174,7 +174,7 @@ func DiscoverConfigPathFrom(startDir string) (string, error) {
 func LoadConfig() (*Config, error) {
 	path, err := DiscoverConfigPath()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 	return LoadConfigFromPath(path)
 }
@@ -183,7 +183,7 @@ func LoadConfig() (*Config, error) {
 func LoadConfigFromDir(dir string) (*Config, error) {
 	path, err := DiscoverConfigPathFrom(dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load config from %q: %w", dir, err)
 	}
 	return LoadConfigFromPath(path)
 }
