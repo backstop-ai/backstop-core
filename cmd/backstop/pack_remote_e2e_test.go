@@ -170,6 +170,79 @@ func TestE2E_PackInstall_CacheRestore(t *testing.T) {
 	}
 }
 
+// TestE2E_PackAdd_LocalAndRemoteHashesConverge (SPEC-057 CLM-016) — ONE PACK, TWO
+// DELIVERY PATHS.
+//
+// The same authored pack, added once from a tagged remote and once from a local
+// directory, records the SAME content hash. That is what makes a lock file mean
+// something across a fleet: identity is a function of authored bytes, not of how the
+// pack happened to arrive.
+//
+// ONE FIXTURE, NOT TWO. Both sides are testdata/hermetic-remote/valid-pack, so a
+// failure means the two algorithms diverged and never that the fixtures were never the
+// same pack.
+//
+// THE LOCAL ROOT .git IS LOAD-BEARING. Without it this test would prove only that two
+// copies of identical files hash identically, which was already true before SPEC-057 and
+// would pass on an unmodified tree. The remote clone arrives already .git-stripped
+// (SPEC-055 CLM-101/CLM-102), so the equality holds only because the local path now
+// computes the same function of the same authored bytes.
+func TestE2E_PackAdd_LocalAndRemoteHashesConverge(t *testing.T) {
+	bin := buildBackstopBinary(t)
+
+	// REMOTE side — the baseline the local half has to meet.
+	packName, remoteConsumer := remoteE2ESetup(t, validPackFixture, "v1.0.0")
+	if _, stderr, code := runBackstopStreams(t, bin, remoteConsumer, "pack", "add", packName+"@1.0.0"); code != 0 {
+		t.Fatalf("remote pack add failed: exit %d\nstderr: %s", code, stderr)
+	}
+	remoteHash := remoteE2ELockEntry(t, remoteConsumer, packName).ContentHash
+
+	// LOCAL side — the SAME authored tree, delivered as a checkout carrying its own
+	// repository, added in a SEPARATE project.
+	source, err := filepath.Abs(filepath.Join("testdata", "hermetic-remote", validPackFixture))
+	if err != nil {
+		t.Fatalf("resolving the %s fixture: %v", validPackFixture, err)
+	}
+	localSource := filepath.Join(t.TempDir(), validPackFixture)
+	copyDir(t, source, localSource)
+	writeE2ERootGitDirectory(t, localSource)
+
+	localConsumer := newConsumerProject(t)
+	if _, stderr, code := runBackstopStreams(t, bin, localConsumer, "pack", "add", localSource); code != 0 {
+		t.Fatalf("local pack add of a .git-carrying source failed: exit %d\nstderr: %s", code, stderr)
+	}
+	localHash := remoteE2ELockEntry(t, localConsumer, packName).ContentHash
+
+	if remoteHash == "" || localHash == "" {
+		t.Fatalf("expected non-empty recorded hashes, got remote=%q local=%q", remoteHash, localHash)
+	}
+	if remoteHash != localHash {
+		t.Errorf("local and remote adds of identical authored content recorded different hashes: remote=%s local=%s;\n"+
+			"local and remote pack identity have diverged, so a lock file no longer means the same thing on both paths",
+			remoteHash, localHash)
+	}
+}
+
+// writeE2ERootGitDirectory gives dir a real root .git holding files at two different
+// depths, so a boundary that skipped the entry without pruning the subtree still reds.
+func writeE2ERootGitDirectory(t *testing.T, dir string) {
+	t.Helper()
+
+	files := map[string]string{
+		filepath.Join(".git", "HEAD"):                  "ref: refs/heads/main\n",
+		filepath.Join(".git", "objects", "ab", "cdef"): "object payload\n",
+	}
+	for relative, content := range files {
+		path := filepath.Join(dir, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+}
+
 // TestE2E_PackAddThenInstall_RoundTripHashesMatch (CLM-065) — THE ROUND TRIP.
 //
 // A pack added from a tag, and then installed from the committed lock on a SEPARATE

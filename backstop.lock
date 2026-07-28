@@ -14,23 +14,23 @@ packs:
         source_type: local
         version: null
     backstop/go-standards:
-        content_hash: a3fdd4a2c15b3b235b866b0cb4c7f67bf8b9f80e2f2ae399f483d72de1d9e404
+        content_hash: bf58849d5d3e972a1231f3eef869aa8c78d14960defef93dcc86a45eac0d3eae
         git_ref: null
-        install_date: 2026-07-18T20:57:34Z
+        install_date: 2026-07-28T00:31:11Z
         name: backstop/go-standards
         source_type: local
         version: null
     backstop/go-toolchain:
-        content_hash: be64300ee7f3b40de993f9cb49b0b003cebd1989ab2ae55c2e42c8747e0194e3
+        content_hash: 7c0486ad72056931a408e4835bacc4c727c8bb3cef3253fbac1a30a3bf4134dd
         git_ref: null
-        install_date: 2026-07-07T01:20:31Z
+        install_date: 2026-07-28T00:31:11Z
         name: backstop/go-toolchain
         source_type: local
         version: null
     backstop/self:
-        content_hash: 3eb4324c85cb1be7567b7a460cc0fdbb5e748ddf578d64a02120a4e6632ca67f
+        content_hash: cdb5c64f04a4999ead652a4a7919f60c907f87a1b220cd7440ed992167ccab19
         git_ref: null
-        install_date: 2026-07-17T18:04:39Z
+        install_date: 2026-07-28T00:31:11Z
         local_path: ../backstop-self-pack
         name: backstop/self
         source_type: local
