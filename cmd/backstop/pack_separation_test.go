@@ -11,18 +11,18 @@ import (
 
 // SPEC-034 REQ-007 / Sharp Edge 9 — the mechanism/opinion pack boundary. The
 // build/test/lint TOOLCHAIN MECHANISM lives in the reusable backstop/go-toolchain
-// pack; the coding-standards OPINION lives in the separate backstop/go-standards
+// pack; the coding-standards OPINION lives in the separate backstop-ai/go-standards
 // pack. These tests assert the decomposition holds in BOTH directions (no bleed)
 // and that the toolchain pack lands in lockstep with the bridge.
 
-// goStandardsPackManifest loads the real installed backstop/go-standards opinion
+// goStandardsPackManifest loads the real installed backstop-ai/go-standards opinion
 // pack manifest from the repo's .backstop/packs.
 func goStandardsPackManifest(t *testing.T) *pack.Manifest {
 	t.Helper()
-	p := filepath.Join(repoRoot(t), ".backstop", "packs", "backstop", "go-standards", "pack.yml")
+	p := filepath.Join(repoRoot(t), ".backstop", "packs", "backstop-ai", "go-standards", "pack.yml")
 	m, err := pack.ParseManifestFile(p)
 	if err != nil {
-		t.Fatalf("backstop/go-standards pack must parse: %v", err)
+		t.Fatalf("backstop-ai/go-standards pack must parse: %v", err)
 	}
 	return m
 }
@@ -42,8 +42,8 @@ func TestGoToolchainPack_SeparateFromGoStandardsPack(t *testing.T) {
 	if toolchain.Name != "backstop/go-toolchain" {
 		t.Errorf("toolchain pack name = %q, want backstop/go-toolchain", toolchain.Name)
 	}
-	if standards.Name != "backstop/go-standards" {
-		t.Errorf("standards pack name = %q, want backstop/go-standards", standards.Name)
+	if standards.Name != "backstop-ai/go-standards" {
+		t.Errorf("standards pack name = %q, want backstop-ai/go-standards", standards.Name)
 	}
 
 	// The build/test convert scripts live under the go-toolchain pack.
@@ -56,7 +56,7 @@ func TestGoToolchainPack_SeparateFromGoStandardsPack(t *testing.T) {
 	}
 
 	// The standards pack must NOT carry the toolchain convert scripts.
-	standardsRoot := filepath.Dir(filepath.Join(repoRoot(t), ".backstop", "packs", "backstop", "go-standards", "pack.yml"))
+	standardsRoot := filepath.Dir(filepath.Join(repoRoot(t), ".backstop", "packs", "backstop-ai", "go-standards", "pack.yml"))
 	for _, script := range []string{"build-to-sarif.sh", "test-to-sarif.sh"} {
 		p := filepath.Join(standardsRoot, "scripts", script)
 		if _, err := os.Stat(p); err == nil {
@@ -102,7 +102,7 @@ func TestGoToolchainPack_MechanismOnlyNoStandards(t *testing.T) {
 }
 
 // TestGoStandardsPack_OpinionOnlyNoToolchain (CLM-024) proves backstop-go-pack
-// (backstop/go-standards) contains ONLY coding-standards opinion and NO build/test
+// (backstop-ai/go-standards) contains ONLY coding-standards opinion and NO build/test
 // toolchain mechanism: every rule binds a standards engine (semgrep), none binds a
 // toolchain mechanism engine (go-build/go-test/golangci).
 func TestGoStandardsPack_OpinionOnlyNoToolchain(t *testing.T) {

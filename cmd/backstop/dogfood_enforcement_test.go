@@ -13,7 +13,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
-// goStandardsRuleConfigs resolves the installed backstop/go-standards pack's
+// goStandardsRuleConfigs resolves the installed backstop-ai/go-standards pack's
 // engine:semgrep rule --config paths via the production loadInstalledPacks +
 // the same per-input_mode gathering dispatchPackEngines uses. This is exactly
 // the rule set the gate dispatches to the semgrep engine, so the test proves
@@ -60,7 +60,7 @@ func goStandardsRuleConfigs(t *testing.T, root string) []string {
 }
 
 // TestDogfoodPack_FlagsKnownGoViolation is the load-bearing CLM-025
-// enforcement-transfer proof: with backstop/go-standards consumed as a pack
+// enforcement-transfer proof: with backstop-ai/go-standards consumed as a pack
 // (declared, installed, locked), a code-check / gate semgrep pass over a
 // self-contained known-bad Go fixture that violates the pack's GO-060
 // hardcoded-credentials rule produces at least one semgrep Violation referencing

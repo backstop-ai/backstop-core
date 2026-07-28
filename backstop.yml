@@ -1,10 +1,10 @@
 project: backstop-core
 packs:
+    backstop-ai/backstop-self: local
     backstop-ai/cobra-cli-standards: 0.2.1
+    backstop-ai/go-standards: local
     backstop/contracts: local
-    backstop/go-standards: local
     backstop/go-toolchain: local
-    backstop/self: local
     backstop/substantiveness: local
 enforcement:
     policy:
@@ -23,7 +23,7 @@ enforcement:
             applies-to: new-code
             level: block
             sources:
-                backstop/self:
+                backstop-ai/backstop-self:
                     applies-to: all-code
                     level: block
         test_substantiveness:

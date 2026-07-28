@@ -62,7 +62,15 @@ func runBaselineGenerate(_ *cobra.Command, _ []string) error {
 	}
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, scope)), gate.WithScope(scope), gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
-	result, _ := g.Run(context.Background())
+	result, gateExit := g.Run(context.Background())
+	// Exit 2 is a CONFIG error, and the gate returns it BEFORE running any step —
+	// result.Steps is empty. An artifact built from zero steps is a vacuous
+	// baseline, and publishing one ratchets the project against nothing (the same
+	// hazard class as the packless baseline in ISSUE-086). Refuse to write rather
+	// than snapshot a gate that never ran.
+	if gateExit == ExitConfigError {
+		return fmt.Errorf("baseline generate: gate reported a configuration error (exit %d); refusing to write a baseline from a gate that produced no steps", gateExit)
+	}
 	artifact := gate.NewBaselineArtifactFromSteps(result.Steps, time.Now().UTC().Format(time.RFC3339), gitSHA(projectRoot), version)
 	baselinePath := filepath.Join(projectRoot, ".backstop", "baseline.json")
 	if err := gate.WriteBaseline(baselinePath, &artifact); err != nil {
@@ -230,7 +238,7 @@ func downloadBaselineArtifact(projectRoot, repo string, artifactID int64) ([]byt
 			if err != nil {
 				return nil, fmt.Errorf("artifact download failed: open baseline entry: %w", err)
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			body, err := io.ReadAll(rc)
 			if err != nil {
 				return nil, fmt.Errorf("artifact download failed: read baseline entry: %w", err)

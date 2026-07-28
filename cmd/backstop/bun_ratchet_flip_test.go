@@ -14,7 +14,7 @@ import (
 const neutralSpineRuleFragment = "no-language-literal-on-neutral-spine"
 
 // committedBaselineNeutralSpineFiles returns the set of file paths that carry a
-// backstop/self neutral-spine finding in the COMMITTED .backstop/baseline.json.
+// backstop-ai/backstop-self neutral-spine finding in the COMMITTED .backstop/baseline.json.
 func committedBaselineNeutralSpineFiles(t *testing.T) []string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".backstop", "baseline.json"))
@@ -60,7 +60,7 @@ func dogfoodPolicy(t *testing.T) map[string]gate.DimensionPolicy {
 
 // TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo proves SITE 1: after
 // the coverage measurable-path is de-Go'd (SPEC-043), the committed baseline carries
-// ZERO backstop/self neutral-spine findings for pkg/gate/step_coverage.go's
+// ZERO backstop-ai/backstop-self neutral-spine findings for pkg/gate/step_coverage.go's
 // measurable-path site (CLM-030).
 func TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo(t *testing.T) {
 	if baselineHasNeutralSpineForSite(t, "step_coverage.go") {
@@ -96,7 +96,7 @@ func TestRatchet_GoPackageMatchersSiteUnGrandfatheredAfterDeGo(t *testing.T) {
 
 // TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean proves the
 // TERMINAL FLIP: with all three sites clean, the dogfood backstop.yml sets
-// backstop/self's neutral-spine enforcement to level block with a ZERO baseline VIA
+// backstop-ai/backstop-self's neutral-spine enforcement to level block with a ZERO baseline VIA
 // the REQ-007 per-pack key (CLM-033).
 func TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean(t *testing.T) {
 	policy := dogfoodPolicy(t)
@@ -104,33 +104,33 @@ func TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean(t 
 	if !ok {
 		t.Fatal("dogfood backstop.yml must declare a pack_engines policy")
 	}
-	self, ok := pe.Sources["backstop/self"]
+	self, ok := pe.Sources["backstop-ai/backstop-self"]
 	if !ok {
-		t.Fatalf("the flip must be delivered via the per-pack key: pack_engines.sources must scope backstop/self, got sources=%v", pe.Sources)
+		t.Fatalf("the flip must be delivered via the per-pack key: pack_engines.sources must scope backstop-ai/backstop-self, got sources=%v", pe.Sources)
 	}
 	if self.Level != gate.PolicyBlock {
-		t.Errorf("backstop/self must be flipped to level block, got %q", self.Level)
+		t.Errorf("backstop-ai/backstop-self must be flipped to level block, got %q", self.Level)
 	}
 	if self.AppliesTo != gate.AppliesToAllCode {
-		t.Errorf("backstop/self must be flipped to a ZERO baseline (applies-to:all-code, no grandfathering), got applies-to=%q", self.AppliesTo)
+		t.Errorf("backstop-ai/backstop-self must be flipped to a ZERO baseline (applies-to:all-code, no grandfathering), got applies-to=%q", self.AppliesTo)
 	}
 }
 
 // TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright proves THE WALL: after the
 // flip, a deliberately reintroduced baked language literal on a neutral-spine site
 // REDs the gate outright as net-new against the zero baseline (CLM-034). Driven
-// through the REAL dogfood policy applied to a fresh backstop/self neutral-spine
+// through the REAL dogfood policy applied to a fresh backstop-ai/backstop-self neutral-spine
 // finding.
 func TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright(t *testing.T) {
 	// A deliberately reintroduced baked `.go` literal on the neutral spine surfaces as
-	// a backstop/self neutral-spine finding.
+	// a backstop-ai/backstop-self neutral-spine finding.
 	reintroduced := gate.Violation{
-		Rule:       "backstop/self/backstop.packs.backstop.self.rules." + neutralSpineRuleFragment,
+		Rule:       "backstop-ai/backstop-self/backstop.packs.backstop.self.rules." + neutralSpineRuleFragment,
 		File:       "pkg/gate/step_coverage.go",
 		Message:    `language literal on the neutral spine: if !strings.HasSuffix(path, ".go")`,
 		Severity:   "error",
 		RegionHash: "reintroduced-baked-go-literal",
-		SourcePack: "backstop/self",
+		SourcePack: "backstop-ai/backstop-self",
 	}
 	step := gate.StepResult{StepName: "pack_engines", Status: "fail", Violations: []gate.Violation{reintroduced}}
 
@@ -146,7 +146,7 @@ func TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright(t *testing.T) {
 		t.Fatalf("sanity: under the OLD grandfathering policy a baselined finding must be excused (pass), got %s — the wall test would not be discriminating", got.Status)
 	}
 
-	// POST-FLIP (the committed dogfood policy): the backstop/self zero-baseline blocks
+	// POST-FLIP (the committed dogfood policy): the backstop-ai/backstop-self zero-baseline blocks
 	// the reintroduced literal OUTRIGHT, even though it is in the baseline (CLM-034).
 	got := gate.ApplyPolicy([]gate.StepResult{step}, baseline, dogfoodPolicy(t), nil)[0]
 	if got.Status != "fail" {
@@ -166,13 +166,13 @@ func TestRatchet_FlipSequencedAfterPillarASitesClean(t *testing.T) {
 	if !sitesClean {
 		// The ordering guard: with a still-flagging site, the flip MUST NOT be applied.
 		if flipApplied {
-			t.Error("ORDERING GUARD VIOLATED: the terminal backstop/self block+zero-baseline flip must NOT be applied while a Pillar-A site still flags a neutral-spine literal")
+			t.Error("ORDERING GUARD VIOLATED: the terminal backstop-ai/backstop-self block+zero-baseline flip must NOT be applied while a Pillar-A site still flags a neutral-spine literal")
 		}
 		return
 	}
 	// All three sites are clean ⇒ the flip is legitimately sequenced last and applied.
 	if !flipApplied {
-		t.Error("all three Pillar-A sites are de-Go'd and clean, so the terminal flip must be applied (backstop/self → block + zero baseline via the per-pack key)")
+		t.Error("all three Pillar-A sites are de-Go'd and clean, so the terminal flip must be applied (backstop-ai/backstop-self → block + zero baseline via the per-pack key)")
 	}
 }
 
@@ -205,13 +205,13 @@ func pillarASitesClean(t *testing.T) bool {
 }
 
 // flipPresentInDogfoodConfig reports whether the dogfood backstop.yml applies the
-// backstop/self → block + zero-baseline flip via the per-pack key.
+// backstop-ai/backstop-self → block + zero-baseline flip via the per-pack key.
 func flipPresentInDogfoodConfig(t *testing.T) bool {
 	t.Helper()
 	pe, ok := dogfoodPolicy(t)["pack_engines"]
 	if !ok {
 		return false
 	}
-	self, ok := pe.Sources["backstop/self"]
+	self, ok := pe.Sources["backstop-ai/backstop-self"]
 	return ok && self.Level == gate.PolicyBlock && self.AppliesTo == gate.AppliesToAllCode
 }

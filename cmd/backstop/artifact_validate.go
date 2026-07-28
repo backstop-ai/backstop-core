@@ -14,7 +14,7 @@ import (
 )
 
 // ValidateConfig holds parsed flags and configuration for artifact validation.
-// @waiver:backstop/go-standards/backstop.packs.backstop.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-12 pack rule fix pending — ValidateConfig is not an error type; rule misfires on a non-error struct
+// @waiver:backstop-ai/go-standards/backstop.packs.backstop-ai.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-12 pack rule fix pending — ValidateConfig is not an error type; rule misfires on a non-error struct
 type ValidateConfig struct {
 	ProjectRoot string            // Project root directory (from backstop.yml location)
 	TypeFilters map[string]string // Type name → optional artifact ID (empty string = all of type)

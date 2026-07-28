@@ -10,12 +10,12 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
 
-const dogfoodPackName = "backstop/go-standards"
+const dogfoodPackName = "backstop-ai/go-standards"
 
 // TestDogfood_BackstopYmlDeclaresGoStandardsPack verifies backstop.yml declares
-// the pack keyed "backstop/go-standards" in its packs map, the pack is installed
-// under .backstop/packs/backstop/go-standards/ with a pack.yml whose name is
-// backstop/go-standards, and the declaration resolves through loadInstalledPacks
+// the pack keyed "backstop-ai/go-standards" in its packs map, the pack is installed
+// under .backstop/packs/backstop-ai/go-standards/ with a pack.yml whose name is
+// backstop-ai/go-standards, and the declaration resolves through loadInstalledPacks
 // to a parseable manifest. (CLM-016)
 func TestDogfood_BackstopYmlDeclaresGoStandardsPack(t *testing.T) {
 	root := repoRoot(t)
@@ -28,7 +28,10 @@ func TestDogfood_BackstopYmlDeclaresGoStandardsPack(t *testing.T) {
 		t.Fatalf("backstop.yml packs map does not declare %q; got %v", dogfoodPackName, cfg.Packs)
 	}
 
-	packDir := filepath.Join(root, ".backstop", "packs", "backstop", "go-standards")
+	// Derived from dogfoodPackName rather than spelled out in segments, so a pack
+	// rename (the DIR-027 name==coordinate migration) moves the constant and the
+	// install path together instead of leaving one behind.
+	packDir := filepath.Join(root, ".backstop", "packs", filepath.FromSlash(dogfoodPackName))
 	manifestPath := filepath.Join(packDir, "pack.yml")
 	if _, statErr := os.Stat(manifestPath); statErr != nil {
 		t.Fatalf("pack not installed at %s: %v", manifestPath, statErr)
@@ -58,7 +61,7 @@ func TestDogfood_BackstopYmlDeclaresGoStandardsPack(t *testing.T) {
 }
 
 // TestDogfood_GoStandardsLockVerifies verifies backstop.lock contains the
-// matching backstop/go-standards entry and VerifyLock passes. (CLM-017)
+// matching backstop-ai/go-standards entry and VerifyLock passes. (CLM-017)
 func TestDogfood_GoStandardsLockVerifies(t *testing.T) {
 	root := repoRoot(t)
 

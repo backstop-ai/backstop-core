@@ -35,7 +35,7 @@ import (
 // something you notice breaking, not something the tool enforces.
 
 // RemoteIdentity is the resolved identity of a pack about to be installed.
-// @waiver:backstop/go-standards/backstop.packs.backstop.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-25 pack rule fix pending — RemoteIdentity is not an error type; the rule's dotall regex spans declarations and anchors on whatever struct precedes the file's first Error() method, which here is the correctly-suffixed VersionUnresolvedError
+// @waiver:backstop-ai/go-standards/backstop.packs.backstop-ai.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-25 pack rule fix pending — RemoteIdentity is not an error type; the rule's dotall regex spans declarations and anchors on whatever struct precedes the file's first Error() method, which here is the correctly-suffixed VersionUnresolvedError
 type RemoteIdentity struct {
 	// Coordinate is the requested org/repository VERBATIM — the @version suffix
 	// removed and nothing else changed.

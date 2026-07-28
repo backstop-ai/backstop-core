@@ -1,4 +1,12 @@
 packs:
+    backstop-ai/backstop-self:
+        content_hash: d8035e8489130744957ea1c6f9f5c1bcd564d1b21f564e7d2fc89b9f090286fc
+        git_ref: null
+        install_date: 2026-07-28T01:55:31Z
+        local_path: ../backstop-self-pack
+        name: backstop-ai/backstop-self
+        source_type: local
+        version: null
     backstop-ai/cobra-cli-standards:
         content_hash: d9d87c313022bddff02f640a881784b436c661c1dff511fa038d592850eeca4d
         git_ref: v0.2.1
@@ -6,6 +14,14 @@ packs:
         name: backstop-ai/cobra-cli-standards
         source_type: git
         version: 0.2.1
+    backstop-ai/go-standards:
+        content_hash: 59f5f7f6053dcb2fb00cadd450a4ad5805b2eabcd526df3aad4f227ef571a636
+        git_ref: null
+        install_date: 2026-07-28T01:55:23Z
+        local_path: ../backstop-go-pack
+        name: backstop-ai/go-standards
+        source_type: local
+        version: null
     backstop/contracts:
         content_hash: aee133db8525ec6bd2635530f3e40bb6714f4c6250b771158d18eaf2bca42c26
         git_ref: null
@@ -13,26 +29,11 @@ packs:
         name: backstop/contracts
         source_type: local
         version: null
-    backstop/go-standards:
-        content_hash: bf58849d5d3e972a1231f3eef869aa8c78d14960defef93dcc86a45eac0d3eae
-        git_ref: null
-        install_date: 2026-07-28T00:31:11Z
-        name: backstop/go-standards
-        source_type: local
-        version: null
     backstop/go-toolchain:
         content_hash: 7c0486ad72056931a408e4835bacc4c727c8bb3cef3253fbac1a30a3bf4134dd
         git_ref: null
         install_date: 2026-07-28T00:31:11Z
         name: backstop/go-toolchain
-        source_type: local
-        version: null
-    backstop/self:
-        content_hash: cdb5c64f04a4999ead652a4a7919f60c907f87a1b220cd7440ed992167ccab19
-        git_ref: null
-        install_date: 2026-07-28T00:31:11Z
-        local_path: ../backstop-self-pack
-        name: backstop/self
         source_type: local
         version: null
     backstop/substantiveness:
