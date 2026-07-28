@@ -227,10 +227,15 @@ func TestConvertValidatorCapability_ReadableSetContainsRegularFiles(t *testing.T
 // be asserted structurally from darwin. This guard was proven control-vs-treatment in
 // a detached worktree: against a tree with the call removed it FAILS.
 func TestSandboxLinuxApplySite_CallsNarrowRuleToInodeType(t *testing.T) {
+	// sandbox_linux_helper.go, not sandbox_linux.go: applyLandlock moved there with
+	// the rest of the exec-side functions when the coverage-measurement boundary was
+	// drawn. This assertion followed the function rather than the filename — and it
+	// FAILED loudly at the move rather than passing against a file that no longer
+	// declares it, which is the whole reason the presence check below exists.
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "sandbox_linux.go", nil, 0)
+	file, err := parser.ParseFile(fset, "sandbox_linux_helper.go", nil, 0)
 	if err != nil {
-		t.Fatalf("parsing sandbox_linux.go: %v", err)
+		t.Fatalf("parsing sandbox_linux_helper.go: %v", err)
 	}
 
 	const applyFn = "applyLandlock"
@@ -241,8 +246,8 @@ func TestSandboxLinuxApplySite_CallsNarrowRuleToInodeType(t *testing.T) {
 		}
 	}
 	if target == nil {
-		t.Fatalf("sandbox_linux.go does not declare %s; this test asserts a property OF that function "+
-			"and is meaningless if it moved or was renamed", applyFn)
+		t.Fatalf("sandbox_linux_helper.go does not declare %s; this test asserts a property OF that "+
+			"function and is meaningless if it moved or was renamed", applyFn)
 	}
 
 	called := false
