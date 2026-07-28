@@ -1,45 +1,49 @@
 packs:
     backstop-ai/backstop-self:
         content_hash: d8035e8489130744957ea1c6f9f5c1bcd564d1b21f564e7d2fc89b9f090286fc
-        git_ref: null
-        install_date: 2026-07-28T01:55:31Z
-        local_path: ../backstop-self-pack
+        git_ref: v1.1.2
+        install_date: 2026-07-28T13:52:35Z
         name: backstop-ai/backstop-self
-        source_type: local
-        version: null
+        source_coordinate: backstop-ai/backstop-self
+        source_type: git
+        version: 1.1.2
     backstop-ai/cobra-cli-standards:
         content_hash: d9d87c313022bddff02f640a881784b436c661c1dff511fa038d592850eeca4d
         git_ref: v0.2.1
-        install_date: 2026-07-27T00:47:16Z
+        install_date: 2026-07-28T13:53:02Z
         name: backstop-ai/cobra-cli-standards
+        source_coordinate: backstop-ai/cobra-cli-standards
         source_type: git
         version: 0.2.1
+    backstop-ai/go-contracts:
+        content_hash: 996b99ca6019201a928c73cd5c0261c5b919a1bf4cc8ce72bcd97609487b2941
+        git_ref: v1.2.0
+        install_date: 2026-07-28T13:51:36Z
+        name: backstop-ai/go-contracts
+        source_coordinate: backstop-ai/go-contracts
+        source_type: git
+        version: 1.2.0
     backstop-ai/go-standards:
-        content_hash: 59f5f7f6053dcb2fb00cadd450a4ad5805b2eabcd526df3aad4f227ef571a636
-        git_ref: null
-        install_date: 2026-07-28T01:55:23Z
-        local_path: ../backstop-go-pack
+        content_hash: b0133b1e0be691a4cafde237d2c74195435648eede8a140433e73631f2ea47d8
+        git_ref: v1.2.1
+        install_date: 2026-07-28T13:52:35Z
         name: backstop-ai/go-standards
-        source_type: local
-        version: null
-    backstop/contracts:
-        content_hash: aee133db8525ec6bd2635530f3e40bb6714f4c6250b771158d18eaf2bca42c26
-        git_ref: null
-        install_date: 2026-07-18T20:28:48Z
-        name: backstop/contracts
-        source_type: local
-        version: null
-    backstop/go-toolchain:
-        content_hash: 7c0486ad72056931a408e4835bacc4c727c8bb3cef3253fbac1a30a3bf4134dd
-        git_ref: null
-        install_date: 2026-07-28T00:31:11Z
-        name: backstop/go-toolchain
-        source_type: local
-        version: null
-    backstop/substantiveness:
-        content_hash: fa2925ce754a3f059aae9044714b87864b8c7e8695ed4aeff00f531773837df5
-        git_ref: null
-        install_date: 2026-07-18T20:58:43Z
-        name: backstop/substantiveness
-        source_type: local
-        version: null
+        source_coordinate: backstop-ai/go-standards
+        source_type: git
+        version: 1.2.1
+    backstop-ai/go-substantiveness:
+        content_hash: 3c08e4dddf4ba3d11089fac826f575b2bb9d2a3fcafa4ed43288f49a250be56a
+        git_ref: v1.2.0
+        install_date: 2026-07-28T13:51:37Z
+        name: backstop-ai/go-substantiveness
+        source_coordinate: backstop-ai/go-substantiveness
+        source_type: git
+        version: 1.2.0
+    backstop-ai/go-toolchain:
+        content_hash: 74f5e507197155a2fb4fac6286bffd2516a8c7d9e97eaaddd78c6d4a19fee44d
+        git_ref: v1.2.0
+        install_date: 2026-07-28T13:51:37Z
+        name: backstop-ai/go-toolchain
+        source_coordinate: backstop-ai/go-toolchain
+        source_type: git
+        version: 1.2.0

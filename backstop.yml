@@ -1,11 +1,11 @@
 project: backstop-core
 packs:
-    backstop-ai/backstop-self: local
+    backstop-ai/backstop-self: 1.1.2
     backstop-ai/cobra-cli-standards: 0.2.1
-    backstop-ai/go-standards: local
-    backstop/contracts: local
-    backstop/go-toolchain: local
-    backstop/substantiveness: local
+    backstop-ai/go-contracts: 1.2.0
+    backstop-ai/go-standards: 1.2.1
+    backstop-ai/go-substantiveness: 1.2.0
+    backstop-ai/go-toolchain: 1.2.0
 enforcement:
     policy:
         artifact_status_drift:

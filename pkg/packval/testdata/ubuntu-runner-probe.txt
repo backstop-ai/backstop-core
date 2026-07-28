@@ -1,0 +1,538 @@
+ubuntu-latest sandbox probe — RAW CAPTURED OUTPUT
+=================================================
+
+WHAT THIS IS
+  The verbatim output of the temporary `.github/workflows/linux-sandbox-probe.yml`
+  workflow (PLAN-ISSUE-020 TASK-001), answering ISSUE-020's re-probe list on a
+  REAL GitHub Actions Linux runner. The 2026-07-27 spike ran against Docker
+  Desktop's LinuxKit kernel, which compiles in neither AppArmor nor Landlock, so
+  its two decisive questions were unmeasurable there and any container-derived
+  answer would have been a false negative. These are the measured values.
+
+PROVENANCE
+  runner image label   ubuntu-24.04, Image Version 20260720.247.2 (`ubuntu-latest`)
+  operating system     Ubuntu 24.04.4 LTS (Noble Numbat)
+  kernel               6.17.0-1020-azure
+  runner user          runner, uid 1001, gid 1001 (unprivileged)
+  date (UTC)           2026-07-28T13:44:10Z
+  repository           github.com/backstop-ai/backstop-core (private)
+  branch               probe/linux-sandbox
+  commit               0c075d7
+  workflow run URL     https://github.com/backstop-ai/backstop-core/actions/runs/30364880850
+  run conclusion       success (every probe step is `set +e` / `exit 0`; the job
+                       succeeding says NOTHING about whether the probes passed —
+                       read the per-item exit codes below)
+
+FIDELITY
+  Captured with `gh run view 30364880850 --log`. The only transformation applied
+  is removal of GitHub's per-line log prefix (`<job>\t<step>\t<ISO timestamp> `)
+  and of ANSI colour escapes. No line was reordered, summarized, paraphrased or
+  removed. The echoed commands GitHub prints in each ##[group] block are retained,
+  so every reported value can be traced to the exact command that produced it.
+
+READ THIS FIRST — THE RESULT CONTRADICTS THE SPIKE'S LEADING CANDIDATE
+  1. apparmor_restrict_unprivileged_userns = 1  (RESTRICTED)
+     This is ISSUE-020's item 1, the value the plan says to READ AND NOT ASSUME.
+     It is the exact risk the 2026-07-27 spike flagged as the one variable that
+     could still break unprivileged `--unshare-user` on a real Ubuntu runner. It
+     fired.
+
+  2. EVERY bubblewrap invocation failed — exit 1, all seven of them, including
+     both control legs:
+         ITEM2_EXIT=1                 corrected spike invocation, /bin/true
+         ITEM2B_EXIT=1                same, /bin/echo
+         ITEM3_0_BOUND_READ_EXIT=1    POSITIVE CONTROL: read of a BOUND path
+         ITEM3_1_UNBOUND_READ_EXIT=1  unbound read
+         ITEM3_2_DENIED_NET_EXIT=1    getent under --unshare-net
+         ITEM3_3_ALLOWED_NET_EXIT=1   CONTROL LEG: getent WITHOUT --unshare-net
+         ITEM3_4_WRITE_EXIT=1         write attempt
+         ITEM5_UNSHARE_PID_EXIT=1     --unshare-pid with --proc
+     The two failure signatures:
+         bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+             (every invocation carrying --unshare-net)
+         bwrap: setting up uid map: Permission denied
+             (the invocation WITHOUT --unshare-net)
+     Both are the same root cause: the user namespace is created but the process
+     does not hold privileges within it, which is the AppArmor-restriction
+     signature. `unshare -Urn /bin/true` fails identically (ITEM6_UNSHARE_EXIT=1),
+     confirming this is a host policy on unprivileged user namespaces and not a
+     bwrap defect.
+
+  3. THE ASSERTION TRIPLE IS VACUOUS HERE, NOT PASSING. ITEM3_1 and ITEM3_2 are
+     non-zero, which the naive reading calls "denied == PASS". They are non-zero
+     because BWRAP NEVER STARTED. The positive control (ITEM3_0, reading a bound
+     path, which MUST succeed under a working sandbox) is non-zero too, and the
+     control leg ITEM3_3 (which MUST exit 0) is non-zero as well. Read together
+     the triple proves the mechanism is unavailable — it does not prove denial.
+     This is precisely why the spike specified a triple with a control leg.
+
+  4. bwrap is NOT preinstalled on the runner image (`command -v bwrap` exit 1,
+     `bwrap --version` exit 127 before apt). `sudo apt-get install -y bubblewrap`
+     succeeded and provided bubblewrap 0.9.0 at /usr/bin/bwrap. Installing it is
+     therefore necessary but NOT sufficient.
+
+  5. LANDLOCK HAS REAL SIGNAL FOR THE FIRST TIME: LANDLOCK_ABI=7, and the kernel's
+     LSM list is lockdown,capability,landlock,yama,apparmor,ima,evm — landlock is
+     compiled in AND enabled. The spike recorded ZERO Landlock signal (its ENOSYS
+     was a LinuxKit kernel-compile fact). ABI 7 exceeds the ABI 5+ the re-probe
+     list expected.
+
+  Consequence: TASK-001's stop-and-escalate condition is met. The mechanism
+  contest is a founder-level call and is NOT resolved by this file.
+
+Supporting values:
+  unprivileged_userns_clone                 1
+  user.max_user_namespaces                  31590
+  apparmor_restrict_unprivileged_unconfined 0
+  aa-status                                 available, exit 0 both privileged and
+                                            unprivileged
+
+=================================================
+RAW OUTPUT BEGINS
+=================================================
+Current runner version: '2.336.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20260707.563
+Commit: 02667638d2b423fbc733a8e32a88b44996a3ba6e
+Build Date: 2026-07-07T19:33:50Z
+Worker ID: {4ec7e3ea-cd32-4126-8d65-7594ca2669e1}
+Azure Region: westus3
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.4
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20260720.247.2
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260720.247/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260720.247
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Prepare workflow directory
+Prepare all required actions
+Complete job name: Probe ubuntu-latest sandbox facts
+##[group]Run set +e
+set +e
+echo "=== RUNNER IDENTITY ==="
+echo "ImageOS=${ImageOS}"
+echo "ImageVersion=${ImageVersion}"
+echo "RUNNER_OS=${RUNNER_OS}"
+echo "RUNNER_ARCH=${RUNNER_ARCH}"
+echo "whoami=$(whoami) uid=$(id -u) gid=$(id -g)"
+echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat /etc/os-release
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== RUNNER IDENTITY ===
+ImageOS=ubuntu24
+ImageVersion=20260720.247.2
+RUNNER_OS=Linux
+RUNNER_ARCH=X64
+whoami=runner uid=1001 gid=1001
+date_utc=2026-07-28T13:44:10Z
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.4 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+##[group]Run set +e
+set +e
+echo "=== ITEM 7: uname -r ==="
+uname -r
+echo "=== ITEM 7: uname -a ==="
+uname -a
+echo "=== ITEM 7: /sys/kernel/security/lsm ==="
+cat /sys/kernel/security/lsm; echo "  (exit=$?)"
+echo "=== ITEM 7: bwrap PREINSTALLED? (before any apt-get) ==="
+command -v bwrap; echo "command -v bwrap exit=$?"
+bwrap --version; echo "bwrap --version exit=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 7: uname -r ===
+6.17.0-1020-azure
+=== ITEM 7: uname -a ===
+Linux runnervmvrwv9 6.17.0-1020-azure #20~24.04.1-Ubuntu SMP Fri Jun 19 20:09:14 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+=== ITEM 7: /sys/kernel/security/lsm ===
+lockdown,capability,landlock,yama,apparmor,ima,evm  (exit=0)
+=== ITEM 7: bwrap PREINSTALLED? (before any apt-get) ===
+command -v bwrap exit=1
+/home/runner/work/_temp/e236aa8f-e706-40a6-9a40-2c96207a5f50.sh: line 10: bwrap: command not found
+bwrap --version exit=127
+##[group]Run set +e
+set +e
+echo "=== ITEM 1: /proc/sys/kernel/apparmor_restrict_unprivileged_userns ==="
+cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+echo "cat exit=$?"
+echo "=== related: unprivileged_userns_clone ==="
+cat /proc/sys/kernel/unprivileged_userns_clone 2>&1
+echo "cat exit=$?"
+echo "=== related: user.max_user_namespaces ==="
+cat /proc/sys/user/max_user_namespaces 2>&1
+echo "cat exit=$?"
+echo "=== related: apparmor_restrict_unprivileged_unconfined ==="
+cat /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined 2>&1
+echo "cat exit=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 1: /proc/sys/kernel/apparmor_restrict_unprivileged_userns ===
+1
+cat exit=0
+=== related: unprivileged_userns_clone ===
+1
+cat exit=0
+=== related: user.max_user_namespaces ===
+31590
+cat exit=0
+=== related: apparmor_restrict_unprivileged_unconfined ===
+0
+cat exit=0
+##[group]Run set +e
+set +e
+echo "=== ITEM 7: apt-get install -y bubblewrap ==="
+sudo apt-get update -qq
+echo "apt-get update exit=$?"
+sudo apt-get install -y bubblewrap
+echo "apt-get install exit=$?"
+echo "=== bwrap after install ==="
+command -v bwrap; echo "command -v exit=$?"
+bwrap --version; echo "bwrap --version exit=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 7: apt-get install -y bubblewrap ===
+apt-get update exit=0
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following NEW packages will be installed:
+  bubblewrap
+0 upgraded, 1 newly installed, 0 to remove and 73 not upgraded.
+Need to get 50.2 kB of archives.
+After this operation, 133 kB of additional disk space will be used.
+Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Get:2 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 bubblewrap amd64 0.9.0-1ubuntu0.1 [50.2 kB]
+Fetched 50.2 kB in 0s (244 kB/s)
+Selecting previously unselected package bubblewrap.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 202954 files and directories currently installed.)
+Preparing to unpack .../bubblewrap_0.9.0-1ubuntu0.1_amd64.deb ...
+Unpacking bubblewrap (0.9.0-1ubuntu0.1) ...
+Setting up bubblewrap (0.9.0-1ubuntu0.1) ...
+Processing triggers for man-db (2.12.0-4build2) ...
+Not building database; man-db/auto-update is not 'true'.
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+apt-get install exit=0
+=== bwrap after install ===
+/usr/bin/bwrap
+command -v exit=0
+bubblewrap 0.9.0
+bwrap --version exit=0
+##[group]Run set +e
+set +e
+echo "=== ITEM 2: corrected spike invocation ==="
+echo "running as uid=$(id -u) ($(whoami))"
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --unshare-user --unshare-net --dev /dev \
+  --proc /proc /bin/true
+echo "ITEM2_EXIT=$?"
+echo "=== ITEM 2b: same invocation echoing, to prove it really executes ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --unshare-user --unshare-net --dev /dev \
+  --proc /proc /bin/echo hello-from-inside-bwrap
+echo "ITEM2B_EXIT=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 2: corrected spike invocation ===
+running as uid=1001 (runner)
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM2_EXIT=1
+=== ITEM 2b: same invocation echoing, to prove it really executes ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM2B_EXIT=1
+##[group]Run set +e
+set +e
+mkdir -p /tmp/probe-packdir
+echo "PACKDIR-CANARY" > /tmp/probe-packdir/canary.txt
+echo "UNBOUND-SECRET" > "${HOME}/probe-unbound-secret.txt"
+
+echo "=== ITEM 3.0 (positive control): read of a BOUND path inside packDir ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /tmp/probe-packdir /tmp/probe-packdir \
+  --chdir /tmp/probe-packdir \
+  --unshare-user --unshare-net --dev /dev --proc /proc \
+  /bin/cat /tmp/probe-packdir/canary.txt
+echo "ITEM3_0_BOUND_READ_EXIT=$?"
+
+echo "=== ITEM 3.1: read of an UNBOUND path must be denied ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /tmp/probe-packdir /tmp/probe-packdir \
+  --chdir /tmp/probe-packdir \
+  --unshare-user --unshare-net --dev /dev --proc /proc \
+  /bin/cat "${HOME}/probe-unbound-secret.txt"
+echo "ITEM3_1_UNBOUND_READ_EXIT=$?  (non-zero == denied == PASS)"
+
+echo "=== ITEM 3.2: getent hosts UNDER --unshare-net must be non-zero ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /etc /etc \
+  --unshare-user --unshare-net --dev /dev --proc /proc \
+  /usr/bin/getent hosts github.com
+echo "ITEM3_2_DENIED_NET_EXIT=$?  (non-zero == network denied == PASS)"
+
+echo "=== ITEM 3.3 (CONTROL LEG): SAME command WITHOUT --unshare-net must be 0 ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /etc /etc \
+  --unshare-user --dev /dev --proc /proc \
+  /usr/bin/getent hosts github.com
+echo "ITEM3_3_ALLOWED_NET_EXIT=$?  (zero == the denial above is the sandbox == PASS)"
+
+echo "=== ITEM 3.4: write denial - no writable bind at all ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /tmp/probe-packdir /tmp/probe-packdir \
+  --chdir /tmp/probe-packdir \
+  --unshare-user --unshare-net --dev /dev --proc /proc \
+  /bin/sh -c 'echo pwned > /tmp/probe-packdir/written.txt'
+echo "ITEM3_4_WRITE_EXIT=$?  (non-zero == write denied == PASS)"
+ls -la /tmp/probe-packdir
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 3.0 (positive control): read of a BOUND path inside packDir ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM3_0_BOUND_READ_EXIT=1
+=== ITEM 3.1: read of an UNBOUND path must be denied ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM3_1_UNBOUND_READ_EXIT=1  (non-zero == denied == PASS)
+=== ITEM 3.2: getent hosts UNDER --unshare-net must be non-zero ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM3_2_DENIED_NET_EXIT=1  (non-zero == network denied == PASS)
+=== ITEM 3.3 (CONTROL LEG): SAME command WITHOUT --unshare-net must be 0 ===
+bwrap: setting up uid map: Permission denied
+ITEM3_3_ALLOWED_NET_EXIT=1  (zero == the denial above is the sandbox == PASS)
+=== ITEM 3.4: write denial - no writable bind at all ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM3_4_WRITE_EXIT=1  (non-zero == write denied == PASS)
+total 20
+drwxr-xr-x  2 runner runner  4096 Jul 28 13:44 .
+drwxrwxrwt 14 root   root   12288 Jul 28 13:44 ..
+-rw-r--r--  1 runner runner    15 Jul 28 13:44 canary.txt
+##[group]Run set +e
+set +e
+cat > /tmp/landlock_abi.c <<'LANDLOCK_C_EOF'
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+
+#ifndef __NR_landlock_create_ruleset
+#define __NR_landlock_create_ruleset 444
+#endif
+#ifndef LANDLOCK_CREATE_RULESET_VERSION
+#define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
+#endif
+
+int main(void) {
+    long abi = syscall(__NR_landlock_create_ruleset, NULL, 0,
+                       LANDLOCK_CREATE_RULESET_VERSION);
+    if (abi < 0) {
+        printf("LANDLOCK_ABI=ERROR errno=%d (%s)\n", errno, strerror(errno));
+        return 1;
+    }
+    printf("LANDLOCK_ABI=%ld\n", abi);
+    return 0;
+}
+LANDLOCK_C_EOF
+echo "=== ITEM 4: compiling landlock ABI probe ==="
+gcc -o /tmp/landlock_abi /tmp/landlock_abi.c
+echo "gcc exit=$?"
+echo "=== ITEM 4: running landlock ABI probe ==="
+/tmp/landlock_abi
+echo "ITEM4_LANDLOCK_PROBE_EXIT=$?"
+echo "=== ITEM 4: CONFIG_SECURITY_LANDLOCK from kernel config (if readable) ==="
+grep -i landlock "/boot/config-$(uname -r)" 2>&1
+echo "grep exit=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 4: compiling landlock ABI probe ===
+gcc exit=0
+=== ITEM 4: running landlock ABI probe ===
+LANDLOCK_ABI=7
+ITEM4_LANDLOCK_PROBE_EXIT=0
+=== ITEM 4: CONFIG_SECURITY_LANDLOCK from kernel config (if readable) ===
+CONFIG_SECURITY_LANDLOCK=y
+CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor"
+grep exit=0
+##[group]Run set +e
+set +e
+echo "=== ITEM 5: --unshare-pid together with --proc ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --unshare-user --unshare-net --unshare-pid --dev /dev \
+  --proc /proc /bin/true
+echo "ITEM5_UNSHARE_PID_EXIT=$?"
+echo "=== ITEM 5b: same, listing /proc to show it is a fresh procfs ==="
+bwrap --ro-bind /usr /usr --symlink usr/bin /bin \
+  --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --unshare-user --unshare-net --unshare-pid --dev /dev \
+  --proc /proc /bin/sh -c 'echo "pid=$$"; ls /proc | head -20'
+echo "ITEM5B_EXIT=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 5: --unshare-pid together with --proc ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM5_UNSHARE_PID_EXIT=1
+=== ITEM 5b: same, listing /proc to show it is a fresh procfs ===
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ITEM5B_EXIT=1
+##[group]Run set +e
+set +e
+echo "=== ITEM 6: unshare -Urn ==="
+unshare -Urn /bin/true
+echo "ITEM6_UNSHARE_EXIT=$?"
+unshare -Urn /bin/sh -c 'echo "inside userns+netns, uid=$(id -u)"; ip link 2>&1 | head -10'
+echo "ITEM6B_EXIT=$?"
+echo "=== ITEM 6: aa-status ==="
+which aa-status; echo "which exit=$?"
+sudo aa-status 2>&1 | head -40
+echo "ITEM6_AA_STATUS_EXIT=$?"
+echo "=== ITEM 6: aa-status unprivileged ==="
+aa-status 2>&1 | head -10
+echo "ITEM6_AA_STATUS_UNPRIV_EXIT=$?"
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== ITEM 6: unshare -Urn ===
+unshare: write failed /proc/self/uid_map: Operation not permitted
+ITEM6_UNSHARE_EXIT=1
+unshare: write failed /proc/self/uid_map: Operation not permitted
+ITEM6B_EXIT=1
+=== ITEM 6: aa-status ===
+/usr/sbin/aa-status
+which exit=0
+apparmor module is loaded.
+123 profiles are loaded.
+28 profiles are in enforce mode.
+   /usr/bin/man
+   /usr/lib/snapd/snap-confine
+   /usr/sbin/chronyd
+   /usr/sbin/haveged
+   /usr/sbin/mysqld
+   docker-default
+   lsb_release
+   man_filter
+   man_groff
+   nvidia_modprobe
+   nvidia_modprobe//kmod
+   passt
+   plasmashell
+   plasmashell//QtWebEngineProcess
+   rsyslogd
+   tcpdump
+   ubuntu_pro_apt_news
+   ubuntu_pro_esm_cache
+   ubuntu_pro_esm_cache//apt_methods
+   ubuntu_pro_esm_cache//apt_methods_gpgv
+   ubuntu_pro_esm_cache//cloud_id
+   ubuntu_pro_esm_cache//dpkg
+   ubuntu_pro_esm_cache//ps
+   ubuntu_pro_esm_cache//ubuntu_distro_info
+   ubuntu_pro_esm_cache_systemctl
+   ubuntu_pro_esm_cache_systemd_detect_virt
+   unix-chkpwd
+   unprivileged_userns
+4 profiles are in complain mode.
+   transmission-cli
+   transmission-daemon
+   transmission-gtk
+   transmission-qt
+0 profiles are in prompt mode.
+0 profiles are in kill mode.
+91 profiles are in unconfined mode.
+   1password
+ITEM6_AA_STATUS_EXIT=0
+=== ITEM 6: aa-status unprivileged ===
+You do not have enough privilege to read the profile set.
+apparmor module is loaded.
+ITEM6_AA_STATUS_UNPRIV_EXIT=0
+##[group]Run set +e
+set +e
+echo "=== SUMMARY (raw, unsummarized values re-read) ==="
+echo -n "apparmor_restrict_unprivileged_userns="
+cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>&1
+echo -n "uname_r="
+uname -r
+echo -n "bwrap_path="
+command -v bwrap 2>&1
+echo -n "bwrap_version="
+bwrap --version 2>&1
+echo -n "lsm="
+cat /sys/kernel/security/lsm 2>&1
+echo -n "landlock_abi="
+/tmp/landlock_abi 2>&1
+exit 0
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+=== SUMMARY (raw, unsummarized values re-read) ===
+apparmor_restrict_unprivileged_userns=1
+uname_r=6.17.0-1020-azure
+bwrap_path=/usr/bin/bwrap
+bwrap_version=bubblewrap 0.9.0
+lsm=lockdown,capability,landlock,yama,apparmor,ima,evmlandlock_abi=LANDLOCK_ABI=7
+Cleaning up orphan processes
