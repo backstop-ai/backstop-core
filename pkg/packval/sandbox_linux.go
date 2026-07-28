@@ -386,9 +386,13 @@ func newSandboxHelperCommand(command string, args []string, packDir string) (*ex
 	return helper, nil
 }
 
-// linuxSandboxedRun is the linux arm of SandboxedRun. It preserves that function's
+// platformSandboxedRun is the linux arm of SandboxedRun. It preserves that function's
 // CombinedOutput contract exactly.
-func linuxSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
+//
+// The name is the build-tagged dispatch seam shared with sandbox_darwin.go and
+// sandbox_unsupported.go: sandbox.go calls it unqualified and the linker resolves
+// whichever file the build tags admitted.
+func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
 	helper, err := newSandboxHelperCommand(command, args, packDir)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
@@ -400,12 +404,12 @@ func linuxSandboxedRun(command string, args []string, packDir string) ([]byte, e
 	return out, nil
 }
 
-// linuxSandboxedRunStdout is the linux arm of SandboxedRunStdout. It preserves that
+// platformSandboxedRunStdout is the linux arm of SandboxedRunStdout. It preserves that
 // function's contract exactly: an explicit stdout buffer, the stdin pipe, and the
 // stdout-captured-so-far returned alongside the error on a non-zero exit. Those are
 // what keep a converter's stderr banner out of the SARIF the gate parses, so the
 // trampoline has to be transparent to them.
-func linuxSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
+func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
 	helper, err := newSandboxHelperCommand(command, args, packDir)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)

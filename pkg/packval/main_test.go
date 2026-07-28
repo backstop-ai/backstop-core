@@ -19,12 +19,13 @@ import (
 // consumes argv.
 //
 // This is the test-side half of a WIRING PAIR whose other half is
-// packval.MaybeRunSandboxHelper() as the first statement of
-// cmd/backstop/main.go. Either half missing is a silent hole, and they fail in
-// different directions:
+// packval.MaybeRunSandboxHelper() as the first statement of cmd/backstop's
+// runWith — the body main() reaches through run(), which since Phase 3b holds
+// everything main used to do. Either half missing is a silent hole, and they fail
+// in different directions:
 //
-//   - missing in main.go — every Linux test here still passes while the SHIPPED
-//     BINARY sandboxes nothing.
+//   - missing in cmd/backstop — every Linux test here still passes while the
+//     SHIPPED BINARY sandboxes nothing.
 //   - missing here — the suite cannot reach the helper at all, so every Linux
 //     sandbox test fails for a reason that has nothing to do with the sandbox.
 //

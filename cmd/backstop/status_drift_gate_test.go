@@ -106,7 +106,7 @@ func driftStepsFor(t *testing.T, root string) (block, advisory gate.StepFunc) {
 	return buildStatusDriftSteps(root, classifier, matcher)
 }
 
-func run(step gate.StepFunc) gate.StepResult { return step(context.Background()) }
+func runStep(step gate.StepFunc) gate.StepResult { return step(context.Background()) }
 
 // --- tests -----------------------------------------------------------------------------
 
@@ -119,7 +119,7 @@ func TestGate_StatusDriftStep_WiredIntoBuildGateSteps(t *testing.T) {
 
 	var names []string
 	for _, s := range steps {
-		names = append(names, run(s).StepName)
+		names = append(names, runStep(s).StepName)
 	}
 	found := false
 	for _, n := range names {
@@ -146,7 +146,7 @@ func TestGate_StatusDrift_FullSweep_CatchesOutOfDiffStaleStatus(t *testing.T) {
 	writeFixture(t, root, "issues/ISSUE-777-stale.issue.md", issueFixture("ISSUE-777", "closed", "TestNeverExistsAnywhere"))
 
 	block, advisory := driftStepsFor(t, root)
-	res := run(block)
+	res := runStep(block)
 	if res.Status != "fail" {
 		t.Fatalf("full-sweep drift must catch the out-of-diff closed+absent artifact; status=%q violations=%+v", res.Status, res.Violations)
 	}
@@ -158,7 +158,7 @@ func TestGate_StatusDrift_FullSweep_CatchesOutOfDiffStaleStatus(t *testing.T) {
 		t.Errorf("violation must name the stale artifact + absent test, got %q", msg)
 	}
 	// No delivered-but-open fixture here, so the advisory surface is empty.
-	if a := run(advisory); len(a.Violations) != 0 {
+	if a := runStep(advisory); len(a.Violations) != 0 {
 		t.Errorf("advisory surface should be empty (no delivered-but-open artifact), got %+v", a.Violations)
 	}
 }
@@ -175,14 +175,14 @@ func TestGate_StatusDrift_DeliveredOpen_ExitZeroWithWarning(t *testing.T) {
 	block, advisory := driftStepsFor(t, root)
 
 	// The advisory surface warns; the block surface has nothing.
-	adv := run(advisory)
+	adv := runStep(advisory)
 	if adv.Status != "warning" {
 		t.Fatalf("advisory status = %q, want warning (delivered-but-open)", adv.Status)
 	}
 	if len(adv.Violations) == 0 || adv.Violations[0].Severity != "warning" {
 		t.Errorf("expected a warning-severity guidance violation, got %+v", adv.Violations)
 	}
-	if b := run(block); b.Status == "fail" {
+	if b := runStep(block); b.Status == "fail" {
 		t.Errorf("block surface must not fail for a delivered-but-open artifact, got %+v", b)
 	}
 
@@ -244,7 +244,7 @@ func TestGate_StatusDrift_PresentButFailingTest_CaughtByPackEngines_NotDrift(t *
 	writeFixture(t, root, "src/failing_test.go", "package src\n\nfunc TestDriftPresentButFailing() {}\n")
 
 	block, advisory := driftStepsFor(t, root)
-	res := run(block)
+	res := runStep(block)
 	if res.Status == "fail" {
 		t.Fatalf("drift must emit NO violation for a PRESENT mandated test (pass/fail is pack_engines' job); got %+v", res.Violations)
 	}
@@ -254,7 +254,7 @@ func TestGate_StatusDrift_PresentButFailingTest_CaughtByPackEngines_NotDrift(t *
 	// A closed (success-terminal) artifact is not delivered-but-open, so the advisory
 	// surface is empty too — the present-but-failing case is invisible to BOTH drift
 	// surfaces and belongs solely to the pack_engines/test step.
-	if a := run(advisory); len(a.Violations) != 0 {
+	if a := runStep(advisory); len(a.Violations) != 0 {
 		t.Errorf("advisory surface should be empty for a closed+present fixture, got %+v", a.Violations)
 	}
 }
@@ -267,10 +267,10 @@ func TestGate_StatusDrift_RetiredTerminal_NoViolation(t *testing.T) {
 	writeFixture(t, root, "issues/ISSUE-903-replaced.issue.md", issueFixture("ISSUE-903", "replaced", "TestRetiredAbsentTest"))
 
 	block, advisory := driftStepsFor(t, root)
-	if b := run(block); len(b.Violations) != 0 {
+	if b := runStep(block); len(b.Violations) != 0 {
 		t.Errorf("retired artifact must produce no block violation, got %+v", b.Violations)
 	}
-	if a := run(advisory); len(a.Violations) != 0 {
+	if a := runStep(advisory); len(a.Violations) != 0 {
 		t.Errorf("retired artifact must produce no advisory violation, got %+v", a.Violations)
 	}
 }

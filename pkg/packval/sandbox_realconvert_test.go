@@ -76,56 +76,12 @@ func TestSandboxConvertWithRealInterpreter(t *testing.T) {
 	}
 }
 
-// TestSandboxProfileAllowsDyldLibraries asserts the shared darwin profile builder
-// (CLM-001) emits the runtime/system read subpaths a dynamically-linked
-// interpreter needs at dyld load — in ADDITION to packDir — proving both
-// SandboxedRun and SandboxedRunStdout source the SAME extended profile. It also
-// asserts the deny rules and the bsd.sb base import that lets dyld read the
-// shared cache survive.
-func TestSandboxProfileAllowsDyldLibraries(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("sandbox-exec / darwinSandboxProfile is macOS-only")
-	}
-	packDir := mustEvalSymlinks(t, t.TempDir())
-	profile := darwinSandboxProfile(packDir)
-
-	// packDir read must be present and symlink-resolved.
-	if !strings.Contains(profile, "(subpath \""+packDir+"\")") {
-		t.Fatalf("profile missing packDir read subpath %q:\n%s", packDir, profile)
-	}
-
-	// The system/runtime library read subpaths an interpreter's dyld load needs.
-	// These are scoped subpaths, NOT a blanket (allow file-read*).
-	for _, want := range []string{
-		"/usr/lib",
-		"/System/Library",
-		"/usr/local/lib",
-		"/opt/homebrew",
-		"/private/var/db/dyld",
-	} {
-		if !strings.Contains(profile, "(subpath \""+want+"\")") {
-			t.Errorf("profile missing required dyld/system read subpath %q:\n%s", want, profile)
-		}
-	}
-
-	// bsd.sb base import — empirically required so dyld can read the shared cache;
-	// without it every restricted file-read* profile SIGABRTs at launch.
-	if !strings.Contains(profile, "(import \"bsd.sb\")") {
-		t.Errorf("profile missing (import \"bsd.sb\") base — restricted file-read* profiles SIGABRT without it:\n%s", profile)
-	}
-
-	// Deny rules must remain HARD and must NOT be a blanket read allow.
-	for _, want := range []string{"(deny default)", "(deny file-write*)", "(deny network*)"} {
-		if !strings.Contains(profile, want) {
-			t.Errorf("profile missing hard deny rule %q:\n%s", want, profile)
-		}
-	}
-	// Guard against the security hole: an unscoped (allow file-read*) with no
-	// filter would read every project file.
-	if strings.Contains(profile, "(allow file-read*)") {
-		t.Errorf("profile contains a BLANKET (allow file-read*) — must be subpath-scoped:\n%s", profile)
-	}
-}
+// TestSandboxProfileAllowsDyldLibraries MOVED to sandbox_darwin_test.go
+// (`//go:build darwin`) in Phase 3b, unchanged. darwinSandboxProfile is now
+// compiled only on darwin, so a caller in this untagged file would break
+// `GOOS=linux go vet ./pkg/packval/`. The helpers below stay here: the linux exec
+// tests use mustEvalSymlinks, copyFixtureInto and locateJQ, so this file must
+// remain untagged.
 
 // mustEvalSymlinks resolves symlinks (e.g. macOS /var -> /private/var) so a
 // sandbox subpath rule matches the kernel-resolved path.

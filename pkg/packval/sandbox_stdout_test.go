@@ -50,6 +50,40 @@ func TestSandboxedRunStdout_PipesStdin(t *testing.T) {
 	}
 }
 
+// TestSandboxedRunStdout_NonZeroExitReturnsStdoutSoFar closes the last unasserted
+// half of SandboxedRunStdout's contract: on a non-zero exit it returns the stdout
+// captured SO FAR alongside the error, so the caller can attribute the failure to
+// the convert step rather than to the engine that fed it.
+//
+// The failure path is the one that matters here. A converter that emits partial
+// SARIF and then dies is the realistic shape — a jq filter that hits malformed
+// input halfway through — and an implementation that returned (nil, err) on that
+// path would look correct in every success-path test while destroying the only
+// evidence of where the pipeline broke. The stderr assertion is the same
+// clean-stdout guarantee as the success path: failing must not start merging the
+// two streams.
+func TestSandboxedRunStdout_NonZeroExitReturnsStdoutSoFar(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("sandbox-exec is macOS-only")
+	}
+	dir := t.TempDir()
+
+	out, err := SandboxedRunStdout("sh",
+		[]string{"-c", "printf '{\"partial\":true}'; echo 'converter blew up' 1>&2; exit 3"}, dir, nil)
+
+	if err == nil {
+		t.Fatalf("a converter exiting 3 must surface as an error; got output %q and no error", string(out))
+	}
+	if !strings.Contains(string(out), `{"partial":true}`) {
+		t.Fatalf("the stdout captured before the failure was discarded; it must be returned alongside the "+
+			"error so the caller can attribute the failure to the convert step. got %q", string(out))
+	}
+	if strings.Contains(string(out), "converter blew up") {
+		t.Fatalf("stderr leaked into the returned stdout on the FAILURE path; the clean-stdout guarantee "+
+			"holds there too. got %q", string(out))
+	}
+}
+
 // TestSandboxedRun_StillCombinesOutput guards the additive contract: the
 // existing CombinedOutput-based SandboxedRun is left in place for the exit-code
 // sandbox-validator path (REQ-014), whose message body may legitimately include

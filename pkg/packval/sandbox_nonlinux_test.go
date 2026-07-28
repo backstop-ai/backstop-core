@@ -3,57 +3,64 @@
 package packval
 
 import (
+	"go/build/constraint"
+	"os"
 	"strings"
 	"testing"
 )
 
-// The non-Linux stubs are a WIRING LOCK, and this file is what keeps them honest
-// on the machine where the Linux sandbox is written but cannot run.
+// These two assertions are the WIRING LOCK for the helper gate on the machine
+// where the Linux sandbox is written but cannot run.
 //
-// sandbox.go switches on runtime.GOOS at RUN time while the Landlock
-// implementation is selected at BUILD time, so the darwin build has to carry
-// non-Linux counterparts for the entry points the linux arm names. That makes
-// them look like dead weight — and dead-looking code with no test is what gets
-// "cleaned up". The comment in sandbox_nonlinux.go says exactly what that costs:
-// delete MaybeRunSandboxHelper and the shipped darwin build stops compiling,
-// whereupon the obvious fix is to remove the call from cmd/backstop/main.go,
-// which silently disarms the Linux sandbox on the platform that actually has one.
-//
-// These assertions are cheap. The failure they prevent is not.
+// Platform DISPATCH is build-tagged now — sandbox_linux.go for Landlock+seccomp,
+// sandbox_nonlinux.go for sandbox-exec on darwin and the fail-closed refusal
+// everywhere else — so sandbox_nonlinux.go no longer carries linuxSandboxedRun*
+// stub arms. What these two assertions guard is the symbol that must exist on
+// EVERY platform, and the tag that keeps it that way. Both failures they prevent
+// are silent.
 
-// TestNonLinuxSandboxStubsFailClosed asserts the non-Linux arms return an ERROR
-// rather than an empty success.
+// TestNonLinuxSandboxHelperTagIsNotNarrowed asserts sandbox_nonlinux.go's build
+// constraint is still exactly `!linux`.
 //
-// Fail-closed is the whole point. A stub returning (nil, nil) would hand
-// SandboxedRun's caller zero bytes and no error — which the gate reads as a
-// convert step that produced no findings, i.e. a silent pass. That is the vacuous
-// green this plan exists to eliminate, arriving through the back door of a
-// platform stub nobody looks at.
-func TestNonLinuxSandboxStubsFailClosed(t *testing.T) {
-	out, err := linuxSandboxedRun("/bin/echo", []string{"hello"}, t.TempDir())
-	if err == nil {
-		t.Fatalf("linuxSandboxedRun returned no error on a non-linux build; a caller would read %q as a "+
-			"successful sandboxed run that produced no output", string(out))
-	}
-	if out != nil {
-		t.Errorf("linuxSandboxedRun returned %q alongside its error; the non-linux arm executes nothing "+
-			"and must return no output", string(out))
-	}
-	if !strings.Contains(err.Error(), "linux") {
-		t.Errorf("the refusal must say which platform arm was reached; got %q", err)
+// This is the trap TASK-023 names, and it is worth a test rather than a comment
+// because the mistake looks like tidying: split the darwin arm out into its own
+// `darwin` file and this file's `!linux` starts reading like an overlap someone
+// should narrow to `!linux && !darwin`. It is not an overlap. MaybeRunSandboxHelper
+// is not a dispatch arm — cmd/backstop's run() calls it unconditionally on every
+// platform, so narrowing the tag costs the darwin build the symbol, and the obvious
+// fix at that point is to delete the call site, which makes the build green and
+// silently disarms the Linux sandbox.
+//
+// Asserting the constraint STRUCTURALLY (parsed, not substring-matched) is what
+// makes the failure message land on the real cause instead of on a compile error
+// three files away.
+func TestNonLinuxSandboxHelperTagIsNotNarrowed(t *testing.T) {
+	source, err := os.ReadFile("sandbox_nonlinux.go")
+	if err != nil {
+		t.Fatalf("reading sandbox_nonlinux.go: %v", err)
 	}
 
-	out, err = linuxSandboxedRunStdout("/bin/echo", []string{"hello"}, t.TempDir(), []byte("stdin"))
-	if err == nil {
-		t.Fatalf("linuxSandboxedRunStdout returned no error on a non-linux build; the convert path would "+
-			"treat %q as clean SARIF bytes", string(out))
+	var got string
+	for _, line := range strings.Split(string(source), "\n") {
+		if !constraint.IsGoBuild(line) {
+			continue
+		}
+		expr, parseErr := constraint.Parse(line)
+		if parseErr != nil {
+			t.Fatalf("parsing build constraint %q: %v", line, parseErr)
+		}
+		got = expr.String()
+		break
 	}
-	if out != nil {
-		t.Errorf("linuxSandboxedRunStdout returned %q alongside its error; stdout must be empty when "+
-			"nothing ran", string(out))
+
+	if got == "" {
+		t.Fatal("sandbox_nonlinux.go carries no //go:build constraint; without one it compiles on linux too " +
+			"and collides with the linux MaybeRunSandboxHelper")
 	}
-	if !strings.Contains(err.Error(), "linux") {
-		t.Errorf("the refusal must say which platform arm was reached; got %q", err)
+	if got != "!linux" {
+		t.Fatalf("sandbox_nonlinux.go is tagged %q, want \"!linux\". MaybeRunSandboxHelper is NOT a dispatch "+
+			"arm — run() calls it unconditionally on every platform, so narrowing this tag costs the darwin "+
+			"build the symbol and invites deleting the call site, which silently disarms the Linux sandbox", got)
 	}
 }
 
@@ -61,7 +68,7 @@ func TestNonLinuxSandboxStubsFailClosed(t *testing.T) {
 // this platform and RETURNS.
 //
 // On Linux this function never returns when the process was spawned as a sandbox
-// helper, and cmd/backstop/main.go plus this package's TestMain both call it
+// helper, and cmd/backstop/run() plus this package's TestMain both call it
 // unconditionally as their first statement. The non-Linux build has no trampoline
 // to re-enter, so the correct behaviour is to do nothing and return — and the test
 // reaching its final line is the assertion. If the darwin arm ever grew an exit or
@@ -70,6 +77,6 @@ func TestNonLinuxSandboxStubsFailClosed(t *testing.T) {
 func TestNonLinuxMaybeRunSandboxHelperReturns(t *testing.T) {
 	if err := MaybeRunSandboxHelper(); err != nil {
 		t.Fatalf("the non-linux helper gate reported %v; nil is its only correct answer, and any error "+
-			"would make cmd/backstop/main.go exit 126 before parsing a single argument", err)
+			"would make cmd/backstop's run() return 126 before parsing a single argument", err)
 	}
 }

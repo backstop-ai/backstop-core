@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
@@ -18,38 +20,66 @@ import (
 // sees it should read a broken sandbox, not a failed check.
 const sandboxHelperExitCode = 126
 
-func main() {
-	// FIRST STATEMENT, before NewRootCommand and before Cobra sees argv.
+// main is deliberately ONE statement. Everything it used to do lives in run,
+// which returns a code instead of calling os.Exit and is therefore reachable
+// from a test — including the sandbox helper gate's error handling, which was
+// unreachable by construction while it sat here.
+func main() { os.Exit(run(os.Stdout, os.Stderr)) }
+
+// run is main's body with the process exit removed: it returns the code main
+// exits with. It supplies the REAL dependencies to runWith, which is the seam
+// tests drive.
+//
+// The split is what makes both halves honest. run proves the production wiring —
+// the real helper gate, the real command tree — while runWith proves the
+// behavior against injected doubles, including the one failure mode the real
+// gate cannot be made to produce on demand.
+func run(stdout, stderr io.Writer) int {
+	return runWith(stdout, stderr, packval.MaybeRunSandboxHelper, NewRootCommand)
+}
+
+// runWith carries main's logic with the helper gate and the command-tree
+// constructor injected.
+//
+// They are PARAMETERS rather than package-level function variables on purpose:
+// a `var sandboxGate = packval.MaybeRunSandboxHelper` is package-level mutable
+// state (go.core.no-global-mutable-state), and the rule's own remedy is the
+// dependency injection used here.
+func runWith(stdout, stderr io.Writer, sandboxGate func() error, newRoot func() *cobra.Command) int {
+	// FIRST STATEMENT, before the command tree is built and before Cobra sees argv.
 	//
 	// The Linux sandbox is a re-exec trampoline: SandboxedRun spawns /proc/self/exe
 	// — this binary — in a hidden helper mode that restricts ITSELF with Landlock and
 	// seccomp and then execs the pack's command. The helper gate therefore has to run
 	// before any argument parsing, because the helper is invoked with no arguments and
-	// keys only on an environment variable.
+	// keys only on an environment variable. Anything that constructs or executes the
+	// command tree first is already wrong, which is why the ordering has its own test
+	// rather than resting on this comment.
 	//
 	// When this process is not a helper the call returns nil immediately and does
 	// nothing. When it IS one, a successful call never returns — the helper execs the
 	// pack's command. A non-nil error means this process IS a helper and the sandbox
-	// could NOT be installed, so main() owns the exit: falling through would run
+	// could NOT be installed, so the process exits 126: falling through would run
 	// pack-supplied code unsandboxed, which is the defect ISSUE-020 exists to fix.
 	//
-	// Removing these lines does not fail any test in cmd/backstop — it makes the
-	// SHIPPED BINARY sandbox nothing, silently. Its test-side twin is
-	// packval.MaybeRunSandboxHelper() in pkg/packval's TestMain.
-	if err := packval.MaybeRunSandboxHelper(); err != nil {
-		writeDiagnostic(os.Stderr, err.Error())
-		os.Exit(sandboxHelperExitCode)
+	// Removing these lines does not fail any test in cmd/backstop that asserts on a
+	// command's behavior — it makes the SHIPPED BINARY sandbox nothing, silently. Its
+	// test-side twin is packval.MaybeRunSandboxHelper() in pkg/packval's TestMain.
+	if err := sandboxGate(); err != nil {
+		writeDiagnostic(stderr, err.Error())
+		return sandboxHelperExitCode
 	}
 
-	rootCmd := NewRootCommand()
+	rootCmd := newRoot()
 	// Cobra's cmd.Print/Println default to stderr when SetOut is never
 	// called. Route success output to stdout so JSON consumers (the
 	// runtime, scripts) see what they expect on stdout.
-	rootCmd.SetOut(os.Stdout)
-	rootCmd.SetErr(os.Stderr)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(reportError(os.Stderr, err))
+		return reportError(stderr, err)
 	}
+	return 0
 }
 
 // reportError renders a failed command's diagnostic to w and returns the process exit
