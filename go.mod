@@ -7,6 +7,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
+	golang.org/x/sys v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -183,7 +184,6 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20250210185358-939b2ce775ac // indirect
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect

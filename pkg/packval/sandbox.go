@@ -2,7 +2,6 @@ package packval
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -73,9 +72,9 @@ func SandboxedRun(cmd string, args []string, packDir string) ([]byte, error) {
 		}
 		return out, nil
 	case "linux":
-		return nil, errors.New("sandbox unavailable on linux in this build")
+		return linuxSandboxedRun(cmd, args, packDir)
 	default:
-		return nil, errors.New("sandbox unsupported platform")
+		return nil, sandboxPlatformSupported(runtime.GOOS)
 	}
 }
 
@@ -109,8 +108,8 @@ func SandboxedRunStdout(cmd string, args []string, packDir string, stdin []byte)
 		}
 		return stdout.Bytes(), nil
 	case "linux":
-		return nil, errors.New("sandbox unavailable on linux in this build")
+		return linuxSandboxedRunStdout(cmd, args, packDir, stdin)
 	default:
-		return nil, errors.New("sandbox unsupported platform")
+		return nil, sandboxPlatformSupported(runtime.GOOS)
 	}
 }
