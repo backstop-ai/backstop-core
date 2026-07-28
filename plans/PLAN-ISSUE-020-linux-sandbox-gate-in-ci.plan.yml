@@ -236,6 +236,104 @@ notes: |
   receives, and Phase 4b is what makes the promise true at the boundary where it
   was broken. TASK-019 then RE-RUNS; it is not a one-shot task.
 
+  ── PR #1 RAN (run 30383453888): RED, LEGIBLE, AND TWO CLAIMS CLOSED ───────
+  The first pull_request-event run, and the first time a sandbox failure arrived
+  carrying its own reason.
+
+  CLOSED BY THIS RUN:
+    - CLM-019's PULL_REQUEST half. `base.sha` derived, merge-base exact, 6 files in
+      scope — non-empty, through the SAME code path the push event uses. Both
+      halves of CLM-019 are now proven on real runs.
+    - CLM-038 and CLM-039, IN PRODUCTION rather than in a unit test. The fold
+      carried the helper's diagnostic through a real failure, verbatim:
+        "install the sandbox restrictions:
+         landlock_add_rule(/etc/ld.so.cache, 0xc): invalid argument"
+      That string is the entire value of Phase 4b. The previous run failed the same
+      way and said nothing.
+
+  THE DEFECT IT EXPOSED — A DIRECTORY-ONLY RIGHT ON A REGULAR FILE:
+    `landlockReadRights()` (`sandbox_capability.go:219-221`) returns
+    `AccessFSReadFile | AccessFSReadDir` — 0xc — UNIFORMLY for every readable path.
+    `sandbox_linux.go:190-212` applies that mask per path. `/etc/ld.so.cache`
+    (`sandbox_capability.go:134`) is a REGULAR FILE, and the kernel rejects a
+    `path_beneath` rule carrying a DIRECTORY-ONLY right on a non-directory: EINVAL,
+    helper refuses, exit 126. Landlock itself is fine — ABI 7, live, working
+    exactly as documented.
+
+    SCOPE OF THE NARROWING, answered from source rather than assumed. READ_DIR is
+    the only directory-only right that can reach a rule TODAY — and only BY
+    ACCIDENT OF DARWIN PARITY, because the writable-path list is empty BY MANDATE
+    (an empty writable set is the parity requirement, not a design margin). The
+    family has TEN members: READ_DIR plus the nine directory-only bits in
+    `landlockWriteRights()` (`sandbox_capability.go:209-214`) — REMOVE_DIR,
+    REMOVE_FILE, MAKE_CHAR, MAKE_DIR, MAKE_REG, MAKE_SOCK, MAKE_FIFO, MAKE_BLOCK,
+    MAKE_SYM — with only WRITE_FILE applying to a file. Every one would EINVAL
+    identically the day anything grants a writable path, and there are two named
+    routes to that day: a future capability, and BUNDLE-021 OQ-2's scratch-space
+    question. So the fix narrows by the DIRECTORY-ONLY FAMILY, never by
+    special-casing READ_DIR. Same code size; one leaves a latent trap armed.
+
+    AND THE FIX DOES NOT BELONG IN THE HANDLED MASK. The kernel's validation is on
+    a `path_beneath` rule's `allowed_access` against the INODE TYPE — the
+    `handled_access_fs` mask is not subject to that check at all. Narrowing the
+    handled mask would therefore fix nothing and would silently un-restrict those
+    operations everywhere.
+
+  STATED FACT, SO NOBODY "FIXES" IT: RULE INSTALL IS ALL-OR-NOTHING. One rejected
+  `landlock_add_rule` aborts the whole install (`sandbox_linux.go` returns on the
+  first non-zero errno), the helper refuses, and nothing runs. It does NOT degrade
+  into a partial sandbox. That is FAIL-CLOSED AND CORRECT — a partial install is a
+  sandbox with an unannounced hole, which is strictly worse than no sandbox because
+  it reports success. One bad path taking the whole install down is the behavior we
+  want, and it is recorded here because it reads like a robustness bug to anyone
+  meeting it cold. Do not "harden" it into skip-the-bad-rule-and-continue.
+
+  ── THE PATTERN BOTH LANE BUGS SHARE (record it; it will recur) ────────────
+  Named precisely by the implementer, and worth more than either bug: BOTH were
+  CORRECT IN THE ABSTRACT AND WRONG AGAINST A REAL HOST.
+
+    the stderr discard — the fold logic was right; the parent never captured what
+      the helper wrote.
+    this one — the derived mask is right AS A SPEC; it is wrong against the INODE
+      it gets applied to.
+
+  Pure-derivation tests assert the SPEC. Both defects live in the relationship
+  between the spec and something only a real filesystem or a real process boundary
+  can tell you. A green derivation suite says the plan is coherent; it does not say
+  the sandbox installs. THIS PLAN HAS NOW BEEN FOOLED BY THAT TWICE, so the
+  falsifier requirement is doubled for anything in this class: a PORTABLE UNIT
+  falsifier on the pure part, AND a runner re-run as the only real proof. Neither
+  substitutes for the other, and a green local suite is never to be reported as
+  evidence that the sandbox works.
+
+  This is not an argument against pure-derivation tests — they are why the mask
+  logic is reviewable at all, and they caught real errors in TASK-011. It is an
+  argument against reading them as more than they are.
+
+  ── TWO RATIFIED UNMANDATED ADDITIONS FROM PHASE 4b ────────────────────────
+  Both kept, both beyond what TASK-025/026 mandated:
+    - an AST WIRING GUARD, proven control-vs-treatment in a detached worktree
+      rather than asserted: the test was shown to FAIL against a deliberately
+      unwired tree and PASS against the real one. That is the difference between a
+      guard and a comment.
+    - a TRUNCATION-TAIL test, which caught a MID-RUNE TRIM BUG BEFORE IT SHIPPED —
+      truncating the folded stderr by bytes could slice a multi-byte character in
+      half and corrupt the diagnostic the truncation exists to preserve. Exactly
+      the kind of defect that would have surfaced as an unreadable error message on
+      a runner, months later.
+
+  ── OPEN OBSERVATION, NOT DIAGNOSED: 6 FILES IN SCOPE vs 5 TRACKED ─────────
+  PR #1's gate counted SIX in-scope files; the tracked diff was FIVE. Suspected
+  cause is a runner-step-created untracked file entering scope (diff mode includes
+  untracked by design, ISSUE-004). NOT CONFIRMED — no one has looked at the sixth
+  path. The next run's JSON scope output settles it in one read.
+
+  BANKED DELIBERATELY so it cannot silently normalize. A one-file discrepancy in a
+  scope computation is exactly the shape of thing that gets rationalized on sight
+  and turns out to matter: if CI creates a file that lands in scope, every run
+  gates a file the author never wrote. Do not close this by deciding it is probably
+  fine.
+
   ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
   Re-confirmed 2026-07-28: `./bin/backstop code check` errors with
   `unknown command "code" for "backstop"`. The shipped top-level commands are
@@ -1347,6 +1445,31 @@ notes: |
                each platform compiles and measures only code it can execute. The
                runtime `switch runtime.GOOS` is gone, and with it the reason
                `sandbox_nonlinux.go` existed as a stub-symbol shim.
+    REQ-009: Landlock rules match the file type of the path they name.
+      CLM-040  every `path_beneath` rule carries only rights VALID FOR ITS PATH'S
+               TYPE: for a non-directory, the whole DIRECTORY-ONLY class is dropped
+               (READ_DIR today; REMOVE_*, MAKE_* and REFER the moment anything
+               grants write on a file), leaving the file-applicable rights. The
+               kernel rejects a directory-only right on a regular file with EINVAL,
+               which is a helper refusal and exit 126 — so this is a
+               does-the-sandbox-install-at-all property, not a hardening detail.
+               Narrowing the CLASS rather than the observed bit is the claim:
+               fixing only READ_DIR re-arms the identical trap for the first
+               writable file path.
+      CLM-041  the narrowing is proven THREE ways, and none substitutes for
+               another: a PORTABLE unit falsifier over the pure
+               `narrowRuleToInodeType(mask, isDir)` function, driven across the REAL
+               MIXED readable list (which contains both a regular file and a
+               directory by design) rather than one path; an AST WIRING GUARD,
+               because the apply site is linux-tagged and no darwin test ever
+               executes it, so a correct-but-uncalled function would otherwise pass
+               everything; AND a runner re-run as the only real evidence the sandbox
+               installs. No green derivation suite may be
+               reported as evidence that the sandbox works — this plan has been
+               fooled by exactly that reading twice (the discarded stderr, and this
+               mask-vs-inode defect), both of which were correct in the abstract and
+               wrong against a real host.
+
     REQ-008: A sandbox failure reaches the caller, on every arm.
       CLM-038  `platformSandboxedRunStdout` captures the helper's stderr into a
                SEPARATE buffer and folds it into the RETURNED ERROR on a non-zero
@@ -3152,6 +3275,192 @@ phases:
         depends_on:
           - TASK-026
 
+  - id: phase-4c
+    name: "Phase 4c: Narrow Landlock rights to each path's file type"
+    tasks:
+      - id: TASK-028
+        type: test
+        title: "Portable falsifier for file-type right narrowing"
+        description: |
+          Read the "PR #1 RAN" and "THE PATTERN BOTH LANE BUGS SHARE" notes blocks
+          first. This is the second defect in this lane that was correct as a spec
+          and wrong against a real host, and the test design is what stops it being
+          the third.
+
+          THE SPLIT THAT MAKES THIS TESTABLE ON DARWIN: the narrowing is a PURE
+          FUNCTION of (rights mask, isDir) -> rights mask. The `stat` that supplies
+          `isDir` is the part no darwin test can meaningfully drive; the mask
+          arithmetic is the part that carries the bug. Separate them and the bug
+          becomes portable to test — the same move Phase 4b made with the stderr
+          fold, for the same reason.
+
+          THE FUNCTION IS `narrowRuleToInodeType(mask uint64, isDir bool) uint64`,
+          and it carries the WHOLE POLICY: a directory keeps the mask intact; a
+          regular file loses every directory-only bit and keeps every
+          file-applicable one. Because the policy lives in the function rather than
+          at the call site, the table below IS the specification.
+
+          In a new `pkg/packval/sandbox_rights_test.go` (NO build tag):
+
+          `TestNarrowRuleToInodeType_DropsDirectoryOnlyRightsOnFile` — the
+          regression lock, written against the measured failure. Given the read mask
+          `AccessFSReadFile|AccessFSReadDir` (0xc, the exact value in the
+          run-30383453888 diagnostic) and `isDir=false`, the result keeps READ_FILE
+          and drops READ_DIR. Cite the diagnostic in a comment so the next reader
+          meets the evidence, not a rule.
+
+          `TestNarrowRuleToInodeType_KeepsEverythingOnDirectory` — `isDir=true`
+          returns the mask UNCHANGED. Without this the function could satisfy the
+          previous test by dropping READ_DIR everywhere, which would silently
+          un-restrict directory reads.
+
+          `TestNarrowRuleToInodeType_DropsTheWholeDirectoryOnlyClass` — the
+          forward-safety assertion, and the reason this task exists rather than a
+          one-bit patch. Feed a mask containing the write family — REMOVE_DIR,
+          REMOVE_FILE, MAKE_CHAR, MAKE_DIR, MAKE_REG, MAKE_SOCK, MAKE_FIFO,
+          MAKE_BLOCK, MAKE_SYM (`sandbox_capability.go:209-214`) — with
+          `isDir=false`, and assert every one is dropped while WRITE_FILE survives.
+          None of these is granted today (the writable set is empty), which is
+          exactly why a test is the only thing that will keep the handling correct
+          until the day one is.
+
+          `TestNarrowRuleToInodeType_FileApplicableRightsSurvive` — EXECUTE,
+          WRITE_FILE, READ_FILE, TRUNCATE and IOCTL_DEV pass through on a
+          non-directory. A narrowing that is too aggressive breaks the interpreter
+          just as thoroughly as one that is too lax, and it fails in the same
+          confusing place.
+
+          `TestNarrowRuleToInodeType_OverTheRealMixedReadableSet` — run the
+          narrowing over THE WHOLE DECLARED READABLE LIST, not one path. The list
+          mixes kinds BY DESIGN — `/etc/ld.so.cache` is a regular FILE and
+          `/etc/ld.so.conf.d` is a DIRECTORY, adjacent lines at
+          `sandbox_capability.go:134-135` — and a single-path test would have
+          happily passed against whichever kind its author picked. Drive the real
+          `ConvertValidatorCapability` list with a table of per-path `isDir` values
+          and assert the resulting mask for EACH. The defect was a mixed-list
+          defect; the falsifier has to be a mixed-list falsifier.
+
+          `TestSandboxLinuxApplySite_CallsNarrowRuleToInodeType` — THE WIRING GUARD,
+          and it is not optional. The apply site is inside `//go:build linux` code,
+          so NO DARWIN TEST EVER EXECUTES THAT LINE: the pure function above could
+          be perfectly correct and simply never called, and every test in this file
+          would still pass. Use the AST-guard pattern ratified in Phase 4b — parse
+          `sandbox_linux.go` and assert the rule-application path calls
+          `narrowRuleToInodeType` — and prove it control-vs-treatment in a detached
+          worktree the same way, showing it FAILS against a deliberately unwired
+          tree. A wiring guard nobody has seen fail is a comment.
+
+          `TestConvertValidatorCapability_ReadableSetContainsRegularFiles` — the
+          test that would have PREDICTED this defect. Assert that the declared
+          readable set contains at least one path that is a regular file rather than
+          a directory (`/etc/ld.so.cache` today), so the mixed-type property is
+          pinned as intentional rather than incidental. If someone later removes
+          every file path, this test tells them the narrowing is no longer exercised
+          by the default capability.
+
+          A GREEN RUN OF THIS FILE IS NOT EVIDENCE THE SANDBOX INSTALLS (CLM-041).
+          Say so in the file header.
+        files:
+          - pkg/packval/sandbox_rights_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-027
+
+      - id: TASK-029
+        type: implementation
+        title: "Apply file-type narrowing at the rule-application seam"
+        description: |
+          Turn TASK-028 green.
+
+          Add `narrowRuleToInodeType(mask uint64, isDir bool) uint64` to
+          `pkg/packval/sandbox_capability.go` (untagged, beside the rights helpers it
+          complements). It carries the WHOLE POLICY: a directory keeps the mask; a
+          regular file loses every directory-only bit and keeps every
+          file-applicable one. Define the directory-only class as a named constant
+          next to `landlockReadRights`/`landlockWriteRights` — READ_DIR, REMOVE_DIR,
+          REMOVE_FILE, the MAKE_* family, and REFER where the ABI has it — rather
+          than open-coding a bitmask at the call site, so the next person adding a
+          right has exactly one place to classify it.
+
+          DERIVATION STAYS PURE. The capability -> restriction-spec derivation
+          remains a pure function of the capability struct, with no filesystem
+          access anywhere in it. That is CLM-012's testability property, and it is
+          the reason the narrowing takes `isDir` as a PARAMETER instead of stat-ing
+          internally: a derivation that touches the filesystem stops being testable
+          off-Linux, which is the property that made this defect catchable at all.
+
+          WHERE THE STAT LIVES, and why here: `sandbox_linux.go:190-212` already
+          opens each path with `unix.Open(rule.Path, unix.O_PATH|unix.O_CLOEXEC)`
+          before adding the rule. Use `unix.Fstat` on THAT descriptor and pass the
+          result into the narrowing. Two reasons this seam beats stat-ing during
+          derivation: derivation must stay portable and pure (it is what TASK-028
+          tests on darwin, and a stat there would make the whole capability
+          untestable off-Linux), and fstat-ing the descriptor you are about to
+          register is race-free — a separate `stat` by path could describe a
+          different inode than the one the rule binds.
+
+          Keep the existing behavior around it intact: the `Required` flag still
+          governs whether a missing path is fatal, and an optional path that does
+          not exist on this distro is still skipped rather than failed. If the
+          `Fstat` itself fails on an fd that opened successfully, treat it as fatal
+          for a required path — guessing the type would reintroduce the defect.
+
+          Leave the HANDLED mask alone. The kernel's validation is on a
+          `path_beneath` rule's `allowed_access` against the inode type; the
+          `handled_access_fs` mask is NOT subject to that check at all. So narrowing
+          it would fix nothing AND would silently un-restrict those operations
+          everywhere — the opposite of the fix, at no benefit.
+
+          THE WIRING IS PART OF THE DELIVERABLE. No darwin test executes the apply
+          site, so a correct-but-uncalled narrowing function is a passing test suite
+          and a broken sandbox. TASK-028's AST wiring guard is what catches that;
+          make sure it is green for the right reason, not because it matched a
+          comment.
+        files:
+          - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_linux.go
+        claims:
+          - CLM-040
+        depends_on:
+          - TASK-028
+
+      - id: TASK-030
+        type: verification
+        title: "Verify the narrowing locally, and state what local green does not prove"
+        description: |
+          Run and report true exit codes for:
+
+            go build ./...
+            GOOS=linux go build ./...
+            GOOS=linux go vet ./pkg/packval/
+            go test ./... -race -count=1
+            go test ./pkg/packval/ -race -count=1 -run 'Rights|Sandbox|Diagnostic' -v
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          Then confirm by reading `sandbox_linux.go` that the narrowing is driven by
+          an `Fstat` on the SAME descriptor the rule registers — not by a separate
+          path-based `stat`, and not by a filename heuristic.
+
+          All six darwin sandbox tests must still pass unmodified.
+
+          THE REPORT MUST STATE, IN THESE TERMS, THAT LOCAL GREEN DOES NOT PROVE THE
+          SANDBOX INSTALLS. Everything above runs on darwin, where no Landlock rule
+          is ever added. The proof is TASK-019's re-run and nothing else (CLM-041).
+          This paragraph exists because the previous two failures in this lane were
+          both preceded by a green local suite.
+        files:
+          - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_rights_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-029
+
   - id: phase-5
     name: "Phase 5: Close the acceptance criterion on a real Linux runner"
     tasks:
@@ -3237,11 +3546,30 @@ phases:
           A second red run whose cause is legible is progress; a green one bought by
           narrowing scope or weakening the sandbox is not.
 
-          AND CLOSE CLM-019's OTHER HALF WHILE YOU ARE HERE. Run 30381252600 was
-          push-only, so PR-event base derivation remains UNPROVEN. Open a pull
-          request from the work branch and capture the PR-event base and in-scope
-          file count. It is one PR and it converts half a proven claim into a whole
-          one.
+          CLM-019's OTHER HALF IS CLOSED — run 30383453888, PR #1: `base.sha`
+          derived, merge-base exact, 6 files in scope through the same code path as
+          the push event. Both halves proven.
+
+          ── SEQUENCING FROM HERE (ruled 2026-07-28) ───────────────────────────
+          The remaining runs are ordered, and each one closes something specific:
+
+            1. Phase 4c's fix lands on the SAME PR BRANCH -> PR RE-RUN.
+               Expected: the sandbox INSTALLS. If the chain then reaches
+               `test_verification`, the `TestLinuxSandbox_*` triple EXECUTES FOR THE
+               FIRST TIME ANYWHERE — and may itself surface new reality. Treat that
+               as the likely outcome rather than an upset: those assertions have
+               never run against a kernel, so their first execution is a
+               measurement, not a formality. Budget for it.
+            2. MERGE on green-or-ruled.
+            3. MAIN PUSH RUN closes CLM-028 and CLM-027, and CLM-029's CI half —
+               the `baseline` job is push-gated, so a PR run can never exercise it
+               no matter how green. That is the PR guard finding from run
+               30381252600, and it is why the push run is a separate, required step
+               rather than a formality after a green PR.
+
+          Also settle the banked 6-vs-5 scope-count observation on the re-run: read
+          the JSON scope output and name the sixth path. One read, and it either
+          confirms the untracked-file hypothesis or opens a real question.
         files:
           - .github/workflows/ci.yml
           - pkg/packval/sandbox.go
@@ -3256,6 +3584,7 @@ phases:
           - TASK-018
           - TASK-024
           - TASK-027
+          - TASK-030
 
       - id: TASK-020
         type: verification
