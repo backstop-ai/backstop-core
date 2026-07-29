@@ -50,6 +50,25 @@ func ParsePackFindings(out []byte) ([]Violation, error) {
 // sarifLog is the subset of a SARIF 2.1.0 log the sarif parser consumes.
 type sarifLog struct {
 	Runs []struct {
+		// Tool is the run's producing tool (SARIF §3.18). Only the driver's RULE
+		// DESCRIPTORS are consumed, and only for the severity each one declares
+		// (ISSUE-104): SARIF lets a producer state a rule's severity ONCE on the
+		// descriptor rather than repeating it on every result, and semgrep does
+		// exactly that — it emits `defaultConfiguration.level` here and NO `level`
+		// on the result at all. Reading only results[].level therefore saw "" for
+		// every semgrep finding, which the fail-closed default (correctly) read as
+		// error, so every declared-WARNING pack rule blocked. Additive: a log whose
+		// driver declares no rules unmarshals to an empty slice, never an error.
+		Tool struct {
+			Driver struct {
+				Rules []struct {
+					ID                   string `json:"id"`
+					DefaultConfiguration struct {
+						Level string `json:"level"`
+					} `json:"defaultConfiguration"`
+				} `json:"rules"`
+			} `json:"driver"`
+		} `json:"tool"`
 		Results []struct {
 			RuleID  string `json:"ruleId"`
 			Level   string `json:"level"`
@@ -97,8 +116,17 @@ type sarifLog struct {
 
 // parseSarif parses a SARIF log into violations: File from
 // locations[0].physicalLocation.artifactLocation.uri, Line from
-// region.startLine, Message from message.text, Rule from ruleId, Severity from
-// level (error/warning, default error when level absent).
+// region.startLine, Message from message.text, Rule from ruleId.
+//
+// Severity resolves a level from up to two places, in order (ISSUE-104):
+//  1. the result's own `level` (SARIF §3.27.10), which wins outright — a producer
+//     that states severity per result (golangci-lint v2) behaves exactly as before;
+//  2. else the producing rule's descriptor, tool.driver.rules[].defaultConfiguration
+//     .level, joined on ruleId. THE JOIN IS PER RUN, not per log: two runs may carry
+//     different rule sets, and a log-wide map would let one run's severity leak onto
+//     another run's finding;
+//  3. else "" — which sarifSeverity maps to error, unchanged. Only the set of places
+//     a level is looked for changed here; silence still reads as the strict answer.
 func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 	trimmed := bytes.TrimSpace(out)
 	if len(trimmed) == 0 {
@@ -110,11 +138,24 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 	}
 	var violations []Violation
 	for _, run := range log.Runs {
+		// Built ONCE PER RUN, before the results loop: this run's rule descriptors
+		// supply severities only to this run's results.
+		descriptorLevels := make(map[string]string, len(run.Tool.Driver.Rules))
+		for _, rule := range run.Tool.Driver.Rules {
+			descriptorLevels[rule.ID] = rule.DefaultConfiguration.Level
+		}
 		for _, r := range run.Results {
 			// A SARIF result carrying suppressions is inactive (ISSUE-017): skip it so
 			// an inline-justified `// nosemgrep` finding is not counted as a violation.
 			if len(r.Suppressions) > 0 {
 				continue
+			}
+			// The result's own level wins; the descriptor is consulted only when the
+			// result states nothing. A rule id absent from this run's descriptors
+			// yields "" and falls through to the fail-closed default.
+			level := r.Level
+			if level == "" {
+				level = descriptorLevels[r.RuleID]
 			}
 			file, line, snippet := "", 0, ""
 			if len(r.Locations) > 0 {
@@ -128,7 +169,7 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 				File:        file,
 				Line:        line,
 				Message:     r.Message.Text,
-				Severity:    sarifSeverity(r.Level),
+				Severity:    sarifSeverity(level),
 				Rule:        r.RuleID,
 				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet),
 				Properties:  r.Properties,

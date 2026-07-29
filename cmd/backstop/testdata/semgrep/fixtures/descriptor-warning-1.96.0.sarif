@@ -1,0 +1,74 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": []
+        }
+      ],
+      "results": [
+        {
+          "fingerprints": {
+            "matchBasedId/v1": "0e53d37bb676c445844eda79549687452ff185f59b195af76c914d6fd6a14b309f08a7a558c63276f81e4856fb297d0bdffc4423cb61548b34e128a5acec585b_0"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "capture/sample.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "endColumn": 15,
+                  "endLine": 7,
+                  "snippet": {
+                    "text": "\tpanic(\"boom\")"
+                  },
+                  "startColumn": 2,
+                  "startLine": 7
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "the pack has something to say"
+          },
+          "properties": {},
+          "ruleId": "capture.capture-sample-panic"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "the pack has something to say"
+              },
+              "help": {
+                "markdown": "the pack has something to say",
+                "text": "the pack has something to say"
+              },
+              "id": "capture.capture-sample-panic",
+              "name": "capture.capture-sample-panic",
+              "properties": {
+                "precision": "very-high",
+                "tags": []
+              },
+              "shortDescription": {
+                "text": "Semgrep Finding: capture.capture-sample-panic"
+              }
+            }
+          ],
+          "semanticVersion": "1.96.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

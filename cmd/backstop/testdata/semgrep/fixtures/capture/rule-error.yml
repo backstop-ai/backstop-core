@@ -1,0 +1,6 @@
+rules:
+  - id: capture-sample-panic
+    languages: [go]
+    severity: ERROR
+    message: the pack has something to say
+    pattern: panic("boom")

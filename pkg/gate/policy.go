@@ -66,6 +66,14 @@ type DimensionPolicy struct {
 // "warning" — including an ABSENT one — to error. Silence is therefore read as the
 // STRICT answer: a pack cannot disable enforcement by declaring nothing.
 //
+// WHERE THE DECLARED SEVERITY IS READ FROM. pkg/check/parsers.go parseSarif resolves a
+// level from the result's own `level` first, else from the PRODUCING RULE'S DESCRIPTOR
+// (tool.driver.rules[].defaultConfiguration.level, joined on ruleId and scoped per
+// run), else the fail-closed error above. Both places matter to a pack author: semgrep
+// declares severity ONLY on the descriptor and emits no result-level `level` at all,
+// so a parser reading one place blocked every declared-WARNING semgrep rule while this
+// contract said otherwise (ISSUE-104).
+//
 // The mapping is locked end to end (SARIF level -> check.Violation.Severity ->
 // gate.Violation.Severity -> this verdict) by cmd/backstop/pack_severity_contract_test.go;
 // the policy layer alone is covered by policy_severity_test.go.
