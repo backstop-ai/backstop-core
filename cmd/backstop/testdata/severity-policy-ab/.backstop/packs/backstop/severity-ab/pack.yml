@@ -1,0 +1,30 @@
+name: backstop/severity-ab
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Committed fake-engine findings pack for the ISSUE-105 severity A/B probe. It
+  declares a project-wide findings engine whose command is a committed POSIX fake
+  (sh fake-engine.sh) that COPIES one of two CAPTURED real-semgrep SARIF files to
+  the declared stdout_artifact FILE — the severity lives on the RULE DESCRIPTOR,
+  with no result-level level, exactly as semgrep emits it. SEVERITY_AB_LEVEL
+  selects warning or error. The consumer project deliberately declares NO
+  enforcement.policy, which is the population ISSUE-105 is about. The declared
+  rule id exists to BIND THE ENGINE: the captured bytes report the dotted semgrep
+  id capture.capture-sample-panic, which is illegal as a DECLARED id and is
+  namespaced straight from the SARIF without any cross-check against this ruleset.
+engines:
+  fake-engine:
+    command: sh fake-engine.sh
+    stdout_artifact: findings.sarif
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: capture-sample-panic
+        engine: fake-engine
+        risk_class: correctness

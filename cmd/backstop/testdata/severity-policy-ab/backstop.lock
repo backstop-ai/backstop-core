@@ -1,0 +1,6 @@
+packs:
+  backstop/severity-ab:
+    name: backstop/severity-ab
+    version: 1.0.0
+    source_type: local
+    install_date: "2026-07-29T00:00:00Z"

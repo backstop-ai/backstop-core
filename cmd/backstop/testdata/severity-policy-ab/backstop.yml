@@ -1,0 +1,3 @@
+project: severity-policy-ab-fixture
+packs:
+  backstop/severity-ab: local
