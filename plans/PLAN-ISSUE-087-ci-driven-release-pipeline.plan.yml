@@ -25,14 +25,42 @@ notes: |
   deferral was worth what it cost: the plan spent a month unable to claim a proof
   it did not have, and the claim it makes now is a fact rather than a design.
 
-  ⚠ WHAT IS STILL NOT PROVEN — THE CONSUMER INSTALL LEGS. `brew install` and
-  `go install` remain PENDING the public visibility flip, which is founder-held.
-  What is proven is FORMULA PUBLICATION: the tap received the formula. What is not
-  proven is that a stranger can run the install and get a working binary, because
-  nobody outside can reach the repository yet. Install proof gets APPENDED
-  POST-FLIP; until then this plan claims publication, not installability, and any
-  citation should say so. A formula nobody can install is a promise, not a
-  delivery.
+  ── THE CONSUMER INSTALL LEGS: PROVEN 2026-07-29. NO RESIDUAL. ─────────────
+  The completion record above closed with one honest gap — publication proven,
+  INSTALLABILITY not — because `brew install` and `go install` could not be
+  exercised while the repositories were private. The visibility flip happened.
+  `backstop-core` and `homebrew-tap` are PUBLIC, and both legs ran on a REAL
+  CONSUMER MACHINE:
+
+    brew install backstop-ai/tap/backstop
+      -> Cellar 0.1.0; the binary reports "backstop version 0.1.0", correctly
+         ldflags-stamped (so CLM-005 and CLM-009 hold through the packaged path,
+         not just the local build)
+    go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.1.0
+      -> "backstop version v0.1.0", served through the PUBLIC module proxy
+
+  INDEPENDENTLY CORROBORATED while recording this: the public Go module proxy
+  serves `v0.1.0` for `github.com/backstop-ai/backstop-core`, published
+  2026-07-28T22:18:44Z against the public GitHub URL. The proxy only serves public
+  modules, so its answer is third-party evidence of the visibility flip and of the
+  `go install` leg, independent of the machine that ran the install.
+
+  TASK-014 IS NOW CLOSED IN FULL. The chain is proven end to end, from tag to a
+  stranger's terminal, and the plan claims INSTALLABILITY rather than publication.
+  The gap is left on the record rather than deleted: it was real for a day, and a
+  close-out that erases its own caveats teaches nobody anything.
+
+  TWO OBSERVATIONS WORTH KEEPING, so neither is later mistaken for a defect:
+    - the two paths report version strings differently — "0.1.0" from the Homebrew
+      build, "v0.1.0" from the module path. That is the packaging convention of
+      each channel, not a stamping inconsistency; CLM-008's same-code-path
+      guarantee is about `version` vs `version --json` agreeing within a binary,
+      which it does. Do not "fix" one to match the other.
+    - a stale pre-existing `/usr/local/bin` dev binary briefly SHADOWED the brew
+      link during the install check. MACHINE HYGIENE, NOT PRODUCT — recorded
+      because a shadowed binary presents exactly like a broken install, and the
+      next person to hit it should reach for `which -a backstop` before filing
+      anything.
 
   CLM-012'S CARVE-OUT PROVED CORRECT IN PRODUCTION. The founder ruling of
   2026-07-28 kept `brews:` rather than migrating to `homebrew_casks` to make
