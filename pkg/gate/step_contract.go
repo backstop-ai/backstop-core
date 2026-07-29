@@ -59,10 +59,7 @@ func StepContractSignatureScopedFunc(results []ContractEngineResult, scope *Gate
 			}
 		}
 
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
+		status := StepVerdict(violations)
 		if violations == nil {
 			violations = []Violation{}
 		}

@@ -54,10 +54,7 @@ func StepArtifactValidationScopedFunc(validator ArtifactValidator, scope *GateSc
 		}
 
 		violations = filterViolations(scope, violations)
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
+		status := StepVerdict(violations)
 		if violations == nil {
 			violations = []Violation{}
 		}
@@ -102,10 +99,7 @@ func StepCodeCheckScopedFunc(checker CodeChecker, scope *GateScope) StepFunc {
 		}
 
 		violations = filterViolations(scope, violations)
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
+		status := StepVerdict(violations)
 		if violations == nil {
 			violations = []Violation{}
 		}

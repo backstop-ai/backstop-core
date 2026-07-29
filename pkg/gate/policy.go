@@ -94,6 +94,44 @@ func blockingViolations(violations []Violation) []Violation {
 	return blocking
 }
 
+// StepVerdict returns the status a step reports for the findings it produced:
+//
+//	"fail"    — at least one entry BLOCKS (blocksVerdict: any severity but "warning")
+//	"warning" — entries exist, none of them block (loud, non-blocking)
+//	"pass"    — no entries at all
+//
+// WHY WARNING-ONLY IS NOT "pass". Reporting "pass" would make a surfaced non-blocking
+// finding indistinguishable from a clean run: it would stop incrementing
+// GateResult.StepsWarned, vanish from the human summary line, and turn "loud,
+// non-blocking" into "silent" — the inverse defect, and no better than blocking one.
+// "warning" is already a first-class non-failing status (NewGateResult counts it and
+// does NOT flip Pass), so the tri-state is existing vocabulary, not a new one.
+//
+// THIS IS THE STEP-LEVEL DEFAULT VERDICT. The step is the FIRST and DEFAULT authority on
+// its own verdict; ApplyPolicy may later re-scope it (baseline grandfathering, per-source
+// overrides) or relax it (warn/off), but a consumer who has declared no policy at all
+// still gets a severity-aware answer. That is the whole point: the pack severity contract
+// documented on blocksVerdict belongs to the FINDING, not to adopter configuration.
+//
+// It is implemented OVER blockingViolations deliberately — there is exactly ONE severity
+// predicate in this codebase and this is a thin wrapper over it, never a second spelling.
+// It also mirrors ApplyPolicy's block path EXACTLY (warning when counted findings exist,
+// fail when blocking ones do), which is what makes re-derivation IDEMPOTENT for
+// level:block + applies-to:all-code: a policied and an unpoliced consumer reach the same
+// answer by construction. TestPolicy_BlockAllCodeAgreesWithStepVerdict locks that.
+//
+// It NEVER filters what is REPORTED. Callers pass their full violation slice and keep it
+// on the StepResult; only the verdict is severity-aware.
+func StepVerdict(violations []Violation) string {
+	if len(violations) == 0 {
+		return "pass"
+	}
+	if len(blockingViolations(violations)) > 0 {
+		return "fail"
+	}
+	return "warning"
+}
+
 // policyMetaStep reports whether a step is a meta/deferred step that the policy table
 // never targets (its status is bookkeeping, not a dimension a consumer enforces).
 func policyMetaStep(name string) bool {
@@ -113,6 +151,23 @@ func policyMetaStep(name string) bool {
 // left unchanged, so the feature is opt-in and backward compatible. When any policy is
 // configured the aggregate baseline_comparison step is neutralized — per-dimension
 // applies-to supersedes it.
+//
+// THE NO-ENTRY PASSTHROUGH IS CORRECT, NOT MERELY HARMLESS (ISSUE-105). It used to
+// preserve a severity-BLIND verdict, because the step builders decided by raw violation
+// count: without an entry here, a finding a pack had declared non-blocking still failed
+// the gate, and the ratified severity contract on blocksVerdict held only for consumers
+// who happened to have configured that dimension. The step builders now reach their
+// verdict through StepVerdict, so what this branch leaves unchanged is already a
+// severity-aware default and the passthrough preserves a correct answer rather than a
+// blind one.
+//
+// THIS LAYER IS AN OVERRIDE, NOT THE SOURCE OF THE DEFAULT. It re-scopes (baseline
+// grandfathering, per-source overrides) and RELAXES (warn/off) a verdict the step already
+// reached. It re-derives from s.Violations — the FULL, severity-blind REPORTED set — so
+// there is no pre-filtered slice for it to filter a second time and no double-filtering
+// is possible. Because its block path and StepVerdict call the SAME blocksVerdict
+// predicate under the SAME tri-state mapping, re-derivation for level:block +
+// applies-to:all-code is IDEMPOTENT with the step's own verdict.
 //
 // Config errors and capability-absent skips are preserved untouched: policy sets how
 // strictly real findings gate, it never masks a config error or fabricates a capability.

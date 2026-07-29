@@ -96,6 +96,69 @@ func TestApplyPolicy_MixedSeveritiesFailAndKeepTheWarning(t *testing.T) {
 	}
 }
 
+// TestPolicy_BlockAllCodeAgreesWithStepVerdict is the unit-level twin of the ISSUE-105
+// A/B probe, and the proof that the layering argument is real rather than asserted
+// (CLM-005).
+//
+// THE LAYERING, STATED SO IT CAN BE CHECKED. The STEP is the first and DEFAULT authority
+// on its own verdict; after ISSUE-105 it decides severity-aware, so a step with NO policy
+// entry is already right and ApplyPolicy's no-entry passthrough preserves a CORRECT
+// default rather than a severity-blind one. The POLICY LAYER is an OVERRIDE that re-scopes
+// (baseline grandfathering, per-source overrides) and RELAXES (warn/off) a verdict the step
+// already reached; it recomputes from the FULL reported set, never a pre-filtered one, so
+// it cannot double-filter.
+//
+// The invariant that makes both true at once: StepVerdict and ApplyPolicy's block path call
+// the SAME blocksVerdict predicate and apply the SAME tri-state mapping, so for
+// level:block + applies-to:all-code re-derivation is IDEMPOTENT. Same answer WITH the entry
+// and WITHOUT it — which is the defect, restated as a property. If this test fails, the two
+// severity semantics have drifted apart and "one authority" is no longer true.
+func TestPolicy_BlockAllCodeAgreesWithStepVerdict(t *testing.T) {
+	cases := []struct {
+		name       string
+		violations []Violation
+		want       string
+	}{
+		{"warning-only", []Violation{warningViolation("notice")}, "warning"},
+		{"error-only", []Violation{errorViolation("defect")}, "fail"},
+		{"mixed", []Violation{warningViolation("notice"), errorViolation("defect")}, "fail"},
+		{"none", []Violation{}, "pass"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The step decides FIRST, on its own, exactly as the converted sites now do.
+			step := StepResult{
+				StepName:   StepCoverageThreshold,
+				Status:     StepVerdict(tc.violations),
+				Violations: tc.violations,
+			}
+			if step.Status != tc.want {
+				t.Fatalf("StepVerdict returned %q, want %q", step.Status, tc.want)
+			}
+
+			// WITH the strictest entry a consumer can declare.
+			policy := map[string]DimensionPolicy{
+				StepCoverageThreshold: {Level: PolicyBlock, AppliesTo: AppliesToAllCode},
+			}
+			policied := ApplyPolicy([]StepResult{step}, nil, policy, &GateScope{Mode: GateScopeModeAll})
+			if policied[0].Status != tc.want {
+				t.Errorf("ApplyPolicy(level:block, applies-to:all-code) rewrote a severity-aware step "+
+					"verdict from %q to %q; the two paths must reach the same answer by construction",
+					tc.want, policied[0].Status)
+			}
+
+			// WITHOUT any entry — the passthrough. Same answer, which is the whole point.
+			unpoliced := ApplyPolicy([]StepResult{step}, nil, map[string]DimensionPolicy{}, &GateScope{Mode: GateScopeModeAll})
+			if unpoliced[0].Status != tc.want {
+				t.Errorf("a consumer with NO policy entry got %q where a policied consumer got %q; "+
+					"the severity contract belongs to the finding, not to adopter configuration",
+					unpoliced[0].Status, tc.want)
+			}
+		})
+	}
+}
+
 // TestApplyScopedPolicy_WarningOnlyStepSurvivesAsPass covers the SECOND verdict path.
 //
 // applyScopedPolicy is taken whenever a dimension carries per-pack Sources overrides —

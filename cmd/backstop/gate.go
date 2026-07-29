@@ -859,13 +859,9 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 		// filtered out here or they leak past diff-scope. ProjectWide (exempt, e.g.
 		// go-build) violations are structurally retained by the filter.
 		violations = activeScope.FilterViolations(violations)
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
 		return gate.StepResult{
 			StepName:   "pack_engines",
-			Status:     status,
+			Status:     gate.StepVerdict(violations),
 			Violations: violations,
 		}
 	}
