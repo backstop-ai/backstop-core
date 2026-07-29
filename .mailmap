@@ -1,0 +1,8 @@
+# Canonical author identity. Early history predates the branded email:
+# commits before 2026-06 carry machine-local addresses (git's user@hostname
+# fabrication where no user.email was configured), including two commits
+# from the 2026-06-11 Fable-experiment session's sandboxed execution
+# environment (BELLAIR-D3-T14). All are the same author.
+Brandon Manson <brandon@backstop.sh> <bmanson@Brandons-MacBook-Pro.local>
+Brandon Manson <brandon@backstop.sh> <bmanson@BELLAIR-D3-T14.localdomain>
+Brandon Manson <brandon@backstop.sh> <mansonbrandon@gmail.com>
