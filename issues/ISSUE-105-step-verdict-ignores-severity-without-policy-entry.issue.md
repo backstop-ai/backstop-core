@@ -6,16 +6,61 @@ issue:
   id: ISSUE-105
   title: "Step Verdict Ignores Severity Without Policy Entry"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-29"
+  closed: "2026-07-29"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-105
 ---
 
 # Step Verdict Ignores Severity Without Policy Entry
+
+## Resolution
+
+Delivered by PLAN-ISSUE-105 (status: completed), commit `d7d777c`. Exported `StepVerdict`
+(`pkg/gate/policy.go`, +55/-0 — `ApplyPolicy`'s existing logic left byte-untouched, per the
+passthrough-now-correct layering argument) and routed the four class-1 raw-count sites through it:
+`pack_engines` (`cmd/backstop/gate.go`), `artifact_validation` and `code_check`
+(`pkg/gate/step_delegate.go`), and `contract_signature` (`pkg/gate/step_contract.go`).
+`ConfigErr` branches were left untouched.
+
+**Three-stage red proof.** Compile-red (the helper didn't exist yet), then behavioral-red at the
+helper stage alone (before any call site was converted), then green only once the call sites were
+routed — with the inherited worktree's pre-existing failures proven to be the identical set before
+and after, so the fix's own effect could be isolated from ambient noise.
+
+**Blast radius: zero verdict flips on core.** Measured on backstop-core's own dogfood run and on a
+fixture consumer per the PLAN-ISSUE-020 precedent for this class of change. The fixture consumer
+supplies the one intended flip — no policy entry, `severity: warning` finding: step status
+`fail`/exit 1 becomes `warning`/exit 0, with the finding still reported (loud, non-blocking). No
+flip occurred that didn't fit that exact pattern.
+
+**`step_contract` reclassified class-3 in evidence**, not converted: its carrier type has no
+severity field, so there is nothing for a severity-aware helper to read. The mandated test instead
+asserts the true invariant — a carrier without severity cannot participate in the severity
+contract — guarded by a self-reporting premise check, closing that file's prior 0/13 coverage debt
+to 100%.
+
+**Completes the two-hop severity-contract chain with ISSUE-104.** Hop 1 (`a42b065`, ISSUE-104)
+made the resolved severity value correct at the SARIF parse. Hop 2 (`d7d777c`, this issue) makes
+the step verdict actually honor that value for every consumer, not only ones with a policy entry
+declared for the dimension.
+
+**Cross-lane acceptance met 2026-07-29.** The TASK-013 re-run against the stash consumer confirms
+the full chain: exit 0, exactly one non-blocking warning reported, and the error-direction control
+still blocks — proving hop 2 was necessary-but-insufficient alone (a prior re-run with only hop 1
+landed still failed) and that both hops together are what close the loop.
+
+**Residual family, named rather than swept.** "Warnings are non-blocking" is proven true today for
+`pack_engines` and the four converted class-1 sites — it is NOT yet a universal property of every
+step in the gate. Filed honestly as ISSUE-106/107/108 rather than implied by this closure.
+
+## Problem
 
 ## Problem
 

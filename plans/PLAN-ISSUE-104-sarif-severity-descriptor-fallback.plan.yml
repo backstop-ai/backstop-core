@@ -2,13 +2,79 @@
 plan_id: PLAN-ISSUE-104
 spec_id: ISSUE-104
 created: "2026-07-28"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/check/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-07-29. THE FIX SHIPPED IN a42b065. ═══════════════════════════
+  Every claim CLM-001..CLM-007 is met. The as-built matches the plan below with
+  ONE recipe correction, recorded under AS-BUILT DELTAS.
+
+  WHAT LANDED (a42b065, "fix(ISSUE-104): SARIF severity falls back to the rule
+  descriptor — warnings stop blocking") — 12 files, exactly the planned scope:
+    pkg/check/parsers.go        descriptor fallback, PER-RUN ruleId join, result-
+                                level precedence preserved, fail-closed floor
+                                untouched (`sarifSeverity` unmodified)
+    pkg/gate/policy.go          the CLM-006 resolution-order line on blocksVerdict
+    pkg/check/parsers_test.go   +259 lines, all four declared test names
+    cmd/backstop/pack_severity_contract_test.go   re-fixtured onto captured bytes
+    cmd/backstop/testdata/semgrep/fixtures/       the whole captured corpus
+
+  ── EVIDENCE, AS VERIFIED AT CLOSE ─────────────────────────────────────────
+  THE CONDITIONAL 1.96.0 CAPTURE WAS OBTAINED — it is not absent-by-design.
+  descriptor-warning-1.96.0.sarif carries `semanticVersion: 1.96.0`, exactly one
+  result, NO `level` key on that result, and `defaultConfiguration.level:
+  "warning"` on the descriptor: byte-shape identical to 1.156.0. The defect is
+  PROVEN not to be a version artifact, which is the question ISSUE-104 left open.
+  Its ruleId is `capture.capture-sample-panic` — namespaced by the RELATIVE
+  config path, so the portability requirement held and no home directory leaked
+  into the fixtures.
+
+  RED-PROOF, TWICE, BY TWO PARTIES. The implementer flipped it in a worktree and
+  the orchestrator ran an independent control-vs-treatment; both descriptor tests
+  were RED at HEAD before the fix. TASK-005 warned that a falsifier which never
+  went red is vacuous — this one went red twice, observed separately.
+
+  GATES: per-file gates cite zero violations on either production file (matching
+  the pre-verified clean baseline recorded under SHARP EDGES), and the full suite
+  is green. TASK-006's provenance verification is as committed: PROVENANCE.md
+  carries a sha256 per fixture and an entry per committed file.
+
+  ── AS-BUILT DELTAS (the plan was wrong about one thing) ───────────────────
+  THE 1.96.0 CAPTURE RECIPE BELOW IS INCOMPLETE AS WRITTEN. It says
+  `uv pip install ... semgrep==1.96.0 setuptools` — UNPINNED — which worked when
+  planning measured it on 2026-07-28 and FAILED a day later: unpinned setuptools
+  resolved to 83.0.0, which no longer ships `pkg_resources`, reproducing the exact
+  `ModuleNotFoundError` that defeated the uvx attempts. The working line is
+    uv pip install --python .venv196/bin/python semgrep==1.96.0 'setuptools==70.3.0'
+  and PROVENANCE.md records the failure and the fix verbatim.
+  The lesson generalizes past this lane: an UNPINNED dependency inside a recipe
+  whose entire purpose is reproducible capture is not a reproducible recipe — it
+  is a recipe that happened to work on the day it was written. Pin every version
+  a capture depends on, not just the one being captured.
+
+  ── CROSS-LANE ACCEPTANCE: COMPLETE, ACROSS TWO HOPS ───────────────────────
+  CLM-007 is met, and the path to it corrected this plan's own diagnosis.
+  The FIRST stash re-run showed hop 1 was NECESSARY BUT NOT SUFFICIENT: the
+  declared severity now reached the violation, and the verdict was STILL RED.
+  TASK-006 anticipated exactly this reading — "green unit tests plus a still-red
+  consumer means something upstream of the consumer is still wrong" — and that is
+  what it meant: a SECOND hop, the step verdict ignoring severity when no policy
+  entry exists, filed as ISSUE-105 and delivered by PLAN-ISSUE-105 (commit
+  d7d777c, issue now closed).
+  With both hops landed, the final PLAN-ISSUE-101 TASK-013 re-run on 2026-07-29
+  is GREEN: exit 0, EXACTLY ONE non-blocking warning, and the error control still
+  blocks — so the exemption did not widen into a hole. The measured green→red
+  consumer flip that made this a defect is reversed, and PLAN-ISSUE-101's
+  TASK-013/014/015 and its held v0.1.0 tag are unblocked.
+  Worth keeping visible: a lane can be individually correct and still not deliver
+  the outcome it was scoped to deliver. The cross-lane acceptance signal is what
+  caught that here, and unit-test green would not have.
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-104. SMALL, SURGICAL LANE: six tasks, two production files
   (pkg/check/parsers.go, and one doc-comment line in pkg/gate/policy.go), their
   tests, and a new captured-fixture directory. Nothing else is in scope.

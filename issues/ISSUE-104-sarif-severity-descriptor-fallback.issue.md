@@ -6,16 +6,53 @@ issue:
   id: ISSUE-104
   title: "Sarif Severity Descriptor Fallback"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-07-29"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: safe
+
+delivered_by: PLAN-ISSUE-104
 ---
 
 # Sarif Severity Descriptor Fallback
+
+## Resolution
+
+Delivered by PLAN-ISSUE-104 (status: completed), commit `a42b065`. `parseSarif` now resolves each
+finding's severity input in order: `results[].level` if present (the golangci shape, locked as a
+non-regression against the committed real `golangci-v2.sarif` fixture), else
+`tool.driver.rules[].defaultConfiguration.level` joined to the result per-run by `ruleId` (the real
+semgrep shape), else absent — which still falls through to the unchanged fail-closed `"error"`
+default. Result-level `level` keeps precedence over the descriptor fallback so a hypothetical
+future semgrep emission that does put `level` on the result continues to work unchanged.
+
+**Fixtures re-captured from real output, not hand-built.** `pack_severity_contract_test.go`'s SARIF
+inputs were re-fixtured onto CAPTURED semgrep output at both 1.156.0 and 1.96.0 (the version
+`pkg/pack/engine/allowlist.go` actually pins), closing the open verification item from this issue's
+Solution section and proving the fix is not a version-specific artifact — both captures produce the
+same descriptor-fallback behavior. Hand-built SARIF shapes were kept only where they earn their
+place as parser-unit-level shape tests distinct from the pack-author-contract test, per the fix
+shape's own carve-out.
+
+**Red-proof twice-verified.** Both descriptor tests (`DescriptorLevelSuppliesSeverity...`,
+`DescriptorJoinIsPerRunAndByRuleID`) were independently confirmed to fail at HEAD before the fix and
+pass after, by the implementer's worktree flip and again by the orchestrator's own
+control-vs-treatment run — not asserted from a single measurement.
+
+**Cross-lane acceptance met 2026-07-29.** This fix alone was necessary-but-insufficient: the stash
+consumer's gate reached the correct severity value but still blocked until ISSUE-105 (step verdicts
+honoring severity without a policy entry) landed as well. The TASK-013 re-run against the stash
+consumer, with both hops in place, confirms the full chain: exit 0, exactly one non-blocking warning
+reported, and the error-direction control still blocks correctly.
+
+**Restores the founder-ratified pack-severity contract in production** — the defect that flipped an
+adopting consumer's green gate red purely from a pack's own `severity: warning` advisory rule
+(measured on the stash, PLAN-ISSUE-101 TASK-013), for the layer this issue owns (the SARIF parse).
+See ISSUE-105 for the companion defect at the step-verdict layer, hop 2 of the same chain.
 
 ## Problem
 
