@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-105
 spec_id: ISSUE-105
 created: "2026-07-29"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
@@ -41,9 +41,26 @@ notes: |
     pkg/gate/step_delegate.go:57-60   artifact_validation
     pkg/gate/step_delegate.go:105-107 code_check
     pkg/gate/step_contract.go:62-65   contract_signature
+      ⚠ AS BUILT (d7d777c): RECLASSIFIED CLASS 3. THIS LISTING WAS THE PLAN'S
+      DEFECT, and it is left standing rather than quietly rewritten so the
+      correction is legible. `ContractEngineResult` (pkg/gate/contract_verdict.go
+      :33-38) carries Entry / Matched / Scanned / Locations and NO severity field
+      at all, and `VerifyContractVerdict` hardcodes `Severity: "error"` on every
+      violation it raises (:77, :85, :101). No input to this step can therefore
+      produce the warning-blocks-the-gate flip the plan predicted here — the site
+      was structurally warning-free all along, exactly like the three sites the
+      plan did classify as class 3. THE EMPIRICAL TELL, recorded at stage 2 of
+      the red-proof below: with the helper added but no call sites converted, the
+      delegate tests went RED while the contract test PASSED — a class-1 site
+      cannot pass that stage, because a genuine severity-blind verdict needs its
+      call site converted to change. The conversion still SHIPPED: it is
+      behavior-preserving single-authority maintenance (one place decides "does
+      this block"), not a defect fix, and it forecloses the site the moment a
+      severity ever reaches that slice. The severity carrier's absence is the
+      root cause and is now ISSUE-108.
   Each counts a slice whose entries carry a severity resolved upstream from a
-  pack or a delegate, so a raw count is DISCARDING a declared value. These four
-  are ISSUE-105's inventory and this lane converts exactly these four.
+  pack or a delegate, so a raw count is DISCARDING a declared value — TRUE AS
+  BUILT for the first three; see the correction above for the fourth.
 
   CLASS 2 — ALREADY SEVERITY-AWARE. UNTOUCHED, NOT EVEN READ FOR EDIT.
     pkg/gate/step_coverage.go:214-219, pkg/gate/status_drift.go:96-104,
@@ -336,6 +353,61 @@ notes: |
            ./bin/backstop gate
            ./bin/backstop artifact validate --plan PLAN-ISSUE-105
 
+  ── AS BUILT (status: completed, 2026-07-29) ─────────────────────────────
+  Delivered across two commits: 217348c (the A/B fixture plus the e2e that
+  RED-MEASURED the defect before any production edit) and d7d777c (the fix).
+  Production diff exactly the four planned files — cmd/backstop/gate.go,
+  pkg/gate/policy.go, pkg/gate/step_contract.go, pkg/gate/step_delegate.go — and
+  three test files. No file outside plan scope was touched.
+
+  1. WHAT SHIPPED. `StepVerdict` lives at pkg/gate/policy.go:125, over
+     `blockingViolations`, at 100% statement coverage, called from the four sites.
+     ApplyPolicy's logic is unchanged; only its doc comment moved.
+
+  2. THE CLASS-3 RECLASSIFICATION OF step_contract.go — the plan's one wrong
+     call, corrected on implementer evidence and recorded at the CLASS 1 listing
+     above rather than papered over. TASK-002's mandated test NAME was delivered
+     (names are contracts, and renaming one to fit a discovery would erase the
+     discovery), asserting the conversion's TRUE invariant — `result.Status ==
+     StepVerdict(result.Violations)` — plus a PREMISE GUARD that self-reports if a
+     non-error severity ever reaches that slice. That guard is the durable half:
+     the day ISSUE-108 gives ContractEngineResult a severity carrier, this test
+     announces that its premise expired instead of silently passing. Its
+     pre-existing 0/13 coverage hole is CLOSED AT 100% (measured via
+     `go tool cover -func`), not waived and not baselined.
+
+  3. THE RED-PROOF WAS STAGED, NOT ASSERTED. A three-stage worktree flip:
+     tests-only (compile red — StepVerdict does not exist), helper-only (the
+     BEHAVIORAL red, failing with the defect's own message at the unconverted
+     call sites), and green only once the call sites were converted. Stage 2 is
+     what makes the proof falsifiable per site, and it is what produced the
+     contract-site reclassification. Inherited worktree failures were proven
+     IDENTICAL-SETS against pristine HEAD (cause: a packless worktree), so no
+     pre-existing red was absorbed into this lane's ledger or mistaken for it.
+
+  4. BLAST RADIUS, MEASURED: ZERO flips in backstop-core — before/after per-step
+     verdicts identical, exactly as predicted for both of the reasons in the
+     BLAST-RADIUS section. The fixture consumer supplied the sole intended flip
+     (pack_engines fail -> warning, gate exit 1 -> 0, the finding still
+     reported). Nothing had to be explained away.
+
+  5. TASK-006'S FILINGS, EXECUTED BY THE ORCHESTRATOR:
+       ISSUE-106  the substantiveness join discards a pack-declared severity
+                  (notes' SIBLING 1).
+       ISSUE-107  a warning-only coverage step reads as pass — ISSUE-105 inverted,
+                  loud becoming silent (notes' SIBLING 2).
+       ISSUE-108  the contract carrier drops severity — the root of the class-3
+                  reclassification above, and coupled to the premise guard in
+                  TestStepContractSignature_DeclaredWarningDoesNotFailWithoutPolicy,
+                  which is the test that will notice when it is fixed.
+
+  6. WHAT THIS CLOSURE DOES NOT COVER. The cross-lane acceptance re-run —
+     PLAN-ISSUE-101 TASK-013 against stash — is PENDING and is explicitly NOT
+     part of this plan's closure. This lane closed on its own gate. If that
+     re-run does not come back green with exactly one non-blocking warning, the
+     two-hop diagnosis (ISSUE-104 then ISSUE-105) was incomplete, and this
+     closure is not the last word on it.
+
 phases:
   - id: phase-1
     name: "Phase 1: The policy-absent fixture consumer (the A/B probe, as a tree)"
@@ -502,6 +574,15 @@ phases:
             pkg/gate/contract_verdict.go and its tests first; do not invent a
             second way to construct one. VERIFY WITH `go tool cover -func` that
             StepContractSignatureScopedFunc is >= 90% before calling this done.
+            ⚠ AS BUILT: the "warning -> warning" half of the first test WAS NOT
+            BUILDABLE — ContractEngineResult has no severity field and
+            VerifyContractVerdict hardcodes error, so no input reaches it (the
+            class-3 reclassification in the notes). The mandated NAME was kept
+            and now asserts the conversion's real invariant, `result.Status ==
+            StepVerdict(result.Violations)`, plus a premise guard that fails
+            loudly if a non-error severity ever appears in that slice — so the
+            test expires audibly when ISSUE-108 lands instead of passing on a
+            premise that quietly stopped being true. Coverage came out at 100%.
 
           TestClass3Sites_ViolationsAreErrorSeverityByConstruction (CLM-007)
             — the regression lock for the three sites this lane deliberately does
