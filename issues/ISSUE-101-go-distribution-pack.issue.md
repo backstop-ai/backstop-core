@@ -6,16 +6,63 @@ issue:
   id: ISSUE-101
   title: "Go Distribution Pack — Productize the Release Trinity"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-07-29"
 
 complexity:
   scope: cross-cutting
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-101
 ---
 
 # Go Distribution Pack — Productize the Release Trinity
+
+## Resolution
+
+Delivered by PLAN-ISSUE-101 (status: completed). `backstop-ai/go-distribution` v0.1.0 is
+**published** — public repo, commit `921bb14`, tag `v0.1.0`, the pack's own tag-integrity
+workflow green on both pushes.
+
+**Both capability shapes landed.** Recipes (goreleaser config, tag-gated release workflow,
+tag-integrity workflow, the `resolveVersion` starter) apply verbatim as foreign templates via
+pass-through params, exactly as SPEC-054's recipe machinery promises. Rules: nine falsified
+checks — six blocking broken-promises, three warning un-adopted-capability — proven by a
+51-assertion control-vs-treatment harness, not asserted from a single pass/fail read.
+
+**Proven twice: on the reference implementation and on the first real consumer.** Against
+backstop-core itself (the reference implementation the recipes were extracted from): zero
+findings on the shipped trinity, single-defect mutations independently confirmed red. Against
+`stash` (the first external consumer): recipe applied, 15/15 harness assertions, gate green with
+exactly one loud, correctly non-blocking warning. Remote consumability is proven with hash
+equality — the pack's content hash matches identically between local and remote install in both
+consumers (`d5835e18...`).
+
+**The headline finding: the first consumer proof caught two latent core defects invisible to
+eleven weeks of dogfooding.** Applying the pack to `stash` flipped its previously-green gate red
+purely from the pack's own `severity: warning` advisory rule reaching the gate as blocking —
+exposing ISSUE-104 (SARIF severity descriptor fallback: `parseSarif` never read the
+`defaultConfiguration.level` real semgrep actually uses) and ISSUE-105 (step verdicts computing
+PASS/FAIL by raw violation count, ignoring `Severity`, for any consumer without a policy-table
+entry). Both were fixed and closed independently, then cross-lane accepted by this lane's own
+TASK-013 re-run against `stash`: exit 0, exactly one non-blocking warning, error-direction
+control still blocks. A third defect — a rule false-positive — was caught and fixed pre-tag,
+before it ever reached a published version.
+
+**Sequencing note.** backstop-core v0.1.1 was released FIRST, specifically so the shipped
+binaries already carried the ISSUE-104/105 severity fixes the pack's warning tier depends on —
+publishing the pack ahead of that release would have shipped a warning-tier contract the running
+binary couldn't yet honor.
+
+**Residuals named, not swept.** ISSUE-109/110/111 filed for the gaps surfaced during this lane.
+The auto-version direction (whether the pack should resolve/bump versions rather than take one as
+a recipe param) lives as evidence feeding BUNDLE-031's open questions, not as an unfiled gap.
+`stash`'s own applied pipeline sits uncommitted in its tree by founder ruling — publication
+coordinates for `stash` itself (its own org/repo, and whether it shares
+`backstop-ai/homebrew-tap`) remain a founder decision, exactly as this issue's original "Open
+question" section anticipated; the pack does not encode an answer either way.
 
 ## Problem
 
